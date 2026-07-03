@@ -1,0 +1,37 @@
+{
+  "info": {
+    "name": "HomeLand PMS V9 Local",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Health & Seed",
+      "item": [
+        {
+          "name": "Check Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{api_url}}/health", "host": ["{{api_url}}"], "path": ["health"] }
+          }
+        },
+        {
+          "name": "Check Seed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{api_url}}/health/seed", "host": ["{{api_url}}"], "path": ["health", "seed"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Auth",
+      "item": []
+    },
+    {
+      "name": "2. Buildings & Rooms",
+      "item": []
+    }
+  ]
+}

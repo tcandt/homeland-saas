@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: homeland_postgres
+    environment:
+      POSTGRES_USER: homeland
+      POSTGRES_PASSWORD: homeland123
+      POSTGRES_DB: homeland
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homeland -d homeland"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: homeland_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: homeland_api
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://homeland:homeland123@postgres:5432/homeland?schema=public
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=homeland_super_secret_key_change_in_production
+      - PORT=3001
+      - NODE_ENV=development
+      # Observability — points to Tempo when monitoring stack is running
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
+      - OTEL_SERVICE_NAME=homeland-api
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./packages/database/prisma:/app/packages/database/prisma
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

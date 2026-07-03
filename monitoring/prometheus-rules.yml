@@ -1,0 +1,176 @@
+groups:
+  # ============================================================
+  # Group 1: API Availability
+  # ============================================================
+  - name: homeland.api.availability
+    interval: 30s
+    rules:
+      - alert: APIDown
+        expr: up{job="homeland-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "HomeLand API is DOWN"
+          description: "The homeland-api scrape target has been unreachable for > 1 minute."
+          runbook: "https://github.com/org/homeland/blob/main/RUNBOOK.md#api-down"
+
+  # ============================================================
+  # Group 2: HTTP Error Rate
+  # ============================================================
+  - name: homeland.http.errors
+    interval: 30s
+    rules:
+      - alert: HighErrorRate5xx
+        expr: |
+          (
+            sum(rate(http_errors_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "HTTP 5xx error rate > 5%"
+          description: "5xx error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: HighErrorRate4xx
+        expr: |
+          (
+            sum(rate(http_errors_total{status=~"4.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "HTTP 4xx error rate > 10%"
+          description: "4xx error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+  # ============================================================
+  # Group 3: Latency SLO
+  # ============================================================
+  - name: homeland.latency.slo
+    interval: 30s
+    rules:
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[10m])) by (le)
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "P95 API latency > 2s"
+          description: "P95 request duration is {{ $value | humanizeDuration }} (threshold: 2s)."
+
+      - alert: HighP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[10m])) by (le)
+          ) > 5
+        for: 10m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "P99 API latency > 5s"
+          description: "P99 request duration is {{ $value | humanizeDuration }} (threshold: 5s)."
+
+  # ============================================================
+  # Group 4: Business & Application Metrics
+  # ============================================================
+  - name: homeland.business
+    interval: 60s
+    rules:
+      - alert: NotificationQueueBacklog
+        expr: notification_queue_failed_total > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Notification queue failures > 10"
+          description: "{{ $value }} notifications have failed to send in the current window."
+
+      - alert: AIHighErrorRate
+        expr: |
+          (
+            sum(rate(http_errors_total{route=~".*/ai/.*"}[10m]))
+            /
+            (sum(rate(http_requests_total{route=~".*/ai/.*"}[10m])) + 0.001)
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "AI endpoint error rate > 10%"
+          description: "AI route error rate is {{ $value | humanizePercentage }} over the last 10 minutes."
+
+      - alert: AutomationHighFailureRate
+        expr: |
+          (
+            sum(rate(http_errors_total{route=~".*/automation/.*"}[10m]))
+            /
+            (sum(rate(http_requests_total{route=~".*/automation/.*"}[10m])) + 0.001)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Automation endpoint failure rate > 5%"
+          description: "Automation route error rate is {{ $value | humanizePercentage }} over the last 10 minutes."
+
+  # ============================================================
+  # Group 5: SLO Burn Rate (Multi-window)
+  # SLO target: 99.5% availability (error budget: 0.5%)
+  # ============================================================
+  - name: homeland.slo.burn
+    interval: 60s
+    rules:
+      # Fast burn: 1h window, 14x burn rate → alert immediately
+      - alert: SLOErrorBudgetFastBurn
+        expr: |
+          (
+            sum(rate(http_errors_total[1h]))
+            /
+            (sum(rate(http_requests_total[1h])) + 0.001)
+          ) > (14 * 0.005)
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          slo: availability
+        annotations:
+          summary: "SLO Error Budget burning too fast (fast burn)"
+          description: |
+            Current error rate {{ $value | humanizePercentage }} exceeds 14x the SLO burn threshold.
+            At this rate, the monthly error budget will be exhausted in < 1 hour.
+
+      # Slow burn: 6h window, 6x burn rate → alert before budget exhausted
+      - alert: SLOErrorBudgetSlowBurn
+        expr: |
+          (
+            sum(rate(http_errors_total[6h]))
+            /
+            (sum(rate(http_requests_total[6h])) + 0.001)
+          ) > (6 * 0.005)
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+          slo: availability
+        annotations:
+          summary: "SLO Error Budget burning (slow burn)"
+          description: |
+            Current 6h error rate {{ $value | humanizePercentage }} exceeds 6x the SLO burn threshold.
+            Error budget may be exhausted within ~6 hours if this rate continues.

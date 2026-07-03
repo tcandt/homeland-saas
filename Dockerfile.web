@@ -1,0 +1,81 @@
+FROM node:20-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Install dependencies based on the preferred package manager
+COPY package.json package-lock.json turbo.json ./
+COPY apps/web/package.json ./apps/web/
+COPY packages/database/package.json ./packages/database/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/tsconfig/package.json ./packages/tsconfig/
+COPY packages/tsconfig/base.json ./packages/tsconfig/
+RUN npm install
+
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=deps /app/packages/database/node_modules ./packages/database/node_modules
+COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+
+COPY . .
+
+# Build arguments for versioning
+ARG COMMIT_SHA
+ARG VERSION
+ARG BUILD_ID
+ARG BUILD_TIME
+
+# Set environment variables for runtime
+ENV NEXT_PUBLIC_COMMIT_SHA=${COMMIT_SHA}
+ENV NEXT_PUBLIC_APP_VERSION=${VERSION}
+ENV NEXT_PUBLIC_BUILD_ID=${BUILD_ID}
+ENV NEXT_PUBLIC_BUILD_TIME=${BUILD_TIME}
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Build the project
+RUN npm run build -w apps/web
+
+# Production image, copy all the files and run next
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV COMMIT_SHA=${COMMIT_SHA}
+ENV APP_VERSION=${VERSION}
+ENV BUILD_ID=${BUILD_ID}
+ENV BUILD_TIME=${BUILD_TIME}
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Set the correct permission for prerender cache
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+
+# Automatically leverage output traces to reduce image size
+# https://nextjs.org/docs/advanced-features/output-file-tracing
+# We assume standalone output is configured in next.config.js, if not, we copy the build output.
+COPY --from=builder /app/apps/web/public ./apps/web/public
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next ./apps/web/.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+WORKDIR /app/apps/web
+
+CMD ["npm", "run", "start"]

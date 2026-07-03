@@ -1,0 +1,129 @@
+
+// ==========================================
+// Phase 3.9 - AI Operations Center
+// ==========================================
+
+model AiPromptTemplate {
+  id          String   @id @default(cuid())
+  tenantId    String?  // nullable for system-wide prompts
+  code        String   @unique
+  name        String
+  description String?
+  systemPrompt String  @db.Text
+  userPrompt   String  @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, isActive])
+}
+
+model AiModelConfig {
+  id              String   @id @default(cuid())
+  provider        String   // OPENAI, GEMINI, LOCAL
+  modelName       String   // gpt-4o-mini, text-embedding-3-small
+  isDefault       Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  costPer1kPrompt Decimal  @db.Decimal(10, 6) @default(0)
+  costPer1kCompletion Decimal @db.Decimal(10, 6) @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([provider, modelName])
+}
+
+model AiTokenUsage {
+  id               String   @id @default(cuid())
+  tenantId         String
+  userId           String?
+  provider         String
+  model            String
+  module           String?
+  conversationId   String?
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
+  estimatedCost    Decimal  @db.Decimal(14, 6) @default(0)
+  createdAt        DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, userId])
+  @@index([provider, model])
+}
+
+model AiConversation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  title     String?
+  module    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages AiMessage[]
+
+  @@index([tenantId, userId])
+}
+
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  role           String         // system, user, assistant, tool
+  content        String         @db.Text
+  toolCalls      Json?          // Array of tool calls made by assistant
+  toolCallId     String?        // ID of the tool call if role is 'tool'
+  createdAt      DateTime       @default(now())
+
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  aiToolCalls    AiToolCall[]
+
+  @@index([conversationId, createdAt])
+}
+
+model AiToolCall {
+  id           String    @id @default(cuid())
+  messageId    String
+  name         String
+  arguments    Json
+  result       Json?
+  status       String    @default("PENDING") // PENDING, SUCCESS, ERROR
+  error        String?
+  durationMs   Int?
+  createdAt    DateTime  @default(now())
+
+  message      AiMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model AiKnowledgeDocument {
+  id           String   @id @default(cuid())
+  tenantId     String
+  sourceType   String   // Document, Contract, Invoice, Building, Room
+  sourceId     String
+  title        String
+  metadata     Json?
+  status       String   @default("INDEXING") // INDEXING, COMPLETED, FAILED
+  error        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  chunks       AiKnowledgeChunk[]
+
+  @@unique([tenantId, sourceType, sourceId])
+}
+
+model AiKnowledgeChunk {
+  id             String              @id @default(cuid())
+  tenantId       String
+  documentId     String
+  content        String              @db.Text
+  tokenCount     Int
+  embedding      Unsupported("vector(1536)")?
+  createdAt      DateTime            @default(now())
+
+  document       AiKnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([documentId])
+}

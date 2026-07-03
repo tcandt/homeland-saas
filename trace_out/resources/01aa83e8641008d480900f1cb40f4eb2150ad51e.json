@@ -1,0 +1,1 @@
+{"success":true,"data":{"message":{"role":"assistant","content":"{\"actionRequired\":\"CONFIRM_DRAFT\",\"data\":{\"title\":\"Xoa phong\",\"content\":\"Delete room confirmation\",\"description\":\"Safety draft\"},\"toolOutput\":\"Drafting deletion for room...\"}"}}}

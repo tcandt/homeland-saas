@@ -1,0 +1,1 @@
+{"success":false,"timestamp":"2026-06-29T10:21:57.944Z","error":{"code":"AUTH_INVALID_CREDENTIALS","message":"Authentication token is missing or invalid","details":null,"path":"/api/v1/finance/ledger"}}

@@ -1,0 +1,45 @@
+@api_url = http://localhost:3001/api/v1
+@accessToken = {{login.response.body.data.accessToken}}
+
+### 0. Login to get token
+# @name login
+POST {{api_url}}/auth/login
+Content-Type: application/json
+
+{
+  "emailOrPhone": "admin@homeland.local",
+  "password": "Homeland@123456"
+}
+
+### 1. List Buildings
+GET {{api_url}}/buildings?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 2. Get Building Detail
+GET {{api_url}}/buildings/1
+Authorization: Bearer {{accessToken}}
+
+### 3. Create Building
+POST {{api_url}}/buildings
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Toa Nha VP",
+  "code": "VP01",
+  "address": "123 Nguyen Trai",
+  "status": "ACTIVE"
+}
+
+### 4. Update Building
+PATCH {{api_url}}/buildings/1
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Toa Nha VP Updated"
+}
+
+### 5. Soft Delete Building
+DELETE {{api_url}}/buildings/1
+Authorization: Bearer {{accessToken}}

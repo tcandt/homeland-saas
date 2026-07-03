@@ -1,0 +1,40 @@
+@api_url = http://localhost:3001/api/v1
+@accessToken = {{login.response.body.data.accessToken}}
+@refreshToken = {{login.response.body.data.refreshToken}}
+
+### 1. Login (Admin)
+# @name login
+POST {{api_url}}/auth/login
+Content-Type: application/json
+
+{
+  "emailOrPhone": "admin@homeland.local",
+  "password": "Homeland@123456"
+}
+
+### 2. Get Profile
+GET {{api_url}}/auth/me
+Authorization: Bearer {{accessToken}}
+
+### 3. Refresh Token
+POST {{api_url}}/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+### 4. Change Password
+POST {{api_url}}/auth/change-password
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "oldPassword": "Homeland@123456",
+  "newPassword": "Homeland@New123",
+  "confirmPassword": "Homeland@New123"
+}
+
+### 5. Logout
+POST {{api_url}}/auth/logout
+Authorization: Bearer {{accessToken}}

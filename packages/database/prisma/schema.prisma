@@ -1,0 +1,1128 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl"]
+  previewFeatures = ["tracing"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleCode {
+  ADMIN
+  MANAGER
+  SALES
+  FINANCE
+}
+
+enum RoomStatus {
+  AVAILABLE
+  RESERVED
+  OCCUPIED
+  MAINTENANCE
+  CLEANING
+  INACTIVE
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRING
+  ENDED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+  CREDITED
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  REFUNDED
+  OVERPAID
+}
+
+enum DepositType {
+  BOOKING
+  SECURITY
+  RESERVATION
+}
+
+enum DepositStatus {
+  DRAFT
+  PENDING
+  PAID
+  CONVERTED_TO_CONTRACT
+  CANCELLED
+  REFUNDED
+}
+
+enum NotificationStatus {
+  CREATED
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  RETRYING
+  DEAD_LETTER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  WON
+  LOST
+}
+
+model TenantOrg {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  buildings Building[]
+}
+
+model User {
+  id           String    @id @default(cuid())
+  tenantId     String
+  email        String
+  fullName     String
+  passwordHash String
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  tenant TenantOrg  @relation(fields: [tenantId], references: [id])
+  roles  UserRole[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, isActive])
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  code        RoleCode         @unique
+  name        String
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  description String?
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model Building {
+  id           String    @id @default(cuid())
+  tenantId     String
+  code         String
+  name         String
+  address      String?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  tenant TenantOrg @relation(fields: [tenantId], references: [id])
+  floors Floor[]
+  rooms  Room[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, deletedAt])
+}
+
+model Floor {
+  id           String    @id @default(cuid())
+  tenantId     String
+  buildingId   String
+  level        Int
+  name         String
+  usageNote    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  building Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  rooms    Room[]
+
+  @@unique([tenantId, buildingId, level])
+  @@index([tenantId, buildingId])
+}
+
+model Room {
+  id           String     @id @default(cuid())
+  tenantId     String
+  buildingId   String
+  floorId      String
+  code         String
+  name         String
+  bedCount     Int        @default(1)
+  capacity     Int        @default(1)
+  monthlyPrice Decimal    @db.Decimal(14, 2)
+  status       RoomStatus @default(AVAILABLE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  building  Building   @relation(fields: [buildingId], references: [id])
+  floor     Floor      @relation(fields: [floorId], references: [id])
+  contracts Contract[]
+  deposits  Deposit[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@index([tenantId, buildingId, status])
+  @@index([tenantId, floorId, status])
+  @@index([tenantId, deletedAt])
+}
+
+model Customer {
+  id           String    @id @default(cuid())
+  tenantId     String
+  fullName     String
+  phone        String
+  email        String?
+  identityNo   String?
+  zaloPhone    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  contracts Contract[]
+  deposits  Deposit[]
+  invoices  Invoice[]
+
+  @@index([tenantId, phone])
+  @@index([tenantId, fullName])
+  @@index([tenantId, deletedAt])
+}
+
+model Contract {
+  id           String         @id @default(cuid())
+  tenantId     String
+  roomId       String
+  customerId   String
+  code         String
+  status       ContractStatus @default(DRAFT)
+  startDate    DateTime
+  endDate      DateTime
+  monthlyRent  Decimal        @db.Decimal(14, 2)
+  depositMoney Decimal        @db.Decimal(14, 2)
+  memberCount  Int            @default(1)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  room     Room      @relation(fields: [roomId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  invoices Invoice[]
+  deposits Deposit[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, roomId, status])
+  @@index([tenantId, customerId, status])
+  @@index([tenantId, status, endDate])
+}
+
+model Deposit {
+  id           String        @id @default(cuid())
+  tenantId     String
+  code         String
+  type         DepositType   @default(BOOKING)
+  roomId       String
+  customerId   String
+  contractId   String?
+  amount       Decimal       @db.Decimal(14, 2)
+  status       DepositStatus @default(DRAFT)
+  expiredAt    DateTime?
+  note         String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  room     Room      @relation(fields: [roomId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  contract Contract? @relation(fields: [contractId], references: [id])
+
+  @@unique([tenantId, code])
+  @@index([tenantId, roomId, status])
+  @@index([tenantId, customerId, status])
+  @@index([tenantId, status, expiredAt])
+}
+
+model Invoice {
+  id           String        @id @default(cuid())
+  tenantId     String
+  contractId   String?
+  customerId   String
+  code         String
+  status       InvoiceStatus @default(DRAFT)
+  dueDate      DateTime
+  subtotal     Decimal       @db.Decimal(14, 2)
+  discount     Decimal       @default(0) @db.Decimal(14, 2)
+  total        Decimal       @db.Decimal(14, 2)
+  paidAmount   Decimal       @default(0) @db.Decimal(14, 2)
+  creditAmount Decimal       @default(0) @db.Decimal(14, 2)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  contract    Contract?    @relation(fields: [contractId], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  payments    Payment[]
+  creditNotes CreditNote[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, customerId, dueDate, status])
+  @@index([tenantId, status, dueDate])
+  @@index([tenantId, contractId, status])
+  @@index([tenantId, deletedAt])
+}
+
+model Payment {
+  id           String        @id @default(cuid())
+  tenantId     String
+  invoiceId    String
+  amount       Decimal       @db.Decimal(14, 2)
+  provider     String
+  providerRef  String?
+  status       PaymentStatus @default(PENDING)
+  paidAt       DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([tenantId, invoiceId, status])
+  @@index([tenantId, provider, providerRef])
+  @@index([tenantId, status, paidAt])
+}
+
+model CreditNote {
+  id               String   @id @default(cuid())
+  tenantId         String
+  customerId       String
+  sourceInvoiceId  String?
+  appliedInvoiceId String?
+  amount           Decimal  @db.Decimal(14, 2)
+  remainingAmount  Decimal  @db.Decimal(14, 2)
+  reason           String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  sourceInvoice Invoice? @relation(fields: [sourceInvoiceId], references: [id])
+
+  @@index([tenantId, customerId, remainingAmount])
+  @@index([tenantId, sourceInvoiceId])
+}
+
+model Task {
+  id           String       @id @default(cuid())
+  tenantId     String
+  title        String
+  description  String?
+  status       TaskStatus   @default(TODO)
+  priority     TaskPriority @default(MEDIUM)
+  assigneeId   String?
+  dueDate      DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  @@index([tenantId, status])
+  @@index([tenantId, assigneeId])
+  @@index([tenantId, assigneeId, status])
+}
+
+model SalesLead {
+  id           String     @id @default(cuid())
+  tenantId     String
+  name         String
+  phone        String
+  email        String?
+  status       LeadStatus @default(NEW)
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  @@index([tenantId, status])
+  @@index([tenantId, phone])
+}
+
+model NotificationJob {
+  id          String             @id @default(cuid())
+  tenantId    String
+  provider    String
+  channel     String
+  recipient   String
+  templateKey String
+  payload     Json
+  status      NotificationStatus @default(QUEUED)
+  retryCount  Int                @default(0)
+  maxRetry    Int                @default(5)
+  lastError   String?
+  nextRetryAt DateTime?
+  sentAt      DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([tenantId, status, nextRetryAt])
+  @@index([tenantId, provider, status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  requestId String?
+  tenantId  String?
+  userId    String?
+  module    String?
+  entity    String
+  entityId  String?
+  action    String
+  ip        String?
+  userAgent String?
+  before    Json?
+  after     Json?
+  duration  Int? // Request duration in ms
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, entity, entityId])
+  @@index([tenantId, userId, createdAt])
+  @@index([action, createdAt])
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum EntryType {
+  DEBIT
+  CREDIT
+}
+
+enum JournalSourceType {
+  PAYMENT
+  DEPOSIT
+  REFUND
+  EXPENSE
+  INVOICE
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum ExpenseStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+enum ReceiptStatus {
+  DRAFT
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+model ChartOfAccount {
+  id        String      @id @default(cuid())
+  tenantId  String
+  code      String
+  name      String
+  type      AccountType
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  journalLines JournalLine[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, type])
+}
+
+model CashAccount {
+  id        String   @id @default(cuid())
+  tenantId  String
+  code      String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
+}
+
+model BankAccount {
+  id            String   @id @default(cuid())
+  tenantId      String
+  bankName      String
+  accountNumber String
+  accountName   String
+  branch        String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, accountNumber])
+}
+
+model CostCenter {
+  id        String   @id @default(cuid())
+  tenantId  String
+  code      String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  journalLines JournalLine[]
+  expenses     Expense[]
+
+  @@unique([tenantId, code])
+}
+
+model Expense {
+  id           String        @id @default(cuid())
+  tenantId     String
+  code         String
+  costCenterId String
+  amount       Decimal       @db.Decimal(14, 2)
+  status       ExpenseStatus @default(DRAFT)
+  description  String?
+  date         DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+
+  costCenter CostCenter @relation(fields: [costCenterId], references: [id])
+
+  @@unique([tenantId, code])
+  @@index([tenantId, costCenterId, status])
+}
+
+model Receipt {
+  id          String        @id @default(cuid())
+  tenantId    String
+  code        String
+  amount      Decimal       @db.Decimal(14, 2)
+  status      ReceiptStatus @default(DRAFT)
+  description String?
+  date        DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([tenantId, code])
+}
+
+model JournalEntry {
+  id          String            @id @default(cuid())
+  tenantId    String
+  code        String
+  entryDate   DateTime          @default(now())
+  sourceType  JournalSourceType
+  sourceId    String
+  description String?
+  status      String            @default("DRAFT") // DRAFT, POSTED, REVERSED
+  createdBy   String?
+  postedAt    DateTime?
+  reversedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  lines JournalLine[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, sourceType, sourceId])
+  @@index([tenantId, entryDate])
+}
+
+model JournalLine {
+  id             String    @id @default(cuid())
+  tenantId       String
+  journalEntryId String
+  accountId      String
+  costCenterId   String?
+  type           EntryType
+  amount         Decimal   @db.Decimal(14, 2)
+  description    String?
+  createdAt      DateTime  @default(now())
+
+  journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      ChartOfAccount @relation(fields: [accountId], references: [id])
+  costCenter   CostCenter?    @relation(fields: [costCenterId], references: [id])
+
+  @@index([tenantId, accountId, type])
+  @@index([tenantId, costCenterId])
+  @@index([journalEntryId])
+}
+
+model Reconciliation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  code      String
+  startDate DateTime
+  endDate   DateTime
+  status    String   @default("DRAFT") // DRAFT, COMPLETED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
+}
+
+enum WorkflowStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  RETRYING
+  CANCELLED
+}
+
+enum NotificationChannel {
+  IN_APP
+  CONSOLE
+  EMAIL
+  TELEGRAM
+  ZALO
+  SMS
+  PUSH
+}
+
+model WorkflowExecution {
+  id            String         @id @default(cuid())
+  tenantId      String
+  workflowName  String
+  eventName     String?
+  correlationId String?
+  status        WorkflowStatus @default(PENDING)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  durationMs    Int?
+  triggeredBy   String?
+  actorId       String?
+  input         Json?
+  output        Json?
+  error         Json?
+  retryCount    Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  steps WorkflowStepExecution[]
+
+  @@index([tenantId, workflowName, status])
+  @@index([correlationId])
+}
+
+model WorkflowStepExecution {
+  id                  String         @id @default(cuid())
+  workflowExecutionId String
+  stepName            String
+  stepType            String
+  status              WorkflowStatus @default(PENDING)
+  startedAt           DateTime?
+  completedAt         DateTime?
+  durationMs          Int?
+  input               Json?
+  output              Json?
+  error               Json?
+  order               Int
+
+  workflowExecution WorkflowExecution @relation(fields: [workflowExecutionId], references: [id], onDelete: Cascade)
+
+  @@index([workflowExecutionId, status])
+}
+
+model RuleExecution {
+  id            String         @id @default(cuid())
+  tenantId      String
+  ruleName      String
+  eventName     String?
+  correlationId String?
+  status        WorkflowStatus @default(PENDING)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  durationMs    Int?
+  triggeredBy   String?
+  actorId       String?
+  input         Json?
+  output        Json?
+  error         Json?
+  retryCount    Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([tenantId, ruleName, status])
+}
+
+
+model Notification {
+  id        String              @id @default(cuid())
+  tenantId  String
+  userId    String?
+  channel   NotificationChannel @default(IN_APP)
+  title     String
+  message   String
+  type      String?
+  status    NotificationStatus  @default(CREATED)
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  deliveries NotificationDelivery[]
+
+  @@index([tenantId, userId, status])
+  @@index([tenantId, channel, status])
+}
+
+model NotificationTemplate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  code      String   // e.g. INVOICE_OVERDUE
+  name      String
+  subject   String?
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
+}
+
+model NotificationPreference {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  type      String   // e.g. INVOICE, CONTRACT
+  channels  String[] // e.g. ['IN_APP', 'EMAIL']
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, userId, type])
+}
+
+model NotificationQueue {
+  id             String   @id @default(cuid())
+  tenantId       String
+  notificationId String
+  channel        NotificationChannel
+  payload        Json
+  status         NotificationStatus @default(QUEUED)
+  retryCount     Int      @default(0)
+  nextRetryAt    DateTime?
+  error          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model NotificationDelivery {
+  id             String   @id @default(cuid())
+  notificationId String
+  channel        NotificationChannel
+  status         NotificationStatus
+  providerId     String?
+  providerResponse Json?
+  error          String?
+  createdAt      DateTime @default(now())
+
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+}
+
+// ==========================================
+// Phase 3.9 - AI Operations Center
+// ==========================================
+
+model AiPromptTemplate {
+  id          String   @id @default(cuid())
+  tenantId    String?  // nullable for system-wide prompts
+  code        String   @unique
+  name        String
+  description String?
+  systemPrompt String  @db.Text
+  userPrompt   String  @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, isActive])
+}
+
+model AiModelConfig {
+  id              String   @id @default(cuid())
+  provider        String   // OPENAI, GEMINI, LOCAL
+  modelName       String   // gpt-4o-mini, text-embedding-3-small
+  isDefault       Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  costPer1kPrompt Decimal  @db.Decimal(10, 6) @default(0)
+  costPer1kCompletion Decimal @db.Decimal(10, 6) @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([provider, modelName])
+}
+
+model AiTokenUsage {
+  id               String   @id @default(cuid())
+  tenantId         String
+  userId           String?
+  provider         String
+  model            String
+  module           String?
+  conversationId   String?
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
+  estimatedCost    Decimal  @db.Decimal(14, 6) @default(0)
+  createdAt        DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, userId])
+  @@index([provider, model])
+}
+
+model AiConversation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  title     String?
+  module    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages AiMessage[]
+
+  @@index([tenantId, userId])
+}
+
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  role           String         // system, user, assistant, tool
+  content        String         @db.Text
+  toolCalls      Json?          // Array of tool calls made by assistant
+  toolCallId     String?        // ID of the tool call if role is 'tool'
+  createdAt      DateTime       @default(now())
+
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  aiToolCalls    AiToolCall[]
+
+  @@index([conversationId, createdAt])
+}
+
+model AiToolCall {
+  id           String    @id @default(cuid())
+  messageId    String
+  name         String
+  arguments    Json
+  result       Json?
+  status       String    @default("PENDING") // PENDING, SUCCESS, ERROR
+  error        String?
+  durationMs   Int?
+  createdAt    DateTime  @default(now())
+
+  message      AiMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model AiKnowledgeDocument {
+  id           String   @id @default(cuid())
+  tenantId     String
+  sourceType   String   // Document, Contract, Invoice, Building, Room
+  sourceId     String
+  title        String
+  metadata     Json?
+  status       String   @default("INDEXING") // INDEXING, COMPLETED, FAILED
+  error        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  chunks       AiKnowledgeChunk[]
+
+  @@unique([tenantId, sourceType, sourceId])
+}
+
+model AiKnowledgeChunk {
+  id             String              @id @default(cuid())
+  tenantId       String
+  documentId     String
+  content        String              @db.Text
+  tokenCount     Int
+  embedding      Unsupported("vector(1536)")?
+  createdAt      DateTime            @default(now())
+
+  document       AiKnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([documentId])
+}
+
+enum DocumentType {
+  CONTRACT
+  INVOICE
+  RECEIPT
+  PAYMENT
+  DEPOSIT
+  INSPECTION
+  HANDOVER
+  MAINTENANCE
+  REPORT
+  OTHER
+}
+
+enum DocumentStatus {
+  DRAFT
+  GENERATED
+  PENDING_APPROVAL
+  APPROVED
+  PENDING_SIGNATURE
+  PARTIALLY_SIGNED
+  SIGNED
+  ARCHIVED
+  CANCELLED
+}
+
+enum SignatureStatus {
+  PENDING
+  SENT
+  VIEWED
+  SIGNED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+
+enum SignatureProviderType {
+  INTERNAL
+  EXTERNAL_VNPT
+  EXTERNAL_DOCUSIGN
+}
+
+model Document {
+  id               String         @id @default(cuid())
+  tenantId         String
+  code             String
+  title            String
+  type             DocumentType
+  status           DocumentStatus @default(DRAFT)
+  folderId         String?
+  currentVersionId String?
+  sourceType       String? // e.g. "CONTRACT", "INVOICE"
+  sourceId         String?
+  tags             String[]
+  createdBy        String?
+  approvedBy       String?
+  signedAt         DateTime?
+  archivedAt       DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  deletedAt        DateTime?
+  deletedBy        String?
+  deleteReason     String?
+
+  versions   DocumentVersion[]
+  shares     DocumentShare[]
+  signatures SignatureRequest[]
+  folder     DocumentFolder?   @relation(fields: [folderId], references: [id])
+
+  @@unique([tenantId, code])
+  @@index([tenantId, type, status])
+  @@index([tenantId, folderId])
+}
+
+model DocumentVersion {
+  id            String   @id @default(cuid())
+  documentId    String
+  versionNumber Int
+  fileName      String
+  filePath      String
+  mimeType      String
+  size          Int
+  checksum      String?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model DocumentFolder {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  parentId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents Document[]
+  parent    DocumentFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id])
+  children  DocumentFolder[] @relation("FolderHierarchy")
+
+  @@index([tenantId, parentId])
+}
+
+model DocumentShare {
+  id              String    @id @default(cuid())
+  documentId      String
+  sharedWithId    String? // UserId or CustomerId
+  sharedWithEmail String?
+  permission      String // VIEW, EDIT, SIGN
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model SignatureRequest {
+  id         String                @id @default(cuid())
+  tenantId   String
+  documentId String
+  provider   SignatureProviderType @default(INTERNAL)
+  status     SignatureStatus       @default(PENDING)
+  title      String?
+  message    String?
+  expiresAt  DateTime?
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  document Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parties  SignatureParty[]
+
+  @@index([tenantId, status])
+  @@index([documentId])
+}
+
+model SignatureParty {
+  id            String          @id @default(cuid())
+  requestId     String
+  name          String
+  email         String
+  role          String // e.g. TENANT, LANDLORD, APPROVER
+  status        SignatureStatus @default(PENDING)
+  signedAt      DateTime?
+  ipAddress     String?
+  userAgent     String?
+  signatureData String? // Base64 or reference
+  declinedReason String?
+
+  request SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  logs    SignatureLog[]
+
+  @@index([requestId])
+}
+
+model SignatureLog {
+  id        String   @id @default(cuid())
+  partyId   String
+  action    String   // SENT, VIEWED, SIGNED, DECLINED
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  party SignatureParty @relation(fields: [partyId], references: [id], onDelete: Cascade)
+
+  @@index([partyId])
+}
+
+model DocumentTemplate {
+  id        String       @id @default(cuid())
+  tenantId  String
+  code      String
+  name      String
+  type      DocumentType
+  content   String       @db.Text // Handlebars HTML
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([tenantId, code])
+}

@@ -1,0 +1,16 @@
+@baseUrl = http://localhost:3001/api/v1
+@authToken = {{login.response.body.accessToken}}
+
+### Login to get token
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "emailOrPhone": "admin@homeland.local",
+  "password": "Homeland@123456"
+}
+
+### Get Dashboard
+GET {{baseUrl}}/dashboard
+Authorization: Bearer {{authToken}}

@@ -1,0 +1,28 @@
+@baseUrl = http://localhost:3001/api/v1
+@authToken = {{login.response.body.accessToken}}
+
+### Login to get token
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "emailOrPhone": "admin@homeland.local",
+  "password": "Homeland@123456"
+}
+
+### Get Ledger
+GET {{baseUrl}}/finance/ledger
+Authorization: Bearer {{authToken}}
+
+### Get Cashflow
+GET {{baseUrl}}/finance/cashflow
+Authorization: Bearer {{authToken}}
+
+### Get Profit/Loss
+GET {{baseUrl}}/finance/profit-loss
+Authorization: Bearer {{authToken}}
+
+### Get Building Finance (LK01.31)
+GET {{baseUrl}}/finance/building/LK01.31
+Authorization: Bearer {{authToken}}

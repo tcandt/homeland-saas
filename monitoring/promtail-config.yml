@@ -1,0 +1,62 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # ── Scrape all Docker container logs ──
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: status
+            values: ['running']
+    relabel_configs:
+      # Use container name as job label
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container
+      # Use image as service label
+      - source_labels: ['__meta_docker_container_image']
+        target_label: image
+      # Use compose service label if available
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: compose_service
+      # Use compose project label if available
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: compose_project
+
+    pipeline_stages:
+      # Try to parse JSON logs (NestJS pino output)
+      - json:
+          expressions:
+            level: level
+            msg: msg
+            correlationId: correlationId
+            userId: userId
+            tenantId: tenantId
+            traceId: traceId
+            spanId: spanId
+            service: service
+      # Promote parsed fields to labels (only low-cardinality)
+      - labels:
+          level:
+          service:
+          compose_service:
+      # Promote traceId as a structured metadata field for trace linking
+      - structured_metadata:
+          traceId:
+          spanId:
+          correlationId:
+      # Set log timestamp from parsed JSON
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+          fallback_formats:
+            - RFC3339

@@ -1,0 +1,7 @@
+{"route":"/","ttfb":4,"lcp":1808,"domContentLoaded":18,"jsErrors":0,"consoleErrors":2}
+{"route":"/buildings","ttfb":3,"lcp":236,"domContentLoaded":14,"jsErrors":0,"consoleErrors":2}
+{"route":"/finance","ttfb":2,"lcp":140,"domContentLoaded":12,"jsErrors":0,"consoleErrors":2}
+{"route":"/documents","ttfb":3,"lcp":92,"domContentLoaded":12,"jsErrors":0,"consoleErrors":0}
+{"route":"/notifications","ttfb":3,"lcp":132,"domContentLoaded":15,"jsErrors":0,"consoleErrors":4}
+{"route":"/automation","ttfb":3,"lcp":164,"domContentLoaded":21,"jsErrors":0,"consoleErrors":10}
+{"route":"/ai","ttfb":3,"lcp":68,"domContentLoaded":21,"jsErrors":0,"consoleErrors":1}

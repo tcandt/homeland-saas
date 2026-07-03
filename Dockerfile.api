@@ -1,0 +1,45 @@
+FROM node:20-alpine
+
+# Install wait-for-it equivalent, bash, and openssl for Prisma
+RUN apk add --no-cache bash netcat-openbsd openssl
+
+WORKDIR /app
+
+# Copy root configurations and workspace definitions
+COPY package.json package-lock.json turbo.json ./
+
+# Copy package configurations
+COPY apps/api/package.json ./apps/api/
+COPY packages/database/package.json ./packages/database/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/tsconfig/package.json ./packages/tsconfig/
+COPY packages/tsconfig/base.json ./packages/tsconfig/
+
+# Install all dependencies across workspaces
+RUN npm install
+
+# Copy source code
+COPY apps/api ./apps/api
+COPY packages ./packages
+
+# Build shared package
+RUN npm run build -w @homeland/shared
+
+# Copy the entrypoint script
+COPY scripts/docker-api-entrypoint.sh ./scripts/docker-api-entrypoint.sh
+RUN chmod +x ./scripts/docker-api-entrypoint.sh
+
+# Build arguments for versioning
+ARG COMMIT_SHA
+ARG VERSION
+ARG BUILD_ID
+ARG BUILD_TIME
+
+# Set environment variables for runtime
+ENV COMMIT_SHA=${COMMIT_SHA}
+ENV APP_VERSION=${VERSION}
+ENV BUILD_ID=${BUILD_ID}
+ENV BUILD_TIME=${BUILD_TIME}
+
+# Run via entrypoint
+ENTRYPOINT ["./scripts/docker-api-entrypoint.sh"]

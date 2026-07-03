@@ -1,0 +1,10 @@
+[
+  {
+    "route": "/ai",
+    "ttfb": 2,
+    "lcp": 75,
+    "domContentLoaded": 25,
+    "jsErrors": 0,
+    "consoleErrors": 1
+  }
+]

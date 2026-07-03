@@ -1,0 +1,27 @@
+{
+  "name": "homeland-saas",
+  "private": true,
+  "packageManager": "npm@11.12.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "db:generate": "prisma generate --schema=packages/database/prisma/schema.prisma",
+    "db:push": "prisma db push --schema=packages/database/prisma/schema.prisma",
+    "db:seed": "prisma db seed --schema=packages/database/prisma/schema.prisma",
+    "db:check-seed": "tsx packages/database/scripts/check-seed.ts",
+    "api:dev": "npm run dev --workspace=api",
+    "phase2:verify": "npm run db:generate && npm run db:push && npm run db:seed && npm run db:check-seed"
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "tsx": "^4.7.1"
+  },
+  "prisma": {
+    "seed": "tsx packages/database/prisma/seed.ts"
+  }
+}

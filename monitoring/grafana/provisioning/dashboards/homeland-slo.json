@@ -1,0 +1,216 @@
+{
+  "annotations": { "list": [] },
+  "description": "HomeLand PMS — SLO Availability Dashboard (99.5% target)",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Current Availability (1h)",
+      "description": "SLO target: 99.5%",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "1 - (sum(rate(http_errors_total[1h])) / (sum(rate(http_requests_total[1h])) + 0.001))",
+          "legendFormat": "Availability"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              { "value": null, "color": "red" },
+              { "value": 0.99, "color": "yellow" },
+              { "value": 0.995, "color": "green" }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "stat",
+      "title": "Error Budget Remaining (30d)",
+      "description": "0.5% = 3h 36m per month",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "1 - (sum(rate(http_errors_total[30d])) / (sum(rate(http_requests_total[30d])) + 0.001)) / 0.005",
+          "legendFormat": "Budget Remaining"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              { "value": null, "color": "red" },
+              { "value": 0.25, "color": "yellow" },
+              { "value": 0.5, "color": "green" }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "stat",
+      "title": "P95 Latency (10m)",
+      "description": "SLO threshold: < 2s",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[10m])) by (le))",
+          "legendFormat": "P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 1, "color": "yellow" },
+              { "value": 2, "color": "red" }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "stat",
+      "title": "Burn Rate (1h)",
+      "description": "Alert: > 14x",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "(sum(rate(http_errors_total[1h])) / (sum(rate(http_requests_total[1h])) + 0.001)) / 0.005",
+          "legendFormat": "Burn Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "thresholds": {
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 6, "color": "yellow" },
+              { "value": 14, "color": "red" }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Availability Over Time",
+      "description": "SLO target: 99.5% (dashed line)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "1 - (sum(rate(http_errors_total[5m])) / (sum(rate(http_requests_total[5m])) + 0.001))",
+          "legendFormat": "Availability (5m)"
+        },
+        {
+          "expr": "0.995",
+          "legendFormat": "SLO Target (99.5%)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "SLO Target (99.5%)" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 5] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Error Budget Burn Rate",
+      "description": "Fast burn threshold: 14x | Slow burn threshold: 6x",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "(sum(rate(http_errors_total[1h])) / (sum(rate(http_requests_total[1h])) + 0.001)) / 0.005",
+          "legendFormat": "Burn Rate (1h)"
+        },
+        {
+          "expr": "(sum(rate(http_errors_total[6h])) / (sum(rate(http_requests_total[6h])) + 0.001)) / 0.005",
+          "legendFormat": "Burn Rate (6h)"
+        },
+        { "expr": "14", "legendFormat": "Fast Burn Alert (14x)" },
+        { "expr": "6", "legendFormat": "Slow Burn Alert (6x)" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Fast Burn Alert (14x)" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [5, 5] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Slow Burn Alert (6x)" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [5, 5] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency Percentiles",
+      "description": "P50, P95, P99 — SLO: P95 < 2s",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P99"
+        },
+        { "expr": "2", "legendFormat": "P95 SLO Limit (2s)" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "P95 SLO Limit (2s)" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 5] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["homeland", "slo", "alerting"],
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "title": "HomeLand PMS — SLO Dashboard",
+  "uid": "homeland-slo",
+  "version": 1
+}

@@ -1,0 +1,29 @@
+@api_url = http://localhost:3001/api/v1
+@accessToken = {{login.response.body.data.accessToken}}
+
+### 0. Login to get token
+# @name login
+POST {{api_url}}/auth/login
+Content-Type: application/json
+
+{
+  "emailOrPhone": "admin@homeland.local",
+  "password": "Homeland@123456"
+}
+
+### 1. List Rooms
+GET {{api_url}}/rooms?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 2. Create Room
+POST {{api_url}}/rooms
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "buildingId": "cm112345",
+  "floorId": "cm112346",
+  "code": "R101",
+  "type": "STUDIO",
+  "rentPrice": 5000000
+}

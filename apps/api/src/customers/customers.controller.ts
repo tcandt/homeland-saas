@@ -1,0 +1,64 @@
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { CustomersService } from './customers.service';
+import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
+import { CurrentUser } from '../shared/decorators/current-user.decorator';
+import { CreateCustomerSchema, UpdateCustomerSchema, PaginationSchema } from '@homeland/shared';
+
+@ApiTags('Customers')
+@ApiBearerAuth()
+@Controller('customers')
+export class CustomersController {
+  constructor(private readonly customersService: CustomersService) {}
+
+  @Get()
+  @RequirePermissions('customer.read')
+  @ApiOperation({ summary: 'List customers' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  list(@Query() query: any) {
+    const { page, limit, search, sort, order } = PaginationSchema.parse(query);
+    const status = query.status;
+    return this.customersService.listCustomers(page, limit, search, status, sort, order);
+  }
+
+  @Get(':id')
+  @RequirePermissions('customer.read')
+  @ApiOperation({ summary: 'Get customer details' })
+  getDetail(@Param('id') id: string) {
+    return this.customersService.getDetail(id, {
+      contracts: { include: { room: { include: { building: true } } } },
+    });
+  }
+
+  @Post()
+  @RequirePermissions('customer.create')
+  @ApiOperation({ summary: 'Create customer' })
+  create(@Body() body: any, @CurrentUser('id') userId: string) {
+    const input = CreateCustomerSchema.parse(body);
+    const data = {
+      fullName: input.fullName,
+      phone: input.phone,
+      email: input.email,
+      identityNo: input.citizenId,
+    };
+    return this.customersService.create(data, userId, 'Customers');
+  }
+
+  @Patch(':id')
+  @RequirePermissions('customer.update')
+  @ApiOperation({ summary: 'Update customer' })
+  update(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+    const input = UpdateCustomerSchema.parse(body);
+    return this.customersService.update(id, input, userId, 'Customers');
+  }
+
+  @Delete(':id')
+  @RequirePermissions('customer.delete')
+  @ApiOperation({ summary: 'Soft delete customer' })
+  remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.customersService.softDelete(id, userId, 'Customers');
+  }
+}

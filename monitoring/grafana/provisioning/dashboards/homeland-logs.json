@@ -1,0 +1,115 @@
+{
+  "annotations": { "list": [] },
+  "description": "Search HomeLand API logs by Correlation ID, userId, tenantId, or traceId",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "panels": [
+    {
+      "type": "logs",
+      "title": "Log Stream — Filtered by Correlation ID",
+      "description": "Enter a Correlation ID in the variable above to filter logs across all services",
+      "gridPos": { "h": 20, "w": 24, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"api\"} | json | correlationId=~\"$correlationId\"",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Log Stream — Filtered by userId",
+      "gridPos": { "h": 15, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"api\"} | json | userId=~\"$userId\" | userId != \"\"",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Log Stream — Error Logs Only",
+      "gridPos": { "h": 15, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"api\", level=\"error\"} | json",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Log Volume by Level",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 35 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(count_over_time({compose_service=\"api\"} | json [1m])) by (level)",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      }
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "tags": ["homeland", "logs", "correlation", "loki"],
+  "templating": {
+    "list": [
+      {
+        "name": "correlationId",
+        "type": "textbox",
+        "label": "Correlation ID",
+        "description": "Paste a x-correlation-id value to filter logs",
+        "current": { "value": ".*" },
+        "hide": 0
+      },
+      {
+        "name": "userId",
+        "type": "textbox",
+        "label": "User ID",
+        "description": "Filter logs by userId",
+        "current": { "value": ".*" },
+        "hide": 0
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "title": "HomeLand PMS — Correlation ID Search",
+  "uid": "homeland-logs",
+  "version": 1
+}

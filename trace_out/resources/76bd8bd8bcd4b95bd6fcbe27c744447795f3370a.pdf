@@ -1,0 +1,1 @@
+{"success":true,"timestamp":"2026-07-01T10:14:30.194Z","message":"Success","data":{"options":{},"logger":{"context":"StreamableFile","options":{}},"stream":{"_events":{},"_readableState":{"highWaterMark":16,"buffer":[],"bufferIndex":0,"length":0,"pipes":[],"awaitDrainWriters":null}}}}

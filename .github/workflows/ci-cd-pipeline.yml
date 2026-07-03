@@ -164,6 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-api, build-web]
     permissions:
+      actions: read
       contents: read
       security-events: write
     steps:

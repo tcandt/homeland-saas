@@ -54,12 +54,16 @@ export default defineConfig({
               url: 'http://127.0.0.1:3000',
               reuseExistingServer: !process.env.CI,
               timeout: 120 * 1000,
+              stdout: 'pipe',
+              stderr: 'pipe',
       },
       {
               command: 'npm run start:prod --workspace=api --prefix ../..',
               url: 'http://127.0.0.1:3001',
               reuseExistingServer: !process.env.CI,
               timeout: 120 * 1000,
+              stdout: 'pipe',
+              stderr: 'pipe',
       }
         ],
 });

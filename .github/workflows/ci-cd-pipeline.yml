@@ -229,6 +229,7 @@ jobs:
       DATABASE_URL: postgresql://homeland:homeland123@localhost:5433/homeland?schema=public
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: homeland_super_secret_key_change_in_production
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:3001/api/v1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

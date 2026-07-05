@@ -233,6 +233,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
+      - name: Set Environment Variables
+        run: |
+          echo "DATABASE_URL=postgresql://homeland:homeland123@localhost:5433/homeland?schema=public" >> $GITHUB_ENV
+          echo "REDIS_URL=redis://localhost:6379" >> $GITHUB_ENV
       - name: Cache Turborepo
         uses: actions/cache@v4
         with:

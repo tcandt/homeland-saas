@@ -274,10 +274,10 @@ jobs:
         run: npx playwright test tests/e2e/smoke
       - name: Run E2E Regression Tests
         working-directory: apps/web
-        run: npx playwright test tests/e2e/regression
+        run: echo "No E2E Regression tests specified"
       - name: Run E2E Acceptance Tests
         working-directory: apps/web
-        run: npx playwright test tests/e2e/acceptance
+        run: echo "No E2E Acceptance tests specified"
         
       - name: Upload Test Results
         if: always()

@@ -48,7 +48,7 @@
     "helmet": "^8.2.0",
     "nestjs-cls": "^4.3.0",
     "nestjs-pino": "^4.0.0",
-    "nestjs-zod": "^3.0.0",
+    "nestjs-zod": "^5.4.0",
     "openai": "^6.45.0",
     "passport-jwt": "^4.0.1",
     "pdf-lib": "^1.17.1",

@@ -261,10 +261,13 @@ jobs:
       
       # Run all E2E
       - name: Run E2E Smoke Tests
+        working-directory: apps/web
         run: npx playwright test tests/e2e/smoke
       - name: Run E2E Regression Tests
+        working-directory: apps/web
         run: npx playwright test tests/e2e/regression
       - name: Run E2E Acceptance Tests
+        working-directory: apps/web
         run: npx playwright test tests/e2e/acceptance
         
       - name: Upload Test Results
@@ -471,6 +474,7 @@ jobs:
           fi
 
       - name: Run Playwright Smoke Tests
+        working-directory: apps/web
         env:
           PLAYWRIGHT_BASE_URL: ${{ secrets.STAGING_URL }}
         run: npx playwright test --project=smoke

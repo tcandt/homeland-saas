@@ -359,15 +359,6 @@ jobs:
             ghcr.io/${{ github.repository }}/homeland-api:${{ needs.semantic-release.outputs.new_release_version }}
             ghcr.io/${{ github.repository }}/homeland-api:latest
           
-      - name: Attest API Build Provenance (SLSA Level 3)
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: ghcr.io/${{ github.repository }}/homeland-api
-          subject-digest: ${{ steps.build-api.outputs.digest }}
-          push-to-registry: true
-          
-      - name: Sign API image with Cosign
-        run: cosign sign --yes ghcr.io/${{ github.repository }}/homeland-api@${{ steps.build-api.outputs.digest }}
 
       # Docker Build & Push for Web
       - name: Build and Push Web
@@ -386,15 +377,6 @@ jobs:
             ghcr.io/${{ github.repository }}/homeland-web:${{ needs.semantic-release.outputs.new_release_version }}
             ghcr.io/${{ github.repository }}/homeland-web:latest
           
-      - name: Attest Web Build Provenance (SLSA Level 3)
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: ghcr.io/${{ github.repository }}/homeland-web
-          subject-digest: ${{ steps.build-web.outputs.digest }}
-          push-to-registry: true
-          
-      - name: Sign Web image with Cosign
-        run: cosign sign --yes ghcr.io/${{ github.repository }}/homeland-web@${{ steps.build-web.outputs.digest }}
 
       - name: Download Security Artifacts
         uses: actions/download-artifact@v4

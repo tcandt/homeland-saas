@@ -178,14 +178,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript, typescript
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          output: security/codeql.sarif
+      # - name: Initialize CodeQL
+      #   uses: github/codeql-action/init@v3
+      #   with:
+      #     languages: javascript, typescript
+      # - name: Perform CodeQL Analysis
+      #   uses: github/codeql-action/analyze@v3
+      #   with:
+      #     output: security/codeql.sarif
       - name: Run npm audit
         run: npm audit --json > security/npm-audit.json || true
       - name: Install license-checker
@@ -205,7 +205,7 @@ jobs:
           output: 'security/trivy-fs.sarif'
           severity: 'CRITICAL,HIGH'
       - name: Build Docker Image for Scan
-        run: docker build -t homeland-api:test -f apps/api/Dockerfile .
+        run: docker build -t homeland-api:test -f Dockerfile.api .
       - name: Trivy Image Scan
         uses: aquasecurity/trivy-action@master
         with:

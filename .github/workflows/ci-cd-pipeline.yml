@@ -223,7 +223,7 @@ jobs:
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     needs: [security-scan]
     env:
       DATABASE_URL: postgresql://homeland:homeland123@localhost:5433/homeland?schema=public

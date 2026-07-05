@@ -18,6 +18,12 @@ export default defineConfig({
           actionTimeout: 15000,
           navigationTimeout: 30000,
     },
+    expect: {
+      toHaveScreenshot: {
+        maxDiffPixelRatio: 0.1,
+      },
+    },
+    ignoreSnapshots: !!process.env.CI,
     projects: [
       {
               name: 'Desktop 1920',

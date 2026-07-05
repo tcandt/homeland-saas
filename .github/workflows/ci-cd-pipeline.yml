@@ -225,6 +225,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [security-scan]
+    env:
+      DATABASE_URL: postgresql://homeland:homeland123@localhost:5433/homeland?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: homeland_super_secret_key_change_in_production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

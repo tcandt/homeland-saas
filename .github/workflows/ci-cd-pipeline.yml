@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
@@ -63,7 +63,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
@@ -131,7 +131,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
@@ -139,7 +139,7 @@ jobs:
             ${{ runner.os }}-turbo-
       - run: npm ci
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.npm
@@ -238,7 +238,7 @@ jobs:
           echo "DATABASE_URL=postgresql://homeland:homeland123@localhost:5433/homeland?schema=public" >> $GITHUB_ENV
           echo "REDIS_URL=redis://localhost:6379" >> $GITHUB_ENV
       - name: Cache Turborepo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
@@ -251,7 +251,7 @@ jobs:
         id: playwright-version
         run: echo "PLAYWRIGHT_VERSION=\$(npx playwright --version | awk '{print \$2}')" >> \$GITHUB_ENV
       - name: Cache Playwright binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}

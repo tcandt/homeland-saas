@@ -261,6 +261,8 @@ jobs:
       
       # E2E Setup with Real Database
       - run: docker compose up -d postgres redis
+      - run: sleep 5
+      - run: npx prisma db execute --file packages/database/prisma/sql/enable-pgvector.sql --schema packages/database/prisma/schema.prisma
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
       - run: npx prisma db push --schema=packages/database/prisma/schema.prisma
       - run: cd packages/database && npx prisma db seed

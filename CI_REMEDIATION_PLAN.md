@@ -6,7 +6,7 @@ This document serves as the inventory of all "greenwashing" bypasses, placeholde
 
 | Category | File | Commit | Current State | Risk | Required Remediation | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Test Placeholder** | `packages/*/package.json`, `apps/*/package.json` | a25e16c1 | `test` scripts are `echo "No test specified"` | High | Replace `echo` with actual test runner commands | Pending |
+| **Test Placeholder** | `packages/*/package.json`, `apps/*/package.json` | a25e16c1 | `test` scripts use real `vitest` runner | High | Remediated (4 minimal tests added) | Remediated |
 | **Test Placeholder** | `apps/api/package.json` | 0dcd7e2d | `test:e2e` is `echo "No API e2e test specified"` | High | Implement real API Integration tests | Pending |
 | **Test Placeholder** | `.github/workflows/ci-cd-pipeline.yml` | 238795c3 | Regression & Acceptance tests replaced with `echo` | Critical | Restore Playwright `test` commands for these suites | Pending |
 | **Test Assertion Removed** | `apps/web/tests/e2e/smoke/finance.smoke.spec.ts`, `invoices...` | ce836d5d | `expect(consoleErrors).toEqual([])` is commented out | Medium | Restore assertions, fix 401 & React Hydration errors | Pending |

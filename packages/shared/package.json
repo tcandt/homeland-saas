@@ -5,7 +5,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "echo \"No test specified\""
+    "test": "vitest run src"
   },
   "dependencies": {
     "zod": "^3.21.4"

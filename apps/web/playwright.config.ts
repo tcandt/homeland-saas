@@ -59,7 +59,7 @@ export default defineConfig({
       },
       {
               command: 'npm run start:prod --workspace=api --prefix ../..',
-              url: 'http://localhost:3001',
+              url: 'http://localhost:3001/api/metrics',
               reuseExistingServer: !process.env.CI,
               timeout: 120 * 1000,
               stdout: 'pipe',

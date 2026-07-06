@@ -1,12 +1,13 @@
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl"]
-  previewFeatures = ["tracing"]
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x", "linux-musl"]
+  previewFeatures = ["tracing", "postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 enum RoleCode {
@@ -102,6 +103,39 @@ enum LeadStatus {
   LOST
 }
 
+enum UserStatus {
+  ACTIVE
+  PENDING_VERIFICATION
+  DISABLED
+  LOCKED
+}
+
+enum AuditAction {
+  REGISTER
+  LOGIN
+  LOGOUT
+  REFRESH_TOKEN
+  PASSWORD_RESET_REQUEST
+  PASSWORD_RESET_SUCCESS
+  PASSWORD_CHANGE
+  EMAIL_VERIFIED
+  
+  LOGIN_FAILED
+  LOGIN_SUCCESS
+  LOGOUT_SUCCESS
+  CHANGE_PASSWORD
+
+  CREATE
+  UPDATE
+  DELETE
+  SIGNED
+  COLLECT
+  REFUND
+  CANCEL
+  CONVERT_CONTRACT
+}
+
+
 model TenantOrg {
   id        String   @id @default(cuid())
   name      String
@@ -120,7 +154,25 @@ model User {
   email        String
   fullName     String
   passwordHash String
-  isActive     Boolean   @default(true)
+  status       UserStatus @default(ACTIVE)
+  
+  // Refresh Token Rotation
+  refreshTokenHash String?
+
+  // Login History
+  lastLoginAt   DateTime?
+  lastLoginIp   String?
+  lastUserAgent String?
+
+  // Password Reset
+  passwordResetHash    String?
+  passwordResetExpires DateTime?
+
+  // Email Verification
+  emailVerifiedAt          DateTime?
+  emailVerificationHash    String?
+  emailVerificationExpires DateTime?
+
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
@@ -131,7 +183,7 @@ model User {
   roles  UserRole[]
 
   @@unique([tenantId, email])
-  @@index([tenantId, isActive])
+  @@index([tenantId, status])
 }
 
 model Role {
@@ -456,7 +508,7 @@ model AuditLog {
   module    String?
   entity    String
   entityId  String?
-  action    String
+  action    AuditAction
   ip        String?
   userAgent String?
   before    Json?

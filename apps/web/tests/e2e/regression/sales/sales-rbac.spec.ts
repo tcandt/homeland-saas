@@ -1,4 +1,4 @@
-﻿import { expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 
 test.describe.configure({ mode: 'parallel' });
@@ -15,7 +15,7 @@ test.describe('Sales RBAC Security Tests', () => {
     await expect(financeMenuMobile).not.toBeVisible();
 
     // 2. API Check: Attempting to call finance API should return 403 Forbidden
-    const res = await sales.api.get('http://localhost:3001/api/v1/finance/ledger');
+    const res = await sales.api.get('/api/v1/finance/ledger');
     expect(res.status()).toBe(403);
   });
 
@@ -29,7 +29,7 @@ test.describe('Sales RBAC Security Tests', () => {
     expect(isForbidden).toBeFalsy();
 
     // 2. API Check
-    const res = await finance.api.get('http://localhost:3001/api/v1/finance/ledger');
+    const res = await finance.api.get('/api/v1/finance/ledger');
     expect([200, 404]).toContain(res.status()); // It shouldn't be 403 or 401
   });
 

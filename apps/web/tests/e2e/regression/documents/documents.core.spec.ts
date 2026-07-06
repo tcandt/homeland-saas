@@ -1,4 +1,4 @@
-﻿import { expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { DataFactory } from '../../utils/data-factory';
 import { test } from '../../fixtures/admin.fixture';
 
@@ -68,7 +68,7 @@ test.describe('Documents Core Regression', () => {
 
     // 6. Security tests
     // 6.1 Download without JWT
-    const noJwtRes = await request.get(`http://localhost:3001/api/v1/documents/${docId}/download`);
+    const noJwtRes = await request.get(`/api/v1/documents/${docId}/download`);
     expect(noJwtRes.status()).toBe(401);
 
     // 6.2 Invalid Document ID

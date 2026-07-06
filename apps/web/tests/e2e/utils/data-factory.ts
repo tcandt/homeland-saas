@@ -4,7 +4,7 @@ export class DataFactory {
   constructor(private request: APIRequestContext, private token?: string) {}
 
   private async post(endpoint: string, data: any) {
-    const url = endpoint.startsWith('http') ? endpoint : `http://127.0.0.1:3000${endpoint}`;
+    const url = endpoint;
     const headers: any = { 'Content-Type': 'application/json' };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     
@@ -20,7 +20,7 @@ export class DataFactory {
   }
 
   private async delete(endpoint: string) {
-    const url = endpoint.startsWith('http') ? endpoint : `http://127.0.0.1:3000${endpoint}`;
+    const url = endpoint;
     const headers: any = {};
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     
@@ -110,7 +110,7 @@ export class DataFactory {
     const headers: any = { 'Content-Type': 'application/json' };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     
-    return this.request.patch(`http://127.0.0.1:3000/api/v1/invoices/${invoiceId}`, {
+    return this.request.patch(`/api/v1/invoices/${invoiceId}`, {
       data: {
         status: 'PAID',
         paidAmount: amount
@@ -150,7 +150,7 @@ export class DataFactory {
   }
 
   async downloadDocument(documentId: string, token: string) {
-    const url = `http://127.0.0.1:3000/api/v1/documents/${documentId}/download`;
+    const url = `/api/v1/documents/${documentId}/download`;
     const res = await this.request.get(url, {
       headers: {
         'Authorization': `Bearer ${token}`

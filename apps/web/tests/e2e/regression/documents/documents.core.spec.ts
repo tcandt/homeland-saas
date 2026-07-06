@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+﻿import { expect } from '@playwright/test';
 import { DataFactory } from '../../utils/data-factory';
 import { test } from '../../fixtures/admin.fixture';
 
@@ -27,7 +27,7 @@ test.describe('Documents Core Regression', () => {
     await factory.applySignature('E2E-DOC', signatureReqId, partyId);
 
     // 4. Verify Document UI
-    await page.goto('http://localhost:3000/documents');
+    await page.goto('/documents');
     
     // Wait for the UI parts
     await expect(page.getByTestId('documents-root')).toBeVisible();

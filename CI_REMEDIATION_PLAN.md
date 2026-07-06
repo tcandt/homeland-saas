@@ -8,10 +8,10 @@ This document serves as the inventory of all "greenwashing" bypasses, placeholde
 | --- | --- | --- | --- | --- | --- | --- |
 | **Test Placeholder** | `packages/*/package.json`, `apps/*/package.json` | a25e16c1 | `test` scripts use real `vitest` runner | High | Remediated (4 minimal tests added) | Bootstrapped (Business Coverage: NOT VERIFIED) |
 | **Test Placeholder** | `apps/api/package.json` | 0dcd7e2d | `test:e2e` uses `vitest run test` | High | Implement real API Integration tests | Bootstrapped (Business Coverage: NOT VERIFIED) |
-| **Test Placeholder** | `.github/workflows/ci-cd-pipeline.yml` | 238795c3 | Regression & Acceptance tests replaced with `echo` | Critical | Restore Playwright `test` commands for these suites | Pending |
-| **Test Assertion Removed** | `apps/web/tests/e2e/smoke/finance.smoke.spec.ts`, `invoices...` | ce836d5d | `expect(consoleErrors).toEqual([])` is commented out | Medium | Restore assertions, fix 401 & React Hydration errors | Pending |
-| **Accessibility Bypass** | `apps/web/tests/e2e/smoke/buildings.smoke.spec.ts` | 7f0cf41c | AxeBuilder `.disableRules(['heading-order', 'empty-heading'])` | Low | Remove `disableRules` and fix Next.js DOM structure | Pending |
-| **Security Bypass** | `.github/workflows/ci-cd-pipeline.yml` | 6c21d59f | CodeQL disabled (commented) & Gitleaks `continue-on-error: true` | High | Restore CodeQL & Gitleaks enforcement or mark BLOCKED | Pending |
+| **Test Placeholder** | `.github/workflows/ci-cd-pipeline.yml` | 238795c3 | Regression & Acceptance tests replaced with `echo` | Critical | Restore Playwright `test` commands for these suites | Remediated |
+| **Test Assertion Removed** | `apps/web/tests/e2e/smoke/finance.smoke.spec.ts`, `invoices...` | ce836d5d | `expect(consoleErrors).toEqual([])` is commented out | Medium | Restore assertions, fix 401 & React Hydration errors | Remediated |
+| **Accessibility Bypass** | `apps/web/tests/e2e/smoke/buildings.smoke.spec.ts` | 7f0cf41c | AxeBuilder `.disableRules(['heading-order', 'empty-heading'])` | Low | Remove `disableRules` and fix Next.js DOM structure | Remediated |
+| **Security Bypass** | `.github/workflows/ci-cd-pipeline.yml` | 6c21d59f | CodeQL disabled (commented) & Gitleaks `continue-on-error: true` | High | Restore CodeQL & Gitleaks enforcement or mark BLOCKED | Remediated |
 | **Security Bypass** | `.gitleaksignore` | 6c21d59f | Playwright `trace_out/` ignored | Medium | Inspect for real secrets, rotate, or properly allowlist | Pending |
 | **Visual Regression Bypass**| `apps/web/playwright.config.ts` | e5282e03 | `ignoreSnapshots: !!process.env.CI` | Medium | Generate & commit linux baseline visual snapshots | Pending |
 | **Migration Workaround** | `.github/workflows/ci-cd-pipeline.yml` | a3eab485 | `prisma db push` used instead of `migrate deploy` | High | Create explicit Prisma migrations & use `migrate deploy` | Pending |

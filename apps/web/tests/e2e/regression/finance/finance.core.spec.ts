@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+﻿import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 
 test.describe.configure({ mode: 'parallel' });
@@ -28,13 +28,13 @@ test.describe('Finance Core Regression', () => {
     expect(fileContent).toContain('Date,Description,Amount,Type');
 
     // 5. UI View test
-    await finance.page.goto('http://localhost:3000/finance');
+    await finance.page.goto('/finance');
     await expect(finance.page.getByTestId('finance-root')).toBeVisible();
     await expect(finance.page.getByTestId('finance-chart')).toBeVisible();
 
     // Verify UI placeholders are rendered
-    await expect(finance.page.getByText('Biểu đồ Dòng tiền (Cash Flow)')).toBeVisible();
-    await expect(finance.page.getByText('Hiệu quả tòa nhà (Building P&L)')).toBeVisible();
+    await expect(finance.page.getByText('Biá»ƒu Ä‘á»“ DÃ²ng tiá»n (Cash Flow)')).toBeVisible();
+    await expect(finance.page.getByText('Hiá»‡u quáº£ tÃ²a nhÃ  (Building P&L)')).toBeVisible();
     
     // Simulate UI export click to ensure no crash
     const exportBtn = finance.page.getByTestId('finance-export-button');

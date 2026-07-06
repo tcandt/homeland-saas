@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+﻿import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 import { DataFactory } from '../../utils/data-factory';
 
@@ -61,7 +61,7 @@ test.describe('Sales Core Regression Workflow', () => {
           { timeout: 10000 }
         ).catch(() => null);
 
-        await finance.page.goto('http://localhost:3000/finance');
+        await finance.page.goto('/finance');
         await expect(finance.page.getByTestId('finance-root')).toBeVisible({ timeout: 5000 });
         
         const response = await responsePromise;
@@ -88,23 +88,23 @@ test.describe('Sales Core Regression Workflow', () => {
       await expect(invoiceCard).toBeVisible({ timeout: 15000 });
       // Hover over the card to reveal the quick actions overlay
       await invoiceCard.hover();
-      // Click the 'Xem chi tiết' button
-      await invoiceCard.locator('button[aria-label="Xem chi tiết"]').click();
+      // Click the 'Xem chi tiáº¿t' button
+      await invoiceCard.locator('button[aria-label="Xem chi tiáº¿t"]').click();
       
       const drawer = sales.page.getByTestId('invoice-detail-drawer');
       await expect(drawer).toBeVisible();
       
       // Should be PAID or updated status
       const badge = drawer.getByTestId('invoice-status-badge');
-      await expect(badge).toContainText(/PAID|Hoàn thành|Thành công/i, { timeout: 5000 });
+      await expect(badge).toContainText(/PAID|HoÃ n thÃ nh|ThÃ nh cÃ´ng/i, { timeout: 5000 });
 
       // Verify Persistence: Refresh and check again
       await sales.page.reload();
       const invoiceCardAfter = sales.page.locator('[data-testid="invoice-card"]', { hasText: invoice.code }).first();
       await expect(invoiceCardAfter).toBeVisible({ timeout: 15000 });
       await invoiceCardAfter.hover();
-      await invoiceCardAfter.locator('button[aria-label="Xem chi tiết"]').click();
-      await expect(sales.page.getByTestId('invoice-detail-drawer').getByTestId('invoice-status-badge')).toContainText(/PAID|Hoàn thành|Thành công/i);
+      await invoiceCardAfter.locator('button[aria-label="Xem chi tiáº¿t"]').click();
+      await expect(sales.page.getByTestId('invoice-detail-drawer').getByTestId('invoice-status-badge')).toContainText(/PAID|HoÃ n thÃ nh|ThÃ nh cÃ´ng/i);
 
       finance.page.on('console', msg => console.log('FINANCE CONSOLE:', msg.text()));
       finance.page.on('pageerror', error => console.log('FINANCE PAGE ERROR:', error.message));

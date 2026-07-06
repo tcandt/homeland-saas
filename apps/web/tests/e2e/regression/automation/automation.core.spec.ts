@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+﻿import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 import { DataFactory } from '../../utils/data-factory';
 
@@ -29,7 +29,7 @@ test.describe('Automation Core Regression Flow', () => {
 
   test('Page loads and registry renders correctly', async ({ admin }) => {
     const page = admin.page;
-    await page.goto('http://localhost:3000/automation');
+    await page.goto('/automation');
     await page.waitForLoadState('networkidle');
 
     // 1. Verify page root and title
@@ -53,7 +53,7 @@ test.describe('Automation Core Regression Flow', () => {
 
   test('Run contract.expiring.30_days rule and verify rule execution and notification side-effect', async ({ admin }) => {
     const page = admin.page;
-    await page.goto('http://localhost:3000/automation');
+    await page.goto('/automation');
     await page.waitForLoadState('networkidle');
 
     // Go to rules tab
@@ -75,7 +75,7 @@ test.describe('Automation Core Regression Flow', () => {
     await expect(page.getByTestId('automation-status-message')).toContainText('triggered successfully', { timeout: 15000 });
 
     // Verify notification side-effect appears in the notifications UI
-    await page.goto('http://localhost:3000/notifications');
+    await page.goto('/notifications');
     await page.waitForLoadState('networkidle');
 
     const notifItem = page.getByTestId('notification-item').filter({ hasText: 'Contract Expiring Soon' }).first();
@@ -99,7 +99,7 @@ test.describe('Automation Core Regression Flow', () => {
     createdIds.customerId = customer.id;
 
     // Trigger deposit.collected.workflow manual run from the page UI
-    await page.goto('http://localhost:3000/automation');
+    await page.goto('/automation');
     await page.waitForLoadState('networkidle');
 
     // Set correct workflow payload referencing real entities
@@ -134,14 +134,14 @@ test.describe('Automation Core Regression Flow', () => {
     await expect(statusBadge).toContainText('SUCCESS', { timeout: 15000 });
 
     // 2. Verify side-effect: In-app notification created
-    await page.goto('http://localhost:3000/notifications');
+    await page.goto('/notifications');
     await page.waitForLoadState('networkidle');
 
     const notifItem = page.getByTestId('notification-item').filter({ hasText: `DEP-${testPrefix}` }).first();
     await expect(notifItem).toBeVisible({ timeout: 15000 });
 
     // 3. Verify side-effect: JournalEntry created in Ledger
-    await page.goto('http://localhost:3000/finance');
+    await page.goto('/finance');
     await expect(page.getByTestId('finance-root')).toBeVisible({ timeout: 10000 });
     
     await expect(async () => {

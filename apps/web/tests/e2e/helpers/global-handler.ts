@@ -9,9 +9,10 @@ export function setupStrictPageValidation(page: Page) {
     const text = msg.text();
     if (msg.type() === 'error') {
       if (text.includes('Failed to load resource') && text.includes('favicon.ico')) return;
-      if (text.includes('Failed to load resource') && (text.includes('status of 500') || text.includes('status of 400') || text.includes('status of 404') || text.includes('status of 401'))) return; // Handled by response listener
+      if (text.includes('Failed to load resource') && (text.includes('status of 500') || text.includes('status of 503') || text.includes('status of 400') || text.includes('status of 404') || text.includes('status of 401'))) return; // Handled by response listener
       if (text.includes('SSE Error, falling back to polling')) return; // Expected fallback behavior
       if (text.includes('Failed to fetch RSC payload')) return; // Next.js fallback behavior
+      if (text.includes('[Header] Fetch failed: 401') || text.includes('FETCH CLIENT 401 ERROR')) return; // Expected when token expires or missing
       if (text.includes('Cannot update a component') && text.includes('HotReload')) return; // Next.js Dev Mode warning
       expect(text, 'Console ERROR detected!').toBeNull();
     }

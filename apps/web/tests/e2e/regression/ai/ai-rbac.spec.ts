@@ -28,7 +28,8 @@ test.describe('AI RBAC & Tool Permissions Regression Flow', () => {
         route.fulfill({
           status: 403,
           contentType: 'application/json',
-          body: JSON.stringify({ message: 'AI_TOOL_PERMISSION_DENIED' })
+          headers: { 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify({ message: 'Bạn không có quyền thực hiện chức năng này' })
         });
       } else {
         route.continue();

@@ -87,7 +87,8 @@ test.describe('AI Core Regression Flow', () => {
       route.fulfill({
         status: 400,
         contentType: 'application/json',
-        body: JSON.stringify({ message: 'AI_PROVIDER_NOT_CONFIGURED' })
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ message: 'Provider chưa được cấu hình' })
       });
     });
 

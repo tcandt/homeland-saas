@@ -1,19 +1,19 @@
-import { apiClient } from './api.client';
+import { apiClient } from './client';
 
 export const aiApi = {
   chat: async (messages: any[], options?: any) => {
-    return apiClient.post('/v1/ai/chat', { messages, options });
+    return apiClient.post('/ai/chat', { messages, options });
   },
 
   getConversations: async () => {
-    return apiClient.get('/v1/ai/conversations');
+    return apiClient.get('/ai/conversations');
   },
 
   getConversation: async (id: string) => {
-    return apiClient.get(`/v1/ai/conversations/${id}`);
+    return apiClient.get(`/ai/conversations/${id}`);
   },
 
   getUsage: async () => {
-    return apiClient.get('/v1/ai/usage');
+    return apiClient.get('/ai/usage');
   }
 };

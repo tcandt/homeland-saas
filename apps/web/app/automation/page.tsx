@@ -12,7 +12,13 @@ import { Play, Settings, Clock, Activity, Bell, ListTodo, RefreshCw, CircleX } f
 
 const getAuthToken = () => {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('token');
+    try {
+      const authStore = localStorage.getItem('auth-storage');
+      if (authStore) {
+        const parsed = JSON.parse(authStore);
+        return parsed?.state?.accessToken || '';
+      }
+    } catch (e) {}
   }
   return null;
 };

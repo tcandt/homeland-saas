@@ -19,7 +19,7 @@ export default function AiCommandCenter() {
 
   const { conversationId, setConversationId, selectedAgent, setSelectedAgent } = useAiStore();
   const { data: tokenUsageData } = useAiUsage();
-  const tokenUsage = Array.isArray(tokenUsageData) ? tokenUsageData : (tokenUsageData?.data?.data || tokenUsageData?.data || []);
+  const tokenUsage = Array.isArray(tokenUsageData) ? tokenUsageData : ((tokenUsageData as any)?.data?.data || (tokenUsageData as any)?.data || []);
 
   const totalTokens = (Array.isArray(tokenUsage) ? tokenUsage : []).reduce((acc: any, curr: any) => acc + (curr.totalTokens || 0), 0);
   const estCost = (Array.isArray(tokenUsage) ? tokenUsage : []).reduce((acc: any, curr: any) => acc + Number(curr.estimatedCost || 0), 0);
@@ -41,21 +41,15 @@ export default function AiCommandCenter() {
       },
       {
         onSuccess: (res: any) => {
-          const result = res.data;
+          const result = res.data || res;
           setMessages(prev => [...prev, result.result.message]);
           if (result.conversationId && !conversationId) {
             setConversationId(result.conversationId);
           }
         },
         onError: (err: any) => {
-          const errMsg = err.response?.data?.message || err.response?.data?.error || err.message;
-          if (errMsg === 'AI_PROVIDER_NOT_CONFIGURED') {
-            setError('Tính năng AI chưa được cấu hình. Vui lòng thiết lập API Key trong cài đặt.');
-          } else if (errMsg === 'AI_TOOL_PERMISSION_DENIED') {
-            setError('Bạn không có quyền sử dụng chức năng này qua AI.');
-          } else {
-            setError('Đã có lỗi xảy ra. Vui lòng thử lại sau.');
-          }
+          const errorMsg = err?.message || err?.response?.data?.message || (typeof err === 'string' ? err : JSON.stringify(err));
+          setError(errorMsg || 'Đã có lỗi xảy ra. Vui lòng thử lại sau.');
         }
       }
     );

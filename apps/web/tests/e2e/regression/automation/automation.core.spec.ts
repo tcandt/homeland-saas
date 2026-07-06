@@ -34,7 +34,7 @@ test.describe('Automation Core Regression Flow', () => {
 
     // 1. Verify page root and title
     await expect(page.getByTestId('automation-root')).toBeVisible();
-    await expect(page.locator('h1')).toContainText('Automation Command Center');
+    await expect(page.getByRole('heading', { name: 'Automation Command Center' }).first()).toBeVisible();
 
     // 2. Verify tabs are present
     await expect(page.getByTestId('tab-workflows')).toBeVisible();

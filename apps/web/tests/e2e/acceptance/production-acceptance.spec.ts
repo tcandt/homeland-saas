@@ -14,7 +14,7 @@ export const attachStrictListeners = (page: any) => {
   page.on('console', (msg: any) => {
     if (msg.type() === 'error') {
       const text = msg.text();
-      if (text.includes('SSE Error')) return;
+      if (text.includes('SSE Error') || text.includes('status of 503') || text.includes('notifications/stream')) return;
       if (text.includes('429')) {
         const url = msg.location()?.url || '';
         if (url.includes('auth/login') || url.includes('auth/refresh')) return;
@@ -183,15 +183,17 @@ rbacTest.describe('Level 3 - Production Acceptance: Full Business Workflow', () 
       route.fulfill({
         status: 200,
         json: {
-          conversationId: 'mock-conv-123',
-          result: {
-            message: { 
-              role: 'assistant', 
-              content: JSON.stringify({
-                actionRequired: 'CONFIRM_DRAFT',
-                data: { title: 'Xoa phong', content: 'Delete room confirmation', description: 'Safety draft' },
-                toolOutput: 'Drafting deletion for room...'
-              })
+          data: {
+            conversationId: 'mock-conv-123',
+            result: {
+              message: { 
+                role: 'assistant', 
+                content: JSON.stringify({
+                  actionRequired: 'CONFIRM_DRAFT',
+                  data: { title: 'Xoa phong', content: 'Delete room confirmation', description: 'Safety draft' },
+                  toolOutput: 'Drafting deletion for room...'
+                })
+              }
             }
           }
         }

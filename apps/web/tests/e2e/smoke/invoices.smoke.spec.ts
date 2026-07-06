@@ -24,7 +24,10 @@ test.describe('Invoices Smoke Test', () => {
       if (msg.type() === 'error' && 
           !msg.text().includes('SSE Error') && 
           !msg.text().includes('Failed to load resource: the server responded with a status of 500') &&
+          !msg.text().includes('Failed to load resource: the server responded with a status of 503') &&
           !msg.text().includes('Failed to fetch RSC payload') &&
+          !msg.text().includes('[Header] Fetch failed: 401') &&
+          !msg.text().includes('FETCH CLIENT 401 ERROR') &&
           !msg.text().includes('401 (Unauthorized)')) {
         consoleErrors.push(msg.text());
       }

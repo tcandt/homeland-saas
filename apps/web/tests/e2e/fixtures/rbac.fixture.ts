@@ -30,6 +30,11 @@ const createRoleFixture = (email: string, roleName: string) => {
       context = await browser.newContext({ storageState: authFile });
       page = await context.newPage();
       
+      // Block SSE to prevent networkidle from hanging due to open EventSource
+      await page.route('**/api/v1/notifications/stream*', async (route) => {
+        await route.fulfill({ status: 503 });
+      });
+      
       const state = JSON.parse(fs.readFileSync(authFile, 'utf-8'));
       const ls = state.origins?.[0]?.localStorage || [];
       const authStoreString = ls.find((item: any) => item.name === 'auth-storage')?.value;
@@ -59,6 +64,11 @@ const createRoleFixture = (email: string, roleName: string) => {
       
       context = await browser.newContext();
       page = await context.newPage();
+      
+      // Block SSE to prevent networkidle from hanging due to open EventSource
+      await page.route('**/api/v1/notifications/stream*', async (route) => {
+        await route.fulfill({ status: 503 });
+      });
       
       await page.goto('/');
       

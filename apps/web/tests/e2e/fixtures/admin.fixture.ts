@@ -31,6 +31,11 @@ export const test = base.extend<{ admin: AdminFixture }>({
       context = await browser.newContext({ storageState: authFile });
       page = await context.newPage();
       
+      // Block SSE to prevent networkidle from hanging due to open EventSource
+      await page.route('**/api/v1/notifications/stream*', async (route) => {
+        await route.fulfill({ status: 503 });
+      });
+      
       // Read token and user from localStorage inside the saved state
       const state = JSON.parse(fs.readFileSync(authFile, 'utf-8'));
       const ls = state.origins?.[0]?.localStorage || [];
@@ -63,6 +68,11 @@ export const test = base.extend<{ admin: AdminFixture }>({
       // Create context with token injected to localStorage
       context = await browser.newContext();
       page = await context.newPage();
+      
+      // Block SSE to prevent networkidle from hanging due to open EventSource
+      await page.route('**/api/v1/notifications/stream*', async (route) => {
+        await route.fulfill({ status: 503 });
+      });
       
       // Go to base URL so we can set localStorage
       await page.goto('/');

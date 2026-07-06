@@ -36,6 +36,7 @@ import { AutomationModule } from './automation/automation.module';
 import { CommunicationModule } from './communication/communication.module';
 import { DocumentsModule } from './documents/documents.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { ClockModule } from './shared/clock/clock.module';
 import { v4 as uuidv4 } from 'uuid';
 import { RepositoriesModule } from './shared/repositories/repositories.module';
 
@@ -45,6 +46,7 @@ import { RepositoriesModule } from './shared/repositories/repositories.module';
       isGlobal: true,
       load: [appConfig, authConfig],
     }),
+    ClockModule,
     RepositoriesModule,
     LoggerModule.forRootAsync({
       useFactory: () => {

@@ -57,7 +57,7 @@ export default defineConfig({
     webServer: [
       {
               command: 'npm run start',
-              url: 'http://localhost:3000',
+              url: 'http://127.0.0.1:3000',
               reuseExistingServer: !process.env.CI,
               timeout: 120 * 1000,
               stdout: 'pipe',
@@ -65,7 +65,7 @@ export default defineConfig({
       },
       {
               command: 'npm run start:prod --workspace=api --prefix ../..',
-              url: 'http://localhost:3001/api/docs',
+              url: 'http://127.0.0.1:3001/api/docs',
               reuseExistingServer: !process.env.CI,
               timeout: 120 * 1000,
               stdout: 'pipe',

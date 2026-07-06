@@ -37,7 +37,7 @@ const DocumentVersionList = ({ versions, documentId }: { versions: any[], docume
               variant="ghost" 
               size="sm" 
               className="text-primary gap-1"
-              onClick={() => window.open(`http://localhost:3000/api/v1/documents/${documentId}/versions/${v.id}/download`)}
+              onClick={() => window.open(`/api/v1/documents/${documentId}/versions/${v.id}/download`)}
             >
               <Download size={14}/> Tải
             </Button>
@@ -121,7 +121,7 @@ export default function DocumentPreviewDrawer({ open, documentId, onClose, onSig
     setLoading(true);
     try {
       const token = getToken();
-      const res = await fetch(`http://localhost:3000/api/v1/documents/${documentId}`, {
+      const res = await fetch(`/api/v1/documents/${documentId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -138,7 +138,7 @@ export default function DocumentPreviewDrawer({ open, documentId, onClose, onSig
 
   const handleDownload = () => {
     if (documentId) {
-      window.open(`http://localhost:3000/api/v1/documents/${documentId}/download`, '_blank');
+      window.open(`/api/v1/documents/${documentId}/download`, '_blank');
     }
   };
 
@@ -149,7 +149,7 @@ export default function DocumentPreviewDrawer({ open, documentId, onClose, onSig
       if (!pendingReq) throw new Error('Không tìm thấy yêu cầu ký');
 
       const token = getToken();
-      const res = await fetch(`http://localhost:3000/api/v1/signature-requests/${pendingReq.id}/sign`, {
+      const res = await fetch(`/api/v1/signature-requests/${pendingReq.id}/sign`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

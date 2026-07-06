@@ -24,7 +24,7 @@ export default function DocumentExplorer() {
           token = JSON.parse(authStore).state?.accessToken || 'demo-token';
         } catch (e) {}
       }
-      const res = await fetch('http://localhost:3000/api/v1/documents', {
+      const res = await fetch('/api/v1/documents', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -53,7 +53,7 @@ export default function DocumentExplorer() {
           token = JSON.parse(authStore).state?.accessToken || 'demo-token';
         } catch (e) {}
       }
-      const res = await fetch('http://localhost:3000/api/v1/documents/fake-id/generate', {
+      const res = await fetch('/api/v1/documents/fake-id/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -116,7 +116,7 @@ export default function DocumentExplorer() {
           <Button data-testid="document-view-button" variant="ghost" size="icon" onClick={() => setPreviewId(doc.id)} title="Xem chi tiết">
             <Eye size={18} className="text-[#6366f1]" />
           </Button>
-          <Button data-testid="document-download-button" variant="ghost" size="icon" onClick={() => window.open(`http://localhost:3000/api/v1/documents/${doc.id}/download`, '_blank')} title="Tải xuống">
+          <Button data-testid="document-download-button" variant="ghost" size="icon" onClick={() => window.open(`/api/v1/documents/${doc.id}/download`, '_blank')} title="Tải xuống">
             <Download size={18} />
           </Button>
         </div>

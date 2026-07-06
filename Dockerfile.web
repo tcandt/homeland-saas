@@ -12,7 +12,10 @@ COPY packages/database/package.json ./packages/database/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/tsconfig/package.json ./packages/tsconfig/
 COPY packages/tsconfig/base.json ./packages/tsconfig/
-RUN npm install
+RUN npm install && \
+    mkdir -p /app/apps/web/node_modules \
+             /app/packages/database/node_modules \
+             /app/packages/shared/node_modules
 
 # Rebuild the source code only when needed
 FROM base AS builder

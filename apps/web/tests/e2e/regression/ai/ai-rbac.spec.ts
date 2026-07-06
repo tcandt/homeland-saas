@@ -1,4 +1,4 @@
-﻿import { expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 
 test.describe.configure({ mode: 'serial' });
@@ -18,7 +18,7 @@ test.describe('AI RBAC & Tool Permissions Regression Flow', () => {
     await page.getByTestId('ai-agent-selector').selectOption({ label: 'Finance Agent' }).catch(() => {});
     
     // Attempting to ask for finance report
-    await page.getByTestId('ai-message-input').fill('Cho tÃ´i xem bÃ¡o cÃ¡o tÃ i chÃ­nh thÃ¡ng nÃ y');
+    await page.getByTestId('ai-message-input').fill('Cho tôi xem báo cáo tài chính tháng này');
     
     // We add a route mock just in case the backend throws AI_PROVIDER_NOT_CONFIGURED before hitting the tool permission logic.
     // If we wanted a pure live test, we wouldn't mock. But since CI might not have a key, we mock to ensure the UI error state is tested.
@@ -41,7 +41,7 @@ test.describe('AI RBAC & Tool Permissions Regression Flow', () => {
     const errorBanner = page.getByTestId('ai-error-state');
     await expect(errorBanner).toBeVisible({ timeout: 15000 });
     const errorText = await errorBanner.textContent();
-    expect(errorText).toContain('khÃ´ng cÃ³ quyá»n');
+    expect(errorText).toContain('không có quyền');
 
     await page.unroute('**/api/v1/ai/chat');
   });
@@ -52,7 +52,7 @@ test.describe('AI RBAC & Tool Permissions Regression Flow', () => {
     await page.waitForLoadState('networkidle');
 
     await page.getByTestId('ai-agent-selector').selectOption({ label: 'Finance Agent' }).catch(() => {});
-    await page.getByTestId('ai-message-input').fill('Cho tÃ´i xem bÃ¡o cÃ¡o tÃ i chÃ­nh thÃ¡ng nÃ y');
+    await page.getByTestId('ai-message-input').fill('Cho tôi xem báo cáo tài chính tháng này');
     await page.getByTestId('ai-send-button').click();
 
     // It should either return a response, or Provider not configured error, but NOT a permission denied error.
@@ -66,7 +66,7 @@ test.describe('AI RBAC & Tool Permissions Regression Flow', () => {
 
     if (await errorBanner.isVisible()) {
       const errorText = await errorBanner.textContent();
-      expect(errorText).not.toContain('khÃ´ng cÃ³ quyá»n'); // Admin should not see permission denied
+      expect(errorText).not.toContain('không có quyền'); // Admin should not see permission denied
     }
   });
 });

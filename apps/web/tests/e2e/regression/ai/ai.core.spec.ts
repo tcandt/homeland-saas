@@ -1,4 +1,4 @@
-﻿import { expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 
 test.describe.configure({ mode: 'serial' });
@@ -37,7 +37,7 @@ test.describe('AI Core Regression Flow', () => {
     // Make sure we select an agent that can create tasks, like OperationsAgent
     await page.getByTestId('ai-agent-selector').selectOption({ label: 'Operations Agent' }).catch(() => {});
     
-    await page.getByTestId('ai-message-input').fill('Táº¡o task nháº¯c thu tiá»n phÃ²ng 101');
+    await page.getByTestId('ai-message-input').fill('Tạo task nhắc thu tiền phòng 101');
     await page.getByTestId('ai-send-button').click();
 
     // Check if the response creates a draft or error
@@ -57,7 +57,7 @@ test.describe('AI Core Regression Flow', () => {
     if (isErrorVisible) {
       console.log('Provider missing or error occurred, skipping draft safety UI check, but verifying DB mutation.');
       const errorText = await errorBanner.textContent();
-      expect(errorText).toContain('Lá»—i káº¿t ná»‘i AI');
+      expect(errorText).toContain('Lỗi kết nối AI');
     } else {
       // If AI is working, we expect a draft confirmation
       const isDraftVisible = await draftConfirmation.isVisible();
@@ -95,7 +95,7 @@ test.describe('AI Core Regression Flow', () => {
     await page.getByTestId('ai-send-button').click();
 
     await expect(page.getByTestId('ai-error-state')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId('ai-error-state')).toContainText('chÆ°a Ä‘Æ°á»£c cáº¥u hÃ¬nh');
+    await expect(page.getByTestId('ai-error-state')).toContainText('chưa được cấu hình');
     
     await page.unroute('**/api/v1/ai/chat');
   });

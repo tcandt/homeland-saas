@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'crypto';
 
-// BASE_URL relies on playwright.config.ts
+const BASE_URL = process.env.API_URL || 'http://127.0.0.1:3001';
 
 test.describe('Observability Foundation', () => {
   test('GET /api/v1/health returns x-correlation-id', async ({ request }) => {
-    const response = await request.get(`/api/v1/health`);
+    const response = await request.get(`${BASE_URL}/api/v1/health`);
     expect(response.ok()).toBeTruthy();
     
     // Check that correlation ID is generated and returned
@@ -17,7 +17,7 @@ test.describe('Observability Foundation', () => {
 
   test('Custom X-Correlation-ID is preserved', async ({ request }) => {
     const customId = `test-id-${randomUUID()}`;
-    const response = await request.get(`/api/v1/health`, {
+    const response = await request.get(`${BASE_URL}/api/v1/health`, {
       headers: {
         'x-correlation-id': customId
       }
@@ -31,7 +31,7 @@ test.describe('Observability Foundation', () => {
 
   test('Authenticated request log includes userId/tenantId', async ({ request }) => {
     const customId = `auth-test-${randomUUID()}`;
-    const response = await request.get(`/api/v1/reports/cashflow`, {
+    const response = await request.get(`${BASE_URL}/api/v1/reports/cashflow`, {
       headers: {
         'x-correlation-id': customId,
         'Authorization': 'Bearer test-token-if-applicable'

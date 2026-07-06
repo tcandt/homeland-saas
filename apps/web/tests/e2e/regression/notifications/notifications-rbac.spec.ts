@@ -1,4 +1,4 @@
-﻿import { expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 import { DataFactory } from '../../utils/data-factory';
 
@@ -58,7 +58,7 @@ test.describe('Notifications RBAC Regression', () => {
     expect(data).toBeInstanceOf(Array);
     
     // We should see the notification we triggered for admin
-    const hasAdminNotification = data.some((n: any) => n.title === 'ThÃ´ng bÃ¡o há»‡ thá»‘ng: Contract Expiring Soon' || n.type === 'SYSTEM_ALERT');
+    const hasAdminNotification = data.some((n: any) => n.title === 'Thông báo hệ thống: Contract Expiring Soon' || n.type === 'SYSTEM_ALERT');
     expect(hasAdminNotification).toBeTruthy();
   });
 
@@ -70,7 +70,7 @@ test.describe('Notifications RBAC Regression', () => {
     expect(data).toBeInstanceOf(Array);
     
     // Sales should NOT see Admin's notifications
-    const hasAdminNotification = data.some((n: any) => n.title === 'ThÃ´ng bÃ¡o há»‡ thá»‘ng: Contract Expiring Soon');
+    const hasAdminNotification = data.some((n: any) => n.title === 'Thông báo hệ thống: Contract Expiring Soon');
     expect(hasAdminNotification).toBeFalsy();
   });
 

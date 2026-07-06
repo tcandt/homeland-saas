@@ -68,7 +68,7 @@ test.describe('Documents Core Regression', () => {
 
     // 6. Security tests
     // 6.1 Download without JWT
-    const noJwtRes = await request.get(`/api/v1/documents/${docId}/download`);
+    const noJwtRes = await request.get(`http://127.0.0.1:3001/api/v1/documents/${docId}/download`);
     expect(noJwtRes.status()).toBe(401);
 
     // 6.2 Invalid Document ID

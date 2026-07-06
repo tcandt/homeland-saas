@@ -4,7 +4,7 @@ export class DataFactory {
   constructor(private request: APIRequestContext, private token?: string) {}
 
   private async post(endpoint: string, data: any) {
-    const url = endpoint;
+    const url = endpoint.startsWith('http') ? endpoint : `http://127.0.0.1:3000${endpoint}`;
     const headers: any = { 'Content-Type': 'application/json' };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     
@@ -20,7 +20,7 @@ export class DataFactory {
   }
 
   private async delete(endpoint: string) {
-    const url = endpoint;
+    const url = endpoint.startsWith('http') ? endpoint : `http://127.0.0.1:3000${endpoint}`;
     const headers: any = {};
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     

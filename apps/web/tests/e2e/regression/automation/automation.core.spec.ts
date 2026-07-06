@@ -1,4 +1,4 @@
-﻿import { expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 import { DataFactory } from '../../utils/data-factory';
 

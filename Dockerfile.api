@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:26-alpine
 
 # Install wait-for-it equivalent, bash, and openssl for Prisma
 RUN apk add --no-cache bash netcat-openbsd openssl

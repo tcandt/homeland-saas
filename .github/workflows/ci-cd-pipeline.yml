@@ -178,13 +178,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Initialize CodeQL
+        id: codeql-init
         uses: github/codeql-action/init@v3
         with:
           languages: javascript, typescript
+        continue-on-error: true
       - name: Perform CodeQL Analysis
+        if: steps.codeql-init.outcome == 'success'
         uses: github/codeql-action/analyze@v3
         with:
           output: security/codeql.sarif
+      - name: CodeQL Capability Check
+        if: steps.codeql-init.outcome != 'success'
+        run: echo "::warning title=CodeQL Blocked::GitHub Advanced Security is not enabled for this private repository. Marking CodeQL as BLOCKED."
       - name: Run npm audit
         run: npm audit --json > security/npm-audit.json || true
       - name: Install license-checker
@@ -471,8 +477,8 @@ jobs:
 
   rollback-staging:
     name: Rollback (Staging)
-    needs: [health-smoke-staging]
-    if: failure()
+    needs: [deploy-staging, health-smoke-staging]
+    if: always() && needs.deploy-staging.result == 'success' && needs.health-smoke-staging.result == 'failure'
     runs-on: ubuntu-latest
     steps:
       - name: Rollback on VPS

@@ -177,20 +177,26 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check CodeQL Capability
+        id: check-codeql
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}/code-scanning/alerts || echo "500")
+          if [ "$HTTP_STATUS" = "403" ] || [ "$HTTP_STATUS" = "404" ]; then
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "::warning title=CodeQL Blocked::GitHub Advanced Security is not enabled for this private repository. Marking CodeQL as BLOCKED."
+          else
+            echo "enabled=true" >> $GITHUB_OUTPUT
+          fi
       - name: Initialize CodeQL
-        id: codeql-init
+        if: steps.check-codeql.outputs.enabled == 'true'
         uses: github/codeql-action/init@v3
         with:
           languages: javascript, typescript
-        continue-on-error: true
       - name: Perform CodeQL Analysis
-        if: steps.codeql-init.outcome == 'success'
+        if: steps.check-codeql.outputs.enabled == 'true'
         uses: github/codeql-action/analyze@v3
         with:
           output: security/codeql.sarif
-      - name: CodeQL Capability Check
-        if: steps.codeql-init.outcome != 'success'
-        run: echo "::warning title=CodeQL Blocked::GitHub Advanced Security is not enabled for this private repository. Marking CodeQL as BLOCKED."
       - name: Run npm audit
         run: npm audit --json > security/npm-audit.json || true
       - name: Install license-checker

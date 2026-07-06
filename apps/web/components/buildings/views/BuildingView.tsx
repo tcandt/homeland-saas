@@ -256,8 +256,13 @@ export default function BuildingView({ building, onSelectNode, onEditBuilding, o
                   onClick={() => toggleFloor(floor.id)}
                 >
                   <div className="flex items-center gap-3">
-                    <button className="w-6 h-6 flex items-center justify-center bg-background border border-border rounded-[6px] text-muted">
-                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    <button 
+                      aria-label={isExpanded ? 'Thu gọn tầng' : 'Mở rộng tầng'}
+                      aria-expanded={isExpanded}
+                      title={isExpanded ? 'Thu gọn' : 'Mở rộng'}
+                      className="w-6 h-6 flex items-center justify-center bg-background border border-border rounded-[6px] text-muted"
+                    >
+                      {isExpanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
                     </button>
                     <span className="font-black text-[15px] text-text">Tầng {floor.number}</span>
                     <span className="text-[12px] font-bold text-muted bg-background px-2 py-0.5 rounded-full border border-border">{floor.rooms.length} phòng</span>

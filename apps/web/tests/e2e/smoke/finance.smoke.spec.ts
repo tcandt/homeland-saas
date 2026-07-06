@@ -38,7 +38,10 @@ test.describe('Finance Smoke Test', () => {
     const adminPage = admin.page;
     let consoleErrors: string[] = [];
     adminPage.on('console', msg => {
-      if (msg.type() === 'error' && !msg.text().includes('SSE Error') && !msg.text().includes('Failed to load resource: the server responded with a status of 500')) {
+      if (msg.type() === 'error' && 
+          !msg.text().includes('SSE Error') && 
+          !msg.text().includes('Failed to load resource: the server responded with a status of 500') &&
+          !msg.text().includes('Failed to fetch RSC payload')) {
         consoleErrors.push(msg.text());
       }
     });

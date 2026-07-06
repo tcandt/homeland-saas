@@ -37,6 +37,7 @@ import { CommunicationModule } from './communication/communication.module';
 import { DocumentsModule } from './documents/documents.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { v4 as uuidv4 } from 'uuid';
+import { RepositoriesModule } from './shared/repositories/repositories.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { v4 as uuidv4 } from 'uuid';
       isGlobal: true,
       load: [appConfig, authConfig],
     }),
+    RepositoriesModule,
     LoggerModule.forRootAsync({
       useFactory: () => {
         const { ClsServiceManager } = require('nestjs-cls');

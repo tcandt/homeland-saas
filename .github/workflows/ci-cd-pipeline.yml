@@ -177,15 +177,14 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-      # - name: Initialize CodeQL
-      #   uses: github/codeql-action/init@v3
-      #   with:
-      #     languages: javascript, typescript
-      # - name: Perform CodeQL Analysis
-      #   uses: github/codeql-action/analyze@v3
-      #   with:
-      #     output: security/codeql.sarif
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, typescript
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          output: security/codeql.sarif
       - name: Run npm audit
         run: npm audit --json > security/npm-audit.json || true
       - name: Install license-checker
@@ -274,10 +273,10 @@ jobs:
         run: npx playwright test tests/e2e/smoke
       - name: Run E2E Regression Tests
         working-directory: apps/web
-        run: echo "No E2E Regression tests specified"
+        run: npx playwright test tests/e2e/regression
       - name: Run E2E Acceptance Tests
         working-directory: apps/web
-        run: echo "No E2E Acceptance tests specified"
+        run: npx playwright test tests/e2e/acceptance
         
       - name: Upload Test Results
         if: always()

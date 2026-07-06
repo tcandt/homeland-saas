@@ -52,7 +52,7 @@ rbacTest.describe('Level 3 - Network Chaos Suite', () => {
   rbacTest('1. Dashboard - 500 Server Error Recovery', async ({ admin }) => {
     // Mock 500 error for dashboard
     await admin.page.route('**/api/v1/dashboard', route => {
-      route.fulfill({ status: 500, body: 'Internal Server Error' });
+      route.fulfill({ status: 500, headers: { 'x-intentional-error': 'true' }, body: 'Internal Server Error' });
     });
 
     await admin.page.goto('/');
@@ -150,7 +150,7 @@ rbacTest.describe('Level 3 - Network Chaos Suite', () => {
     // We simulate SSE disconnect for notifications stream
     await admin.page.route('**/api/v1/notifications/stream', route => {
       // Return a 503 to simulate SSE unavailability
-      route.fulfill({ status: 503, body: 'Service Unavailable' });
+      route.fulfill({ status: 503, headers: { 'x-intentional-error': 'true' }, body: 'Service Unavailable' });
     });
 
     // Mock dashboard to avoid 401 redirect during the test

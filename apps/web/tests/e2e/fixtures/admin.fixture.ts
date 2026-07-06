@@ -33,7 +33,7 @@ export const test = base.extend<{ admin: AdminFixture }>({
       
       // Block SSE to prevent networkidle from hanging due to open EventSource
       await page.route('**/api/v1/notifications/stream*', async (route) => {
-        await route.fulfill({ status: 503 });
+        await route.fulfill({ status: 503, headers: { 'x-intentional-error': 'true' } });
       });
       
       // Read token and user from localStorage inside the saved state
@@ -71,7 +71,7 @@ export const test = base.extend<{ admin: AdminFixture }>({
       
       // Block SSE to prevent networkidle from hanging due to open EventSource
       await page.route('**/api/v1/notifications/stream*', async (route) => {
-        await route.fulfill({ status: 503 });
+        await route.fulfill({ status: 503, headers: { 'x-intentional-error': 'true' } });
       });
       
       // Go to base URL so we can set localStorage

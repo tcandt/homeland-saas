@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { ClsService } from 'nestjs-cls';
+import { AuditAction } from '@prisma/client';
 
 @Injectable()
 export class AuditService {
@@ -10,7 +11,7 @@ export class AuditService {
   ) {}
 
   async log(params: {
-    action: string;
+    action: AuditAction;
     entity: string;
     entityId?: string;
     before?: any;

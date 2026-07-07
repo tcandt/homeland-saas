@@ -45,7 +45,7 @@ export class AuthService {
       throw new UnauthorizedException({ code: ErrorCodes.AUTH_INVALID_CREDENTIALS, message: 'Invalid credentials' });
     }
 
-    if (!user.isActive) {
+    if (user.status !== 'ACTIVE') {
       await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', entityId: user.id, module: 'Auth', before: { reason: 'Account disabled' }});
       throw new UnauthorizedException({ code: 'AUTH_ACCOUNT_DISABLED', message: 'Account is disabled' });
     }
@@ -78,11 +78,16 @@ export class AuthService {
       expiresIn: this.configService.get('auth.jwtRefreshExpiresIn'),
     });
 
-    // TODO: if schema supports it, save refreshTokenHash and lastLoginAt
-    // await this.prisma.user.update({
-    //   where: { id: user.id },
-    //   data: { lastLoginAt: new Date(), refreshTokenHash: await bcrypt.hash(refreshToken, 10) }
-    // });
+    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { 
+        lastLoginAt: new Date(), 
+        lastLoginIp: ip,
+        lastUserAgent: userAgent,
+        refreshTokenHash: hashedRefreshToken 
+      }
+    });
 
     await this.audit.log({
       action: 'LOGIN_SUCCESS',
@@ -108,8 +113,10 @@ export class AuthService {
   }
 
   async logout(userId: string) {
-    // TODO: if schema supports it, nullify the refreshTokenHash
-    // await this.prisma.user.update({ where: { id: userId }, data: { refreshTokenHash: null } });
+    await this.prisma.user.update({ 
+      where: { id: userId }, 
+      data: { refreshTokenHash: null } 
+    });
 
     await this.audit.log({
       action: 'LOGOUT_SUCCESS',
@@ -134,11 +141,18 @@ export class AuthService {
         }
       });
 
-      if (!user || !user.isActive) {
+      if (!user || user.status !== 'ACTIVE') {
         throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_INVALID, message: 'Invalid token or user inactive' });
       }
 
-      // TODO: if schema supports it, verify the refreshTokenHash
+      if (!user.refreshTokenHash) {
+        throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_INVALID, message: 'Refresh token has been revoked' });
+      }
+
+      const isRefreshTokenValid = await bcrypt.compare(refreshToken, user.refreshTokenHash);
+      if (!isRefreshTokenValid) {
+        throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_INVALID, message: 'Invalid refresh token' });
+      }
 
       const roles = user.roles.map(ur => ur.role.code);
       const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
@@ -148,7 +162,11 @@ export class AuthService {
       const newAccessToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
       const newRefreshToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
 
-      // TODO: if schema supports it, save the newRefreshTokenHash
+      const newHashedRefreshToken = await bcrypt.hash(newRefreshToken, 10);
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { refreshTokenHash: newHashedRefreshToken }
+      });
 
       return {
         accessToken: newAccessToken,

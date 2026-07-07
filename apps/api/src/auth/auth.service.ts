@@ -127,7 +127,7 @@ export class AuthService {
       throw new Error('ADMIN role not found in database. Seed required.');
     }
 
-    const tenantCode = `TENANT-${Date.now().toString(36).toUpperCase()}`;
+    const tenantCode = `TENANT-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
     const passwordHash = await bcrypt.hash(input.password, 12);
 
     const user = await this.prisma.$transaction(async (tx) => {

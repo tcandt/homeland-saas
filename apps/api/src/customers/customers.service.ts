@@ -31,7 +31,14 @@ export class CustomersService extends BaseCrudService<Customer> {
       ];
     }
     if (status) {
-      where.status = status;
+      // Map status enum to Contract relation queries
+      if (status === 'ACTIVE' || status === 'Đang thuê') {
+        where.contracts = { some: { status: 'ACTIVE' } };
+      } else if (status === 'INACTIVE' || status === 'Đã trả phòng') {
+        where.contracts = { none: { status: 'ACTIVE' } };
+      } else if (status === 'DEBT' || status === 'Đang nợ') {
+        where.invoices = { some: { status: 'OVERDUE' } };
+      }
     }
 
     const orderBy = { [sort || 'createdAt']: order || 'desc' };

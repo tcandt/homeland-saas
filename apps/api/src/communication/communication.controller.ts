@@ -1,7 +1,7 @@
 import { Controller, Get, Patch, Param, Post, Sse, MessageEvent, UseGuards, Req, Delete, Body, ForbiddenException } from '@nestjs/common';
 import { CommunicationService } from './communication.service';
 import { PrismaService } from '../prisma.service';
-import { Observable, interval } from 'rxjs';
+import { Observable, interval, timer } from 'rxjs';
 import { map, switchMap } from 'rxjs/operators';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -45,8 +45,8 @@ export class CommunicationController {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
     
-    // Fallback/Simulated SSE using rxjs interval
-    return interval(5000).pipe(
+    // Fallback/Simulated SSE using rxjs timer to emit immediately then every 5s
+    return timer(0, 5000).pipe(
       switchMap(async () => {
         const count = await this.prisma.notification.count({
           where: { tenantId, userId, channel: 'IN_APP', status: { in: ['CREATED', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED'] } }

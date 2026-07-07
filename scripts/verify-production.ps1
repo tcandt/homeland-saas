@@ -30,7 +30,8 @@ Write-Host "3. Building API..."
 npm run build --workspace=api
 if ($LASTEXITCODE -ne 0) { throw "API Build Failed" }
 
-Write-Host "4. Building Web..."
+Write-Host "4. Building Web..." -ForegroundColor Cyan
+$env:NEXT_PUBLIC_API_URL = "http://127.0.0.1:3001/api/v1"
 npm run build --workspace=web
 if ($LASTEXITCODE -ne 0) { throw "Web Build Failed" }
 

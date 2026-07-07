@@ -110,7 +110,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
     // SSE connection
     const token = localStorage.getItem('token');
-    const sse = new EventSource(`/api/v1/notifications/stream?token=${token}`);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
+    const sse = new EventSource(`${apiUrl}/notifications/stream?token=${token}`);
     
     sse.onmessage = (event) => {
        try {

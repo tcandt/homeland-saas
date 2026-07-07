@@ -12,9 +12,9 @@ export default defineConfig({
         ],
     use: {
           baseURL: 'http://127.0.0.1:3000',
-          trace: 'retain-on-failure',
-          video: 'retain-on-failure',
-          screenshot: 'only-on-failure',
+          trace: 'on',
+          video: 'on',
+          screenshot: 'on',
           actionTimeout: 15000,
           navigationTimeout: 30000,
     },

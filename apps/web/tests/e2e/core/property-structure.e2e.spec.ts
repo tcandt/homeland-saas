@@ -1,16 +1,16 @@
 import { expect } from '@playwright/test';
 import { test } from '../fixtures/rbac.fixture';
 import { Page } from '@playwright/test';
+import { EvidenceCollector } from '../helpers/evidence';
 
 test.describe('Property Structure E2E: Building -> Floor -> Room Lifecycle', () => {
   test.setTimeout(60000);
 
   test('Full CRUD Flow: Create Building -> Create Floor -> Create Room -> Edit -> Delete -> Reload', async ({ admin }) => {
     const page = admin.page;
-    page.on('pageerror', err => console.log(`[PAGE ERROR] ${err.message}`));
-    page.on('console', msg => {
-      if (msg.type() === 'error') console.log(`[BROWSER ERROR] ${msg.text()}`);
-    });
+    
+    const evidence = new EvidenceCollector(page, 'property-crud');
+    await evidence.start();
     
     // Go to property explorer
     await page.goto('http://127.0.0.1:3000/buildings');
@@ -73,6 +73,14 @@ test.describe('Property Structure E2E: Building -> Floor -> Room Lifecycle', () 
     // Verify UI reflects the room
     await expect(page.getByText(`P.${roomName}`).first()).toBeVisible({ timeout: 12000 });
 
+    // ----- DB SNAPSHOT (AFTER CREATE) -----
+    await evidence.captureDbSnapshot('db-after-create', async () => {
+      return evidence.getPrisma().room.findFirst({
+        where: { name: roomName },
+        include: { floor: true }
+      });
+    });
+
     // ----- VERIFY PERSISTENCE (RELOAD) -----
     await page.reload();
     await page.waitForLoadState('networkidle');
@@ -115,5 +123,14 @@ test.describe('Property Structure E2E: Building -> Floor -> Room Lifecycle', () 
     page.once('dialog', dialog => dialog.accept());
     await page.getByTestId('delete-building-button').first().click({ force: true });
     await buildingNode.waitFor({ state: 'detached', timeout: 5000 });
+
+    // ----- DB SNAPSHOT (AFTER DELETE) -----
+    await evidence.captureDbSnapshot('db-after-delete', async () => {
+      return evidence.getPrisma().room.findFirst({
+        where: { name: roomName }
+      });
+    });
+
+    await evidence.stopAndVerifyNoErrors();
   });
 });

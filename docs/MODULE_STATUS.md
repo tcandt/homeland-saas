@@ -17,5 +17,6 @@
   - RBAC UI & API Enforcement (Admin vs Sales)
   - Tenant Data Separation in UI & API
   - Error Flows & Input Validation (E2E PASS)
+  - **Evidence Collection Tooling (VERIFIED)**: Playwright correctly captures DB Snapshots, Traces, and Console errors.
 * **Missing**: 
   - UI Create/Edit/Delete forms for Floors & Rooms

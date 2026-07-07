@@ -1,4 +1,4 @@
-﻿# Evidence Requirements
+# Evidence Requirements
 
 Every module MUST produce a verifiable **Evidence Package** after each E2E test run. Logging "PASS" in terminal output is strictly prohibited as a final measure of success.
 
@@ -28,4 +28,4 @@ artifacts/
 \\\
 
 ## Policy vs Tooling
-This policy is established first. Tooling (e.g., \playwright.config.ts\) will be updated in subsequent iterations to enforce this standard automatically.
+This policy is established first. The tooling (`EvidenceCollector`) has been implemented in `apps/web/tests/e2e/helpers/evidence.ts` to enforce this standard automatically by capturing DB snapshots and asserting 0 console errors. Playwright config (`playwright.config.ts`) has been updated to force `trace`, `video`, and `screenshot` on.

@@ -4,6 +4,7 @@ This document tracks the actual **Runtime Verification Evidence** for the Proper
 
 Status options: ✅ (Verified with Evidence), ❌ (Failed), ⚠️ (Partial/WIP), UNKNOWN (Missing Evidence).
 
+*Note: Evidence Collection Tooling (EvidenceCollector) has been successfully implemented and verified. Playwright now automatically captures DB snapshots, console logs, and traces.*
 ## 1. Core UI Runtime Flow
 | Requirement | Flow | Evidence | Status |
 | --- | --- | --- | --- |

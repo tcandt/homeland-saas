@@ -54,7 +54,7 @@ export default defineConfig({
               use: { ...devices['iPhone 11'], viewport: { width: 375, height: 667 } },
       }
         ],
-    webServer: [
+    webServer: process.env.VERIFY_PROD ? undefined : [
       {
               command: 'npm run start',
               url: 'http://127.0.0.1:3000',

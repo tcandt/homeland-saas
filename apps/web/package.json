@@ -9,6 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
+    "test:e2e:prod": "cross-env VERIFY_PROD=1 playwright test tests/e2e/core/property-structure.e2e.spec.ts --project=\"Desktop 1920\"",
     "test": "vitest run app.test.ts"
   },
   "dependencies": {

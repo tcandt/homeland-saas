@@ -20,11 +20,15 @@ Evidence MUST be stored logically by module and timestamp:
 \\\
 artifacts/
   <module>/
-    YYYY-MM-DD/
-      playwright-report/
-      trace.zip
-      video.webm
-      ...
+    production/       <--- MUST separate production verification from dev-mode
+      YYYY-MM-DD/
+        playwright-report/
+        trace.zip
+        video.webm
+        ...
+    dev/
+      YYYY-MM-DD/
+        ...
 \\\
 
 ## Policy vs Tooling

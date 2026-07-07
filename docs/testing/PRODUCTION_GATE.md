@@ -1,18 +1,25 @@
-﻿# Production Gate
+# Production Gate
 
 The Production Gate defines the absolute threshold for a module to be declared PRODUCTION READY. 
 Passing a standard Playwright E2E test is **not enough**. 
 
 ## Module Status Definitions
 
-- **PRODUCTION CANDIDATE**: A module that has passed local UI/API Runtime CRUD verification, but has not yet met the full Evidence Package, DB, Performance, Concurrency, and Staging requirements.
-- **PRODUCTION READY**: A module that has satisfied all 14 steps of the Verification Pipeline and has full Evidence Packages stored for its scenarios.
+- **PRODUCTION CANDIDATE**: A module that has passed local UI/API Runtime CRUD verification **AND local Production Build Verification**, but has not yet met the full Evidence Package, DB, Performance, Concurrency, and Staging/CI requirements.
+- **PRODUCTION READY**: A module that has satisfied all 14 steps of the Verification Pipeline, including full CI/Staging evidence.
+
+## 5-Phase Reliability Roadmap
+1. **Production Build Verification**: All tests must run against the optimized production bundle (`npm run start`), eliminating Next.js HMR/dev server noise.
+2. **Production Smoke Suite**: Dedicated `*.production.spec.ts` suite running strictly without mocks or dev tools.
+3. **Evidence Score Engine**: Systematically scoring the Evidence Package (0-100%).
+4. **Concurrency**: Robust testing against race conditions (e.g., dual edits, simultaneous check-ins).
+5. **Stress / Performance**: Benchmarking at volume (e.g., 1000s of rooms/contracts).
 
 ### Property Module Status
 Currently, the Property Module remains:
 - **Production Candidate** ✅
 - **Production Ready** ❌
-*Reason: Runtime CRUD passed locally, but DB evidence package, performance, concurrency, staging, and CI evidence are still missing.*
+- **Production Build Verification**: PENDING (Local script implemented)
 
 ## 14-Step Verification Pipeline
 

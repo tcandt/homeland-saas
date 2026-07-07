@@ -251,7 +251,7 @@ export default function MasterDetailBuildings() {
     if (confirm("Bạn có chắc chắn muốn xóa phòng này?")) {
       deleteRoom.mutate(roomId, {
         onSuccess: () => {
-          const currentFloor = activeBuilding.floors.find(f => f.rooms.some(r => r.id === roomId));
+          const currentFloor = activeBuilding.floors.find((f: Floor) => f.rooms.some((r: Room) => r.id === roomId));
           if (currentFloor) {
             setSelectedNode({ type: "floor", buildingId: activeBuilding.id, floorId: currentFloor.id });
           } else {

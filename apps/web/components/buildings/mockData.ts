@@ -1,4 +1,5 @@
-export type RoomStatus = "AVAILABLE" | "RENTED" | "RESERVED" | "MAINTENANCE" | "UNAVAILABLE";
+export type RoomStatus = "vacant" | "occupied" | "expiring_soon" | "deposited" | "maintenance";
+export type RoomType = "1PN" | "2PN" | "Studio" | "Office" | "Dorm";
 
 export interface Tenant {
   id: string;
@@ -63,6 +64,10 @@ export interface Room {
   id: string;
   name: string;
   code: string;
+  number: string;
+  type: RoomType;
+  rentalType: "whole" | "shared";
+  price: number;
   status: RoomStatus;
   monthlyPrice: number;
   area?: number;
@@ -167,10 +172,13 @@ const generateRooms = (floorNumber: number, buildingId: string): Room[] => {
 
     const baseRoom: Room = {
       id,
+      name: `Phòng ${roomNum}`,
+      code: `R${roomNum}`,
       number: roomNum,
       status,
       type,
       price: basePrice,
+      monthlyPrice: basePrice,
       area,
       capacity,
       images: [

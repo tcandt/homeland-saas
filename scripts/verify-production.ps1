@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 
 Write-Host "============================================="
 Write-Host "   Phase 1: Production Build Verification    "
@@ -34,11 +34,13 @@ Write-Host "4. Building Web..."
 npm run build --workspace=web
 if ($LASTEXITCODE -ne 0) { throw "Web Build Failed" }
 
-Write-Host "5. Starting API production server..."
-$apiProcess = Start-Process -FilePath "npm" -ArgumentList "run start:prod --workspace=api" -PassThru -WindowStyle Hidden
+Write-Host "5. Starting API production server..." -ForegroundColor Cyan
+$npmCmd = if ($IsWindows -or $env:OS -match "Windows") { "npm.cmd" } else { "npm" }
+$apiProcess = Start-Process -FilePath $npmCmd -ArgumentList "run start:prod --workspace=api" -PassThru -NoNewWindow
+Start-Sleep -Seconds 3
 
-Write-Host "6. Starting Web production server..."
-$webProcess = Start-Process -FilePath "npm" -ArgumentList "run start --workspace=web" -PassThru -WindowStyle Hidden
+Write-Host "6. Starting Web production server..." -ForegroundColor Cyan
+$webProcess = Start-Process -FilePath $npmCmd -ArgumentList "run start --workspace=web" -PassThru -NoNewWindow
 
 function Wait-For-HealthCheck {
     param([string]$Url, [int]$Retries = 30)

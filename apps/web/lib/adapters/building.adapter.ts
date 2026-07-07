@@ -32,11 +32,22 @@ export const adaptFloor = (apiFloor: any, allRooms: any[] = []): Floor => {
 };
 
 export const adaptRoom = (apiRoom: any): Room => {
+  // Map Prisma status to UI status temporarily
+  let uiStatus = "vacant" as any;
+  if (apiRoom.status === "OCCUPIED") uiStatus = "occupied";
+  else if (apiRoom.status === "MAINTENANCE") uiStatus = "maintenance";
+  else if (apiRoom.status === "RESERVED") uiStatus = "deposited";
+  else if (apiRoom.status === "AVAILABLE") uiStatus = "vacant";
+
   return {
     id: apiRoom.id,
-    name: apiRoom.name,
+    name: apiRoom.name || apiRoom.code,
     code: apiRoom.code,
-    status: apiRoom.status || "AVAILABLE",
+    number: apiRoom.name || apiRoom.code,
+    type: "1PN",
+    rentalType: "whole",
+    price: Number(apiRoom.monthlyPrice) || 0,
+    status: uiStatus,
     monthlyPrice: Number(apiRoom.monthlyPrice) || 0,
     area: apiRoom.area,
     capacity: apiRoom.capacity,

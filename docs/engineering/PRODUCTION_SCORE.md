@@ -1,12 +1,99 @@
 # Production Score
 
-| Module | Score | Status | Last Verified |
-| ------ | ----- | ------ | ------------- |
-| Buildings | 85% | LOCAL VERIFIED | 2026-07-08 |
-| Floors | 85% | LOCAL VERIFIED | 2026-07-08 |
-| Rooms | 85% | LOCAL VERIFIED | 2026-07-08 |
-| Auth | 90% | VERIFIED | — |
-| Customer | 40% | PARTIAL | — |
-| **Overall** | **~55%** | — | — |
+> Last updated: 2026-07-08
+> Rule: PRODUCTION READY requires 100% of all gates. PRODUCTION CANDIDATE requires core gates only.
 
-> Note: 85% reflects missing performance tests and UI Floors/Rooms CRUD forms. Full 100% requires Phase 2–5 completion.
+---
+
+## Property Structure (Buildings / Floors / Rooms)
+
+| Gate | Status | Evidence |
+|------|--------|---------|
+| Backend API | ✅ VERIFIED | Unit + Integration PASS |
+| Frontend UI (basic CRUD) | ✅ VERIFIED | Playwright E2E via testId clicks |
+| Persistence | ✅ VERIFIED | DB Snapshot before/after via Prisma |
+| Runtime | ✅ VERIFIED | No ErrorBoundary, no console errors |
+| Production Build | ✅ VERIFIED | `npm run verify:prod` 1/1 PASS 2026-07-08 |
+| RBAC | ✅ VERIFIED | Admin vs Sales enforcement |
+| Tenant Isolation | ✅ VERIFIED | API + UI separation confirmed |
+| Audit Log | ✅ VERIFIED | Create/Update/Delete events logged |
+| Smoke | ⏳ PENDING | — |
+| Regression | ⏳ PENDING | — |
+| Acceptance | ⏳ PENDING | — |
+| Concurrency | ⏳ PENDING | — |
+| Performance | ⏳ PENDING | — |
+| Security | ⏳ PENDING | Full pen test not run |
+| Premium UI (Floor/Room detail panel) | ⏳ PENDING | RoomPremiumModal uses mock data |
+| Business Flow (end-to-end SaaS) | ⏳ PENDING | BUSINESS_VERIFICATION_MATRIX not yet run |
+
+**Overall: `PRODUCTION CANDIDATE`** (not PRODUCTION READY)
+
+---
+
+## Authentication
+
+| Gate | Status | Evidence |
+|------|--------|---------|
+| Backend API | ✅ VERIFIED | — |
+| Frontend UI | ✅ VERIFIED | — |
+| Persistence | ✅ VERIFIED | — |
+| Runtime | ✅ VERIFIED | — |
+| Production Build | ✅ VERIFIED | — |
+| RBAC | ✅ VERIFIED | — |
+| Tenant Isolation | ✅ VERIFIED | — |
+| Smoke | ⏳ PENDING | — |
+| Performance | ⏳ PENDING | — |
+
+**Overall: `PRODUCTION CANDIDATE`**
+
+---
+
+## Customer (Tenants)
+
+| Gate | Status | Evidence |
+|------|--------|---------|
+| Backend API | ✅ VERIFIED | — |
+| Frontend UI | ⚠️ PARTIAL | List-only, no create/edit form |
+| Persistence | ✅ VERIFIED | — |
+| Runtime | ⚠️ PARTIAL | — |
+| Production Build | ⏳ PENDING | — |
+| RBAC | ✅ VERIFIED | — |
+| Business Flow | ⏳ PENDING | — |
+
+**Overall: `PARTIAL`**
+
+---
+
+## Contract / Invoice / Payment / Accounting / Dashboard / Reports
+
+| Module | Gate | Status |
+|--------|------|--------|
+| Contract | Backend API | ⏳ NOT STARTED |
+| Contract | Frontend UI | ⏳ NOT STARTED |
+| Invoice | Backend API | ⏳ NOT STARTED |
+| Payment | Backend API | ⏳ NOT STARTED |
+| Accounting | Backend API | ⏳ NOT STARTED |
+| Dashboard | Frontend UI | ⏳ NOT STARTED |
+| Reports | Frontend UI | ⏳ NOT STARTED |
+
+**Overall: `NOT VERIFIED`**
+
+---
+
+## Global Summary
+
+| Module | Score | Status |
+|--------|-------|--------|
+| Authentication | 85% | PRODUCTION CANDIDATE |
+| Property (Building/Floor/Room) | 75% | PRODUCTION CANDIDATE |
+| Customer | 40% | PARTIAL |
+| Contract | 0% | NOT STARTED |
+| Invoice | 0% | NOT STARTED |
+| Payment | 0% | NOT STARTED |
+| Accounting | 0% | NOT STARTED |
+| Dashboard | 0% | NOT STARTED |
+| Reports | 0% | NOT STARTED |
+| **Overall SaaS** | **~20%** | **NOT PRODUCTION READY** |
+
+> **PRODUCTION READY** = 100% Business Verification Matrix complete + all gates green.
+> **PRODUCTION CANDIDATE** = Core gates verified, pending Smoke/Regression/Business Flow.

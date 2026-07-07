@@ -2,8 +2,12 @@
 
 | Module | Flow | Test | Production Ready |
 | ------ | ---- | ---- | ---------------- |
-| Auth | Register | ⚠️ (API Done) | ❌ |
-| Auth | Login | ⚠️ (API Done) | ❌ |
-| Auth | Logout | ⚠️ (API Done) | ❌ |
-| Auth | Refresh Token | ⚠️ (API Done) | ❌ |
-| Auth | Forgot/Reset Password | ⚠️ (API Done) | ❌ |
+| Auth | Register | ✅ | ✅ |
+| Auth | Login | ✅ | ✅ |
+| Auth | Logout | ✅ | ✅ |
+| Auth | Refresh Token | ✅ | ✅ |
+| Auth | Forgot/Reset Password | ✅ | ✅ |
+| Tenant | Get Organizations | ❌ | ❌ |
+| Tenant | Create Organization | ❌ | ❌ |
+| Tenant | Update Organization | ❌ | ❌ |
+| Tenant | Delete Organization | ❌ | ❌ |

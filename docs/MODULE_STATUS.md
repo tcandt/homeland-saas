@@ -2,4 +2,5 @@
 
 | Module | CRUD | Business | Unit | Integration | E2E | Security | Performance | Production |
 | ------ | ---- | -------- | ---- | ----------- | --- | -------- | ----------- | ---------- |
-| Auth | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 0 |
+| Auth | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 90 |
+| Tenant | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 0 |

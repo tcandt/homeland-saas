@@ -54,9 +54,7 @@ export class RoomsService extends BaseCrudService<Room> {
     
     const activeContractCount = (room as any)._count?.contracts || 0;
     
-    const mockCount = await (this.repository as any).count?.() || 0;
-    
-    if (activeContractCount > 0 || mockCount > 0) {
+    if (activeContractCount > 0) {
       const { HttpException, HttpStatus } = await import('@nestjs/common');
       throw new HttpException('Cannot delete room with active contracts', HttpStatus.CONFLICT);
     }

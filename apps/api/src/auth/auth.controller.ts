@@ -1,7 +1,7 @@
 import { Controller, Post, Body, Get, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema } from '@homeland/shared';
+import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema, RegisterSchema } from '@homeland/shared';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { Public } from '../shared/decorators/public.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
@@ -24,6 +24,18 @@ export class AuthController {
     const ip = req.ip || req.connection?.remoteAddress;
     const userAgent = req.headers['user-agent'];
     return this.authService.login(input, ip, userAgent);
+  }
+
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @Post('register')
+  @ApiOperation({ summary: 'Register a new tenant and user' })
+  @ApiResponse({ status: 201, description: 'Returns access token and refresh token' })
+  register(@Body() body: any, @Req() req: Request) {
+    const input = RegisterSchema.parse(body);
+    const ip = req.ip || req.connection?.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    return this.authService.register(input, ip, userAgent);
   }
 
   @Post('logout')

@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
-import { LoginInput, ChangePasswordInput } from '@homeland/shared';
+import { LoginInput, ChangePasswordInput, RegisterInput } from '@homeland/shared';
 import { ErrorCodes } from '../shared/exceptions/error-codes';
 
 @Injectable()
@@ -91,6 +91,94 @@ export class AuthService {
 
     await this.audit.log({
       action: 'LOGIN_SUCCESS',
+      entity: 'User',
+      entityId: user.id,
+      module: 'Auth',
+      tenantId: user.tenantId,
+      userId: user.id
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        tenantId: user.tenantId,
+        roles,
+        permissions,
+      }
+    };
+  }
+
+  async register(input: RegisterInput, ip?: string, userAgent?: string) {
+    const existingUser = await this.prisma.user.findFirst({
+      where: { email: input.email }
+    });
+
+    if (existingUser) {
+      throw new UnauthorizedException({ code: 'AUTH_EMAIL_EXISTS', message: 'Email is already registered' });
+    }
+
+    const adminRole = await this.prisma.role.findUnique({ where: { code: 'ADMIN' } });
+    if (!adminRole) {
+      throw new Error('ADMIN role not found in database. Seed required.');
+    }
+
+    const tenantCode = `TENANT-${Date.now().toString(36).toUpperCase()}`;
+    const passwordHash = await bcrypt.hash(input.password, 12);
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenantOrg.create({
+        data: {
+          name: `${input.fullName}'s Organization`,
+          code: tenantCode,
+        }
+      });
+
+      return tx.user.create({
+        data: {
+          email: input.email,
+          fullName: input.fullName,
+          passwordHash,
+          tenantId: tenant.id,
+          status: 'ACTIVE', // Ideally PENDING_VERIFICATION, but for MVP keep ACTIVE
+          roles: {
+            create: {
+              roleId: adminRole.id
+            }
+          }
+        },
+        include: {
+          tenant: true,
+          roles: {
+            include: { role: { include: { permissions: { include: { permission: true } } } } }
+          }
+        }
+      });
+    });
+
+    const roles = user.roles.map(ur => ur.role.code);
+    const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
+
+    const payload = { sub: user.id, tenantId: user.tenantId, email: user.email, roles, permissions };
+    const accessToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
+    const refreshToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
+    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { 
+        lastLoginAt: new Date(), 
+        lastLoginIp: ip,
+        lastUserAgent: userAgent,
+        refreshTokenHash: hashedRefreshToken 
+      }
+    });
+
+    await this.audit.log({
+      action: 'REGISTER',
       entity: 'User',
       entityId: user.id,
       module: 'Auth',

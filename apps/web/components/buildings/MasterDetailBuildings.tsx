@@ -92,7 +92,7 @@ export default function MasterDetailBuildings() {
   };
 
   // Helper: Get active building/floor
-  const activeBuilding = buildings.find(b => b.id === selectedNode.buildingId);
+  const activeBuilding = buildings.find((b: Building) => b.id === selectedNode.buildingId);
 
   // -------------------- BUILDINGS CRUD --------------------
   const handleOpenAddBuilding = () => {
@@ -161,7 +161,7 @@ export default function MasterDetailBuildings() {
 
   const handleOpenEditFloor = (floorId: string) => {
     if (!activeBuilding) return;
-    const floor = activeBuilding.floors.find(f => f.id === floorId);
+    const floor = activeBuilding.floors.find((f: Floor) => f.id === floorId);
     if (!floor) return;
     setFNumber(floor.number);
     setFNotes(floor.notes || "");

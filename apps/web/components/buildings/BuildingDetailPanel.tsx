@@ -78,7 +78,7 @@ export default function BuildingDetailPanel({
              <span className="hover:text-text transition-colors ml-1" onClick={() => onSelectNode({ type: "floor", buildingId: building.id, floorId: floor?.id })}>Tầng {floor?.number}</span> /
           </div>
           <div className="flex items-center justify-between">
-            <h2 className="font-black text-[28px] text-text tracking-tighter">Phòng P.{room?.number}</h2>
+            <h2 className="font-black text-[28px] text-text tracking-tighter">Phòng P.{room?.name}</h2>
             <Button 
               onClick={() => room && onOpenRoomModal(room.id)}
               className="shadow-[0_4px_14px_0_rgb(99,102,241,0.39)] hover:shadow-lg"

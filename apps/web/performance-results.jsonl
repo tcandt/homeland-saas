@@ -1,0 +1,14 @@
+{"route":"/documents","ttfb":14,"lcp":516,"domContentLoaded":198,"jsErrors":0,"consoleErrors":0}
+{"route":"/","ttfb":8,"lcp":412,"domContentLoaded":35,"jsErrors":0,"consoleErrors":2}
+{"route":"/buildings","ttfb":9,"lcp":660,"domContentLoaded":46,"jsErrors":0,"consoleErrors":2}
+{"route":"/finance","ttfb":18,"lcp":636,"domContentLoaded":116,"jsErrors":0,"consoleErrors":2}
+{"route":"/notifications","ttfb":9,"lcp":464,"domContentLoaded":37,"jsErrors":0,"consoleErrors":2}
+{"route":"/ai","ttfb":10,"lcp":216,"domContentLoaded":39,"jsErrors":0,"consoleErrors":0}
+{"route":"/automation","ttfb":9,"lcp":144,"domContentLoaded":28,"jsErrors":0,"consoleErrors":3}
+{"route":"/documents","ttfb":12,"lcp":576,"domContentLoaded":204,"jsErrors":0,"consoleErrors":0}
+{"route":"/","ttfb":14,"lcp":400,"domContentLoaded":52,"jsErrors":0,"consoleErrors":2}
+{"route":"/buildings","ttfb":12,"lcp":836,"domContentLoaded":51,"jsErrors":0,"consoleErrors":2}
+{"route":"/ai","ttfb":50,"lcp":612,"domContentLoaded":249,"jsErrors":0,"consoleErrors":0}
+{"route":"/finance","ttfb":16,"lcp":540,"domContentLoaded":66,"jsErrors":0,"consoleErrors":2}
+{"route":"/automation","ttfb":67,"lcp":728,"domContentLoaded":328,"jsErrors":0,"consoleErrors":2}
+{"route":"/notifications","ttfb":65,"lcp":880,"domContentLoaded":328,"jsErrors":0,"consoleErrors":2}

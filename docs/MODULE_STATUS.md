@@ -4,3 +4,6 @@
 | ------ | ---- | -------- | ---- | ----------- | --- | -------- | ----------- | ---------- |
 | Auth | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 90 |
 | Customer (Tenants) | ⚠️ (Read-Only) | ✅ | ✅ | ❌ | ⚠️ (List-Only) | ✅ | ❌ | PARTIAL |
+| Buildings | ⚠️ (Read-Only) | ✅ | ❌ | ❌ | ⚠️ (List-Only) | ✅ | ❌ | PARTIAL |
+| Floors | ⚠️ (Read-Only) | ✅ | ❌ | ❌ | ⚠️ (List-Only) | ✅ | ❌ | PARTIAL |
+| Rooms | ⚠️ (Read-Only) | ✅ | ❌ | ❌ | ⚠️ (List-Only) | ✅ | ❌ | PARTIAL |

@@ -4,50 +4,57 @@ import { FloorResponse } from '../api/floors.api';
 import { RoomResponse } from '../api/rooms.api';
 
 // Map API building to UI building
-export const adaptBuilding = (apiBuilding: BuildingResponse): Building => {
+export const adaptBuilding = (apiBuilding: any): Building => {
   return {
     id: apiBuilding.id,
-    name: apiBuilding.name,
-    address: apiBuilding.address,
+    name: apiBuilding.name || apiBuilding.code,
+    address: apiBuilding.address || "Chưa có địa chỉ",
     images: apiBuilding.images && apiBuilding.images.length > 0 ? apiBuilding.images : [
       "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&h=600&fit=crop"
     ],
     notes: apiBuilding.notes,
-    status: apiBuilding.status,
-    floors: (apiBuilding.floors || []).map(f => adaptFloor(f))
+    status: apiBuilding.deletedAt ? "inactive" : "active",
+    floors: (apiBuilding.floors || []).map((f: any) => adaptFloor(f, apiBuilding.rooms || []))
   };
 };
 
-export const adaptFloor = (apiFloor: any): Floor => {
+export const adaptFloor = (apiFloor: any, allRooms: any[] = []): Floor => {
+  // If the backend returned rooms flattened on the building, we need to filter them for this floor
+  const floorRooms = apiFloor.rooms || allRooms.filter((r: any) => r.floorId === apiFloor.id);
+  
   return {
     id: apiFloor.id,
-    number: apiFloor.number,
-    notes: apiFloor.notes,
-    rooms: (apiFloor.rooms || []).map((r: any) => adaptRoom(r))
+    number: apiFloor.level || apiFloor.number || 1,
+    notes: apiFloor.usageNote || apiFloor.notes,
+    rooms: floorRooms.map((r: any) => adaptRoom(r))
   };
 };
 
 export const adaptRoom = (apiRoom: any): Room => {
+  let uiStatus = "vacant";
+  if (apiRoom.status === "MAINTENANCE") uiStatus = "maintenance";
+  else if (apiRoom.status === "OCCUPIED") uiStatus = "occupied";
+  
   return {
     id: apiRoom.id,
-    number: apiRoom.code || apiRoom.name || apiRoom.number,
-    status: apiRoom.status || 'vacant',
-    type: apiRoom.type as any || 'Studio',
-    price: apiRoom.price || 0,
-    area: apiRoom.area || 0,
+    number: apiRoom.name || apiRoom.code,
+    status: uiStatus as any,
+    type: "Studio", // Backend does not have type yet
+    price: Number(apiRoom.monthlyPrice) || 0,
+    area: apiRoom.area || 25,
     capacity: apiRoom.capacity || 2,
-    images: apiRoom.images && apiRoom.images.length > 0 ? apiRoom.images : [
+    images: [
       "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&h=450&fit=crop"
     ],
-    rentalType: apiRoom.rentalType || 'whole',
+    rentalType: "whole", // Backend does not have rentalType yet
     notes: apiRoom.notes,
     tenant: apiRoom.tenant,
-    roommates: apiRoom.roommates || [],
+    roommates: [],
     contract: apiRoom.contract,
-    invoices: apiRoom.invoices || [],
-    paymentHistory: apiRoom.paymentHistory || [],
-    debt: apiRoom.debt || 0,
-    sharedTenants: apiRoom.sharedTenants || [],
-    attachments: apiRoom.attachments || []
+    invoices: [],
+    paymentHistory: [],
+    debt: 0,
+    sharedTenants: [],
+    attachments: []
   };
 };

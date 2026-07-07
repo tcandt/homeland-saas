@@ -8,12 +8,8 @@ export const useBuildingsQuery = (params?: any) => {
     queryKey: ['buildings', params],
     queryFn: async () => {
       const response = await buildingsApi.list(params);
-      // Fetch full details to get floors and rooms for KPI calculations
       const items = Array.isArray(response) ? response : (response as any).items || [];
-      const detailedBuildings = await Promise.all(
-        items.map((b: any) => buildingsApi.getDetail(b.id))
-      );
-      return detailedBuildings.map(adaptBuilding);
+      return items.map(adaptBuilding);
     },
   });
 };

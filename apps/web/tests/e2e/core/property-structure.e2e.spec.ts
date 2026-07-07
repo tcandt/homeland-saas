@@ -1,54 +1,119 @@
-import { test, expect } from '@playwright/test';
-import { BuildingsPage } from '../pages/BuildingsPage';
-import { test as adminTest } from '../fixtures/admin.fixture';
+import { expect } from '@playwright/test';
+import { test } from '../fixtures/rbac.fixture';
+import { Page } from '@playwright/test';
 
-adminTest.describe('Property Structure CRUD', () => {
-  adminTest('A-Z Flow: Create, Edit, Delete Building/Floor/Room', async ({ admin }) => {
+test.describe('Property Structure E2E: Building -> Floor -> Room Lifecycle', () => {
+  test.setTimeout(60000);
+
+  test('Full CRUD Flow: Create Building -> Create Floor -> Create Room -> Edit -> Delete -> Reload', async ({ admin }) => {
     const page = admin.page;
-    // 1. Setup mock API for buildings list
-    await page.route('**/api/v1/buildings', async (route) => {
-      if (route.request().method() === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            data: {
-              items: [],
-              total: 0
-            }
-          })
-        });
-      } else {
-        route.continue();
-      }
+    page.on('pageerror', err => console.log(`[PAGE ERROR] ${err.message}`));
+    page.on('console', msg => {
+      if (msg.type() === 'error') console.log(`[BROWSER ERROR] ${msg.text()}`);
     });
+    
+    // Go to property explorer
+    await page.goto('http://127.0.0.1:3000/buildings');
+    await page.waitForLoadState('networkidle');
+    
+    console.log('Current URL:', page.url());
+    if (page.url().includes('/login')) {
+      console.log('AUTH FAILED - redirected to login');
+      // taking a screenshot could help, but log is enough for now
+    }
+    
+    // ----- CREATE BUILDING -----
+    const buildingName = `Test Building Structure ${Date.now()}`;
+    const buildingCode = `TB-${Date.now().toString().slice(-4)}`;
 
-    // 2. Navigate to buildings page
-    const buildingsPage = new BuildingsPage(page);
-    await buildingsPage.goto();
+    await page.getByTestId('add-building-button').locator('visible=true').first().click();
+    await page.fill('input[data-testid="bname-input"]', buildingName);
+    await page.fill('input[data-testid="bcode-input"]', buildingCode);
+    await page.fill('input[data-testid="baddress-input"]', '123 E2E Street');
+    await page.getByTestId('save-button').locator('visible=true').first().click();
+
+    // Verify UI reflects the change (wait for it to exist instead of strict visible)
+    const buildingNode = page.locator('.scrollbar-hide').getByText(buildingName).first();
+    await buildingNode.waitFor({ state: 'attached' });
     await page.waitForLoadState('networkidle');
 
-    // 3. Verify + Tòa nhà button is present
-    await expect(buildingsPage.addBuildingButton).toBeVisible();
+    // Building is auto-selected after creation, wait for Quick Actions / Add Floor button
+    await page.waitForSelector('text=Tài chính', { state: 'attached' });
 
-    // Since we are not doing a full backend end-to-end integration yet, we just verify the modals can open.
-    // In a true e2e test we'd fill the form and intercept the POST request.
+    // ----- CREATE FLOOR -----
+    await page.getByTestId('add-floor-button').locator('visible=true').first().click();
+    await page.fill('input[data-testid="floor-name-input"]', '1');
+    await page.getByTestId('save-button').locator('visible=true').first().click();
+
+    // Wait for the FloorView to be loaded (auto-selected after creation)
+    await page.waitForTimeout(2000); // give it time to render/refetch
+    await page.screenshot({ path: 'floor-created.png' });
+    await page.waitForSelector('[data-testid="add-room-button"]', { state: 'attached' });
+
+    // ----- CREATE ROOM -----
+    const roomIdStr = Date.now().toString().slice(-6);
+    const roomName = `101-${roomIdStr}`;
     
-    // 4. Open Add Building Modal
-    await buildingsPage.addBuildingButton.click();
-    await expect(page.getByTestId('bname-input')).toBeVisible();
-    await page.getByTestId('bname-input').fill('Test Building 123');
-    await page.getByTestId('baddress-input').fill('123 Test St');
+    await page.getByTestId('add-room-button').locator('visible=true').first().click();
+    await page.fill('input[data-testid="room-name-input"]', roomName);
+    await page.fill('input[data-testid="room-code-input"]', roomName);
+    await page.fill('input[data-testid="room-price-input"]', '8000000');
+    await page.fill('input[data-testid="room-capacity-input"]', '4');
+
+    await page.screenshot({ path: 'test-results/before-room-save.png' });
+    await page.getByTestId('save-button').locator('visible=true').first().click();
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: 'test-results/after-room-save.png' });
     
-    // We expect a save button
-    const saveBtn = page.getByTestId('save-button');
-    await expect(saveBtn).toBeVisible();
+    await page.waitForTimeout(3000);
+    const htmlContent = await page.content();
+    require('fs').writeFileSync('test-results/page-content-before-timeout.html', htmlContent);
+    await page.screenshot({ path: 'test-results/screenshot-before-timeout.png', fullPage: true });
+
+    // Verify UI reflects the room
+    await expect(page.getByText(`P.${roomName}`).first()).toBeVisible({ timeout: 12000 });
+
+    // ----- VERIFY PERSISTENCE (RELOAD) -----
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
+    // Re-select building and floor to see the room
+    const treeNode = page.locator(`[data-testid^="building-node-"]`, { hasText: buildingName }).first();
+    await treeNode.click();
     
-    // We can't easily assert the successful POST if the backend isn't there and we haven't mocked it.
-    // We will just close the modal for now to verify the UI interaction.
-    await page.getByRole('button', { name: 'Hủy bỏ' }).click();
+    await page.getByText('Tầng 1').first().click();
+
+    const roomNode = page.getByText(`P.${roomName}`).first();
+    await roomNode.waitFor({ state: 'attached' });
+
+    // ----- EDIT ROOM -----
+    await page.getByTestId('edit-room-button').first().click({ force: true });
+    await page.waitForSelector('text=Thông tin cơ bản phòng', { state: 'visible' });
     
-    // 5. Assert modal is closed
-    await expect(page.getByTestId('bname-input')).toBeHidden();
+    // Change price
+    await page.fill('input[type="number"]', '9000000');
+    await page.getByText('Lưu thay đổi').first().click();
+    // Wait for the modal to close and state to settle
+    await page.waitForTimeout(1000); 
+
+    // Delete Room
+    page.once('dialog', dialog => dialog.accept());
+    await page.getByTestId('delete-room-button').first().click({ force: true });
+    await roomNode.waitFor({ state: 'detached', timeout: 5000 });
+
+    // Delete Floor
+    await buildingNode.click({ force: true });
+    await page.waitForTimeout(500); // Wait for transition
+    const floorNode = page.locator('text=Tầng 1').first();
+    page.once('dialog', dialog => dialog.accept());
+    await page.getByTestId('delete-floor-button').first().click({ force: true });
+    await floorNode.waitFor({ state: 'detached', timeout: 5000 });
+
+    // Delete Building
+    await page.getByTestId('edit-building-button').first().click();
+    await page.waitForTimeout(500); // Wait for modal
+    page.once('dialog', dialog => dialog.accept());
+    await page.getByTestId('delete-building-button').first().click({ force: true });
+    await buildingNode.waitFor({ state: 'detached', timeout: 5000 });
   });
 });

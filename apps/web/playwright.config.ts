@@ -70,6 +70,7 @@ export default defineConfig({
               timeout: 120 * 1000,
               stdout: 'pipe',
               stderr: 'pipe',
+              env: { THROTTLER_LIMIT: '9999' }
       }
         ],
 });

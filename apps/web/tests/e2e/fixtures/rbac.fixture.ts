@@ -19,15 +19,16 @@ const getAuthFilePath = (role: string) => {
 };
 
 const createRoleFixture = (email: string, roleName: string) => {
-  return async ({ browser, request }: any, use: any) => {
+  return async ({ browser, request, baseURL }: any, use: any) => {
     let page: Page;
     let context;
     let token = '';
     let user = null;
     const authFile = getAuthFilePath(roleName);
+    const finalBaseURL = baseURL || 'http://127.0.0.1:3000';
 
-    if (fs.existsSync(authFile)) {
-      context = await browser.newContext({ storageState: authFile });
+    if (false) {
+      context = await browser.newContext({ storageState: authFile, baseURL: finalBaseURL });
       page = await context.newPage();
       
       // Block SSE to prevent networkidle from hanging due to open EventSource
@@ -45,7 +46,7 @@ const createRoleFixture = (email: string, roleName: string) => {
         user = authStore.state?.user;
       }
     } else {
-      const response = await request.post('/api/v1/auth/login', {
+      const response = await request.post(`${finalBaseURL}/api/v1/auth/login`, {
         data: {
           emailOrPhone: email,
           password: 'Homeland@123456'
@@ -62,7 +63,7 @@ const createRoleFixture = (email: string, roleName: string) => {
       token = authData.accessToken;
       user = authData.user;
       
-      context = await browser.newContext();
+      context = await browser.newContext({ baseURL: finalBaseURL });
       page = await context.newPage();
       
       // Block SSE to prevent networkidle from hanging due to open EventSource

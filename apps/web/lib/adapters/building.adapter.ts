@@ -8,6 +8,7 @@ export const adaptBuilding = (apiBuilding: any): Building => {
   return {
     id: apiBuilding.id,
     name: apiBuilding.name || apiBuilding.code,
+    code: apiBuilding.code,
     address: apiBuilding.address || "Chưa có địa chỉ",
     images: apiBuilding.images && apiBuilding.images.length > 0 ? apiBuilding.images : [
       "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&h=600&fit=crop"
@@ -31,22 +32,18 @@ export const adaptFloor = (apiFloor: any, allRooms: any[] = []): Floor => {
 };
 
 export const adaptRoom = (apiRoom: any): Room => {
-  let uiStatus = "vacant";
-  if (apiRoom.status === "MAINTENANCE") uiStatus = "maintenance";
-  else if (apiRoom.status === "OCCUPIED") uiStatus = "occupied";
-  
   return {
     id: apiRoom.id,
-    number: apiRoom.name || apiRoom.code,
-    status: uiStatus as any,
-    type: "Studio", // Backend does not have type yet
-    price: Number(apiRoom.monthlyPrice) || 0,
-    area: apiRoom.area || 25,
-    capacity: apiRoom.capacity || 2,
+    name: apiRoom.name,
+    code: apiRoom.code,
+    status: apiRoom.status || "AVAILABLE",
+    monthlyPrice: Number(apiRoom.monthlyPrice) || 0,
+    area: apiRoom.area,
+    capacity: apiRoom.capacity,
+    bedCount: apiRoom.bedCount,
     images: [
       "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&h=450&fit=crop"
     ],
-    rentalType: "whole", // Backend does not have rentalType yet
     notes: apiRoom.notes,
     tenant: apiRoom.tenant,
     roommates: [],

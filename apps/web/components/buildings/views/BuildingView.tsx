@@ -6,6 +6,7 @@ import { SelectedNode } from "../MasterDetailBuildings";
 import { ChevronRight, ChevronDown, Layers, Users, Home, Plus, Settings, DollarSign, AlertCircle, ShieldAlert, FileText, ClipboardList, MapPin, Edit, Trash2 } from "lucide-react";
 import RoomCardV7 from "./RoomCardV7"; // We will create this component next
 import { Button } from "../../ui/Button";
+import { usePermissions } from '@/lib/hooks/usePermissions';
 
 interface Props {
   building: Building;
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export default function BuildingView({ building, onSelectNode, onEditBuilding, onAddFloor, onAddRoomQuick, onOpenRoomModal, onEditFloor, onDeleteFloor }: Props) {
+  const permissions = usePermissions();
   // Compute metrics dynamically from rooms
   let totalRooms = 0;
   let occupiedRooms = 0;
@@ -121,12 +123,16 @@ export default function BuildingView({ building, onSelectNode, onEditBuilding, o
           <p className="text-[13px] text-muted font-medium flex items-center gap-1.5 mt-1"><MapPin size={14} /> {building.address}</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={onEditBuilding} data-testid="edit-building-button">
-            Cấu hình Tòa nhà
-          </Button>
-          <Button onClick={onAddFloor} data-testid="add-floor-button">
-            <Plus size={16} className="mr-1.5" /> Thêm Tầng
-          </Button>
+          {permissions.canUpdateBuilding && (
+            <Button variant="outline" onClick={onEditBuilding} data-testid="edit-building-button">
+              Cấu hình Tòa nhà
+            </Button>
+          )}
+          {permissions.canCreateFloor && (
+            <Button onClick={onAddFloor} data-testid="add-floor-button">
+              <Plus size={16} className="mr-1.5" /> Thêm Tầng
+            </Button>
+          )}
         </div>
       </div>
 
@@ -268,8 +274,8 @@ export default function BuildingView({ building, onSelectNode, onEditBuilding, o
                     <span className="text-[12px] font-bold text-muted bg-background px-2 py-0.5 rounded-full border border-border">{floor.rooms.length} phòng</span>
                     
                     <div className="flex items-center gap-1 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={(e) => { e.stopPropagation(); onEditFloor(floor.id); }} className="w-6 h-6 flex items-center justify-center hover:bg-[#6366f1]/10 text-[#6366f1] rounded-[6px] transition-colors" title="Sửa tầng"><Edit size={12}/></button>
-                      <button onClick={(e) => { e.stopPropagation(); onDeleteFloor(floor.id); }} className="w-6 h-6 flex items-center justify-center hover:bg-rose-500/10 text-rose-500 rounded-[6px] transition-colors" title="Xóa tầng"><Trash2 size={12}/></button>
+                      <button data-testid="edit-floor-button" onClick={(e) => { e.stopPropagation(); onEditFloor(floor.id); }} className="w-6 h-6 flex items-center justify-center hover:bg-[#6366f1]/10 text-[#6366f1] rounded-[6px] transition-colors" title="Sửa tầng"><Edit size={12}/></button>
+                      <button data-testid="delete-floor-button" onClick={(e) => { e.stopPropagation(); onDeleteFloor(floor.id); }} className="w-6 h-6 flex items-center justify-center hover:bg-rose-500/10 text-rose-500 rounded-[6px] transition-colors" title="Xóa tầng"><Trash2 size={12}/></button>
                     </div>
                   </div>
                   

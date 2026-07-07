@@ -71,9 +71,9 @@ async function main() {
 
   // Grant to Manager
   const managerPerms = createdPermissions.filter(p => 
-    p.key.startsWith('building.') || 
-    p.key.startsWith('floor.') || 
-    p.key.startsWith('room.') || 
+    (p.key.startsWith('building.') && p.key !== 'building.delete') || 
+    (p.key.startsWith('floor.') && p.key !== 'floor.delete') || 
+    (p.key.startsWith('room.') && p.key !== 'room.delete') || 
     p.key.startsWith('customer.') || 
     p.key.startsWith('contract.') || 
     p.key.startsWith('deposit.') || 

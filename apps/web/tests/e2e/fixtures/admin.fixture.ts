@@ -16,7 +16,7 @@ type AdminFixture = {
 const authFileBase = path.join(__dirname, '../../.auth/admin');
 
 export const test = base.extend<{ admin: AdminFixture }>({
-  admin: async ({ browser, request }, use) => {
+  admin: async ({ browser, request, baseURL }, use) => {
     let page: Page;
     let context;
     let token = '';
@@ -25,10 +25,11 @@ export const test = base.extend<{ admin: AdminFixture }>({
     // State file path for caching login per worker to avoid race conditions
     const workerIndex = process.env.TEST_WORKER_INDEX || '0';
     const authFile = `${authFileBase}-${workerIndex}.json`;
+    const finalBaseURL = baseURL || 'http://127.0.0.1:3000';
 
     // Check if we already have a cached state
     if (fs.existsSync(authFile)) {
-      context = await browser.newContext({ storageState: authFile });
+      context = await browser.newContext({ storageState: authFile, baseURL: finalBaseURL });
       page = await context.newPage();
       
       // Block SSE to prevent networkidle from hanging due to open EventSource
@@ -49,7 +50,7 @@ export const test = base.extend<{ admin: AdminFixture }>({
     } else {
       // Not cached, we need to log in via API or UI. 
       // For fixture, API login is faster, but let's just log in via API and save state
-      const response = await request.post('/api/v1/auth/login', {
+      const response = await request.post(`${finalBaseURL}/api/v1/auth/login`, {
         data: {
           emailOrPhone: 'admin@homeland.local',
           password: 'Homeland@123456'
@@ -66,7 +67,7 @@ export const test = base.extend<{ admin: AdminFixture }>({
       user = authData.user;
       
       // Create context with token injected to localStorage
-      context = await browser.newContext();
+      context = await browser.newContext({ baseURL: finalBaseURL });
       page = await context.newPage();
       
       // Block SSE to prevent networkidle from hanging due to open EventSource

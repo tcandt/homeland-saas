@@ -16,6 +16,9 @@ import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
+import { toast } from "sonner";
+import { useQueryClient } from '@tanstack/react-query';
+import { usePermissions } from '@/lib/hooks/usePermissions';
 
 export type NodeType = "building" | "floor" | "room";
 
@@ -29,6 +32,7 @@ export interface SelectedNode {
 export default function MasterDetailBuildings() {
   // API Queries & Mutations
   const { data: buildings = [], isLoading } = useBuildingsQuery();
+  const permissions = usePermissions();
   const createBuilding = useCreateBuildingMutation();
   const updateBuilding = useUpdateBuildingMutation();
   const deleteBuilding = useDeleteBuildingMutation();
@@ -63,6 +67,7 @@ export default function MasterDetailBuildings() {
 
   // Building form state
   const [bName, setBName] = useState("");
+  const [bCode, setBCode] = useState("");
   const [bAddress, setBAddress] = useState("");
   const [bNotes, setBNotes] = useState("");
   const [bStatus, setBStatus] = useState<"active" | "inactive">("active");
@@ -72,13 +77,12 @@ export default function MasterDetailBuildings() {
   const [fNotes, setFNotes] = useState("");
 
   // Room form state
-  const [rNumber, setRNumber] = useState("");
-  const [rType, setRType] = useState<"1PN" | "2PN" | "Studio" | "Office" | "Dorm">("Studio");
+  const [rName, setRName] = useState("");
+  const [rCode, setRCode] = useState("");
   const [rPrice, setRPrice] = useState(5000000);
   const [rArea, setRArea] = useState(25);
   const [rCapacity, setRCapacity] = useState(2);
-  const [rStatus, setRStatus] = useState<"vacant" | "occupied" | "deposited" | "expiring_soon" | "maintenance">("vacant");
-  const [rRentalType, setRRentalType] = useState<"whole" | "shared">("whole");
+  const [rNotes, setRNotes] = useState("");
 
   // Handlers for room modal
   const openRoomModal = (roomId: string, initialTab: string = "overview") => {
@@ -93,6 +97,7 @@ export default function MasterDetailBuildings() {
   // -------------------- BUILDINGS CRUD --------------------
   const handleOpenAddBuilding = () => {
     setBName("");
+    setBCode("");
     setBAddress("");
     setBNotes("");
     setBStatus("active");
@@ -102,6 +107,7 @@ export default function MasterDetailBuildings() {
   const handleOpenEditBuilding = () => {
     if (!activeBuilding) return;
     setBName(activeBuilding.name);
+    setBCode(activeBuilding.code || "");
     setBAddress(activeBuilding.address);
     setBNotes(activeBuilding.notes || "");
     setBStatus(activeBuilding.status);
@@ -109,10 +115,11 @@ export default function MasterDetailBuildings() {
   };
 
   const handleSaveBuilding = () => {
-    if (!bName || !bAddress) return;
+    if (!bName || !bAddress || !bCode) return;
     if (activeDialog === "addBuilding") {
       createBuilding.mutate({
         name: bName,
+        code: bCode,
         address: bAddress,
         notes: bNotes,
         status: bStatus,
@@ -125,7 +132,7 @@ export default function MasterDetailBuildings() {
     } else if (activeDialog === "editBuilding" && activeBuilding) {
       updateBuilding.mutate({
         id: activeBuilding.id,
-        data: { name: bName, address: bAddress, notes: bNotes, status: bStatus }
+        data: { name: bName, code: bCode, address: bAddress, notes: bNotes, status: bStatus }
       }, {
         onSuccess: () => setActiveDialog(null)
       });
@@ -168,7 +175,7 @@ export default function MasterDetailBuildings() {
     if (activeDialog === "editFloor" && dialogTargetFloorId) {
       updateFloor.mutate({
         id: dialogTargetFloorId,
-        data: { name: `Tầng ${fNumber}`, level: fNumber, notes: fNotes }
+        data: { name: `Tầng ${fNumber}`, level: fNumber, usageNote: fNotes }
       }, {
         onSuccess: () => setActiveDialog(null)
       });
@@ -177,7 +184,7 @@ export default function MasterDetailBuildings() {
         buildingId: activeBuilding.id,
         name: `Tầng ${fNumber}`,
         level: fNumber,
-        notes: fNotes
+        usageNote: fNotes
       }, {
         onSuccess: (data) => {
           setSelectedNode({ type: "floor", buildingId: activeBuilding.id, floorId: data.id });
@@ -199,13 +206,12 @@ export default function MasterDetailBuildings() {
   // -------------------- ROOMS CRUD --------------------
   const handleOpenAddRoom = (floorId: string) => {
     setDialogTargetFloorId(floorId);
-    setRNumber("");
-    setRType("Studio");
+    setRName("");
+    setRCode("");
     setRPrice(5000000);
     setRArea(25);
     setRCapacity(2);
-    setRStatus("vacant");
-    setRRentalType("whole");
+    setRNotes("");
     setActiveDialog("addRoom");
   };
 
@@ -218,19 +224,15 @@ export default function MasterDetailBuildings() {
   };
 
   const handleSaveRoom = () => {
-    if (!activeBuilding || !dialogTargetFloorId || !rNumber) return;
+    if (!activeBuilding || !dialogTargetFloorId || !rName || !rCode) return;
     
     createRoom.mutate({
       buildingId: activeBuilding.id,
       floorId: dialogTargetFloorId,
-      name: rNumber,
-      code: rNumber,
-      type: rType,
+      name: rName,
+      code: rCode,
       monthlyPrice: rPrice,
-      area: rArea,
-      capacity: rCapacity,
-      status: rStatus,
-      rentalType: rRentalType
+      capacity: rCapacity
     }, {
       onSuccess: (data) => {
         setSelectedNode({ 
@@ -287,13 +289,15 @@ export default function MasterDetailBuildings() {
       <div className="w-full lg:w-[280px] xl:w-[320px] shrink-0 h-auto lg:h-full flex flex-col bg-card/40 backdrop-blur-md border border-border/60 rounded-[16px] overflow-hidden shadow-sm">
         <div className="hidden lg:flex items-center justify-between p-4 border-b border-border/50 bg-black/[0.02] dark:bg-white/[0.02]">
           <h2 className="font-bold text-[12px] text-text uppercase tracking-widest">Danh mục tài sản</h2>
-          <button 
-            data-testid="add-building-button"
-            onClick={handleOpenAddBuilding}
-            className="text-[#6366f1] hover:text-[#4f46e5] text-[11px] font-black uppercase tracking-wider flex items-center gap-0.5"
-          >
-            + Tòa nhà
-          </button>
+          {permissions.canCreateBuilding && (
+            <button 
+              data-testid="add-building-button"
+              onClick={handleOpenAddBuilding}
+              className="text-[#6366f1] hover:text-[#4f46e5] text-[11px] font-black uppercase tracking-wider flex items-center gap-0.5"
+            >
+              <Plus className="w-3 h-3" /> Thêm Tòa Nhà
+            </button>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-hide p-3 max-h-[250px] lg:max-h-none">
           <BuildingExplorerTree 
@@ -364,9 +368,10 @@ export default function MasterDetailBuildings() {
           }
           footer={
             <div className="flex items-center justify-end gap-3 w-full">
-              {activeDialog === "editBuilding" && (
+              {activeDialog === "editBuilding" && permissions.canDeleteBuilding && (
                 <Button 
                   variant="outline"
+                  data-testid="delete-building-button"
                   onClick={() => {
                     handleDeleteBuilding(activeBuilding!.id);
                     setActiveDialog(null);
@@ -408,6 +413,15 @@ export default function MasterDetailBuildings() {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-muted uppercase">Mã tòa nhà</label>
+                  <Input 
+                    data-testid="bcode-input"
+                    placeholder="VD: BD-001" 
+                    value={bCode} 
+                    onChange={(e) => setBCode(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-muted uppercase">Địa chỉ chi tiết</label>
                   <Input 
                     data-testid="baddress-input"
@@ -443,8 +457,9 @@ export default function MasterDetailBuildings() {
             {(activeDialog === "addFloor" || activeDialog === "editFloor") && (
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-muted uppercase">Số tầng</label>
+                  <label className="text-xs font-semibold text-muted uppercase">Tên Tầng / Số tầng</label>
                   <Input 
+                    data-testid="floor-name-input"
                     type="number" 
                     value={fNumber} 
                     onChange={(e) => setFNumber(Number(e.target.value))}
@@ -461,41 +476,25 @@ export default function MasterDetailBuildings() {
               </div>
             )}
 
-            {/* Room Form */}
             {activeDialog === "addRoom" && (
               <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-muted uppercase">Số phòng / Mã phòng</label>
-                  <Input 
-                    placeholder="VD: 101, 102, P.101" 
-                    value={rNumber} 
-                    onChange={(e) => setRNumber(e.target.value)}
-                  />
-                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs font-semibold text-muted uppercase">Loại phòng</label>
-                    <Select 
-                      value={rType} 
-                      onChange={(e) => setRType(e.target.value as any)}
-                      options={[
-                        { label: "Studio", value: "Studio" },
-                        { label: "1PN", value: "1PN" },
-                        { label: "2PN", value: "2PN" },
-                        { label: "Office", value: "Office" },
-                        { label: "Dorm (Ở ghép)", value: "Dorm" }
-                      ]}
+                    <label className="text-xs font-semibold text-muted uppercase">Tên phòng</label>
+                    <Input 
+                      data-testid="room-name-input"
+                      placeholder="VD: Phòng 101" 
+                      value={rName} 
+                      onChange={(e) => setRName(e.target.value)}
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs font-semibold text-muted uppercase">Hình thức thuê</label>
-                    <Select 
-                      value={rRentalType} 
-                      onChange={(e) => setRRentalType(e.target.value as any)}
-                      options={[
-                        { label: "Nguyên phòng", value: "whole" },
-                        { label: "Ở ghép / Dorm", value: "shared" }
-                      ]}
+                    <label className="text-xs font-semibold text-muted uppercase">Mã phòng</label>
+                    <Input 
+                      data-testid="room-code-input"
+                      placeholder="VD: P101" 
+                      value={rCode} 
+                      onChange={(e) => setRCode(e.target.value)}
                     />
                   </div>
                 </div>
@@ -503,6 +502,7 @@ export default function MasterDetailBuildings() {
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold text-muted uppercase">Giá thuê</label>
                     <Input 
+                      data-testid="room-price-input"
                       type="number" 
                       value={rPrice} 
                       onChange={(e) => setRPrice(Number(e.target.value))}
@@ -519,6 +519,7 @@ export default function MasterDetailBuildings() {
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold text-muted uppercase">Sức chứa</label>
                     <Input 
+                      data-testid="room-capacity-input"
                       type="number" 
                       value={rCapacity} 
                       onChange={(e) => setRCapacity(Number(e.target.value))}
@@ -526,17 +527,11 @@ export default function MasterDetailBuildings() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-muted uppercase">Trạng thái phòng</label>
-                  <Select 
-                    value={rStatus} 
-                    onChange={(e) => setRStatus(e.target.value as any)}
-                    options={[
-                      { label: "Trống", value: "vacant" },
-                      { label: "Đang thuê", value: "occupied" },
-                      { label: "Đặt cọc", value: "deposited" },
-                      { label: "Sắp hết hạn", value: "expiring_soon" },
-                      { label: "Bảo trì", value: "maintenance" }
-                    ]}
+                  <label className="text-xs font-semibold text-muted uppercase">Ghi chú</label>
+                  <Input 
+                    placeholder="Ghi chú về phòng..." 
+                    value={rNotes} 
+                    onChange={(e) => setRNotes(e.target.value)}
                   />
                 </div>
               </div>

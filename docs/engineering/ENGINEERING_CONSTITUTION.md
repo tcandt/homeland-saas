@@ -20,3 +20,23 @@ Evidence never follows Planning.
 4. One Root Cause = One Commit.
 5. Business Logic > Cosmetic UI.
 6. CI is a verifier, not a debugger.
+
+## New Production Gate
+Một module chỉ được chuyển sang **PRODUCTION READY** khi đủ toàn bộ:
+- [ ] Backend Unit
+- [ ] Backend Integration
+- [ ] API Contract
+- [ ] UI Runtime
+- [ ] E2E Business
+- [ ] DB Verification
+- [ ] Query Cache
+- [ ] RBAC
+- [ ] Tenant Isolation
+- [ ] Audit Runtime
+- [ ] Error Flow
+- [ ] Performance
+- [ ] Accessibility
+- [ ] Security
+- [ ] Production Score ≥95
+
+Nếu thiếu 1 mục, Status: **PARTIAL**.

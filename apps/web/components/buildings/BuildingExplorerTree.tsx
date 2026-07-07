@@ -144,7 +144,7 @@ function RoomNode({ buildingId, floorId, room, selectedNode, onSelectNode }: { b
         <div className={`w-2 h-2 rounded-full ${getStatusColor(room.status)} shadow-sm`} />
       </div>
       <DoorOpen size={13} className={isSelected ? 'text-[#6366f1]' : 'text-muted'} />
-      <span className="text-[12px] font-medium">P.{room.number}</span>
+      <span className="text-[12px] font-medium">P.{room.name}</span>
     </div>
   );
 }

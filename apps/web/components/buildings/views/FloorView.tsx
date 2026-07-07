@@ -74,10 +74,11 @@ export default function FloorView({
           >
             <Trash2 size={14} className="mr-1.5" /> Xóa tầng
           </Button>
-          <Button 
-            onClick={() => onAddRoom(floor.id)}
-          >
-            <Plus size={14} className="mr-1.5" /> Thêm phòng mới
+            <Button 
+              data-testid="add-room-button"
+              onClick={() => onAddRoom(floor.id)}
+            >
+              <Plus size={16} className="mr-1.5" /> Thêm Phòng mới
           </Button>
         </div>
       </div>
@@ -107,15 +108,12 @@ export default function FloorView({
 
           // Occupancy count
           let occupantsCount = 0;
-          let occupantsMax = room.capacity;
+          let occupantsMax = room.capacity || 2;
           let tenantDisplay = "";
           
-          if (room.rentalType === "whole" && room.tenant) {
+          if (room.tenant) {
             occupantsCount = 1 + (room.roommates?.length ?? 0);
             tenantDisplay = room.tenant.name;
-          } else if (room.rentalType === "shared") {
-            occupantsCount = room.sharedTenants?.length ?? 0;
-            tenantDisplay = `${occupantsCount} khách ở ghép`;
           }
 
           return (
@@ -128,7 +126,7 @@ export default function FloorView({
                 {room.images && room.images.length > 0 ? (
                   <img 
                     src={room.images[0]} 
-                    alt={`P.${room.number}`} 
+                    alt={`P.${room.name}`} 
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
                   />
                 ) : (
@@ -153,7 +151,7 @@ export default function FloorView({
 
                 {/* Room Number Overlay */}
                 <div className="absolute bottom-3 left-4">
-                  <span className="font-black text-[24px] text-white tracking-tight leading-none">P.{room.number}</span>
+                  <span className="font-black text-[24px] text-white tracking-tight leading-none">P.{room.name}</span>
                 </div>
               </div>
 
@@ -188,7 +186,7 @@ export default function FloorView({
                 <div>
                   <div className="flex justify-between items-baseline mb-2">
                     <span className="text-[11px] font-black text-muted uppercase tracking-wider">Giá thuê tháng</span>
-                    <span className="font-black text-[16px] text-text">{room.price.toLocaleString('vi-VN')} đ{room.rentalType === 'shared' ? ' / giường' : ''}</span>
+                    <span className="font-black text-[16px] text-text">{room.monthlyPrice.toLocaleString('vi-VN')} đ</span>
                   </div>
 
                   <div className="flex items-center justify-between text-[12px] text-muted border-t border-border/40 pt-3">
@@ -210,7 +208,7 @@ export default function FloorView({
                       </div>
                       <span className="text-[12px] font-bold text-text truncate max-w-[180px]">{tenantDisplay}</span>
                       <span className="ml-auto text-[10px] font-black uppercase text-muted bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded-[4px]">
-                        {room.rentalType === "whole" ? "Nguyên phòng" : "Ở ghép"}
+                        Nguyên phòng
                       </span>
                     </div>
                   )}
@@ -220,7 +218,7 @@ export default function FloorView({
               {/* HOVER QUICK ACTIONS OVERLAY */}
               <div className="absolute inset-0 bg-background/95 dark:bg-card/95 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col p-4 justify-between z-10">
                 <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                  <span className="font-black text-[18px] text-text">P.{room.number} Quick Actions</span>
+                  <span className="font-black text-[18px] text-text">P.{room.name} Quick Actions</span>
                   <button 
                     onClick={() => onOpenRoomModal(room.id)}
                     className="w-[28px] h-[28px] rounded-full bg-black/5 dark:bg-white/5 hover:bg-[#6366f1]/10 hover:text-[#6366f1] transition-colors flex items-center justify-center"
@@ -231,6 +229,7 @@ export default function FloorView({
 
                 <div className="grid grid-cols-2 gap-2 my-auto">
                   <button 
+                    data-testid="edit-room-button"
                     onClick={() => onOpenRoomModal(room.id, "overview")}
                     className="flex items-center gap-1.5 bg-background hover:bg-black/5 dark:hover:bg-white/5 border border-border/60 rounded-[8px] p-2 text-[11px] font-bold text-text transition-colors"
                   >
@@ -263,10 +262,11 @@ export default function FloorView({
                 </div>
 
                 <div className="flex gap-2 border-t border-border/40 pt-2 shrink-0">
-                  <button 
-                    onClick={() => onDeleteRoom(room.id)}
-                    className="flex-1 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-500 rounded-[8px] py-1.5 text-[11px] font-bold transition-colors flex items-center justify-center gap-1"
-                  >
+                    <button 
+                      data-testid="delete-room-button"
+                      onClick={() => onDeleteRoom(room.id)}
+                      className="flex-1 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-500 rounded-[8px] py-1.5 text-[11px] font-bold transition-colors flex items-center justify-center gap-1"
+                    >
                     <Trash2 size={12} /> Xóa phòng
                   </button>
                   <button 

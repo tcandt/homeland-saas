@@ -1,12 +1,19 @@
 # Evidence Matrix
 
-AI không được phép nói "PASS" hoặc "VERIFIED" nếu không có Runtime Evidence. Nếu Evidence = None -> Status = UNKNOWN chứ không được ghi PASS.
+AI không được phép nói "PASS" hoặc "VERIFIED" nếu không có Runtime Evidence. Nếu Evidence rỗng -> Status = UNKNOWN, không được ghi PASS.
 
-| Claim | Evidence |
-| --- | --- |
-| CRUD Pass | Screenshot + DB Query |
-| Delete Pass | API GET 404 |
-| Invoice Pass | DB Row Exists |
-| Room Pass | Reload UI |
-| Contract Pass | Playwright Trace |
-| Payment Pass | Ledger Updated |
+| Requirement  | Evidence           |
+| ------------ | ------------------ |
+| Backend CRUD | Test File          |
+| API CRUD     | Supertest          |
+| DB Verify    | Prisma Query       |
+| UI CRUD      | Playwright         |
+| Cache        | React Query Verify |
+| Reload       | Browser Reload     |
+| RBAC         | Multi Role Test    |
+| Tenant       | Multi Tenant Test  |
+| Audit        | DB Query           |
+| Error        | Negative Test      |
+| Performance  | Benchmark          |
+| Screenshot   | Artifact           |
+| Trace        | Playwright Trace   |

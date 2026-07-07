@@ -8,11 +8,8 @@ export const CreateRoomSchema = z.object({
   floorId: z.string().min(1, 'Floor ID is required'),
   name: z.string().min(1, 'Name is required'),
   code: z.string().min(1, 'Code is required'),
-  area: z.number().min(0).optional(),
   capacity: z.number().int().min(1).optional(),
   monthlyPrice: z.number().min(0),
-  depositAmount: z.number().min(0).optional(),
-  notes: z.string().optional(),
 });
 
 export const UpdateRoomSchema = CreateRoomSchema.partial();

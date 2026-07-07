@@ -1,5 +1,4 @@
-export type RoomStatus = "vacant" | "occupied" | "deposited" | "expiring_soon" | "maintenance";
-export type RoomType = "1PN" | "2PN" | "Studio" | "Office" | "Dorm";
+export type RoomStatus = "AVAILABLE" | "RENTED" | "RESERVED" | "MAINTENANCE" | "UNAVAILABLE";
 
 export interface Tenant {
   id: string;
@@ -62,24 +61,21 @@ export interface RoomAttachment {
 
 export interface Room {
   id: string;
-  number: string;
+  name: string;
+  code: string;
   status: RoomStatus;
-  type: RoomType;
-  price: number;
-  area: number;
-  capacity: number;
+  monthlyPrice: number;
+  area?: number;
+  capacity?: number;
+  bedCount?: number;
   images: string[];
-  rentalType: "whole" | "shared";
   
-  // Thuê nguyên phòng
   tenant?: Tenant;
   roommates?: Tenant[];
   contract?: Contract;
   invoices?: Invoice[];
   paymentHistory?: PaymentHistoryItem[];
   debt?: number;
-  
-  // Ở ghép
   sharedTenants?: SharedTenant[];
   
   notes?: string;
@@ -96,6 +92,7 @@ export interface Floor {
 export interface Building {
   id: string;
   name: string;
+  code?: string;
   address: string;
   images: string[];
   notes?: string;

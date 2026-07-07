@@ -34,19 +34,19 @@ export default function RoomView({ building, floorId, roomId, onOpenRoomModal }:
           
           <div className="flex justify-between items-center">
             <span className="text-[13px] font-medium text-muted">Loại phòng</span>
-            <span className="text-[14px] font-bold text-text">{room.type}</span>
+            <span className="text-[14px] font-bold text-text">{(room as any).type || 'STUDIO'}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-[13px] font-medium text-muted">Diện tích</span>
-            <span className="text-[14px] font-bold text-text">{room.area} m²</span>
+            <span className="text-[14px] font-bold text-text">{room.area || 0} m²</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-[13px] font-medium text-muted">Sức chứa</span>
-            <span className="text-[14px] font-bold text-text">Tối đa {room.capacity} người</span>
+            <span className="text-[14px] font-bold text-text">Tối đa {room.capacity || 2} người</span>
           </div>
           <div className="flex justify-between items-center pt-3 border-t border-border/50 mt-1">
             <span className="text-[13px] font-medium text-muted">Giá thuê gốc</span>
-            <span className="text-[16px] font-black text-text">{room.price.toLocaleString('vi-VN')} đ</span>
+            <span className="text-[16px] font-black text-text">{((room.monthlyPrice) || (room as any).price || 0).toLocaleString('vi-VN')} đ</span>
           </div>
         </div>
 

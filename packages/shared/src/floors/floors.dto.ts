@@ -4,7 +4,7 @@ export const CreateFloorSchema = z.object({
   buildingId: z.string().min(1, 'Building ID is required'),
   name: z.string().min(1, 'Name is required'),
   level: z.number().int(),
-  notes: z.string().optional(),
+  usageNote: z.string().optional(),
 });
 
 export const UpdateFloorSchema = CreateFloorSchema.partial();

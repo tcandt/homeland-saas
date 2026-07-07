@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Building, Floor, Room } from "./mockData";
 import { Map, AlertTriangle, Layers, ChevronDown, ChevronRight, Plus, X, Edit2, Trash2, MoreVertical } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 
 const ActionMenu = ({ onEdit, onDelete, itemName }: { onEdit: () => void, onDelete: () => void, itemName: string }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -45,6 +46,7 @@ interface Props {
 }
 
 export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Props) {
+  const permissions = usePermissions();
   const [expandedBuildingId, setExpandedBuildingId] = useState<string | null>(null);
   const [expandedFloorIds, setExpandedFloorIds] = useState<Record<string, boolean>>({});
   const [editingBuilding, setEditingBuilding] = useState<Building | null>(null);
@@ -299,13 +301,15 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
         })}
       </div>
 
-      <button 
-        data-testid="add-building-button"
-        onClick={() => setIsAddModalOpen(true)}
-        className="w-full mt-4 py-3.5 rounded-[14px] font-bold text-[14px] border border-border bg-card text-text transition-colors flex items-center justify-center gap-2 shadow-sm hover:bg-black/5 dark:hover:bg-white/5"
-      >
-        <Plus size={18} className="text-[#22c55e]" /> Thêm tòa nhà
-      </button>
+      {permissions.canCreateBuilding && (
+        <button 
+          data-testid="add-building-button"
+          onClick={() => setIsAddModalOpen(true)}
+          className="w-full mt-4 py-3.5 rounded-[14px] font-bold text-[14px] border border-border bg-card text-text transition-colors flex items-center justify-center gap-2 shadow-sm hover:bg-black/5 dark:hover:bg-white/5"
+        >
+          <Plus size={18} className="text-[#22c55e]" /> Thêm tòa nhà
+        </button>
+      )}
 
       {/* Add / Edit Building Modal */}
       {(isAddModalOpen || editingBuilding) && (

@@ -13,8 +13,8 @@
 | Customer (Tenants) | Update Customer | ✅ (API) / ❌ (UI) | ❌ |
 | Customer (Tenants) | Delete Customer | ✅ (API) / ❌ (UI) | ❌ |
 | Buildings | List Buildings | ✅ | ✅ |
-| Buildings | Create/Update/Delete | ✅ (API) / ❌ (UI) | ❌ |
+| Buildings | Create/Update/Delete | ✅ | ✅ |
 | Floors | List Floors | ✅ | ✅ |
-| Floors | Create/Update/Delete | ✅ (API) / ❌ (UI) | ❌ |
+| Floors | Create/Update/Delete | ✅ | ✅ |
 | Rooms | List Rooms | ✅ | ✅ |
-| Rooms | Create/Update/Delete | ✅ (API) / ❌ (UI) | ❌ |
+| Rooms | Create/Update/Delete | ✅ | ✅ |

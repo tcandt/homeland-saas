@@ -168,14 +168,15 @@ export default function MasterDetailBuildings() {
     if (activeDialog === "editFloor" && dialogTargetFloorId) {
       updateFloor.mutate({
         id: dialogTargetFloorId,
-        data: { number: fNumber, notes: fNotes }
+        data: { name: `Tầng ${fNumber}`, level: fNumber, notes: fNotes }
       }, {
         onSuccess: () => setActiveDialog(null)
       });
     } else {
       createFloor.mutate({
         buildingId: activeBuilding.id,
-        number: fNumber,
+        name: `Tầng ${fNumber}`,
+        level: fNumber,
         notes: fNotes
       }, {
         onSuccess: (data) => {
@@ -222,9 +223,10 @@ export default function MasterDetailBuildings() {
     createRoom.mutate({
       buildingId: activeBuilding.id,
       floorId: dialogTargetFloorId,
-      number: rNumber,
+      name: rNumber,
+      code: rNumber,
       type: rType,
-      price: rPrice,
+      monthlyPrice: rPrice,
       area: rArea,
       capacity: rCapacity,
       status: rStatus,

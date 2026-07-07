@@ -31,11 +31,16 @@ export class AuthController {
   @Post('register')
   @ApiOperation({ summary: 'Register a new tenant and user' })
   @ApiResponse({ status: 201, description: 'Returns access token and refresh token' })
-  register(@Body() body: any, @Req() req: Request) {
-    const input = RegisterSchema.parse(body);
-    const ip = req.ip || req.connection?.remoteAddress;
-    const userAgent = req.headers['user-agent'];
-    return this.authService.register(input, ip, userAgent);
+  async register(@Body() body: any, @Req() req: Request) {
+    try {
+      const input = RegisterSchema.parse(body);
+      const ip = req.ip || req.connection?.remoteAddress;
+      const userAgent = req.headers['user-agent'];
+      return await this.authService.register(input, ip, userAgent);
+    } catch (error) {
+      console.error('REGISTER ERROR:', error);
+      throw error;
+    }
   }
 
   @Public()

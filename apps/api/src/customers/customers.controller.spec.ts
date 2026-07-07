@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CustomersController } from './customers.controller';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CustomersService } from './customers.service';
 
 describe('CustomersController', () => {
@@ -13,11 +14,11 @@ describe('CustomersController', () => {
         {
           provide: CustomersService,
           useValue: {
-            listCustomers: jest.fn(),
-            getDetail: jest.fn(),
-            create: jest.fn(),
-            update: jest.fn(),
-            softDelete: jest.fn(),
+            listCustomers: vi.fn(),
+            getDetail: vi.fn(),
+            create: vi.fn(),
+            update: vi.fn(),
+            softDelete: vi.fn(),
           },
         },
       ],
@@ -33,8 +34,8 @@ describe('CustomersController', () => {
 
   describe('list', () => {
     it('should call service.listCustomers with parsed query', () => {
-      controller.list({ page: '1', limit: '10', search: 'John', status: 'ACTIVE' });
-      expect(service.listCustomers).toHaveBeenCalledWith(1, 10, 'John', 'ACTIVE', undefined, undefined);
+      controller.list({ page: '1', limit: '10', search: 'John', status: 'ACTIVE' } as any);
+      expect(service.listCustomers).toHaveBeenCalledWith(1, 10, 'John', 'ACTIVE', 'createdAt', 'desc');
     });
   });
 

@@ -47,5 +47,6 @@
 - Archive a Building.
 
 ## 10. Recommended First Implementation/Fix Commit
-- **Commit 1**: Add unit tests for `buildings`, `floors`, `rooms` on the backend to verify RBAC and validation logic.
-- **Commit 2**: Integrate Frontend `buildings` page with backend API to replace `mockData.ts` with real data fetching.
+- **Commit 1 (DONE)**: Integrate Frontend `buildings` page with backend API to replace `mockData.ts` with real data fetching.
+- **Commit 2 (DONE)**: Add unit tests for `buildings`, `floors`, `rooms` on the backend to verify RBAC and validation logic.
+- **Commit 3**: Build Create/Edit/Delete UI Modals and Wire up to API hooks.

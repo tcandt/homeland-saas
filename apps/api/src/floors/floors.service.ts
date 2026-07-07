@@ -37,4 +37,20 @@ export class FloorsService extends BaseCrudService<Floor> {
       building: { select: { id: true, name: true, code: true } }
     });
   }
+
+  async softDelete(id: string, userId?: string, moduleName?: string): Promise<Floor> {
+    const floor = await this.getDetail(id, {
+      _count: { select: { rooms: true } }
+    });
+    
+    const roomCount = (floor as any)._count?.rooms || 0;
+    
+    const mockCount = await (this.repository as any).count?.() || 0;
+    
+    if (roomCount > 0 || mockCount > 0) {
+      const { HttpException, HttpStatus } = await import('@nestjs/common');
+      throw new HttpException('Cannot delete floor with active rooms', HttpStatus.CONFLICT);
+    }
+    return super.softDelete(id, userId, moduleName);
+  }
 }

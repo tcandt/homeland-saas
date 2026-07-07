@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CustomersService } from './customers.service';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CustomersRepository } from './customers.repository';
 import { AuditService } from '../shared/audit/audit.service';
 
@@ -14,7 +15,7 @@ describe('CustomersService', () => {
         {
           provide: CustomersRepository,
           useValue: {
-            paginate: jest.fn(),
+            paginate: vi.fn(),
           },
         },
         {

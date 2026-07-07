@@ -13,5 +13,10 @@
   - Placeholder tests (`passWithNoTests`, `continue-on-error`)
   - Mocking business logic just to pass tests.
   - Confusing feature verification with module readiness (`Feature-level verified ≠ Module-level production ready`). For example: `Customer List verified` không đồng nghĩa `Customer module verified`.
+- **Production Verification Rules**:
+  - Implementation Complete ≠ Production Verified.
+  - Typecheck Pass ≠ Runtime Verified.
+  - Scaffold Test ≠ Business Scenario Verified.
+  - One Feature Verified ≠ Module Production Ready.
 - **Lessons Learned**:
   - Playwright session cache issues.

@@ -6,27 +6,36 @@ import AuthInput from "@/components/auth/AuthInput";
 import PasswordField from "@/components/auth/PasswordField";
 import PasswordStrength from "@/components/auth/PasswordStrength";
 import AuthFooter from "@/components/auth/AuthFooter";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { authApi } from "@/lib/api/auth.api";
 
 export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [password, setPassword] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
 
-    // Dummy loading state
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      await authApi.register({ fullName, phone, email, password });
       setSuccess(true);
       
-      // Auto redirect to dashboard
+      // Auto redirect to login
       setTimeout(() => {
-        window.location.href = "/dashboard";
+        window.location.href = "/login";
       }, 2000);
-    }, 1500);
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message || "Có lỗi xảy ra khi tạo tài khoản. Vui lòng thử lại.");
+    }
   };
 
   if (success) {
@@ -57,12 +66,18 @@ export default function RegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-[20px]">
+          {error && (
+            <div className="p-[16px] rounded-[12px] bg-rose-500/10 border border-rose-500/20 flex items-start gap-[12px]">
+              <AlertCircle size={18} className="text-rose-500 mt-[2px] shrink-0" />
+              <span className="text-[13px] font-medium text-rose-500">{error}</span>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-[20px]">
-            <AuthInput label="Họ và tên" placeholder="Nguyễn Văn A" required disabled={loading} />
-            <AuthInput label="Số điện thoại" placeholder="0901234567" required disabled={loading} />
+            <AuthInput label="Họ và tên" placeholder="Nguyễn Văn A" required disabled={loading} value={fullName} onChange={(e) => setFullName(e.target.value)} />
+            <AuthInput label="Số điện thoại" placeholder="0901234567" required disabled={loading} value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
           
-          <AuthInput label="Email" type="email" placeholder="name@company.com" required disabled={loading} />
+          <AuthInput label="Email" type="email" placeholder="name@company.com" required disabled={loading} value={email} onChange={(e) => setEmail(e.target.value)} />
           
           <div className="flex flex-col gap-[4px]">
             <PasswordField 

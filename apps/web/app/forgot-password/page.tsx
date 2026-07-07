@@ -3,22 +3,30 @@ import React, { useState } from "react";
 import AuthLayout from "@/components/auth/AuthLayout";
 import AuthCard from "@/components/auth/AuthCard";
 import AuthInput from "@/components/auth/AuthInput";
-import { Loader2, ArrowLeft, MailCheck } from "lucide-react";
+import { Loader2, ArrowLeft, MailCheck, AlertCircle } from "lucide-react";
 import Link from "next/link";
+import { authApi } from "@/lib/api/auth.api";
 
 export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
 
-    // Dummy API call
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      await authApi.forgotPassword({ email });
       setSuccess(true);
-    }, 1500);
+    } catch (err: any) {
+      setError(err.message || "Có lỗi xảy ra. Vui lòng thử lại sau.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (success) {
@@ -58,12 +66,20 @@ export default function ForgotPasswordPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-[24px]">
+          {error && (
+            <div className="p-[16px] rounded-[12px] bg-rose-500/10 border border-rose-500/20 flex items-start gap-[12px]">
+              <AlertCircle size={18} className="text-rose-500 mt-[2px] shrink-0" />
+              <span className="text-[13px] font-medium text-rose-500">{error}</span>
+            </div>
+          )}
           <AuthInput 
             label="Email / Số điện thoại" 
             type="text" 
             placeholder="Nhập email hoặc SĐT..." 
             required 
             disabled={loading}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
           />
           
           <button 

@@ -4,23 +4,38 @@ import AuthLayout from "@/components/auth/AuthLayout";
 import AuthCard from "@/components/auth/AuthCard";
 import PasswordField from "@/components/auth/PasswordField";
 import PasswordStrength from "@/components/auth/PasswordStrength";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import Link from "next/link";
+import { authApi } from "@/lib/api/auth.api";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function ResetPasswordPage() {
+function ResetPasswordForm() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [password, setPassword] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+  const searchParams = useSearchParams();
+  const token = searchParams.get('token') || '';
+  const [error, setError] = useState("");
 
-    // Dummy API call
-    setTimeout(() => {
-      setLoading(false);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) {
+      setError("Token không hợp lệ hoặc đã hết hạn.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+
+    try {
+      await authApi.resetPassword({ token, newPassword: password });
       setSuccess(true);
-    }, 1500);
+    } catch (err: any) {
+      setError(err.message || "Có lỗi xảy ra. Vui lòng thử lại.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (success) {
@@ -56,6 +71,12 @@ export default function ResetPasswordPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-[20px]">
+          {error && (
+            <div className="p-[16px] rounded-[12px] bg-rose-500/10 border border-rose-500/20 flex items-start gap-[12px]">
+              <AlertCircle size={18} className="text-rose-500 mt-[2px] shrink-0" />
+              <span className="text-[13px] font-medium text-rose-500">{error}</span>
+            </div>
+          )}
           <div className="flex flex-col gap-[4px]">
             <PasswordField 
               label="Mật khẩu mới" 
@@ -85,5 +106,13 @@ export default function ResetPasswordPage() {
         </form>
       </AuthCard>
     </AuthLayout>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center p-8"><Loader2 className="animate-spin text-muted" /></div>}>
+      <ResetPasswordForm />
+    </Suspense>
   );
 }

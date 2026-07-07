@@ -29,8 +29,8 @@ The `AuditLog` model supports Auth events (`REGISTER`, `LOGIN`, `LOGIN_FAILED`, 
 - `POST /auth/verify-email` (Missing entirely)
 
 ### Fake / Mock Implementations (Production Blockers)
-- **Frontend Mocks**: The UI flows for Register (`register/page.tsx`), Forgot Password (`forgot-password/page.tsx`), and Reset Password (`reset-password/page.tsx`) are purely mocked using `setTimeout`. They do not connect to any actual backend API.
-- **Backend TODOs**: ~~The `auth.service.ts` contains `TODO` comments indicating that `refreshTokenHash` and `lastLoginAt` are not actually being saved or verified, despite the DB schema supporting it.~~ *(Fixed in Commit #1)*
+- ~~**Frontend Mocks**: The UI flows for Register (`register/page.tsx`), Forgot Password (`forgot-password/page.tsx`), and Reset Password (`reset-password/page.tsx`) are purely mocked using `setTimeout`. They do not connect to any actual backend API.~~ *(Fixed in Commit #4)*
+- ~~**Backend TODOs**: The `auth.service.ts` contains `TODO` comments indicating that `refreshTokenHash` and `lastLoginAt` are not actually being saved or verified, despite the DB schema supporting it.~~ *(Fixed in Commit #1)*
 
 ### Security & Business Logic Gaps
 - **Account Locking**: Missing brute-force protection (no tracking of failed login attempts to transition status to `LOCKED`).

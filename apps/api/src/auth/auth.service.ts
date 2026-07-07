@@ -4,8 +4,9 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
-import { LoginInput, ChangePasswordInput, RegisterInput } from '@homeland/shared';
+import { LoginInput, ChangePasswordInput, RegisterInput, ForgotPasswordInput, ResetPasswordInput } from '@homeland/shared';
 import { ErrorCodes } from '../shared/exceptions/error-codes';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -263,6 +264,76 @@ export class AuthService {
     } catch (e) {
       throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_EXPIRED, message: 'Refresh token expired or invalid' });
     }
+  }
+
+  async forgotPassword(input: ForgotPasswordInput) {
+    const user = await this.prisma.user.findFirst({ where: { email: input.email } });
+    if (!user || user.status !== 'ACTIVE') {
+      // Return success anyway to prevent email enumeration
+      return { success: true };
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetHash: hashedToken,
+        passwordResetExpires: new Date(Date.now() + 3600000) // 1 hour
+      }
+    });
+
+    await this.audit.log({
+      action: 'PASSWORD_RESET_REQUEST',
+      entity: 'User',
+      entityId: user.id,
+      module: 'Auth',
+      tenantId: user.tenantId,
+      userId: user.id
+    });
+
+    // TODO: Send email
+    console.log(`[DEV ONLY] Password reset token for ${input.email}: ${token}`);
+
+    return { success: true };
+  }
+
+  async resetPassword(input: ResetPasswordInput) {
+    const hashedToken = crypto.createHash('sha256').update(input.token).digest('hex');
+    const user = await this.prisma.user.findFirst({
+      where: {
+        passwordResetHash: hashedToken,
+        passwordResetExpires: { gt: new Date() },
+        status: 'ACTIVE'
+      }
+    });
+
+    if (!user) {
+      throw new UnauthorizedException({ code: 'AUTH_TOKEN_INVALID', message: 'Invalid or expired reset token' });
+    }
+
+    const passwordHash = await bcrypt.hash(input.newPassword, 12);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        passwordResetHash: null,
+        passwordResetExpires: null
+      }
+    });
+
+    await this.audit.log({
+      action: 'PASSWORD_RESET_SUCCESS',
+      entity: 'User',
+      entityId: user.id,
+      module: 'Auth',
+      tenantId: user.tenantId,
+      userId: user.id
+    });
+
+    return { success: true };
   }
 
   async getMe(userId: string) {

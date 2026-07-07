@@ -6,4 +6,4 @@
 | Auth | Login | ⚠️ (API Done) | ❌ |
 | Auth | Logout | ⚠️ (API Done) | ❌ |
 | Auth | Refresh Token | ⚠️ (API Done) | ❌ |
-| Auth | Forgot/Reset Password | ❌ | ❌ |
+| Auth | Forgot/Reset Password | ⚠️ (API Done) | ❌ |

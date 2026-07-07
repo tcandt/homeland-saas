@@ -24,8 +24,8 @@ The `AuditLog` model supports Auth events (`REGISTER`, `LOGIN`, `LOGIN_FAILED`, 
 
 ### Missing Endpoints
 - ~~**`/auth/register`**: Entirely missing. Registration is simulated in frontend but doesn't exist on the backend.~~ *(Fixed in Commit #2)*
-- **`/auth/forgot-password`**: Missing.
-- **`/auth/reset-password`**: Missing.
+- ~~**`/auth/forgot-password`**: Missing.~~ *(Fixed in Commit #3)*
+- ~~**`/auth/reset-password`**: Missing.~~ *(Fixed in Commit #3)*
 - `POST /auth/verify-email` (Missing entirely)
 
 ### Fake / Mock Implementations (Production Blockers)

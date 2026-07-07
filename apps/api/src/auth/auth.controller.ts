@@ -1,7 +1,7 @@
 import { Controller, Post, Body, Get, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema, RegisterSchema } from '@homeland/shared';
+import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema, RegisterSchema, ForgotPasswordSchema, ResetPasswordSchema } from '@homeland/shared';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { Public } from '../shared/decorators/public.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
@@ -36,6 +36,26 @@ export class AuthController {
     const ip = req.ip || req.connection?.remoteAddress;
     const userAgent = req.headers['user-agent'];
     return this.authService.register(input, ip, userAgent);
+  }
+
+  @Public()
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Request a password reset link' })
+  @ApiResponse({ status: 200, description: 'Returns success regardless of email existence' })
+  forgotPassword(@Body() body: any) {
+    const input = ForgotPasswordSchema.parse(body);
+    return this.authService.forgotPassword(input);
+  }
+
+  @Public()
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Reset password using token' })
+  @ApiResponse({ status: 200, description: 'Returns success on successful password reset' })
+  resetPassword(@Body() body: any) {
+    const input = ResetPasswordSchema.parse(body);
+    return this.authService.resetPassword(input);
   }
 
   @Post('logout')

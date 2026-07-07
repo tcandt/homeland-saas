@@ -3,8 +3,22 @@
 ## 1. Domain Discrepancy (Terminology)
 - **Frontend**: The UI uses the term "Khách thuê" and maps it to the `Tenants` module (`apps/web/app/tenants`).
 - **Backend & Database**: The business entity is modeled as `Customer` (`apps/api/src/customers` and `packages/database/prisma/schema.prisma`). "TenantOrg" is used for B2B multi-tenant logic.
-- **Action**: We will maintain the term `Customer` for backend/DB and `Tenant` for frontend, but document this mapping clearly.
+- **Action**: We will maintain the term `Customer` for backend/DB and `Tenant` for frontend, but document this mapping clearly:
+  - `TenantOrg` = SaaS organization
+  - `Customer`/`Tenant` = renter/person
 
+## 1.5. Missing Frontend Components
+- `CreateTenantModal`
+- `EditTenantModal`
+- `Delete/Archive flow`
+
+## 1.6. Required A-Z Scenarios for Customer Module
+- Create customer
+- Edit customer
+- Link customer to contract
+- Prevent delete if active contract
+- Archive customer
+- Verify customer history
 ## 2. API Status Filtering Bug
 - **Issue**: The frontend `TenantFilters` component sends a `status` query parameter to filter customers (e.g., "Đang thuê", "Đã trả phòng", "Đang nợ"). The backend `CustomersService` attempts to apply this directly to the database: `where.status = status;`.
 - **Root Cause**: The `Customer` Prisma model **does not have a `status` field**. This will cause a Prisma exception (500 Internal Server Error) whenever a user filters by status.

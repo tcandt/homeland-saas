@@ -12,5 +12,6 @@
   - Greenwashing CI
   - Placeholder tests (`passWithNoTests`, `continue-on-error`)
   - Mocking business logic just to pass tests.
+  - Confusing feature verification with module readiness (`Feature-level verified ≠ Module-level production ready`). For example: `Customer List verified` không đồng nghĩa `Customer module verified`.
 - **Lessons Learned**:
   - Playwright session cache issues.

@@ -9,6 +9,6 @@
 | Auth | Forgot/Reset Password | ✅ | ✅ |
 | Customer (Tenants) | List Customers | ✅ | ✅ |
 | Customer (Tenants) | Get Customer Details | ✅ | ✅ |
-| Customer (Tenants) | Create Customer | ✅ (API) | ❌ |
-| Customer (Tenants) | Update Customer | ✅ (API) | ❌ |
-| Customer (Tenants) | Delete Customer | ✅ (API) | ❌ |
+| Customer (Tenants) | Create Customer | ✅ (API) / ❌ (UI) | ❌ |
+| Customer (Tenants) | Update Customer | ✅ (API) / ❌ (UI) | ❌ |
+| Customer (Tenants) | Delete Customer | ✅ (API) / ❌ (UI) | ❌ |

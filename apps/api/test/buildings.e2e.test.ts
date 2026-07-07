@@ -9,8 +9,13 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 
 describe('Building Property Flow (e2e)', () => {
   let app: INestApplication;
+  let authService: AuthService;
   let prisma: PrismaService;
   
+  const testRunId = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
+  const email1 = `t1_${testRunId}@example.com`;
+  const email2 = `t2_${testRunId}@example.com`;
+
   let tenant1Token: string;
   let tenant2Token: string;
   let tenant1Id: string;
@@ -28,6 +33,7 @@ describe('Building Property Flow (e2e)', () => {
     await app.init();
     
     prisma = app.get<PrismaService>(PrismaService);
+    authService = app.get<AuthService>(AuthService);
 
     // Seed Roles if missing
     await prisma.role.upsert({
@@ -51,23 +57,25 @@ describe('Building Property Flow (e2e)', () => {
       }
     });
 
-    const authService = app.get(AuthService);
-    
     // Register Tenant 1
-    const res1 = await authService.register({ email: 't1@example.com', password: 'Password123!', fullName: 'Tenant One' }, '127.0.0.1', 'Vitest');
+    const res1 = await authService.register({ email: email1, password: 'Password123!', fullName: 'Tenant One' }, '127.0.0.1', 'Vitest');
     tenant1Token = res1.accessToken;
     tenant1Id = res1.user.tenantId;
 
     // Register Tenant 2
-    const res2 = await authService.register({ email: 't2@example.com', password: 'Password123!', fullName: 'Tenant Two' }, '127.0.0.1', 'Vitest');
+    const res2 = await authService.register({ email: email2, password: 'Password123!', fullName: 'Tenant Two' }, '127.0.0.1', 'Vitest');
     tenant2Token = res2.accessToken;
     tenant2Id = res2.user.tenantId;
   });
 
   afterAll(async () => {
     // Cleanup
-    await prisma.building.deleteMany({ where: { tenantId: { in: [tenant1Id, tenant2Id] } } });
-    await prisma.user.deleteMany({ where: { email: { in: ['t1@example.com', 't2@example.com'] } } });
+    if (buildingId) {
+      await prisma.room.deleteMany({ where: { buildingId } });
+      await prisma.floor.deleteMany({ where: { buildingId } });
+    }
+    await prisma.building.deleteMany({ where: { tenantId: { in: [tenant1Id, tenant2Id].filter(Boolean) } } });
+    await prisma.user.deleteMany({ where: { email: { in: [email1, email2] } } });
     if (tenant1Id && tenant2Id) {
       await prisma.tenantOrg.deleteMany({ where: { id: { in: [tenant1Id, tenant2Id] } } });
     }
@@ -120,5 +128,53 @@ describe('Building Property Flow (e2e)', () => {
     });
     expect(auditLogs.length).toBeGreaterThan(0);
     expect(auditLogs[0].entityId).toBe(buildingId);
+  });
+
+  it('4. Create Floor', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/floors')
+      .set('Authorization', `Bearer ${tenant1Token}`)
+      .send({
+        buildingId,
+        name: 'First Floor',
+        level: 1
+      });
+    expect(res.status).toBe(201);
+    
+    // Verify Audit Log
+    const auditLogs = await prisma.auditLog.findMany({
+      where: { entity: 'Floor', action: 'CREATE', entityId: res.body.id }
+    });
+    expect(auditLogs.length).toBeGreaterThan(0);
+  });
+
+  it('5. Create Room', async () => {
+    // Get floors
+    const floorsRes = await request(app.getHttpServer())
+      .get(`/api/v1/floors?buildingId=${buildingId}`)
+      .set('Authorization', `Bearer ${tenant1Token}`);
+    const floorId = floorsRes.body.data[0].id;
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/rooms')
+      .set('Authorization', `Bearer ${tenant1Token}`)
+      .send({
+        buildingId,
+        floorId,
+        name: 'Room 101',
+        code: 'R101',
+        monthlyPrice: 500
+      });
+    expect(res.status).toBe(201);
+  });
+
+  it('6. Data Integrity - Cannot delete Building with Floors/Rooms', async () => {
+    // Attempt to delete building
+    const res = await request(app.getHttpServer())
+      .delete(`/api/v1/buildings/${buildingId}`)
+      .set('Authorization', `Bearer ${tenant1Token}`);
+    
+    // It should fail due to foreign key constraints (or business logic preventing it)
+    expect(res.status).toBe(409);
   });
 });

@@ -7,7 +7,8 @@
 | Auth | Logout | ✅ | ✅ |
 | Auth | Refresh Token | ✅ | ✅ |
 | Auth | Forgot/Reset Password | ✅ | ✅ |
-| Tenant | Get Organizations | ❌ | ❌ |
-| Tenant | Create Organization | ❌ | ❌ |
-| Tenant | Update Organization | ❌ | ❌ |
-| Tenant | Delete Organization | ❌ | ❌ |
+| Customer (Tenants) | List Customers | ✅ | ✅ |
+| Customer (Tenants) | Get Customer Details | ✅ | ✅ |
+| Customer (Tenants) | Create Customer | ✅ (API) | ❌ |
+| Customer (Tenants) | Update Customer | ✅ (API) | ❌ |
+| Customer (Tenants) | Delete Customer | ✅ (API) | ❌ |

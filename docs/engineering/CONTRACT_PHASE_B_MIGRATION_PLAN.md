@@ -39,9 +39,15 @@ Currently, the Prisma `ContractStatus` enum was expanded in Phase A to include n
   - Verify total count of `EXPIRED` + `TERMINATED` matches pre-migration `ENDED` count.
 - **Forward-Fix Rollback Strategy:** If mapping proves incorrect (e.g. `EXPIRED` should have been `TERMINATED`), a forward-fix script reading from Audit Logs will be applied rather than rolling back the entire schema.
 - **Phase B1 Execution Evidence:**
-  - Pre-migration `ENDED` count: 0
-  - Migration script applied: `20260708065702_migrate_legacy_contract_statuses`
-  - Post-migration `ENDED` count: 0
+  - **BEFORE Migration:**
+    - `ENDED_COUNT_BEFORE: 0`
+    - `EXPIRED_COUNT_BEFORE: 0`
+    - `TERMINATED_COUNT_BEFORE: 0`
+  - **Migration script applied:** `20260708065702_migrate_legacy_contract_statuses`
+  - **AFTER Migration:**
+    - `ENDED_COUNT_AFTER: 0`
+    - `EXPIRED_COUNT_AFTER: 0`
+    - `TERMINATED_COUNT_AFTER: 0`
 
 ---
 

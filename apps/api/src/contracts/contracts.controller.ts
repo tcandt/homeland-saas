@@ -79,4 +79,18 @@ export class ContractsController {
   remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.contractsService.softDelete(id, userId, 'Contracts');
   }
+
+  @Post(':id/submit')
+  @RequirePermissions('contract.update')
+  @ApiOperation({ summary: 'Submit contract for approval' })
+  submit(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.contractsService.submitContract(id, userId);
+  }
+
+  @Post(':id/approve')
+  @RequirePermissions('contract.approve')
+  @ApiOperation({ summary: 'Approve contract' })
+  approve(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.contractsService.approveContract(id, userId);
+  }
 }

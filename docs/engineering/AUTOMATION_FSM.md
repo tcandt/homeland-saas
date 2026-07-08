@@ -26,7 +26,18 @@
 │   DISCOVER                                                      │
 │   Read current codebase state for target module/flow            │
 │   Search ROOT_CAUSE_DATABASE for known issues                   │
-│   Check DEPENDENCY_GRAPH — is upstream verified?                │
+│                                                                 │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│   DOMAIN DESIGN                                                 │
+│   Generate/Review DOMAIN REVIEW                                 │
+│   Generate/Review STATE MACHINE (FSM)                           │
+│   Generate/Review EVENT MAP                                     │
+│   Generate/Review AGGREGATE BOUNDARY & INVARIANTS               │
+│   Verify DATASET & DEPENDENCY CHECK                             │
 │   If upstream NOT verified → switch to upstream first           │
 │                                                                 │
 └────────────────────────┬────────────────────────────────────────┘
@@ -45,17 +56,21 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
 │   VERIFY                                                        │
-│   Run `npm run verify:prod` (or specific E2E)                   │
+│   Must execute sequentially:                                    │
+│   1. UNIT Tests                                                 │
+│   2. INTEGRATION Tests                                          │
+│   3. E2E Tests (`npm run verify:prod` or specific spec)         │
+│   4. DB VERIFY (Before/After DB snapshots)                      │
+│   5. AUDIT VERIFY (Check audit logs)                            │
+│   6. PERF & CONCURRENCY (Load testing)                          │
+│                                                                 │
 │   Collect Evidence Package:                                     │
-│     - console.log                                               │
-│     - network.har                                               │
-│     - trace.zip                                                 │
-│     - screenshots                                               │
+│     - console.log, network.har, trace.zip, screenshots          │
 │     - db-before.json / db-after.json                            │
 │   Check: No ErrorBoundary, no console errors                    │
 │                                                                 │
-│   IF PASS → go to CLOSE                                         │
-│   IF FAIL → go to RCA                                           │
+│   IF ALL PASS → go to CLOSE / RELEASE GATE                      │
+│   IF ANY FAIL → go to RCA                                       │
 │                                                                 │
 └────────────────────────┬────────────────────────────────────────┘
                          │                    │

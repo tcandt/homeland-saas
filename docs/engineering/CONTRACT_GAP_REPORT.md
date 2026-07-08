@@ -1,105 +1,118 @@
-# Contract Creation Gap Report
+# Contract Module Discovery & Gap Report
 
-> **Objective:** Identify all gaps between the existing Contract implementation (API, DB, UI) and the requirements for the end-to-end `PRODUCTION READY` Contract lifecycle.
-> **Scope:** Backend APIs, Frontend components, DB Schema, DTOs, Business flow dependencies (Customer, Room, Deposit, Invoice).
+> **Objective:** Comprehensive discovery and gap analysis before implementing the Contract Module.
+> **Scope:** Domain analysis, boundaries, state machines, events, and evidence mapping.
 
-## 1. Existing Contract Backend APIs
-- `GET /contracts` (List)
-- `GET /contracts/:id` (Detail with Customer and Room relations)
-- `POST /contracts` (Create)
-- `PATCH /contracts/:id` (Update)
-- `DELETE /contracts/:id` (Soft Delete)
-**Gaps:**
-- Validation is basic. It accepts `status` but does not enforce a strict state machine transition.
-- Missing specific endpoints for lifecycle actions: `/approve`, `/terminate`, `/renew`.
+## 1. Business Lifecycle (Contract FSM)
 
-## 2. Existing Contract Frontend Pages/Components
-- `ContractsHeader.tsx`, `ContractsList.tsx`, `OperationsContractRow.tsx`, `OperationsContractDrawer.tsx`
-**Gaps:**
-- **No Create/Edit Form:** There is no UI component to actually fill out and submit a contract creation payload.
-- Component structure is currently display-only (listing and drawer view).
-- No integration with Room or Customer pickers for the Contract creation form.
+The full Finite State Machine detailing states (`DRAFT` → `PENDING_APPROVAL` → `APPROVED` → `ACTIVE` → `EXPIRING` → `EXPIRED` → `TERMINATED` / `CANCELLED`), transitions, permissions, and side effects is documented separately in **[CONTRACT_FSM.md](./CONTRACT_FSM.md)**.
 
-## 3. DB Schema
-```prisma
-model Contract {
-  id           String         @id @default(cuid())
-  tenantId     String
-  roomId       String
-  customerId   String
-  code         String
-  status       ContractStatus @default(DRAFT)
-  startDate    DateTime
-  endDate      DateTime
-  monthlyRent  Decimal        @db.Decimal(14, 2)
-  depositMoney Decimal        @db.Decimal(14, 2)
-  memberCount  Int            @default(1)
-  // ... relations to Room, Customer, Invoice, Deposit
-}
+## 2. Event Map (Side Effects)
 
-enum ContractStatus {
-  DRAFT
-  ACTIVE
-  EXPIRING
-  ENDED
-  CANCELLED
-}
+The Contract module is an Event Hub. The following events must be triggered sequentially during the Contract lifecycle:
+
+```text
+ContractCreated (DRAFT)
+       ↓
+ContractApproved (APPROVED)
+       ↓
+RoomOccupied (Update Room status to OCCUPIED)
+       ↓
+DepositGenerated (Create Deposit Record/Invoice)
+       ↓
+InvoiceScheduleCreated (Create first month rent Invoice)
+       ↓
+CustomerActivated (Update Customer status)
+       ↓
+AuditCreated (Log the APPROVE action)
+       ↓
+NotificationQueued (Notify tenant via SSE/Email)
 ```
-**Gaps:**
-- The database schema is well-defined, but it uses `ContractStatus` (`DRAFT`, `ACTIVE`, `EXPIRING`, `ENDED`, `CANCELLED`).
-- There is no field for "uploaded document" or "scanned PDF URL".
 
-## 4. DTOs
-**Gaps (Mismatch!):**
-- **Enum Mismatch:** `ContractStatusEnum` in `contracts.dto.ts` uses `['ACTIVE', 'EXPIRED', 'TERMINATED']`, which conflicts directly with the DB `ContractStatus` (`DRAFT`, `ACTIVE`, `EXPIRING`, `ENDED`, `CANCELLED`).
-- **Field Mismatch:** DTO uses `contractCode`, `rentAmount`, `depositAmount`. DB uses `code`, `monthlyRent`, `depositMoney`. 
-- The `ContractsController` manually maps these, but this creates brittle, easily broken mappings. 
+## 3. Aggregate Boundary
 
-## 5. Relation with Customer + Room
-**Gaps:**
-- A Contract requires a `customerId` and `roomId`.
-- **Constraint Missing:** The system does not enforce that a Room must be `AVAILABLE` before creating an `ACTIVE` contract.
-- Creating a Contract should theoretically change the Room status to `OCCUPIED` or `RENTED`, but `ContractsService` currently does not update the `Room` record.
+**Contract Aggregate Root includes:**
+- `Contract` (Root)
+- `Signatures` (Physical or E-sign records)
+- `Occupants` (List of members living in the room under this contract)
+- `Terms` (Specific rules, deposit amount, monthly rent)
+- `Extensions` (Contract renewals linked to this root)
 
-## 6. Contract Status Lifecycle
-**Gaps:**
-- No strict Finite State Machine (FSM). 
-- Should go `DRAFT` -> `ACTIVE` -> `EXPIRING` -> `ENDED` or `CANCELLED`.
-- Need dedicated service methods to transition states rather than a generic `PATCH` that accepts any status.
+**OUTSIDE the Aggregate (References only by ID):**
+- `Invoice` (Independent aggregate, driven by Contract events)
+- `Payment` (Independent aggregate)
+- `Customer` (Independent aggregate)
+- `Room` / `Deposit`
 
-## 7. Deposit Logic
-**Gaps:**
-- Creating a contract often requires a `Deposit` record to be created or converted.
-- Currently, `depositMoney` is just a decimal field on the contract. It does not auto-generate a `Deposit` invoice/receipt.
+## 4. Invariants (Business Rules)
 
-## 8. Invoice Dependency
-**Gaps:**
-- Moving a contract to `ACTIVE` usually requires generating the first `Invoice` for the first month's rent.
-- No background job or hook exists to generate this invoice.
+These critical rules MUST be guaranteed by the domain logic (Service layer):
+- **Room Exclusivity:** A single `Room` can only have **1 ACTIVE** Contract at any given time.
+- **Temporal Validity:** The `endDate` MUST be greater than `startDate`.
+- **Financial Constraint:** `depositMoney` MUST be `>= 0`.
+- **Relational Integrity:** The associated `Customer` MUST exist and not be soft-deleted.
+- **Room Status:** To create an `ACTIVE` or `APPROVED` contract, the `Room` MUST be `AVAILABLE`.
 
-## 9. PDF/Document Generation
-**Gaps:**
-- Missing completely. There is no flow to generate a PDF contract from a template or upload a signed scan.
+## 5. Failure Matrix
 
-## 10. RBAC
-- Current endpoints use `@RequirePermissions('contract.*')`.
-**Gaps:**
-- Needs to be tested for Sales vs Admin roles (Sales can create DRAFT, Admin must approve to ACTIVE).
+Expected error handling during operations:
 
-## 11. Audit Log
-- The `BaseCrudService` handles generic Create/Update/Delete.
-**Gaps:**
-- Missing specific business audit actions (e.g., `SIGNED`, `CANCEL`, `CONVERT_CONTRACT`) which exist in the DB enum but are never called.
+| Scenario | HTTP Code | Resolution / Message |
+|----------|-----------|----------------------|
+| Room is already `OCCUPIED` | `409 Conflict` | "Room is not available for renting." |
+| Customer is deleted/not found | `404 Not Found` | "Customer does not exist." |
+| Contract date overlap | `409 Conflict` | "Dates overlap with an existing contract." |
+| Tenant ID mismatch | `403 Forbidden` | "You do not have access to this tenant." |
+| Sales role attempts to approve | `403 Forbidden` | "Insufficient permissions to approve contracts." |
+| End date < Start date | `400 Bad Request` | "End date must be after start date." |
 
-## 12. E2E Gaps
-**Gaps:**
-- No Playwright test exists for `contract-flow.e2e.spec.ts`.
-- The test needs to: Create Customer -> Create Room -> Create Contract -> Approve Contract -> Check Room Status.
+## 6. RBAC Matrix
 
-## 13. Production Dataset Mapping
-**Gaps:**
-- We need to ensure `PRODUCTION_DATASET` has pre-existing seed data for Contracts, or we must build the E2E test to scaffold everything from scratch dynamically.
+| Action / State Transition | Owner / Admin | Manager | Sales | Accountant | Tenant |
+|---------------------------|---------------|---------|-------|------------|--------|
+| Create (DRAFT) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Submit for Approval | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Approve (APPROVED) | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Terminate / Cancel | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Extend (Renew) | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Export / View PDF | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Delete (Soft Delete) | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+## 7. Database Verification (Side-effect Mapping)
+
+Example for the **Approve** action side-effects on the database:
+
+| Entity | Action / Update |
+|--------|-----------------|
+| `Contract` | `status` updated to `APPROVED` |
+| `Room` | `status` updated to `OCCUPIED` |
+| `Customer` | `status` updated to `ACTIVE` (if not already) |
+| `AuditLog` | `CREATE` record for `CONTRACT_APPROVE` |
+| `Invoice` | `CREATE` record for initial rent/deposit |
+
+## 8. Evidence Package
+
+For each step in the business flow, the following evidence must be collected:
+- **UI:** Playwright verification via `data-testid` assertions.
+- **API (HAR):** Ensure 2xx responses for all contract mutations.
+- **Screenshots/Video:** Visual proof of form submission and state change.
+- **DB Before/After:** Prisma JSON snapshots proving `Contract`, `Room`, and `Invoice` tables updated correctly.
+- **Audit Log:** Query proving the exact action was recorded.
+- **Console:** 0 runtime errors during the flow.
+- **Reload:** Data persists across browser refresh.
+- **Tenant Isolation:** Ensure cross-tenant data is not visible.
+
+## 9. Production Dataset
+
+The Contract flow MUST use a fixed, predictable dataset to ensure reproducibility:
+1. **Building:** "Tòa nhà Alpha" (Pre-seeded)
+2. **Floor:** "Tầng 1" (Pre-seeded)
+3. **Room:** "Phòng 101" (Starts `AVAILABLE`)
+4. **Customer:** "Nguyễn Văn Test" (Created in prior E2E step)
+5. **Contract:** 12 months duration (Generated during test)
+6. **Deposit:** 1 month rent equivalent (Generated via event)
+7. **Invoice:** August rent (Generated via event)
+8. **Payment:** Bank transfer (Generated in subsequent flow)
 
 ---
-**Conclusion:**
-Before implementing the frontend UI, we MUST fix the DTO <-> Prisma enum mismatches, and establish the state transition logic for Contracts and Rooms.
+**Next Step:** Proceed to Domain Review and implementation ONLY after this report is approved.

@@ -45,6 +45,26 @@
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
+│   SCHEMA IMPACT                                                 │
+│   Generate SCHEMA IMPACT REVIEW document                        │
+│   Identify all downstream impacts of DB schema changes          │
+│                                                                 │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│   COMPATIBILITY REVIEW                                          │
+│   Generate COMPATIBILITY MATRIX document                        │
+│   Map old/new enums, API endpoints, Frontend, and Seed          │
+│   Define Rollout Strategy (Expand → Migrate → Contract)         │
+│   Define Versioning strategy for downstream consumers           │
+│                                                                 │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
 │   IMPLEMENT                                                     │
 │   Write code / create test                                      │
 │   Run `npm run build` (MUST PASS before continuing)             │

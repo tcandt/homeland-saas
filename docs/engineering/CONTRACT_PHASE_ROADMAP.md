@@ -84,8 +84,8 @@
 
 ---
 
-## Phase C: Cleanup (Contract)
-⏳ **STATUS: PENDING**
+## Phase C: Cleanup
+✅ **STATUS: COMPLETED**
 
 - **Objective:** Safely drop the `ENDED` enum from the Prisma schema and delete the backend compatibility adapter, concluding the migration.
 - **Allowed Changes:**

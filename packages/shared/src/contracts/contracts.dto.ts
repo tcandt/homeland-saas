@@ -6,7 +6,7 @@ export const ContractStatusEnum = z.enum([
   'APPROVED',
   'ACTIVE',
   'EXPIRING',
-  'ENDED', // Legacy, to be removed in Phase C
+
   'EXPIRED',
   'TERMINATED',
   'CANCELLED'

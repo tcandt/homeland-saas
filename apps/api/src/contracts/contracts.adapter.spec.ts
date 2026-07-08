@@ -9,14 +9,14 @@ describe('Contracts Adapter', () => {
 
     it('casts valid string to ContractStatus', () => {
       expect(normalizeContractStatus('ACTIVE')).toBe(ContractStatus.ACTIVE);
-      expect(normalizeContractStatus('ENDED')).toBe(ContractStatus.ENDED);
+
       expect(normalizeContractStatus('PENDING_APPROVAL')).toBe(ContractStatus.PENDING_APPROVAL);
     });
   });
 
   describe('isTerminalContractStatus', () => {
     it('returns true for terminal states', () => {
-      expect(isTerminalContractStatus(ContractStatus.ENDED)).toBe(true);
+
       expect(isTerminalContractStatus(ContractStatus.EXPIRED)).toBe(true);
       expect(isTerminalContractStatus(ContractStatus.TERMINATED)).toBe(true);
       expect(isTerminalContractStatus(ContractStatus.CANCELLED)).toBe(true);
@@ -37,7 +37,7 @@ describe('Contracts Adapter', () => {
 
     it('returns false for inactive states', () => {
       expect(isActiveLikeContractStatus(ContractStatus.DRAFT)).toBe(false);
-      expect(isActiveLikeContractStatus(ContractStatus.ENDED)).toBe(false);
+
       expect(isActiveLikeContractStatus(ContractStatus.CANCELLED)).toBe(false);
     });
   });

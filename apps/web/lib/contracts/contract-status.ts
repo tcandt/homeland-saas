@@ -18,7 +18,7 @@ export const CONTRACT_STATUS_MAP: Record<string, ContractStatusConfig> = {
   TERMINATED: { value: 'TERMINATED', label: 'Đã chấm dứt', color: 'error', isTerminal: true, order: 7 },
   CANCELLED: { value: 'CANCELLED', label: 'Đã hủy', color: 'neutral', isTerminal: true, order: 8 },
   // Legacy
-  ENDED: { value: 'ENDED', label: 'Đã kết thúc (cũ)', color: 'neutral', isTerminal: true, order: 99 },
+
 };
 
 export function getContractStatusConfig(status: string | undefined): ContractStatusConfig {
@@ -33,9 +33,8 @@ export function getContractStatusConfig(status: string | undefined): ContractSta
 }
 
 export const ACTIVE_FILTERS = Object.values(CONTRACT_STATUS_MAP)
-  .filter(c => !c.isTerminal && c.value !== 'ENDED')
+  .filter(c => !c.isTerminal)
   .sort((a, b) => a.order - b.order);
 
 export const ALL_FILTERS = Object.values(CONTRACT_STATUS_MAP)
-  .filter(c => c.value !== 'ENDED') // hide legacy from dropdowns
   .sort((a, b) => a.order - b.order);

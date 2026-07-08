@@ -32,7 +32,7 @@ enum ContractStatus {
   APPROVED
   ACTIVE
   EXPIRING
-  ENDED
+
   EXPIRED
   TERMINATED
   CANCELLED

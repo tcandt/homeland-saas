@@ -2,7 +2,7 @@
 
 > **Objective:** Safely migrate legacy `ENDED` contracts to their correct FSM state (`EXPIRED` or `TERMINATED`) while ensuring zero downtime and 100% backward compatibility for existing UI, API clients, Reports, and Invoices.
 > **Date:** 2026-07-08
-> **Status:** Planning
+> **Status:** Phase B1 (Migration) Completed. Phase B2-B4 Pending.
 
 ---
 
@@ -38,6 +38,10 @@ Currently, the Prisma `ContractStatus` enum was expanded in Phase A to include n
   - `SELECT COUNT(*) FROM "Contract" WHERE status = 'ENDED';` (must equal 0 after migration)
   - Verify total count of `EXPIRED` + `TERMINATED` matches pre-migration `ENDED` count.
 - **Forward-Fix Rollback Strategy:** If mapping proves incorrect (e.g. `EXPIRED` should have been `TERMINATED`), a forward-fix script reading from Audit Logs will be applied rather than rolling back the entire schema.
+- **Phase B1 Execution Evidence:**
+  - Pre-migration `ENDED` count: 0
+  - Migration script applied: `20260708065702_migrate_legacy_contract_statuses`
+  - Post-migration `ENDED` count: 0
 
 ---
 

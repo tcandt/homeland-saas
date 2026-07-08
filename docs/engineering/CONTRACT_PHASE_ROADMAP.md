@@ -14,7 +14,7 @@
 ---
 
 ## Phase B1: Migration (DB Only)
-⏳ **STATUS: PENDING**
+✅ **STATUS: COMPLETED**
 
 - **Objective:** Execute the data migration to securely convert all `ENDED` records to `EXPIRED` or `TERMINATED` at the DB level.
 - **Allowed Changes:**

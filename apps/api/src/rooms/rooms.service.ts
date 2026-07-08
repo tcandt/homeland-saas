@@ -4,6 +4,7 @@ import { Room } from '@prisma/client';
 import { RoomsRepository } from './rooms.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { PaginatedResult } from '@homeland/shared';
+import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 
 @Injectable()
 export class RoomsService extends BaseCrudService<Room> {
@@ -40,7 +41,7 @@ export class RoomsService extends BaseCrudService<Room> {
       building: { select: { id: true, name: true, code: true } },
       floor: { select: { id: true, name: true, level: true } },
       contracts: {
-        where: { status: 'ACTIVE' },
+        where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } },
         include: { customer: { select: { id: true, fullName: true, phone: true } } },
         take: 1
       }
@@ -49,7 +50,7 @@ export class RoomsService extends BaseCrudService<Room> {
 
   async softDelete(id: string, userId?: string, moduleName?: string): Promise<Room> {
     const room = await this.getDetail(id, {
-      _count: { select: { contracts: { where: { status: 'ACTIVE' } } } }
+      _count: { select: { contracts: { where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } } }
     });
     
     const activeContractCount = (room as any)._count?.contracts || 0;

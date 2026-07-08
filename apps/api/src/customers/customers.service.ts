@@ -4,6 +4,7 @@ import { Customer } from '@prisma/client';
 import { CustomersRepository } from './customers.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { PaginatedResult } from '@homeland/shared';
+import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 
 @Injectable()
 export class CustomersService extends BaseCrudService<Customer> {
@@ -33,9 +34,9 @@ export class CustomersService extends BaseCrudService<Customer> {
     if (status) {
       // Map status enum to Contract relation queries
       if (status === 'ACTIVE' || status === 'Đang thuê') {
-        where.contracts = { some: { status: 'ACTIVE' } };
+        where.contracts = { some: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } };
       } else if (status === 'INACTIVE' || status === 'Đã trả phòng') {
-        where.contracts = { none: { status: 'ACTIVE' } };
+        where.contracts = { none: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } };
       } else if (status === 'DEBT' || status === 'Đang nợ') {
         where.invoices = { some: { status: 'OVERDUE' } };
       }

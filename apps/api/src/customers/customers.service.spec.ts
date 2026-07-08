@@ -3,6 +3,7 @@ import { CustomersService } from './customers.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CustomersRepository } from './customers.repository';
 import { AuditService } from '../shared/audit/audit.service';
+import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 
 describe('CustomersService', () => {
   let service: CustomersService;
@@ -37,7 +38,7 @@ describe('CustomersService', () => {
     it('should query active status via contracts relation', async () => {
       await service.listCustomers(1, 10, undefined, 'ACTIVE');
       expect(repository.paginate).toHaveBeenCalledWith(
-        { contracts: { some: { status: 'ACTIVE' } } },
+        { contracts: { some: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
         1,
         10,
         { createdAt: 'desc' },
@@ -48,7 +49,7 @@ describe('CustomersService', () => {
     it('should query inactive status via contracts relation', async () => {
       await service.listCustomers(1, 10, undefined, 'INACTIVE');
       expect(repository.paginate).toHaveBeenCalledWith(
-        { contracts: { none: { status: 'ACTIVE' } } },
+        { contracts: { none: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
         1,
         10,
         { createdAt: 'desc' },

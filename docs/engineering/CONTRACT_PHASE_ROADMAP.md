@@ -36,7 +36,7 @@
 ---
 
 ## Phase B2: Backend Rollout
-⏳ **STATUS: PENDING**
+✅ **STATUS: COMPLETED**
 
 - **Objective:** Allow backend services to seamlessly handle both new FSM statuses and gracefully tolerate any remaining legacy requests.
 - **Allowed Changes:**

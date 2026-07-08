@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter, Histogram, Gauge, Registry } from 'prom-client';
 import { PrismaService } from '../prisma.service';
+import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 
 @Injectable()
 export class MetricsService implements OnModuleInit {
@@ -26,7 +27,7 @@ export class MetricsService implements OnModuleInit {
   async refreshBusinessMetrics() {
     try {
       const [contracts, rooms, revenue] = await Promise.all([
-        this.prisma.contract.count({ where: { status: 'ACTIVE' } }),
+        this.prisma.contract.count({ where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } }),
         this.prisma.room.count({ where: { status: 'OCCUPIED' } }),
         this.prisma.invoice.aggregate({
           where: {

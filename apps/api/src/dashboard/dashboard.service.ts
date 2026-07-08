@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { FinanceReportingService } from '../finance/finance-reporting.service';
+import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 
 @Injectable()
 export class DashboardService {
@@ -21,7 +22,7 @@ export class DashboardService {
       this.finance.getCashFlow(tenantId),
       this.prisma.room.count({ where: { tenantId, status: { not: 'INACTIVE' } } }),
       this.prisma.room.count({ where: { tenantId, status: 'OCCUPIED' } }),
-      this.prisma.contract.count({ where: { tenantId, status: 'ACTIVE' } })
+      this.prisma.contract.count({ where: { tenantId, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } })
     ]);
 
     const occupancyRate = totalRooms > 0 ? (occupiedRooms / totalRooms) * 100 : 0;

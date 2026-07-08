@@ -2,7 +2,7 @@
 
 > **Objective:** Update backend services to natively support `EXPIRED` and `TERMINATED` statuses. Ensure backwards read/write compatibility. Remove any remaining unsafe casts associated with contract status.
 > **Date:** 2026-07-08
-> **Status:** Planning
+> **Status:** Phase B2 Completed. Ready for Phase B3.
 
 ---
 

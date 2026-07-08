@@ -4,6 +4,7 @@ import { Contract } from '@prisma/client';
 import { ContractsRepository } from './contracts.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { PaginatedResult } from '@homeland/shared';
+import { mapStatusFilter } from './contracts.adapter';
 
 @Injectable()
 export class ContractsService extends BaseCrudService<Contract> {
@@ -31,7 +32,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         { customer: { fullName: { contains: search, mode: 'insensitive' } } },
       ];
     }
-    if (status) where.status = status;
+    if (status) where.status = mapStatusFilter(status);
     if (roomId) where.roomId = roomId;
     if (customerId) where.customerId = customerId;
 

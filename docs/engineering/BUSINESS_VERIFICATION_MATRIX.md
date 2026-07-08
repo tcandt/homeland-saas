@@ -5,6 +5,10 @@
 > Objective: Verify every production workflow from Register to Accounting works end-to-end in production build.
 >
 > Rule: A module is NOT verified until its role in every dependent business flow passes.
+>
+> **Version: 2.0** | Dataset: `PRODUCTION_DATASET v1.0` | Updated: 2026-07-08
+>
+> **SINGLE SOURCE OF TRUTH** — All status updates flow: BVM → PRODUCTION_SCORE → MODULE_STATUS → OPERATOR_DASHBOARD
 
 ---
 
@@ -66,6 +70,23 @@ Never jump to the next flow until current flow closes all failing gates.
 > Note: Edit Room DB gate marked ⏳ because snapshot after edit was not captured — only snapshot after create and after delete were captured.
 
 **Flow 2 Status: ✅ CORE VERIFIED — ⏳ Audit assertion and edit-DB snapshot pending**
+
+#### Flow 2 Coverage Breakdown
+
+| Category | Verified / Total | % |
+|----------|-----------------|---|
+| CRUD | 7/7 | 100% |
+| RBAC | 7/7 | 100% |
+| Tenant Isolation | 7/7 | 100% |
+| UI | 7/7 | 100% |
+| API | 7/7 | 100% |
+| Runtime | 7/7 | 100% |
+| Persistence | 7/7 | 100% |
+| DB Snapshot | 5/7 | 71% |
+| Audit Log | 3/7 | 43% |
+| Performance | 0/7 | 0% |
+| Concurrency | 0/7 | 0% |
+| **Overall Flow 2** | | **~80%** |
 
 ---
 
@@ -163,19 +184,41 @@ Never jump to the next flow until current flow closes all failing gates.
 
 ## Overall Business Verification Score
 
-| Flow | Core Gates | Status | Score |
-|------|-----------|--------|-------|
-| Flow 1: Register → Login | 11 gates | ⏳ NOT STARTED | 0% |
-| Flow 2: Property Setup | 11 gates | ✅ CORE / ⏳ Audit pending | 80% |
-| Flow 3: Customer Registration | 11 gates | ⏳ NOT STARTED | 0% |
-| Flow 4: Contract Creation & Approval | 11 gates | ⏳ NOT STARTED | 0% |
-| Flow 5: Invoice Generation | 11 gates | ⏳ NOT STARTED | 0% |
-| Flow 6: Payment Receipt | 11 gates | ⏳ NOT STARTED | 0% |
-| Flow 7: Accounting Update | 11 gates | ⏳ NOT STARTED | 0% |
-| Flow 8: Dashboard & Reports | 11 gates | ⏳ NOT STARTED | 0% |
-| Flow 9: Notifications | 11 gates | ⏳ NOT STARTED | 0% |
-| **TOTAL** | | | **~9%** |
+| Flow | Steps | Status | Score |
+|------|-------|--------|-------|
+| Flow 1: Register → Login | 4 steps | ⏳ NOT STARTED | 0% |
+| Flow 2: Property Setup | 7 steps | ✅ CORE / ⏳ Audit + DB pending | 80% |
+| Flow 3: Customer Registration | 4 steps | ⏳ NOT STARTED | 0% |
+| Flow 4: Contract Creation & Approval | 5 steps | ⏳ NOT STARTED | 0% |
+| Flow 5: Invoice Generation | 4 steps | ⏳ NOT STARTED | 0% |
+| Flow 6: Payment Receipt | 5 steps | ⏳ NOT STARTED | 0% |
+| Flow 7: Accounting Update | 3 steps | ⏳ NOT STARTED | 0% |
+| Flow 8: Dashboard & Reports | 5 steps | ⏳ NOT STARTED | 0% |
+| Flow 9: Notifications | 3 steps | ⏳ NOT STARTED | 0% |
+| **TOTAL** | **40 steps** | | **~9%** |
 
-**`PRODUCTION READY` requires: 100% across all flows.**
+---
 
-Current status: **NOT PRODUCTION READY**.
+## Coverage by Gate Category (Global)
+
+| Gate | Verified Steps | Total Steps | % |
+|------|---------------|------------|---|
+| UI | 7 | 40 | 18% |
+| API | 7 | 40 | 18% |
+| DB Snapshot | 5 | 40 | 13% |
+| Audit Log | 3 | 40 | 8% |
+| Tenant Isolation | 7 | 40 | 18% |
+| RBAC | 7 | 40 | 18% |
+| Browser Console | 7 | 40 | 18% |
+| Runtime | 7 | 40 | 18% |
+| Persistence | 7 | 40 | 18% |
+| E2E | 7 | 40 | 18% |
+| Production Build | 7 | 40 | 18% |
+| Performance | 0 | 40 | 0% |
+| Concurrency | 0 | 40 | 0% |
+
+---
+
+**`PRODUCTION READY` requires: 100% across all flows and all gate categories.**
+
+Current status: **NOT PRODUCTION READY** (~9% business flow coverage).

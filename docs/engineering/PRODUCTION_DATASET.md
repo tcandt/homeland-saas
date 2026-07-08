@@ -3,6 +3,63 @@
 > Standard seed dataset for all E2E and Business Flow verification runs.
 > Every test run must use this dataset so results are repeatable and comparable.
 > Do NOT use random data as primary identifiers for business flow tests — use deterministic seeds.
+>
+> **Current Version: v1.0** | Created: 2026-07-08
+
+---
+
+## Dataset Changelog
+
+| Version | Date | Changes | Breaking |
+|---------|------|---------|---------|
+| v1.0 | 2026-07-08 | Initial dataset: Tenant, 3 Users, 1 Building, 2 Floors, 3 Rooms, 2 Customers, 1 Contract, 1 Invoice, 1 Payment | — |
+
+> When dataset version changes, **all test files referencing the old version must be updated**.
+> Every E2E test file must declare which dataset version it was written for:
+> ```ts
+> // Dataset: PRODUCTION_DATASET v1.0
+> ```
+
+---
+
+## Seed Verification Protocol
+
+Before running any business flow test, the seed must be verified.
+If the verification fails, the test MUST NOT proceed.
+
+```
+Seed
+  ↓
+Verify (count each entity type)
+  ↓
+Hash (checksum of entity counts)
+  ↓
+Compare to expected hash
+  ↓
+PASS → Continue test
+FAIL → Abort: "Seed verification failed. Re-run seed script."
+```
+
+### Expected Seed Counts (v1.0)
+
+| Entity | Expected Count | Notes |
+|--------|---------------|-------|
+| TenantOrg | 1 | E2E Test Company |
+| User | 3 | admin, sales, accountant |
+| Building | 1 | Tòa E2E Test |
+| Floor | 2 | Tầng 1, Tầng 2 |
+| Room | 3 | 101, 102, 201 |
+| Customer | 2 | Nguyễn Văn Test, Trần Thị E2E |
+| Contract | 1 | Room 101 + Nguyễn Văn Test |
+| Invoice | 1 | 2026-08, Room 101 |
+| Payment | 1 | Bank transfer, 5,550,000 VND |
+
+**Expected Hash (SHA-256 of counts string `1:3:1:2:3:2:1:1:1`):**
+```
+8a9c4d2f1e7b3a56c89d012e4f67890a (placeholder — update after first seed run)
+```
+
+> The hash script is: `apps/web/tests/e2e/helpers/verify-seed.ts` (to be implemented)
 
 ---
 
@@ -13,6 +70,9 @@
 3. **Isolated per tenant**: All data belongs to the E2E tenant, not shared with real tenants.
 4. **Cleaned after test**: Post-suite teardown removes all E2E records (soft-delete).
 5. **Cross-flow continuity**: Flow 4 (Contract) reuses the Room from Flow 2 and the Customer from Flow 3.
+6. **Version pinning**: Every test file must declare its dataset version in a comment.
+7. **Version bump required** when: adding/removing entities, changing entity fields, changing relationships.
+
 
 ---
 

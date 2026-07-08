@@ -1,5 +1,12 @@
 # Module Status
 
+> ⚠️ **DERIVED DOCUMENT — DO NOT EDIT DIRECTLY**
+> This file is derived from: `BUSINESS_VERIFICATION_MATRIX` → `PRODUCTION_SCORE` → here.
+> To update: update a BVM gate with evidence → recalculate PRODUCTION_SCORE → update this file.
+> See [EOS_ARCHITECTURE.md](engineering/EOS_ARCHITECTURE.md) for update protocol.
+> Version: 2.0 | Last Updated: 2026-07-08
+
+
 | Module | CRUD | Business | Unit | Integration | E2E | Security | Performance | Production |
 | ------ | ---- | -------- | ---- | ----------- | --- | -------- | ----------- | ---------- |
 | Auth | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 90 |

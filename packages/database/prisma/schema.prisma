@@ -28,9 +28,13 @@ enum RoomStatus {
 
 enum ContractStatus {
   DRAFT
+  PENDING_APPROVAL
+  APPROVED
   ACTIVE
   EXPIRING
   ENDED
+  EXPIRED
+  TERMINATED
   CANCELLED
 }
 

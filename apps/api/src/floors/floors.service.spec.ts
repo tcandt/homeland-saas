@@ -86,9 +86,8 @@ describe('FloorsService', () => {
 
   describe('softDelete', () => {
     it('should delete floor if no rooms exist', async () => {
-      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'f1' } as any);
+      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'f1', _count: { rooms: 0 } } as any);
       vi.spyOn(repository, 'softDelete').mockResolvedValue({ id: 'f1' } as any);
-      vi.spyOn(repository as any, 'count').mockResolvedValue(0);
       
       await service.softDelete('f1', 'u1');
 
@@ -96,8 +95,7 @@ describe('FloorsService', () => {
     });
 
     it('should reject delete if rooms exist', async () => {
-      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'f1' } as any);
-      vi.spyOn(repository as any, 'count').mockResolvedValue(5);
+      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'f1', _count: { rooms: 5 } } as any);
       
       await expect(service.softDelete('f1', 'u1')).rejects.toThrow(HttpException);
     });

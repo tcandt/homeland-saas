@@ -61,7 +61,7 @@ If `endDate` <= `now()`, map to `EXPIRED`. Otherwise, map to `TERMINATED`.
 
 We will use the **Expand → Migrate → Contract** pattern to guarantee zero downtime.
 
-### Phase A: Expand & Compatibility Layer
+### Phase A: Expand & Compatibility Layer (✅ COMPLETED)
 1. **DB Expand:** Update `schema.prisma` by ADDING `PENDING_APPROVAL`, `APPROVED`, `EXPIRED`, `TERMINATED` to `ContractStatus` enum. **DO NOT REMOVE `ENDED` YET.** Run Prisma migration.
 2. **DTO & Backend Adapter:** Update DTOs. Intercept responses returning `EXPIRED`/`TERMINATED` and cast them to `ENDED` for old UI components if version headers require it, OR simply ensure UI falls back gracefully.
 3. **Deploy Phase A.**

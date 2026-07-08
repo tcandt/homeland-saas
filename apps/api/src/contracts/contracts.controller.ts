@@ -4,6 +4,7 @@ import { ContractsService } from './contracts.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { CreateContractSchema, UpdateContractSchema, PaginationSchema } from '@homeland/shared';
+import { normalizeContractStatus } from './contracts.adapter';
 
 @ApiTags('Contracts')
 @ApiBearerAuth()
@@ -45,7 +46,7 @@ export class ContractsController {
       customerId: input.customerId,
       roomId: input.roomId,
       code: input.contractCode || `C-${Date.now()}`,
-      status: input.status as any,
+      status: normalizeContractStatus(input.status),
       startDate: new Date(input.startDate),
       endDate: new Date(input.endDate),
       monthlyRent: input.rentAmount,
@@ -63,7 +64,7 @@ export class ContractsController {
     if (input.customerId) data.customerId = input.customerId;
     if (input.roomId) data.roomId = input.roomId;
     if (input.contractCode) data.code = input.contractCode;
-    if (input.status) data.status = input.status;
+    if (input.status) data.status = normalizeContractStatus(input.status);
     if (input.startDate) data.startDate = new Date(input.startDate);
     if (input.endDate) data.endDate = new Date(input.endDate);
     if (input.rentAmount !== undefined) data.monthlyRent = input.rentAmount;

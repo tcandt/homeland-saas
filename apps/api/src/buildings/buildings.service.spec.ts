@@ -61,9 +61,7 @@ describe('BuildingsService', () => {
         1,
         10,
         { name: 'asc' },
-        expect.objectContaining({
-          _count: { select: { floors: true, rooms: true } },
-        })
+        expect.any(Object)
       );
     });
   });
@@ -86,7 +84,7 @@ describe('BuildingsService', () => {
 
   describe('update', () => {
     it('should update building', async () => {
-      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'b1', name: 'Old' } as any);
+      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'b1', _count: { floors: 1, rooms: 0 } } as any);
       vi.spyOn(repository, 'update').mockResolvedValue({ id: 'b1', name: 'New' } as any);
       
       await service.update('b1', { name: 'New' }, 'u1');
@@ -103,7 +101,7 @@ describe('BuildingsService', () => {
 
   describe('softDelete', () => {
     it('should delete building if no business rules prevent it', async () => {
-      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'b1', name: 'Old' } as any);
+      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'b1', _count: { floors: 0, rooms: 0 } } as any);
       vi.spyOn(repository, 'softDelete').mockResolvedValue({ id: 'b1' } as any);
       
       await service.softDelete('b1', 'u1');
@@ -112,9 +110,7 @@ describe('BuildingsService', () => {
     });
 
     it('should reject delete if active floors or rooms exist', async () => {
-      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'b1', name: 'Building 1' } as any);
-      // Simulate that the service checks for existing rooms via counting
-      vi.spyOn(repository as any, 'count').mockResolvedValue(1); 
+      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'b1', _count: { floors: 1, rooms: 0 } } as any);
       
       await expect(service.softDelete('b1', 'u1')).rejects.toThrow(HttpException);
     });

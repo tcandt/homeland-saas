@@ -57,9 +57,9 @@ export const ContractStatusEnum = z.enum(['ACTIVE', 'EXPIRED', 'TERMINATED']);
 
 To safely deploy this change:
 
-1. **Phase 1 (Code Prep):**
+1. **Phase 1 (Code Prep - Expand): (✅ COMPLETED)**
    - Update `ContractStatusEnum` in `@homeland/shared` to perfectly match the proposed Prisma enum.
-   - Update `OperationsContractRow.tsx` and related UI components to map the new enum values to localized Vietnamese labels.
+   - Expand `schema.prisma` enum without removing `ENDED`.
 2. **Phase 2 (Data Migration - Pre-Schema):**
    - We must handle existing `ENDED` records. Create a Prisma migration script to `UPDATE "Contract" SET "status" = 'TERMINATED' WHERE "status" = 'ENDED'`.
 3. **Phase 3 (Schema Migration):**
@@ -95,5 +95,4 @@ If the migration fails in staging:
 - `Prisma Migration` generated files (with manual SQL to migrate `ENDED` to `TERMINATED`).
 - `seed.ts` adjustments if necessary.
 
----
-**Status:** Ready for implementation of the Schema changes.
+**Status:** Phase A (Expand) Complete. Ready for Phase B (Data Migration & UI updates).

@@ -1,6 +1,16 @@
 import { z } from 'zod';
 
-export const ContractStatusEnum = z.enum(['ACTIVE', 'EXPIRED', 'TERMINATED']);
+export const ContractStatusEnum = z.enum([
+  'DRAFT',
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'ACTIVE',
+  'EXPIRING',
+  'ENDED', // Legacy, to be removed in Phase C
+  'EXPIRED',
+  'TERMINATED',
+  'CANCELLED'
+]);
 
 export const CreateContractSchema = z.object({
   customerId: z.string().min(1, 'Customer ID is required'),

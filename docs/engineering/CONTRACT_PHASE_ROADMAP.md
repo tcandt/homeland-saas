@@ -54,7 +54,7 @@
 ---
 
 ## Phase B3: Frontend Rollout
-⏳ **STATUS: PENDING**
+✅ **STATUS: COMPLETED**
 
 - **Objective:** Update UI components to read and filter by the new FSM statuses.
 - **Allowed Changes:**

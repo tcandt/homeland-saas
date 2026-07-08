@@ -2,7 +2,7 @@
 
 > **Objective:** Update frontend UI components to natively display, filter, and interact with the new FSM contract statuses (`EXPIRED` and `TERMINATED`) while maintaining legacy visual fallback.
 > **Date:** 2026-07-08
-> **Status:** Planning
+> **Status:** Phase B3 Completed. Ready for Phase B4.
 
 ---
 

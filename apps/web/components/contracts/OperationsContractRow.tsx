@@ -6,21 +6,10 @@ import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 
-export type ContractStatus = "Đang hiệu lực" | "Sắp hết hạn" | "Chờ ký" | "Có công nợ" | "Đã chấm dứt" | "Chờ gia hạn";
-
+import { getContractStatusConfig } from "../../lib/contracts/contract-status";
 export default function OperationsContractRow({ contract, onClick }: { contract: any, onClick: () => void }) {
   
-  const getBadgeVariant = (status: ContractStatus) => {
-    switch (status) {
-      case "Đang hiệu lực": return "success";
-      case "Sắp hết hạn": return "warning";
-      case "Chờ ký": return "primary";
-      case "Có công nợ": return "error";
-      case "Chờ gia hạn": return "primary";
-      case "Đã chấm dứt": return "neutral";
-      default: return "neutral";
-    }
-  };
+  const statusConfig = getContractStatusConfig(contract.status);
 
   const hasDebt = false; // Placeholder for debt
   const rentAmount = contract.monthlyRent || 0;
@@ -93,8 +82,8 @@ export default function OperationsContractRow({ contract, onClick }: { contract:
 
       {/* 4. Status Badges */}
       <div className="flex flex-col items-end gap-[6px] min-w-[120px]">
-        <Badge data-testid="contract-status-badge" variant={getBadgeVariant(contract.status)}>
-          {contract.status || 'Đang hiệu lực'}
+        <Badge data-testid="contract-status-badge" variant={statusConfig.color}>
+          {statusConfig.label}
         </Badge>
         <div className="flex items-center gap-[4px] text-[12px] font-bold text-muted">
           <CheckCircle2 size={14} className="text-[#10b981]" /> Đã ký
@@ -107,21 +96,25 @@ export default function OperationsContractRow({ contract, onClick }: { contract:
           <Button aria-label="Xem chi tiết" variant="ghost" onClick={(e) => { e.stopPropagation(); onClick(); }} className="w-9 h-9 p-0 text-[#6366f1] hover:bg-[#6366f1]/10">
             <ChevronRight size={16} />
           </Button>
-          <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-blue-500 hover:bg-blue-500/10">
-            <PenTool size={14} className="mr-1.5" /> Gửi ký
-          </Button>
-          <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-[#10b981] hover:bg-[#10b981]/10">
-            <Coins size={14} className="mr-1.5" /> Thu tiền
-          </Button>
-          <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-[#f97316] hover:bg-[#f97316]/10">
-            <CalendarClock size={14} className="mr-1.5" /> Gia hạn
-          </Button>
-          <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-emerald-500 hover:bg-emerald-500/10">
-            <FileText size={14} className="mr-1.5" /> Xuất HĐ
-          </Button>
-          <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-rose-500 hover:bg-rose-500/10">
-            <Trash2 size={14} className="mr-1.5" /> Chấm dứt
-          </Button>
+          {!statusConfig.isTerminal && (
+            <>
+              <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-blue-500 hover:bg-blue-500/10">
+                <PenTool size={14} className="mr-1.5" /> Gửi ký
+              </Button>
+              <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-[#10b981] hover:bg-[#10b981]/10">
+                <Coins size={14} className="mr-1.5" /> Thu tiền
+              </Button>
+              <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-[#f97316] hover:bg-[#f97316]/10">
+                <CalendarClock size={14} className="mr-1.5" /> Gia hạn
+              </Button>
+              <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-emerald-500 hover:bg-emerald-500/10">
+                <FileText size={14} className="mr-1.5" /> Xuất HĐ
+              </Button>
+              <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-rose-500 hover:bg-rose-500/10">
+                <Trash2 size={14} className="mr-1.5" /> Chấm dứt
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </Card>

@@ -4,6 +4,7 @@ import { Table } from "../ui/Table";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
+import { getContractStatusConfig } from "../../lib/contracts/contract-status";
 
 const contracts = [
   { id: "HD-2026-001", tenant: "Nguyễn Văn A", room: "P101 - LK01.31", startDate: "01/01/2026", endDate: "31/12/2026", price: "6.500.000 đ", status: "Đang hiệu lực" },
@@ -13,11 +14,7 @@ const contracts = [
   { id: "HD-2025-045", tenant: "Hoàng E", room: "P405 - LK01.31", startDate: "01/04/2025", endDate: "01/04/2026", price: "5.000.000 đ", status: "Đã chấm dứt" },
 ];
 
-function getBadgeVariant(status: string) {
-  if (status === "Đang hiệu lực") return "success";
-  if (status === "Sắp hết hạn") return "warning";
-  return "neutral";
-}
+
 
 const columns = [
   {
@@ -61,7 +58,10 @@ const columns = [
   },
   {
     header: "Trạng thái",
-    accessor: (row: any) => <Badge variant={getBadgeVariant(row.status)}>{row.status}</Badge>,
+    accessor: (row: any) => {
+      const config = getContractStatusConfig(row.status === "Đang hiệu lực" ? "ACTIVE" : row.status === "Sắp hết hạn" ? "EXPIRING" : row.status === "Đã chấm dứt" ? "TERMINATED" : "DRAFT");
+      return <Badge variant={config.color}>{config.label}</Badge>;
+    },
     className: "text-right w-[120px]"
   },
   {
@@ -97,7 +97,12 @@ export default function ContractsList() {
                   <div className="text-[11px] font-medium text-muted mt-0.5">{item.tenant}</div>
                 </div>
               </div>
-              <Badge variant={getBadgeVariant(item.status)}>{item.status}</Badge>
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const config = getContractStatusConfig(item.status === "Đang hiệu lực" ? "ACTIVE" : item.status === "Sắp hết hạn" ? "EXPIRING" : item.status === "Đã chấm dứt" ? "TERMINATED" : "DRAFT");
+                  return <Badge variant={config.color}>{config.label}</Badge>;
+                })()}
+              </div>
             </div>
             
             <div className="grid grid-cols-2 gap-2 mt-1">

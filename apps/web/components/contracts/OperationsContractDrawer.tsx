@@ -6,19 +6,11 @@ import { Drawer } from "../ui/Drawer";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
+import { getContractStatusConfig } from "../../lib/contracts/contract-status";
 
 export default function OperationsContractDrawer({ contract, onClose }: { contract: any | null, onClose: () => void }) {
-  const getBadgeVariant = (status: string) => {
-    switch (status) {
-      case "Đang hiệu lực": return "success";
-      case "Sắp hết hạn": return "warning";
-      case "Chờ ký": return "primary";
-      case "Có công nợ": return "error";
-      case "Chờ gia hạn": return "primary";
-      case "Đã chấm dứt": return "neutral";
-      default: return "neutral";
-    }
-  };
+  const statusConfig = contract ? getContractStatusConfig(contract.status) : null;
+
 
   if (!contract) return null;
 
@@ -38,17 +30,21 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
       footer={
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" className="text-rose-500 hover:bg-rose-500/10">
-              <Trash2 size={16} className="mr-2" /> Chấm dứt
-            </Button>
+            {!statusConfig?.isTerminal && (
+              <Button variant="ghost" className="text-rose-500 hover:bg-rose-500/10">
+                <Trash2 size={16} className="mr-2" /> Chấm dứt
+              </Button>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <Button variant="secondary">
               <Download size={16} className="mr-2" /> Xuất PDF
             </Button>
-            <Button variant="outline">
-              <CalendarClock size={16} className="mr-2" /> Gia hạn
-            </Button>
+            {!statusConfig?.isTerminal && (
+              <Button variant="outline">
+                <CalendarClock size={16} className="mr-2" /> Gia hạn
+              </Button>
+            )}
           </div>
         </div>
       }
@@ -61,7 +57,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               <h3 className="font-black text-[22px] text-text leading-tight">{contract.customer?.name || 'Chưa rõ khách thuê'}</h3>
               <div className="flex items-center gap-[8px]">
                 <Badge variant="neutral">{contract.room?.number || 'Chưa phòng'} · {contract.room?.building?.name || 'Chưa toà'}</Badge>
-                <Badge data-testid="contract-status-badge" variant={getBadgeVariant(contract.status)}>{contract.status || 'Đang hiệu lực'}</Badge>
+                <Badge data-testid="contract-status-badge" variant={statusConfig!.color}>{statusConfig!.label}</Badge>
               </div>
             </div>
             <div className="text-right flex flex-col items-end gap-[4px]">

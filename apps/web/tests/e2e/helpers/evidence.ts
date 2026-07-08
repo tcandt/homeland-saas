@@ -40,6 +40,10 @@ export class EvidenceCollector {
       // Ignore known Next.js proxy limitations with SSE that trigger fallback
       if (log.includes('status of 503 (Service Unavailable)') && log.includes('stream')) return false;
       if (log.includes('SSE Error, falling back to polling')) return false;
+      
+      // Ignore Next.js RSC prefetch aborts caused by fast Playwright navigations
+      if (log.includes('Failed to fetch RSC payload') && log.includes('TypeError: Failed to fetch')) return false;
+      
       // Also catch generic 503 in case the URL isn't logged directly in the message
       if (log.includes('status of 503 (Service Unavailable)')) {
           // Verify if it's accompanied by the SSE fallback error right after

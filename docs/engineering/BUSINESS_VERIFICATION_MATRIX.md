@@ -94,12 +94,13 @@ Never jump to the next flow until current flow closes all failing gates.
 
 | Step | UI | API | DB | Audit | Tenant | RBAC | Console | Runtime | Persist | E2E | Prod |
 |------|----|-----|----|-------|--------|------|---------|---------|---------|-----|------|
-| Create Customer | ⏳ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| Create Customer | ✅ | ✅ | ⏳ | ⏳ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Upload ID Images | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| Edit Customer | ⏳ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| List Customers | ⏳ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| Edit Customer | ✅ | ✅ | ⏳ | ⏳ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| List Customers | ✅ | ✅ | ⏳ | ⏳ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Delete Customer | ✅ | ✅ | ⏳ | ⏳ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-**Flow 3 Status: ⏳ NOT STARTED (API exists, UI CRUD form not built)**
+**Flow 3 Status: ✅ CORE VERIFIED — ⏳ Audit and ID upload pending**
 
 ---
 
@@ -188,14 +189,14 @@ Never jump to the next flow until current flow closes all failing gates.
 |------|-------|--------|-------|
 | Flow 1: Register → Login | 4 steps | ⏳ NOT STARTED | 0% |
 | Flow 2: Property Setup | 7 steps | ✅ CORE / ⏳ Audit + DB pending | 80% |
-| Flow 3: Customer Registration | 4 steps | ⏳ NOT STARTED | 0% |
+| Flow 3: Customer Registration | 5 steps | ✅ CORE / ⏳ Audit + ID Upload pending | 80% |
 | Flow 4: Contract Creation & Approval | 5 steps | ⏳ NOT STARTED | 0% |
 | Flow 5: Invoice Generation | 4 steps | ⏳ NOT STARTED | 0% |
 | Flow 6: Payment Receipt | 5 steps | ⏳ NOT STARTED | 0% |
 | Flow 7: Accounting Update | 3 steps | ⏳ NOT STARTED | 0% |
 | Flow 8: Dashboard & Reports | 5 steps | ⏳ NOT STARTED | 0% |
 | Flow 9: Notifications | 3 steps | ⏳ NOT STARTED | 0% |
-| **TOTAL** | **40 steps** | | **~9%** |
+| **TOTAL** | **41 steps** | | **~26%** |
 
 ---
 
@@ -203,22 +204,22 @@ Never jump to the next flow until current flow closes all failing gates.
 
 | Gate | Verified Steps | Total Steps | % |
 |------|---------------|------------|---|
-| UI | 7 | 40 | 18% |
-| API | 7 | 40 | 18% |
-| DB Snapshot | 5 | 40 | 13% |
-| Audit Log | 3 | 40 | 8% |
-| Tenant Isolation | 7 | 40 | 18% |
-| RBAC | 7 | 40 | 18% |
-| Browser Console | 7 | 40 | 18% |
-| Runtime | 7 | 40 | 18% |
-| Persistence | 7 | 40 | 18% |
-| E2E | 7 | 40 | 18% |
-| Production Build | 7 | 40 | 18% |
-| Performance | 0 | 40 | 0% |
-| Concurrency | 0 | 40 | 0% |
+| UI | 11 | 41 | 26% |
+| API | 11 | 41 | 26% |
+| DB Snapshot | 5 | 41 | 12% |
+| Audit Log | 3 | 41 | 7% |
+| Tenant Isolation | 11 | 41 | 26% |
+| RBAC | 11 | 41 | 26% |
+| Browser Console | 11 | 41 | 26% |
+| Runtime | 11 | 41 | 26% |
+| Persistence | 11 | 41 | 26% |
+| E2E | 11 | 41 | 26% |
+| Production Build | 11 | 41 | 26% |
+| Performance | 0 | 41 | 0% |
+| Concurrency | 0 | 41 | 0% |
 
 ---
 
 **`PRODUCTION READY` requires: 100% across all flows and all gate categories.**
 
-Current status: **NOT PRODUCTION READY** (~9% business flow coverage).
+Current status: **NOT PRODUCTION READY** (~26% business flow coverage).

@@ -26,18 +26,18 @@ export default function TenantCard({ tenant, onClick }: { tenant: any, onClick: 
       {/* Header */}
       <div className="flex items-center justify-between p-[16px] pb-[12px]">
         <div className="flex items-center gap-3">
-          <img src={tenant.avatar} className="w-[44px] h-[44px] rounded-full object-cover border border-border/50 shrink-0" alt="" />
+          <img src={tenant.avatar || "https://ui-avatars.com/api/?name=" + encodeURIComponent(tenant.fullName || tenant.name || "Khách")} className="w-[44px] h-[44px] rounded-full object-cover border border-border/50 shrink-0" alt="" />
           <div className="flex flex-col">
-            <h3 className="font-black text-[16px] leading-tight text-text truncate">{tenant.name || "Khách thuê"}</h3>
+            <h3 className="font-black text-[16px] leading-tight text-text truncate">{tenant.fullName || tenant.name || "Khách thuê"}</h3>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="font-bold text-[12px] text-muted">{tenant.code}</span>
+              <span className="font-bold text-[12px] text-muted">{tenant.code || tenant.id?.slice(0, 8) || "N/A"}</span>
               <span className="w-1 h-1 rounded-full bg-border"></span>
               <span className="font-bold text-[12px] text-text">{tenant.contracts?.[0]?.room?.number || tenant.room || 'Chưa xếp phòng'}</span>
             </div>
           </div>
         </div>
-        <Badge variant={tenant.status === 'Đang thuê' ? 'success' : tenant.status === 'Sắp hết hạn' ? 'warning' : tenant.status === 'Quá hạn' ? 'error' : tenant.status === 'Đặt cọc' ? 'primary' : 'neutral'}>
-          {tenant.status}
+        <Badge variant={tenant.status === 'ACTIVE' || tenant.status === 'Đang thuê' ? 'success' : tenant.status === 'Sắp hết hạn' ? 'warning' : tenant.status === 'Quá hạn' ? 'error' : tenant.status === 'Đặt cọc' ? 'primary' : 'neutral'}>
+          {tenant.status === 'ACTIVE' ? 'Đang thuê' : tenant.status === 'INACTIVE' ? 'Đã rời đi' : tenant.status}
         </Badge>
       </div>
 

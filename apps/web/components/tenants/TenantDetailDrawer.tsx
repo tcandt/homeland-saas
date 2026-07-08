@@ -1,66 +1,100 @@
 "use client";
 
-import { Phone, Building, CalendarClock, CreditCard, ChevronRight, ShieldAlert, ShieldCheck, Shield } from "lucide-react";
+import React, { useState } from "react";
+import { Phone, Building, CalendarClock, CreditCard, ChevronRight, ShieldAlert, ShieldCheck, Shield, Edit, Trash2 } from "lucide-react";
 import { Drawer } from "../ui/Drawer";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
+import TenantFormModal from "./TenantFormModal";
+import { useDeleteCustomerMutation } from "@/lib/mutations/customers.mutations";
 
 export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | null, onClose: () => void }) {
+  const [isEditFormOpen, setIsEditFormOpen] = useState(false);
+  const deleteMutation = useDeleteCustomerMutation();
+
   if (!tenant) return null;
 
+  const handleDelete = () => {
+    if (window.confirm("Bạn có chắc chắn muốn xóa khách thuê này?")) {
+      deleteMutation.mutate(tenant.id, {
+        onSuccess: () => {
+          onClose();
+        }
+      });
+    }
+  };
+
   return (
-    <Drawer 
-      testId="tenant-detail-drawer"
-      closeTestId="tenant-detail-close"
-      isOpen={!!tenant} 
-      onClose={onClose} 
-      size="lg"
-      className="p-4 md:p-6 flex flex-col gap-6 md:gap-8"
-      title={
-        <div className="flex items-center gap-4">
-          <span>Hồ sơ khách thuê</span>
-          <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-black/5 dark:bg-white/5 rounded-[8px]">
-            <span className="font-bold text-[12px] text-muted">Mã: {tenant.code}</span>
-          </div>
-        </div>
-      }
-    >
-      {/* Profile Hero */}
-          <Card className="flex flex-col md:flex-row md:items-center gap-6 p-6">
-            <img src={tenant.avatar} className="w-[100px] h-[100px] rounded-full border-4 border-background shadow-md object-cover" alt="" />
-            <div className="flex-1">
-              <h3 className="font-black text-[28px] leading-tight text-text mb-2">{tenant.name}</h3>
-              <div className="flex flex-wrap items-center gap-3">
-                <Badge variant="primary"><Building size={14} className="mr-1.5"/> {tenant.contracts?.[0]?.room?.number || tenant.room || 'Chưa có phòng'}</Badge>
-                <Badge variant="neutral"><Phone size={14} className="mr-1.5"/> {tenant.phone}</Badge>
-                <RiskBadge risk={tenant.risk} />
-              </div>
+    <>
+      <Drawer 
+        testId="tenant-detail-drawer"
+        closeTestId="tenant-detail-close"
+        isOpen={!!tenant} 
+        onClose={onClose} 
+        size="lg"
+        className="p-4 md:p-6 flex flex-col gap-6 md:gap-8"
+        title={
+          <div className="flex items-center gap-4">
+            <span>Hồ sơ khách thuê</span>
+            <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-black/5 dark:bg-white/5 rounded-[8px]">
+              <span className="font-bold text-[12px] text-muted">Mã: {tenant.code}</span>
             </div>
-          </Card>
-
-          {/* Quick Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard label="Trạng thái" value={tenant.status || 'Hoạt động'} color="text-[#22c55e]" />
-            <StatCard label="Hợp đồng còn" value={`${tenant.contractDays || 0} ngày`} color="text-text" />
-            <StatCard label="Công nợ" value={tenant.debt > 0 ? `${tenant.debt.toLocaleString()} đ` : '0 đ'} color={tenant.debt > 0 ? "text-[#ef4444]" : "text-[#22c55e]"} />
-            <StatCard label="Tạm trú" value={tenant.tempResidence || 'Chưa khai báo'} color={tenant.tempResidence === 'Đã khai báo' ? "text-[#22c55e]" : "text-rose-500"} />
           </div>
+        }
+      >
+        {/* Profile Hero */}
+            <Card className="flex flex-col md:flex-row md:items-center gap-6 p-6 relative">
+              <div className="absolute top-4 right-4 flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setIsEditFormOpen(true)} data-testid="edit-tenant-button">
+                  <Edit size={16} className="mr-2" />
+                  Sửa
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleDelete} className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" data-testid="delete-tenant-button" disabled={deleteMutation.isPending}>
+                  <Trash2 size={16} className="mr-2" />
+                  {deleteMutation.isPending ? "Đang xóa..." : "Xóa"}
+                </Button>
+              </div>
+              <img src={tenant.avatar} className="w-[100px] h-[100px] rounded-full border-4 border-background shadow-md object-cover" alt="" />
+              <div className="flex-1">
+                <h3 className="font-black text-[28px] leading-tight text-text mb-2">{tenant.fullName || tenant.name || "Khách thuê"}</h3>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge variant="primary"><Building size={14} className="mr-1.5"/> {tenant.contracts?.[0]?.room?.number || tenant.room || 'Chưa có phòng'}</Badge>
+                  <Badge variant="neutral"><Phone size={14} className="mr-1.5"/> {tenant.phone}</Badge>
+                  <RiskBadge risk={tenant.risk} />
+                </div>
+              </div>
+            </Card>
 
-          {/* Detailed Sections (Accordion style placeholders) */}
-          <div className="flex flex-col gap-3">
-            <h4 className="font-black text-[18px] text-text mb-2">Chi tiết nghiệp vụ</h4>
-            <DrawerAccordion title="Thông tin cá nhân" active />
-            <DrawerAccordion title="Hợp đồng & Dịch vụ" />
-            <DrawerAccordion title="Thanh toán & Công nợ" />
-            <DrawerAccordion title="Lịch sử hóa đơn" />
-            <DrawerAccordion title="Khai báo tạm trú" />
-            <DrawerAccordion title="Lịch sử hoạt động (Activity Log)" />
-          </div>
+            {/* Quick Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatCard label="Trạng thái" value={tenant.status || 'Hoạt động'} color="text-[#22c55e]" />
+              <StatCard label="Hợp đồng còn" value={`${tenant.contractDays || 0} ngày`} color="text-text" />
+              <StatCard label="Công nợ" value={tenant.debt > 0 ? `${tenant.debt.toLocaleString()} đ` : '0 đ'} color={tenant.debt > 0 ? "text-[#ef4444]" : "text-[#22c55e]"} />
+              <StatCard label="Tạm trú" value={tenant.tempResidence || 'Chưa khai báo'} color={tenant.tempResidence === 'Đã khai báo' ? "text-[#22c55e]" : "text-rose-500"} />
+            </div>
 
-          {/* Bottom Padding */}
-          <div className="h-[40px]" />
-    </Drawer>
+            {/* Detailed Sections (Accordion style placeholders) */}
+            <div className="flex flex-col gap-3">
+              <h4 className="font-black text-[18px] text-text mb-2">Chi tiết nghiệp vụ</h4>
+              <DrawerAccordion title="Thông tin cá nhân" active />
+              <DrawerAccordion title="Hợp đồng & Dịch vụ" />
+              <DrawerAccordion title="Thanh toán & Công nợ" />
+              <DrawerAccordion title="Lịch sử hóa đơn" />
+              <DrawerAccordion title="Khai báo tạm trú" />
+              <DrawerAccordion title="Lịch sử hoạt động (Activity Log)" />
+            </div>
+
+            {/* Bottom Padding */}
+            <div className="h-[40px]" />
+      </Drawer>
+
+      <TenantFormModal 
+        isOpen={isEditFormOpen} 
+        onClose={() => setIsEditFormOpen(false)} 
+        tenant={tenant}
+      />
+    </>
   );
 }
 

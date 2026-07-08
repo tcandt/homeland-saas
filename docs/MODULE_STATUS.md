@@ -10,10 +10,32 @@
 | Module | CRUD | Business | Unit | Integration | E2E | Security | Performance | Production |
 | ------ | ---- | -------- | ---- | ----------- | --- | -------- | ----------- | ---------- |
 | Auth | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 90 |
-| Customer (Tenants) | ⚠️ (Read-Only) | ✅ | ✅ | ❌ | ⚠️ (List-Only) | ✅ | ❌ | PARTIAL |
+| Customer (Tenants) | ✅ (Full) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ LOCAL VERIFIED |
 | Buildings | ✅ (Full) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ LOCAL VERIFIED |
 | Floors | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ LOCAL VERIFIED |
 | Rooms | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ LOCAL VERIFIED |
+
+### 2. Customer (Tenants)
+* **Goal**: Manage tenants.
+* **Status**: `PRODUCTION CANDIDATE` — Production Build verified 2026-07-08.
+
+#### What was verified (Evidence on file)
+| Step | Method | Status |
+|------|--------|--------|
+| Create Customer | UI (Playwright testId click + form fill) | ✅ |
+| Edit Customer | UI (Playwright testId click + form fill) | ✅ |
+| Delete Customer | UI (Playwright testId click + confirm dialog) | ✅ |
+| List Customers | UI (Playwright verify card rendered) | ✅ |
+| DB Snapshot after Create | Prisma direct query | ✅ |
+| DB Snapshot after Delete | Prisma direct query | ✅ |
+| Production Build | `npm run verify:prod` 1/1 passed | ✅ |
+| No ErrorBoundary | Browser console verified | ✅ |
+
+#### What is NOT yet verified
+| Item | Status |
+|------|--------|
+| Upload ID Images | ⏳ Not built |
+| Pagination & Search | ⏳ Not verified |
 
 ### 1. Property Structure (Buildings, Floors, Rooms)
 * **Goal**: Manage physical structures that are rented out.

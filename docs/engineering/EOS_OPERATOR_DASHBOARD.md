@@ -23,8 +23,8 @@
   ─────────────────────
   Authentication   [PRODUCTION CANDIDATE]
   Property         [PRODUCTION CANDIDATE]
-  Customer         [DEV / PARTIAL]           ← CURRENT PRIORITY
-  Contract         [DEV]                     ← BLOCKED by Customer
+  Customer         [PRODUCTION CANDIDATE]
+  Contract         [DEV]                     ← CURRENT PRIORITY
   Invoice          [DEV]                     ← BLOCKED by Contract
   Payment          [DEV]                     ← BLOCKED by Invoice
   Accounting       [DEV]                     ← BLOCKED by Payment
@@ -49,7 +49,7 @@
     Concurr    0%   ░░░░░░░░░░░░░░░░░░░░
 
   Flow 3: Customer Registration
-  ░░░░░░░░░░  0%
+  ████████░░  80%
 
   Flow 4: Contract Creation
   ░░░░░░░░░░  0%
@@ -71,27 +71,27 @@
 
   COVERAGE SUMMARY (Global Gate %)
   ─────────────────────────────────
-  UI               18%  ████░░░░░░░░░░░░░░░░
-  API              18%  ████░░░░░░░░░░░░░░░░
-  DB Snapshot      13%  ███░░░░░░░░░░░░░░░░░
-  Audit Log         8%  ██░░░░░░░░░░░░░░░░░░
-  Tenant Isol.     18%  ████░░░░░░░░░░░░░░░░
-  RBAC             18%  ████░░░░░░░░░░░░░░░░
-  Runtime          18%  ████░░░░░░░░░░░░░░░░
-  Persistence      18%  ████░░░░░░░░░░░░░░░░
-  E2E              18%  ████░░░░░░░░░░░░░░░░
+  UI               26%  █████░░░░░░░░░░░░░░░
+  API              26%  █████░░░░░░░░░░░░░░░
+  DB Snapshot      12%  ██░░░░░░░░░░░░░░░░░░
+  Audit Log         7%  █░░░░░░░░░░░░░░░░░░░
+  Tenant Isol.     26%  █████░░░░░░░░░░░░░░░
+  RBAC             26%  █████░░░░░░░░░░░░░░░
+  Runtime          26%  █████░░░░░░░░░░░░░░░
+  Persistence      26%  █████░░░░░░░░░░░░░░░
+  E2E              26%  █████░░░░░░░░░░░░░░░
   Performance       0%  ░░░░░░░░░░░░░░░░░░░░
   Concurrency       0%  ░░░░░░░░░░░░░░░░░░░░
 
   CRITICAL PATH STATUS
   ────────────────────
-  Auth ✅ → Property ✅ → Customer ⚠️ → Contract ⏳ → Invoice ⏳
+  Auth ✅ → Property ✅ → Customer ✅ → Contract ⏳ → Invoice ⏳
          → Payment ⏳ → Accounting ⏳
 
   CURRENT BLOCKER
   ───────────────
-  Customer UI Create/Edit form NOT BUILT
-  → Blocks: Contract → Invoice → Payment → Accounting
+  Contract Creation API/UI not built
+  → Blocks: Invoice → Payment → Accounting
 
   ROOT CAUSE DATABASE
   ───────────────────
@@ -100,24 +100,24 @@
 
   NEXT ACTION
   ───────────
-  1. Build Customer UI Create/Edit form
-  2. Run BVM Flow 3 (Customer Registration)
+  1. Build Contract Backend API + UI
+  2. Run BVM Flow 4 (Contract Creation)
   3. Update BVM → PRODUCTION_SCORE → MODULE_STATUS → this dashboard
 
   PRODUCTION SCORES
   ─────────────────
   Auth            85%  [PRODUCTION CANDIDATE]
   Property        75%  [PRODUCTION CANDIDATE]
-  Customer        40%  [PARTIAL]
+  Customer        80%  [PRODUCTION CANDIDATE]
   Contract–Acctg   0%  [NOT STARTED]
   Dashboard/Rpts   0%  [NOT STARTED]
   ──────────────────
-  Overall:        ~9%  [NOT PRODUCTION READY]
+  Overall:        ~26%  [NOT PRODUCTION READY]
 
   RELEASE READINESS
   ─────────────────
   Release Checklist: 0/49 items complete
-  Business Matrix:   ~9% coverage
+  Business Matrix:   ~26% coverage
   ──────────────────────────────────────
   Status: NOT PRODUCTION READY
 

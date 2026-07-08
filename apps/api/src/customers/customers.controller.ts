@@ -52,7 +52,13 @@ export class CustomersController {
   @ApiOperation({ summary: 'Update customer' })
   update(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
     const input = UpdateCustomerSchema.parse(body);
-    return this.customersService.update(id, input, userId, 'Customers');
+    const data: any = {
+      ...(input.fullName !== undefined && { fullName: input.fullName }),
+      ...(input.phone !== undefined && { phone: input.phone }),
+      ...(input.email !== undefined && { email: input.email }),
+      ...(input.citizenId !== undefined && { identityNo: input.citizenId }),
+    };
+    return this.customersService.update(id, data, userId, 'Customers');
   }
 
   @Delete(':id')

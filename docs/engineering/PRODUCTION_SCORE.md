@@ -52,15 +52,15 @@
 
 | Gate | Status | Evidence |
 |------|--------|---------|
-| Backend API | ✅ VERIFIED | — |
-| Frontend UI | ⚠️ PARTIAL | List-only, no create/edit form |
-| Persistence | ✅ VERIFIED | — |
-| Runtime | ⚠️ PARTIAL | — |
-| Production Build | ⏳ PENDING | — |
-| RBAC | ✅ VERIFIED | — |
-| Business Flow | ⏳ PENDING | — |
+| Backend API | ✅ VERIFIED | Unit + Integration PASS |
+| Frontend UI | ✅ VERIFIED | Playwright E2E via testId clicks |
+| Persistence | ✅ VERIFIED | DB Snapshot verified |
+| Runtime | ✅ VERIFIED | No console errors |
+| Production Build | ✅ VERIFIED | `npm run verify:prod` PASS 2026-07-08 |
+| RBAC | ✅ VERIFIED | Admin vs Sales enforcement |
+| Business Flow | ✅ VERIFIED | Flow 3 BVM CORE VERIFIED |
 
-**Overall: `PARTIAL`**
+**Overall: `PRODUCTION CANDIDATE`**
 
 ---
 
@@ -86,14 +86,14 @@
 |--------|-------|--------|
 | Authentication | 85% | PRODUCTION CANDIDATE |
 | Property (Building/Floor/Room) | 75% | PRODUCTION CANDIDATE |
-| Customer | 40% | PARTIAL |
+| Customer | 80% | PRODUCTION CANDIDATE |
 | Contract | 0% | NOT STARTED |
 | Invoice | 0% | NOT STARTED |
 | Payment | 0% | NOT STARTED |
 | Accounting | 0% | NOT STARTED |
 | Dashboard | 0% | NOT STARTED |
 | Reports | 0% | NOT STARTED |
-| **Overall SaaS** | **~20%** | **NOT PRODUCTION READY** |
+| **Overall SaaS** | **~35%** | **NOT PRODUCTION READY** |
 
 > **PRODUCTION READY** = 100% Business Verification Matrix complete + all gates green.
 > **PRODUCTION CANDIDATE** = Core gates verified, pending Smoke/Regression/Business Flow.

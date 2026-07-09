@@ -19,5 +19,21 @@ export const invoicesApi = {
 
   delete: (id: string) => {
     return apiClient.delete(`/invoices/${id}`);
+  },
+
+  issue: (id: string) => {
+    return apiClient.post(`/invoices/${id}/issue`);
+  },
+
+  pay: (id: string, amount: number, provider?: string, providerRef?: string) => {
+    return apiClient.post(`/invoices/${id}/pay`, { amount, provider, providerRef });
+  },
+
+  cancel: (id: string) => {
+    return apiClient.post(`/invoices/${id}/cancel`);
+  },
+
+  writeoff: (id: string) => {
+    return apiClient.post(`/invoices/${id}/writeoff`);
   }
 };

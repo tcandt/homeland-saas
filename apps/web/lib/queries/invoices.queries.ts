@@ -30,3 +30,50 @@ export const useInvoiceDetailQuery = (id: string) => {
     enabled: !!id,
   });
 };
+
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+
+export const useIssueInvoiceMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => invoicesApi.issue(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id) });
+    },
+  });
+};
+
+export const usePayInvoiceMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, amount, provider, providerRef }: { id: string; amount: number; provider?: string; providerRef?: string }) => 
+      invoicesApi.pay(id, amount, provider, providerRef),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id) });
+    },
+  });
+};
+
+export const useCancelInvoiceMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => invoicesApi.cancel(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id) });
+    },
+  });
+};
+
+export const useWriteoffInvoiceMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => invoicesApi.writeoff(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id) });
+    },
+  });
+};

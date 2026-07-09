@@ -25,7 +25,7 @@
   Property         [PRODUCTION CANDIDATE]
   Customer         [PRODUCTION CANDIDATE]
   Contract         [PRODUCTION CANDIDATE]
-  Invoice          [DEV]                     ← CURRENT PRIORITY
+  Invoice          [IMPLEMENTED / VERIFICATION BLOCKED] ← BLOCKED BY INFRASTRUCTURE
   Payment          [DEV]                     ← BLOCKED by Invoice
   Accounting       [DEV]                     ← BLOCKED by Payment
   Dashboard        [DEV]                     ← BLOCKED by Accounting
@@ -90,8 +90,8 @@
 
   CURRENT BLOCKER
   ───────────────
-  Invoice Generation API/UI not built
-  → Blocks: Payment → Accounting
+  Invoice Generation implemented but verification blocked by infrastructure (Docker/Port 5433).
+  → Blocks: Epic 04 Closure → Epic 05 Payment
 
   ROOT CAUSE DATABASE
   ───────────────────

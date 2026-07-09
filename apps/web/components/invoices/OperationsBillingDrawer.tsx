@@ -5,8 +5,15 @@ import { X, FileText, Send, Wallet, CheckCircle2, History, MessageCircle, Phone,
 import { Drawer } from "../ui/Drawer";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
+import { useIssueInvoiceMutation, usePayInvoiceMutation, useCancelInvoiceMutation, useWriteoffInvoiceMutation } from "@/lib/queries/invoices.queries";
+import toast from "react-hot-toast";
 
 export default function OperationsBillingDrawer({ invoice, onClose }: { invoice: any | null, onClose: () => void }) {
+  const issueMutation = useIssueInvoiceMutation();
+  const payMutation = usePayInvoiceMutation();
+  const cancelMutation = useCancelInvoiceMutation();
+  const writeoffMutation = useWriteoffInvoiceMutation();
+
   if (!invoice) return null;
 
   return (
@@ -190,25 +197,71 @@ export default function OperationsBillingDrawer({ invoice, onClose }: { invoice:
 
       <div className="sticky bottom-0 z-20 bg-background/80 backdrop-blur-md border-t border-border/50 p-[16px] px-[0px] flex items-center justify-between mt-auto mx-[-24px] px-[24px]">
         <div className="flex items-center gap-[12px]">
-          <Button variant="outline" className="h-[40px] font-bold">
-            <FileText size={16} className="text-muted mr-2" /> Xuất PDF
-          </Button>
-          <Button variant="outline" className="h-[40px] font-bold">
-            <X size={16} className="text-rose-500 mr-2" /> Hủy hóa đơn
-          </Button>
+          {(invoice.status === 'DRAFT' || invoice.status === 'ISSUED') && (
+            <Button 
+              data-testid="btn-cancel-invoice"
+              variant="outline" 
+              className="h-[40px] font-bold text-rose-500 border-rose-500/20 hover:bg-rose-500/10"
+              onClick={() => {
+                cancelMutation.mutate(invoice.id, {
+                  onSuccess: () => toast.success('Hóa đơn đã bị hủy')
+                });
+              }}
+              disabled={cancelMutation.isPending}
+            >
+              <X size={16} className="mr-2" /> Hủy hóa đơn
+            </Button>
+          )}
+          {(invoice.status === 'ISSUED' || invoice.status === 'PARTIALLY_PAID' || invoice.status === 'OVERDUE') && (
+            <Button 
+              data-testid="btn-writeoff-invoice"
+              variant="outline" 
+              className="h-[40px] font-bold text-orange-500 border-orange-500/20 hover:bg-orange-500/10"
+              onClick={() => {
+                writeoffMutation.mutate(invoice.id, {
+                  onSuccess: () => toast.success('Hóa đơn đã được xóa nợ')
+                });
+              }}
+              disabled={writeoffMutation.isPending}
+            >
+              <AlertTriangle size={16} className="mr-2" /> Xóa nợ
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-[12px]">
-          {(invoice.status !== 'Paid') && (
-            <button className="h-[40px] px-[16px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 rounded-[12px] font-bold text-[13px] transition-colors flex items-center gap-[8px]">
-              <Send size={16} /> Gửi nhắc nợ
+          {invoice.status === 'DRAFT' && (
+            <button 
+              data-testid="btn-issue-invoice"
+              className="h-[40px] px-[20px] bg-[#6366f1] hover:bg-[#4f46e5] text-white rounded-[12px] font-bold text-[14px] shadow-sm transition-all shadow-[#6366f1]/20 flex items-center gap-[8px]"
+              onClick={() => {
+                issueMutation.mutate(invoice.id, {
+                  onSuccess: () => toast.success('Phát hành hóa đơn thành công')
+                });
+              }}
+              disabled={issueMutation.isPending}
+            >
+              <Send size={16} /> Phát hành
             </button>
           )}
-          {(invoice.status !== 'Paid') && (
-            <button className="h-[40px] px-[20px] bg-[#10b981] hover:bg-[#059669] text-white rounded-[12px] font-bold text-[14px] shadow-sm transition-all shadow-[#10b981]/20 flex items-center gap-[8px]">
+          {(invoice.status === 'ISSUED' || invoice.status === 'PARTIALLY_PAID' || invoice.status === 'OVERDUE') && (
+            <button 
+              data-testid="btn-pay-invoice"
+              className="h-[40px] px-[20px] bg-[#10b981] hover:bg-[#059669] text-white rounded-[12px] font-bold text-[14px] shadow-sm transition-all shadow-[#10b981]/20 flex items-center gap-[8px]"
+              onClick={() => {
+                const remaining = Number(invoice.total) - Number(invoice.paidAmount);
+                const amount = prompt(`Nhập số tiền thanh toán (Tối đa: ${remaining}):`, remaining.toString());
+                if (amount && !isNaN(Number(amount))) {
+                  payMutation.mutate({ id: invoice.id, amount: Number(amount) }, {
+                    onSuccess: () => toast.success('Ghi nhận thanh toán thành công')
+                  });
+                }
+              }}
+              disabled={payMutation.isPending}
+            >
               <Wallet size={16} /> Nhập thanh toán
             </button>
           )}
-          {invoice.status === 'Paid' && (
+          {invoice.status === 'PAID' && (
             <Button variant="outline" disabled className="h-[40px] font-bold opacity-50 cursor-not-allowed">
               <CheckCircle2 size={16} className="mr-2" /> Đã thu đủ
             </Button>

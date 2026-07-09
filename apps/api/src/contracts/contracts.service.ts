@@ -185,6 +185,18 @@ export class ContractsService extends BaseCrudService<Contract> {
           total: contract.monthlyRent,
           paidAmount: 0,
           creditAmount: 0,
+          items: {
+            create: [
+              {
+                tenantId: contract.tenantId,
+                type: 'RENT',
+                description: 'First month rent',
+                quantity: 1,
+                unitPrice: contract.monthlyRent,
+                amount: contract.monthlyRent,
+              }
+            ]
+          }
         },
       });
 

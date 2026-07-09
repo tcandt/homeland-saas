@@ -1,9 +1,9 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Body, Query, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { InvoicesService } from './invoices.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
-import { CreateInvoiceSchema, UpdateInvoiceSchema, PaginationSchema } from '@homeland/shared';
+import { PaginationSchema, CreateInvoiceSchema } from '@homeland/shared';
 
 @ApiTags('Invoices')
 @ApiBearerAuth()
@@ -34,31 +34,20 @@ export class InvoicesController {
   @RequirePermissions('invoice.read')
   @ApiOperation({ summary: 'Get invoice details' })
   getDetail(@Param('id') id: string) {
-    return this.invoicesService.getDetail(id, {
-      customer: true,
-      contract: { include: { room: { include: { building: true, floor: true } } } },
-    });
+    return this.invoicesService.getDetail(id);
   }
 
   @Post()
   @RequirePermissions('invoice.create')
-  @ApiOperation({ summary: 'Create invoice' })
+  @ApiOperation({ summary: 'Create DRAFT invoice' })
   create(@Body() body: any, @CurrentUser('id') userId: string) {
     const input = CreateInvoiceSchema.parse(body);
-    const statusMap: Record<string, any> = {
-      UNPAID: 'ISSUED',
-      PARTIALLY_PAID: 'PARTIAL',
-      PAID: 'PAID',
-      OVERDUE: 'OVERDUE',
-      CANCELLED: 'CANCELLED',
-    };
-    const data = {
+    const data: any = {
       customerId: input.customerId,
       contractId: input.contractId,
       code: `INV-${Date.now()}`,
-      status: statusMap[input.status] || 'DRAFT',
       dueDate: new Date(input.dueDate),
-      subtotal: input.totalAmount,
+      subtotal: input.totalAmount, // To be properly calculated when items are added
       total: input.totalAmount,
       paidAmount: input.paidAmount || 0,
       discount: 0,
@@ -67,15 +56,37 @@ export class InvoicesController {
     return this.invoicesService.create(data, userId, 'Invoices');
   }
 
-  @Patch(':id')
-  @RequirePermissions('invoice.update')
-  @ApiOperation({ summary: 'Update invoice' })
-  update(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
-    const input = UpdateInvoiceSchema.parse(body);
-    const data: any = { ...input };
-    if (input.dueDate) data.dueDate = new Date(input.dueDate);
-    
-    return this.invoicesService.update(id, data, userId, 'Invoices');
+  @Post(':id/issue')
+  @RequirePermissions('invoice.issue') // Assuming manager can issue
+  @ApiOperation({ summary: 'Issue a DRAFT invoice' })
+  issue(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.invoicesService.issue(id, userId);
+  }
+
+  @Post(':id/pay')
+  @RequirePermissions('invoice.receive_payment') // Assuming finance can pay
+  @ApiOperation({ summary: 'Record a payment against an invoice' })
+  pay(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+    if (!body.amount || typeof body.amount !== 'number') {
+      throw new BadRequestException('Amount is required and must be a number');
+    }
+    const provider = body.provider || 'MANUAL';
+    const providerRef = body.providerRef || '';
+    return this.invoicesService.pay(id, body.amount, provider, providerRef, userId);
+  }
+
+  @Post(':id/cancel')
+  @RequirePermissions('invoice.issue') // Assuming manager can cancel
+  @ApiOperation({ summary: 'Cancel an invoice' })
+  cancel(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.invoicesService.cancel(id, userId);
+  }
+
+  @Post(':id/writeoff')
+  @RequirePermissions('invoice.writeoff') // Assuming finance can writeoff
+  @ApiOperation({ summary: 'Write off an invoice' })
+  writeoff(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.invoicesService.writeoff(id, userId);
   }
 
   @Delete(':id')

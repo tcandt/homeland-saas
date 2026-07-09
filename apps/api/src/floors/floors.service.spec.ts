@@ -47,8 +47,8 @@ describe('FloorsService', () => {
   describe('listFloors', () => {
     it('should find by building', async () => {
       vi.spyOn(repository, 'paginate').mockResolvedValue({
-        items: [{ id: 'f1', level: 1 } as any],
-        total: 1,
+        data: [{ id: 'f1', level: 1 } as any],
+        meta: { total: 1 } as any,
       });
 
       await service.listFloors(1, 10, undefined, 'b1', 'level', 'asc');

@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { ContractStatus } from '@prisma/client';
 import { normalizeContractStatus, isTerminalContractStatus, isActiveLikeContractStatus } from './contracts.adapter';
 

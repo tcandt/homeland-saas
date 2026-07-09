@@ -47,8 +47,8 @@ describe('BuildingsService', () => {
   describe('listBuildings', () => {
     it('should query tenant scoped buildings and handle filters', async () => {
       vi.spyOn(repository, 'paginate').mockResolvedValue({
-        items: [{ id: 'b1', name: 'Building 1' } as any],
-        total: 1,
+        data: [{ id: 'b1', name: 'Building 1' } as any],
+        meta: { total: 1 } as any,
       });
 
       await service.listBuildings(1, 10, 'search-term', 'active', 'name', 'asc');

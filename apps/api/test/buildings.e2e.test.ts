@@ -58,12 +58,12 @@ describe('Building Property Flow (e2e)', () => {
     });
 
     // Register Tenant 1
-    const res1 = await authService.register({ email: email1, password: 'Password123!', fullName: 'Tenant One' }, '127.0.0.1', 'Vitest');
+    const res1 = await authService.register({ email: email1, password: 'Password123!', fullName: 'Tenant One', phone: '123456789' }, '127.0.0.1', 'Vitest');
     tenant1Token = res1.accessToken;
     tenant1Id = res1.user.tenantId;
 
     // Register Tenant 2
-    const res2 = await authService.register({ email: email2, password: 'Password123!', fullName: 'Tenant Two' }, '127.0.0.1', 'Vitest');
+    const res2 = await authService.register({ email: email2, password: 'Password123!', fullName: 'Tenant Two', phone: '987654321' }, '127.0.0.1', 'Vitest');
     tenant2Token = res2.accessToken;
     tenant2Id = res2.user.tenantId;
   });

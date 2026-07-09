@@ -41,11 +41,11 @@ enum ContractStatus {
 enum InvoiceStatus {
   DRAFT
   ISSUED
-  PARTIAL
+  PARTIALLY_PAID
   PAID
   OVERDUE
   CANCELLED
-  CREDITED
+  WRITTEN_OFF
 }
 
 enum PaymentStatus {
@@ -123,7 +123,7 @@ enum AuditAction {
   PASSWORD_RESET_SUCCESS
   PASSWORD_CHANGE
   EMAIL_VERIFIED
-  
+
   LOGIN_FAILED
   LOGIN_SUCCESS
   LOGOUT_SUCCESS
@@ -139,7 +139,6 @@ enum AuditAction {
   CONVERT_CONTRACT
 }
 
-
 model TenantOrg {
   id        String   @id @default(cuid())
   name      String
@@ -153,13 +152,13 @@ model TenantOrg {
 }
 
 model User {
-  id           String    @id @default(cuid())
+  id           String     @id @default(cuid())
   tenantId     String
   email        String
   fullName     String
   passwordHash String
   status       UserStatus @default(ACTIVE)
-  
+
   // Refresh Token Rotation
   refreshTokenHash String?
 
@@ -393,10 +392,12 @@ model Invoice {
   deletedBy    String?
   deleteReason String?
 
-  contract    Contract?    @relation(fields: [contractId], references: [id])
-  customer    Customer     @relation(fields: [customerId], references: [id])
+  contract    Contract?           @relation(fields: [contractId], references: [id])
+  customer    Customer            @relation(fields: [customerId], references: [id])
   payments    Payment[]
   creditNotes CreditNote[]
+  items       InvoiceItem[]
+  allocations PaymentAllocation[]
 
   @@unique([tenantId, code])
   @@index([tenantId, customerId, dueDate, status])
@@ -420,7 +421,8 @@ model Payment {
   deletedBy    String?
   deleteReason String?
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  invoice     Invoice             @relation(fields: [invoiceId], references: [id])
+  allocations PaymentAllocation[]
 
   @@index([tenantId, invoiceId, status])
   @@index([tenantId, provider, providerRef])
@@ -505,7 +507,7 @@ model NotificationJob {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   requestId String?
   tenantId  String?
   userId    String?
@@ -518,7 +520,7 @@ model AuditLog {
   before    Json?
   after     Json?
   duration  Int? // Request duration in ms
-  createdAt DateTime @default(now())
+  createdAt DateTime    @default(now())
 
   @@index([tenantId, entity, entityId])
   @@index([tenantId, userId, createdAt])
@@ -795,7 +797,6 @@ model RuleExecution {
   @@index([tenantId, ruleName, status])
 }
 
-
 model Notification {
   id        String              @id @default(cuid())
   tenantId  String
@@ -818,7 +819,7 @@ model Notification {
 model NotificationTemplate {
   id        String   @id @default(cuid())
   tenantId  String
-  code      String   // e.g. INVOICE_OVERDUE
+  code      String // e.g. INVOICE_OVERDUE
   name      String
   subject   String?
   body      String
@@ -832,7 +833,7 @@ model NotificationPreference {
   id        String   @id @default(cuid())
   tenantId  String
   userId    String
-  type      String   // e.g. INVOICE, CONTRACT
+  type      String // e.g. INVOICE, CONTRACT
   channels  String[] // e.g. ['IN_APP', 'EMAIL']
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -841,32 +842,32 @@ model NotificationPreference {
 }
 
 model NotificationQueue {
-  id             String   @id @default(cuid())
+  id             String              @id @default(cuid())
   tenantId       String
   notificationId String
   channel        NotificationChannel
   payload        Json
-  status         NotificationStatus @default(QUEUED)
-  retryCount     Int      @default(0)
+  status         NotificationStatus  @default(QUEUED)
+  retryCount     Int                 @default(0)
   nextRetryAt    DateTime?
   error          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([tenantId, status])
 }
 
 model NotificationDelivery {
-  id             String   @id @default(cuid())
-  notificationId String
-  channel        NotificationChannel
-  status         NotificationStatus
-  providerId     String?
+  id               String              @id @default(cuid())
+  notificationId   String
+  channel          NotificationChannel
+  status           NotificationStatus
+  providerId       String?
   providerResponse Json?
-  error          String?
-  createdAt      DateTime @default(now())
+  error            String?
+  createdAt        DateTime            @default(now())
 
-  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 
   @@index([notificationId])
 }
@@ -876,30 +877,30 @@ model NotificationDelivery {
 // ==========================================
 
 model AiPromptTemplate {
-  id          String   @id @default(cuid())
-  tenantId    String?  // nullable for system-wide prompts
-  code        String   @unique
-  name        String
-  description String?
-  systemPrompt String  @db.Text
-  userPrompt   String  @db.Text
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  tenantId     String? // nullable for system-wide prompts
+  code         String   @unique
+  name         String
+  description  String?
+  systemPrompt String   @db.Text
+  userPrompt   String   @db.Text
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([tenantId, isActive])
 }
 
 model AiModelConfig {
-  id              String   @id @default(cuid())
-  provider        String   // OPENAI, GEMINI, LOCAL
-  modelName       String   // gpt-4o-mini, text-embedding-3-small
-  isDefault       Boolean  @default(false)
-  isActive        Boolean  @default(true)
-  costPer1kPrompt Decimal  @db.Decimal(10, 6) @default(0)
-  costPer1kCompletion Decimal @db.Decimal(10, 6) @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  provider            String // OPENAI, GEMINI, LOCAL
+  modelName           String // gpt-4o-mini, text-embedding-3-small
+  isDefault           Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  costPer1kPrompt     Decimal  @default(0) @db.Decimal(10, 6)
+  costPer1kCompletion Decimal  @default(0) @db.Decimal(10, 6)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@unique([provider, modelName])
 }
@@ -915,7 +916,7 @@ model AiTokenUsage {
   promptTokens     Int
   completionTokens Int
   totalTokens      Int
-  estimatedCost    Decimal  @db.Decimal(14, 6) @default(0)
+  estimatedCost    Decimal  @default(0) @db.Decimal(14, 6)
   createdAt        DateTime @default(now())
 
   @@index([tenantId, createdAt])
@@ -938,63 +939,63 @@ model AiConversation {
 }
 
 model AiMessage {
-  id             String         @id @default(cuid())
+  id             String   @id @default(cuid())
   conversationId String
-  role           String         // system, user, assistant, tool
-  content        String         @db.Text
-  toolCalls      Json?          // Array of tool calls made by assistant
-  toolCallId     String?        // ID of the tool call if role is 'tool'
-  createdAt      DateTime       @default(now())
+  role           String // system, user, assistant, tool
+  content        String   @db.Text
+  toolCalls      Json? // Array of tool calls made by assistant
+  toolCallId     String? // ID of the tool call if role is 'tool'
+  createdAt      DateTime @default(now())
 
-  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  aiToolCalls    AiToolCall[]
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  aiToolCalls  AiToolCall[]
 
   @@index([conversationId, createdAt])
 }
 
 model AiToolCall {
-  id           String    @id @default(cuid())
-  messageId    String
-  name         String
-  arguments    Json
-  result       Json?
-  status       String    @default("PENDING") // PENDING, SUCCESS, ERROR
-  error        String?
-  durationMs   Int?
-  createdAt    DateTime  @default(now())
+  id         String   @id @default(cuid())
+  messageId  String
+  name       String
+  arguments  Json
+  result     Json?
+  status     String   @default("PENDING") // PENDING, SUCCESS, ERROR
+  error      String?
+  durationMs Int?
+  createdAt  DateTime @default(now())
 
-  message      AiMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message AiMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId])
 }
 
 model AiKnowledgeDocument {
-  id           String   @id @default(cuid())
-  tenantId     String
-  sourceType   String   // Document, Contract, Invoice, Building, Room
-  sourceId     String
-  title        String
-  metadata     Json?
-  status       String   @default("INDEXING") // INDEXING, COMPLETED, FAILED
-  error        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id         String   @id @default(cuid())
+  tenantId   String
+  sourceType String // Document, Contract, Invoice, Building, Room
+  sourceId   String
+  title      String
+  metadata   Json?
+  status     String   @default("INDEXING") // INDEXING, COMPLETED, FAILED
+  error      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  chunks       AiKnowledgeChunk[]
+  chunks AiKnowledgeChunk[]
 
   @@unique([tenantId, sourceType, sourceId])
 }
 
 model AiKnowledgeChunk {
-  id             String              @id @default(cuid())
-  tenantId       String
-  documentId     String
-  content        String              @db.Text
-  tokenCount     Int
-  embedding      Unsupported("vector(1536)")?
-  createdAt      DateTime            @default(now())
+  id         String                       @id @default(cuid())
+  tenantId   String
+  documentId String
+  content    String                       @db.Text
+  tokenCount Int
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime                     @default(now())
 
-  document       AiKnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document AiKnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([documentId])
@@ -1066,7 +1067,7 @@ model Document {
   versions   DocumentVersion[]
   shares     DocumentShare[]
   signatures SignatureRequest[]
-  folder     DocumentFolder?   @relation(fields: [folderId], references: [id])
+  folder     DocumentFolder?    @relation(fields: [folderId], references: [id])
 
   @@unique([tenantId, code])
   @@index([tenantId, type, status])
@@ -1139,16 +1140,16 @@ model SignatureRequest {
 }
 
 model SignatureParty {
-  id            String          @id @default(cuid())
-  requestId     String
-  name          String
-  email         String
-  role          String // e.g. TENANT, LANDLORD, APPROVER
-  status        SignatureStatus @default(PENDING)
-  signedAt      DateTime?
-  ipAddress     String?
-  userAgent     String?
-  signatureData String? // Base64 or reference
+  id             String          @id @default(cuid())
+  requestId      String
+  name           String
+  email          String
+  role           String // e.g. TENANT, LANDLORD, APPROVER
+  status         SignatureStatus @default(PENDING)
+  signedAt       DateTime?
+  ipAddress      String?
+  userAgent      String?
+  signatureData  String? // Base64 or reference
   declinedReason String?
 
   request SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -1160,7 +1161,7 @@ model SignatureParty {
 model SignatureLog {
   id        String   @id @default(cuid())
   partyId   String
-  action    String   // SENT, VIEWED, SIGNED, DECLINED
+  action    String // SENT, VIEWED, SIGNED, DECLINED
   ipAddress String?
   userAgent String?
   createdAt DateTime @default(now())
@@ -1181,4 +1182,46 @@ model DocumentTemplate {
   updatedAt DateTime     @updatedAt
 
   @@unique([tenantId, code])
+}
+
+model InvoiceItem {
+  id          String          @id @default(cuid())
+  tenantId    String
+  invoiceId   String
+  type        InvoiceItemType
+  description String
+  quantity    Decimal         @db.Decimal(14, 2)
+  unitPrice   Decimal         @db.Decimal(14, 2)
+  amount      Decimal         @db.Decimal(14, 2)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, invoiceId])
+}
+
+model PaymentAllocation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  paymentId String
+  invoiceId String
+  amount    Decimal  @db.Decimal(14, 2)
+  createdAt DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, invoiceId])
+  @@index([tenantId, paymentId])
+}
+
+enum InvoiceItemType {
+  RENT
+  UTILITY_WATER
+  UTILITY_ELECTRICITY
+  SERVICE
+  PENALTY
+  DISCOUNT
+  OTHER
 }

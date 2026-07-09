@@ -11,7 +11,7 @@
 ```
 ══════════════════════════════════════════════════════════════════
   HOMELAND EOS — OPERATOR DASHBOARD
-  2026-07-08 | Session Start
+  2026-07-09 | Session Start
 ══════════════════════════════════════════════════════════════════
 
   RELEASE LADDER
@@ -24,8 +24,8 @@
   Authentication   [PRODUCTION CANDIDATE]
   Property         [PRODUCTION CANDIDATE]
   Customer         [PRODUCTION CANDIDATE]
-  Contract         [DEV]                     ← CURRENT PRIORITY
-  Invoice          [DEV]                     ← BLOCKED by Contract
+  Contract         [PRODUCTION CANDIDATE]
+  Invoice          [DEV]                     ← CURRENT PRIORITY
   Payment          [DEV]                     ← BLOCKED by Invoice
   Accounting       [DEV]                     ← BLOCKED by Payment
   Dashboard        [DEV]                     ← BLOCKED by Accounting
@@ -52,7 +52,7 @@
   ████████░░  80%
 
   Flow 4: Contract Creation
-  ░░░░░░░░░░  0%
+  ██████████  100%
 
   Flow 5: Invoice Generation
   ░░░░░░░░░░  0%
@@ -71,27 +71,27 @@
 
   COVERAGE SUMMARY (Global Gate %)
   ─────────────────────────────────
-  UI               26%  █████░░░░░░░░░░░░░░░
-  API              26%  █████░░░░░░░░░░░░░░░
-  DB Snapshot      12%  ██░░░░░░░░░░░░░░░░░░
-  Audit Log         7%  █░░░░░░░░░░░░░░░░░░░
-  Tenant Isol.     26%  █████░░░░░░░░░░░░░░░
-  RBAC             26%  █████░░░░░░░░░░░░░░░
-  Runtime          26%  █████░░░░░░░░░░░░░░░
-  Persistence      26%  █████░░░░░░░░░░░░░░░
-  E2E              26%  █████░░░░░░░░░░░░░░░
+  UI               36%  ███████░░░░░░░░░░░░░
+  API              36%  ███████░░░░░░░░░░░░░
+  DB Snapshot      21%  ████░░░░░░░░░░░░░░░░
+  Audit Log        17%  ███░░░░░░░░░░░░░░░░░
+  Tenant Isol.     36%  ███████░░░░░░░░░░░░░
+  RBAC             36%  ███████░░░░░░░░░░░░░
+  Runtime          36%  ███████░░░░░░░░░░░░░
+  Persistence      36%  ███████░░░░░░░░░░░░░
+  E2E              36%  ███████░░░░░░░░░░░░░
   Performance       0%  ░░░░░░░░░░░░░░░░░░░░
   Concurrency       0%  ░░░░░░░░░░░░░░░░░░░░
 
   CRITICAL PATH STATUS
   ────────────────────
-  Auth ✅ → Property ✅ → Customer ✅ → Contract ⏳ → Invoice ⏳
+  Auth ✅ → Property ✅ → Customer ✅ → Contract ✅ → Invoice ⏳
          → Payment ⏳ → Accounting ⏳
 
   CURRENT BLOCKER
   ───────────────
-  Contract Creation API/UI not built
-  → Blocks: Invoice → Payment → Accounting
+  Invoice Generation API/UI not built
+  → Blocks: Payment → Accounting
 
   ROOT CAUSE DATABASE
   ───────────────────
@@ -100,8 +100,8 @@
 
   NEXT ACTION
   ───────────
-  1. Build Contract Backend API + UI
-  2. Run BVM Flow 4 (Contract Creation)
+  1. Build Invoice Backend API + UI
+  2. Run BVM Flow 5 (Invoice Generation)
   3. Update BVM → PRODUCTION_SCORE → MODULE_STATUS → this dashboard
 
   PRODUCTION SCORES
@@ -109,15 +109,16 @@
   Auth            85%  [PRODUCTION CANDIDATE]
   Property        75%  [PRODUCTION CANDIDATE]
   Customer        80%  [PRODUCTION CANDIDATE]
-  Contract–Acctg   0%  [NOT STARTED]
+  Contract        80%  [PRODUCTION CANDIDATE]
+  Invoice-Acctg    0%  [NOT STARTED]
   Dashboard/Rpts   0%  [NOT STARTED]
   ──────────────────
-  Overall:        ~26%  [NOT PRODUCTION READY]
+  Overall:        ~36%  [NOT PRODUCTION READY]
 
   RELEASE READINESS
   ─────────────────
   Release Checklist: 0/49 items complete
-  Business Matrix:   ~26% coverage
+  Business Matrix:   ~36% coverage
   ──────────────────────────────────────
   Status: NOT PRODUCTION READY
 

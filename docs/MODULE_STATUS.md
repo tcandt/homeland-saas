@@ -14,6 +14,28 @@
 | Buildings | ✅ (Full) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ LOCAL VERIFIED |
 | Floors | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ LOCAL VERIFIED |
 | Rooms | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ LOCAL VERIFIED |
+| Contract | ✅ (Full) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ LOCAL VERIFIED |
+
+### 3. Contract
+* **Goal**: Manage tenant contracts and lifecycle.
+* **Status**: `PRODUCTION CANDIDATE` — Production Build verified 2026-07-09.
+
+#### What was verified (Evidence on file)
+| Step | Method | Status |
+|------|--------|--------|
+| Create Contract (Submit) | UI (Playwright testId click + form fill) | ✅ |
+| Approve Contract | UI (Playwright testId click) | ✅ |
+| Activate Contract | UI (Playwright testId click) | ✅ |
+| Terminate Contract | UI (Playwright testId click + confirm) | ✅ |
+| DB Snapshot after each step | Prisma direct query | ✅ |
+| Production Build | `npm run verify:prod` 1/1 passed | ✅ |
+| No ErrorBoundary | Browser console verified | ✅ |
+
+#### What is NOT yet verified
+| Item | Status |
+|------|--------|
+| Expire Contract | ⏳ Not verified |
+| Invoice tracking inside contract | ⏳ Not verified |
 
 ### 2. Customer (Tenants)
 * **Goal**: Manage tenants.

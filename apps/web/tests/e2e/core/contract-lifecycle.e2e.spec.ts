@@ -7,7 +7,7 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
 
   test('Full Contract Flow: DRAFT -> SUBMIT -> APPROVE -> ACTIVATE -> TERMINATE', async ({ admin }) => {
     const page = admin.page;
-    const evidence = new EvidenceCollector(page, 'contract-workflow-e2e');
+    const evidence = new EvidenceCollector(page, 'contract-lifecycle-e2e');
     await evidence.start();
 
     // 1. Setup Data via Prisma
@@ -102,6 +102,17 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
     await page.getByTestId('btn-approve-contract').click();
     await expect(page.getByTestId('contract-status-badge')).toContainText('Đã duyệt', { timeout: 10000 });
 
+    // DB Verification After Approve
+    let contractInDb = await prisma.contract.findUnique({ where: { id: contractId } });
+    let roomInDb = await prisma.room.findUnique({ where: { id: roomId } });
+    let depositInDb = await prisma.deposit.findFirst({ where: { contractId } });
+    let auditLogApprove = await prisma.auditLog.findFirst({ where: { action: 'UPDATE', entityId: contractId } });
+
+    expect(contractInDb?.status).toBe('APPROVED');
+    expect(roomInDb?.status).toBe('RESERVED');
+    expect(depositInDb).toBeDefined();
+    expect(auditLogApprove).toBeDefined();
+
     // Activate needs deposit to be PAID.
     // Update deposit status to PAID via Prisma to simulate Finance module payment.
     await prisma.deposit.updateMany({
@@ -113,6 +124,19 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
     await page.getByTestId('btn-activate-contract').click();
     await expect(page.getByTestId('contract-status-badge')).toContainText('Đang thuê', { timeout: 10000 });
 
+    // DB Verification After Activate
+    contractInDb = await prisma.contract.findUnique({ where: { id: contractId } });
+    roomInDb = await prisma.room.findUnique({ where: { id: roomId } });
+    depositInDb = await prisma.deposit.findFirst({ where: { contractId } });
+    let invoices = await prisma.invoice.findMany({ where: { contractId } });
+    let auditLogActivate = await prisma.auditLog.findFirst({ where: { action: 'UPDATE', entityId: contractId } });
+
+    expect(contractInDb?.status).toBe('ACTIVE');
+    expect(roomInDb?.status).toBe('OCCUPIED');
+    expect(depositInDb?.status).toBe('CONVERTED_TO_CONTRACT');
+    expect(invoices.length).toBeGreaterThan(0);
+    expect(auditLogActivate).toBeDefined();
+
     // 8. Terminate Contract
     await page.getByTestId('btn-terminate-contract').click();
     // Verify confirmation buttons appear
@@ -122,11 +146,33 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
     // Status terminal
     await expect(page.getByTestId('contract-status-badge')).toContainText('Chấm dứt', { timeout: 10000 });
 
-    // 9. Capture Final DB State
+    // DB Verification After Terminate
+    contractInDb = await prisma.contract.findUnique({ where: { id: contractId } });
+    roomInDb = await prisma.room.findUnique({ where: { id: roomId } });
+    let finalInvoices = await prisma.invoice.findMany({ where: { contractId, status: 'DRAFT', code: { startsWith: 'FIN-' } } });
+    let auditLogTerminate = await prisma.auditLog.findFirst({ where: { action: 'UPDATE', entityId: contractId } });
+
+    expect(contractInDb?.status).toBe('TERMINATED');
+    expect(roomInDb?.status).toBe('CLEANING');
+    // Ensure at least one DRAFT invoice was generated for termination if applicable (or check status depending on policy)
+    // Actually our terminate logic creates a final invoice with DRAFT status
+    let draftInvoices = await prisma.invoice.findMany({ where: { contractId, status: 'DRAFT' } });
+    expect(draftInvoices.length).toBeGreaterThan(0);
+    expect(auditLogTerminate).toBeDefined();
+
+    // 9. Reload UI and Verify State Persists
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    const contractRowReloaded = page.getByText(`Contract Customer E2E`).first();
+    await contractRowReloaded.waitFor({ state: 'attached', timeout: 10000 });
+    await contractRowReloaded.click();
+    await expect(page.getByTestId('contract-status-badge')).toContainText('Chấm dứt', { timeout: 10000 });
+
+    // 10. Capture Final DB State
     await evidence.captureDbSnapshot('contract-final-state', async () => {
       return prisma.contract.findUnique({
         where: { id: contractId },
-        include: { room: true, deposit: true, invoices: true }
+        include: { room: true, invoices: true }
       });
     });
 

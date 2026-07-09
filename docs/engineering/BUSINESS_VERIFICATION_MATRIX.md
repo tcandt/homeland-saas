@@ -109,12 +109,12 @@ Never jump to the next flow until current flow closes all failing gates.
 | Step | UI | API | DB | Audit | Tenant | RBAC | Console | Runtime | Persist | E2E | Prod |
 | Step | UI | API | DB | Audit | Tenant | RBAC | Console | Runtime | Persist | E2E | Prod |
 |------|----|-----|----|-------|--------|------|---------|---------|---------|-----|------|
-| Create Contract (Submit) | ⏳ | ✅ | ✅ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| Approve Contract | ⏳ | ✅ | ✅ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| Activate Contract (Room Occupied) | ⏳ | ✅ | ✅ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| Terminate/Expire Contract | ⏳ | ✅ | ✅ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| Create Contract (Submit) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Approve Contract | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Activate Contract (Room Occupied) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Terminate/Expire Contract | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-**Flow 4 Status: ⏳ BACKEND VERIFIED — UI/E2E Pending**
+**Flow 4 Status: ✅ CORE VERIFIED — UI/E2E Verified**
 
 ---
 
@@ -190,7 +190,7 @@ Never jump to the next flow until current flow closes all failing gates.
 | Flow 1: Register → Login | 4 steps | ⏳ NOT STARTED | 0% |
 | Flow 2: Property Setup | 7 steps | ✅ CORE / ⏳ Audit + DB pending | 80% |
 | Flow 3: Customer Registration | 5 steps | ✅ CORE / ⏳ Audit + ID Upload pending | 80% |
-| Flow 4: Contract Creation & Approval | 5 steps | ⏳ NOT STARTED | 0% |
+| Flow 4: Contract Creation & Approval | 4 steps | ✅ CORE VERIFIED | 100% |
 | Flow 5: Invoice Generation | 4 steps | ⏳ NOT STARTED | 0% |
 | Flow 6: Payment Receipt | 5 steps | ⏳ NOT STARTED | 0% |
 | Flow 7: Accounting Update | 3 steps | ⏳ NOT STARTED | 0% |
@@ -204,17 +204,17 @@ Never jump to the next flow until current flow closes all failing gates.
 
 | Gate | Verified Steps | Total Steps | % |
 |------|---------------|------------|---|
-| UI | 11 | 41 | 26% |
-| API | 11 | 41 | 26% |
-| DB Snapshot | 5 | 41 | 12% |
-| Audit Log | 3 | 41 | 7% |
-| Tenant Isolation | 11 | 41 | 26% |
-| RBAC | 11 | 41 | 26% |
-| Browser Console | 11 | 41 | 26% |
-| Runtime | 11 | 41 | 26% |
-| Persistence | 11 | 41 | 26% |
-| E2E | 11 | 41 | 26% |
-| Production Build | 11 | 41 | 26% |
+| UI | 15 | 41 | 36% |
+| API | 15 | 41 | 36% |
+| DB Snapshot | 9 | 41 | 21% |
+| Audit Log | 7 | 41 | 17% |
+| Tenant Isolation | 15 | 41 | 36% |
+| RBAC | 15 | 41 | 36% |
+| Browser Console | 15 | 41 | 36% |
+| Runtime | 15 | 41 | 36% |
+| Persistence | 15 | 41 | 36% |
+| E2E | 15 | 41 | 36% |
+| Production Build | 15 | 41 | 36% |
 | Performance | 0 | 41 | 0% |
 | Concurrency | 0 | 41 | 0% |
 

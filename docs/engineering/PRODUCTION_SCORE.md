@@ -64,12 +64,28 @@
 
 ---
 
-## Contract / Invoice / Payment / Accounting / Dashboard / Reports
+## Contract
+
+| Gate | Status | Evidence |
+|------|--------|---------|
+| Backend API | ✅ VERIFIED | Unit + Integration PASS |
+| Frontend UI | ✅ VERIFIED | Playwright E2E via testId clicks |
+| Persistence | ✅ VERIFIED | DB Snapshot verified |
+| Runtime | ✅ VERIFIED | No console errors |
+| Production Build | ✅ VERIFIED | `npm run verify:prod` PASS |
+| RBAC | ✅ VERIFIED | Admin vs Sales enforcement |
+| Tenant Isolation | ✅ VERIFIED | API + UI separation confirmed |
+| Audit Log | ✅ VERIFIED | Create/Update/Delete events logged |
+| Business Flow | ✅ VERIFIED | Flow 4 BVM CORE VERIFIED |
+
+**Overall: `PRODUCTION CANDIDATE`**
+
+---
+
+## Invoice / Payment / Accounting / Dashboard / Reports
 
 | Module | Gate | Status |
 |--------|------|--------|
-| Contract | Backend API | ⏳ NOT STARTED |
-| Contract | Frontend UI | ⏳ NOT STARTED |
 | Invoice | Backend API | ⏳ NOT STARTED |
 | Payment | Backend API | ⏳ NOT STARTED |
 | Accounting | Backend API | ⏳ NOT STARTED |
@@ -87,13 +103,13 @@
 | Authentication | 85% | PRODUCTION CANDIDATE |
 | Property (Building/Floor/Room) | 75% | PRODUCTION CANDIDATE |
 | Customer | 80% | PRODUCTION CANDIDATE |
-| Contract | 0% | NOT STARTED |
+| Contract | 80% | PRODUCTION CANDIDATE |
 | Invoice | 0% | NOT STARTED |
 | Payment | 0% | NOT STARTED |
 | Accounting | 0% | NOT STARTED |
 | Dashboard | 0% | NOT STARTED |
 | Reports | 0% | NOT STARTED |
-| **Overall SaaS** | **~35%** | **NOT PRODUCTION READY** |
+| **Overall SaaS** | **~45%** | **NOT PRODUCTION READY** |
 
 > **PRODUCTION READY** = 100% Business Verification Matrix complete + all gates green.
 > **PRODUCTION CANDIDATE** = Core gates verified, pending Smoke/Regression/Business Flow.

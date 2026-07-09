@@ -15,6 +15,21 @@
 | Floors | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ LOCAL VERIFIED |
 | Rooms | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ LOCAL VERIFIED |
 | Contract | ✅ (Full) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ LOCAL VERIFIED |
+| Invoice | ✅ (Full) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ LOCAL VERIFIED |
+
+### 4. Invoice
+* **Goal**: Generate and manage invoices.
+* **Status**: `PRODUCTION CANDIDATE` — Production Build verified manually on 2026-07-09.
+
+#### What was verified (Evidence on file)
+| Step | Method | Status |
+|------|--------|--------|
+| Generate Monthly Invoice | UI (Playwright) | ✅ |
+| Add Service Charges | UI (Playwright) | ✅ |
+| Send Invoice to Tenant | UI (Playwright) | ✅ |
+| Tenant views Invoice | UI (Playwright) | ✅ |
+| DB Snapshot after each step | Prisma direct query | ✅ |
+| Production Build | `npm run verify:prod` (Manual PASS) | ✅ |
 
 ### 3. Contract
 * **Goal**: Manage tenant contracts and lifecycle.

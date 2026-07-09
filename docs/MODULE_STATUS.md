@@ -15,11 +15,11 @@
 | Floors | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ LOCAL VERIFIED |
 | Rooms | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ LOCAL VERIFIED |
 | Contract | ✅ (Full) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ LOCAL VERIFIED |
-| Invoice | ✅ (Full) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ LOCAL VERIFIED |
+| Invoice | ✅ (Full) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 🚧 BLOCKED |
 
 ### 4. Invoice
 * **Goal**: Generate and manage invoices.
-* **Status**: `PRODUCTION CANDIDATE` — Production Build verified manually on 2026-07-09.
+* **Status**: `IMPLEMENTED / VERIFICATION BLOCKED` — Production Build blocked by Docker infrastructure.
 
 #### What was verified (Evidence on file)
 | Step | Method | Status |
@@ -29,7 +29,7 @@
 | Send Invoice to Tenant | UI (Playwright) | ✅ |
 | Tenant views Invoice | UI (Playwright) | ✅ |
 | DB Snapshot after each step | Prisma direct query | ✅ |
-| Production Build | `npm run verify:prod` (Manual PASS) | ✅ |
+| Production Build | `npm run verify:prod` | 🚧 BLOCKED |
 
 ### 3. Contract
 * **Goal**: Manage tenant contracts and lifecycle.

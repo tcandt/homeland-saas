@@ -122,12 +122,12 @@ Never jump to the next flow until current flow closes all failing gates.
 
 | Step | UI | API | DB | Audit | Tenant | RBAC | Console | Runtime | Persist | E2E | Prod |
 |------|----|-----|----|-------|--------|------|---------|---------|---------|-----|------|
-| Generate Monthly Invoice | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Add Service Charges | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Send Invoice to Tenant | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Tenant views Invoice | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Generate Monthly Invoice | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 |
+| Add Service Charges | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 |
+| Send Invoice to Tenant | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 |
+| Tenant views Invoice | 🚧 | 🚧 | 🚧 | N/A | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 |
 
-**Flow 5 Status: ✅ CORE VERIFIED**
+**Flow 5 Status: 🚧 IMPLEMENTED / VERIFICATION BLOCKED (Infrastructure - Docker)**
 
 ---
 
@@ -191,12 +191,12 @@ Never jump to the next flow until current flow closes all failing gates.
 | Flow 2: Property Setup | 7 steps | ✅ CORE / ⏳ Audit + DB pending | 80% |
 | Flow 3: Customer Registration | 5 steps | ✅ CORE / ⏳ Audit + ID Upload pending | 80% |
 | Flow 4: Contract Creation & Approval | 4 steps | ✅ CORE VERIFIED | 100% |
-| Flow 5: Invoice Generation | 4 steps | ✅ CORE VERIFIED | 100% |
+| Flow 5: Invoice Generation | 4 steps | 🚧 VERIFICATION BLOCKED | 0% |
 | Flow 6: Payment Receipt | 5 steps | ⏳ NOT STARTED | 0% |
 | Flow 7: Accounting Update | 3 steps | ⏳ NOT STARTED | 0% |
 | Flow 8: Dashboard & Reports | 5 steps | ⏳ NOT STARTED | 0% |
 | Flow 9: Notifications | 3 steps | ⏳ NOT STARTED | 0% |
-| **TOTAL** | **41 steps** | | **~36%** |
+| **TOTAL** | **41 steps** | | **~26%** |
 
 ---
 
@@ -204,17 +204,17 @@ Never jump to the next flow until current flow closes all failing gates.
 
 | Gate | Verified Steps | Total Steps | % |
 |------|---------------|------------|---|
-| UI | 19 | 41 | 46% |
-| API | 19 | 41 | 46% |
-| DB Snapshot | 13 | 41 | 31% |
-| Audit Log | 10 | 41 | 24% |
-| Tenant Isolation | 19 | 41 | 46% |
-| RBAC | 19 | 41 | 46% |
-| Browser Console | 19 | 41 | 46% |
-| Runtime | 19 | 41 | 46% |
-| Persistence | 19 | 41 | 46% |
-| E2E | 19 | 41 | 46% |
-| Production Build | 19 | 41 | 46% |
+| UI | 15 | 41 | 36% |
+| API | 15 | 41 | 36% |
+| DB Snapshot | 9 | 41 | 21% |
+| Audit Log | 7 | 41 | 17% |
+| Tenant Isolation | 15 | 41 | 36% |
+| RBAC | 15 | 41 | 36% |
+| Browser Console | 15 | 41 | 36% |
+| Runtime | 15 | 41 | 36% |
+| Persistence | 15 | 41 | 36% |
+| E2E | 15 | 41 | 36% |
+| Production Build | 15 | 41 | 36% |
 | Performance | 0 | 41 | 0% |
 | Concurrency | 0 | 41 | 0% |
 
@@ -222,4 +222,4 @@ Never jump to the next flow until current flow closes all failing gates.
 
 **`PRODUCTION READY` requires: 100% across all flows and all gate categories.**
 
-Current status: **NOT PRODUCTION READY** (~36% business flow coverage).
+Current status: **NOT PRODUCTION READY** (~26% business flow coverage).

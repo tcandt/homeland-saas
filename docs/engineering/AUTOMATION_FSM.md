@@ -158,6 +158,10 @@
 - [ ] Evidence files captured and referenced
 - [ ] `npm run verify:prod` last run: PASS
 
+### Epic Closure Guard
+IF `verify:prod` != PASS OR Evidence Package incomplete OR Infrastructure Blocked THEN Epic cannot become CLOSED.
+AI must refuse any status update that marks Production Candidate, Epic Closed, or Release Ready.
+
 ### Before entering NEXT_FLOW:
 - [ ] BVM updated
 - [ ] PRODUCTION_SCORE updated
@@ -177,4 +181,5 @@
 ❌  Update MODULE_STATUS without updating BVM
 ❌  Fix a bug without creating/referencing RCA entry
 ❌  Move to next module while current flow has ⏳ gates
+❌  Mark Epic Closed or Production Candidate when verify:prod is failing or blocked
 ```

@@ -90,13 +90,13 @@
 | Frontend UI | ✅ VERIFIED | Playwright E2E via testId clicks |
 | Persistence | ✅ VERIFIED | DB Snapshot verified |
 | Runtime | ✅ VERIFIED | No console errors |
-| Production Build | ✅ VERIFIED | `npm run verify:prod` PASS |
+| Production Build | 🚧 BLOCKED | Docker daemon unavailable |
 | RBAC | ✅ VERIFIED | Admin vs Sales enforcement |
 | Tenant Isolation | ✅ VERIFIED | API + UI separation confirmed |
 | Audit Log | ✅ VERIFIED | Events logged |
-| Business Flow | ✅ VERIFIED | Flow 5 BVM CORE VERIFIED |
+| Business Flow | 🚧 BLOCKED | Flow 5 BVM Verification Blocked |
 
-**Overall: `PRODUCTION CANDIDATE`**
+**Overall: `IMPLEMENTED / VERIFICATION BLOCKED`**
 
 ---
 
@@ -121,12 +121,12 @@
 | Property (Building/Floor/Room) | 75% | PRODUCTION CANDIDATE |
 | Customer | 80% | PRODUCTION CANDIDATE |
 | Contract | 80% | PRODUCTION CANDIDATE |
-| Invoice | 80% | PRODUCTION CANDIDATE |
+| Invoice | 0% | IMPLEMENTED / VERIFICATION BLOCKED |
 | Payment | 0% | NOT STARTED |
 | Accounting | 0% | NOT STARTED |
 | Dashboard | 0% | NOT STARTED |
 | Reports | 0% | NOT STARTED |
-| **Overall SaaS** | **~55%** | **NOT PRODUCTION READY** |
+| **Overall SaaS** | **~45%** | **NOT PRODUCTION READY** |
 
 > **PRODUCTION READY** = 100% Business Verification Matrix complete + all gates green.
 > **PRODUCTION CANDIDATE** = Core gates verified, pending Smoke/Regression/Business Flow.

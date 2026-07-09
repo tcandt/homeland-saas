@@ -25,8 +25,8 @@
   Property         [PRODUCTION CANDIDATE]
   Customer         [PRODUCTION CANDIDATE]
   Contract         [PRODUCTION CANDIDATE]
-  Invoice          [PRODUCTION CANDIDATE]
-  Payment          [DEV]                     ← CURRENT PRIORITY
+  Invoice          [IMPLEMENTED / VERIFICATION BLOCKED] ← BLOCKED BY INFRASTRUCTURE
+  Payment          [DEV]                     ← BLOCKED by Invoice
   Accounting       [DEV]                     ← BLOCKED by Payment
   Dashboard        [DEV]                     ← BLOCKED by Accounting
   Reports          [DEV]                     ← BLOCKED by Accounting
@@ -55,7 +55,7 @@
   ██████████  100%
 
   Flow 5: Invoice Generation
-  ██████████  100%
+  ░░░░░░░░░░  0%
 
   Flow 6: Payment Receipt
   ░░░░░░░░░░  0%
@@ -71,27 +71,27 @@
 
   COVERAGE SUMMARY (Global Gate %)
   ─────────────────────────────────
-  UI               46%  █████████░░░░░░░░░░░
-  API              46%  █████████░░░░░░░░░░░
-  DB Snapshot      31%  ██████░░░░░░░░░░░░░░
-  Audit Log        24%  █████░░░░░░░░░░░░░░░
-  Tenant Isol.     46%  █████████░░░░░░░░░░░
-  RBAC             46%  █████████░░░░░░░░░░░
-  Runtime          46%  █████████░░░░░░░░░░░
-  Persistence      46%  █████████░░░░░░░░░░░
-  E2E              46%  █████████░░░░░░░░░░░
+  UI               36%  ███████░░░░░░░░░░░░░
+  API              36%  ███████░░░░░░░░░░░░░
+  DB Snapshot      21%  ████░░░░░░░░░░░░░░░░
+  Audit Log        17%  ███░░░░░░░░░░░░░░░░░
+  Tenant Isol.     36%  ███████░░░░░░░░░░░░░
+  RBAC             36%  ███████░░░░░░░░░░░░░
+  Runtime          36%  ███████░░░░░░░░░░░░░
+  Persistence      36%  ███████░░░░░░░░░░░░░
+  E2E              36%  ███████░░░░░░░░░░░░░
   Performance       0%  ░░░░░░░░░░░░░░░░░░░░
   Concurrency       0%  ░░░░░░░░░░░░░░░░░░░░
 
   CRITICAL PATH STATUS
   ────────────────────
-  Auth ✅ → Property ✅ → Customer ✅ → Contract ✅ → Invoice ✅
+  Auth ✅ → Property ✅ → Customer ✅ → Contract ✅ → Invoice ⏳
          → Payment ⏳ → Accounting ⏳
 
   CURRENT BLOCKER
   ───────────────
-  Payment API/UI not built
-  → Blocks: Epic 05 Closure → Epic 06 Accounting
+  Invoice Generation implemented but verification blocked by infrastructure (Docker/Port 5433).
+  → Blocks: Epic 04 Closure → Epic 05 Payment
 
   ROOT CAUSE DATABASE
   ───────────────────
@@ -100,8 +100,8 @@
 
   NEXT ACTION
   ───────────
-  1. Build Payment Backend API + UI
-  2. Run BVM Flow 6 (Payment Receipt)
+  1. Resolve infrastructure blocker for BVM Flow 5
+  2. Run BVM Flow 5 (Invoice Generation)
   3. Update BVM → PRODUCTION_SCORE → MODULE_STATUS → this dashboard
 
   PRODUCTION SCORES
@@ -110,17 +110,15 @@
   Property        75%  [PRODUCTION CANDIDATE]
   Customer        80%  [PRODUCTION CANDIDATE]
   Contract        80%  [PRODUCTION CANDIDATE]
-  Invoice         80%  [PRODUCTION CANDIDATE]
-  Payment          0%  [NOT STARTED]
-  Accounting       0%  [NOT STARTED]
+  Invoice-Acctg    0%  [NOT STARTED]
   Dashboard/Rpts   0%  [NOT STARTED]
   ──────────────────
-  Overall:        ~46%  [NOT PRODUCTION READY]
+  Overall:        ~36%  [NOT PRODUCTION READY]
 
   RELEASE READINESS
   ─────────────────
   Release Checklist: 0/49 items complete
-  Business Matrix:   ~46% coverage
+  Business Matrix:   ~36% coverage
   ──────────────────────────────────────
   Status: NOT PRODUCTION READY
 

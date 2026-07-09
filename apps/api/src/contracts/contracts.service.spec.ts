@@ -14,7 +14,7 @@ describe('ContractsService', () => {
 
   beforeEach(async () => {
     prismaService = {
-      tx: {
+      tx: { invoice: { create: vi.fn() },
         contract: {
           update: vi.fn(),
         },
@@ -225,6 +225,77 @@ describe('ContractsService', () => {
       prismaService.tx.deposit.findFirst = vi.fn().mockResolvedValue(mockDeposit);
 
       await expect(service.activateContract('c1', 'user1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('terminateContract', () => {
+    it('should terminate an ACTIVE contract, update room to CLEANING, and create draft invoice', async () => {
+      const mockContract = { id: 'c1', status: ContractStatus.ACTIVE, roomId: 'r1', tenantId: 't1', customerId: 'cu1' };
+      const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
+      
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      
+      prismaService.tx.contract.update.mockResolvedValue(updatedContract);
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
+      prismaService.tx.invoice.create = vi.fn().mockResolvedValue({ id: 'inv1' });
+
+      const result = await service.terminateContract('c1', 'user1');
+
+      expect(prismaService.tx.$transaction).toHaveBeenCalled();
+      
+      expect(prismaService.tx.contract.update).toHaveBeenCalledWith({
+        where: { id: 'c1' },
+        data: { status: ContractStatus.TERMINATED },
+      });
+      expect(prismaService.tx.room.update).toHaveBeenCalledWith({
+        where: { id: 'r1' },
+        data: { status: RoomStatus.CLEANING },
+      });
+      expect(prismaService.tx.invoice.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          contractId: 'c1',
+          status: 'DRAFT',
+          subtotal: 0,
+        })
+      }));
+      
+      expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'UPDATE',
+        entityId: 'c1',
+        after: updatedContract,
+      }));
+      expect(result).toEqual(updatedContract);
+    });
+
+    it('should throw BadRequestException if contract is not ACTIVE or EXPIRING', async () => {
+      vi.spyOn(service, 'getDetail').mockResolvedValue({ id: 'c1', status: ContractStatus.DRAFT } as any);
+      await expect(service.terminateContract('c1', 'user1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('expireContract', () => {
+    it('should expire an ACTIVE contract', async () => {
+      const mockContract = { id: 'c1', status: ContractStatus.ACTIVE, roomId: 'r1', tenantId: 't1', customerId: 'cu1' };
+      const updatedContract = { ...mockContract, status: ContractStatus.EXPIRED };
+      
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      
+      prismaService.tx.contract.update.mockResolvedValue(updatedContract);
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
+      prismaService.tx.invoice.create = vi.fn().mockResolvedValue({ id: 'inv1' });
+
+      const result = await service.expireContract('c1', 'user1');
+
+      expect(prismaService.tx.contract.update).toHaveBeenCalledWith({
+        where: { id: 'c1' },
+        data: { status: ContractStatus.EXPIRED },
+      });
+      expect(result).toEqual(updatedContract);
+    });
+
+    it('should throw BadRequestException if contract is already EXPIRED', async () => {
+      vi.spyOn(service, 'getDetail').mockResolvedValue({ id: 'c1', status: ContractStatus.EXPIRED } as any);
+      await expect(service.expireContract('c1', 'user1')).rejects.toThrow(BadRequestException);
     });
   });
 });

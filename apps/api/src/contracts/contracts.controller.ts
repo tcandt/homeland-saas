@@ -95,9 +95,23 @@ export class ContractsController {
   }
 
   @Post(':id/activate')
-  @RequirePermissions('contract.update') // or contract.activate if it exists
+  @RequirePermissions('contract.update')
   @ApiOperation({ summary: 'Activate contract' })
   activate(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.contractsService.activateContract(id, userId);
+  }
+
+  @Post(':id/terminate')
+  @RequirePermissions('contract.update')
+  @ApiOperation({ summary: 'Terminate contract' })
+  terminate(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.contractsService.terminateContract(id, userId);
+  }
+
+  @Post(':id/expire')
+  @RequirePermissions('contract.update')
+  @ApiOperation({ summary: 'Expire contract' })
+  expire(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.contractsService.expireContract(id, userId);
   }
 }

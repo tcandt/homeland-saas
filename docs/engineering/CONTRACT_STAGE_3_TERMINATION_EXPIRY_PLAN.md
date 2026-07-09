@@ -40,4 +40,4 @@
 
 ## Commit Budget
 The implementation will be confined to one specific commit:
-**Commit:** `docs(contract): plan termination and expiry commands`
+**Commit:** `feat(contract): implement terminate and expire commands`

@@ -202,4 +202,65 @@ export class ContractsService extends BaseCrudService<Contract> {
 
     return result.updatedContract;
   }
+
+  async terminateContract(id: string, userId: string): Promise<Contract> {
+    return this.finalizeContract(id, userId, ContractStatus.TERMINATED);
+  }
+
+  async expireContract(id: string, userId: string): Promise<Contract> {
+    return this.finalizeContract(id, userId, ContractStatus.EXPIRED);
+  }
+
+  private async finalizeContract(id: string, userId: string, targetStatus: ContractStatus): Promise<Contract> {
+    const contract = await this.getDetail(id);
+
+    if (contract.status !== ContractStatus.ACTIVE && contract.status !== ContractStatus.EXPIRING) {
+      throw new BadRequestException(`Cannot finalize contract in ${contract.status} status. Only ACTIVE or EXPIRING is allowed.`);
+    }
+
+    const result = await this.prisma.tx.$transaction(async (tx) => {
+      // 1. Update contract status
+      const updatedContract = await tx.contract.update({
+        where: { id },
+        data: { status: targetStatus },
+      });
+
+      // 2. Room becomes CLEANING
+      const updatedRoom = await tx.room.update({
+        where: { id: contract.roomId },
+        data: { status: RoomStatus.CLEANING },
+      });
+
+      // 3. Create final invoice as DRAFT
+      const invoice = await tx.invoice.create({
+        data: {
+          tenantId: contract.tenantId,
+          code: `FIN-${Date.now()}`,
+          contractId: contract.id,
+          customerId: contract.customerId,
+          status: InvoiceStatus.DRAFT,
+          dueDate: new Date(), // Immediate due date for final settlement
+          subtotal: 0, // Manual adjustments to follow
+          discount: 0,
+          total: 0,
+          paidAmount: 0,
+          creditAmount: 0,
+        },
+      });
+
+      return { updatedContract, updatedRoom, invoice };
+    });
+
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: this.entityName,
+      entityId: id,
+      module: 'Contracts',
+      before: contract,
+      after: result.updatedContract,
+      userId,
+    });
+
+    return result.updatedContract;
+  }
 }

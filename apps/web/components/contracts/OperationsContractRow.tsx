@@ -34,7 +34,7 @@ export default function OperationsContractRow({ contract, onClick }: { contract:
       {/* 1. ID & Main Info */}
       <div className="flex flex-col gap-[4px] min-w-[200px]">
         <h4 className="font-black text-[15px] text-[#6366f1] leading-none">{contract.code || contract.id.slice(0,8)}</h4>
-        <span className="font-bold text-[14px] text-text">{contract.customer?.name || 'Chưa rõ'}</span>
+        <span className="font-bold text-[14px] text-text">{contract.customer?.fullName || contract.customer?.name || 'Chưa rõ'}</span>
         <span className="font-medium text-[12px] text-muted flex items-center gap-[4px]">
           <span className="font-bold bg-black/5 dark:bg-white/5 px-[6px] py-[2px] rounded-[4px]">{contract.room?.number || 'Chưa xếp phòng'}</span> 
           · {contract.room?.building?.name || 'Chưa có tòa nhà'}

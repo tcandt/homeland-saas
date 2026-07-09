@@ -25,9 +25,10 @@ export class ContractsService extends BaseCrudService<Contract> {
     roomId?: string,
     customerId?: string,
     sort?: string,
-    order?: string
+    order?: string,
+    tenantId?: string
   ): Promise<PaginatedResult<Contract>> {
-    const where: any = {};
+    const where: any = { tenantId };
     if (search) {
       where.OR = [
         { code: { contains: search, mode: 'insensitive' } },

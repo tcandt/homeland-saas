@@ -21,10 +21,10 @@ export class ContractsController {
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'roomId', required: false })
   @ApiQuery({ name: 'customerId', required: false })
-  list(@Query() query: any) {
+  list(@Query() query: any, @CurrentUser() user: any) {
     const { page, limit, search, sort, order } = PaginationSchema.parse(query);
     const { status, roomId, customerId } = query;
-    return this.contractsService.listContracts(page, limit, search, status, roomId, customerId, sort, order);
+    return this.contractsService.listContracts(page, limit, search, status, roomId, customerId, sort, order, user.tenantId);
   }
 
   @Get(':id')

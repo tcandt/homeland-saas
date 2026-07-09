@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import { BaseCrudService } from '../shared/services/base-crud.service';
-import { Contract, ContractStatus, RoomStatus } from '@prisma/client';
+import { Contract, ContractStatus, RoomStatus, InvoiceStatus, DepositStatus } from '@prisma/client';
 import { ContractsRepository } from './contracts.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { PaginatedResult } from '@homeland/shared';
@@ -112,6 +112,82 @@ export class ContractsService extends BaseCrudService<Contract> {
       });
 
       return { updatedContract, updatedRoom, deposit };
+    });
+
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: this.entityName,
+      entityId: id,
+      module: 'Contracts',
+      before: contract,
+      after: result.updatedContract,
+      userId,
+    });
+
+    return result.updatedContract;
+  }
+
+  async activateContract(id: string, userId: string): Promise<Contract> {
+    const contract = await this.getDetail(id);
+
+    if (contract.status !== ContractStatus.APPROVED) {
+      throw new BadRequestException(`Cannot activate contract in ${contract.status} status. Only APPROVED is allowed.`);
+    }
+
+    const room = await this.prisma.tx.room.findUnique({ where: { id: contract.roomId } });
+    if (!room || room.status !== RoomStatus.RESERVED) {
+      throw new ConflictException(`Room ${room?.code || contract.roomId} is not RESERVED.`);
+    }
+
+    const deposit = await this.prisma.tx.deposit.findFirst({
+      where: { contractId: contract.id },
+    });
+
+    if (!deposit) {
+      throw new BadRequestException('Cannot activate contract: Deposit is missing.');
+    }
+
+    if (deposit.status !== DepositStatus.PAID && deposit.status !== DepositStatus.CONVERTED_TO_CONTRACT) {
+      throw new BadRequestException(`Cannot activate contract: Deposit is in ${deposit.status} status. Must be PAID.`);
+    }
+
+    const result = await this.prisma.tx.$transaction(async (tx) => {
+      // 1. Update contract to ACTIVE
+      const updatedContract = await tx.contract.update({
+        where: { id },
+        data: { status: ContractStatus.ACTIVE },
+      });
+
+      // 2. Occupy Room
+      const updatedRoom = await tx.room.update({
+        where: { id: contract.roomId },
+        data: { status: RoomStatus.OCCUPIED },
+      });
+
+      // 3. Convert Deposit
+      const updatedDeposit = await tx.deposit.update({
+        where: { id: deposit.id },
+        data: { status: DepositStatus.CONVERTED_TO_CONTRACT },
+      });
+
+      // 4. Create initial Invoice
+      const invoice = await tx.invoice.create({
+        data: {
+          tenantId: contract.tenantId,
+          code: `INV-${Date.now()}`,
+          contractId: contract.id,
+          customerId: contract.customerId,
+          status: InvoiceStatus.ISSUED,
+          dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+          subtotal: contract.monthlyRent,
+          discount: 0,
+          total: contract.monthlyRent,
+          paidAmount: 0,
+          creditAmount: 0,
+        },
+      });
+
+      return { updatedContract, updatedRoom, updatedDeposit, invoice };
     });
 
     await this.auditService.log({

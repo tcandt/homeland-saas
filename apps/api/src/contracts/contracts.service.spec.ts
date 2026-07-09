@@ -143,4 +143,88 @@ describe('ContractsService', () => {
       await expect(service.approveContract('c1', 'user1')).rejects.toThrow(ConflictException);
     });
   });
+
+  describe('activateContract', () => {
+    it('should activate an APPROVED contract with a PAID deposit and create invoice', async () => {
+      const mockContract = { id: 'c1', status: ContractStatus.APPROVED, roomId: 'r1', depositMoney: 1000, tenantId: 't1', customerId: 'cu1', monthlyRent: 5000 };
+      const updatedContract = { ...mockContract, status: ContractStatus.ACTIVE };
+      const mockRoom = { id: 'r1', status: RoomStatus.RESERVED };
+      const mockDeposit = { id: 'd1', status: 'PAID' };
+      
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue(mockRoom);
+      prismaService.tx.deposit.findFirst = vi.fn().mockResolvedValue(mockDeposit);
+      
+      prismaService.tx.contract.update.mockResolvedValue(updatedContract);
+      prismaService.tx.room.update.mockResolvedValue({ ...mockRoom, status: RoomStatus.OCCUPIED });
+      prismaService.tx.deposit.update = vi.fn().mockResolvedValue({ ...mockDeposit, status: 'CONVERTED_TO_CONTRACT' });
+      prismaService.tx.invoice = { create: vi.fn().mockResolvedValue({ id: 'inv1' }) };
+
+      const result = await service.activateContract('c1', 'user1');
+
+      expect(prismaService.tx.room.findUnique).toHaveBeenCalledWith({ where: { id: 'r1' } });
+      expect(prismaService.tx.deposit.findFirst).toHaveBeenCalledWith({ where: { contractId: 'c1' } });
+      expect(prismaService.tx.$transaction).toHaveBeenCalled();
+      
+      expect(prismaService.tx.contract.update).toHaveBeenCalledWith({
+        where: { id: 'c1' },
+        data: { status: ContractStatus.ACTIVE },
+      });
+      expect(prismaService.tx.room.update).toHaveBeenCalledWith({
+        where: { id: 'r1' },
+        data: { status: RoomStatus.OCCUPIED },
+      });
+      expect(prismaService.tx.deposit.update).toHaveBeenCalledWith({
+        where: { id: 'd1' },
+        data: { status: 'CONVERTED_TO_CONTRACT' },
+      });
+      expect(prismaService.tx.invoice.create).toHaveBeenCalled();
+      
+      expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'UPDATE',
+        entityId: 'c1',
+        before: mockContract,
+        after: updatedContract,
+      }));
+      expect(result).toEqual(updatedContract);
+    });
+
+    it('should throw BadRequestException if contract is not APPROVED', async () => {
+      vi.spyOn(service, 'getDetail').mockResolvedValue({ id: 'c1', status: ContractStatus.PENDING_APPROVAL } as any);
+      await expect(service.activateContract('c1', 'user1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw ConflictException if room is not RESERVED', async () => {
+      const mockContract = { id: 'c1', status: ContractStatus.APPROVED, roomId: 'r1' };
+      const mockRoom = { id: 'r1', status: RoomStatus.AVAILABLE };
+      
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue(mockRoom);
+
+      await expect(service.activateContract('c1', 'user1')).rejects.toThrow(ConflictException);
+    });
+
+    it('should throw BadRequestException if deposit is missing', async () => {
+      const mockContract = { id: 'c1', status: ContractStatus.APPROVED, roomId: 'r1' };
+      const mockRoom = { id: 'r1', status: RoomStatus.RESERVED };
+      
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue(mockRoom);
+      prismaService.tx.deposit.findFirst = vi.fn().mockResolvedValue(null);
+
+      await expect(service.activateContract('c1', 'user1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if deposit is not PAID', async () => {
+      const mockContract = { id: 'c1', status: ContractStatus.APPROVED, roomId: 'r1' };
+      const mockRoom = { id: 'r1', status: RoomStatus.RESERVED };
+      const mockDeposit = { id: 'd1', status: 'PENDING' };
+      
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue(mockRoom);
+      prismaService.tx.deposit.findFirst = vi.fn().mockResolvedValue(mockDeposit);
+
+      await expect(service.activateContract('c1', 'user1')).rejects.toThrow(BadRequestException);
+    });
+  });
 });

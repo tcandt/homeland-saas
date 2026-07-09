@@ -93,4 +93,11 @@ export class ContractsController {
   approve(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.contractsService.approveContract(id, userId);
   }
+
+  @Post(':id/activate')
+  @RequirePermissions('contract.update') // or contract.activate if it exists
+  @ApiOperation({ summary: 'Activate contract' })
+  activate(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.contractsService.activateContract(id, userId);
+  }
 }

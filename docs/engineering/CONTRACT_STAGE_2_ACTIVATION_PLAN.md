@@ -1,6 +1,7 @@
 # Contract Workflow Stage 2: Activation Plan
 
 > **Objective:** Define the business logic, side effects, and dependencies for the `Activate` command.
+> **Status:** IMPLEMENTED ✅
 
 ## Scope
 - Implement the `activate` command (`POST /api/v1/contracts/:id/activate`).

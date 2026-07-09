@@ -1,0 +1,10 @@
+epic: 04_Invoice
+implementation: PASS
+unit_test: PASS
+integration_test: PASS
+frontend_build: PASS
+backend_build: PASS
+verify_prod: FAIL
+evidence: INCOMPLETE
+infrastructure: BLOCKED
+status: VERIFICATION_BLOCKED

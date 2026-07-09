@@ -162,6 +162,27 @@
 IF `verify:prod` != PASS OR Evidence Package incomplete OR Infrastructure Blocked THEN Epic cannot become CLOSED.
 AI must refuse any status update that marks Production Candidate, Epic Closed, or Release Ready.
 
+### Execution Receipt Constraint
+At the end of every execution cycle, the AI MUST output a structured `Execution Receipt` block. Conversational assertions of success are forbidden.
+Example:
+```text
+=== EXECUTION RECEIPT ===
+Epic: [ID and Name]
+Implementation: [PASS/FAIL/BLOCKED]
+Backend Build: [PASS/FAIL/BLOCKED]
+Frontend Build: [PASS/FAIL/BLOCKED]
+Unit Test: [PASS/FAIL/BLOCKED]
+Integration: [PASS/FAIL/BLOCKED]
+verify:prod: [PASS/FAIL/BLOCKED]
+Evidence: [COMPLETE/INCOMPLETE]
+Infrastructure: [HEALTHY/BLOCKED]
+---
+Final Status: [e.g., VERIFICATION BLOCKED]
+Epic Closed: [YES/NO]
+Next Action: [Specific next step]
+=========================
+```
+
 ### Before entering NEXT_FLOW:
 - [ ] BVM updated
 - [ ] PRODUCTION_SCORE updated
@@ -182,4 +203,23 @@ AI must refuse any status update that marks Production Candidate, Epic Closed, o
 ❌  Fix a bug without creating/referencing RCA entry
 ❌  Move to next module while current flow has ⏳ gates
 ❌  Mark Epic Closed or Production Candidate when verify:prod is failing or blocked
-```
+
+---
+
+## Process Integrity Rules
+
+### Rule 91: Anti-Greenwashing Rule
+Evidence always wins. Never infer success from implementation.
+Implementation ≠ Verification.
+Verification ≠ Production.
+Production ≠ Release.
+Release ≠ Epic Closed.
+
+### Rule 92: Infrastructure Hard Stop
+If Infrastructure Blocked:
+Stop immediately. Generate RCA. Generate Resume Guide. Update Dashboard. Wait for operator. Do not continue.
+
+### Infrastructure FSM
+Defines the sequential flow for infrastructure and verification gates:
+`Docker → Postgres → Redis → Migration → Healthcheck → API → Web → verify:prod → Evidence → Epic Close`
+If Docker fails → Do not start API. Do not verify. Do not update Dashboard. Do not Close Epic.

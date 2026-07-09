@@ -1,0 +1,8 @@
+release_candidate: 1.0.0
+epics:
+  01_Auth: PASS
+  02_Property_Customer: PASS
+  03_Contract: PASS
+  04_Invoice: BLOCKED
+  05_Payment: NOT_STARTED
+status: NOT_READY

@@ -19,5 +19,21 @@ export const contractsApi = {
 
   delete: (id: string) => {
     return apiClient.delete(`/contracts/${id}`);
+  },
+
+  submit: (id: string) => {
+    return apiClient.post(`/contracts/${id}/submit`);
+  },
+
+  approve: (id: string) => {
+    return apiClient.post(`/contracts/${id}/approve`);
+  },
+
+  activate: (id: string) => {
+    return apiClient.post(`/contracts/${id}/activate`);
+  },
+
+  terminate: (id: string) => {
+    return apiClient.post(`/contracts/${id}/terminate`);
   }
 };

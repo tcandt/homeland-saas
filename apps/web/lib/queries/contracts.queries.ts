@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { contractsApi } from '../api/contracts.api';
 
 export const contractKeys = {
@@ -28,5 +28,29 @@ export const useContractDetailQuery = (id: string) => {
       return { data: response };
     },
     enabled: !!id,
+  });
+};
+
+export const useSubmitContractMutation = () => {
+  return useMutation({
+    mutationFn: (id: string) => contractsApi.submit(id),
+  });
+};
+
+export const useApproveContractMutation = () => {
+  return useMutation({
+    mutationFn: (id: string) => contractsApi.approve(id),
+  });
+};
+
+export const useActivateContractMutation = () => {
+  return useMutation({
+    mutationFn: (id: string) => contractsApi.activate(id),
+  });
+};
+
+export const useTerminateContractMutation = () => {
+  return useMutation({
+    mutationFn: (id: string) => contractsApi.terminate(id),
   });
 };

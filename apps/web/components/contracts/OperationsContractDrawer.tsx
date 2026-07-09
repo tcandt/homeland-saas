@@ -1,16 +1,43 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { X, CheckCircle2, MessageSquare, FileText, PenTool, CalendarClock, Download, Trash2, Link as LinkIcon, History, AlertTriangle, ShieldCheck, User } from "lucide-react";
+import React, { useState } from "react";
+import { CheckCircle2, FileText, CalendarClock, Download, Trash2, Link as LinkIcon, History, ShieldCheck, User } from "lucide-react";
 import { Drawer } from "../ui/Drawer";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { getContractStatusConfig } from "../../lib/contracts/contract-status";
+import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "../ui/ToastContext";
+import { usePermissions } from "../../hooks/usePermissions";
+import { 
+  useSubmitContractMutation, 
+  useApproveContractMutation, 
+  useActivateContractMutation, 
+  useTerminateContractMutation 
+} from "../../lib/queries/contracts.queries";
 
 export default function OperationsContractDrawer({ contract, onClose }: { contract: any | null, onClose: () => void }) {
   const statusConfig = contract ? getContractStatusConfig(contract.status) : null;
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const { hasPermission } = usePermissions();
+  const [showTerminateConfirm, setShowTerminateConfirm] = useState(false);
 
+  const submitMutation = useSubmitContractMutation();
+  const approveMutation = useApproveContractMutation();
+  const activateMutation = useActivateContractMutation();
+  const terminateMutation = useTerminateContractMutation();
+
+  const handleSuccess = (message: string) => {
+    showToast(message, "success");
+    queryClient.invalidateQueries({ queryKey: ['contracts'] });
+    onClose();
+  };
+
+  const handleError = (error: any) => {
+    showToast(error?.response?.data?.message || "Có lỗi xảy ra", "error");
+  };
 
   if (!contract) return null;
 
@@ -30,10 +57,33 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
       footer={
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {!statusConfig?.isTerminal && (
-              <Button variant="ghost" className="text-rose-500 hover:bg-rose-500/10">
-                <Trash2 size={16} className="mr-2" /> Chấm dứt
+            {contract.status === 'DRAFT' && hasPermission('contract.submit') && (
+              <Button data-testid="btn-submit-contract" onClick={() => submitMutation.mutate(contract.id, { onSuccess: () => handleSuccess("Đã trình duyệt hợp đồng"), onError: handleError })} isLoading={submitMutation.isPending}>
+                Trình duyệt
               </Button>
+            )}
+            {contract.status === 'PENDING_APPROVAL' && hasPermission('contract.approve') && (
+              <Button data-testid="btn-approve-contract" onClick={() => approveMutation.mutate(contract.id, { onSuccess: () => handleSuccess("Đã duyệt hợp đồng"), onError: handleError })} isLoading={approveMutation.isPending}>
+                Duyệt hợp đồng
+              </Button>
+            )}
+            {contract.status === 'APPROVED' && hasPermission('contract.activate') && (
+              <Button data-testid="btn-activate-contract" onClick={() => activateMutation.mutate(contract.id, { onSuccess: () => handleSuccess("Đã kích hoạt hợp đồng"), onError: handleError })} isLoading={activateMutation.isPending}>
+                Kích hoạt
+              </Button>
+            )}
+            {(contract.status === 'ACTIVE' || contract.status === 'EXPIRING') && hasPermission('contract.terminate') && (
+              showTerminateConfirm ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-rose-500 font-bold">Bạn chắc chắn muốn chấm dứt?</span>
+                  <Button data-testid="btn-confirm-terminate" variant="danger" onClick={() => terminateMutation.mutate(contract.id, { onSuccess: () => { setShowTerminateConfirm(false); handleSuccess("Đã chấm dứt hợp đồng"); }, onError: handleError })} isLoading={terminateMutation.isPending}>Xác nhận</Button>
+                  <Button variant="ghost" onClick={() => setShowTerminateConfirm(false)}>Hủy</Button>
+                </div>
+              ) : (
+                <Button data-testid="btn-terminate-contract" variant="ghost" className="text-rose-500 hover:bg-rose-500/10" onClick={() => setShowTerminateConfirm(true)}>
+                  <Trash2 size={16} className="mr-2" /> Chấm dứt
+                </Button>
+              )
             )}
           </div>
           <div className="flex items-center gap-3">

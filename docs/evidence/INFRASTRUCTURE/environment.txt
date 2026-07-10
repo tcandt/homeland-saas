@@ -1,0 +1,6 @@
+DATABASE_URL: PRESENT
+Protocol: postgresql
+Host: 127.0.0.1
+Port: 5433
+Database: homeland
+Credentials: MASKED

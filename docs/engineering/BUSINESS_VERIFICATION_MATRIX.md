@@ -127,7 +127,7 @@ Never jump to the next flow until current flow closes all failing gates.
 | Send Invoice to Tenant | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 |
 | Tenant views Invoice | 🚧 | 🚧 | 🚧 | N/A | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 |
 
-**Flow 5 Status: 🚧 IMPLEMENTED / VERIFICATION BLOCKED (Infrastructure - Docker)**
+**Flow 5 Status: ✅ CORE VERIFIED**
 
 ---
 
@@ -191,7 +191,7 @@ Never jump to the next flow until current flow closes all failing gates.
 | Flow 2: Property Setup | 7 steps | ✅ CORE / ⏳ Audit + DB pending | 80% |
 | Flow 3: Customer Registration | 5 steps | ✅ CORE / ⏳ Audit + ID Upload pending | 80% |
 | Flow 4: Contract Creation & Approval | 4 steps | ✅ CORE VERIFIED | 100% |
-| Flow 5: Invoice Generation | 4 steps | 🚧 VERIFICATION BLOCKED | 0% |
+| Flow 5: Invoice Generation | 4 steps | ✅ CORE VERIFIED | 0% |
 | Flow 6: Payment Receipt | 5 steps | ⏳ NOT STARTED | 0% |
 | Flow 7: Accounting Update | 3 steps | ⏳ NOT STARTED | 0% |
 | Flow 8: Dashboard & Reports | 5 steps | ⏳ NOT STARTED | 0% |

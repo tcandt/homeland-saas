@@ -228,3 +228,14 @@ The AI is explicitly forbidden from manually editing Gate YAMLs, the Business Ve
 Defines the sequential flow for infrastructure and verification gates:
 `Docker → Postgres → Redis → Migration → Healthcheck → API → Web → verify:prod → Evidence → Epic Close`
 If Docker fails → Do not start API. Do not verify. Do not update Dashboard. Do not Close Epic.
+
+## Zero-Trust Evidence Rules (v3)
+
+**Rule 101**: AI cannot create PASS/FAIL evidence manually.
+**Rule 102**: Trusted evidence may only be produced by ecord-evidence.ps1.
+**Rule 103**: Evidence is execution-bound, not merely timestamp-bound.
+**Rule 104**: Evidence files are append-only and attempt-versioned.
+**Rule 105**: All evidence must be cryptographically validated before receipt generation.
+**Rule 106**: Legacy or manually modified evidence is ineligible for gates.
+**Rule 107**: Gate and Receipt generation must fail closed when evidence validation is uncertain.
+**Rule 108**: An Epic closed using invalid or fabricated evidence must automatically reopen.

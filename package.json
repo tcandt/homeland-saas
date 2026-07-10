@@ -31,7 +31,7 @@
                     "eos:self-test": "tsx scripts/eos/test-planner.ts",
                     "eos:verify-event": "tsx scripts/eos/verify-event-log.ts",
                     "eos:policy-eval": "tsx scripts/eos/policy-engine.ts",
-                    "eos:verify-v4": "tsx scripts/eos/verify-pipeline.ts",
+                    "eos:verify-v4": "tsx --env-file=.env scripts/eos/verify-pipeline.ts",
                     "eos:test-v5": "tsx scripts/eos/test-v5.ts"
                 },
     "devDependencies":  {

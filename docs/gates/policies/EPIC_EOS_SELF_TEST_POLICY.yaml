@@ -1,0 +1,5 @@
+epic: EOS_SELF_TEST
+requiresStages:
+  - verify_prod
+allowedStatuses:
+  - LOCAL_VERIFIED

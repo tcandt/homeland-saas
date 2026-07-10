@@ -1,0 +1,10 @@
+epic: EOS_SELF_TEST_INVOICE
+status: LOCAL_VERIFIED
+epic_closed: true
+decision: PASS
+reasons: []
+evaluatedAtUtc: 2026-07-10T09:59:48.549Z
+trustProfile: LOCAL_DEVELOPMENT
+policyHash: c8e8de744bcdbb36e325b628e4475d9f1e2898fb6ecc9253abafadd44b64269f
+receiptHash: 059f80b8d3557e8a11fade8afd6ff4b4118d69a0ae973271d059b856640698bc
+artifactLocation: .eos/runs/RUN-20260710095703/

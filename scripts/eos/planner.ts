@@ -9,9 +9,9 @@ export function planExecution(epicId: string): TaskGraph {
     const policiesDir = path.resolve(__dirname, '../../docs/gates/policies');
     const runsDir = path.resolve(__dirname, '../../.eos/runs');
     
-    const policyPath = path.join(policiesDir, \EPIC_\_POLICY.yaml\);
+    const policyPath = path.join(policiesDir, `EPIC_${epicId}_POLICY.yaml`);
     if (!fs.existsSync(policyPath)) {
-        throw new Error(\Policy missing for epic \\);
+        throw new Error(`Policy missing for epic ${epicId}`);
     }
     
     // Hash source gate and policy files for pinning
@@ -35,68 +35,40 @@ export function planExecution(epicId: string): TaskGraph {
         });
     }
     
-    // Check bootstrap condition
-    const bootstrapPath = path.resolve(__dirname, '../../docs/eos/bootstrap/EOS_V5_BOOTSTRAP_TASK_GRAPH.json');
-    let bootstrapConsumed = false;
-    const markerPath = path.resolve(__dirname, '../../.eos/bootstrap_consumed');
-    if (fs.existsSync(markerPath)) {
-        bootstrapConsumed = true;
-    }
-    
-    // Tasks generation based on the target epic
     const tasks: Task[] = [];
     
-    if (epicId === '90') {
+    if (epicId === '04') {
         tasks.push({
-            taskId: "T1",
-            title: "Define Planner Architecture Documentation",
+            taskId: "T4_1",
+            title: "Diagnose Prisma Migrate & Database Tables in Epic 04",
             status: "READY",
             dependencies: [],
-            allowedScope: ["docs/architecture/eos-v5/"],
-            forbiddenScope: ["apps/"],
+            allowedScope: ["packages/database/prisma/"],
+            forbiddenScope: ["apps/web/"],
             commitPolicy: "REQUIRED"
         });
         tasks.push({
-            taskId: "T2",
-            title: "Implement Task Graph Schema and Validator",
+            taskId: "T4_2",
+            title: "Resolve Prisma connection blockers (P1001)",
             status: "PENDING",
-            dependencies: ["T1"],
-            allowedScope: ["schemas/eos/", "scripts/eos/"],
-            forbiddenScope: ["apps/"],
+            dependencies: ["T4_1"],
+            allowedScope: ["*"],
+            forbiddenScope: [],
             commitPolicy: "REQUIRED"
         });
         tasks.push({
-            taskId: "T3",
-            title: "Implement Deterministic Execution Planner",
+            taskId: "T4_3",
+            title: "Run local pipeline for Epic 04 to generate evidence",
             status: "PENDING",
-            dependencies: ["T2"],
-            allowedScope: ["scripts/eos/planner.ts"],
-            forbiddenScope: ["apps/"],
-            commitPolicy: "REQUIRED"
-        });
-        tasks.push({
-            taskId: "T4",
-            title: "Enforce Task State and Executor Boundaries",
-            status: "PENDING",
-            dependencies: ["T3"],
-            allowedScope: ["scripts/eos/task-state-engine.ts"],
-            forbiddenScope: ["apps/"],
-            commitPolicy: "REQUIRED"
-        });
-        tasks.push({
-            taskId: "T5",
-            title: "Run Planner Graph and Scope Attacks",
-            status: "PENDING",
-            dependencies: ["T4"],
-            allowedScope: ["scripts/eos/"],
-            forbiddenScope: ["apps/"],
+            dependencies: ["T4_2"],
+            allowedScope: ["*"],
+            forbiddenScope: [],
             commitPolicy: "REQUIRED"
         });
     } else {
-        // Fallback or generic task structure
         tasks.push({
             taskId: "T_GENERIC",
-            title: \Execute Epic \\,
+            title: `Execute Epic ${epicId}`,
             status: "READY",
             dependencies: [],
             allowedScope: ["*"],
@@ -107,7 +79,7 @@ export function planExecution(epicId: string): TaskGraph {
     
     const graph: TaskGraph = {
         schemaVersion: "5.0",
-        graphId: \G-\-\\,
+        graphId: `G-${epicId}-${Date.now()}`,
         graphRevision: 1,
         supersedesGraphId: null,
         generatedAtUtc: new Date().toISOString(),

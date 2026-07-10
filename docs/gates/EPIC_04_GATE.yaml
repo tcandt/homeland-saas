@@ -4,7 +4,8 @@ unit_test: PASS
 integration_test: PASS
 frontend_build: PASS
 backend_build: PASS
-verify_prod: PASS
-infrastructure: PASS
-evidence: COMPLETE
-status: PASS
+verify_prod: FAIL
+infrastructure: BLOCKED
+evidence: INCOMPLETE
+status: VERIFICATION_BLOCKED
+epic_closed: false

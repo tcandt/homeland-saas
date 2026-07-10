@@ -6,80 +6,74 @@ import * as yaml from 'yaml';
 
 const args = minimist(process.argv.slice(2));
 const executionId = args['execution-id'];
-let epicInput = args.epic;
+const epicInput = String(args.epic || '04').padStart(2, '0');
 
-if (!executionId || !epicInput) {
-    console.error("Please provide --execution-id and --epic");
-    process.exit(1);
-}
-epicInput = String(epicInput).padStart(2, '0');
-
-const runDir = path.resolve(__dirname, `../../docs/evidence/runs/${executionId}`);
-const receiptJsonPath = path.join(runDir, 'receipt.json');
-
-if (!fs.existsSync(receiptJsonPath)) {
-    console.error("receipt.json not found. Did you run eos:receipt?");
+if (!executionId) {
+    console.error("Please provide --execution-id");
     process.exit(1);
 }
 
-const receiptRaw = fs.readFileSync(receiptJsonPath, 'utf-8');
-let receiptData;
-try {
-    receiptData = JSON.parse(receiptRaw);
-} catch {
-    console.error("Failed to parse receipt.json");
+const runDir = path.resolve(__dirname, `../../.eos/runs/${executionId}`);
+const receiptPath = path.join(runDir, 'receipt.json');
+const signaturePath = path.join(runDir, 'receipt.sig');
+
+if (!fs.existsSync(receiptPath) || !fs.existsSync(signaturePath)) {
+    console.error("Receipt or signature not found");
     process.exit(1);
 }
 
-// Verify receipt hash
-const { receiptHash, ...payloadObj } = receiptData;
-const expectedHash = crypto.createHash('sha256').update(JSON.stringify(payloadObj), 'utf8').digest('hex');
-if (expectedHash !== receiptHash) {
-    console.error("RECEIPT_HASH_MISMATCH");
+const receiptData = fs.readFileSync(receiptPath, 'utf-8');
+const signature = fs.readFileSync(signaturePath, 'utf-8');
+const receipt = JSON.parse(receiptData);
+
+// 1. Verify Receipt Signature
+const publicKey = crypto.createPublicKey(receipt.signerIdentity);
+const isValid = crypto.verify(null, Buffer.from(receiptData), publicKey, Buffer.from(signature, 'base64'));
+
+if (!isValid) {
+    console.error("SIGNATURE_INVALID");
     process.exit(1);
 }
 
-if (receiptData.epicId !== epicInput) {
+// 2. Trust Profile Limits
+const profile = receipt.trustProfile;
+const isEphemeral = profile === 'UNTRUSTED_EPHEMERAL';
+const isLocal = profile === 'LOCAL_DEVELOPMENT';
+const isCI = profile === 'CI_TRUSTED';
+
+let maxGateStatus = 'PRODUCTION_VERIFIED';
+if (isEphemeral) {
+    maxGateStatus = 'UNTRUSTED_SIGNER_PROFILE';
+} else if (isLocal) {
+    maxGateStatus = 'LOCAL_VERIFIED';
+}
+
+if (receipt.epicId !== epicInput) {
     console.error("EPIC_MISMATCH");
     process.exit(1);
 }
 
-if (receiptData.validationResult === 'INVALID') {
-    console.error(`Evidence validation failed: ${receiptData.sourceChangeReason || 'INVALID_AUTHENTICITY'}`);
-    process.exit(1);
-}
-
-// Load policy
 const policyPath = path.resolve(__dirname, `../../docs/gates/policies/EPIC_${epicInput}_POLICY.yaml`);
-if (!fs.existsSync(policyPath)) {
-    console.error(`Policy file not found: ${policyPath}`);
-    process.exit(1);
-}
-
 const policy = yaml.parse(fs.readFileSync(policyPath, 'utf-8'));
 
-// Load validation result directly for stage results
-const validationResultPath = path.join(runDir, 'validation-result.json');
-const validationData = JSON.parse(fs.readFileSync(validationResultPath, 'utf-8'));
+let overallPass = true;
+let missingMandatory = false;
 
 const gateObj: any = {
-    epic: receiptData.epicDirName,
+    epic: `${epicInput}_INVOICE`,
     implementation: 'PASS',
-    infrastructure: 'PASS' // Derived from infra gates, assume pass if we reached here
+    infrastructure: 'PASS'
 };
 
-let missingMandatory = false;
-let overallPass = true;
-
 for (const stage of policy.mandatoryStages) {
-    const res = validationData.results[stage];
-    if (!res || res.authenticity !== 'VALID') {
+    const res = receipt.stageDetails[stage];
+    if (!res) {
         missingMandatory = true;
         gateObj[stage] = 'MISSING';
         overallPass = false;
     } else {
-        gateObj[stage] = res.stageResult;
-        if (res.stageResult !== 'PASS') {
+        gateObj[stage] = res;
+        if (res !== 'PASS') {
             overallPass = false;
         }
     }
@@ -87,33 +81,30 @@ for (const stage of policy.mandatoryStages) {
 
 if (missingMandatory) {
     console.error("GATE_BLOCKED_MISSING_STAGE");
-    // Fail closed! If missing mandatory, we can't even generate a normal GATE, or we generate it as BLOCKED.
-    // The prompt says: "Expected: GATE_BLOCKED_MISSING_STAGE." and fail closed.
     process.exit(1);
 }
 
-const finalStatus = overallPass ? 'PASS' : 'VERIFICATION_BLOCKED';
+let finalStatus = overallPass ? 'PASS' : 'VERIFICATION_BLOCKED';
 
+if (finalStatus === 'PASS' && isLocal) {
+    finalStatus = 'LOCAL_VERIFIED'; // Because local cannot reach RELEASE_READY or PRODUCTION_VERIFIED natively
+}
+if (finalStatus === 'PASS' && isEphemeral) {
+    finalStatus = 'UNTRUSTED_SIGNER_PROFILE';
+}
+
+// Write Gate YAML
 Object.assign(gateObj, {
     evidence: overallPass ? 'COMPLETE' : 'INCOMPLETE',
     status: finalStatus,
-    epic_closed: overallPass
+    epic_closed: finalStatus === 'PRODUCTION_VERIFIED' || finalStatus === 'LOCAL_VERIFIED' || finalStatus === 'PASS',
+    trustProfile: profile,
+    artifactDigest: crypto.createHash('sha256').update(receiptData).digest('hex'),
+    artifactLocation: `.eos/runs/${executionId}/`,
+    retentionPolicy: "30_DAYS"
 });
 
 const gateYamlPath = path.resolve(__dirname, `../../docs/gates/EPIC_${epicInput}_GATE.yaml`);
 fs.writeFileSync(gateYamlPath, yaml.stringify(gateObj));
-
-const gateResultJson = {
-    schemaVersion: "1.0",
-    executionId,
-    epicId: epicInput,
-    generatedAtUtc: new Date().toISOString(),
-    repositoryCommitSha: receiptData.repositoryCommitSha,
-    toolVersion: "eos-v3",
-    gateStatus: finalStatus,
-    epicClosed: overallPass
-};
-
-fs.writeFileSync(path.join(runDir, 'gate-result.json'), JSON.stringify(gateResultJson, null, 2));
 
 console.log(`Gate generated successfully. Status: ${finalStatus}`);

@@ -115,7 +115,18 @@ for (const stage of policy.requiresStages || []) {
     };
 }
 
+
+// Verify Supply Chain at end of execution
+const postProv = captureSupplyChainAndRuntime();
+for (const [tool, details] of Object.entries(manifest.provenance.supplyChain)) {
+    if (postProv.supplyChain[tool]?.sha256 !== (details as any).sha256) {
+        console.error('SUPPLY_CHAIN_TAMPERED');
+        process.exit(1);
+    }
+}
+
 // Generate Attestation
+
 const attestationPayload = {
     schemaVersion: "5.0",
     executionId,
@@ -147,3 +158,4 @@ execSync(`npx tsx scripts/eos/generate-gate.ts --execution-id=${executionId} --e
 execSync(`npx tsx scripts/eos/generate-dashboard.ts`, { stdio: 'inherit' });
 
 console.log('Pipeline completed.');
+

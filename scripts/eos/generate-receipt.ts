@@ -96,10 +96,10 @@ const receiptPayload = {
     stageDetails
 };
 
-const payloadStr = JSON.stringify(receiptPayload);
+const payloadStr = payloadStr;
 const signature = crypto.sign(null, Buffer.from(payloadStr), privateKey).toString('base64');
 
-fs.writeFileSync(path.join(runDir, 'receipt.json'), JSON.stringify(receiptPayload, null, 2));
+fs.writeFileSync(path.join(runDir, 'receipt.json'), payloadStr);
 fs.writeFileSync(path.join(runDir, 'receipt.sig'), signature);
 console.log(`Receipt generated and signed for ${executionId}`);
 
@@ -110,3 +110,4 @@ const runIndex = {
     receiptHash: crypto.createHash('sha256').update(payloadStr).digest('hex')
 };
 fs.writeFileSync(path.join(runDir, 'run-index.json'), JSON.stringify(runIndex, null, 2));
+

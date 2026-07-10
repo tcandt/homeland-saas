@@ -57,9 +57,10 @@ const attestationPayload = {
     stageResults
 };
 
-const payloadStr = JSON.stringify(attestationPayload);
+const payloadStr = payloadStr;
 const signature = crypto.sign(null, Buffer.from(payloadStr), privateKey).toString('base64');
 
-fs.writeFileSync(path.join(runDir, 'attestation.json'), JSON.stringify(attestationPayload, null, 2));
+fs.writeFileSync(path.join(runDir, 'attestation.json'), payloadStr);
 fs.writeFileSync(path.join(runDir, 'attestation.sig'), signature);
 console.log(`Attestation generated and signed for ${executionId}`);
+

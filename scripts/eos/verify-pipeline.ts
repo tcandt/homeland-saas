@@ -137,12 +137,20 @@ const attestationPayload = {
     stageResults
 };
 
-const payloadStr = JSON.stringify(attestationPayload);
+const payloadStr = JSON.stringify(attestationPayload, null, 2);
 const signature = crypto.sign(null, Buffer.from(payloadStr), privateKey).toString('base64');
 
-fs.writeFileSync(path.join(execPath, 'attestation.json'), JSON.stringify(attestationPayload, null, 2));
+fs.writeFileSync(path.join(execPath, 'attestation.json'), payloadStr);
 fs.writeFileSync(path.join(execPath, 'attestation.sig'), signature);
 
 console.log("Attestation generated and signed.");
 
-// 6. Next we will chain receipts and gates, but for now we finish commit 2.
+
+execSync('npx tsx scripts/eos/verify-attestation.ts --execution-id=' + executionId, { stdio: 'inherit' });
+execSync('npx tsx scripts/eos/generate-receipt.ts --execution-id=' + executionId + ' --epic=' + epicInput, { stdio: 'inherit' });
+execSync('npx tsx scripts/eos/generate-gate.ts --execution-id=' + executionId + ' --epic=' + epicInput, { stdio: 'inherit' });
+console.log('Pipeline completed.');
+
+
+
+

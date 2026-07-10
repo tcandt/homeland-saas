@@ -23,7 +23,8 @@
                     "eos:matrix":  "tsx scripts/eos/generate-matrix.ts",
                     "eos:dashboard":  "tsx scripts/eos/generate-dashboard.ts",
                     "eos:start":  "tsx scripts/eos/start-execution.ts",
-                    "eos:record":  "powershell -ExecutionPolicy Bypass -File scripts/eos/record-evidence.ps1"
+                    "eos:record":  "powershell -ExecutionPolicy Bypass -File scripts/eos/record-evidence.ps1",
+                    "eos:validate":  "tsx scripts/eos/validate-evidence.ts"
                 },
     "devDependencies":  {
                             "cross-env":  "^10.1.0",

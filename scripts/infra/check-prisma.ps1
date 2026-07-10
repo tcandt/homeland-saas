@@ -27,7 +27,7 @@ try {
     }
     
     Write-Host "Running Prisma Probe..."
-    tsx scripts/infra/run-prisma-probe.ts
+    npx tsx scripts/infra/run-prisma-probe.ts 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Prisma Query Probe: FAIL" -ForegroundColor Red
         exit 1

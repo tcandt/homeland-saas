@@ -1,0 +1,10 @@
+epic: "05"
+status: LOCAL_VERIFIED
+epic_closed: true
+decision: PASS
+reasons: []
+evaluatedAtUtc: 2026-07-10T10:10:37.025Z
+trustProfile: LOCAL_DEVELOPMENT
+policyHash: 78d89998af8a8da49247627e3d8f931e5e28698847e590f39e0be055413401a0
+receiptHash: e76be875203052b8e514f24781a5c278fbc6a8f4c44a72d29aa4f2572c78732d
+artifactLocation: .eos/runs/RUN-20260710100952/

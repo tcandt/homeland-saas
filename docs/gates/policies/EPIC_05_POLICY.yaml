@@ -1,0 +1,9 @@
+epic: 05_CONTRACT
+requiresStages:
+  - backend_build
+  - frontend_build
+  - unit_test
+allowedStatuses:
+  - LOCAL_VERIFIED
+requiresDependencies:
+  - "04"

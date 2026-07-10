@@ -6,6 +6,7 @@
 | Epic | Implementation State |
 |---|---|
 | 04_INVOICE | CLOSED |
+| 05 | CLOSED |
 | 11_INFRA | OPEN |
 | EOS_SELF_TEST_INVOICE | CLOSED |
 | RELEASE | OPEN |

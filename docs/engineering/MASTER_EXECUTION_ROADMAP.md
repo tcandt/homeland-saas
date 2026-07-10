@@ -6,6 +6,7 @@
 | Stage | Status |
 |---|---|
 | Epic 04_INVOICE | LOCAL_VERIFIED |
+| Epic 05 | LOCAL_VERIFIED |
 | Epic 11_INFRA | VERIFIED |
 | Epic EOS_SELF_TEST_INVOICE | LOCAL_VERIFIED |
 | Epic RELEASE | NOT_READY |

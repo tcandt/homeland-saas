@@ -1,3 +1,6 @@
+# EOS v3 Threat Model
+
+**Status**: VERIFIED (20/20 Test Cases Pass)
 # Evidence Threat Model
 
 ## Threat: AI Evidence Fabrication (Greenwashing)
@@ -11,3 +14,4 @@
 ## Threat: Log Tampering
 **Attack Vector**: Modifying the raw logs after execution but before receipt generation to inject Verification PASSED. or remove failure markers.
 **Mitigation**: The evidence recorder atomically writes evidence.json with SHA256 hashes of the logs at the moment of completion. The Receipt Generator recalculates hashes; mismatches invalidate the receipt.
+

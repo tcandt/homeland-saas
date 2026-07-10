@@ -26,7 +26,8 @@
                     "eos:validate":  "tsx scripts/eos/validate-evidence.ts",
                     "eos:receipt":  "tsx scripts/eos/generate-receipt.ts",
                     "eos:test":  "tsx scripts/eos/test-evidence-protection.ts",
-                    "eos:gate":  "tsx scripts/eos/generate-gate.ts"
+                    "eos:gate":  "tsx scripts/eos/generate-gate.ts",
+                    "eos:verify":  "tsx scripts/eos/verify-pipeline.ts"
                 },
     "devDependencies":  {
                             "cross-env":  "^10.1.0",

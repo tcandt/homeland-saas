@@ -57,3 +57,5 @@ apps/web/tests/e2e/.auth/
 
 # generated
 *.tsbuildinfo
+
+.eos/

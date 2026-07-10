@@ -1,35 +1,37 @@
 {
-  "name": "homeland-saas",
-  "private": true,
-  "packageManager": "npm@11.12.1",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
-  "scripts": {
-    "dev": "turbo run dev",
-    "build": "turbo run build",
-    "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
-    "db:generate": "prisma generate --schema=packages/database/prisma/schema.prisma",
-    "db:push": "prisma db push --schema=packages/database/prisma/schema.prisma",
-    "db:seed": "prisma db seed --schema=packages/database/prisma/schema.prisma",
-    "db:check-seed": "tsx packages/database/scripts/check-seed.ts",
-    "api:dev": "npm run dev --workspace=api",
-    "phase2:verify": "npm run db:generate && npm run db:push && npm run db:seed && npm run db:check-seed",
-    "verify:prod": "powershell -ExecutionPolicy Bypass -File scripts/verify-production.ps1",
-    "eos:receipt": "tsx scripts/eos/generate-receipt.ts",
-    "eos:matrix": "tsx scripts/eos/generate-matrix.ts",
-    "eos:dashboard": "tsx scripts/eos/generate-dashboard.ts"
-  },
-  "devDependencies": {
-    "cross-env": "^10.1.0",
-    "tsx": "^4.7.1",
-    "turbo": "latest",
-    "vitest": "^4.1.9"
-  },
-  "prisma": {
-    "seed": "tsx packages/database/prisma/seed.ts"
-  }
+    "name":  "homeland-saas",
+    "private":  true,
+    "packageManager":  "npm@11.12.1",
+    "workspaces":  [
+                       "apps/*",
+                       "packages/*"
+                   ],
+    "scripts":  {
+                    "dev":  "turbo run dev",
+                    "build":  "turbo run build",
+                    "lint":  "turbo run lint",
+                    "typecheck":  "turbo run typecheck",
+                    "test":  "turbo run test",
+                    "db:generate":  "prisma generate --schema=packages/database/prisma/schema.prisma",
+                    "db:push":  "prisma db push --schema=packages/database/prisma/schema.prisma",
+                    "db:seed":  "prisma db seed --schema=packages/database/prisma/schema.prisma",
+                    "db:check-seed":  "tsx packages/database/scripts/check-seed.ts",
+                    "api:dev":  "npm run dev --workspace=api",
+                    "phase2:verify":  "npm run db:generate \u0026\u0026 npm run db:push \u0026\u0026 npm run db:seed \u0026\u0026 npm run db:check-seed",
+                    "verify:prod":  "powershell -ExecutionPolicy Bypass -File scripts/verify-production.ps1",
+                    "eos:receipt":  "tsx scripts/eos/generate-receipt.ts",
+                    "eos:matrix":  "tsx scripts/eos/generate-matrix.ts",
+                    "eos:dashboard":  "tsx scripts/eos/generate-dashboard.ts",
+                    "eos:start":  "tsx scripts/eos/start-execution.ts",
+                    "eos:record":  "powershell -ExecutionPolicy Bypass -File scripts/eos/record-evidence.ps1"
+                },
+    "devDependencies":  {
+                            "cross-env":  "^10.1.0",
+                            "tsx":  "^4.7.1",
+                            "turbo":  "latest",
+                            "vitest":  "^4.1.9"
+                        },
+    "prisma":  {
+                   "seed":  "tsx packages/database/prisma/seed.ts"
+               }
 }

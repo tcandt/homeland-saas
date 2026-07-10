@@ -18,6 +18,7 @@ interface Props {
   onCreateInvoice: (roomId: string) => void;
   onViewContract: (roomId: string) => void;
   onUploadRoomImages: (roomId: string) => void;
+  onEditFloor: (floorId: string) => void;
   onDeleteFloor: (floorId: string) => void;
 }
 
@@ -33,6 +34,7 @@ export default function FloorView({
   onCreateInvoice,
   onViewContract,
   onUploadRoomImages,
+  onEditFloor,
   onDeleteFloor
 }: Props) {
   const floor = building.floors.find(f => f.id === floorId);
@@ -67,6 +69,13 @@ export default function FloorView({
           {floor.notes && <span className="text-[12px] text-muted mt-0.5">{floor.notes}</span>}
         </div>
         <div className="flex items-center gap-3">
+          <Button 
+            variant="outline"
+            onClick={() => onEditFloor(floor.id)}
+            className="border-border hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            <Edit2 size={14} className="mr-1.5" /> Chỉnh sửa tầng
+          </Button>
           <Button 
             variant="outline"
             onClick={() => onDeleteFloor(floor.id)}

@@ -121,6 +121,7 @@ export default function BuildingDetailPanel({
             onCreateInvoice={onCreateInvoice}
             onViewContract={onViewContract}
             onUploadRoomImages={onUploadRoomImages}
+            onEditFloor={onEditFloor}
             onDeleteFloor={onDeleteFloor}
           />
         )}

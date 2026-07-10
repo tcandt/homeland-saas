@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Res, StreamableFile, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Res, StreamableFile, Req, UseGuards, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentsService } from './documents.service';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -83,5 +84,31 @@ export class DocumentsController {
   async getVersions(@Req() req: any, @Param('id') id: string) {
     const doc = await this.documentsService.findOne(this.getTenantId(req), id);
     return doc.versions;
+  }
+
+  @Post('upload')
+  @RequirePermissions('document.create')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadFile(
+    @Req() req: any,
+    @UploadedFile() file: any,
+    @Body() body: any,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const tenantId = this.getTenantId(req);
+    const fileName = file.originalname;
+    const folder = body.folder || 'uploads';
+    const storageResult = await this.documentsService.saveFile(
+      tenantId,
+      folder,
+      fileName,
+      file.buffer,
+      file.mimetype,
+    );
+    return {
+      url: storageResult.url,
+      size: storageResult.size,
+      mimeType: storageResult.mimeType,
+    };
   }
 }

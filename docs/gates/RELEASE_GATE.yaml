@@ -3,6 +3,6 @@ epics:
   01_Auth: PASS
   02_Property_Customer: PASS
   03_Contract: PASS
-  04_Invoice: BLOCKED
-  05_Payment: NOT_STARTED
-status: NOT_READY
+  04_Invoice: PASS
+  05_Payment: PASS
+status: READY

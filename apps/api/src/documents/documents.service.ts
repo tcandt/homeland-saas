@@ -258,4 +258,8 @@ export class DocumentsService {
 
     return { success: true };
   }
+
+  async saveFile(tenantId: string, folder: string, fileName: string, buffer: Buffer, mimeType: string) {
+    return this.storageProvider.save(tenantId, folder, fileName, buffer, mimeType);
+  }
 }

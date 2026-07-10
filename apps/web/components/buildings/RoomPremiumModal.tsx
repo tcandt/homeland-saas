@@ -278,10 +278,204 @@ export default function RoomPremiumModal({ roomId, buildings, onClose, onUpdateR
               </div>
             )}
 
-            {/* Empty States for other tabs */}
-            {["finances", "contract", "temp_residence", "images", "notes"].includes(activeTab) && (
-              <div className="flex flex-col gap-4 animate-in">
-                <span className="text-[12px] font-bold text-muted italic">Màn hình {tabs.find(t => t.id === activeTab)?.label} đang cập nhật...</span>
+            {/* Finances Tab */}
+            {activeTab === "finances" && (
+              <div className="flex flex-col gap-6 animate-in w-full box-border max-w-[750px]">
+                <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                  <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2">
+                    <CreditCard size={14} /> Danh sách hóa đơn
+                  </h4>
+                  <Button size="sm" onClick={() => showToast("Chức năng tạo hóa đơn thủ công đang được xử lý.", "info")}>
+                    <Plus size={12} className="mr-1" /> Tạo hóa đơn
+                  </Button>
+                </div>
+                
+                <div className="border border-border/60 rounded-xl overflow-hidden bg-card">
+                  <table className="w-full text-left border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-black/5 dark:bg-white/5 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
+                        <th className="p-3">Mã HĐ</th>
+                        <th className="p-3">Số tiền</th>
+                        <th className="p-3">Hạn thanh toán</th>
+                        <th className="p-3 text-right">Trạng thái</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roomData.invoices && roomData.invoices.length > 0 ? (
+                        roomData.invoices.map(inv => (
+                          <tr key={inv.id} className="border-b border-border/40 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                            <td className="p-3 font-bold">{inv.code}</td>
+                            <td className="p-3 font-black">{inv.amount.toLocaleString()} đ</td>
+                            <td className="p-3 text-muted">{new Date(inv.dueDate).toLocaleDateString("vi-VN")}</td>
+                            <td className="p-3 text-right">
+                              <span className={`px-2 py-0.5 rounded-[6px] text-[11px] font-bold uppercase ${inv.status === "paid" ? "bg-emerald-500/10 text-emerald-500" : "bg-rose-500/10 text-rose-500"}`}>
+                                {inv.status === "paid" ? "Đã trả" : "Chưa trả"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={4} className="p-4 text-center text-muted italic">Chưa có hóa đơn nào</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2">
+                    Lịch sử thanh toán
+                  </h4>
+                  <div className="border border-border/60 rounded-xl overflow-hidden bg-card">
+                    <table className="w-full text-left border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-black/5 dark:bg-white/5 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
+                          <th className="p-3">Tháng</th>
+                          <th className="p-3">Số tiền</th>
+                          <th className="p-3">Ngày thanh toán</th>
+                          <th className="p-3 text-right">Hình thức</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {roomData.paymentHistory && roomData.paymentHistory.length > 0 ? (
+                          roomData.paymentHistory.map(pay => (
+                            <tr key={pay.id} className="border-b border-border/40 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                              <td className="p-3 font-bold">{pay.month}</td>
+                              <td className="p-3 font-black">{pay.amount.toLocaleString()} đ</td>
+                              <td className="p-3 text-muted">{new Date(pay.date).toLocaleDateString("vi-VN")}</td>
+                              <td className="p-3 text-right text-muted">{pay.method}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={4} className="p-4 text-center text-muted italic">Chưa có lịch sử thanh toán</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Contract Tab */}
+            {activeTab === "contract" && (
+              <div className="flex flex-col gap-6 animate-in w-full box-border max-w-[750px]">
+                <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2 border-b border-border/40 pb-2">
+                  <FileText size={14} /> Thông tin hợp đồng thuê
+                </h4>
+                {roomData.contract ? (
+                  <div className="flex flex-col gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="border border-border/60 rounded-xl p-4 bg-card">
+                        <label className="text-[10px] font-black text-muted uppercase">Mã hợp đồng</label>
+                        <p className="text-sm font-bold text-text mt-1">{roomData.contract.code}</p>
+                      </div>
+                      <div className="border border-border/60 rounded-xl p-4 bg-card">
+                        <label className="text-[10px] font-black text-muted uppercase">Tiền đặt cọc</label>
+                        <p className="text-sm font-black text-text mt-1">{roomData.contract.deposit.toLocaleString()} đ</p>
+                      </div>
+                      <div className="border border-border/60 rounded-xl p-4 bg-card">
+                        <label className="text-[10px] font-black text-muted uppercase">Ngày bắt đầu</label>
+                        <p className="text-sm font-bold text-text mt-1">{new Date(roomData.contract.startDate).toLocaleDateString("vi-VN")}</p>
+                      </div>
+                      <div className="border border-border/60 rounded-xl p-4 bg-card">
+                        <label className="text-[10px] font-black text-muted uppercase">Ngày kết thúc</label>
+                        <p className="text-sm font-bold text-text mt-1">{new Date(roomData.contract.endDate).toLocaleDateString("vi-VN")}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 mt-2">
+                      <Button variant="outline" className="flex-1" onClick={() => showToast("Đang tải tệp PDF...", "info")}>
+                        <Paperclip size={14} className="mr-1.5" /> Xem PDF
+                      </Button>
+                      <Button variant="outline" className="flex-1 text-amber-500 border-amber-500/20 hover:bg-amber-500/10" onClick={() => showToast("Yêu cầu hết hạn hợp đồng đã gửi.", "info")}>
+                        Hết hạn hợp đồng
+                      </Button>
+                      <Button variant="outline" className="flex-1 text-danger border-danger/20 hover:bg-danger/10" onClick={() => showToast("Yêu cầu chấm dứt hợp đồng đã gửi.", "info")}>
+                        Chấm dứt hợp đồng
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-8 text-center border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center">
+                    <FileText size={32} className="text-muted opacity-40 mb-2" />
+                    <span className="text-sm font-bold text-muted">Phòng này hiện chưa có hợp đồng</span>
+                    <Button size="sm" className="mt-4" onClick={() => showToast("Mở biểu mẫu tạo hợp đồng mới.", "info")}>
+                      <Plus size={12} className="mr-1" /> Tạo hợp đồng ngay
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Temporary Residence Tab */}
+            {activeTab === "temp_residence" && (
+              <div className="flex flex-col gap-6 animate-in w-full box-border max-w-[750px]">
+                <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2 border-b border-border/40 pb-2">
+                  <ShieldAlert size={14} /> Tình trạng khai báo tạm trú
+                </h4>
+                <div className="border border-border/60 rounded-xl p-5 bg-card flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-text">Khai báo tạm trú (Công an sở tại)</span>
+                    <span className="text-xs text-muted mt-0.5">Quy định bắt buộc đối với khách thuê lưu trú qua đêm</span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      if (roomData.tenant) {
+                        handleTenantChange("tempResidence", !roomData.tenant.tempResidence);
+                        showToast("Cập nhật trạng thái tạm trú thành công!", "success");
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${roomData.tenant?.tempResidence ? "bg-emerald-500/10 text-emerald-500" : "bg-rose-500/10 text-rose-500"}`}
+                  >
+                    {roomData.tenant?.tempResidence ? "Đã khai báo" : "Chưa khai báo"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Images Tab */}
+            {activeTab === "images" && (
+              <div className="flex flex-col gap-6 animate-in w-full box-border max-w-[750px]">
+                <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2 border-b border-border/40 pb-2">
+                  <ImageIcon size={14} /> Hình ảnh căn hộ và CCCD khách thuê
+                </h4>
+                
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {roomData.images && roomData.images.length > 0 ? (
+                    roomData.images.map((img, idx) => (
+                      <div key={idx} className="relative aspect-video rounded-xl overflow-hidden border border-border/60 bg-muted group">
+                        <img src={img} alt={`Room image ${idx}`} className="w-full h-full object-cover" />
+                        <button className="absolute top-2 right-2 w-[24px] h-[24px] bg-black/60 hover:bg-rose-500/90 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-full p-8 text-center text-muted italic">Chưa tải ảnh phòng lên</div>
+                  )}
+
+                  <div className="border-2 border-dashed border-border rounded-xl aspect-video flex flex-col items-center justify-center cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                    <Upload size={24} className="text-muted opacity-50 mb-1" />
+                    <span className="text-[11px] font-bold text-muted">Tải ảnh lên (Max 5MB)</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Notes Tab */}
+            {activeTab === "notes" && (
+              <div className="flex flex-col gap-6 animate-in w-full box-border max-w-[750px]">
+                <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2 border-b border-border/40 pb-2">
+                  <AlignLeft size={14} /> Ghi chú nội bộ
+                </h4>
+                <textarea 
+                  value={roomData.notes || ""} 
+                  onChange={(e) => handleFieldChange("notes", e.target.value)}
+                  placeholder="Nhập các ghi chú quan trọng về khách thuê hoặc phòng..." 
+                  className="flex min-h-[150px] w-full rounded-xl border border-border bg-transparent px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 resize-none"
+                />
               </div>
             )}
 

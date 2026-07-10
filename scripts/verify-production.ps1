@@ -10,11 +10,41 @@ function Kill-Port {
     $conns = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
     if ($conns) {
         foreach ($conn in $conns) {
-            Write-Host "Killing process $($conn.OwningProcess) on port $Port"
-            Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+            $pidToKill = $conn.OwningProcess
+            if ($pidToKill -eq 0 -or $pidToKill -eq 4) { continue } # System Idle or System
+
+            try {
+                $proc = Get-Process -Id $pidToKill -ErrorAction Stop
+                $procName = $proc.ProcessName.ToLower()
+                $protectedProcs = @("com.docker.backend", "docker desktop", "wslhost", "vmmem", "svchost", "system", "wsl")
+                
+                $isProtected = $false
+                foreach ($protected in $protectedProcs) {
+                    if ($procName -like "*$protected*") {
+                        $isProtected = $true
+                        break
+                    }
+                }
+
+                if ($isProtected) {
+                    Write-Host "Skipping protected process $($proc.ProcessName) (PID: $pidToKill) on port $Port" -ForegroundColor Yellow
+                } else {
+                    Write-Host "Killing process $($proc.ProcessName) (PID: $pidToKill) on port $Port"
+                    Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue
+                }
+            } catch {
+                Write-Host "Could not identify or kill PID $pidToKill" -ForegroundColor Yellow
+            }
         }
         Start-Sleep -Seconds 2
     }
+}
+
+Write-Host "0. Running Infrastructure Gates..." -ForegroundColor Cyan
+powershell -ExecutionPolicy Bypass -File scripts/infra/run-all.ps1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "INFRASTRUCTURE BLOCKED. Cannot proceed with verify:prod." -ForegroundColor Red
+    exit 1
 }
 
 Write-Host "1. Stopping ports 3000, 3001..."

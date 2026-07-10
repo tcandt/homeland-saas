@@ -15,7 +15,7 @@ export function captureSupplyChainAndRuntime(): any {
     
     const resolveBin = (cmd: string) => {
         try {
-            return child_process.execSync(\where \\, { encoding: 'utf8' }).split('\n')[0].trim();
+            return child_process.execSync(`where ${cmd}`, { encoding: 'utf8' }).split('\n')[0].trim();
         } catch {
             return null;
         }
@@ -23,13 +23,13 @@ export function captureSupplyChainAndRuntime(): any {
     
     const getVersion = (cmd: string) => {
         try {
-            return child_process.execSync(\\ --version\, { encoding: 'utf8' }).trim();
+            return child_process.execSync(`${cmd} --version`, { encoding: 'utf8' }).trim();
         } catch {
             return null;
         }
     };
 
-    const tools = ['node', 'npm', 'npx', 'git', 'powershell'];
+    const tools = ['node', 'npm', 'git', 'powershell'];
     const supplyChain: any = {};
     for (const t of tools) {
         const p = resolveBin(t);
@@ -48,7 +48,7 @@ export function captureSupplyChainAndRuntime(): any {
     
     const eosTools = [
         'event-logger.ts', 'generate-attestation.ts', 'generate-gate.ts', 'generate-receipt.ts',
-        'policy-engine.ts', 'test-evidence-protection.ts', 'validate-evidence.ts',
+        'policy-engine.ts', 'test-planner.ts', 'validate-evidence.ts',
         'verify-attestation.ts', 'verify-event-log.ts', 'verify-pipeline.ts', 'provenance-capture.ts'
     ];
     

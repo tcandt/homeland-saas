@@ -1,19 +1,13 @@
-# EOS v3 Evidence Trust Model
+# EOS v3.5 Evidence Trust Model
 
-**Status**: VERIFIED (20/20 Test Cases Pass)
-## Core Principle
-Evidence is valid only if it originates directly from execution logs bound to a unique, cryptographically identifiable Execution ID. A timestamp alone is not proof of origin.
+**Status**: IMPLEMENTING
 
-## Trust Requirements
-
-1. **Origin Authority**: Evidence must be created by ecord-evidence.ps1.
-2. **Execution Binding**: Evidence must belong to an Execution ID generated before command execution.
-3. **Metadata Integrity**: Evidence metadata manifest must exactly match its raw output files.
-4. **Cryptographic Proof**: Evidence SHA256 hashes must match the recorded manifest.
-5. **Command Whitelist**: The executed command must be allowed for the requested stage.
-6. **Exit Code Validation**: The exit code must be zero (or match specific stage requirements).
-7. **Semantic Validation**: Stage-specific output markers (e.g., "Verification PASSED.") must be present in stdout, and failure markers must be absent.
-8. **Immutability**: Files must not be altered after generation.
-9. **Execution Context**: Evidence must belong to the current verification run.
-10. **Quarantine**: Legacy/untrusted evidence is permanently ineligible.
-
+## Core Principles
+1. **Cryptographic Signatures**: Evidence must be cryptographically signed by a trusted anchor (Ed25519/HMAC). SHA256 alone is insufficient as it proves integrity but not origin.
+2. **Trust Profiles**: Two explicit profiles:
+   - LOCAL_DEVELOPMENT: Machine-local evidence. Max gate status: LOCAL_VERIFIED.
+   - CI_TRUSTED: Uses external trust anchor (e.g. GitHub Actions OIDC + Sigstore). Required for PRODUCTION_VERIFIED.
+3. **Immutable Storage**: Artifacts are stored in .eos/runs/ which is .gitignored and append-only.
+4. **Receipt Chaining**: Receipts must link to the previousReceiptHash forming a continuous verifiable chain anchored externally.
+5. **SLSA Provenance**: Complete provenance (OS, Node, lockfile SHA, package.json SHA, Prisma SHA) is recorded.
+6. **Tool & Policy Integrity**: Toolchain and policy hashes are pinned before execution and verified to prevent post-execution tampering.

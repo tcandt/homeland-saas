@@ -8,8 +8,9 @@ New-Item -ItemType Directory -Force -Path "docs/evidence/INFRASTRUCTURE" | Out-N
 $evidencePath = "docs/evidence/INFRASTRUCTURE/redis.txt"
 Set-Content -Path $evidencePath -Value ""
 
+$ErrorActionPreference = 'Continue'
 try {
-    $ping = docker exec homeland_redis redis-cli ping 2>&1
+    $ping = docker exec homeland_redis redis-cli ping 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $ping -notmatch "PONG") {
         Write-Host "Redis internal ping failed" -ForegroundColor Red
         Add-Content -Path $evidencePath -Value "INTERNAL_PING_FAIL"

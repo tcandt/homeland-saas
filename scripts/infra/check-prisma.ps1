@@ -8,13 +8,14 @@ New-Item -ItemType Directory -Force -Path "docs/evidence/INFRASTRUCTURE" | Out-N
 $statusPath = "docs/evidence/INFRASTRUCTURE/prisma-migrate-status.txt"
 Set-Content -Path $statusPath -Value ""
 
+$ErrorActionPreference = 'Continue'
 try {
     Write-Host "Generating Prisma Client..."
-    npm run db:generate
+    npm run db:generate 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "npm run db:generate failed" }
     
     Write-Host "Checking migrate status..."
-    $statusOutput = npx prisma migrate status --schema=packages/database/prisma/schema.prisma 2>&1
+    $statusOutput = npx prisma migrate status --schema=packages/database/prisma/schema.prisma 2>&1 | Out-String
     $statusExit = $LASTEXITCODE
     
     # Dump to evidence

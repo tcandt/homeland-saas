@@ -8,6 +8,7 @@ New-Item -ItemType Directory -Force -Path "docs/evidence/INFRASTRUCTURE" | Out-N
 $evidencePath = "docs/evidence/INFRASTRUCTURE/docker.txt"
 Set-Content -Path $evidencePath -Value ""
 
+$ErrorActionPreference = 'Continue'
 try {
     $info = docker info 2>&1
     if ($LASTEXITCODE -ne 0) { throw "docker info failed" }
@@ -18,7 +19,7 @@ try {
 }
 
 try {
-    $compose = docker compose ps 2>&1
+    $compose = docker compose ps 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "docker compose ps failed" }
     
     if ($compose -notmatch "homeland_postgres" -or $compose -notmatch "homeland_redis") {

@@ -1,6 +1,6 @@
 implementation: PASS
 sandbox_fail_fast: PASS
-host_docker: UNKNOWN
+host_docker: FAIL
 host_postgres_internal: UNKNOWN
 host_postgres_tcp: UNKNOWN
 host_redis: UNKNOWN

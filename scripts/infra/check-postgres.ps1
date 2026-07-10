@@ -12,9 +12,10 @@ Set-Content -Path $hostEvidence -Value ""
 
 $internalReady = $false
 
+$ErrorActionPreference = 'Continue'
 # 1. Internal Readiness
 try {
-    $pgReady = docker exec homeland_postgres pg_isready -U homeland -d homeland 2>&1
+    $pgReady = docker exec homeland_postgres pg_isready -U homeland -d homeland 2>&1 | Out-String
     if ($LASTEXITCODE -eq 0 -and $pgReady -match "accepting connections") {
         Write-Host "Internal PostgreSQL: READY"
         Add-Content -Path $internalEvidence -Value "INTERNAL_READY"
@@ -36,10 +37,10 @@ try {
 
 # 2. Host Port Check
 try {
-    $dockerPort = docker compose port postgres 5432 2>&1
+    $dockerPort = docker compose port postgres 5432 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "docker compose port failed" }
     
-    $inspect = docker inspect homeland_postgres --format '{{json .NetworkSettings.Ports}}' 2>&1
+    $inspect = docker inspect homeland_postgres --format '{{json .NetworkSettings.Ports}}' 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "docker inspect failed" }
     
     $tcp = Test-NetConnection 127.0.0.1 -Port 5433 -WarningAction SilentlyContinue

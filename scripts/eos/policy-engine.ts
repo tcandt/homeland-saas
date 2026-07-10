@@ -6,7 +6,7 @@ import * as yaml from 'yaml';
 export function evaluatePolicy(executionId: string, epicId: string): any {
     const runDir = path.resolve(__dirname, '../../.eos/runs', executionId);
     const receiptPath = path.join(runDir, 'receipt.json');
-    const policyPath = path.resolve(__dirname, '../../docs/gates/policies', \EPIC_\_POLICY.yaml\);
+    const policyPath = path.resolve(__dirname, '../../docs/gates/policies', `EPIC_${epicId}_POLICY.yaml`);
     const gatesDir = path.resolve(__dirname, '../../docs/gates');
     
     if (!fs.existsSync(receiptPath)) {
@@ -25,7 +25,7 @@ export function evaluatePolicy(executionId: string, epicId: string): any {
     const checkCycle = (currEpic: string, visited: Set<string>): boolean => {
         if (visited.has(currEpic)) return true;
         visited.add(currEpic);
-        const currPolicyPath = path.resolve(__dirname, '../../docs/gates/policies', \EPIC_\ + currEpic + \_POLICY.yaml\);
+        const currPolicyPath = path.resolve(__dirname, '../../docs/gates/policies', `EPIC_` + currEpic + `_POLICY.yaml`);
         if (!fs.existsSync(currPolicyPath)) return false;
         const currPol = yaml.parse(fs.readFileSync(currPolicyPath, 'utf8'));
         if (currPol.requiresDependencies) {
@@ -46,7 +46,7 @@ export function evaluatePolicy(executionId: string, epicId: string): any {
                 reasons.push('DEPENDENCY_SELF_REFERENCE');
                 continue;
             }
-            const depGatePath = path.join(gatesDir, \EPIC_\_GATE.yaml\);
+            const depGatePath = path.join(gatesDir, `EPIC_${dep}_GATE.yaml`);
             if (!fs.existsSync(depGatePath)) {
                 reasons.push('DEPENDENCY_UNKNOWN');
                 continue;
@@ -60,13 +60,13 @@ export function evaluatePolicy(executionId: string, epicId: string): any {
 
     if (policy.requiresStages) {
         for (const stage of policy.requiresStages) {
-            if (!receipt.attestation.stageResults[stage]) {
-                reasons.push(\MISSING_STAGE_\\);
+            if (!receipt.stageDetails[stage]) {
+                reasons.push(`MISSING_STAGE_${stage}`);
             }
         }
     }
 
-    if (policy.trustProfile && receipt.attestation.trustProfile !== policy.trustProfile) {
+    if (policy.trustProfile && receipt.trustProfile !== policy.trustProfile) {
         reasons.push('TRUST_PROFILE_MISMATCH');
     }
 
@@ -77,10 +77,10 @@ export function evaluatePolicy(executionId: string, epicId: string): any {
         finalStatus = 'BLOCKED_BY_DEPENDENCY';
     } else if (reasons.length === 0) {
         decision = 'PASS';
-        if (receipt.attestation.trustProfile === 'LOCAL_DEVELOPMENT') {
+        if (receipt.trustProfile === 'LOCAL_DEVELOPMENT') {
             finalStatus = 'LOCAL_VERIFIED';
-        } else if (receipt.attestation.trustProfile === 'CI_TRUSTED') {
-            finalStatus = 'PRODUCTION_VERIFIED'; // Or RELEASE_READY based on allowedStatuses
+        } else if (receipt.trustProfile === 'CI_TRUSTED') {
+            finalStatus = 'PRODUCTION_VERIFIED';
         }
     }
 
@@ -114,4 +114,3 @@ if (require.main === module) {
     console.log("Policy Evaluation Decision:", res.decision, "Status:", res.status);
     if (res.decision !== 'PASS') process.exit(1);
 }
-

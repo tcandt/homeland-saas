@@ -9,6 +9,7 @@ import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
+import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 
 interface Props {
   roomId: string;
@@ -25,6 +26,9 @@ export default function RoomPremiumModal({ roomId, buildings, onClose, onUpdateR
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab as TabKey);
   const [isTenantModalOpen, setIsTenantModalOpen] = useState(false);
   const { showToast } = useToast();
+
+  const { data: invoicesResponse } = useInvoicesQuery({ roomId });
+  const realInvoices = (invoicesResponse as any)?.data?.items || [];
 
   let currentRoom: Room | null = null;
   for (const b of buildings) {
@@ -301,15 +305,15 @@ export default function RoomPremiumModal({ roomId, buildings, onClose, onUpdateR
                       </tr>
                     </thead>
                     <tbody>
-                      {roomData.invoices && roomData.invoices.length > 0 ? (
-                        roomData.invoices.map(inv => (
+                      {realInvoices && realInvoices.length > 0 ? (
+                        realInvoices.map((inv: any) => (
                           <tr key={inv.id} className="border-b border-border/40 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                             <td className="p-3 font-bold">{inv.code}</td>
-                            <td className="p-3 font-black">{inv.amount.toLocaleString()} đ</td>
+                            <td className="p-3 font-black">{(inv.total || inv.amount || 0).toLocaleString()} đ</td>
                             <td className="p-3 text-muted">{new Date(inv.dueDate).toLocaleDateString("vi-VN")}</td>
                             <td className="p-3 text-right">
-                              <span className={`px-2 py-0.5 rounded-[6px] text-[11px] font-bold uppercase ${inv.status === "paid" ? "bg-emerald-500/10 text-emerald-500" : "bg-rose-500/10 text-rose-500"}`}>
-                                {inv.status === "paid" ? "Đã trả" : "Chưa trả"}
+                              <span className={`px-2 py-0.5 rounded-[6px] text-[11px] font-bold uppercase ${['PAID', 'paid'].includes(inv.status) ? "bg-emerald-500/10 text-emerald-500" : "bg-rose-500/10 text-rose-500"}`}>
+                                {['PAID', 'paid'].includes(inv.status) ? "Đã trả" : "Chưa trả"}
                               </span>
                             </td>
                           </tr>

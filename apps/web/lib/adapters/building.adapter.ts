@@ -39,6 +39,26 @@ export const adaptRoom = (apiRoom: any): Room => {
   else if (apiRoom.status === "RESERVED") uiStatus = "deposited";
   else if (apiRoom.status === "AVAILABLE") uiStatus = "vacant";
 
+  const activeContract = apiRoom.contracts && apiRoom.contracts.length > 0 ? apiRoom.contracts[0] : null;
+  const tenant = activeContract && activeContract.customer ? {
+    id: activeContract.customer.id,
+    name: activeContract.customer.fullName,
+    phone: activeContract.customer.phone,
+    email: "",
+    cccd: "",
+    idImages: [],
+    tempResidence: false
+  } : undefined;
+
+  const contract = activeContract ? {
+    id: activeContract.id,
+    code: activeContract.code,
+    startDate: activeContract.startDate,
+    endDate: activeContract.endDate,
+    deposit: Number(activeContract.depositMoney) || 0,
+    rentPrice: Number(activeContract.monthlyRent) || 0
+  } : undefined;
+
   return {
     id: apiRoom.id,
     name: apiRoom.name || apiRoom.code,
@@ -56,9 +76,9 @@ export const adaptRoom = (apiRoom: any): Room => {
       "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&h=450&fit=crop"
     ],
     notes: apiRoom.notes,
-    tenant: apiRoom.tenant,
+    tenant,
     roommates: [],
-    contract: apiRoom.contract,
+    contract,
     invoices: [],
     paymentHistory: [],
     debt: 0,

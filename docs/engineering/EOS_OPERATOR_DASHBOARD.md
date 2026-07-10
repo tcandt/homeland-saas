@@ -5,7 +5,7 @@
 
 | Epic | Status | Decision | Evaluated At |
 |---|---|---|---|
-| 04_INVOICE | VERIFICATION_BLOCKED | - | - |
+| 04_INVOICE | LOCAL_VERIFIED | PASS | 2026-07-10T10:04:27.253Z |
 | 11_INFRA | VERIFIED | - | - |
 | EOS_SELF_TEST_INVOICE | LOCAL_VERIFIED | PASS | 2026-07-10T09:59:48.549Z |
 | RELEASE | NOT_READY | - | - |

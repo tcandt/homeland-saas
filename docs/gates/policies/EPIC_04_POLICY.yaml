@@ -1,0 +1,11 @@
+epic: 04_INVOICE
+mandatoryStages:
+  - backend_build
+  - frontend_build
+  - unit_test
+  - integration_test
+  - verify_prod
+productionRules:
+  requireCleanSourceTree: true
+  maxEvidenceAgeMinutes: 60
+  requireInfrastructureHealthy: true

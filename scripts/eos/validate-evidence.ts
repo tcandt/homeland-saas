@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { execSync } from 'child_process';
 import minimist from 'minimist';
 
 const args = minimist(process.argv.slice(2));
@@ -31,6 +32,24 @@ if (manifest.epicId !== epicInput) {
     process.exit(1);
 }
 
+// Git commit binding check
+let sourceChanged = false;
+try {
+    const currentSha = execSync('git rev-parse HEAD').toString().trim();
+    if (currentSha !== manifest.repositoryCommitSha) {
+        // Only allow changes in docs/evidence/**, docs/gates/**, or generated receipts/dashboards
+        const diff = execSync(`git diff --name-only ${manifest.repositoryCommitSha} HEAD`).toString().split('\n').map(s => s.trim()).filter(s => s);
+        for (const file of diff) {
+            if (file.startsWith('apps/') || file.startsWith('packages/') || file.startsWith('scripts/') || file.startsWith('prisma/') || file.includes('package.json') || file.includes('lock')) {
+                sourceChanged = true;
+                break;
+            }
+        }
+    }
+} catch (e) {
+    console.error("Warning: Git diff check failed.");
+}
+
 const getHash = (filePath: string) => {
     if (!fs.existsSync(filePath)) return '';
     return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -39,7 +58,8 @@ const getHash = (filePath: string) => {
 const stages = ['verify_prod', 'backend_build', 'frontend_build', 'unit_test', 'integration_test'];
 const results: Record<string, any> = {};
 
-let overallValid = true;
+let overallAuthenticity = sourceChanged ? 'INVALID' : 'VALID';
+let sourceChangeReason = sourceChanged ? 'RUN_SOURCE_CHANGED' : null;
 
 for (const stage of stages) {
     const subdirs = fs.readdirSync(runDir, { withFileTypes: true })
@@ -48,21 +68,33 @@ for (const stage of stages) {
         .sort((a, b) => b.localeCompare(a)); 
 
     if (subdirs.length === 0) {
-        results[stage] = { valid: false, reason: "MISSING" };
-        if (stage === 'verify_prod') { overallValid = false; }
+        results[stage] = { authenticity: "INVALID", stageResult: "BLOCKED", reason: "MISSING" };
         continue;
     }
 
     const latestDir = path.join(runDir, subdirs[0]);
     const evidenceJsonPath = path.join(latestDir, 'evidence.json');
     if (!fs.existsSync(evidenceJsonPath)) {
-        results[stage] = { valid: false, reason: "EVIDENCE_JSON_MISSING" };
-        overallValid = false;
+        results[stage] = { authenticity: "INVALID", stageResult: "BLOCKED", reason: "EVIDENCE_JSON_MISSING" };
+        overallAuthenticity = "INVALID";
         continue;
     }
 
-    const evidence = JSON.parse(fs.readFileSync(evidenceJsonPath, 'utf-8'));
-    
+    let evidence;
+    try {
+        evidence = JSON.parse(fs.readFileSync(evidenceJsonPath, 'utf-8'));
+    } catch {
+        results[stage] = { authenticity: "INVALID", stageResult: "BLOCKED", reason: "EVIDENCE_JSON_CORRUPT" };
+        overallAuthenticity = "INVALID";
+        continue;
+    }
+
+    if (evidence.executionId !== manifest.executionId) {
+        results[stage] = { authenticity: "INVALID", stageResult: "BLOCKED", reason: "EXECUTION_ID_MISMATCH" };
+        overallAuthenticity = "INVALID";
+        continue;
+    }
+
     const stdoutPath = path.join(latestDir, 'stdout.log');
     const stderrPath = path.join(latestDir, 'stderr.log');
     
@@ -70,69 +102,86 @@ for (const stage of stages) {
     const actualStderrHash = getHash(stderrPath);
     
     if (actualStdoutHash !== evidence.stdoutSha256) {
-        results[stage] = { valid: false, reason: "STDOUT_HASH_MISMATCH" };
-        overallValid = false;
+        results[stage] = { authenticity: "INVALID", stageResult: "UNKNOWN", reason: "STDOUT_HASH_MISMATCH" };
+        overallAuthenticity = "INVALID";
         continue;
     }
     if (actualStderrHash !== evidence.stderrSha256) {
-        results[stage] = { valid: false, reason: "STDERR_HASH_MISMATCH" };
-        overallValid = false;
+        results[stage] = { authenticity: "INVALID", stageResult: "UNKNOWN", reason: "STDERR_HASH_MISMATCH" };
+        overallAuthenticity = "INVALID";
         continue;
     }
+
+    // Authenticity checks passed!
+    let authenticity = "VALID";
+    let reason = null;
 
     const finishedAt = new Date(evidence.finishedAtUtc).getTime();
     const now = Date.now();
-    if (now - finishedAt > 60 * 60 * 1000) {
-        results[stage] = { valid: false, reason: "EVIDENCE_STALE" };
-        overallValid = false;
+    const maxEvidenceAgeMinutes = 60; // We can extract this from policy later if needed
+    if (now - finishedAt > maxEvidenceAgeMinutes * 60 * 1000) {
+        results[stage] = { authenticity: "INVALID", stageResult: "BLOCKED", reason: "EVIDENCE_STALE" };
+        overallAuthenticity = "INVALID";
         continue;
     }
 
+    let stageResult = evidence.exitCode === 0 ? "PASS" : "FAIL";
+    if (stageResult === "FAIL") reason = "NON_ZERO_EXIT";
+
     if (stage === 'verify_prod') {
-        const stdoutStr = fs.readFileSync(stdoutPath, 'utf-8');
-        if (!stdoutStr.includes('Verification PASSED.')) {
-            results[stage] = { valid: false, reason: "MISSING_PASS_MARKER" };
-            overallValid = false;
-            continue;
-        }
-        
-        const failMarkers = ["Verification FAILED", "P1001", "Timeout waiting", "Lifecycle script", "Process completed with exit code 1"];
-        let hasFailMarker = false;
-        const passIndex = stdoutStr.indexOf('Verification PASSED.');
-        for (const m of failMarkers) {
-            const failIndex = stdoutStr.indexOf(m);
-            if (failIndex !== -1 && failIndex > passIndex) {
-                hasFailMarker = true;
-                break;
-            }
-        }
-        if (hasFailMarker) {
-            results[stage] = { valid: false, reason: "FAIL_MARKER_AFTER_PASS" };
-            overallValid = false;
-            continue;
+        if (!manifest.gitWorkingTreeClean) {
+            stageResult = "BLOCKED";
+            reason = "DIRTY_WORKING_TREE";
         }
 
-        if (evidence.exitCode !== 0) {
-            results[stage] = { valid: false, reason: "NON_ZERO_EXIT" };
-            overallValid = false;
-            continue;
+        const stdoutStr = fs.readFileSync(stdoutPath, 'utf-8');
+        if (!stdoutStr.includes('Verification PASSED.')) {
+            stageResult = "FAIL";
+            reason = "MISSING_PASS_MARKER";
+        } else {
+            const failMarkers = ["Verification FAILED", "P1001", "Timeout waiting", "Lifecycle script", "Process completed with exit code 1"];
+            let hasFailMarker = false;
+            const passIndex = stdoutStr.indexOf('Verification PASSED.');
+            for (const m of failMarkers) {
+                const failIndex = stdoutStr.indexOf(m);
+                if (failIndex !== -1 && failIndex > passIndex) {
+                    hasFailMarker = true;
+                    break;
+                }
+            }
+            if (hasFailMarker) {
+                stageResult = "FAIL";
+                reason = "FAIL_MARKER_AFTER_PASS";
+            }
         }
     }
 
     results[stage] = { 
-        valid: true, 
+        authenticity, 
+        stageResult,
+        reason,
         evidenceJson: evidence,
         path: latestDir 
     };
 }
 
-console.log(JSON.stringify({
+const validationResult = {
+    schemaVersion: "1.0",
     executionId,
     epicId: epicInput,
-    overallValid,
+    generatedAtUtc: new Date().toISOString(),
+    repositoryCommitSha: manifest.repositoryCommitSha,
+    toolVersion: "eos-v3",
+    overallAuthenticity,
+    sourceChangeReason,
     results
-}, null, 2));
+};
 
-if (!overallValid) {
+fs.writeFileSync(path.join(runDir, 'validation-result.json'), JSON.stringify(validationResult, null, 2));
+
+console.log(JSON.stringify(validationResult, null, 2));
+
+// Do not exit with 1 if authenticity is valid but stage failed! Only exit 1 if authenticity is INVALID.
+if (overallAuthenticity === "INVALID") {
     process.exit(1);
 }

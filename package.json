@@ -24,7 +24,9 @@
                     "eos:start":  "tsx scripts/eos/start-execution.ts",
                     "eos:record":  "powershell -ExecutionPolicy Bypass -File scripts/eos/record-evidence.ps1",
                     "eos:validate":  "tsx scripts/eos/validate-evidence.ts",
-                    "eos:receipt":  "tsx scripts/eos/generate-receipt.ts"
+                    "eos:receipt":  "tsx scripts/eos/generate-receipt.ts",
+                    "eos:test":  "tsx scripts/eos/test-evidence-protection.ts",
+                    "eos:gate":  "tsx scripts/eos/generate-gate.ts"
                 },
     "devDependencies":  {
                             "cross-env":  "^10.1.0",

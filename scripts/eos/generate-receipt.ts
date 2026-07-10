@@ -1,9 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { execSync } from 'child_process';
 import minimist from 'minimist';
-import * as yaml from 'yaml';
 
 const args = minimist(process.argv.slice(2));
 const executionId = args['execution-id'];
@@ -15,94 +13,73 @@ if (!executionId || !epicInput) {
 }
 epicInput = String(epicInput).padStart(2, '0');
 
-// Call validate-evidence.ts and capture its JSON output
-let validationOutputStr = '';
-try {
-    validationOutputStr = execSync(`npx tsx scripts/eos/validate-evidence.ts --execution-id=${executionId} --epic=${epicInput}`, {
-        cwd: path.resolve(__dirname, '../../')
-    }).toString();
-} catch (e: any) {
-    if (e.stdout) {
-        validationOutputStr = e.stdout.toString();
-    }
-}
+const runDir = path.resolve(__dirname, `../../docs/evidence/runs/${executionId}`);
+const validationResultPath = path.join(runDir, 'validation-result.json');
 
-let validationData;
-try {
-    validationData = JSON.parse(validationOutputStr);
-} catch (e) {
-    console.error("Failed to parse validation output:", validationOutputStr);
+if (!fs.existsSync(validationResultPath)) {
+    console.error("validation-result.json not found. Did you run eos:validate?");
     process.exit(1);
 }
 
-const epicDirName = epicInput + '_INVOICE'; // Hardcoded for epic 04 but should lookup
+const validationData = JSON.parse(fs.readFileSync(validationResultPath, 'utf-8'));
 
-let status = validationData.overallValid ? 'PASS' : 'VERIFICATION_BLOCKED';
-
-const getStatusStr = (stage: string) => {
-    const res = validationData.results[stage];
-    if (!res) return 'MISSING';
-    if (!res.valid) return 'FAIL';
-    return 'PASS';
-};
-
-const evidence = {
-    implementation: 'PASS', // Usually manually set, or we can assume PASS if execution proceeds
-    unit_test: getStatusStr('unit_test'),
-    integration_test: getStatusStr('integration_test'),
-    frontend_build: getStatusStr('frontend_build'),
-    backend_build: getStatusStr('backend_build'),
-    verify_prod: getStatusStr('verify_prod'),
-    infrastructure: 'PASS' // Derived from infra gates earlier, assumed PASS if verify_prod ran
-};
-
-if (!validationData.overallValid) {
-    status = 'VERIFICATION_BLOCKED';
+if (validationData.epicId !== epicInput) {
+    console.error(`Validation epic ${validationData.epicId} does not match ${epicInput}`);
+    process.exit(1);
 }
 
-const gateObj = {
-    epic: epicDirName,
-    ...evidence,
-    evidence: validationData.overallValid ? 'COMPLETE' : 'INVALID',
-    status: status
-};
-
-const gateYaml = yaml.stringify(gateObj);
-const gatePath = path.resolve(__dirname, `../../docs/gates/EPIC_${epicInput}_GATE.yaml`);
-fs.writeFileSync(gatePath, gateYaml);
-
-const hash = crypto.createHash('sha256').update(JSON.stringify(validationData)).digest('hex');
+const epicDirName = epicInput + '_INVOICE';
 
 let stageDetails = '';
+const evidenceHashes: Record<string, string> = {};
+
 for (const stage of Object.keys(validationData.results)) {
     const r = validationData.results[stage];
-    stageDetails += `\n[${stage.toUpperCase()}] Valid: ${r.valid}`;
-    if (!r.valid) {
-        stageDetails += ` (Reason: ${r.reason})`;
-    } else {
-        stageDetails += `\n  Log Path: ${r.path}\n  ExitCode: ${r.evidenceJson.exitCode}\n  Stdout SHA256: ${r.evidenceJson.stdoutSha256}`;
+    stageDetails += `\n[${stage.toUpperCase()}]\n  Authenticity: ${r.authenticity}\n  StageResult: ${r.stageResult}`;
+    if (r.reason) {
+        stageDetails += `\n  Reason: ${r.reason}`;
+    }
+    if (r.evidenceJson) {
+        evidenceHashes[stage] = crypto.createHash('sha256').update(JSON.stringify(r.evidenceJson)).digest('hex');
     }
 }
 
-const receipt = `=== EXECUTION RECEIPT ===
-Receipt ID: REC-${new Date().toISOString().replace(/\D/g,'').slice(0,14)}
+const receiptObj: any = {
+    schemaVersion: "1.0",
+    receiptId: `REC-${new Date().toISOString().replace(/\D/g,'').slice(0,14)}`,
+    executionId,
+    epicId: epicInput,
+    epicDirName,
+    generatedAtUtc: new Date().toISOString(),
+    repositoryCommitSha: validationData.repositoryCommitSha,
+    toolVersion: "eos-v3",
+    validationResult: validationData.overallAuthenticity,
+    sourceChangeReason: validationData.sourceChangeReason,
+    evidenceHashes,
+};
+
+// JSON stringify canonically (keys sorted if we really want to, but standard stringify is deterministic enough if we do it here and then hash)
+const payloadToHash = JSON.stringify(receiptObj);
+const hash = crypto.createHash('sha256').update(payloadToHash, 'utf8').digest('hex');
+
+receiptObj.receiptHash = hash;
+
+const receiptJsonPath = path.join(runDir, 'receipt.json');
+fs.writeFileSync(receiptJsonPath, JSON.stringify(receiptObj, null, 2));
+
+const mdContent = `=== EXECUTION RECEIPT ===
+Receipt ID: ${receiptObj.receiptId}
 Hash: SHA256:${hash}
 Epic: ${epicDirName}
 Execution ID: ${executionId}
-Implementation: ${gateObj.implementation}
-Backend Build: ${gateObj.backend_build}
-Frontend Build: ${gateObj.frontend_build}
-Unit Test: ${gateObj.unit_test}
-Integration: ${gateObj.integration_test}
-verify:prod: ${gateObj.verify_prod}
-Evidence: ${gateObj.evidence}
-Infrastructure: ${gateObj.infrastructure}
+Validation Result: ${validationData.overallAuthenticity}
 ---
 Stage Details: ${stageDetails}
----
-Final Status: ${gateObj.status}
-Epic Closed: ${gateObj.status === 'PASS' ? 'YES' : 'NO'}
-Next Action: ${gateObj.status === 'PASS' ? 'Proceed to next Epic' : 'Operator generates fresh trusted evidence'}
 =========================`;
 
-console.log(receipt);
+fs.writeFileSync(path.join(runDir, 'receipt.md'), mdContent);
+console.log(mdContent);
+
+if (validationData.overallAuthenticity === 'INVALID') {
+    process.exit(1);
+}

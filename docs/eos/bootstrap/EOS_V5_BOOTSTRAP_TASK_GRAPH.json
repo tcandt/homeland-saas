@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "5.0",
+  "graphId": "G-BOOTSTRAP-001",
+  "graphRevision": 1,
+  "supersedesGraphId": null,
+  "generatedAtUtc": "2026-07-10T16:38:00Z",
+  "generatedBy": "operator",
+  "targetEpic": "90",
+  "status": "ACTIVE",
+  "tasks": [
+    {
+      "taskId": "T1",
+      "title": "Define Task Graph schema",
+      "status": "VERIFIED",
+      "dependencies": [],
+      "allowedScope": ["schemas/eos/"],
+      "forbiddenScope": [],
+      "commitPolicy": "REQUIRED"
+    },
+    {
+      "taskId": "T2",
+      "title": "Implement Planner",
+      "status": "VERIFIED",
+      "dependencies": ["T1"],
+      "allowedScope": ["scripts/eos/planner.ts"],
+      "forbiddenScope": [],
+      "commitPolicy": "REQUIRED"
+    },
+    {
+      "taskId": "T3",
+      "title": "Implement Task Graph validator",
+      "status": "VERIFIED",
+      "dependencies": ["T2"],
+      "allowedScope": ["scripts/eos/validate-task-graph.ts"],
+      "forbiddenScope": [],
+      "commitPolicy": "REQUIRED"
+    },
+    {
+      "taskId": "T4",
+      "title": "Implement Task State Engine",
+      "status": "VERIFIED",
+      "dependencies": ["T3"],
+      "allowedScope": ["scripts/eos/task-state-engine.ts"],
+      "forbiddenScope": [],
+      "commitPolicy": "REQUIRED"
+    },
+    {
+      "taskId": "T5",
+      "title": "Test Planner and graph attacks",
+      "status": "VERIFIED",
+      "dependencies": ["T4"],
+      "allowedScope": ["scripts/eos/test-planner.ts"],
+      "forbiddenScope": [],
+      "commitPolicy": "REQUIRED"
+    },
+    {
+      "taskId": "T6",
+      "title": "Verify Planner through EOS Gate",
+      "status": "VERIFIED",
+      "dependencies": ["T5"],
+      "allowedScope": ["docs/testing/"],
+      "forbiddenScope": [],
+      "commitPolicy": "REQUIRED"
+    }
+  ]
+}

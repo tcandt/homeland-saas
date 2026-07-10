@@ -356,7 +356,7 @@ jobs:
       # Docker Build & Push for API
       - name: Build and Push API
         id: build-api
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.api
@@ -374,7 +374,7 @@ jobs:
       # Docker Build & Push for Web
       - name: Build and Push Web
         id: build-web
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.web

@@ -219,6 +219,11 @@ Release ≠ Epic Closed.
 If Infrastructure Blocked:
 Stop immediately. Generate RCA. Generate Resume Guide. Update Dashboard. Wait for operator. Do not continue.
 
+### Rule 100: AI Boundary Definition
+AI never determines project status. AI only produces evidence. 
+Gate Engine determines status. Generated Dashboard reports status. Operator approves release.
+The AI is explicitly forbidden from manually editing Gate YAMLs, the Business Verification Matrix, or the Operator Dashboard.
+
 ### Infrastructure FSM
 Defines the sequential flow for infrastructure and verification gates:
 `Docker → Postgres → Redis → Migration → Healthcheck → API → Web → verify:prod → Evidence → Epic Close`

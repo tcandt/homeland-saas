@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EOS Task Graph Schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "graphId": { "type": "string" },
+    "graphRevision": { "type": "integer" },
+    "supersedesGraphId": { "type": ["string", "null"] },
+    "generatedAtUtc": { "type": "string", "format": "date-time" },
+    "generatedBy": { "type": "string" },
+    "sourceGateHashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "sourcePolicyHashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "targetEpic": { "type": "string" },
+    "status": { "type": "string" },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "taskId": { "type": "string" },
+          "title": { "type": "string" },
+          "type": { "type": "string" },
+          "dependencies": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "allowedScope": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "forbiddenScope": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "requiredInputs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "requiredOutputs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "requiredCommands": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "requiredTests": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "exitCriteria": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "commitPolicy": { "type": "string", "enum": ["REQUIRED", "OPTIONAL", "FORBIDDEN"] },
+          "riskLevel": { "type": "string" },
+          "retryPolicy": { "type": "object" },
+          "stopConditions": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "READY", "RUNNING", "BLOCKED", "FAILED", "VERIFIED", "SKIPPED_BY_POLICY"]
+          }
+        },
+        "required": ["taskId", "title", "status", "dependencies", "allowedScope", "forbiddenScope", "commitPolicy"]
+      }
+    }
+  },
+  "required": ["schemaVersion", "graphId", "graphRevision", "targetEpic", "status", "tasks"]
+}

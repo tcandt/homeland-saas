@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Epic Policy Schema",
+  "type": "object",
+  "properties": {
+    "requiresStages": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "requiresDependencies": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "allowedStatuses": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "trustProfile": {
+      "type": "string"
+    },
+    "maxEvidenceAgeMinutes": {
+      "type": "number"
+    },
+    "requireCleanSourceTree": {
+      "type": "boolean"
+    },
+    "requireInfrastructureHealthy": {
+      "type": "boolean"
+    }
+  },
+  "required": ["requiresStages", "allowedStatuses"]
+}

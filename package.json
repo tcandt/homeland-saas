@@ -19,12 +19,12 @@
                     "api:dev":  "npm run dev --workspace=api",
                     "phase2:verify":  "npm run db:generate \u0026\u0026 npm run db:push \u0026\u0026 npm run db:seed \u0026\u0026 npm run db:check-seed",
                     "verify:prod":  "powershell -ExecutionPolicy Bypass -File scripts/verify-production.ps1",
-                    "eos:receipt":  "tsx scripts/eos/generate-receipt.ts",
                     "eos:matrix":  "tsx scripts/eos/generate-matrix.ts",
                     "eos:dashboard":  "tsx scripts/eos/generate-dashboard.ts",
                     "eos:start":  "tsx scripts/eos/start-execution.ts",
                     "eos:record":  "powershell -ExecutionPolicy Bypass -File scripts/eos/record-evidence.ps1",
-                    "eos:validate":  "tsx scripts/eos/validate-evidence.ts"
+                    "eos:validate":  "tsx scripts/eos/validate-evidence.ts",
+                    "eos:receipt":  "tsx scripts/eos/generate-receipt.ts"
                 },
     "devDependencies":  {
                             "cross-env":  "^10.1.0",

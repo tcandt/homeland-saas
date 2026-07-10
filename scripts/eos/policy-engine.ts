@@ -21,8 +21,26 @@ export function evaluatePolicy(executionId: string, epicId: string): any {
     const policy = yaml.parse(fs.readFileSync(policyPath, 'utf8'));
     const reasons: string[] = [];
 
+    // Check dependency cycle helper
+    const checkCycle = (currEpic: string, visited: Set<string>): boolean => {
+        if (visited.has(currEpic)) return true;
+        visited.add(currEpic);
+        const currPolicyPath = path.resolve(__dirname, '../../docs/gates/policies', \EPIC_\ + currEpic + \_POLICY.yaml\);
+        if (!fs.existsSync(currPolicyPath)) return false;
+        const currPol = yaml.parse(fs.readFileSync(currPolicyPath, 'utf8'));
+        if (currPol.requiresDependencies) {
+            for (const d of currPol.requiresDependencies) {
+                if (checkCycle(d, new Set(visited))) return true;
+            }
+        }
+        return false;
+    };
+
     // Phase 3: Dependency Graph
     if (policy.requiresDependencies) {
+        if (checkCycle(epicId, new Set())) {
+            reasons.push('DEPENDENCY_CYCLE_DETECTED');
+        }
         for (const dep of policy.requiresDependencies) {
             if (dep === epicId) {
                 reasons.push('DEPENDENCY_SELF_REFERENCE');
@@ -96,3 +114,4 @@ if (require.main === module) {
     console.log("Policy Evaluation Decision:", res.decision, "Status:", res.status);
     if (res.decision !== 'PASS') process.exit(1);
 }
+

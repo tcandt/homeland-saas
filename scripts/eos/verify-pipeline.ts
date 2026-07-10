@@ -4,72 +4,57 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import minimist from 'minimist';
 import * as yaml from 'yaml';
+import { EventLogger } from './event-logger';
+import { captureSupplyChainAndRuntime } from './provenance-capture';
 
 const args = minimist(process.argv.slice(2));
 const epicInput = String(args.epic || '04').padStart(2, '0');
 const profileInput = args.profile || 'LOCAL_DEVELOPMENT';
 
-// Ensure .eos/runs exists
+// Setup Execution ID and paths
 const runDirBase = path.resolve(__dirname, '../../.eos/runs');
 if (!fs.existsSync(runDirBase)) fs.mkdirSync(runDirBase, { recursive: true });
-
-// Setup Keys
-const keysDir = path.resolve(__dirname, '../../.eos/keys');
-if (!fs.existsSync(keysDir)) fs.mkdirSync(keysDir, { recursive: true });
-const privateKeyPath = path.join(keysDir, 'private.pem');
-const publicKeyPath = path.join(keysDir, 'public.pem');
-if (!fs.existsSync(privateKeyPath)) {
-    const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
-    fs.writeFileSync(privateKeyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }));
-    fs.writeFileSync(publicKeyPath, publicKey.export({ type: 'spki', format: 'pem' }));
-}
-const privateKey = crypto.createPrivateKey(fs.readFileSync(privateKeyPath));
-const publicKey = crypto.createPublicKey(fs.readFileSync(publicKeyPath)).export({type: 'spki', format: 'pem'}).toString();
 
 const executionId = `RUN-${new Date().toISOString().replace(/\D/g, '').slice(0,14)}`;
 const execPath = path.join(runDirBase, executionId);
 fs.mkdirSync(execPath);
 
-console.log(`Starting EOS v3.5 Pipeline for Epic ${epicInput}`);
+console.log(`Starting EOS v5 Pipeline for Epic ${epicInput}`);
 console.log(`Execution ID: ${executionId}`);
 console.log(`Profile: ${profileInput}`);
 
-// 1. Tool and Policy Hashing
-const getHash = (p: string) => fs.existsSync(p) ? crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex') : '';
-const policyPath = path.resolve(__dirname, `../../docs/gates/policies/EPIC_${epicInput}_POLICY.yaml`);
-const policyHash = getHash(policyPath);
-const orchestratorHash = getHash(__filename);
+// Initialize Event Logger
+const logger = new EventLogger(executionId);
+logger.append('PIPELINE_STARTED', { epicId: epicInput, trustProfile: profileInput });
 
-// 2. Provenance Gathering
-const gitSha = execSync('git rev-parse HEAD').toString().trim();
-const isDirty = execSync('git status --porcelain').toString().trim().length > 0;
-const packageJsonSha = getHash(path.resolve(__dirname, '../../package.json'));
-const lockfileSha = getHash(path.resolve(__dirname, '../../package-lock.json'));
-
+// Supply Chain & Provenance Capture
+const provenance = captureSupplyChainAndRuntime();
 const manifest = {
-    schemaVersion: "3.5",
+    schemaVersion: "5.0",
     executionId,
     epicId: epicInput,
     trustProfile: profileInput,
-    repositoryCommitSha: gitSha,
-    gitWorkingTreeClean: !isDirty,
-    packageJsonSha256: packageJsonSha,
-    lockfileSha256: lockfileSha,
-    nodeVersion: process.version,
-    osPlatform: process.platform,
-    policyHash,
-    orchestratorToolHash: orchestratorHash
+    provenance,
+    policyHash: crypto.createHash('sha256').update(fs.readFileSync(path.resolve(__dirname, `../../docs/gates/policies/EPIC_${epicInput}_POLICY.yaml`))).digest('hex'),
+    orchestratorToolHash: crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex')
 };
 fs.writeFileSync(path.join(execPath, 'execution-manifest.json'), JSON.stringify(manifest, null, 2));
+logger.append('MANIFEST_GENERATED', { manifestPath: 'execution-manifest.json' }, ['execution-manifest.json']);
 
-// 3. Validate Trust Policy
+// Keys
+const keysDir = path.resolve(__dirname, '../../.eos/keys');
+const privateKeyPath = path.join(keysDir, 'private.pem');
+const privateKey = crypto.createPrivateKey(fs.readFileSync(privateKeyPath));
+const publicKey = crypto.createPublicKey(fs.readFileSync(path.join(keysDir, 'public.pem'))).export({type: 'spki', format: 'pem'}).toString();
+
+const policyPath = path.resolve(__dirname, `../../docs/gates/policies/EPIC_${epicInput}_POLICY.yaml`);
 if (!fs.existsSync(policyPath)) {
     console.error("Policy not found.");
     process.exit(1);
 }
 const policy = yaml.parse(fs.readFileSync(policyPath, 'utf-8'));
 
-// 4. Run Allowlisted Stages & Record Raw Outputs
+// Run Stages
 const allowlist: Record<string, string> = {
     "verify_prod": "npm run verify:prod",
     "backend_build": "npm run build --workspace=api",
@@ -80,8 +65,10 @@ const allowlist: Record<string, string> = {
 
 const stageResults: Record<string, any> = {};
 
-for (const stage of policy.mandatoryStages) {
+for (const stage of policy.requiresStages || []) {
+    logger.append('STAGE_STARTED', { stage });
     console.log(`Running stage: ${stage}`);
+    
     const cmd = allowlist[stage];
     if (!cmd) {
         console.error(`Stage ${stage} not in allowlist!`);
@@ -89,7 +76,6 @@ for (const stage of policy.mandatoryStages) {
     }
     
     const [command, ...cmdArgs] = cmd.split(' ');
-    
     const stageDir = path.join(execPath, `${stage}-attempt-1`);
     fs.mkdirSync(stageDir);
     
@@ -100,6 +86,9 @@ for (const stage of policy.mandatoryStages) {
     
     const stdoutStr = child.stdout ? child.stdout.toString() : '';
     const stderrStr = child.stderr ? child.stderr.toString() : '';
+    
+    const outLogRel = `${stage}-attempt-1/stdout.log`;
+    const errLogRel = `${stage}-attempt-1/stderr.log`;
     
     fs.writeFileSync(path.join(stageDir, 'stdout.log'), stdoutStr);
     fs.writeFileSync(path.join(stageDir, 'stderr.log'), stderrStr);
@@ -115,7 +104,10 @@ for (const stage of policy.mandatoryStages) {
         stdoutSha256: stdoutSha,
         stderrSha256: stderrSha
     };
+    
     fs.writeFileSync(path.join(stageDir, 'evidence.json'), JSON.stringify(ev, null, 2));
+    
+    logger.append('STAGE_FINISHED', { stage, exitCode: ev.exitCode, stdoutSha256: ev.stdoutSha256 }, [outLogRel]);
     
     stageResults[stage] = {
         evidence: ev,
@@ -123,9 +115,9 @@ for (const stage of policy.mandatoryStages) {
     };
 }
 
-// 5. Generate Attestation
+// Generate Attestation
 const attestationPayload = {
-    schemaVersion: "3.5",
+    schemaVersion: "5.0",
     executionId,
     epicId: epicInput,
     trustProfile: profileInput,
@@ -143,14 +135,15 @@ const signature = crypto.sign(null, Buffer.from(payloadStr), privateKey).toStrin
 fs.writeFileSync(path.join(execPath, 'attestation.json'), payloadStr);
 fs.writeFileSync(path.join(execPath, 'attestation.sig'), signature);
 
+logger.append('ATTESTATION_GENERATED', { attestationPath: 'attestation.json' }, ['attestation.json', 'attestation.sig']);
+
 console.log("Attestation generated and signed.");
 
+// Run verifications and generators
+execSync(`npx tsx scripts/eos/verify-event-log.ts --execution-id=${executionId}`, { stdio: 'inherit' });
+execSync(`npx tsx scripts/eos/generate-receipt.ts --execution-id=${executionId} --epic=${epicInput}`, { stdio: 'inherit' });
+execSync(`npx tsx scripts/eos/policy-engine.ts --execution-id=${executionId} --epic=${epicInput}`, { stdio: 'inherit' });
+execSync(`npx tsx scripts/eos/generate-gate.ts --execution-id=${executionId} --epic=${epicInput}`, { stdio: 'inherit' });
+execSync(`npx tsx scripts/eos/generate-dashboard.ts`, { stdio: 'inherit' });
 
-execSync('npx tsx scripts/eos/verify-attestation.ts --execution-id=' + executionId, { stdio: 'inherit' });
-execSync('npx tsx scripts/eos/generate-receipt.ts --execution-id=' + executionId + ' --epic=' + epicInput, { stdio: 'inherit' });
-execSync('npx tsx scripts/eos/generate-gate.ts --execution-id=' + executionId + ' --epic=' + epicInput, { stdio: 'inherit' });
 console.log('Pipeline completed.');
-
-
-
-

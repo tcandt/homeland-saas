@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import minimist from 'minimist';
+import { verifyEventLog } from './verify-event-log';
+import { EOSv4Event } from './event-logger';
 
 const args = minimist(process.argv.slice(2));
 const executionId = args['execution-id'];
@@ -14,23 +16,18 @@ if (!executionId) {
 
 const runDirBase = path.resolve(__dirname, '../../.eos/runs');
 const runDir = path.join(runDirBase, executionId);
-const attestationPath = path.join(runDir, 'attestation.json');
 
-if (!fs.existsSync(attestationPath)) {
-    console.error("attestation.json not found");
+// 1. Verify Event Log Integrity first
+const integrity = verifyEventLog(executionId);
+if (integrity !== 'VALID') {
+    console.error(`EVENT_LOG_INTEGRITY_FAILED: ${integrity}`);
     process.exit(1);
 }
 
-const att = JSON.parse(fs.readFileSync(attestationPath, 'utf-8'));
-
-// Keys
-const keysDir = path.resolve(__dirname, '../../.eos/keys');
-const privateKeyPath = path.join(keysDir, 'private.pem');
-if (!fs.existsSync(privateKeyPath)) {
-    console.error("Keypair not found.");
-    process.exit(1);
-}
-const privateKey = crypto.createPrivateKey(fs.readFileSync(privateKeyPath));
+const logPath = path.join(runDir, 'event.log');
+const logContent = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+const events = logContent.map(line => JSON.parse(line) as EOSv4Event);
+const finalEvent = events[events.length - 1];
 
 // Find previous receipt
 const allRuns = fs.readdirSync(runDirBase, { withFileTypes: true })
@@ -49,32 +46,34 @@ if (allRuns.length > 0) {
             const prev = JSON.parse(fs.readFileSync(prevReceiptPath, 'utf-8'));
             previousReceiptHash = crypto.createHash('sha256').update(JSON.stringify(prev)).digest('hex');
             chainSequence = prev.chainSequence + 1;
-            // The chainHeadHash points to an external anchor. Since this is local, we just copy it or set it.
             chainHeadHash = prev.chainHeadHash || "LOCAL_ANCHOR";
             break;
         }
     }
 }
 
-// Map stage results to overall pass/fail
+// Ingest status details from STAGE_FINISHED events
+const stageDetails: Record<string, string> = {};
 let allPass = true;
-const stageDetails: any = {};
-for (const stage of Object.keys(att.stageResults)) {
-    const exitCode = att.stageResults[stage].evidence.exitCode;
-    const stdoutPath = path.join(runDir, `${stage}-attempt-1`, 'stdout.log');
-    const stdout = fs.existsSync(stdoutPath) ? fs.readFileSync(stdoutPath, 'utf8') : '';
-    
-    let result = exitCode === 0 ? "PASS" : "FAIL";
-    if (stage === 'verify_prod' && result === "PASS") {
-        if (!stdout.includes('Verification PASSED.')) result = "FAIL";
-        if (stdout.includes('Error: P1001')) result = "FAIL"; // Example failure marker check
+
+for (const ev of events) {
+    if (ev.eventType === 'STAGE_FINISHED') {
+        const stage = ev.payload.stage;
+        const exitCode = ev.payload.exitCode;
+        const res = exitCode === 0 ? "PASS" : "FAIL";
+        stageDetails[stage] = res;
+        if (res !== "PASS") allPass = false;
     }
-    stageDetails[stage] = result;
-    if (result !== "PASS") allPass = false;
 }
 
+const keysDir = path.resolve(__dirname, '../../.eos/keys');
+const privateKeyPath = path.join(keysDir, 'private.pem');
+const privateKey = crypto.createPrivateKey(fs.readFileSync(privateKeyPath));
+
+const att = JSON.parse(fs.readFileSync(path.join(runDir, 'attestation.json'), 'utf8'));
+
 const receiptPayload = {
-    schemaVersion: "3.5",
+    schemaVersion: "5.0",
     receiptId: `REC-${executionId.replace('RUN-', '')}`,
     executionId,
     epicId: epicInput,
@@ -86,8 +85,8 @@ const receiptPayload = {
     chainSequence,
     previousReceiptHash,
     chainHeadHash,
+    eventLogHeadHash: finalEvent.eventHash,
     provenance: {
-        repositoryUrl: att.manifest.repositoryUrl,
         repositoryCommitSha: att.manifest.repositoryCommitSha,
         policyHash: att.manifest.policyHash,
         orchestratorToolHash: att.manifest.orchestratorToolHash
@@ -96,12 +95,11 @@ const receiptPayload = {
     stageDetails
 };
 
-const payloadStr = payloadStr;
+const payloadStr = JSON.stringify(receiptPayload, null, 2);
 const signature = crypto.sign(null, Buffer.from(payloadStr), privateKey).toString('base64');
 
 fs.writeFileSync(path.join(runDir, 'receipt.json'), payloadStr);
 fs.writeFileSync(path.join(runDir, 'receipt.sig'), signature);
-console.log(`Receipt generated and signed for ${executionId}`);
 
 const runIndex = {
     executionId,
@@ -111,3 +109,4 @@ const runIndex = {
 };
 fs.writeFileSync(path.join(runDir, 'run-index.json'), JSON.stringify(runIndex, null, 2));
 
+console.log(`Receipt generated and signed for ${executionId}`);

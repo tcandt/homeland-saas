@@ -20,7 +20,7 @@ export default function OperationsDepositRow({ deposit, onClick }: { deposit: UI
   };
 
   const getTypeIcon = () => {
-    return deposit.type === "SECURITY" ? <ShieldCheck size={14} className="text-[#10b981]" /> : <Bookmark size={14} className="text-[#0ea5e9]" />;
+    return deposit.type === "SECURITY" ? <ShieldCheck size={14} className="text-[#8b5cf6]" /> : <Bookmark size={14} className="text-[#0ea5e9]" />;
   };
 
   const getTypeName = () => {
@@ -75,7 +75,7 @@ export default function OperationsDepositRow({ deposit, onClick }: { deposit: UI
         </div>
         <div className="flex items-center justify-between text-[13px]">
           <span className="font-medium text-muted">Trạng thái:</span>
-          <span className={`font-black ${deposit.status === 'PAID' ? 'text-[#10b981]' : 'text-muted'}`}>{deposit.status}</span>
+          <span className={`font-black ${deposit.status === 'PAID' ? 'text-[#8b5cf6]' : 'text-muted'}`}>{deposit.status}</span>
         </div>
       </div>
 

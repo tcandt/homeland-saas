@@ -50,7 +50,7 @@ export default function AuthBrandPanel() {
                 <div className="w-[80px] h-[12px] rounded-full bg-text mt-[4px]"></div>
               </div>
               <div className="bg-card rounded-[12px] border border-border p-[12px] flex flex-col gap-[8px]">
-                <div className="w-[20px] h-[20px] rounded-[6px] bg-[#10b981]/10 flex items-center justify-center text-[#10b981]">
+                <div className="w-[20px] h-[20px] rounded-[6px] bg-[#8b5cf6]/10 flex items-center justify-center text-[#8b5cf6]">
                   <CheckCircle2 size={12} />
                 </div>
                 <div className="w-[60px] h-[8px] rounded-full bg-border"></div>
@@ -80,7 +80,7 @@ export default function AuthBrandPanel() {
                 <div className="w-[80px] h-[8px] rounded-full bg-border mb-[4px]"></div>
                 <div className="flex items-center justify-between">
                   <div className="w-[60px] h-[8px] rounded-full bg-border"></div>
-                  <div className="w-[40px] h-[12px] rounded-full bg-[#10b981]/20"></div>
+                  <div className="w-[40px] h-[12px] rounded-full bg-[#8b5cf6]/20"></div>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="w-[70px] h-[8px] rounded-full bg-border"></div>
@@ -106,7 +106,7 @@ export default function AuthBrandPanel() {
         </div>
 
         <div className="flex items-center gap-[12px]">
-          <div className="w-[36px] h-[36px] rounded-[10px] bg-background border border-border flex items-center justify-center text-[#10b981] shadow-sm">
+          <div className="w-[36px] h-[36px] rounded-[10px] bg-background border border-border flex items-center justify-center text-[#8b5cf6] shadow-sm">
             <LineChart size={16} />
           </div>
           <span className="text-[14px] font-bold text-text">Tài chính & công nợ</span>

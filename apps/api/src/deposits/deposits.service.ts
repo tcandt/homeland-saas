@@ -46,7 +46,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
     });
   }
 
-  async getDetail(id: string, include?: any) {
+  async getDetail(id: string, include?: any): Promise<any> {
     return this.repository.findById(id, {
       customer: true,
       room: { include: { building: true, floor: true } },
@@ -56,7 +56,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
   }
 
   async collect(id: string, note: string | null, userId: string) {
-    const deposit = await this.repository.findById(id);
+    const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING) {
       throw new BadRequestException('Can only collect DRAFT or PENDING deposits');
@@ -80,10 +80,14 @@ export class DepositsService extends BaseCrudService<Deposit> {
     this.eventPublisher.publish('deposit.collected', {
       tenantId: deposit.tenantId,
       userId,
+      customerId: deposit.customerId,
+      customerName: deposit.customer?.fullName,
+      customerPhone: deposit.customer?.phone,
       metadata: { code: deposit.code },
       sourceId: deposit.id,
       sourceType: 'DEPOSIT',
       amount: Number(deposit.amount),
+      paymentProvider: 'MANUAL',
       occurredAt: new Date(),
     });
 

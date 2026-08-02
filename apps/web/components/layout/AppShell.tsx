@@ -13,22 +13,34 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const checkScreenSize = () => {
-        if (window.innerWidth <= 1440) {
-          setIsSidebarCollapsed(true);
-        } else {
-          setIsSidebarCollapsed(false);
-        }
-      };
-
-      // Initial check on load and path change
-      checkScreenSize();
-
-      // Setup resize listener
-      window.addEventListener("resize", checkScreenSize);
-      return () => window.removeEventListener("resize", checkScreenSize);
+      if (pathname.startsWith("/buildings")) {
+        setIsSidebarCollapsed(true);
+        return;
+      }
+      const persisted = localStorage.getItem("homeland_main_sidebar_collapsed");
+      if (persisted !== null) {
+        setIsSidebarCollapsed(persisted === "true");
+      } else {
+        const checkScreenSize = () => {
+          if (window.innerWidth <= 1440) {
+            setIsSidebarCollapsed(true);
+          } else {
+            setIsSidebarCollapsed(false);
+          }
+        };
+        checkScreenSize();
+      }
     }
   }, [pathname]);
+
+  const handleToggleSidebar = () => {
+    const nextVal = !isSidebarCollapsed;
+    setIsSidebarCollapsed(nextVal);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("homeland_main_sidebar_collapsed", String(nextVal));
+    }
+  };
+
 
   return (
     <div className="flex min-h-screen bg-background text-text">
@@ -39,7 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Main Content Area */}
       <main className={`flex-1 min-w-0 transition-all duration-300 ${isSidebarCollapsed ? "md:ml-20" : "md:ml-[260px]"} min-h-screen flex flex-col pt-[87px] md:pt-0 pb-[90px] md:pb-0`}>
-        <Header onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
+        <Header onToggleSidebar={handleToggleSidebar} />
         <div className={`md:p-[24px] ${pathname.startsWith("/buildings") || pathname.startsWith("/rooms") || pathname === "/" ? "p-0" : "px-[16px] py-[16px] md:px-[16px] md:py-[16px]"}`}>
           {children}
         </div>

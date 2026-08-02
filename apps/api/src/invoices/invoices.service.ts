@@ -181,10 +181,15 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       this.eventPublisher.publish('invoice.paid', {
         tenantId: invoice.tenantId,
         userId,
+        customerId: invoice.customerId,
+        customerName: invoice.customer?.fullName,
+        customerPhone: invoice.customer?.phone,
         metadata: { code: invoice.code },
         sourceId: invoice.id,
         sourceType: 'INVOICE',
         amount: Number(result.total),
+        paymentProvider: provider,
+        paymentRef: providerRef,
         occurredAt: new Date(),
       });
     }

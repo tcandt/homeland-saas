@@ -363,6 +363,42 @@ export class AuthService {
     };
   }
 
+  async updateMe(userId: string, input: { fullName?: string }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        tenant: true,
+        roles: {
+          include: { role: { include: { permissions: { include: { permission: true } } } } }
+        }
+      }
+    });
+
+    if (!user) throw new UnauthorizedException();
+
+    const nextFullName = input.fullName?.trim();
+    if (nextFullName && nextFullName !== user.fullName) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { fullName: nextFullName },
+      });
+      user.fullName = nextFullName;
+    }
+
+    const roles = user.roles.map(ur => ur.role.code);
+    const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
+
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      tenantId: user.tenantId,
+      tenant: { id: user.tenant.id, name: user.tenant.name, code: user.tenant.code },
+      roles,
+      permissions,
+    };
+  }
+
   async changePassword(userId: string, input: ChangePasswordInput) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException();

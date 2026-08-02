@@ -99,7 +99,7 @@ export default function TenantCard({ tenant, onClick }: { tenant: any, onClick: 
           <QuickActionBtn icon={<FileText size={16} />} label="Hợp đồng" color="text-[#8b5cf6]" bg="bg-[#8b5cf6]/10" hoverBg="hover:bg-[#8b5cf6]/20" />
           <QuickActionBtn icon={<CheckCircle2 size={16} />} label="Thu tiền" color="text-[#22c55e]" bg="bg-[#22c55e]/10" hoverBg="hover:bg-[#22c55e]/20" />
           <QuickActionBtn icon={<MessageSquare size={16} />} label="Zalo" color="text-blue-500" bg="bg-blue-500/10" hoverBg="hover:bg-blue-500/20" />
-          <QuickActionBtn icon={<PhoneCall size={16} />} label="Gọi điện" color="text-[#10b981]" bg="bg-[#10b981]/10" hoverBg="hover:bg-[#10b981]/20" />
+          <QuickActionBtn icon={<PhoneCall size={16} />} label="Gọi điện" color="text-[#8b5cf6]" bg="bg-[#8b5cf6]/10" hoverBg="hover:bg-[#8b5cf6]/20" />
           <QuickActionBtn icon={<FileSignature size={16} />} label="Gia hạn" color="text-[#f97316]" bg="bg-[#f97316]/10" hoverBg="hover:bg-[#f97316]/20" />
           <QuickActionBtn icon={<Shield size={16} />} label="Tạm trú" color="text-rose-500" bg="bg-rose-500/10" hoverBg="hover:bg-rose-500/20" />
           <QuickActionBtn icon={<Edit size={16} />} label="Sửa" color="text-muted" bg="bg-muted/10" hoverBg="hover:bg-muted/20" />

@@ -46,7 +46,7 @@ function FilterSelect({ placeholder }: { placeholder: string }) {
   return (
     <div className="relative shrink-0">
       <select className="h-[40px] pl-[16px] pr-[36px] rounded-[10px] bg-background border border-border text-[13px] font-medium text-text appearance-none hover:border-muted focus:outline-none focus:border-[#6366f1] transition-all cursor-pointer">
-        <option value="" disabled selected hidden>{placeholder}</option>
+        <option value="" disabled hidden>{placeholder}</option>
         <option value="1">Option 1</option>
         <option value="2">Option 2</option>
       </select>

@@ -52,7 +52,7 @@ export default function OperationsContractRow({ contract, onClick }: { contract:
         {/* Progress Bar */}
         <div className="h-[6px] bg-black/5 dark:bg-white/5 rounded-full overflow-hidden flex">
           <div 
-            className={`h-full rounded-full ${daysRemaining < 30 ? 'bg-rose-500' : daysRemaining < 60 ? 'bg-[#f97316]' : 'bg-[#10b981]'}`}
+            className={`h-full rounded-full ${daysRemaining < 30 ? 'bg-rose-500' : daysRemaining < 60 ? 'bg-[#f97316]' : 'bg-[#8b5cf6]'}`}
             style={{ width: `${progressPercent}%` }}
           />
         </div>
@@ -76,7 +76,7 @@ export default function OperationsContractRow({ contract, onClick }: { contract:
         </div>
         <div className="flex items-center justify-between text-[13px]">
           <span className="font-medium text-muted">Nợ:</span>
-          <span className={`font-black ${hasDebt ? 'text-rose-500' : 'text-[#10b981]'}`}>0đ</span>
+          <span className={`font-black ${hasDebt ? 'text-rose-500' : 'text-[#8b5cf6]'}`}>0đ</span>
         </div>
       </div>
 
@@ -86,7 +86,7 @@ export default function OperationsContractRow({ contract, onClick }: { contract:
           {statusConfig.label}
         </Badge>
         <div className="flex items-center gap-[4px] text-[12px] font-bold text-muted">
-          <CheckCircle2 size={14} className="text-[#10b981]" /> Đã ký
+          <CheckCircle2 size={14} className="text-[#8b5cf6]" /> Đã ký
         </div>
       </div>
 
@@ -101,13 +101,13 @@ export default function OperationsContractRow({ contract, onClick }: { contract:
               <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-blue-500 hover:bg-blue-500/10">
                 <PenTool size={14} className="mr-1.5" /> Gửi ký
               </Button>
-              <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-[#10b981] hover:bg-[#10b981]/10">
+              <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-[#8b5cf6] hover:bg-[#8b5cf6]/10">
                 <Coins size={14} className="mr-1.5" /> Thu tiền
               </Button>
               <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-[#f97316] hover:bg-[#f97316]/10">
                 <CalendarClock size={14} className="mr-1.5" /> Gia hạn
               </Button>
-              <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-emerald-500 hover:bg-emerald-500/10">
+              <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-indigo-500 hover:bg-indigo-500/10">
                 <FileText size={14} className="mr-1.5" /> Xuất HĐ
               </Button>
               <Button variant="ghost" onClick={(e) => { e.stopPropagation(); }} className="h-9 px-3 text-rose-500 hover:bg-rose-500/10">

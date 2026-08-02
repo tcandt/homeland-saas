@@ -17,6 +17,18 @@ export class ContractsService extends BaseCrudService<Contract> {
     super(repository, auditService, 'Contract');
   }
 
+  async getDetail(id: string, include?: any): Promise<any> {
+    const record = await super.getDetail(id, include);
+    if (record.coRepresentativeIds && record.coRepresentativeIds.length > 0) {
+      const coReps = await this.prisma.tx.customer.findMany({
+        where: { id: { in: record.coRepresentativeIds } },
+        select: { id: true, fullName: true, phone: true, identityNo: true, idImages: true },
+      });
+      return { ...record, coRepresentatives: coReps };
+    }
+    return record;
+  }
+
   async listContracts(
     page: number,
     limit: number,

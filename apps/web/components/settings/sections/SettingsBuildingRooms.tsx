@@ -14,7 +14,7 @@ function Field({ label, value, type = "text" }: any) {
 export default function SettingsBuildingRooms() {
   const roomTypes = [
     { icon: "🏠", name: "Studio", area: "25m²", maxPeople: 2, deposit: "2 tháng", color: "#6366f1" },
-    { icon: "🛏️", name: "1 Phòng ngủ", area: "40m²", maxPeople: 3, deposit: "2 tháng", color: "#10b981" },
+    { icon: "🛏️", name: "1 Phòng ngủ", area: "40m²", maxPeople: 3, deposit: "2 tháng", color: "#8b5cf6" },
     { icon: "🏡", name: "2 Phòng ngủ", area: "65m²", maxPeople: 5, deposit: "2 tháng", color: "#f97316" },
     { icon: "🏢", name: "3 Phòng ngủ", area: "90m²", maxPeople: 7, deposit: "3 tháng", color: "#3b82f6" },
     { icon: "💼", name: "Office", area: "50m²", maxPeople: 10, deposit: "3 tháng", color: "#8b5cf6" },

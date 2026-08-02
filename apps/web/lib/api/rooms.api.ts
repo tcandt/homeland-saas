@@ -42,7 +42,19 @@ export const roomsApi = {
   },
 
   update: (id: string, data: any) => {
-    return apiClient.patch<RoomResponse>(`/rooms/${id}`, data);
+    const payload = { ...data };
+    if (payload.status) {
+      const statusMap: Record<string, string> = {
+        vacant: 'AVAILABLE',
+        deposited: 'RESERVED',
+        occupied: 'OCCUPIED',
+        expiring_soon: 'OCCUPIED',
+        maintenance: 'MAINTENANCE',
+        cleaning: 'CLEANING',
+      };
+      payload.status = statusMap[payload.status] || payload.status;
+    }
+    return apiClient.patch<RoomResponse>(`/rooms/${id}`, payload);
   },
 
   delete: (id: string) => {

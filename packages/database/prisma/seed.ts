@@ -140,6 +140,7 @@ async function main() {
     create: { tenantId: org.id, email: 'finance@homeland.local', fullName: 'Finance Executive', passwordHash },
   });
 
+  // Grant Roles
   await prisma.userRole.createMany({
     data: [
       { userId: adminUser.id, roleId: adminRole.id },
@@ -149,6 +150,12 @@ async function main() {
     ],
     skipDuplicates: true,
   });
+
+  if (process.env.SEED_MODE === 'production' || process.env.NODE_ENV === 'production') {
+    console.log('Production mode detected. Skipping mock buildings, floors, rooms, contracts, invoices, and transactions.');
+    console.log('Commercial-Grade Seed completed successfully in PRODUCTION mode.');
+    return;
+  }
 
   // 4. Buildings & Floors & Rooms
   const buildingCodes = ['LK01.31', 'LK01.32', 'LK08.24', 'LK08.25'];
@@ -174,7 +181,7 @@ async function main() {
         const bedCount = (r % 2 === 0) ? 2 : 1;
         
         const room = await prisma.room.upsert({
-          where: { tenantId_code: { tenantId: org.id, code: roomCode } },
+          where: { tenantId_buildingId_code: { tenantId: org.id, buildingId: building.id, code: roomCode } },
           update: {},
           create: {
             tenantId: org.id,
@@ -521,6 +528,41 @@ async function main() {
   ];
 
   for (const t of templates) {
+    await prisma.notificationTemplate.upsert({
+      where: { tenantId_code: { tenantId: org.id, code: t.code } },
+      update: {},
+      create: { tenantId: org.id, ...t }
+    });
+  }
+
+  const paymentTemplates = [
+    {
+      code: 'INVOICE_ZALO_PAYMENT_REQUEST',
+      name: 'Invoice Payment Request Zalo',
+      subject: 'Hóa đơn {{invoiceCode}} - Thanh toán qua SePay',
+      body: 'Xin chào {{customerName}},\n\nHóa đơn {{invoiceCode}} số tiền {{formatCurrency amount "VND"}} đã sẵn sàng thanh toán.\nNội dung chuyển khoản: {{paymentCode}}\n\nQuét QR trong tin nhắn để thanh toán nhanh: {{qrUrl}}\n\nTrân trọng,'
+    },
+    {
+      code: 'DEPOSIT_ZALO_PAYMENT_REQUEST',
+      name: 'Deposit Payment Request Zalo',
+      subject: 'Phiếu cọc {{depositCode}} - Thanh toán qua SePay',
+      body: 'Xin chào {{customerName}},\n\nPhiếu cọc {{depositCode}} số tiền {{formatCurrency amount "VND"}} đã sẵn sàng thanh toán.\nNội dung chuyển khoản: {{paymentCode}}\n\nQuét QR trong tin nhắn để thanh toán nhanh: {{qrUrl}}\n\nTrân trọng,'
+    },
+    {
+      code: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
+      name: 'Invoice Payment Confirmation Zalo',
+      subject: 'Đã nhận thanh toán hóa đơn {{invoiceCode}}',
+      body: 'Xin chào {{customerName}},\n\nHệ thống đã nhận thanh toán thành công cho hóa đơn {{invoiceCode}} với số tiền {{formatCurrency amount "VND"}}.\n\nTrân trọng,'
+    },
+    {
+      code: 'DEPOSIT_ZALO_PAYMENT_CONFIRMATION',
+      name: 'Deposit Payment Confirmation Zalo',
+      subject: 'Đã nhận thanh toán phiếu cọc {{depositCode}}',
+      body: 'Xin chào {{customerName}},\n\nHệ thống đã nhận thanh toán thành công cho phiếu cọc {{depositCode}} với số tiền {{formatCurrency amount "VND"}}.\n\nTrân trọng,'
+    }
+  ];
+
+  for (const t of paymentTemplates) {
     await prisma.notificationTemplate.upsert({
       where: { tenantId_code: { tenantId: org.id, code: t.code } },
       update: {},

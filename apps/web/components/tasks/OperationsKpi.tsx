@@ -7,46 +7,42 @@ export default function OperationsKpi() {
       <KpiCard 
         icon={<ClipboardList size={16} className="text-[#6366f1]" />} 
         iconBg="bg-[#6366f1]/10"
-        value="42"
+        value="0"
         label="Cần xử lý"
-        trend="+5"
         blobColor="bg-[#6366f1]/10"
       />
       <KpiCard 
         icon={<Clock size={16} className="text-rose-500" />} 
         iconBg="bg-rose-500/10"
-        value="8"
+        value="0"
         label="Quá hạn"
-        trend="+2"
-        trendUp={true}
         blobColor="bg-rose-500/10"
       />
       <KpiCard 
-        icon={<Loader2 size={16} className="text-[#f97316] animate-spin-slow" />} 
+        icon={<Loader2 size={16} className="text-[#f97316]" />} 
         iconBg="bg-[#f97316]/10"
-        value="15"
+        value="0"
         label="Đang xử lý"
         blobColor="bg-[#f97316]/10"
       />
       <KpiCard 
         icon={<CheckCircle2 size={16} className="text-[#a855f7]" />} 
         iconBg="bg-[#a855f7]/10"
-        value="6"
+        value="0"
         label="Chờ duyệt"
         blobColor="bg-[#a855f7]/10"
       />
       <KpiCard 
-        icon={<ShieldCheck size={16} className="text-[#10b981]" />} 
-        iconBg="bg-[#10b981]/10"
-        value="12"
+        icon={<ShieldCheck size={16} className="text-[#8b5cf6]" />} 
+        iconBg="bg-[#8b5cf6]/10"
+        value="0"
         label="Hoàn thành"
-        trend="+4"
-        blobColor="bg-[#10b981]/10"
+        blobColor="bg-[#8b5cf6]/10"
       />
       <KpiCard 
         icon={<MessageSquareWarning size={16} className="text-amber-500" />} 
         iconBg="bg-amber-500/10"
-        value="5"
+        value="0"
         label="Tin chưa đọc"
         blobColor="bg-amber-500/10"
       />
@@ -67,7 +63,7 @@ function KpiCard({ icon, iconBg, value, label, trend, trendUp, blobColor }: any)
       <div className="flex items-end gap-[8px] mt-[4px] relative z-10">
         <span className="font-black text-[22px] md:text-[26px] text-text leading-none">{value}</span>
         {trend && (
-          <span className={`text-[12px] font-bold mb-[2px] ${trendUp ? 'text-rose-500' : 'text-[#10b981]'}`}>
+          <span className={`text-[12px] font-bold mb-[2px] ${trendUp ? 'text-rose-500' : 'text-[#8b5cf6]'}`}>
             {trend}
           </span>
         )}

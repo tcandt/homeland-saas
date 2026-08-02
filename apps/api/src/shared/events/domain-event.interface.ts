@@ -6,4 +6,9 @@ export interface DomainEventInterface {
   amount: number;
   occurredAt: Date;
   metadata?: Record<string, any>;
+  customerId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  paymentProvider?: string;
+  paymentRef?: string;
 }

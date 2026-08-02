@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildingsApi } from '../api/buildings.api';
 import { useToast } from '@/components/ui/ToastContext';
-import { Building } from '@/components/buildings/mockData';
+import type { Building } from '@/components/buildings/building.types';
 import { adaptBuilding } from '../adapters/building.adapter';
 
 export const useCreateBuildingMutation = () => {

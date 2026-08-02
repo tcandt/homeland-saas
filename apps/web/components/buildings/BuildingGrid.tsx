@@ -117,7 +117,7 @@ export default function BuildingGrid() {
 function BuildingCommandCard({ building, onClick }: { building: BuildingData, onClick: () => void }) {
   const getHealthConfig = (status: HealthStatus) => {
     switch(status) {
-      case "healthy": return { text: "Stable", color: "text-[#10b981]", bg: "bg-[#10b981]/10", border: "border-[#10b981]/30", ring: "text-[#10b981]" };
+      case "healthy": return { text: "Stable", color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10", border: "border-[#8b5cf6]/30", ring: "text-[#8b5cf6]" };
       case "warning": return { text: "Warning", color: "text-[#f59e0b]", bg: "bg-[#f59e0b]/10", border: "border-[#f59e0b]/30", ring: "text-[#f59e0b]" };
       case "critical": return { text: "Critical", color: "text-[#f43f5e]", bg: "bg-[#f43f5e]/10", border: "border-[#f43f5e]/30", ring: "text-[#f43f5e]" };
     }
@@ -135,7 +135,7 @@ function BuildingCommandCard({ building, onClick }: { building: BuildingData, on
       className="group bg-card/60 backdrop-blur-xl border border-border/50 rounded-[24px] shadow-sm hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:hover:shadow-[0_8px_30px_rgb(255,255,255,0.04)] hover:-translate-y-1.5 transition-all duration-500 flex flex-col cursor-pointer overflow-hidden relative"
     >
       {/* Decorative top gradient */}
-      <div className={`absolute top-0 left-0 right-0 h-1 ${building.healthStatus === 'healthy' ? 'bg-gradient-to-r from-[#10b981]/80 to-[#34d399]/40' : (building.healthStatus === 'warning' ? 'bg-gradient-to-r from-[#f59e0b]/80 to-[#fbbf24]/40' : 'bg-gradient-to-r from-[#f43f5e]/80 to-[#fb7185]/40')}`} />
+      <div className={`absolute top-0 left-0 right-0 h-1 ${building.healthStatus === 'healthy' ? 'bg-gradient-to-r from-[#8b5cf6]/80 to-[#34d399]/40' : (building.healthStatus === 'warning' ? 'bg-gradient-to-r from-[#f59e0b]/80 to-[#fbbf24]/40' : 'bg-gradient-to-r from-[#f43f5e]/80 to-[#fb7185]/40')}`} />
       
       <div className="p-5 flex flex-col gap-4 flex-1">
         
@@ -188,11 +188,11 @@ function BuildingCommandCard({ building, onClick }: { building: BuildingData, on
             {building.warningAmount && <span className={`text-[13px] font-black ${health.ring} relative z-10`}>{building.warningAmount}</span>}
           </div>
         ) : (
-          <div className="rounded-[12px] p-3 flex items-center gap-2 border border-[#10b981]/20 bg-[#10b981]/5 backdrop-blur-sm">
-            <div className="w-6 h-6 rounded-full flex items-center justify-center bg-[#10b981]/10 border border-[#10b981]/20">
-               <CheckCircle2 size={12} className="text-[#10b981]" />
+          <div className="rounded-[12px] p-3 flex items-center gap-2 border border-[#8b5cf6]/20 bg-[#8b5cf6]/5 backdrop-blur-sm">
+            <div className="w-6 h-6 rounded-full flex items-center justify-center bg-[#8b5cf6]/10 border border-[#8b5cf6]/20">
+               <CheckCircle2 size={12} className="text-[#8b5cf6]" />
             </div>
-            <span className="text-[12px] font-bold text-[#10b981]">Hoạt động ổn định</span>
+            <span className="text-[12px] font-bold text-[#8b5cf6]">Hoạt động ổn định</span>
           </div>
         )}
 
@@ -208,7 +208,7 @@ function BuildingCommandCard({ building, onClick }: { building: BuildingData, on
           <div className="flex flex-col">
             <span className="text-[11px] font-semibold text-muted mb-1 uppercase tracking-wider">Tình trạng</span>
             <div className="flex items-center gap-1.5 leading-none">
-              <span className="text-[18px] font-black text-[#10b981]">{building.rentedRooms}</span>
+              <span className="text-[18px] font-black text-[#8b5cf6]">{building.rentedRooms}</span>
               <span className="text-[12px] font-bold text-muted">/</span>
               <span className="text-[18px] font-black text-muted">{building.emptyRooms}</span>
             </div>
@@ -375,7 +375,7 @@ function BuildingDrawer({ drawer, setDrawer, building }: { drawer: DrawerState, 
 
           {/* RIGHT SECTION (Lists) */}
           <div className="flex-1 p-6 md:p-8 overflow-y-auto relative">
-            <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-[#10b981]/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
+            <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-[#8b5cf6]/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
             {isBuildingView && <BuildingViewContent building={building} setDrawer={setDrawer} />}
             {isFloorView && <FloorViewContent floorId={drawer.floorId!} setDrawer={setDrawer} />}
             {isRoomView && <RoomViewContent roomId={drawer.roomId!} />}
@@ -416,9 +416,9 @@ function BuildingViewContent({ building, setDrawer }: any) {
               </div>
             </div>
             <div className="flex items-center gap-1.5 mt-1">
-               <div className="h-1.5 flex-1 bg-[#10b981] rounded-full" />
-               <div className="h-1.5 flex-1 bg-[#10b981] rounded-full" />
-               <div className="h-1.5 flex-1 bg-[#10b981] rounded-full" />
+               <div className="h-1.5 flex-1 bg-[#8b5cf6] rounded-full" />
+               <div className="h-1.5 flex-1 bg-[#8b5cf6] rounded-full" />
+               <div className="h-1.5 flex-1 bg-[#8b5cf6] rounded-full" />
                <div className="h-1.5 flex-1 bg-border rounded-full" />
             </div>
           </div>

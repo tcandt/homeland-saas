@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { roomsApi } from '../api/rooms.api';
 import { useToast } from '@/components/ui/ToastContext';
 import { adaptRoom } from '../adapters/building.adapter';
-import { Building, Room } from '@/components/buildings/mockData';
+import type { Building, Room } from '@/components/buildings/building.types';
 
 export const useCreateRoomMutation = () => {
   const queryClient = useQueryClient();

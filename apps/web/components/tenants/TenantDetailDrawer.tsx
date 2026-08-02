@@ -6,23 +6,28 @@ import { Drawer } from "../ui/Drawer";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
+import { Modal } from "../ui/Modal";
 import TenantFormModal from "./TenantFormModal";
 import { useDeleteCustomerMutation } from "@/lib/mutations/customers.mutations";
 
 export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | null, onClose: () => void }) {
   const [isEditFormOpen, setIsEditFormOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const deleteMutation = useDeleteCustomerMutation();
 
   if (!tenant) return null;
 
   const handleDelete = () => {
-    if (window.confirm("Bạn có chắc chắn muốn xóa khách thuê này?")) {
-      deleteMutation.mutate(tenant.id, {
-        onSuccess: () => {
-          onClose();
-        }
-      });
-    }
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = () => {
+    deleteMutation.mutate(tenant.id, {
+      onSuccess: () => {
+        setIsDeleteModalOpen(false);
+        onClose();
+      }
+    });
   };
 
   return (
@@ -94,6 +99,35 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
         onClose={() => setIsEditFormOpen(false)} 
         tenant={tenant}
       />
+
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="Xác nhận xóa khách thuê"
+        footer={
+          <div className="flex justify-end gap-3 w-full">
+            <Button variant="outline" onClick={() => setIsDeleteModalOpen(false)} disabled={deleteMutation.isPending}>
+              Hủy
+            </Button>
+            <Button 
+              onClick={confirmDelete}
+              className="bg-rose-500 text-white hover:bg-rose-600"
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Đang xóa..." : "Xóa khách thuê"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="py-2 flex flex-col gap-3">
+          <p className="text-sm text-text font-medium">
+            Bạn có chắc chắn muốn xóa khách thuê <span className="font-black">{tenant.fullName || tenant.name || "này"}</span> không?
+          </p>
+          <p className="text-xs text-muted">
+            Hành động này không thể hoàn tác. Dữ liệu khách thuê sẽ bị xóa khỏi hệ thống.
+          </p>
+        </div>
+      </Modal>
     </>
   );
 }

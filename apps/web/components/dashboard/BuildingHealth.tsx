@@ -43,7 +43,7 @@ export default function BuildingHealth() {
               <div className="w-[36px] h-[36px] relative shrink-0">
                 <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
                   <circle cx="18" cy="18" r="15.9154943" fill="none" stroke="#f1f5f9" strokeWidth="3" />
-                  <circle cx="18" cy="18" r="15.9154943" fill="none" stroke={b.health === 100 ? "#22c55e" : "#10b981"} strokeWidth="3" strokeDasharray={`${b.health} 100`} strokeLinecap="round" className="transition-all duration-1000 ease-out" />
+                  <circle cx="18" cy="18" r="15.9154943" fill="none" stroke={b.health === 100 ? "#22c55e" : "#8b5cf6"} strokeWidth="3" strokeDasharray={`${b.health} 100`} strokeLinecap="round" className="transition-all duration-1000 ease-out" />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center font-bold text-[11px] text-text">{b.health}%</div>
               </div>

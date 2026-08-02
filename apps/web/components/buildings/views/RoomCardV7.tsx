@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { Room } from "../mockData";
+import type { Room } from "../building.types";
 import { MoreHorizontal, Eye, Edit, UserPlus, Receipt, CreditCard, FileText } from "lucide-react";
+import { getRoomDisplayName } from "../building-labels";
 
 interface Props {
   room: Room;
@@ -11,6 +12,7 @@ interface Props {
 
 export default function RoomCardV7({ room, onOpenRoomModal }: Props) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const roomLabel = getRoomDisplayName(room);
 
   let statusText = "";
   let statusColor = "";
@@ -18,13 +20,13 @@ export default function RoomCardV7({ room, onOpenRoomModal }: Props) {
   let daysRemaining = "-";
   let tenantName = "Trống";
   let debt = room.debt || 0;
-  let price = room.price;
+  let price = room.contract?.rentPrice;
   let occupantsCount = 0;
 
   if (room.status === "occupied") {
     statusText = "Đang thuê";
-    statusColor = "text-emerald-500";
-    statusBg = "bg-emerald-500/10";
+    statusColor = "text-indigo-500";
+    statusBg = "bg-indigo-500/10";
   } else if (room.status === "vacant") {
     statusText = "Phòng trống";
     statusColor = "text-rose-500";
@@ -35,19 +37,23 @@ export default function RoomCardV7({ room, onOpenRoomModal }: Props) {
     statusBg = "bg-orange-500/10";
   } else if (room.status === "deposited") {
     statusText = "Đã cọc";
-    statusColor = "text-purple-500";
-    statusBg = "bg-purple-500/10";
+    statusColor = "text-indigo-500";
+    statusBg = "bg-indigo-500/10";
   } else if (room.status === "maintenance") {
     statusText = "Bảo trì";
     statusColor = "text-blue-500";
     statusBg = "bg-blue-500/10";
   }
 
+  const allTenantNames: string[] = [];
   if (room.rentalType === "whole") {
     if (room.tenant) {
-      tenantName = room.tenant.name;
-      occupantsCount = 1 + (room.roommates?.length || 0);
+      allTenantNames.push(room.tenant.name);
     }
+    if (room.sharedTenants && room.sharedTenants.length > 0) {
+      room.sharedTenants.forEach(st => allTenantNames.push(st.name));
+    }
+    occupantsCount = allTenantNames.length;
     if (room.contract) {
       const end = new Date(room.contract.endDate).getTime();
       const now = new Date().getTime();
@@ -57,7 +63,9 @@ export default function RoomCardV7({ room, onOpenRoomModal }: Props) {
   } else if (room.rentalType === "shared") {
     const tenantsCount = room.sharedTenants?.length || 0;
     occupantsCount = tenantsCount;
-    tenantName = tenantsCount > 0 ? `${tenantsCount} khách ghép` : "Trống";
+    if (room.sharedTenants && room.sharedTenants.length > 0) {
+      room.sharedTenants.forEach(st => allTenantNames.push(st.name));
+    }
     if (tenantsCount > 0) {
       debt = room.sharedTenants?.reduce((acc, st) => acc + (st.debt || 0), 0) || 0;
       const minDays = Math.min(...(room.sharedTenants?.map(st => st.remainingDays) || [0]));
@@ -71,7 +79,7 @@ export default function RoomCardV7({ room, onOpenRoomModal }: Props) {
 
   return (
     <div 
-      className="group relative bg-card border border-border/80 hover:border-border rounded-[12px] p-3 transition-all hover:shadow-md h-[130px] flex flex-col justify-between"
+      className="group relative bg-card border border-border/80 hover:border-border rounded-[12px] p-3 transition-all hover:shadow-md min-h-[130px] flex flex-col justify-between gap-2"
       onMouseLeave={() => setIsMenuOpen(false)}
     >
       {/* Context Menu Overlay */}
@@ -87,11 +95,11 @@ export default function RoomCardV7({ room, onOpenRoomModal }: Props) {
       )}
 
       {/* Card Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="font-black text-[16px] text-text">P.{room.number}</span>
-          <span className="px-1.5 py-0.5 rounded-[4px] bg-background border border-border text-[10px] font-bold text-muted uppercase">{room.type}</span>
-          <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black uppercase ${statusBg} ${statusColor}`}>{statusText}</span>
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0 pr-1">
+          <span className="font-black text-[16px] text-text whitespace-nowrap truncate">P.{roomLabel}</span>
+          <span className="px-1.5 py-0.5 rounded-[4px] bg-background border border-border text-[10px] font-bold text-muted uppercase whitespace-nowrap shrink-0">{room.type}</span>
+          <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black uppercase whitespace-nowrap shrink-0 ${statusBg} ${statusColor}`}>{statusText}</span>
         </div>
         <button 
           onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }}
@@ -101,22 +109,48 @@ export default function RoomCardV7({ room, onOpenRoomModal }: Props) {
         </button>
       </div>
 
+      {/* Room layout detail tags */}
+      <div className="flex flex-wrap gap-1 mt-1 shrink-0">
+        {room.type === "2PN" ? (
+          <>
+            <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-tight">Phòng lớn</span>
+            <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-tight">2 PN mini riêng</span>
+            <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-tight">1 P.Khách</span>
+            <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-tight">1 WC</span>
+            <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-tight">1 bếp</span>
+          </>
+        ) : (
+          <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase tracking-tight">1 giường đơn</span>
+        )}
+      </div>
+
       {/* Density Middle Row */}
       <div className="flex flex-col mt-2">
-        <div className="flex items-center justify-between text-[13px]">
-          <span className="font-bold text-text truncate max-w-[140px]">{tenantName}</span>
-          <span className="text-muted font-medium">{formatMoney(price)}/th</span>
-        </div>
-        <div className="flex items-center justify-between text-[11px] mt-0.5">
-          <span className="text-muted">{occupantsCount} người ở</span>
-          <span className="text-muted text-right">Còn: <strong className="text-text">{daysRemaining}</strong></span>
+        {allTenantNames.length > 0 ? (
+          <div className="flex flex-col gap-0.5 mb-1">
+            {allTenantNames.map((name, idx) => (
+              <div key={idx} className="flex flex-wrap items-center justify-between text-[13px] gap-1">
+                <span className="font-bold text-text truncate flex-1 min-w-0">{name}</span>
+                {idx === 0 && <span className="text-muted font-medium whitespace-nowrap ml-2 shrink-0">{price ? `${formatMoney(price)}/th` : '-'}</span>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between text-[13px] gap-1 mb-1">
+            <span className="font-bold italic text-muted truncate flex-1 min-w-0">Chưa có khách</span>
+            <span className="text-muted font-medium whitespace-nowrap ml-2 shrink-0">{price ? `${formatMoney(price)}/th` : '-'}</span>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-between text-[11px] mt-1 gap-1">
+          <span className="text-muted whitespace-nowrap">{occupantsCount} người ở</span>
+          <span className="text-muted text-right whitespace-nowrap ml-auto">Còn: <strong className="text-text">{daysRemaining}</strong></span>
         </div>
       </div>
 
       {/* Footer / Debt */}
       <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/50">
         <span className="text-[11px] font-bold text-muted">Công nợ:</span>
-        <span className={`font-black text-[13px] ${debt > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+        <span className={`font-black text-[13px] ${debt > 0 ? 'text-rose-500' : 'text-indigo-500'}`}>
           {debt > 0 ? formatMoney(debt) : 'Không nợ'}
         </span>
       </div>

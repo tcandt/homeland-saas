@@ -9,6 +9,14 @@ export interface User {
   permissions: string[];
 }
 
+export interface CurrentUserProfile extends User {
+  tenant?: {
+    id: string;
+    name: string;
+    code: string;
+  };
+}
+
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
@@ -35,5 +43,17 @@ export const authApi = {
 
   resetPassword: (data: any) => {
     return apiClient.post<{ success: boolean }>('/auth/reset-password', data);
-  }
+  },
+
+  changePassword: (data: { oldPassword: string; newPassword: string }) => {
+    return apiClient.post<{ success: boolean }>('/auth/change-password', data);
+  },
+
+  updateMe: (data: { fullName?: string }) => {
+    return apiClient.patch<CurrentUserProfile>('/auth/me', data);
+  },
+
+  me: () => {
+    return apiClient.get<CurrentUserProfile>('/auth/me');
+  },
 };

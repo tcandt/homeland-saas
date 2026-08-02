@@ -13,7 +13,6 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [password, setPassword] = useState("");
-
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -27,8 +26,6 @@ export default function RegisterPage() {
     try {
       await authApi.register({ fullName, phone, email, password });
       setSuccess(true);
-      
-      // Auto redirect to login
       setTimeout(() => {
         window.location.href = "/login";
       }, 2000);
@@ -43,7 +40,7 @@ export default function RegisterPage() {
       <AuthLayout>
         <AuthCard>
           <div className="flex flex-col items-center text-center gap-[16px] py-[32px]">
-            <div className="w-[64px] h-[64px] rounded-full bg-[#10b981]/10 flex items-center justify-center text-[#10b981] mb-[8px]">
+            <div className="w-[64px] h-[64px] rounded-full bg-[#8b5cf6]/10 flex items-center justify-center text-[#8b5cf6] mb-[8px]">
               <CheckCircle2 size={32} />
             </div>
             <h2 className="text-[24px] font-black tracking-tight text-text">Tạo tài khoản thành công!</h2>
@@ -76,21 +73,21 @@ export default function RegisterPage() {
             <AuthInput label="Họ và tên" placeholder="Nguyễn Văn A" required disabled={loading} value={fullName} onChange={(e) => setFullName(e.target.value)} />
             <AuthInput label="Số điện thoại" placeholder="0901234567" required disabled={loading} value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
-          
+
           <AuthInput label="Email" type="email" placeholder="name@company.com" required disabled={loading} value={email} onChange={(e) => setEmail(e.target.value)} />
-          
+
           <div className="flex flex-col gap-[4px]">
-            <PasswordField 
-              label="Mật khẩu" 
-              placeholder="••••••••" 
-              required 
+            <PasswordField
+              label="Mật khẩu"
+              placeholder="••••••••"
+              required
               disabled={loading}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
             <PasswordStrength password={password} />
           </div>
-          
+
           <PasswordField label="Xác nhận mật khẩu" placeholder="••••••••" required disabled={loading} />
 
           <label className="flex items-start gap-[12px] cursor-pointer group mt-[4px]">
@@ -100,8 +97,8 @@ export default function RegisterPage() {
             </span>
           </label>
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
             className="h-[48px] md:h-[52px] mt-[8px] w-full rounded-[14px] bg-[#6366f1] text-white font-bold text-[15px] hover:bg-[#4f46e5] hover:shadow-[0_4px_12px_rgba(99,102,241,0.3)] transition-all disabled:opacity-70 disabled:pointer-events-none flex items-center justify-center gap-[8px]"
           >
@@ -109,11 +106,7 @@ export default function RegisterPage() {
           </button>
         </form>
 
-        <AuthFooter 
-          text="Đã có tài khoản?" 
-          linkText="Đăng nhập" 
-          href="/login" 
-        />
+        <AuthFooter text="Đã có tài khoản?" linkText="Đăng nhập" href="/login" />
       </AuthCard>
     </AuthLayout>
   );

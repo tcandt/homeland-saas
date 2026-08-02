@@ -23,7 +23,7 @@ export default function OperationsFinanceChart() {
         </div>
         <div className="flex items-center gap-[12px] flex-wrap">
           <div className="flex items-center gap-[6px]">
-            <div className="w-[12px] h-[12px] rounded-[3px] bg-[#10b981]" />
+            <div className="w-[12px] h-[12px] rounded-[3px] bg-[#8b5cf6]" />
             <span className="text-[12px] font-bold text-text">Thu thực nhận</span>
           </div>
           <div className="flex items-center gap-[6px]">
@@ -58,7 +58,7 @@ export default function OperationsFinanceChart() {
               <div className="flex items-end gap-[2px] md:gap-[4px] h-full relative">
                 {/* Revenue Bar */}
                 <div 
-                  className="w-[12px] md:w-[24px] bg-[#10b981] rounded-t-[4px] hover:opacity-80 transition-opacity"
+                  className="w-[12px] md:w-[24px] bg-[#8b5cf6] rounded-t-[4px] hover:opacity-80 transition-opacity"
                   style={{ height: `${(d.revenue / 400) * 100}%` }}
                 />
                 {/* Expense Bar */}
@@ -86,7 +86,7 @@ export default function OperationsFinanceChart() {
               {/* Tooltip on hover */}
               <div className="absolute -top-[80px] bg-popover border border-border shadow-lg p-[10px] rounded-[10px] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-30 flex flex-col gap-1 w-[140px] left-1/2 -translate-x-1/2">
                 <span className="font-bold text-[11px] text-muted mb-1">{d.name}/2026</span>
-                <span className="font-bold text-[12px] text-[#10b981] leading-none">Thu: {d.revenue}M</span>
+                <span className="font-bold text-[12px] text-[#8b5cf6] leading-none">Thu: {d.revenue}M</span>
                 <span className="font-bold text-[12px] text-rose-500 leading-none">Chi: {d.expense}M</span>
                 <span className="font-bold text-[12px] text-[#6366f1] leading-none">Lãi: {d.profit}M</span>
                 <span className="font-bold text-[12px] text-[#f97316] leading-none">Nợ: {d.debt}M</span>

@@ -1,12 +1,15 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { masterBuildings } from "../buildings/mockData";
-import { DollarSign, AlertCircle, Clock, Wallet, TrendingUp, PiggyBank } from "lucide-react";
+import { AlertCircle, Clock, Wallet, TrendingUp, PiggyBank, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { useRoomsQuery } from "@/lib/queries/rooms.queries";
 
 export default function MoneyOverview() {
+  const { data: roomsData, isLoading } = useRoomsQuery({ limit: 100 });
+
   const stats = useMemo(() => {
+    const rooms = (roomsData as any)?.data?.items || (roomsData as any)?.data || [];
     let totalDebt = 0;
     let overdueInvoices = 0;
     let overdueAmount = 0;
@@ -14,61 +17,60 @@ export default function MoneyOverview() {
     let deposits = 0;
     let monthlyRevenue = 0;
 
-    masterBuildings.forEach(b => {
-      b.floors.forEach(f => {
-        f.rooms.forEach(r => {
-          // Whole room
-          if (r.rentalType === "whole") {
-            if (r.debt) totalDebt += r.debt;
-            if (r.contract?.deposit) deposits += r.contract.deposit;
-            r.invoices?.forEach(inv => {
-              if (inv.status !== "paid") {
-                unpaidRent += inv.amount;
-                // mock overdue logic: if amount > 5M we mock it as overdue for now
-                if (inv.amount > 5000000) {
-                  overdueInvoices += 1;
-                  overdueAmount += inv.amount;
-                }
-              }
-              if (inv.type === "rent" && inv.status === "paid") {
-                monthlyRevenue += inv.amount; // Simplify revenue
-              }
-            });
-          } else {
-            // Shared room
-            r.sharedTenants?.forEach(st => {
-              if (st.debt) totalDebt += st.debt;
-              if (st.deposit) deposits += st.deposit;
-              st.invoices?.forEach(inv => {
-                if (inv.status !== "paid") {
-                  unpaidRent += inv.amount;
-                  if (inv.amount > 2000000) {
-                    overdueInvoices += 1;
-                    overdueAmount += inv.amount;
-                  }
-                }
-                if (inv.type === "rent" && inv.status === "paid") {
-                  monthlyRevenue += inv.amount;
-                }
-              });
-            });
+    rooms.forEach((room: any) => {
+      if (room.rentalType === "whole") {
+        if (room.debt) totalDebt += Number(room.debt) || 0;
+        if (room.contract?.deposit) deposits += Number(room.contract.deposit) || 0;
+        room.invoices?.forEach((inv: any) => {
+          if (inv.status !== "paid") {
+            unpaidRent += Number(inv.amount) || 0;
+            if ((Number(inv.amount) || 0) > 5000000) {
+              overdueInvoices += 1;
+              overdueAmount += Number(inv.amount) || 0;
+            }
+          }
+          if (inv.type === "rent" && inv.status === "paid") {
+            monthlyRevenue += Number(inv.amount) || 0;
           }
         });
-      });
+      } else {
+        room.sharedTenants?.forEach((st: any) => {
+          if (st.debt) totalDebt += Number(st.debt) || 0;
+          if (st.deposit) deposits += Number(st.deposit) || 0;
+          st.invoices?.forEach((inv: any) => {
+            if (inv.status !== "paid") {
+              unpaidRent += Number(inv.amount) || 0;
+              if ((Number(inv.amount) || 0) > 2000000) {
+                overdueInvoices += 1;
+                overdueAmount += Number(inv.amount) || 0;
+              }
+            }
+            if (inv.type === "rent" && inv.status === "paid") {
+              monthlyRevenue += Number(inv.amount) || 0;
+            }
+          });
+        });
+      }
     });
 
     return { totalDebt, overdueInvoices, overdueAmount, unpaidRent, deposits, monthlyRevenue };
-  }, []);
+  }, [roomsData]);
 
-  const formatMoney = (amount: number) => {
-    return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(amount);
-  };
+  const formatMoney = (amount: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(amount);
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="col-span-full flex items-center justify-center py-6 text-muted">
+          <Loader2 className="w-4 h-4 animate-spin mr-2" /> Đang tải tài chính thật...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-      {/* 1. Outstanding Debt */}
       <Card className="flex flex-col gap-3 relative group">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-danger/5 rounded-full blur-[40px] -z-10 group-hover:bg-danger/10 transition-colors" />
         <div className="flex items-center gap-3 text-muted">
           <div className="w-8 h-8 rounded-xl bg-danger/10 text-danger flex items-center justify-center">
             <AlertCircle size={16} />
@@ -80,10 +82,7 @@ export default function MoneyOverview() {
           <p className="text-xs font-medium text-muted mt-1">Khách nợ chưa thu</p>
         </div>
       </Card>
-
-      {/* 2. Overdue Invoices */}
       <Card className="flex flex-col gap-3 relative group">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-warning/5 rounded-full blur-[40px] -z-10 group-hover:bg-warning/10 transition-colors" />
         <div className="flex items-center gap-3 text-muted">
           <div className="w-8 h-8 rounded-xl bg-warning/10 text-warning flex items-center justify-center">
             <Clock size={16} />
@@ -95,8 +94,6 @@ export default function MoneyOverview() {
           <p className="text-xs font-medium text-muted mt-1">Tổng: {formatMoney(stats.overdueAmount)}</p>
         </div>
       </Card>
-
-      {/* 3. Unpaid Rent */}
       <Card className="flex flex-col gap-3 relative group">
         <div className="flex items-center gap-3 text-muted">
           <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
@@ -109,11 +106,9 @@ export default function MoneyOverview() {
           <p className="text-xs font-medium text-muted mt-1">Trong kỳ này</p>
         </div>
       </Card>
-
-      {/* 4. Deposits Held */}
       <Card className="flex flex-col gap-3 relative group">
         <div className="flex items-center gap-3 text-muted">
-          <div className="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center">
             <PiggyBank size={16} />
           </div>
           <span className="font-bold text-xs uppercase">Tiền cọc giữ</span>
@@ -123,10 +118,7 @@ export default function MoneyOverview() {
           <p className="text-xs font-medium text-muted mt-1">Sẽ hoàn trả khi thanh lý</p>
         </div>
       </Card>
-
-      {/* 5. Monthly Revenue */}
       <Card className="flex flex-col gap-3 relative group">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-success/5 rounded-full blur-[40px] -z-10 group-hover:bg-success/10 transition-colors" />
         <div className="flex items-center gap-3 text-muted">
           <div className="w-8 h-8 rounded-xl bg-success/10 text-success flex items-center justify-center">
             <TrendingUp size={16} />
@@ -138,7 +130,6 @@ export default function MoneyOverview() {
           <p className="text-xs font-medium text-muted mt-1">Thực thu tháng này</p>
         </div>
       </Card>
-
     </div>
   );
 }

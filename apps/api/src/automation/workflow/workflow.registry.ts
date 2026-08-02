@@ -12,9 +12,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         order: 1,
       },
       {
+        name: 'Notify Customer via Zalo',
+        type: 'SEND_PAYMENT_CONFIRMATION_ZALO',
+        order: 2,
+        params: {
+          templateCode: 'DEPOSIT_ZALO_PAYMENT_CONFIRMATION',
+        },
+      },
+      {
         name: 'Notify Customer',
         type: 'CREATE_IN_APP_NOTIFICATION',
-        order: 2,
+        order: 3,
         params: {
           templateCode: 'DEPOSIT_COLLECTED'
         }
@@ -22,17 +30,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
       {
         name: 'Invalidate Dashboard Cache',
         type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 3,
+        order: 4,
       },
       {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 4,
+        order: 5,
       },
       {
         name: 'Write Automation Audit',
         type: 'WRITE_AUTOMATION_AUDIT',
-        order: 5,
+        order: 6,
       }
     ]
   },
@@ -47,9 +55,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         order: 1,
       },
       {
+        name: 'Notify Customer via Zalo',
+        type: 'SEND_PAYMENT_CONFIRMATION_ZALO',
+        order: 2,
+        params: {
+          templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
+        },
+      },
+      {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 2,
+        order: 3,
       }
     ]
   }

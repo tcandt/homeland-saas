@@ -65,7 +65,7 @@ interface Props {
 
 export default function SettingsSidebar({ activeSection, onSelect }: Props) {
   return (
-    <div className="w-[280px] shrink-0 flex flex-col gap-[8px] sticky top-[80px]">
+    <div className="w-full lg:w-[280px] shrink-0 flex flex-col gap-[8px] lg:sticky lg:top-[80px]">
       {groups.map((group) => (
         <div key={group.label} className="flex flex-col gap-[2px]">
           <div className="text-[10px] font-black text-muted tracking-[0.12em] uppercase px-[12px] py-[6px]">
@@ -87,7 +87,7 @@ export default function SettingsSidebar({ activeSection, onSelect }: Props) {
                   <span className={`text-[13px] font-bold leading-none ${isActive ? "text-white" : "text-text"}`}>
                     {item.label}
                   </span>
-                  <span className={`text-[11px] font-medium mt-[2px] truncate ${isActive ? "text-white/70" : "text-muted"}`}>
+                  <span className={`text-[11px] font-medium mt-[2px] ${isActive ? "text-white/70" : "text-muted"}`}>
                     {item.desc}
                   </span>
                 </div>

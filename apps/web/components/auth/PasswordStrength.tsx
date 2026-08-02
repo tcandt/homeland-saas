@@ -16,7 +16,7 @@ export default function PasswordStrength({ password = "" }: Props) {
   };
 
   const score = calculateStrength();
-  
+
   const getLabel = () => {
     if (score === 0) return "Chưa nhập";
     if (score < 2) return "Yếu";
@@ -28,19 +28,17 @@ export default function PasswordStrength({ password = "" }: Props) {
     if (score === 0) return "bg-border";
     if (score < 2) return index === 0 ? "bg-rose-500" : "bg-border";
     if (score === 2) return index < 2 ? "bg-[#f59e0b]" : "bg-border";
-    return "bg-[#10b981]";
+    return "bg-[#8b5cf6]";
   };
 
   return (
     <div className="flex flex-col gap-[6px] mt-[4px]">
       <div className="flex gap-[4px] h-[4px]">
         {[0, 1, 2].map((i) => (
-          <div key={i} className={`flex-1 rounded-full transition-colors duration-300 ${getColorClass(i)}`}></div>
+          <div key={i} className={`flex-1 rounded-full transition-colors duration-300 ${getColorClass(i)}`} />
         ))}
       </div>
-      <div className="text-[12px] font-medium text-muted flex justify-end">
-        {getLabel()}
-      </div>
+      <div className="text-[12px] font-medium text-muted flex justify-end">{getLabel()}</div>
     </div>
   );
 }

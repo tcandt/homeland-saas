@@ -8,6 +8,7 @@ import { useDepositsQuery } from "../../lib/queries/deposits.queries";
 import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
 import { ErrorState } from "../ui/ErrorState";
 import { EmptyState } from "../ui/EmptyState";
+import { LoadingState } from "../ui/LoadingState";
 
 export default function OperationsDepositList() {
   const { 
@@ -37,7 +38,7 @@ export default function OperationsDepositList() {
 
       <div className="flex flex-col gap-[12px]">
         {isLoading ? (
-          <div className="p-8 text-center text-muted">Đang tải...</div>
+          <LoadingState message="Đang tải danh sách phiếu cọc..." />
         ) : isError ? (
           <div data-testid="deposits-error-state">
             <ErrorState message="Có lỗi xảy ra khi tải dữ liệu." />

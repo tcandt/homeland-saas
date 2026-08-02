@@ -1,3 +1,5 @@
+"use client";
+
 import AppShell from "@/components/layout/AppShell";
 import OperationsBillingKpi from "@/components/invoices/OperationsBillingKpi";
 import OperationsBillingInsights from "@/components/invoices/OperationsBillingInsights";
@@ -32,7 +34,7 @@ export default function InvoicesPage() {
             <button className="h-[36px] px-[16px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 rounded-[10px] font-bold text-[13px] transition-colors flex items-center gap-[6px]">
               <Send size={14} /> Gửi nhắc nợ
             </button>
-            <button className="h-[36px] px-[16px] bg-[#10b981]/10 hover:bg-[#10b981]/20 text-[#10b981] rounded-[10px] font-bold text-[13px] transition-colors flex items-center gap-[6px]">
+            <button className="h-[36px] px-[16px] bg-[#8b5cf6]/10 hover:bg-[#8b5cf6]/20 text-[#8b5cf6] rounded-[10px] font-bold text-[13px] transition-colors flex items-center gap-[6px]">
               <Receipt size={14} /> Thu tiền
             </button>
             <button className="h-[36px] px-[16px] bg-[#6366f1] hover:bg-[#4f46e5] text-white rounded-[10px] font-bold text-[13px] shadow-sm transition-all shadow-[#6366f1]/20 flex items-center gap-[6px]">

@@ -5,7 +5,8 @@ import { ClsService } from 'nestjs-cls';
 const TENANT_AWARE_MODELS = [
   'Building', 'Floor', 'Room', 'Customer', 'Contract', 
   'Deposit', 'Invoice', 'Payment', 'CreditNote', 'Task', 
-  'SalesLead', 'NotificationJob', 'User', 'AuditLog'
+  'SalesLead', 'NotificationJob', 'User', 'AuditLog',
+  'AppSetting', 'PaymentRequest', 'PaymentWebhookLog'
 ];
 
 @Injectable()

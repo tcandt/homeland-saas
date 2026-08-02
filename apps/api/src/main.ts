@@ -12,7 +12,7 @@ import { ResponseInterceptor } from './shared/interceptors/response.interceptor'
 import { GlobalExceptionFilter } from './shared/exceptions/global-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
 
   // 1. Logger
   app.useLogger(app.get(Logger));
@@ -23,6 +23,10 @@ async function bootstrap() {
     type: VersioningType.URI,
     defaultVersion: '1',
   });
+
+  const express = require('express');
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // 3. CORS & Security
   app.enableCors();

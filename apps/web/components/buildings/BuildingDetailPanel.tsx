@@ -1,13 +1,14 @@
 "use client";
 
 import React from "react";
-import { Building } from "./mockData";
+import type { Building } from "./building.types";
 import { SelectedNode } from "./MasterDetailBuildings";
 import BuildingView from "./views/BuildingView";
 import FloorView from "./views/FloorView";
 import RoomView from "./views/RoomView";
 import { Map, AlertTriangle, Layers, Edit, Trash2 } from "lucide-react";
 import { Button } from "../ui/Button";
+import { getRoomDisplayName } from "./building-labels";
 
 interface Props {
   buildings: Building[];
@@ -78,7 +79,7 @@ export default function BuildingDetailPanel({
              <span className="hover:text-text transition-colors ml-1" onClick={() => onSelectNode({ type: "floor", buildingId: building.id, floorId: floor?.id })}>Tầng {floor?.number}</span> /
           </div>
           <div className="flex items-center justify-between">
-            <h2 className="font-black text-[28px] text-text tracking-tighter">Phòng P.{room?.name}</h2>
+            <h2 className="font-black text-[28px] text-text tracking-tighter">Phòng P.{getRoomDisplayName(room)}</h2>
             <Button 
               onClick={() => room && onOpenRoomModal(room.id)}
               className="shadow-[0_4px_14px_0_rgb(99,102,241,0.39)] hover:shadow-lg"
@@ -99,6 +100,7 @@ export default function BuildingDetailPanel({
         {selectedNode.type === "building" && (
           <BuildingView 
             building={building} 
+            buildings={buildings}
             onSelectNode={onSelectNode}
             onEditBuilding={onEditBuilding}
             onAddFloor={onAddFloor}
@@ -106,6 +108,8 @@ export default function BuildingDetailPanel({
             onOpenRoomModal={onOpenRoomModal}
             onEditFloor={onEditFloor}
             onDeleteFloor={onDeleteFloor}
+            onAddRoom={onAddRoom}
+            onDeleteRoom={onDeleteRoom}
           />
         )}
         {selectedNode.type === "floor" && (

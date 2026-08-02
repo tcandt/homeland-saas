@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react";
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || "/";
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {

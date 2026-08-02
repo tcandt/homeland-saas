@@ -68,7 +68,7 @@ export default function FloatingActionButton() {
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Tạo phiếu thu</span>
-                <div className="w-8 h-8 rounded-full bg-[#10b981]/10 flex items-center justify-center"><Coins size={14} className="text-[#10b981]" /></div>
+                <div className="w-8 h-8 rounded-full bg-[#8b5cf6]/10 flex items-center justify-center"><Coins size={14} className="text-[#8b5cf6]" /></div>
               </button>
             </>
           )}
@@ -77,7 +77,7 @@ export default function FloatingActionButton() {
             <>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Ghi nhận chi phí</span>
-                <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center"><Banknote size={14} className="text-emerald-500" /></div>
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center"><Banknote size={14} className="text-indigo-500" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Giao việc nhân viên</span>
@@ -114,7 +114,7 @@ export default function FloatingActionButton() {
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Xuất hợp đồng</span>
-                <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center"><FileText size={14} className="text-emerald-500" /></div>
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center"><FileText size={14} className="text-indigo-500" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Thu tiền</span>
@@ -147,7 +147,7 @@ export default function FloatingActionButton() {
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Xuất PDF</span>
-                <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center"><Download size={14} className="text-emerald-500" /></div>
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center"><Download size={14} className="text-indigo-500" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Gia hạn</span>
@@ -168,7 +168,7 @@ export default function FloatingActionButton() {
             <>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Xuất PDF</span>
-                <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center"><Download size={14} className="text-emerald-500" /></div>
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center"><Download size={14} className="text-indigo-500" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Hoàn cọc</span>
@@ -180,7 +180,7 @@ export default function FloatingActionButton() {
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Thu cọc</span>
-                <div className="w-8 h-8 rounded-full bg-[#10b981]/10 flex items-center justify-center"><Banknote size={14} className="text-[#10b981]" /></div>
+                <div className="w-8 h-8 rounded-full bg-[#8b5cf6]/10 flex items-center justify-center"><Banknote size={14} className="text-[#8b5cf6]" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Giữ chỗ</span>
@@ -197,11 +197,11 @@ export default function FloatingActionButton() {
             <>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Tạo phiếu thu</span>
-                <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center"><Coins size={14} className="text-emerald-500" /></div>
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center"><Coins size={14} className="text-indigo-500" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Nhập thanh toán</span>
-                <div className="w-8 h-8 rounded-full bg-[#10b981]/10 flex items-center justify-center"><Banknote size={14} className="text-[#10b981]" /></div>
+                <div className="w-8 h-8 rounded-full bg-[#8b5cf6]/10 flex items-center justify-center"><Banknote size={14} className="text-[#8b5cf6]" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Xuất PDF</span>
@@ -226,11 +226,11 @@ export default function FloatingActionButton() {
             <>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Chiến dịch Marketing</span>
-                <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center"><Megaphone size={14} className="text-purple-500" /></div>
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center"><Megaphone size={14} className="text-indigo-500" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Tạo Hợp đồng</span>
-                <div className="w-8 h-8 rounded-full bg-[#10b981]/10 flex items-center justify-center"><FileSignature size={14} className="text-[#10b981]" /></div>
+                <div className="w-8 h-8 rounded-full bg-[#8b5cf6]/10 flex items-center justify-center"><FileSignature size={14} className="text-[#8b5cf6]" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Tạo Phiếu Cọc</span>
@@ -263,11 +263,11 @@ export default function FloatingActionButton() {
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Sao lưu</span>
-                <div className="w-8 h-8 rounded-full bg-[#10b981]/10 flex items-center justify-center"><Database size={14} className="text-[#10b981]" /></div>
+                <div className="w-8 h-8 rounded-full bg-[#8b5cf6]/10 flex items-center justify-center"><Database size={14} className="text-[#8b5cf6]" /></div>
               </button>
               <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
                 <span className="text-[13px] font-bold text-text">Nhật ký</span>
-                <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center"><Clock size={14} className="text-purple-500" /></div>
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center"><Clock size={14} className="text-indigo-500" /></div>
               </button>
             </>
           )}
@@ -284,7 +284,7 @@ export default function FloatingActionButton() {
               </Link>
               <Link href="/contracts" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform">
                 <span className="text-[13px] font-bold text-text">Hợp đồng</span>
-                <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center"><FileText size={14} className="text-emerald-500" /></div>
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center"><FileText size={14} className="text-indigo-500" /></div>
               </Link>
               <Link href="/tenants" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform">
                 <span className="text-[13px] font-bold text-text">Khách thuê</span>
@@ -299,7 +299,7 @@ export default function FloatingActionButton() {
       <button 
         onClick={handleClick}
         aria-label="Thêm mới"
-        className={`fixed bottom-[95px] right-[16px] md:bottom-[40px] md:right-[40px] w-[48px] h-[48px] md:w-[60px] md:h-[60px] bg-gradient-to-br from-[#8b5cf6] to-[#4f46e5] text-white rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all hover:scale-105 z-[10000] group ${isOpen ? 'rotate-45' : ''}`}
+        className={`hidden md:flex fixed md:bottom-[40px] md:right-[40px] w-[48px] h-[48px] md:w-[60px] md:h-[60px] bg-gradient-to-br from-[#8b5cf6] to-[#4f46e5] text-white rounded-full items-center justify-center shadow-lg hover:shadow-xl transition-all hover:scale-105 z-[10000] group ${isOpen ? 'rotate-45' : ''}`}
       >
         <Plus className="w-[24px] h-[24px] md:w-[30px] md:h-[30px] transition-transform duration-300" />
       </button>

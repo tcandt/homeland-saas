@@ -42,7 +42,7 @@ export class LocalStorageProvider implements StorageProvider {
     await fs.writeFile(filePath, buffer);
 
     return {
-      url: relativePath,
+      url: `/api/v1/documents/storage/${relativePath}`,
       size: buffer.length,
       mimeType,
     };

@@ -43,6 +43,13 @@ export class CustomersController {
       phone: input.phone,
       email: input.email,
       identityNo: input.citizenId,
+      gender: input.gender,
+      birthDate: input.birthDate ? new Date(input.birthDate) : undefined,
+      nationality: input.nationality,
+      address: input.address,
+      emergencyPhone: input.emergencyPhone,
+      roomId: input.roomId,
+      relationship: input.relationship,
     };
     return this.customersService.create(data, userId, 'Customers');
   }
@@ -57,6 +64,14 @@ export class CustomersController {
       ...(input.phone !== undefined && { phone: input.phone }),
       ...(input.email !== undefined && { email: input.email }),
       ...(input.citizenId !== undefined && { identityNo: input.citizenId }),
+      ...(input.gender !== undefined && { gender: input.gender }),
+      ...(input.birthDate !== undefined && { birthDate: input.birthDate ? new Date(input.birthDate) : null }),
+      ...(input.nationality !== undefined && { nationality: input.nationality }),
+      ...(input.address !== undefined && { address: input.address }),
+      ...(input.emergencyPhone !== undefined && { emergencyPhone: input.emergencyPhone }),
+      ...(input.roomId !== undefined && { roomId: input.roomId }),
+      ...(input.relationship !== undefined && { relationship: input.relationship }),
+      ...(input.idImages !== undefined && { idImages: input.idImages }),
     };
     return this.customersService.update(id, data, userId, 'Customers');
   }

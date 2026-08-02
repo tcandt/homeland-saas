@@ -1,14 +1,62 @@
 import React from "react";
 import { Coins, ShieldCheck, Clock, AlertTriangle, CheckCircle2, Wallet } from "lucide-react";
+import { useDepositsQuery } from "@/lib/queries/deposits.queries";
+import { Card } from "../ui/Card";
+import { Skeleton } from "../ui/Skeleton";
 
 export default function OperationsDepositKpi() {
+  const { data, isLoading } = useDepositsQuery({});
+  const items = data?.data?.items || [];
+
+  if (isLoading) {
+    return (
+      <div data-testid="deposits-kpi-grid" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-[16px]">
+        {Array.from({ length: 6 }).map((_, idx) => (
+          <Card key={idx} className="p-[16px] flex flex-col justify-center gap-[8px] h-[80px] md:h-[90px] shadow-sm">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="w-[28px] h-[28px] rounded-full" />
+            </div>
+            <div className="flex items-end gap-[6px]">
+              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-3 w-8 mb-[2px]" />
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  const totalFund = items
+    .filter((d: any) => d.status === "PAID" || d.status === "CONVERTED_TO_CONTRACT")
+    .reduce((sum: number, d: any) => sum + (Number(d.amount) || 0), 0);
+
+  const securityFund = items
+    .filter((d: any) => d.type === "SECURITY" && (d.status === "PAID" || d.status === "CONVERTED_TO_CONTRACT"))
+    .reduce((sum: number, d: any) => sum + (Number(d.amount) || 0), 0);
+
+  const bookingFund = items
+    .filter((d: any) => (d.type === "BOOKING" || d.type === "RESERVATION") && (d.status === "PAID" || d.status === "CONVERTED_TO_CONTRACT"))
+    .reduce((sum: number, d: any) => sum + (Number(d.amount) || 0), 0);
+
+  const refundPendingCount = items.filter((d: any) => d.status === "REFUNDED").length;
+  const refundOverdueCount = items.filter((d: any) => d.status === "REFUNDED" && d.expiredAt && new Date(d.expiredAt).getTime() < new Date().getTime()).length;
+  const refundedCount = items.filter((d: any) => d.status === "REFUNDED").length; // mapped to same for now
+
+  const formatMillions = (val: number) => {
+    if (val >= 1000000) {
+      return `${(val / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+    }
+    return val.toLocaleString() + " đ";
+  };
+
   const kpis = [
-    { label: "Tổng quỹ cọc", value: "345M", unit: "", icon: Wallet, color: "text-[#6366f1]", bg: "bg-[#6366f1]/10", border: "border-[#6366f1]/20" },
-    { label: "Cọc bảo đảm", value: "280M", unit: "", icon: ShieldCheck, color: "text-[#10b981]", bg: "bg-[#10b981]/10", border: "border-[#10b981]/20" },
-    { label: "Cọc giữ chỗ", value: "65M", unit: "", icon: Coins, color: "text-[#f97316]", bg: "bg-[#f97316]/10", border: "border-[#f97316]/20" },
-    { label: "Sắp hoàn tiền", value: "5", unit: "phiếu", icon: Clock, color: "text-[#0ea5e9]", bg: "bg-[#0ea5e9]/10", border: "border-[#0ea5e9]/20" },
-    { label: "Hoàn quá hạn", value: "2", unit: "phiếu", icon: AlertTriangle, color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20" },
-    { label: "Đã hoàn (Tháng)", value: "18", unit: "phiếu", icon: CheckCircle2, color: "text-muted", bg: "bg-black/5 dark:bg-white/5", border: "border-border" },
+    { label: "Tổng quỹ cọc", value: formatMillions(totalFund), unit: "", icon: Wallet, color: "text-[#6366f1]", bg: "bg-[#6366f1]/10", border: "border-[#6366f1]/20" },
+    { label: "Cọc bảo đảm", value: formatMillions(securityFund), unit: "", icon: ShieldCheck, color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10", border: "border-[#8b5cf6]/20" },
+    { label: "Cọc giữ chỗ", value: formatMillions(bookingFund), unit: "", icon: Coins, color: "text-[#f97316]", bg: "bg-[#f97316]/10", border: "border-[#f97316]/20" },
+    { label: "Sắp hoàn tiền", value: refundPendingCount.toString(), unit: "phiếu", icon: Clock, color: "text-[#0ea5e9]", bg: "bg-[#0ea5e9]/10", border: "border-[#0ea5e9]/20" },
+    { label: "Hoàn quá hạn", value: refundOverdueCount.toString(), unit: "phiếu", icon: AlertTriangle, color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20" },
+    { label: "Đã hoàn (Tháng)", value: refundedCount.toString(), unit: "phiếu", icon: CheckCircle2, color: "text-muted", bg: "bg-black/5 dark:bg-white/5", border: "border-border" },
   ];
 
   return (

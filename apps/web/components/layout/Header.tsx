@@ -1,11 +1,12 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Search, Moon, Sun, Bell, Menu } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useState, useEffect } from "react";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { useCurrentUserQuery } from "@/lib/queries/auth.queries";
+import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -15,7 +16,7 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
   "/": {
     title: "Dashboard",
     subtitle: "Tổng quan hoạt động hôm nay",
-    mobileSubtitle: "Chào mừng trở lại, Văn Thể Phan 👋",
+    mobileSubtitle: "Chào mừng trở lại",
   },
   "/buildings": {
     title: "Tòa nhà & Dự án",
@@ -79,63 +80,72 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   const pathname = usePathname();
   const current = routeMeta[pathname] ?? routeMeta["/"];
   const [mounted, setMounted] = useState(false);
-  const { user } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const { data: currentUser } = useCurrentUserQuery(accessToken);
+  const { data: profileSection } = useSettingsSectionQuery<{ fullName?: string }>("profile", "USER", Boolean(accessToken));
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     setMounted(true);
-    
-    // Fallback Fetch
+
     const fetchInitialCount = async () => {
-       const token = localStorage.getItem('token');
-       console.log('[Header] Token present? ' + !!token);
-       if(!token) return;
-        try {
-         const res = await fetch('/api/v1/notifications/unread-count', {
-           headers: { Authorization: `Bearer ${token}` }
-         });
-         if (res.ok) {
-           const data = await res.json();
-           console.log('[Header] Fetched unread count:', data);
-           setUnreadCount(data.count || data.data?.count || 0);
-         } else {
-           console.error('[Header] Fetch failed:', res.status);
-         }
-        } catch(e) {
-           console.error('[Header] Fetch error', e);
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      try {
+        const res = await fetch("/api/v1/notifications/unread-count", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setUnreadCount(data.count || data.data?.count || 0);
         }
+      } catch (error) {
+        console.error("[Header] Fetch unread count failed:", error);
+      }
     };
-    
+
     fetchInitialCount();
 
-    // SSE connection
-    const token = localStorage.getItem('token');
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
     const sse = new EventSource(`${apiUrl}/notifications/stream?token=${token}`);
-    
+
     sse.onmessage = (event) => {
-       try {
-         const data = JSON.parse(event.data);
-         if (data && data.count !== undefined) {
-            setUnreadCount(data.count);
-         }
-       } catch (e) {}
+      try {
+        const data = JSON.parse(event.data);
+        if (data && data.count !== undefined) {
+          setUnreadCount(data.count);
+        }
+      } catch {
+        // ignore malformed events
+      }
     };
+
+    const pollingFallback = window.setInterval(fetchInitialCount, 30000);
 
     sse.onerror = () => {
-       console.error('SSE Error, falling back to polling');
-       sse.close();
-       // Polling fallback every 30s
-       const interval = setInterval(fetchInitialCount, 30000);
-       return () => clearInterval(interval);
+      sse.close();
     };
 
-    return () => sse.close();
+    return () => {
+      sse.close();
+      window.clearInterval(pollingFallback);
+    };
   }, []);
+
+  const getDisplayName = () => {
+    const profileName = (profileSection?.value as any)?.fullName?.trim?.() || "";
+    return profileName || currentUser?.fullName || user?.fullName || "System Admin";
+  };
 
   const getMobileSubtitle = () => {
     if (pathname === "/") {
-      return `Chào mừng trở lại, ${user?.fullName || "User"} 👋`;
+      return `Chào mừng trở lại, ${getDisplayName()} 👋`;
     }
     return current.mobileSubtitle;
   };
@@ -145,7 +155,10 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   };
 
   return (
-    <header data-testid="app-header" className="fixed top-0 left-0 right-0 md:sticky md:top-0 bg-background md:bg-card border-b-0 md:border-b border-border flex flex-col md:flex-row md:items-center gap-[16px] px-[16px] pt-[20px] pb-[20px] md:px-[28px] md:h-[80px] md:py-0 z-50 transition-colors w-full box-border">
+    <header
+      data-testid="app-header"
+      className="fixed top-0 left-0 right-0 md:sticky md:top-0 bg-background md:bg-card border-b-0 md:border-b border-border flex flex-col md:flex-row md:items-center gap-[16px] px-[16px] pt-[20px] pb-[20px] md:px-[28px] md:h-[80px] md:py-0 z-50 transition-colors w-full box-border"
+    >
       <div className="flex justify-between items-start md:items-center w-full md:w-auto md:min-w-[210px] gap-4">
         <div className="flex items-center gap-4">
           <button
@@ -158,7 +171,9 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
           <div className="hidden md:block">
             <h1 className="m-0 text-[20px] font-black text-text">{current.title}</h1>
-            <p className="m-0 mt-1 text-muted text-[13px] font-medium">{current.subtitle}</p>
+            <p className="m-0 mt-1 text-muted text-[13px] font-medium">
+              {pathname === "/" ? `Chào mừng trở lại, ${getDisplayName()} 👋` : current.subtitle}
+            </p>
           </div>
 
           <div className="md:hidden pt-1 shrink min-w-0 overflow-hidden pr-2">
@@ -166,7 +181,9 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
               <span className="text-[#22c55e]">HomeLand</span>
               <span className="text-text ml-[3px]">Premium</span>
             </h1>
-            <p className="m-0 mt-[4px] text-[#64748b] text-[14px] leading-[20px] font-medium truncate w-full">{getMobileSubtitle()}</p>
+            <p className="m-0 mt-[4px] text-[#64748b] text-[14px] leading-[20px] font-medium truncate w-full">
+              {getMobileSubtitle()}
+            </p>
           </div>
         </div>
 
@@ -178,10 +195,16 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
           >
             {mounted ? (theme === "dark" ? <Sun size={20} /> : <Moon size={20} />) : <div className="w-[20px] h-[20px]" />}
           </button>
-          <a href="/notifications" aria-label="Thông báo" className="w-[40px] h-[40px] bg-card border border-border/50 text-text rounded-full flex items-center justify-center cursor-pointer relative shadow-sm transition-colors shrink-0">
+          <a
+            href="/notifications"
+            aria-label="Thông báo"
+            className="w-[40px] h-[40px] bg-card border border-border/50 text-text rounded-full flex items-center justify-center cursor-pointer relative shadow-sm transition-colors shrink-0"
+          >
             <Bell size={20} />
             {unreadCount > 0 && (
-               <span className="absolute -top-[2px] -right-[2px] bg-[#ef4444] text-white text-[10px] w-[16px] h-[16px] flex items-center justify-center rounded-full font-bold border-2 border-card">{unreadCount}</span>
+              <span className="absolute -top-[2px] -right-[2px] bg-[#ef4444] text-white text-[10px] w-[16px] h-[16px] flex items-center justify-center rounded-full font-bold border-2 border-card">
+                {unreadCount}
+              </span>
             )}
           </a>
         </div>
@@ -204,10 +227,16 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
         >
           {mounted ? (theme === "dark" ? <Sun size={18} /> : <Moon size={18} />) : <div className="w-[18px] h-[18px]" />}
         </button>
-        <a href="/notifications" aria-label="Thông báo" className="w-[42px] h-[42px] border border-border bg-card hover:bg-black/5 dark:hover:bg-white/5 text-text rounded-full flex items-center justify-center cursor-pointer relative transition-colors">
+        <a
+          href="/notifications"
+          aria-label="Thông báo"
+          className="w-[42px] h-[42px] border border-border bg-card hover:bg-black/5 dark:hover:bg-white/5 text-text rounded-full flex items-center justify-center cursor-pointer relative transition-colors"
+        >
           <Bell size={18} />
           {unreadCount > 0 && (
-             <span className="absolute -top-[2px] -right-[2px] bg-[#ef4444] text-white text-[10px] w-[18px] h-[18px] flex items-center justify-center rounded-full font-bold border-2 border-card">{unreadCount}</span>
+            <span className="absolute -top-[2px] -right-[2px] bg-[#ef4444] text-white text-[10px] w-[18px] h-[18px] flex items-center justify-center rounded-full font-bold border-2 border-card">
+              {unreadCount}
+            </span>
           )}
         </a>
       </div>

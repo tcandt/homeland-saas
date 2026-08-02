@@ -6,7 +6,7 @@ import { Public } from './shared/decorators/public.decorator';
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Liveness check — is the process running? */
+  /** Liveness check  is the process running? */
   @Public()
   @Get()
   checkHealth() {
@@ -17,7 +17,7 @@ export class HealthController {
     };
   }
 
-  /** Readiness check — can the service serve traffic? */
+  /** Readiness check  can the service serve traffic? */
   @Public()
   @Get('ready')
   async checkReadiness() {

@@ -1,3 +1,5 @@
+"use client";
+
 import AppShell from "@/components/layout/AppShell";
 import OperationsContractKpi from "@/components/contracts/OperationsContractKpi";
 import OperationsContractInsights from "@/components/contracts/OperationsContractInsights";
@@ -25,7 +27,7 @@ export default function ContractsPage() {
       <div className="hidden md:flex relative w-full min-h-full flex-col gap-6">
         {/* Decorative background blobs */}
         <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-[#6366f1]/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
-        <div className="absolute top-[20%] right-0 w-[400px] h-[400px] bg-[#10b981]/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
+        <div className="absolute top-[20%] right-0 w-[400px] h-[400px] bg-[#8b5cf6]/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
         
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/50 pb-4">
           <div>

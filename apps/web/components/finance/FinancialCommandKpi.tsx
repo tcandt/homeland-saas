@@ -22,13 +22,13 @@ export default function FinancialCommandKpi() {
   const occupancy = (dashboard as any)?.data?.occupancy || {};
 
   const kpis = [
-    { label: "Tiền mặt ròng", value: kpisData.netCashFlow?.toLocaleString() || "0", unit: "VNĐ", icon: DollarSign, color: "text-[#10b981]", bg: "bg-[#10b981]/10", trendUp: kpisData.netCashFlow >= 0 },
+    { label: "Tiền mặt ròng", value: kpisData.netCashFlow?.toLocaleString() || "0", unit: "VNĐ", icon: DollarSign, color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10", trendUp: kpisData.netCashFlow >= 0 },
     { label: "Doanh thu P&L", value: kpisData.totalRevenue?.toLocaleString() || "0", unit: "VNĐ", icon: TrendingUp, color: "text-[#6366f1]", bg: "bg-[#6366f1]/10", trendUp: true },
     { label: "Chi phí P&L", value: kpisData.totalExpense?.toLocaleString() || "0", unit: "VNĐ", icon: Wallet, color: "text-rose-500", bg: "bg-rose-500/10", trendUp: false },
-    { label: "Lợi nhuận ròng", value: kpisData.netProfit?.toLocaleString() || "0", unit: "VNĐ", icon: PieChart, color: kpisData.netProfit >= 0 ? "text-[#10b981]" : "text-rose-500", bg: kpisData.netProfit >= 0 ? "bg-[#10b981]/10" : "bg-rose-500/10", trendUp: kpisData.netProfit >= 0 },
+    { label: "Lợi nhuận ròng", value: kpisData.netProfit?.toLocaleString() || "0", unit: "VNĐ", icon: PieChart, color: kpisData.netProfit >= 0 ? "text-[#8b5cf6]" : "text-rose-500", bg: kpisData.netProfit >= 0 ? "bg-[#8b5cf6]/10" : "bg-rose-500/10", trendUp: kpisData.netProfit >= 0 },
     { label: "Phải thu (Công nợ)", value: "0", unit: "VNĐ", icon: Minus, color: "text-[#f97316]", bg: "bg-[#f97316]/10", trendUp: false },
     { label: "Tiền cọc giữ", value: "5,000,000", unit: "VNĐ", icon: Building, color: "text-[#0ea5e9]", bg: "bg-[#0ea5e9]/10", trendUp: true },
-    { label: "Tỷ lệ thu", value: "100%", unit: "", icon: CheckCircle, color: "text-[#10b981]", bg: "bg-[#10b981]/10", trendUp: true },
+    { label: "Tỷ lệ thu", value: "100%", unit: "", icon: CheckCircle, color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10", trendUp: true },
     { label: "Lấp đầy", value: occupancy.rate || "0", unit: "%", icon: TrendingUp, color: "text-[#a855f7]", bg: "bg-[#a855f7]/10", trendUp: true },
   ];
 

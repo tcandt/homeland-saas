@@ -39,7 +39,7 @@ export default function AuthLayout({ children }: Props) {
             <span className="text-[13px] font-bold text-text">Quản lý tòa nhà thông minh</span>
           </div>
           <div className="flex items-center gap-[12px]">
-            <div className="w-[32px] h-[32px] rounded-[10px] bg-card border border-border flex items-center justify-center text-[#10b981]">
+            <div className="w-[32px] h-[32px] rounded-[10px] bg-card border border-border flex items-center justify-center text-[#8b5cf6]">
               <Building2 size={16} />
             </div>
             <span className="text-[13px] font-bold text-text">Tự động hóa tài chính & công nợ</span>

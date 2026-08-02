@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Building, Floor, Room } from "./mockData";
+import type { Building, Floor, Room } from "./building.types";
 import { Map, AlertTriangle, Layers, ChevronDown, ChevronRight, Plus, X, Edit2, Trash2, MoreVertical } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 import { usePermissions } from "@/lib/hooks/usePermissions";
@@ -159,7 +159,7 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
                 <div className="grid grid-cols-2 min-[430px]:grid-cols-4 gap-y-[12px] gap-x-[16px] pt-3 border-t border-border/50 w-full box-border">
                   <div className="flex flex-col gap-0.5 overflow-hidden">
                     <span className="text-[10px] leading-[14px] tracking-[0.04em] text-muted font-[700] uppercase truncate">Doanh thu</span>
-                    <span className="text-[13px] md:text-[14px] leading-[18px] md:leading-[20px] font-[800] text-emerald-500 truncate">{formatCompactMoney(revenue)}</span>
+                    <span className="text-[13px] md:text-[14px] leading-[18px] md:leading-[20px] font-[800] text-indigo-500 truncate">{formatCompactMoney(revenue)}</span>
                   </div>
                   <div className="flex flex-col gap-0.5 overflow-hidden">
                     <span className="text-[10px] leading-[14px] tracking-[0.04em] text-muted font-[700] uppercase truncate">Công nợ</span>
@@ -218,8 +218,8 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
                                 switch (r.status) {
                                   case "occupied":
                                     statusText = "Đang thuê";
-                                    statusColor = "text-emerald-600 dark:text-emerald-400";
-                                    bgStatus = "bg-emerald-500/10 border-emerald-500/20";
+                                    statusColor = "text-indigo-600 dark:text-indigo-400";
+                                    bgStatus = "bg-indigo-500/10 border-indigo-500/20";
                                     break;
                                   case "deposited":
                                     statusText = "Đã cọc";

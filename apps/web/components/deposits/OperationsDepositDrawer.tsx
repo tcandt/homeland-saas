@@ -1,64 +1,104 @@
 "use client";
 
 import React from "react";
-import { X, ShieldCheck, FileText, CheckCircle2, Bookmark, RefreshCcw, Banknote, PenTool, Printer, Loader2 } from "lucide-react";
+import {
+  X,
+  CheckCircle2,
+  RefreshCcw,
+  Banknote,
+  PenTool,
+  Printer,
+  Loader2,
+  Clock3,
+  FileText,
+} from "lucide-react";
 import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
-import { useCollectDepositMutation, useRefundDepositMutation, useConvertContractMutation, useCancelDepositMutation } from "../../lib/mutations/deposits.mutations";
+import {
+  useCollectDepositMutation,
+  useRefundDepositMutation,
+  useConvertContractMutation,
+  useCancelDepositMutation,
+} from "../../lib/mutations/deposits.mutations";
+import { useDepositDetailQuery } from "../../lib/queries/deposits.queries";
 import { Drawer } from "../ui/Drawer";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 
-export default function OperationsDepositDrawer({ deposit, onClose }: { deposit: UI_Deposit | null, onClose: () => void }) {
+function formatDate(value?: string | null) {
+  if (!value) return "Chưa có";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Chưa có" : date.toLocaleDateString("vi-VN");
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "Chưa có";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Chưa có" : date.toLocaleString("vi-VN");
+}
+
+export default function OperationsDepositDrawer({
+  deposit,
+  onClose,
+}: {
+  deposit: UI_Deposit | null;
+  onClose: () => void;
+}) {
+  const detailQuery = useDepositDetailQuery(deposit?.id ?? null);
+  const detailDeposit = detailQuery.data?.data || deposit;
+
   const collectMutation = useCollectDepositMutation();
   const refundMutation = useRefundDepositMutation();
   const convertMutation = useConvertContractMutation();
   const cancelMutation = useCancelDepositMutation();
-  
-  if (!deposit) return null;
+
+  if (!detailDeposit) return null;
 
   const handleCollect = () => {
-    collectMutation.mutate({ id: deposit.id });
+    collectMutation.mutate({ id: detailDeposit.id });
   };
 
   const handleRefund = () => {
     const reason = window.prompt("Lý do hoàn tiền?");
-    if (reason) refundMutation.mutate({ id: deposit.id, reason });
+    if (reason) refundMutation.mutate({ id: detailDeposit.id, reason });
   };
 
   const handleCancel = () => {
     const reason = window.prompt("Lý do hủy phiếu cọc?");
-    if (reason) cancelMutation.mutate({ id: deposit.id, reason });
+    if (reason) cancelMutation.mutate({ id: detailDeposit.id, reason });
   };
 
   const handleConvert = () => {
     if (window.confirm("Bạn có chắc muốn chuyển cọc này thành hợp đồng?")) {
-      convertMutation.mutate(deposit.id, {
+      convertMutation.mutate(detailDeposit.id, {
         onSuccess: () => {
           window.alert("Đã chuyển thành hợp đồng thành công!");
           onClose();
-        }
+        },
       });
     }
   };
 
-  const amountStr = new Intl.NumberFormat('vi-VN').format(deposit.amount);
-  const typeName = deposit.type === 'BOOKING' ? 'Giữ phòng' : deposit.type === 'SECURITY' ? 'Bảo đảm' : 'Giữ chỗ';
-  const isPaid = deposit.status === 'PAID';
-  const isConverted = deposit.status === 'CONVERTED_TO_CONTRACT';
-  const isRefunded = deposit.status === 'REFUNDED';
-  const isCancelled = deposit.status === 'CANCELLED';
+  const amountStr = new Intl.NumberFormat("vi-VN").format(detailDeposit.amount);
+  const typeName =
+    detailDeposit.type === "BOOKING" ? "Giữ phòng" : detailDeposit.type === "SECURITY" ? "Bảo đảm" : "Giữ chỗ";
+  const isPaid = detailDeposit.status === "PAID";
+  const isConverted = detailDeposit.status === "CONVERTED_TO_CONTRACT";
+  const isRefunded = detailDeposit.status === "REFUNDED";
+  const isCancelled = detailDeposit.status === "CANCELLED";
 
   return (
     <Drawer
       testId="deposit-detail-drawer"
       closeTestId="deposit-detail-close"
-      isOpen={!!deposit}
+      isOpen={!!detailDeposit}
       onClose={onClose}
       size="xl"
       title={
         <div className="flex items-center gap-[12px]">
-          <h2 className="font-black text-[20px] text-text">Chi tiết Đặt cọc</h2>
-          <span className="bg-[#6366f1]/10 text-[#6366f1] border border-[#6366f1]/20 font-black text-[14px] px-[10px] py-[4px] rounded-[6px]">{deposit.id}</span>
+          <h2 className="font-black text-[20px] text-text">Chi tiết đặt cọc</h2>
+          <span className="bg-[#6366f1]/10 text-[#6366f1] border border-[#6366f1]/20 font-black text-[14px] px-[10px] py-[4px] rounded-[6px]">
+            {detailDeposit.code}
+          </span>
         </div>
       }
       footer={
@@ -69,24 +109,53 @@ export default function OperationsDepositDrawer({ deposit, onClose }: { deposit:
             </Button>
           </div>
           <div className="flex items-center gap-[12px]">
-            {(deposit.status === 'DRAFT' || deposit.status === 'PENDING') && (
-              <Button onClick={handleCancel} disabled={cancelMutation.isPending} variant="ghost" className="text-muted hover:text-rose-500 hover:bg-rose-500/10">
-                {cancelMutation.isPending ? <Loader2 size={16} className="animate-spin mr-2" /> : <X size={16} className="mr-2" />} Hủy phiếu
+            {(detailDeposit.status === "DRAFT" || detailDeposit.status === "PENDING") && (
+              <Button
+                onClick={handleCancel}
+                disabled={cancelMutation.isPending}
+                variant="ghost"
+                className="text-muted hover:text-rose-500 hover:bg-rose-500/10"
+              >
+                {cancelMutation.isPending ? (
+                  <Loader2 size={16} className="animate-spin mr-2" />
+                ) : (
+                  <X size={16} className="mr-2" />
+                )}
+                Hủy phiếu
               </Button>
             )}
             {(isConverted || isPaid) && (
-              <Button onClick={handleRefund} disabled={refundMutation.isPending} className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-500">
-                {refundMutation.isPending ? <Loader2 size={16} className="animate-spin mr-2" /> : <RefreshCcw size={16} className="mr-2" />} Hoàn tiền
+              <Button
+                onClick={handleRefund}
+                disabled={refundMutation.isPending}
+                className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-500"
+              >
+                {refundMutation.isPending ? (
+                  <Loader2 size={16} className="animate-spin mr-2" />
+                ) : (
+                  <RefreshCcw size={16} className="mr-2" />
+                )}
+                Hoàn tiền
               </Button>
             )}
-            {(deposit.status === 'PENDING' || deposit.status === 'DRAFT') && (
-              <Button onClick={handleCollect} disabled={collectMutation.isPending} className="bg-[#10b981] hover:bg-[#059669] text-white">
-                {collectMutation.isPending ? <Loader2 size={16} className="animate-spin mr-2" /> : <Banknote size={16} className="mr-2" />} Thu tiền cọc
+            {(detailDeposit.status === "PENDING" || detailDeposit.status === "DRAFT") && (
+              <Button onClick={handleCollect} disabled={collectMutation.isPending} className="bg-[#8b5cf6] hover:bg-[#6366f1] text-white">
+                {collectMutation.isPending ? (
+                  <Loader2 size={16} className="animate-spin mr-2" />
+                ) : (
+                  <Banknote size={16} className="mr-2" />
+                )}
+                Thu tiền cọc
               </Button>
             )}
             {isPaid && (
               <Button onClick={handleConvert} disabled={convertMutation.isPending} variant="primary">
-                {convertMutation.isPending ? <Loader2 size={16} className="animate-spin mr-2" /> : <PenTool size={16} className="mr-2" />} Lên hợp đồng
+                {convertMutation.isPending ? (
+                  <Loader2 size={16} className="animate-spin mr-2" />
+                ) : (
+                  <PenTool size={16} className="mr-2" />
+                )}
+                Lên hợp đồng
               </Button>
             )}
           </div>
@@ -94,19 +163,36 @@ export default function OperationsDepositDrawer({ deposit, onClose }: { deposit:
       }
     >
       <div className="flex flex-col gap-[24px]">
-        {/* Top Info Banner */}
         <Card className="p-[20px] flex flex-col gap-[16px]">
           <div className="flex items-start justify-between gap-[16px]">
             <div className="flex flex-col gap-[8px]">
-              <h3 className="font-black text-[22px] text-text leading-tight">{deposit.customerName}</h3>
-              <div className="flex items-center gap-[8px]">
-                <span className="text-[12px] font-bold bg-black/5 dark:bg-white/5 px-[8px] py-[4px] rounded-[6px]">{deposit.roomCode} · {deposit.buildingName}</span>
-                <span className={`text-[11px] font-black uppercase px-[8px] py-[4px] rounded-[6px] border ${deposit.type === 'SECURITY' ? 'text-[#10b981] bg-[#10b981]/10 border-[#10b981]/20' : 'text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20'}`}>
+              <h3 className="font-black text-[22px] text-text leading-tight">{detailDeposit.customerName}</h3>
+              <div className="flex flex-wrap items-center gap-[8px]">
+                <span className="text-[12px] font-bold bg-black/5 dark:bg-white/5 px-[8px] py-[4px] rounded-[6px]">
+                  {detailDeposit.roomCode} · {detailDeposit.buildingName}
+                </span>
+                <span
+                  className={`text-[11px] font-black uppercase px-[8px] py-[4px] rounded-[6px] border ${
+                    detailDeposit.type === "SECURITY"
+                      ? "text-[#8b5cf6] bg-[#8b5cf6]/10 border-[#8b5cf6]/20"
+                      : "text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20"
+                  }`}
+                >
                   Cọc {typeName}
                 </span>
-                <span data-testid="deposit-status-badge" className="text-[11px] font-black uppercase px-[8px] py-[4px] rounded-[6px] border text-muted bg-black/5 dark:bg-white/5 border-border">
-                  {deposit.status}
+                <span
+                  data-testid="deposit-status-badge"
+                  className="text-[11px] font-black uppercase px-[8px] py-[4px] rounded-[6px] border text-muted bg-black/5 dark:bg-white/5 border-border"
+                >
+                  {detailDeposit.status}
                 </span>
+              </div>
+            </div>
+            <div className="text-right flex flex-col items-end gap-[4px]">
+              <span className="text-[12px] font-bold text-muted uppercase tracking-wider">Cập nhật gần nhất</span>
+              <div className="flex items-center gap-[6px] text-[14px] font-black text-text">
+                <Clock3 size={16} className="text-[#6366f1]" />
+                {formatDateTime(detailDeposit.updatedAt || detailDeposit.createdAt)}
               </div>
             </div>
           </div>
@@ -118,65 +204,99 @@ export default function OperationsDepositDrawer({ deposit, onClose }: { deposit:
             </div>
             <div className="flex flex-col gap-[4px]">
               <span className="text-[11px] font-bold text-muted uppercase">Đã thu</span>
-              <span className="text-[15px] font-black text-[#10b981]">{isPaid || isConverted ? amountStr : '0'}đ</span>
+              <span className="text-[15px] font-black text-[#8b5cf6]">{isPaid || isConverted ? amountStr : "0"}đ</span>
             </div>
             <div className="flex flex-col gap-[4px]">
               <span className="text-[11px] font-bold text-muted uppercase">Ngày tạo</span>
-              <span className="text-[14px] font-bold text-text">{new Date(deposit.createdAt).toLocaleDateString('vi-VN')}</span>
+              <span className="text-[14px] font-bold text-text">{formatDate(detailDeposit.createdAt)}</span>
             </div>
             <div className="flex flex-col gap-[4px]">
-              <span className="text-[11px] font-bold text-muted uppercase">Khách hàng</span>
-              <span className="text-[14px] font-bold text-text">{deposit.customerName}</span>
+              <span className="text-[11px] font-bold text-muted uppercase">Hạn giữ cọc</span>
+              <span className="text-[14px] font-bold text-text">{formatDate(detailDeposit.expiredAt)}</span>
             </div>
           </div>
         </Card>
 
-        {/* Activity / Timeline */}
-        <Card className="p-[20px] flex flex-col gap-[16px]">
-            <h4 className="font-black text-[15px] text-text flex items-center gap-2 border-b border-border/50 pb-3"><RefreshCcw size={16} className="text-[#f97316]" /> Deposit Workflow</h4>
-            
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-[24px]">
+          <Card className="p-[20px] flex flex-col gap-[16px]">
+            <h4 className="font-black text-[15px] text-text flex items-center gap-2 border-b border-border/50 pb-3">
+              <FileText size={16} className="text-[#6366f1]" /> Ghi chú & Trạng thái
+            </h4>
+            <div className="flex flex-col gap-[12px]">
+              <div className="flex items-center justify-between p-[12px] bg-black/5 dark:bg-white/5 rounded-[10px]">
+                <span className="text-[13px] font-bold text-muted">Ghi chú</span>
+                <span className="text-[13px] font-semibold text-text text-right max-w-[70%] truncate">
+                  {detailDeposit.note || "Không có ghi chú"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-[12px] bg-black/5 dark:bg-white/5 rounded-[10px]">
+                <span className="text-[13px] font-bold text-muted">Khách hàng</span>
+                <span className="text-[13px] font-semibold text-text">{detailDeposit.customerPhone}</span>
+              </div>
+              <div className="flex items-center justify-between p-[12px] bg-black/5 dark:bg-white/5 rounded-[10px]">
+                <span className="text-[13px] font-bold text-muted">Trạng thái hiện tại</span>
+                <span className="text-[13px] font-black text-text">{detailDeposit.status}</span>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-[20px] flex flex-col gap-[16px]">
+            <h4 className="font-black text-[15px] text-text flex items-center gap-2 border-b border-border/50 pb-3">
+              <RefreshCcw size={16} className="text-[#f97316]" /> Mốc xử lý
+            </h4>
             <div className="flex flex-col gap-[0px] relative mt-[8px]">
               <div className="absolute left-[15px] top-[10px] bottom-[20px] w-[2px] bg-border" />
-              
+
               <div className="flex gap-[16px] relative z-10 pb-[24px]">
-                <div className="w-[32px] h-[32px] rounded-full bg-[#10b981] flex items-center justify-center shrink-0 border-[4px] border-card"><CheckCircle2 size={14} className="text-white" /></div>
-                <div className="flex flex-col gap-[4px] pt-[6px]">
-                  <span className="text-[13px] font-bold text-text leading-none">Draft / Pending (Tạo phiếu)</span>
-                  <span className="text-[11px] text-muted">{new Date(deposit.createdAt).toLocaleDateString('vi-VN')}</span>
-                </div>
-              </div>
-              
-              <div className="flex gap-[16px] relative z-10 pb-[24px]">
-                <div className={`w-[32px] h-[32px] rounded-full ${(isPaid || isConverted || isRefunded) ? 'bg-[#10b981]' : 'bg-black/10 dark:bg-white/10'} flex items-center justify-center shrink-0 border-[4px] border-card`}>
-                  {(isPaid || isConverted || isRefunded) ? <CheckCircle2 size={14} className="text-white" /> : <div className="w-[8px] h-[8px] bg-muted rounded-full" />}
+                <div className="w-[32px] h-[32px] rounded-full bg-[#8b5cf6] flex items-center justify-center shrink-0 border-[4px] border-card">
+                  <CheckCircle2 size={14} className="text-white" />
                 </div>
                 <div className="flex flex-col gap-[4px] pt-[6px]">
-                  <span className={`text-[13px] font-bold ${(isPaid || isConverted || isRefunded) ? 'text-text' : 'text-muted'} leading-none`}>Deposit Collected (Thu tiền cọc)</span>
-                  {(isPaid || isConverted || isRefunded) && <span className="text-[11px] text-muted">Đã thu đủ {amountStr}đ</span>}
+                  <span className="text-[13px] font-bold text-text leading-none">Tạo phiếu cọc</span>
+                  <span className="text-[11px] text-muted">{formatDateTime(detailDeposit.createdAt)}</span>
                 </div>
               </div>
 
               <div className="flex gap-[16px] relative z-10 pb-[24px]">
-                <div className={`w-[32px] h-[32px] rounded-full ${(isConverted) ? 'bg-[#10b981]' : 'bg-black/10 dark:bg-white/10'} flex items-center justify-center shrink-0 border-[4px] border-card`}>
-                  {(isConverted) ? <CheckCircle2 size={14} className="text-white" /> : <div className="w-[8px] h-[8px] bg-muted rounded-full" />}
+                <div className={`w-[32px] h-[32px] rounded-full ${isPaid || isConverted ? "bg-[#8b5cf6]" : "bg-black/10 dark:bg-white/10"} flex items-center justify-center shrink-0 border-[4px] border-card`}>
+                  {isPaid || isConverted ? <CheckCircle2 size={14} className="text-white" /> : <div className="w-[8px] h-[8px] bg-muted rounded-full" />}
                 </div>
                 <div className="flex flex-col gap-[4px] pt-[6px]">
-                  <span className={`text-[13px] font-bold ${(isConverted) ? 'text-text' : 'text-muted'} leading-none`}>Contract Created (Lên hợp đồng)</span>
-                  {(isConverted) && <span className="text-[11px] text-muted">Đã chuyển thành hợp đồng</span>}
+                  <span className={`text-[13px] font-bold ${isPaid || isConverted ? "text-text" : "text-muted"} leading-none`}>
+                    Đã thu / Đã xác nhận
+                  </span>
+                  <span className="text-[11px] text-muted">
+                    {isPaid || isConverted ? `${amountStr}đ · ${formatDateTime(detailDeposit.updatedAt)}` : "Chưa thu"}
+                  </span>
                 </div>
               </div>
-              
-              <div className="flex gap-[16px] relative z-10">
-                <div className={`w-[32px] h-[32px] rounded-full ${(deposit.status === 'REFUNDED') ? 'bg-rose-500' : 'bg-black/10 dark:bg-white/10'} flex items-center justify-center shrink-0 border-[4px] border-card`}>
-                  {(deposit.status === 'REFUNDED') ? <RefreshCcw size={14} className="text-white" /> : <div className="w-[8px] h-[8px] bg-muted rounded-full" />}
+
+              <div className="flex gap-[16px] relative z-10 pb-[24px]">
+                <div className={`w-[32px] h-[32px] rounded-full ${isConverted ? "bg-[#8b5cf6]" : "bg-black/10 dark:bg-white/10"} flex items-center justify-center shrink-0 border-[4px] border-card`}>
+                  {isConverted ? <CheckCircle2 size={14} className="text-white" /> : <div className="w-[8px] h-[8px] bg-muted rounded-full" />}
                 </div>
                 <div className="flex flex-col gap-[4px] pt-[6px]">
-                  <span className={`text-[13px] font-bold ${(deposit.status === 'REFUNDED') ? 'text-rose-500' : 'text-muted'} leading-none`}>Refund / Cancelled (Hoàn tiền / Hủy)</span>
-                  {deposit.status === 'REFUNDED' && <span className="text-[11px] text-rose-500 font-bold mt-[4px]">Đã hoàn tiền cọc</span>}
+                  <span className={`text-[13px] font-bold ${isConverted ? "text-text" : "text-muted"} leading-none`}>
+                    Chuyển thành hợp đồng
+                  </span>
+                  <span className="text-[11px] text-muted">{isConverted ? "Đã chuyển thành hợp đồng" : "Chưa chuyển"}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-[16px] relative z-10">
+                <div className={`w-[32px] h-[32px] rounded-full ${isRefunded || isCancelled ? "bg-rose-500" : "bg-black/10 dark:bg-white/10"} flex items-center justify-center shrink-0 border-[4px] border-card`}>
+                  {isRefunded || isCancelled ? <RefreshCcw size={14} className="text-white" /> : <div className="w-[8px] h-[8px] bg-muted rounded-full" />}
+                </div>
+                <div className="flex flex-col gap-[4px] pt-[6px]">
+                  <span className={`text-[13px] font-bold ${isRefunded || isCancelled ? "text-rose-500" : "text-muted"} leading-none`}>
+                    Hoàn tiền / Hủy phiếu
+                  </span>
+                  <span className="text-[11px] text-muted">{isRefunded || isCancelled ? formatDateTime(detailDeposit.updatedAt) : "Chưa xử lý"}</span>
                 </div>
               </div>
             </div>
-        </Card>
+          </Card>
+        </div>
       </div>
     </Drawer>
   );

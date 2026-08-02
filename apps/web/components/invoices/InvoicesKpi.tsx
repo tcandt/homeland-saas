@@ -7,8 +7,8 @@ export default function InvoicesKpi() {
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-[12px] md:gap-[20px]">
       <KpiCard 
         title="Chờ thanh toán" 
-        value="52" 
-        trend="Hóa đơn" 
+        value="0" 
+        trend="0" 
         trendUp={true}
         trendColor="text-muted"
         icon={<Receipt size={16} className="text-[#3b82f6]" />}
@@ -17,8 +17,8 @@ export default function InvoicesKpi() {
       />
       <KpiCard 
         title="Quá hạn" 
-        value="14" 
-        trend="+3" 
+        value="0" 
+        trend="0" 
         trendUp={true}
         trendColor="text-[#ef4444]"
         icon={<AlertTriangle size={16} className="text-[#ef4444]" />}
@@ -28,8 +28,8 @@ export default function InvoicesKpi() {
       />
       <KpiCard 
         title="Đã thanh toán" 
-        value="215" 
-        trend="Hóa đơn" 
+        value="0" 
+        trend="0" 
         trendUp={true}
         trendColor="text-muted"
         icon={<CheckCircle2 size={16} className="text-[#22c55e]" />}
@@ -38,8 +38,8 @@ export default function InvoicesKpi() {
       />
       <KpiCard 
         title="Tỷ lệ thu hồi" 
-        value="87%" 
-        trend="+2%" 
+        value="0%" 
+        trend="0%" 
         trendUp={true}
         icon={<Percent size={16} className="text-[#8b5cf6]" />}
         iconBg="bg-[#8b5cf6]/10"

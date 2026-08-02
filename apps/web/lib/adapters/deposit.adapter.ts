@@ -9,6 +9,7 @@ export interface UI_Deposit {
   expiredAt: string | null;
   note: string | null;
   createdAt: string;
+  updatedAt: string;
   
   // Flattened for UI
   customerName: string;
@@ -28,6 +29,7 @@ export const depositAdapter = {
       expiredAt: apiDeposit.expiredAt,
       note: apiDeposit.note,
       createdAt: apiDeposit.createdAt,
+      updatedAt: apiDeposit.updatedAt,
       
       customerName: apiDeposit.customer?.fullName || 'N/A',
       customerPhone: apiDeposit.customer?.phone || 'N/A',

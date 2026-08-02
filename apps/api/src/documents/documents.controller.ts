@@ -13,6 +13,7 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../shared/guards/permissions.guard';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
+import { Public } from '../shared/decorators/public.decorator';
 
 @ApiTags('Documents')
 @ApiBearerAuth()
@@ -25,6 +26,12 @@ export class DocumentsController {
     const tenantId = req.user?.tenantId;
     if (!tenantId) throw new UnauthorizedException('Tenant ID missing');
     return tenantId;
+  }
+
+  @Get('storage/*')
+  @Public()
+  serveStorage(@Param('0') path: string, @Res() res: Response) {
+    return res.sendFile(path, { root: 'storage' });
   }
 
   @Get()

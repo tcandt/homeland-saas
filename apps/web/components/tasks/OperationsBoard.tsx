@@ -5,20 +5,13 @@ import { AlertCircle, Clock, CheckCircle2 } from "lucide-react";
 import OperationsTicketCard, { TicketData, TicketStatus } from "./OperationsTicketCard";
 import OperationsDetailDrawer from "./OperationsDetailDrawer";
 
-// Mock data
-const mockTickets: TicketData[] = [
-  { id: "TK-1023", title: "Vòi nước bồn rửa mặt bị rỉ", type: "Bảo trì", room: "P.105", building: "LK01", tenantName: "Lê Thị C", priority: "Cao", slaStatus: "Quá hạn 2h", assignee: "KTV Tuấn", comments: 2, attachments: 1, createdAt: "Hôm nay, 08:30", status: "Cần làm" },
-  { id: "TK-1024", title: "Hỏi về thủ tục đăng ký tạm trú", type: "CSKH", room: "P.202", building: "LK01", tenantName: "Nguyễn Văn A", priority: "TB", slaStatus: "Còn 4h", assignee: "Lễ tân Hoa", comments: 0, attachments: 0, createdAt: "Hôm nay, 09:15", status: "Cần làm" },
-  { id: "TK-1025", title: "Điều hòa không mát", type: "Bảo trì", room: "P.305", building: "LK02", tenantName: "Trần B", priority: "Cao", slaStatus: "Còn 1h", assignee: "KTV Hùng", comments: 4, attachments: 2, createdAt: "Hôm qua", status: "Đang xử lý" },
-  { id: "TK-1026", title: "Xin gia hạn hợp đồng", type: "Hợp đồng", room: "P.401", building: "LK02", tenantName: "Phạm D", priority: "TB", slaStatus: "Còn 24h", assignee: "Sale Minh", comments: 1, attachments: 0, createdAt: "Hôm qua", status: "Chờ duyệt" },
-  { id: "TK-1027", title: "Thanh toán thiếu tiền điện", type: "Tài chính", room: "P.102", building: "LK01", tenantName: "Hoàng E", priority: "Thấp", slaStatus: "Còn 2 ngày", assignee: "KT Lan", comments: 3, attachments: 1, createdAt: "2 ngày trước", status: "Hoàn thành" },
-];
+const tickets: TicketData[] = [];
 
 const columns: { title: TicketStatus, color: string, urgent: number, overdue: number }[] = [
-  { title: "Cần làm", color: "text-[#6366f1] bg-[#6366f1]/10 border-[#6366f1]", urgent: 2, overdue: 1 },
-  { title: "Đang xử lý", color: "text-[#f97316] bg-[#f97316]/10 border-[#f97316]", urgent: 1, overdue: 0 },
+  { title: "Cần làm", color: "text-[#6366f1] bg-[#6366f1]/10 border-[#6366f1]", urgent: 0, overdue: 0 },
+  { title: "Đang xử lý", color: "text-[#f97316] bg-[#f97316]/10 border-[#f97316]", urgent: 0, overdue: 0 },
   { title: "Chờ duyệt", color: "text-[#a855f7] bg-[#a855f7]/10 border-[#a855f7]", urgent: 0, overdue: 0 },
-  { title: "Hoàn thành", color: "text-[#10b981] bg-[#10b981]/10 border-[#10b981]", urgent: 0, overdue: 0 },
+  { title: "Hoàn thành", color: "text-[#8b5cf6] bg-[#8b5cf6]/10 border-[#8b5cf6]", urgent: 0, overdue: 0 },
 ];
 
 export default function OperationsBoard() {
@@ -28,7 +21,7 @@ export default function OperationsBoard() {
     <>
       <div className="flex-1 min-h-0 flex gap-[16px] overflow-x-auto no-scrollbar pb-[20px]">
         {columns.map((col) => {
-          const colTickets = mockTickets.filter(t => t.status === col.title);
+          const colTickets = tickets.filter(t => t.status === col.title);
           return (
             <div key={col.title} className="flex-shrink-0 w-[320px] xl:w-[calc(25%-12px)] flex flex-col gap-[12px]">
               

@@ -8,6 +8,8 @@ export interface CommunicationPayload {
   userId: string;
   templateCode: string;
   moduleType?: string; // e.g. FINANCE, CONTRACT
+  channel?: string;
+  recipient?: string | null;
   context: any;
 }
 
@@ -83,6 +85,10 @@ export class CommunicationService {
       // Attempt immediate delivery
       await this.processQueueItem(queueItem.id);
     }
+  }
+
+  async dispatchDirect(payload: CommunicationPayload) {
+    return this.dispatch(payload);
   }
 
   async processQueueItem(queueId: string) {

@@ -86,7 +86,7 @@ export default function FinancialCommandLedger() {
                     {row.accountCode} - {row.accountName}
                   </div>
                 </div>
-                <div className="hidden md:block w-[120px] shrink-0 text-right text-[13px] font-medium text-[#10b981]">
+                <div className="hidden md:block w-[120px] shrink-0 text-right text-[13px] font-medium text-[#8b5cf6]">
                   {row.debit > 0 ? row.debit.toLocaleString() : '-'}
                 </div>
                 <div className="hidden md:block w-[120px] shrink-0 text-right text-[13px] font-medium text-rose-500">
@@ -94,7 +94,7 @@ export default function FinancialCommandLedger() {
                 </div>
                 {/* Mobile consolidated amount */}
                 <div className="block md:hidden shrink-0 text-right text-[13px] font-medium pr-2">
-                  {row.debit > 0 && <div className="text-[#10b981]">{row.debit.toLocaleString()}</div>}
+                  {row.debit > 0 && <div className="text-[#8b5cf6]">{row.debit.toLocaleString()}</div>}
                   {row.credit > 0 && <div className="text-rose-500">{row.credit.toLocaleString()}</div>}
                 </div>
                 

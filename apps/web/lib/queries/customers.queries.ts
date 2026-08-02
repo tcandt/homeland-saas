@@ -14,7 +14,16 @@ export const useCustomersQuery = (params?: { page?: number; limit?: number; sear
     queryKey: customerKeys.list(params),
     queryFn: async () => {
       const response = await customersApi.list(params);
-      return { data: response };
+      const payload = Array.isArray(response) ? { items: response } : (response as any) || {};
+      const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.data) ? payload.data : [];
+      return {
+        data: items,
+        meta: {
+          total: Number(payload.total || items.length || 0),
+          page: Number(payload.page || params?.page || 1),
+          limit: Number(payload.limit || params?.limit || items.length || 0),
+        },
+      };
     },
   });
 };

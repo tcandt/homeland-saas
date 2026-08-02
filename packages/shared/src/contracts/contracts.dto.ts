@@ -18,10 +18,15 @@ export const CreateContractSchema = z.object({
   contractCode: z.string().optional(),
   startDate: z.string().or(z.date()),
   endDate: z.string().or(z.date()),
+  signedAt: z.string().or(z.date()).optional().nullable(),
+  firstPaymentDate: z.string().or(z.date()).optional().nullable(),
+  purpose: z.string().optional().nullable(),
   rentAmount: z.number().min(0),
   depositAmount: z.number().min(0),
   status: ContractStatusEnum.default('ACTIVE'),
   notes: z.string().optional().nullable(),
+  attachments: z.array(z.string()).optional(),
+  coRepresentativeIds: z.array(z.string()).optional(),
 });
 
 export const UpdateContractSchema = CreateContractSchema.partial();

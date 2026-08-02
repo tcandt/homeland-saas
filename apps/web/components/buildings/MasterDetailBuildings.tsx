@@ -1,9 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import BuildingExplorerTree from "./BuildingExplorerTree";
-import BuildingDetailPanel from "./BuildingDetailPanel";
-import { Building, Floor, Room, Tenant, SharedTenant } from "./mockData";
+import type { Building, Floor, Room, Tenant, SharedTenant } from "./building.types";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { useCreateBuildingMutation, useUpdateBuildingMutation, useDeleteBuildingMutation } from "@/lib/mutations/buildings.mutations";
 import { useCreateFloorMutation, useUpdateFloorMutation, useDeleteFloorMutation } from "@/lib/mutations/floors.mutations";
@@ -11,6 +9,7 @@ import { useCreateRoomMutation, useUpdateRoomMutation, useDeleteRoomMutation } f
 import { Loader2 } from "lucide-react";
 import RoomPremiumModal from "./RoomPremiumModal";
 import MobileBuildingsFlow from "./MobileBuildingsFlow";
+import BuildingsWorkspaceShell from "./workspace/BuildingsWorkspaceShell";
 import { Plus, X, Save, Trash2, Edit } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
@@ -19,6 +18,7 @@ import { Select } from "../ui/Select";
 import { toast } from "sonner";
 import { useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/lib/hooks/usePermissions';
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
 export type NodeType = "building" | "floor" | "room";
 
@@ -30,6 +30,11 @@ export interface SelectedNode {
 }
 
 export default function MasterDetailBuildings() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  
   // API Queries & Mutations
   const { data: buildings = [], isLoading } = useBuildingsQuery();
   const permissions = usePermissions();
@@ -57,6 +62,8 @@ export default function MasterDetailBuildings() {
     }
   }, [buildings, selectedNode.buildingId]);
 
+
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalRoomId, setModalRoomId] = useState<string | null>(null);
   const [modalInitialTab, setModalInitialTab] = useState<string>("overview");
@@ -64,6 +71,7 @@ export default function MasterDetailBuildings() {
   // CRUD states
   const [activeDialog, setActiveDialog] = useState<"addBuilding" | "editBuilding" | "addFloor" | "editFloor" | "addRoom" | null>(null);
   const [dialogTargetFloorId, setDialogTargetFloorId] = useState<string | null>(null);
+  const [deleteConfirmState, setDeleteConfirmState] = useState<{ type: 'building' | 'floor' | null, id: string | null }>({ type: null, id: null });
 
   // Building form state
   const [bName, setBName] = useState("");
@@ -140,14 +148,7 @@ export default function MasterDetailBuildings() {
   };
 
   const handleDeleteBuilding = (id: string) => {
-    if (confirm("Bạn có chắc chắn muốn xóa tòa nhà này cùng tất cả tầng và phòng?")) {
-      deleteBuilding.mutate(id, {
-        onSuccess: () => {
-          // Fallback to first available building handled by useEffect
-          setSelectedNode({ type: "building", buildingId: "" });
-        }
-      });
-    }
+    setDeleteConfirmState({ type: 'building', id });
   };
 
   // -------------------- FLOORS CRUD --------------------
@@ -187,7 +188,11 @@ export default function MasterDetailBuildings() {
         usageNote: fNotes
       }, {
         onSuccess: (data) => {
-          setSelectedNode({ type: "floor", buildingId: activeBuilding.id, floorId: data.id });
+          setSelectedNode({ type: "building", buildingId: activeBuilding.id });
+          const params = new URLSearchParams(searchParams.toString());
+          params.set("floor", data.id);
+          params.delete("room");
+          router.push(`${pathname}?${params.toString()}`);
           setActiveDialog(null);
         }
       });
@@ -196,11 +201,7 @@ export default function MasterDetailBuildings() {
 
   const handleDeleteFloor = (floorId: string) => {
     if (!activeBuilding) return;
-    if (confirm("Bạn có chắc chắn muốn xóa tầng này cùng toàn bộ các phòng bên trong?")) {
-      deleteFloor.mutate(floorId, {
-        onSuccess: () => setSelectedNode({ type: "building", buildingId: activeBuilding.id })
-      });
-    }
+    setDeleteConfirmState({ type: 'floor', id: floorId });
   };
 
   // -------------------- ROOMS CRUD --------------------
@@ -232,15 +233,15 @@ export default function MasterDetailBuildings() {
       name: rName,
       code: rCode,
       monthlyPrice: rPrice,
+      area: rArea,
       capacity: rCapacity
     }, {
       onSuccess: (data) => {
-        setSelectedNode({ 
-          type: "room", 
-          buildingId: activeBuilding.id, 
-          floorId: dialogTargetFloorId, 
-          roomId: data.id 
-        });
+        setSelectedNode({ type: "building", buildingId: activeBuilding.id });
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("floor", dialogTargetFloorId);
+        params.set("room", data.id);
+        router.push(`${pathname}?${params.toString()}`);
         setActiveDialog(null);
       }
     });
@@ -251,12 +252,18 @@ export default function MasterDetailBuildings() {
     if (confirm("Bạn có chắc chắn muốn xóa phòng này?")) {
       deleteRoom.mutate(roomId, {
         onSuccess: () => {
+          setSelectedNode({ type: "building", buildingId: activeBuilding.id });
           const currentFloor = activeBuilding.floors.find((f: Floor) => f.rooms.some((r: Room) => r.id === roomId));
+          const params = new URLSearchParams(searchParams.toString());
           if (currentFloor) {
-            setSelectedNode({ type: "floor", buildingId: activeBuilding.id, floorId: currentFloor.id });
+            params.set("floor", currentFloor.id);
           } else {
-            setSelectedNode({ type: "building", buildingId: activeBuilding.id });
+            params.delete("floor");
           }
+          params.delete("room");
+          router.push(`${pathname}?${params.toString()}`);
+          toast.success("Xóa phòng thành công");
+          queryClient.invalidateQueries({ queryKey: ['buildings'] });
         }
       });
     }
@@ -264,7 +271,7 @@ export default function MasterDetailBuildings() {
 
   // Sync Room Updates from Detail Drawer
   const handleUpdateRoom = (roomId: string, updatedRoomFields: Partial<Room>) => {
-    updateRoom.mutate({ id: roomId, data: updatedRoomFields });
+    return updateRoom.mutateAsync({ id: roomId, data: updatedRoomFields }).then(() => undefined);
   };
 
   if (isLoading) {
@@ -284,36 +291,9 @@ export default function MasterDetailBuildings() {
       </div>
 
       {/* -------------------- DESKTOP VIEW -------------------- */}
-      <div className="hidden lg:flex flex-row h-full gap-6 w-full relative">
-        {/* Left Panel: Explorer Tree */}
-      <div className="w-full lg:w-[280px] xl:w-[320px] shrink-0 h-auto lg:h-full flex flex-col bg-card/40 backdrop-blur-md border border-border/60 rounded-[16px] overflow-hidden shadow-sm">
-        <div className="hidden lg:flex items-center justify-between p-4 border-b border-border/50 bg-black/[0.02] dark:bg-white/[0.02]">
-          <h2 className="font-bold text-[12px] text-text uppercase tracking-widest">Danh mục tài sản</h2>
-          {permissions.canCreateBuilding && (
-            <button 
-              data-testid="add-building-button"
-              onClick={handleOpenAddBuilding}
-              className="text-[#6366f1] hover:text-[#4f46e5] text-[11px] font-black uppercase tracking-wider flex items-center gap-0.5"
-            >
-              <Plus className="w-3 h-3" /> Thêm Tòa Nhà
-            </button>
-          )}
-        </div>
-        <div className="flex-1 overflow-y-auto scrollbar-hide p-3 max-h-[250px] lg:max-h-none">
-          <BuildingExplorerTree 
-            buildings={buildings} 
-            selectedNode={selectedNode} 
-            onSelectNode={setSelectedNode} 
-          />
-        </div>
-      </div>
-
-      {/* Right Panel: Detail Panel Dashboard & Grids */}
-      <div className="flex-1 min-w-0 h-full flex flex-col bg-card border border-border/60 rounded-[20px] overflow-hidden shadow-sm relative mt-4 lg:mt-0">
-        <BuildingDetailPanel 
+      <div className="hidden lg:block w-full">
+        <BuildingsWorkspaceShell
           buildings={buildings}
-          selectedNode={selectedNode}
-          onSelectNode={setSelectedNode}
           onOpenRoomModal={openRoomModal}
           onEditBuilding={handleOpenEditBuilding}
           onAddFloor={handleOpenAddFloor}
@@ -321,14 +301,11 @@ export default function MasterDetailBuildings() {
           onAddRoom={handleOpenAddRoom}
           onEditRoom={(roomId) => openRoomModal(roomId, "overview")}
           onDeleteRoom={handleDeleteRoom}
-          onAddTenant={(roomId) => openRoomModal(roomId, "rental_flow")}
-          onCreateInvoice={(roomId) => openRoomModal(roomId, "finances")}
-          onViewContract={(roomId) => openRoomModal(roomId, "rental_flow")}
-          onUploadRoomImages={(roomId) => openRoomModal(roomId, "images")}
           onEditFloor={handleOpenEditFloor}
           onDeleteFloor={handleDeleteFloor}
+          canCreateFloor={permissions.canCreateFloor}
+          canUpdateBuilding={permissions.canUpdateBuilding}
         />
-      </div>
       </div>
 
       {/* Custom Portalled components for dialog triggers */}
@@ -498,16 +475,7 @@ export default function MasterDetailBuildings() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-semibold text-muted uppercase">Giá thuê</label>
-                    <Input 
-                      data-testid="room-price-input"
-                      type="number" 
-                      value={rPrice} 
-                      onChange={(e) => setRPrice(Number(e.target.value))}
-                    />
-                  </div>
+                <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold text-muted uppercase">Diện tích (m²)</label>
                     <Input 
@@ -539,6 +507,52 @@ export default function MasterDetailBuildings() {
           </div>
         </Modal>
       )}
+
+      <Modal
+        isOpen={deleteConfirmState.type !== null}
+        onClose={() => setDeleteConfirmState({ type: null, id: null })}
+        title={`Xác nhận xóa ${deleteConfirmState.type === 'building' ? 'tòa nhà' : 'tầng'}`}
+        footer={
+          <div className="flex gap-3 justify-end w-full">
+            <Button variant="outline" onClick={() => setDeleteConfirmState({ type: null, id: null })}>
+              Hủy
+            </Button>
+            <Button
+              onClick={() => {
+                if (deleteConfirmState.type === 'building') {
+                  deleteBuilding.mutate(deleteConfirmState.id!, {
+                    onSuccess: () => {
+                      setSelectedNode({ type: "building", buildingId: "" });
+                      setDeleteConfirmState({ type: null, id: null });
+                    }
+                  });
+                } else if (deleteConfirmState.type === 'floor') {
+                  deleteFloor.mutate(deleteConfirmState.id!, {
+                    onSuccess: () => {
+                      setSelectedNode({ type: "building", buildingId: activeBuilding?.id || "" });
+                      setDeleteConfirmState({ type: null, id: null });
+                    }
+                  });
+                }
+              }}
+              className="bg-rose-500 text-white hover:bg-rose-600"
+              disabled={deleteBuilding.isPending || deleteFloor.isPending}
+            >
+              {deleteBuilding.isPending || deleteFloor.isPending ? <Loader2 size={16} className="animate-spin mr-2" /> : <Trash2 size={16} className="mr-2" />}
+              Xóa
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3 py-2">
+          <p className="text-sm text-text font-medium">
+            Bạn có chắc chắn muốn xóa {deleteConfirmState.type === 'building' ? "tòa nhà này cùng tất cả tầng và phòng" : "tầng này cùng toàn bộ các phòng bên trong"} không?
+          </p>
+          <p className="text-xs text-muted">
+            Hành động này không thể hoàn tác. Toàn bộ dữ liệu liên quan sẽ bị xóa khỏi hệ thống.
+          </p>
+        </div>
+      </Modal>
     </div>
   );
 }

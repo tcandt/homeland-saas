@@ -35,5 +35,9 @@ export const contractsApi = {
 
   terminate: (id: string) => {
     return apiClient.post(`/contracts/${id}/terminate`);
+  },
+
+  expire: (id: string) => {
+    return apiClient.post(`/contracts/${id}/expire`);
   }
 };

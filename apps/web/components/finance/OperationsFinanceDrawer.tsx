@@ -46,7 +46,7 @@ export default function OperationsFinanceDrawer({ txn, onClose }: { txn: TxnData
             <div className="flex flex-col">
               <div className="flex items-center gap-[8px]">
                 <h3 className="font-black text-[16px] text-text">Chi tiết Giao dịch</h3>
-                <span className={`text-[10px] font-black uppercase px-[8px] py-[2px] rounded-[6px] border ${txn.type === 'Income' ? 'text-[#10b981] border-[#10b981]/20 bg-[#10b981]/10' : txn.type === 'Expense' ? 'text-rose-500 border-rose-500/20 bg-rose-500/10' : 'text-[#f97316] border-[#f97316]/20 bg-[#f97316]/10'}`}>
+                <span className={`text-[10px] font-black uppercase px-[8px] py-[2px] rounded-[6px] border ${txn.type === 'Income' ? 'text-[#8b5cf6] border-[#8b5cf6]/20 bg-[#8b5cf6]/10' : txn.type === 'Expense' ? 'text-rose-500 border-rose-500/20 bg-rose-500/10' : 'text-[#f97316] border-[#f97316]/20 bg-[#f97316]/10'}`}>
                   {txn.type === 'Income' ? 'Phiếu thu' : txn.type === 'Expense' ? 'Phiếu chi' : 'Điều chỉnh'}
                 </span>
                 <span className="font-bold text-[13px] text-muted">· {txn.id}</span>
@@ -71,7 +71,7 @@ export default function OperationsFinanceDrawer({ txn, onClose }: { txn: TxnData
             <div className="grid grid-cols-2 gap-y-[20px] gap-x-[16px] mt-4">
               <div className="flex flex-col gap-1">
                 <span className="text-[12px] font-bold text-muted uppercase tracking-wider">Số tiền</span>
-                <span className={`text-[24px] font-black leading-none ${txn.type === 'Income' ? 'text-[#10b981]' : txn.type === 'Expense' ? 'text-rose-500' : 'text-[#f97316]'}`}>{txn.amount} VNĐ</span>
+                <span className={`text-[24px] font-black leading-none ${txn.type === 'Income' ? 'text-[#8b5cf6]' : txn.type === 'Expense' ? 'text-rose-500' : 'text-[#f97316]'}`}>{txn.amount} VNĐ</span>
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-[12px] font-bold text-muted uppercase tracking-wider">Trạng thái đối soát</span>
@@ -90,7 +90,7 @@ export default function OperationsFinanceDrawer({ txn, onClose }: { txn: TxnData
           {/* Section 2: Accounting Details */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-[24px]">
             <div className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm">
-              <h4 className="font-black text-[15px] text-text flex items-center gap-2 border-b border-border/50 pb-3"><Banknote size={16} className="text-[#10b981]" /> Hạch toán (Accounting)</h4>
+              <h4 className="font-black text-[15px] text-text flex items-center gap-2 border-b border-border/50 pb-3"><Banknote size={16} className="text-[#8b5cf6]" /> Hạch toán (Accounting)</h4>
               <div className="flex flex-col gap-4 mt-4">
                 <div className="flex justify-between items-center pb-2 border-b border-border/30">
                   <span className="text-[13px] font-bold text-muted">Hạng mục thu/chi</span>
@@ -142,7 +142,7 @@ export default function OperationsFinanceDrawer({ txn, onClose }: { txn: TxnData
                 <div className="w-[120px] h-[160px] rounded-[8px] bg-black/5 dark:bg-white/5 border border-border flex items-center justify-center cursor-pointer hover:bg-black/10 transition-colors">
                   <FileText size={32} className="text-muted/50" />
                 </div>
-                <div className="w-[120px] h-[160px] rounded-[8px] bg-black/5 dark:bg-white/5 border border-border flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-[#10b981]/10 hover:text-[#10b981] hover:border-[#10b981]/30 transition-all text-muted">
+                <div className="w-[120px] h-[160px] rounded-[8px] bg-black/5 dark:bg-white/5 border border-border flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-[#8b5cf6]/10 hover:text-[#8b5cf6] hover:border-[#8b5cf6]/30 transition-all text-muted">
                   <div className="w-[32px] h-[32px] rounded-full bg-black/5 flex items-center justify-center"><Paperclip size={16} /></div>
                   <span className="text-[12px] font-bold">Thêm File</span>
                 </div>

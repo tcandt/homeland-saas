@@ -9,15 +9,22 @@ test.describe('Property Structure Error & Edge Cases', () => {
 
   test('Form validation handles invalid inputs', async ({ admin }) => {
     const page = admin.page;
+    
+    // Skip on mobile/tablet viewports since building CRUD/Explorer is desktop-only
+    const isMobile = page.viewportSize()?.width && page.viewportSize()!.width < 1024;
+    if (isMobile) {
+      test.skip();
+    }
+    
     await page.goto('/buildings');
     await page.waitForLoadState('networkidle');
 
-    const addBtn = page.getByTestId('add-building-button').locator('visible=true').first();
-    await addBtn.click();
+    const addBtn = page.getByTestId('add-building-button').filter({ visible: true }).first();
+    await addBtn.click({ force: true });
     await expect(page.getByTestId('bname-input')).toBeVisible();
 
     // Try to save empty form
-    await page.getByTestId('save-button').click();
+    await page.getByTestId('save-button').click({ force: true });
 
     // Check validation messages
     // Since we use zod resolver, it will show some "Tên tòa nhà không được để trống" or similar
@@ -30,13 +37,20 @@ test.describe('Property Structure Error & Edge Cases', () => {
     await page.getByTestId('bname-input').fill(testBuildingName);
     await page.getByTestId('bcode-input').fill(testBuildingCode);
     await page.getByTestId('baddress-input').fill('123 Error St');
-    await page.getByTestId('save-button').click();
+    await page.getByTestId('save-button').click({ force: true });
     
-    await expect(page.locator(`text=${testBuildingName} >> visible=true`).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`text=${testBuildingName}`).filter({ visible: true }).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('Delete building with existing floors is rejected', async ({ admin }) => {
     const page = admin.page;
+    
+    // Skip on mobile/tablet viewports since building CRUD/Explorer is desktop-only
+    const isMobile = page.viewportSize()?.width && page.viewportSize()!.width < 1024;
+    if (isMobile) {
+      test.skip();
+    }
+    
     const api = admin.api;
 
     // First get the building ID
@@ -61,9 +75,9 @@ test.describe('Property Structure Error & Edge Cases', () => {
     await page.waitForLoadState('networkidle');
 
     // Try to delete the building
-    await page.locator(`text=${testBuildingName} >> visible=true`).first().click();
+    await page.locator(`text=${testBuildingName}`).filter({ visible: true }).first().click({ force: true });
     await page.waitForTimeout(500);
-    await page.getByTestId('edit-building-button').locator('visible=true').first().click();
+    await page.getByTestId('edit-building-button').filter({ visible: true }).first().click({ force: true });
     
     // Setup dialog handler for window.confirm
     page.once('dialog', dialog => dialog.accept());
@@ -73,7 +87,7 @@ test.describe('Property Structure Error & Edge Cases', () => {
       response.url().includes(`/api/v1/buildings/${building.id}`) && response.request().method() === 'DELETE'
     );
     
-    await page.getByTestId('delete-building-button').locator('visible=true').first().click();
+    await page.getByTestId('delete-building-button').filter({ visible: true }).first().click({ force: true });
     
     const response = await deleteResPromise;
     expect(response.status()).toBe(409); // Conflict
@@ -81,6 +95,6 @@ test.describe('Property Structure Error & Edge Cases', () => {
     // Building should STILL be visible because delete failed
     await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
-    await expect(page.locator(`text=${testBuildingName} >> visible=true`).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.locator(`text=${testBuildingName}`).filter({ visible: true }).first()).toBeVisible({ timeout: 5000 });
   });
 });

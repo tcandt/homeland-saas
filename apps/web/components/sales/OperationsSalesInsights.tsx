@@ -6,10 +6,10 @@ import { Sparkles, PhoneOff, Facebook, Video, TrendingUp, Calendar, Zap } from "
 export default function OperationsSalesInsights() {
   return (
     <div className="bg-card border border-border rounded-[16px] md:rounded-[20px] p-[16px] md:p-[20px] shadow-sm relative overflow-hidden flex flex-col md:flex-row gap-[16px] md:items-center">
-      <div className="absolute top-0 right-0 w-[200px] h-[200px] bg-purple-500/5 rounded-full blur-[40px] -z-10 pointer-events-none" />
+      <div className="absolute top-0 right-0 w-[200px] h-[200px] bg-indigo-500/5 rounded-full blur-[40px] -z-10 pointer-events-none" />
       
       <div className="flex items-center gap-[12px] md:w-[220px] shrink-0">
-        <div className="w-[36px] h-[36px] rounded-[10px] bg-purple-500/10 flex items-center justify-center shrink-0 text-purple-500">
+        <div className="w-[36px] h-[36px] rounded-[10px] bg-indigo-500/10 flex items-center justify-center shrink-0 text-indigo-500">
           <Sparkles size={18} />
         </div>
         <div>
@@ -40,14 +40,14 @@ export default function OperationsSalesInsights() {
         <InsightCard 
           icon={<TrendingUp size={14} />}
           text="Sale Tuấn Đạt đạt 160% KPI tháng" 
-          color="text-[#10b981] bg-[#10b981]/10" 
-          hover="hover:border-[#10b981]/30"
+          color="text-[#8b5cf6] bg-[#8b5cf6]/10" 
+          hover="hover:border-[#8b5cf6]/30"
         />
         <InsightCard 
           icon={<Calendar size={14} />}
           text="3 khách có lịch xem phòng hôm nay" 
-          color="text-purple-500 bg-purple-500/10" 
-          hover="hover:border-purple-500/30"
+          color="text-indigo-500 bg-indigo-500/10" 
+          hover="hover:border-indigo-500/30"
         />
         <InsightCard 
           icon={<Zap size={14} />}
@@ -66,7 +66,7 @@ function InsightCard({ icon, text, color, hover }: any) {
       <div className={`w-[20px] h-[20px] rounded-[6px] flex items-center justify-center shrink-0 ${color}`}>
         {icon}
       </div>
-      <span className="font-medium text-[13px] text-text group-hover:text-purple-500 group-hover:underline transition-all truncate flex-1">{text}</span>
+      <span className="font-medium text-[13px] text-text group-hover:text-indigo-500 group-hover:underline transition-all truncate flex-1">{text}</span>
     </div>
   );
 }

@@ -2,18 +2,51 @@
 
 import React from "react";
 import { Users, UserCheck, CalendarClock, CreditCard, CheckCircle2, CircleDollarSign, Coins, TrendingUp } from "lucide-react";
+import { useSalesLeadsQuery } from "@/lib/queries/sales.queries";
+import { Card } from "../ui/Card";
+import { Skeleton } from "../ui/Skeleton";
 
 export default function OperationsSalesKpi() {
+  const { data, isLoading } = useSalesLeadsQuery({ limit: 100 });
+  const leads = Array.isArray((data as any)?.data?.data) ? (data as any).data.data : [];
+  const total = leads.length;
+  const newLeads = leads.filter((lead: any) => lead.status === "NEW").length;
+  const contacted = leads.filter((lead: any) => lead.status === "CONTACTED").length;
+  const active = leads.filter((lead: any) => ["CONTACTED", "QUALIFIED", "PROPOSAL"].includes(lead.status)).length;
+  const won = leads.filter((lead: any) => lead.status === "WON").length;
+  const notesCount = leads.filter((lead: any) => String(lead.notes || "").trim().length > 0).length;
+  const conversion = total > 0 ? Math.round((won / total) * 100) : 0;
+  const recent30Days = leads.filter((lead: any) => {
+    const created = new Date(lead.createdAt);
+    return !Number.isNaN(created.getTime()) && Date.now() - created.getTime() <= 1000 * 60 * 60 * 24 * 30;
+  }).length;
+
   const kpis = [
-    { label: "LEAD MỚI", value: "24", trend: "+12%", trendUp: true, icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
-    { label: "ĐANG CHĂM SÓC", value: "156", trend: "+5%", trendUp: true, icon: UserCheck, color: "text-[#f97316]", bg: "bg-[#f97316]/10" },
-    { label: "HẸN HÔM NAY", value: "12", trend: "-2", trendUp: false, icon: CalendarClock, color: "text-rose-500", bg: "bg-rose-500/10" },
-    { label: "CHỜ ĐẶT CỌC", value: "8", trend: "+3", trendUp: true, icon: CreditCard, color: "text-purple-500", bg: "bg-purple-500/10" },
-    { label: "ĐÃ CHỐT", value: "45", trend: "+18%", trendUp: true, icon: CheckCircle2, color: "text-[#10b981]", bg: "bg-[#10b981]/10" },
-    { label: "DOANH THU DK", value: "850M", trend: "+25%", trendUp: true, icon: CircleDollarSign, color: "text-emerald-600 dark:text-emerald-500", bg: "bg-emerald-500/10" },
-    { label: "HOA HỒNG", value: "42.5M", trend: "+25%", trendUp: true, icon: Coins, color: "text-yellow-600 dark:text-yellow-500", bg: "bg-yellow-500/10" },
-    { label: "CONVERSION", value: "18.5%", trend: "+2.4%", trendUp: true, icon: TrendingUp, color: "text-[#6366f1]", bg: "bg-[#6366f1]/10" }
+    { label: "Tổng lead", value: String(total), icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
+    { label: "Mới nhận", value: String(newLeads), icon: UserCheck, color: "text-orange-500", bg: "bg-orange-500/10" },
+    { label: "Đang xử lý", value: String(active), icon: CalendarClock, color: "text-rose-500", bg: "bg-rose-500/10" },
+    { label: "Đã liên hệ", value: String(contacted), icon: CreditCard, color: "text-indigo-500", bg: "bg-indigo-500/10" },
+    { label: "Đã chốt", value: String(won), icon: CheckCircle2, color: "text-indigo-500", bg: "bg-indigo-500/10" },
+    { label: "Tỷ lệ chốt", value: `${conversion}%`, icon: CircleDollarSign, color: "text-indigo-600 dark:text-indigo-500", bg: "bg-indigo-500/10" },
+    { label: "Có ghi chú", value: String(notesCount), icon: Coins, color: "text-yellow-600 dark:text-yellow-500", bg: "bg-yellow-500/10" },
+    { label: "30 ngày", value: String(recent30Days), icon: TrendingUp, color: "text-[#6366f1]", bg: "bg-[#6366f1]/10" },
   ];
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-[12px]">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <Card key={index} className="p-[16px] flex flex-col justify-between shadow-sm h-[80px] md:h-[90px]">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="w-[24px] h-[24px] rounded-full" />
+            </div>
+            <Skeleton className="h-5 w-10" />
+          </Card>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-[12px]">
@@ -29,13 +62,9 @@ export default function OperationsSalesKpi() {
                 <Icon size={12} className={kpi.color} />
               </div>
             </div>
-            
             <div className="flex items-end justify-between mt-auto">
               <span className="text-[18px] md:text-[20px] font-black text-text leading-none tracking-tight">
                 {kpi.value}
-              </span>
-              <span className={`text-[11px] font-bold ${kpi.trendUp ? 'text-[#10b981]' : 'text-rose-500'}`}>
-                {kpi.trendUp ? '↗' : '↘'} {kpi.trend}
               </span>
             </div>
           </div>

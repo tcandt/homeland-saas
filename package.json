@@ -1,46 +1,52 @@
 {
-    "name":  "homeland-saas",
-    "private":  true,
-    "packageManager":  "npm@11.12.1",
-    "workspaces":  [
-                       "apps/*",
-                       "packages/*"
-                   ],
-    "scripts":  {
-                    "dev":  "turbo run dev",
-                    "build":  "turbo run build",
-                    "lint":  "turbo run lint",
-                    "typecheck":  "turbo run typecheck",
-                    "test":  "turbo run test",
-                    "db:generate":  "prisma generate --schema=packages/database/prisma/schema.prisma",
-                    "db:push":  "prisma db push --schema=packages/database/prisma/schema.prisma",
-                    "db:seed":  "prisma db seed --schema=packages/database/prisma/schema.prisma",
-                    "db:check-seed":  "tsx packages/database/scripts/check-seed.ts",
-                    "api:dev":  "npm run dev --workspace=api",
-                    "phase2:verify":  "npm run db:generate \u0026\u0026 npm run db:push \u0026\u0026 npm run db:seed \u0026\u0026 npm run db:check-seed",
-                    "verify:prod":  "powershell -ExecutionPolicy Bypass -File scripts/verify-production.ps1",
-                    "eos:matrix":  "tsx scripts/eos/generate-matrix.ts",
-                    "eos:dashboard":  "tsx scripts/eos/generate-dashboard.ts",
-                    "eos:start":  "tsx scripts/eos/start-execution.ts",
-                    "eos:record":  "powershell -ExecutionPolicy Bypass -File scripts/eos/record-evidence.ps1",
-                    "eos:validate":  "tsx scripts/eos/validate-evidence.ts",
-                    "eos:receipt":  "tsx scripts/eos/generate-receipt.ts",
-                    "eos:test":  "tsx scripts/eos/test-evidence-protection.ts",
-                    "eos:gate":  "tsx scripts/eos/generate-gate.ts",
-                    "eos:verify":  "tsx scripts/eos/verify-pipeline.ts",
-                    "eos:self-test": "tsx scripts/eos/test-planner.ts",
-                    "eos:verify-event": "tsx scripts/eos/verify-event-log.ts",
-                    "eos:policy-eval": "tsx scripts/eos/policy-engine.ts",
-                    "eos:verify-v4": "tsx --env-file=.env scripts/eos/verify-pipeline.ts",
-                    "eos:test-v5": "tsx scripts/eos/test-v5.ts"
-                },
-    "devDependencies":  {
-                            "cross-env":  "^10.1.0",
-                            "tsx":  "^4.7.1",
-                            "turbo":  "latest",
-                            "vitest":  "^4.1.9"
-                        },
-    "prisma":  {
-                   "seed":  "tsx packages/database/prisma/seed.ts"
-               }
+  "name": "homeland-saas",
+  "private": true,
+  "packageManager": "npm@11.12.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "prebuild": "npm run check:encoding",
+    "lint": "turbo run lint",
+    "prelint": "npm run check:encoding",
+    "typecheck": "turbo run typecheck",
+    "pretypecheck": "npm run check:encoding",
+    "test": "turbo run test",
+    "check:encoding": "node scripts/check-mojibake.js",
+    "db:generate": "prisma generate --schema=packages/database/prisma/schema.prisma",
+    "db:push": "prisma db push --schema=packages/database/prisma/schema.prisma",
+    "db:seed": "prisma db seed --schema=packages/database/prisma/schema.prisma",
+    "db:reset:prod": "cross-env SEED_MODE=production prisma db push --schema=packages/database/prisma/schema.prisma --force-reset && cross-env SEED_MODE=production prisma db seed --schema=packages/database/prisma/schema.prisma",
+    "db:check-seed": "tsx packages/database/scripts/check-seed.ts",
+    "api:dev": "npm run dev --workspace=api",
+    "web:dev": "npm run dev --workspace=web",
+    "phase2:verify": "npm run db:generate && npm run db:push && npm run db:seed && npm run db:check-seed",
+    "verify:prod": "powershell -ExecutionPolicy Bypass -File scripts/verify-production.ps1",
+    "eos:matrix": "tsx scripts/eos/generate-matrix.ts",
+    "eos:dashboard": "tsx scripts/eos/generate-dashboard.ts",
+    "eos:start": "tsx scripts/eos/start-execution.ts",
+    "eos:record": "powershell -ExecutionPolicy Bypass -File scripts/eos/record-evidence.ps1",
+    "eos:validate": "tsx scripts/eos/validate-evidence.ts",
+    "eos:receipt": "tsx scripts/eos/generate-receipt.ts",
+    "eos:test": "tsx scripts/eos/test-evidence-protection.ts",
+    "eos:gate": "tsx scripts/eos/generate-gate.ts",
+    "eos:verify": "tsx scripts/eos/verify-pipeline.ts",
+    "eos:self-test": "tsx scripts/eos/test-planner.ts",
+    "eos:verify-event": "tsx scripts/eos/verify-event-log.ts",
+    "eos:policy-eval": "tsx scripts/eos/policy-engine.ts",
+    "eos:verify-v4": "tsx --env-file=.env scripts/eos/verify-pipeline.ts",
+    "eos:test-v5": "tsx scripts/eos/test-v5.ts"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "tsx": "^4.7.1",
+    "turbo": "latest",
+    "vitest": "^4.1.9"
+  },
+  "prisma": {
+    "seed": "tsx packages/database/prisma/seed.ts"
+  }
 }

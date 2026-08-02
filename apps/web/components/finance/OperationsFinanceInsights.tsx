@@ -13,8 +13,8 @@ export default function OperationsFinanceInsights() {
   return (
     <div className="bg-card border border-border rounded-[16px] p-[16px] md:p-[20px] flex items-center gap-[16px] overflow-x-auto no-scrollbar shadow-sm">
       <div className="flex items-center gap-[8px] pr-[16px] border-r border-border/50 shrink-0">
-        <div className="w-[36px] h-[36px] rounded-full bg-[#10b981]/10 flex items-center justify-center">
-          <Sparkles size={18} className="text-[#10b981]" />
+        <div className="w-[36px] h-[36px] rounded-full bg-[#8b5cf6]/10 flex items-center justify-center">
+          <Sparkles size={18} className="text-[#8b5cf6]" />
         </div>
         <div className="flex flex-col">
           <span className="font-black text-[12px] text-text uppercase tracking-wider">Accounting</span>

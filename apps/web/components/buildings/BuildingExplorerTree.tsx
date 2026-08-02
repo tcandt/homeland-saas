@@ -2,8 +2,9 @@
 
 import React, { useState } from "react";
 import { ChevronRight, ChevronDown, Building2, Layers, DoorOpen } from "lucide-react";
-import { Building, Floor, Room } from "./mockData";
+import type { Building, Floor, Room } from "./building.types";
 import { SelectedNode } from "./MasterDetailBuildings";
+import { getRoomDisplayName } from "./building-labels";
 
 interface Props {
   buildings: Building[];
@@ -126,7 +127,7 @@ function RoomNode({ buildingId, floorId, room, selectedNode, onSelectNode }: { b
   
   const getStatusColor = (status: string) => {
     switch(status) {
-      case "occupied": return "bg-[#10b981]";
+      case "occupied": return "bg-[#8b5cf6]";
       case "vacant": return "bg-[#ef4444]";
       case "expiring_soon": return "bg-[#f59e0b]";
       case "maintenance": return "bg-[#3b82f6]";
@@ -144,7 +145,7 @@ function RoomNode({ buildingId, floorId, room, selectedNode, onSelectNode }: { b
         <div className={`w-2 h-2 rounded-full ${getStatusColor(room.status)} shadow-sm`} />
       </div>
       <DoorOpen size={13} className={isSelected ? 'text-[#6366f1]' : 'text-muted'} />
-      <span className="text-[12px] font-medium">P.{room.name}</span>
+      <span className="text-[12px] font-medium">P.{getRoomDisplayName(room)}</span>
     </div>
   );
 }

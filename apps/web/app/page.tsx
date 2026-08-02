@@ -1,32 +1,41 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
+import dynamic from "next/dynamic";
 import { Loader2, RefreshCcw } from "lucide-react";
-import { dashboardAdapter } from "@/lib/api/dashboard.adapter";
 import { DashboardDataContext } from "./dashboard-context";
 import AppShell from "@/components/layout/AppShell";
 import HeroSummary from "@/components/dashboard/HeroSummary";
 import KpiGrid from "@/components/dashboard/KpiGrid";
-import BuildingHealth from "@/components/dashboard/BuildingHealth";
-import RevenueChart from "@/components/dashboard/RevenueChart";
-import RoomStatus from "@/components/dashboard/RoomStatus";
-import RecentActivity from "@/components/dashboard/RecentActivity";
-import ForecastPanel from "@/components/dashboard/ForecastPanel";
-import TaskToday from "@/components/dashboard/TaskToday";
-import MobileActionList from "@/components/dashboard/MobileActionList";
 import MobilePageShell from "@/components/layout/MobilePageShell";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useRouter } from "next/navigation";
-
 import { useDashboardQuery } from "@/lib/queries/dashboard.queries";
+
+const MobileActionList = dynamic(() => import("@/components/dashboard/MobileActionList"), {
+  loading: () => <PanelSkeleton className="h-[180px] md:hidden" />,
+});
+const RevenueChart = dynamic(() => import("@/components/dashboard/RevenueChart"), {
+  loading: () => <PanelSkeleton className="h-[320px]" />,
+});
+const BuildingHealth = dynamic(() => import("@/components/dashboard/BuildingHealth"), {
+  loading: () => <PanelSkeleton className="h-[260px]" />,
+});
+const RecentActivity = dynamic(() => import("@/components/dashboard/RecentActivity"), {
+  loading: () => <PanelSkeleton className="h-[240px]" />,
+});
+const ForecastPanel = dynamic(() => import("@/components/dashboard/ForecastPanel"), {
+  loading: () => <PanelSkeleton className="h-[240px]" />,
+});
+
+function PanelSkeleton({ className = "" }: { className?: string }) {
+  return <div className={`bg-card border border-border rounded-[20px] shadow-sm animate-pulse ${className}`} />;
+}
 
 export default function Dashboard() {
   const { hasPermission } = usePermissions();
-  const router = useRouter();
+  const { data, isLoading, isError, refetch } = useDashboardQuery();
 
-  const { data, isLoading, isError, error: queryError, refetch } = useDashboardQuery();
-
-  if (!hasPermission('dashboard.read')) {
+  if (!hasPermission("dashboard.read")) {
     return (
       <AppShell>
         <div className="flex flex-col items-center justify-center h-[calc(100vh-200px)] gap-4">
@@ -63,33 +72,29 @@ export default function Dashboard() {
   return (
     <AppShell>
       <DashboardDataContext.Provider value={data as any}>
-      <MobilePageShell>
-        <div data-testid="dashboard-root" className="w-full flex flex-col gap-[16px] md:gap-[20px] pb-[0px] md:pb-[30px] lg:pb-[40px]">
+        <MobilePageShell>
+          <div data-testid="dashboard-root" className="w-full flex flex-col gap-[16px] md:gap-[20px] pb-[0px] md:pb-[30px] lg:pb-[40px]">
+            <HeroSummary />
 
-        <HeroSummary />
+            <div className="md:hidden mt-1">
+              <MobileActionList />
+            </div>
 
-        <div className="md:hidden mt-1">
-          <MobileActionList />
-        </div>
+            <KpiGrid />
 
-        <KpiGrid />
+            <div className="grid grid-cols-1 xl:grid-cols-[2.5fr_1fr] gap-[16px] md:gap-[20px]">
+              <div className="flex flex-col gap-[16px] md:gap-[20px]">
+                <RevenueChart />
+                <BuildingHealth />
+              </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[2.5fr_1fr] gap-[16px] md:gap-[20px]">
-          <div className="flex flex-col gap-[16px] md:gap-[20px]">
-            <RevenueChart />
-            <BuildingHealth />
-            <RoomStatus />
+              <div className="flex flex-col gap-[16px] md:gap-[20px]">
+                <RecentActivity />
+                <ForecastPanel />
+              </div>
+            </div>
           </div>
-          
-          <div className="flex flex-col gap-[16px] md:gap-[20px]">
-            <TaskToday />
-            <RecentActivity />
-            <ForecastPanel />
-          </div>
-        </div>
-
-        </div>
-      </MobilePageShell>
+        </MobilePageShell>
       </DashboardDataContext.Provider>
     </AppShell>
   );

@@ -40,7 +40,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         <div className="fixed top-4 right-4 z-[99999] flex flex-col gap-2 pointer-events-none">
           {toasts.map((t) => (
             <div key={t.id} className="pointer-events-auto flex items-center gap-3 bg-card border border-border shadow-lg rounded-[12px] px-4 py-3 min-w-[280px] animate-in slide-in-from-right-8 fade-in duration-300">
-              {t.type === "success" && <div className="w-[24px] h-[24px] rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0"><Check size={14} className="text-emerald-500" /></div>}
+              {t.type === "success" && <div className="w-[24px] h-[24px] rounded-full bg-indigo-500/10 flex items-center justify-center shrink-0"><Check size={14} className="text-indigo-500" /></div>}
               {t.type === "error" && <div className="w-[24px] h-[24px] rounded-full bg-rose-500/10 flex items-center justify-center shrink-0"><AlertCircle size={14} className="text-rose-500" /></div>}
               {t.type === "info" && <div className="w-[24px] h-[24px] rounded-full bg-blue-500/10 flex items-center justify-center shrink-0"><Info size={14} className="text-blue-500" /></div>}
               <span className="text-[13px] font-bold text-text flex-1">{t.message}</span>

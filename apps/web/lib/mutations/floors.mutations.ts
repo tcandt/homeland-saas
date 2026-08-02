@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { floorsApi } from '../api/floors.api';
 import { useToast } from '@/components/ui/ToastContext';
 import { adaptFloor } from '../adapters/building.adapter';
-import { Building } from '@/components/buildings/mockData';
+import type { Building } from '@/components/buildings/building.types';
 
 export const useCreateFloorMutation = () => {
   const queryClient = useQueryClient();

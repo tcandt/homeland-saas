@@ -51,6 +51,11 @@ export class ContractsController {
       endDate: new Date(input.endDate),
       monthlyRent: input.rentAmount,
       depositMoney: input.depositAmount,
+      signedAt: input.signedAt ? new Date(input.signedAt) : undefined,
+      firstPaymentDate: input.firstPaymentDate ? new Date(input.firstPaymentDate) : undefined,
+      purpose: input.purpose,
+      attachments: input.attachments || [],
+      coRepresentativeIds: input.coRepresentativeIds || [],
     };
     return this.contractsService.create(data, userId, 'Contracts');
   }
@@ -69,6 +74,11 @@ export class ContractsController {
     if (input.endDate) data.endDate = new Date(input.endDate);
     if (input.rentAmount !== undefined) data.monthlyRent = input.rentAmount;
     if (input.depositAmount !== undefined) data.depositMoney = input.depositAmount;
+    if (input.signedAt) data.signedAt = new Date(input.signedAt);
+    if (input.firstPaymentDate) data.firstPaymentDate = new Date(input.firstPaymentDate);
+    if (input.purpose !== undefined) data.purpose = input.purpose;
+    if (input.attachments !== undefined) data.attachments = input.attachments;
+    if (input.coRepresentativeIds !== undefined) data.coRepresentativeIds = input.coRepresentativeIds;
     
     return this.contractsService.update(id, data, userId, 'Contracts');
   }
@@ -88,7 +98,7 @@ export class ContractsController {
   }
 
   @Post(':id/approve')
-  @RequirePermissions('contract.approve')
+  @RequirePermissions('contract.update')
   @ApiOperation({ summary: 'Approve contract' })
   approve(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.contractsService.approveContract(id, userId);

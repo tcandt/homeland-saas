@@ -26,31 +26,7 @@ services:
       - "6379:6379"
     restart: unless-stopped
 
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    container_name: homeland_api
-    ports:
-      - "3001:3001"
-    environment:
-      - DATABASE_URL=postgresql://homeland:homeland123@postgres:5432/homeland?schema=public
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=homeland_super_secret_key_change_in_production
-      - PORT=3001
-      - NODE_ENV=development
-      # Observability — points to Tempo when monitoring stack is running
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
-      - OTEL_SERVICE_NAME=homeland-api
-    volumes:
-      - ./apps/api/src:/app/apps/api/src
-      - ./packages/database/prisma:/app/packages/database/prisma
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    restart: unless-stopped
+
 
 volumes:
   postgres_data:

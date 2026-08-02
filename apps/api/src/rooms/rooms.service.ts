@@ -41,24 +41,34 @@ export class RoomsService extends BaseCrudService<Room> {
       building: { select: { id: true, name: true, code: true } },
       floor: { select: { id: true, name: true, level: true } },
       contracts: {
-        where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } },
-        include: { customer: { select: { id: true, fullName: true, phone: true } } },
-        take: 1
+        where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES }, deletedAt: null },
+        include: { customer: { select: { id: true, fullName: true, phone: true, email: true, identityNo: true, gender: true, birthDate: true, nationality: true, address: true, emergencyPhone: true } } },
+        orderBy: { createdAt: 'asc' }
+      },
+      roommates: {
+        where: { deletedAt: null },
+        select: { id: true, fullName: true, phone: true, identityNo: true, gender: true, birthDate: true, nationality: true, address: true, emergencyPhone: true }
       }
     });
   }
 
   async softDelete(id: string, userId?: string, moduleName?: string): Promise<Room> {
     const room = await this.getDetail(id, {
-      _count: { select: { contracts: { where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } } }
+      _count: { select: { contracts: { where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES }, deletedAt: null } } } }
     });
     
     const activeContractCount = (room as any)._count?.contracts || 0;
     
     if (activeContractCount > 0) {
       const { HttpException, HttpStatus } = await import('@nestjs/common');
-      throw new HttpException('Cannot delete room with active contracts', HttpStatus.CONFLICT);
+      throw new HttpException('Không thể xóa phòng đang có hợp đồng hoạt động. Vui lòng chấm dứt hợp đồng trước.', HttpStatus.CONFLICT);
     }
+
+    // Append timestamp to code to free up the unique constraint for active rooms
+    await this.repository.update(id, {
+      code: `${room.code}_del_${Date.now()}`
+    } as any);
+
     return super.softDelete(id, userId, moduleName);
   }
 }

@@ -29,7 +29,7 @@ if (evaluation.epicId !== epicInput) {
 }
 
 const gateObj = {
-    epic: `${epicInput}_INVOICE`,
+    epic: evaluation.epicId,
     status: evaluation.status,
     epic_closed: evaluation.status === 'PRODUCTION_VERIFIED' || evaluation.status === 'LOCAL_VERIFIED',
     decision: evaluation.decision,

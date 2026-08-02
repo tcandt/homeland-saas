@@ -41,6 +41,7 @@ export default function ContractsHeader() {
           isOpen={isFilterOpen}
           onClose={() => setIsFilterOpen(false)}
           title="Lọc hợp đồng"
+          zIndex={10030}
           footer={
             <Button 
               variant="primary" 

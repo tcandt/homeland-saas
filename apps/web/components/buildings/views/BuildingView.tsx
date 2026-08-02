@@ -1,15 +1,18 @@
 "use client";
 
 import React, { useState } from "react";
-import { Building, Room } from "../mockData";
+import type { Building, Room } from "../building.types";
 import { SelectedNode } from "../MasterDetailBuildings";
-import { ChevronRight, ChevronDown, Layers, Users, Home, Plus, Settings, DollarSign, AlertCircle, ShieldAlert, FileText, ClipboardList, MapPin, Edit, Trash2 } from "lucide-react";
-import RoomCardV7 from "./RoomCardV7"; // We will create this component next
+import { ChevronRight, ChevronDown, Users, Home, Plus, MapPin, Edit, Trash2 } from "lucide-react";
+import RoomCardV7 from "./RoomCardV7";
 import { Button } from "../../ui/Button";
 import { usePermissions } from '@/lib/hooks/usePermissions';
+import BuildingOperationalView from "./visualizer/BuildingOperationalView";
+import { useSearchParams } from "next/navigation";
 
 interface Props {
   building: Building;
+  buildings: Building[];
   onSelectNode: (node: SelectedNode) => void;
   onEditBuilding: () => void;
   onAddFloor: () => void;
@@ -17,10 +20,27 @@ interface Props {
   onOpenRoomModal: (roomId: string, initialTab?: string) => void;
   onEditFloor: (floorId: string) => void;
   onDeleteFloor: (floorId: string) => void;
+  onAddRoom: (floorId: string) => void;
+  onDeleteRoom: (roomId: string) => void;
 }
 
-export default function BuildingView({ building, onSelectNode, onEditBuilding, onAddFloor, onAddRoomQuick, onOpenRoomModal, onEditFloor, onDeleteFloor }: Props) {
+export default function BuildingView({ 
+  building, 
+  buildings,
+  onSelectNode, 
+  onEditBuilding, 
+  onAddFloor, 
+  onAddRoomQuick, 
+  onOpenRoomModal, 
+  onEditFloor, 
+  onDeleteFloor,
+  onAddRoom,
+  onDeleteRoom
+}: Props) {
   const permissions = usePermissions();
+  const searchParams = useSearchParams();
+  const [viewMode, setViewMode] = useState<"3d" | "list">("3d");
+
   // Compute metrics dynamically from rooms
   let totalRooms = 0;
   let occupiedRooms = 0;
@@ -30,12 +50,7 @@ export default function BuildingView({ building, onSelectNode, onEditBuilding, o
   let expiringRooms = 0;
   
   let totalRevenue = 0;
-  let totalDebt = 0;
-  let overdueInvoicesCount = 0;
   let totalDeposit = 0;
-
-  let missingTempResidenceCount = 0;
-  let registeredTempResidenceCount = 0;
 
   building.floors.forEach(floor => {
     floor.rooms.forEach(room => {
@@ -49,50 +64,14 @@ export default function BuildingView({ building, onSelectNode, onEditBuilding, o
 
       if (room.rentalType === "whole") {
         if (room.contract) {
-          totalRevenue += room.contract.rentPrice;
-          totalDeposit += room.contract.deposit;
-        }
-        if (room.invoices) {
-          room.invoices.forEach(inv => {
-            if (inv.status === "unpaid") {
-              totalDebt += inv.amount;
-              overdueInvoicesCount++;
-            } else if (inv.status === "partial") {
-              totalDebt += inv.amount / 2;
-              overdueInvoicesCount++;
-            }
-          });
-        }
-        if (room.tenant && (room.status === "occupied" || room.status === "expiring_soon")) {
-          if (!room.tenant.tempResidence) missingTempResidenceCount++;
-          else registeredTempResidenceCount++;
-          
-          if (room.roommates) {
-            room.roommates.forEach(rm => {
-              if (!rm.tempResidence) missingTempResidenceCount++;
-              else registeredTempResidenceCount++;
-            });
-          }
+          totalRevenue += room.contract.rentPrice || room.monthlyPrice || 0;
+          totalDeposit += room.contract.deposit || 0;
         }
       } else if (room.rentalType === "shared") {
         if (room.sharedTenants) {
           room.sharedTenants.forEach(st => {
-            totalRevenue += st.rentPrice;
-            totalDeposit += st.deposit;
-            if (!st.tempResidence) missingTempResidenceCount++;
-            else registeredTempResidenceCount++;
-            
-            if (st.invoices) {
-              st.invoices.forEach(inv => {
-                if (inv.status === "unpaid") {
-                  totalDebt += inv.amount;
-                  overdueInvoicesCount++;
-                } else if (inv.status === "partial") {
-                  totalDebt += inv.amount / 2;
-                  overdueInvoicesCount++;
-                }
-              });
-            }
+            totalRevenue += st.rentPrice || 0;
+            totalDeposit += st.deposit || 0;
           });
         }
       }
@@ -101,7 +80,7 @@ export default function BuildingView({ building, onSelectNode, onEditBuilding, o
 
   const [expandedFloors, setExpandedFloors] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
-    building.floors.forEach(f => init[f.id] = false); // Collapse all by default
+    building.floors.forEach(f => init[f.id] = true); // Expand all by default
     return init;
   });
 
@@ -110,206 +89,196 @@ export default function BuildingView({ building, onSelectNode, onEditBuilding, o
   };
 
   const formatMoney = (amount: number) => {
-    return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(amount);
+    return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(amount);
   };
 
   return (
-    <div className="flex flex-col gap-6 md:gap-8 pb-10">
+    <div className="flex flex-col w-full h-full pb-10">
       
-      {/* Dynamic Building Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/50 pb-4">
-        <div>
-          <h1 className="font-black text-[24px] md:text-[28px] text-text tracking-tight">{building.name}</h1>
-          <p className="text-[13px] text-muted font-medium flex items-center gap-1.5 mt-1"><MapPin size={14} /> {building.address}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {permissions.canUpdateBuilding && (
-            <Button variant="outline" onClick={onEditBuilding} data-testid="edit-building-button">
-              Cấu hình Tòa nhà
-            </Button>
-          )}
-          {permissions.canCreateFloor && (
-            <Button onClick={onAddFloor} data-testid="add-floor-button">
-              <Plus size={16} className="mr-1.5" /> Thêm Tầng
-            </Button>
-          )}
-        </div>
+      {/* 3-Mode View Switcher Tabs (guardrail #9) */}
+      <div className="flex border-b border-border/50 pb-px mb-6 select-none w-fit gap-6 text-[14px]">
+        <button
+          type="button"
+          onClick={() => {
+            const params = new URLSearchParams(window.location.search);
+            params.delete("floor");
+            params.delete("room");
+            window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+            setViewMode("3d");
+          }}
+          className={`pb-2.5 font-bold transition-all relative ${
+            viewMode === "3d" && !searchParams.get("floor")
+              ? "text-primary border-b-2 border-primary"
+              : "text-muted hover:text-text"
+          }`}
+        >
+          Tổng quan tòa nhà
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const params = new URLSearchParams(window.location.search);
+            if (!params.get("floor") && building.floors.length > 0) {
+              params.set("floor", building.floors[0].id);
+            }
+            params.delete("room");
+            window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+            setViewMode("3d");
+          }}
+          className={`pb-2.5 font-bold transition-all relative ${
+            viewMode === "3d" && searchParams.get("floor")
+              ? "text-primary border-b-2 border-primary"
+              : "text-muted hover:text-text"
+          }`}
+        >
+          Sơ đồ tầng
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("list")}
+          className={`pb-2.5 font-bold transition-all relative ${
+            viewMode === "list"
+              ? "text-primary border-b-2 border-primary"
+              : "text-muted hover:text-text"
+          }`}
+        >
+          Danh sách phòng
+        </button>
       </div>
 
-      {/* Building Dashboards: 4 Sections */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        {/* 1. Financial Summary */}
-        <div className="bg-card border border-border rounded-[16px] p-5 shadow-sm flex flex-col gap-3 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-[100px] h-[100px] bg-emerald-500/5 rounded-full blur-[30px] -z-10" />
-          <h3 className="font-bold text-[11px] uppercase tracking-wider text-muted flex items-center gap-1.5"><DollarSign size={14} /> Tài chính</h3>
-          <div className="flex flex-col gap-2 mt-2">
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Doanh thu dự kiến</span>
-              <span className="font-black text-[14px] text-emerald-500">{formatMoney(totalRevenue)}</span>
+      {viewMode === "3d" ? (
+        <BuildingOperationalView
+          building={building}
+          buildings={buildings}
+          onSelectNode={onSelectNode}
+          onEditBuilding={onEditBuilding}
+          onAddFloor={onAddFloor}
+          onAddRoom={onAddRoom}
+          onOpenRoomModal={onOpenRoomModal}
+          onEditFloor={onEditFloor}
+          onDeleteFloor={onDeleteFloor}
+          onDeleteRoom={onDeleteRoom}
+        />
+      ) : (
+        <div className="flex flex-col gap-6 md:gap-8">
+          
+          {/* Dynamic Building Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/50 pb-4">
+            <div>
+              <h1 className="font-semibold text-[26px] md:text-[28px] text-text tracking-tight">{building.name}</h1>
+              <p className="text-[13px] text-muted font-medium flex items-center gap-1.5 mt-1"><MapPin size={14} /> {building.address}</p>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Nợ chưa thu</span>
-              <span className={`font-black text-[14px] ${totalDebt > 0 ? 'text-rose-500' : 'text-text'}`}>{formatMoney(totalDebt)}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Cọc đang giữ</span>
-              <span className="font-black text-[14px] text-text">{formatMoney(totalDeposit)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 2. Occupancy Summary */}
-        <div className="bg-card border border-border rounded-[16px] p-5 shadow-sm flex flex-col gap-3 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-[100px] h-[100px] bg-blue-500/5 rounded-full blur-[30px] -z-10" />
-          <h3 className="font-bold text-[11px] uppercase tracking-wider text-muted flex items-center gap-1.5"><Home size={14} /> Trạng thái phòng</h3>
-          <div className="flex flex-col gap-2 mt-2">
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Đang thuê / Sắp hết hạn</span>
-              <span className="font-black text-[14px] text-text">{occupiedRooms + expiringRooms}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Trống / Đặt cọc</span>
-              <span className="font-black text-[14px] text-text">{vacantRooms} / {depositedRooms}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Đang bảo trì</span>
-              <span className="font-black text-[14px] text-text">{maintenanceRooms}</span>
+            <div className="flex items-center gap-3">
+              {permissions.canUpdateBuilding && (
+                <Button variant="outline" onClick={onEditBuilding} data-testid="edit-building-button">
+                  Cấu hình Tòa nhà
+                </Button>
+              )}
+              {permissions.canCreateFloor && (
+                <Button onClick={onAddFloor} data-testid="add-floor-button">
+                  <Plus size={16} className="mr-1.5" /> Thêm Tầng
+                </Button>
+              )}
             </div>
           </div>
-        </div>
 
-        {/* 3. Contract Summary */}
-        <div className="bg-card border border-border rounded-[16px] p-5 shadow-sm flex flex-col gap-3 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-[100px] h-[100px] bg-orange-500/5 rounded-full blur-[30px] -z-10" />
-          <h3 className="font-bold text-[11px] uppercase tracking-wider text-muted flex items-center gap-1.5"><FileText size={14} /> Hợp đồng</h3>
-          <div className="flex flex-col gap-2 mt-2">
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Sắp hết hạn</span>
-              <span className={`font-black text-[14px] ${expiringRooms > 0 ? 'text-orange-500' : 'text-text'}`}>{expiringRooms}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Sắp chuyển đi</span>
-              <span className="font-black text-[14px] text-text">0</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Chờ tái ký</span>
-              <span className="font-black text-[14px] text-text">0</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 4. Temp Residence Summary */}
-        <div className="bg-card border border-border rounded-[16px] p-5 shadow-sm flex flex-col gap-3 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-[100px] h-[100px] bg-rose-500/5 rounded-full blur-[30px] -z-10" />
-          <h3 className="font-bold text-[11px] uppercase tracking-wider text-muted flex items-center gap-1.5"><ShieldAlert size={14} /> Khai báo tạm trú</h3>
-          <div className="flex flex-col gap-2 mt-2">
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Đã khai báo</span>
-              <span className="font-black text-[14px] text-emerald-500">{registeredTempResidenceCount}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Chưa khai báo</span>
-              <span className={`font-black text-[14px] ${missingTempResidenceCount > 0 ? 'text-rose-500' : 'text-text'}`}>{missingTempResidenceCount}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[12px] text-muted">Sắp hết hạn</span>
-              <span className="font-black text-[14px] text-text">0</span>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Accordion Floors & Rooms View */}
-      <div className="flex flex-col gap-4 mt-4">
-        <h2 className="font-black text-[14px] uppercase tracking-widest text-muted border-b border-border/40 pb-2">Bản đồ phòng & Tầng</h2>
-        
-        <div className="flex flex-col gap-4">
-          {building.floors.map(floor => {
-            const isExpanded = expandedFloors[floor.id];
+          {/* Building Dashboards: 4 Sections */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             
-            // Floor stats
-            let fRevenue = 0;
-            let fDebt = 0;
-            let fOccupied = 0;
-            let fVacant = 0;
-            let fExpiring = 0;
+            <div className="bg-card border border-border/60 rounded-[20px] p-5 shadow-sm">
+              <span className="block text-[10px] font-black uppercase text-muted tracking-wider">Doanh thu dự kiến</span>
+              <span className="block text-[22px] font-semibold text-text mt-1.5">
+                {formatMoney(totalRevenue)}
+              </span>
+            </div>
 
-            floor.rooms.forEach(r => {
-              if (r.status === "occupied") fOccupied++;
-              if (r.status === "vacant") fVacant++;
-              if (r.status === "expiring_soon") fExpiring++;
-              
-              if (r.rentalType === "whole") {
-                if (r.contract) fRevenue += r.contract.rentPrice;
-                if (r.debt) fDebt += r.debt;
-              } else {
-                r.sharedTenants?.forEach(st => {
-                  fRevenue += st.rentPrice;
-                  if (st.debt) fDebt += st.debt;
-                });
-              }
-            });
+            <div className="bg-card border border-border/60 rounded-[20px] p-5 shadow-sm">
+              <span className="block text-[10px] font-black uppercase text-muted tracking-wider">Phòng đang thuê</span>
+              <span className="block text-[22px] font-semibold text-text mt-1.5">
+                {occupiedRooms + expiringRooms} / {totalRooms} phòng
+              </span>
+            </div>
 
-            return (
-              <div key={floor.id} className="group flex flex-col border border-border/60 bg-card rounded-[12px] overflow-hidden shadow-sm">
-                
-                {/* Floor Header (Accordion Trigger) */}
-                <div 
-                  data-testid={`floor-accordion-${floor.id}`}
-                  className="flex flex-wrap items-center justify-between p-4 bg-black/[0.02] dark:bg-white/[0.02] cursor-pointer hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
-                  onClick={() => toggleFloor(floor.id)}
-                >
-                  <div className="flex items-center gap-3">
-                    <button 
-                      aria-label={isExpanded ? 'Thu gọn tầng' : 'Mở rộng tầng'}
-                      aria-expanded={isExpanded}
-                      title={isExpanded ? 'Thu gọn' : 'Mở rộng'}
-                      className="w-6 h-6 flex items-center justify-center bg-background border border-border rounded-[6px] text-muted"
-                    >
-                      {isExpanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
-                    </button>
-                    <span className="font-black text-[15px] text-text">Tầng {floor.number}</span>
-                    <span className="text-[12px] font-bold text-muted bg-background px-2 py-0.5 rounded-full border border-border">{floor.rooms.length} phòng</span>
-                    
-                    <div className="flex items-center gap-1 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button data-testid="edit-floor-button" onClick={(e) => { e.stopPropagation(); onEditFloor(floor.id); }} className="w-6 h-6 flex items-center justify-center hover:bg-[#6366f1]/10 text-[#6366f1] rounded-[6px] transition-colors" title="Sửa tầng"><Edit size={12}/></button>
-                      <button data-testid="delete-floor-button" onClick={(e) => { e.stopPropagation(); onDeleteFloor(floor.id); }} className="w-6 h-6 flex items-center justify-center hover:bg-rose-500/10 text-rose-500 rounded-[6px] transition-colors" title="Xóa tầng"><Trash2 size={12}/></button>
+            <div className="bg-card border border-border/60 rounded-[20px] p-5 shadow-sm">
+              <span className="block text-[10px] font-black uppercase text-muted tracking-wider">Phòng còn trống</span>
+              <span className="block text-[22px] font-semibold text-text mt-1.5">
+                {vacantRooms} / {totalRooms} phòng
+              </span>
+            </div>
+
+            <div className="bg-card border border-border/60 rounded-[20px] p-5 shadow-sm">
+              <span className="block text-[10px] font-black uppercase text-muted tracking-wider">Tổng đặt cọc</span>
+              <span className="block text-[22px] font-semibold text-text mt-1.5">
+                {formatMoney(totalDeposit)}
+              </span>
+            </div>
+
+          </div>
+
+          {/* Accordion Floor Layout containing Room Cards with Photos */}
+          <div className="flex flex-col gap-4 mt-2">
+            {building.floors.map((floor) => {
+              const isFloorExpanded = expandedFloors[floor.id] ?? true;
+              return (
+                <div key={floor.id} className="bg-card border border-border/60 rounded-[20px] p-5 shadow-sm flex flex-col gap-4">
+                  {/* Floor Header summary toggle */}
+                  <div 
+                    onClick={() => toggleFloor(floor.id)}
+                    className="flex justify-between items-center cursor-pointer select-none"
+                  >
+                    <div className="flex items-center gap-2">
+                      {isFloorExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                      <span className="font-semibold text-[16px] text-text">
+                        {floor.number === 1 ? "Tầng trệt" : `Tầng ${floor.number - 1}`}
+                      </span>
+                      <span className="text-[12px] font-medium text-muted">({floor.rooms.length} phòng)</span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {permissions.canCreateRoom && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAddRoom(floor.id);
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#6366f1]/10 text-[#6366f1] hover:bg-[#6366f1] hover:text-white transition-all text-[11px] font-bold rounded-lg focus:outline-none"
+                        >
+                          <Plus size={12} /> Thêm Phòng
+                        </button>
+                      )}
                     </div>
                   </div>
-                  
-                  <div className="flex flex-wrap items-center gap-4 text-[12px] font-bold">
-                    <span className="text-emerald-500">{fOccupied} Thuê</span>
-                    <span className="text-muted">{fVacant} Trống</span>
-                    {fExpiring > 0 && <span className="text-orange-500">{fExpiring} Sắp hết hạn HĐ</span>}
-                    {fDebt > 0 && <span className="text-rose-500">Nợ {formatMoney(fDebt)}</span>}
-                    <span className="text-text">{formatMoney(fRevenue)}</span>
-                  </div>
+
+                  {/* Floor Rooms cards photo list */}
+                  {isFloorExpanded && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-2">
+                      {floor.rooms.map((room) => (
+                        <RoomCardV7
+                          key={room.id}
+                          room={room}
+                          onOpenRoomModal={onOpenRoomModal}
+                        />
+                      ))}
+                      {permissions.canCreateRoom && (
+                        <div className="p-0.5">
+                          <div 
+                            onClick={() => onAddRoom(floor.id)}
+                            className="border-2 border-dashed border-border hover:border-[#6366f1] rounded-[16px] min-h-[140px] flex flex-col items-center justify-center text-muted hover:text-[#6366f1] hover:bg-[#6366f1]/5 cursor-pointer transition-all"
+                          >
+                            <Plus size={24} className="mb-2" />
+                            <span className="font-bold text-[12px]">Thêm phòng mới</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
+              );
+            })}
+          </div>
 
-                {/* Floor Rooms Grid */}
-                {isExpanded && (
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 bg-background/50 border-t border-border/40">
-                    {floor.rooms.map(room => (
-                      <div key={room.id} data-testid={`room-card-${room.id}`}>
-                        <RoomCardV7 room={room} onOpenRoomModal={onOpenRoomModal} />
-                      </div>
-                    ))}
-                    <div 
-                      onClick={() => onAddRoomQuick()}
-                      className="border-2 border-dashed border-border hover:border-[#6366f1] rounded-[16px] min-h-[140px] flex flex-col items-center justify-center text-muted hover:text-[#6366f1] hover:bg-[#6366f1]/5 cursor-pointer transition-all"
-                    >
-                      <Plus size={24} className="mb-2" />
-                      <span className="font-bold text-[12px]">Thêm phòng mới</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
         </div>
-      </div>
+      )}
 
     </div>
   );

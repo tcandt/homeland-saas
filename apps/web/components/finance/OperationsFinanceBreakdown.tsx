@@ -36,8 +36,8 @@ export default function OperationsFinanceBreakdown() {
               <div className="flex items-center justify-between">
                 <span className="font-bold text-[13px] text-text">{item.label}</span>
                 <div className="flex items-center gap-[12px]">
-                  <span className="font-black text-[14px] text-[#10b981]">{item.amount}</span>
-                  <div className={`flex items-center gap-[2px] w-[50px] justify-end ${item.trendUp ? 'text-[#10b981]' : 'text-rose-500'}`}>
+                  <span className="font-black text-[14px] text-[#8b5cf6]">{item.amount}</span>
+                  <div className={`flex items-center gap-[2px] w-[50px] justify-end ${item.trendUp ? 'text-[#8b5cf6]' : 'text-rose-500'}`}>
                     {item.trend !== '0%' && (item.trendUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />)}
                     <span className="text-[10px] font-bold">{item.trend}</span>
                   </div>
@@ -45,7 +45,7 @@ export default function OperationsFinanceBreakdown() {
               </div>
               <div className="w-full h-[6px] bg-black/5 dark:bg-white/5 rounded-full overflow-hidden flex relative">
                 <div 
-                  className="h-full bg-[#10b981] rounded-full" 
+                  className="h-full bg-[#8b5cf6] rounded-full" 
                   style={{ width: `${item.percent}%` }} 
                 />
               </div>
@@ -71,7 +71,7 @@ export default function OperationsFinanceBreakdown() {
                 </div>
                 <div className="flex items-center gap-[12px]">
                   <span className="font-black text-[14px] text-rose-500">{item.amount}</span>
-                  <div className={`flex items-center gap-[2px] w-[50px] justify-end ${item.trendUp ? 'text-[#10b981]' : 'text-rose-500'}`}>
+                  <div className={`flex items-center gap-[2px] w-[50px] justify-end ${item.trendUp ? 'text-[#8b5cf6]' : 'text-rose-500'}`}>
                     {item.trend !== '0%' && (item.trendUp ? <TrendingDown size={10} /> : <TrendingUp size={10} />)}
                     <span className="text-[10px] font-bold">{item.trend}</span>
                   </div>

@@ -33,6 +33,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-
       - run: npm ci
+      - run: npm run check:encoding
       - run: npm run lint
 
   typecheck:
@@ -51,6 +52,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-
       - run: npm ci
+      - run: npm run check:encoding
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
       - run: npm run typecheck
 
@@ -70,6 +72,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-
       - run: npm ci
+      - run: npm run check:encoding
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
       - run: npm run test
 
@@ -89,6 +92,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-
       - run: npm ci
+      - run: npm run check:encoding
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
       - run: docker compose up -d postgres redis
       - run: npm run test:e2e --workspace=api
@@ -109,6 +113,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-
       - run: npm ci
+      - run: npm run check:encoding
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
       - run: npm run build --workspace=api
       - name: Upload API Artifact
@@ -138,6 +143,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-
       - run: npm ci
+      - run: npm run check:encoding
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
       - uses: actions/cache@v4
         with:

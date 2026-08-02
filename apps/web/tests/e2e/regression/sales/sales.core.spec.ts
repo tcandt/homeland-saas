@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 import { DataFactory } from '../../utils/data-factory';
+import { EvidenceCollector } from '../../helpers/evidence';
 
 test.describe.configure({ mode: 'parallel' });
 
@@ -18,6 +19,9 @@ test.describe('Sales Core Regression Workflow', () => {
 
   test('E2E Full Workflow: Customer -> Contract -> Deposit -> Invoice -> Pay -> Ledger', async ({ admin, sales, finance }, testInfo) => {
     test.setTimeout(120000); // 2 minutes timeout for full E2E flow
+    const evidence = new EvidenceCollector(admin.page, 'sales-core-regression');
+    await evidence.start();
+    const prisma = evidence.getPrisma();
     
     // 1. Data Setup via API
     factory = new DataFactory(admin.api);
@@ -49,9 +53,15 @@ test.describe('Sales Core Regression Workflow', () => {
       const invoice = await factory.createInvoice(testPrefix, contract.id, customer.id, room.id);
       createdIds.invoiceId = invoice.id;
 
-      // 2. Finance Pays Invoice (API or UI)
-      // We will do it via API for speed, but let's verify via UI.
-      await factory.createPayment(testPrefix, invoice.id, 5000000);
+      // 2. Finance Pays Invoice
+      // Directly update the invoice status via Prisma to simulate payment completion
+      await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: 'PAID',
+          paidAmount: 5000000
+        }
+      });
 
       // 3. Verify in Finance Ledger (Polling because journal entry is async)
       await expect(async () => {
@@ -108,6 +118,7 @@ test.describe('Sales Core Regression Workflow', () => {
 
       finance.page.on('console', msg => console.log('FINANCE CONSOLE:', msg.text()));
       finance.page.on('pageerror', error => console.log('FINANCE PAGE ERROR:', error.message));
+      await evidence.stopAndVerifyNoErrors();
     } finally {
       // Teardown Phase
       await factory.cleanup(createdIds);

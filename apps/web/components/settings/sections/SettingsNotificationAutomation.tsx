@@ -1,12 +1,15 @@
 "use client";
-import React, { useState } from "react";
+
+import React from "react";
 import { Button } from "@/components/ui/Button";
-import { Check, X, Plus, Trash2, Bell, ChevronRight } from "lucide-react";
+import { Check, X, Plus, Trash2, Bell } from "lucide-react";
+import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 
 const channels = ["App", "Email", "SMS", "Zalo", "Telegram"];
 
 interface Reminder { days: number; channels: string[]; }
 interface AutoRule { event: string; desc: string; reminders: Reminder[]; }
+interface NotificationMatrixRow { event: string; app: boolean; email: boolean; sms: boolean; zalo: boolean; telegram: boolean; }
 
 const defaultRules: AutoRule[] = [
   {
@@ -32,30 +35,37 @@ const defaultRules: AutoRule[] = [
   },
 ];
 
+const defaultNotifications: NotificationMatrixRow[] = [
+  { event: "Hóa đơn quá hạn", app: true, email: true, sms: false, zalo: true, telegram: false },
+  { event: "Hợp đồng sắp hết hạn", app: true, email: true, sms: false, zalo: true, telegram: true },
+  { event: "Khách thuê mới", app: true, email: false, sms: false, zalo: false, telegram: false },
+  { event: "Thanh toán thành công", app: true, email: true, sms: true, zalo: false, telegram: false },
+  { event: "Sự cố bảo trì", app: true, email: false, sms: false, zalo: true, telegram: false },
+  { event: "Công nợ vượt hạn mức", app: true, email: true, sms: true, zalo: true, telegram: false },
+  { event: "Báo cáo tháng", app: false, email: true, sms: false, zalo: false, telegram: false },
+];
+
 function ReminderDayLabel({ days }: { days: number }) {
   if (days > 0) return <span className="text-primary">Trước {days} ngày</span>;
   if (days === 0) return <span className="text-warning font-bold">Đến hạn hôm nay</span>;
   return <span className="text-danger">Quá hạn {Math.abs(days)} ngày</span>;
 }
 
-export default function SettingsNotificationAutomation() {
-  const [rules] = useState(defaultRules);
+type NotificationAutomationSettings = {
+  notifications: NotificationMatrixRow[];
+  rules: AutoRule[];
+};
 
-  // Also quick toggle matrix for general notifications
-  const notifications = [
-    { event: "Hóa đơn quá hạn", app: true, email: true, sms: false, zalo: true, telegram: false },
-    { event: "Hợp đồng sắp hết hạn", app: true, email: true, sms: false, zalo: true, telegram: true },
-    { event: "Khách thuê mới", app: true, email: false, sms: false, zalo: false, telegram: false },
-    { event: "Thanh toán thành công", app: true, email: true, sms: true, zalo: false, telegram: false },
-    { event: "Sự cố bảo trì", app: true, email: false, sms: false, zalo: true, telegram: false },
-    { event: "Công nợ vượt hạn mức", app: true, email: true, sms: true, zalo: true, telegram: false },
-    { event: "Báo cáo tháng", app: false, email: true, sms: false, zalo: false, telegram: false },
-  ];
+const fallback: NotificationAutomationSettings = {
+  notifications: defaultNotifications,
+  rules: defaultRules,
+};
+
+export default function SettingsNotificationAutomation() {
+  const { draft, setDraft, isSaving, save } = useSettingsSection<NotificationAutomationSettings>("notifications", "TENANT", fallback);
 
   return (
     <div className="flex flex-col gap-[24px]">
-
-      {/* General Notification Matrix */}
       <div className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm flex flex-col gap-[16px]">
         <h3 className="font-black text-[15px] text-text">Ma trận thông báo</h3>
         <div className="overflow-x-auto">
@@ -63,22 +73,29 @@ export default function SettingsNotificationAutomation() {
             <thead>
               <tr className="border-b border-border bg-background">
                 <th className="text-left py-[10px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Sự kiện</th>
-                {channels.map(ch => (
-                  <th key={ch} className="text-center py-[10px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">{ch}</th>
+                {channels.map((channel) => (
+                  <th key={channel} className="text-center py-[10px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">{channel}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {notifications.map((n, i) => (
-                <tr key={i} className="border-b border-border/50 hover:bg-black/[0.02] dark:hover:bg-card/[0.02] transition-colors">
-                  <td className="py-[12px] px-[12px] font-bold text-[13px] text-text">{n.event}</td>
-                  {(["app", "email", "sms", "zalo", "telegram"] as const).map(ch => {
-                    const enabled = n[ch];
+              {draft.notifications.map((notification, index) => (
+                <tr key={index} className="border-b border-border/50 hover:bg-black/[0.02] dark:hover:bg-card/[0.02] transition-colors">
+                  <td className="py-[12px] px-[12px] font-bold text-[13px] text-text">{notification.event}</td>
+                  {(["app", "email", "sms", "zalo", "telegram"] as const).map((channel) => {
+                    const enabled = notification[channel];
                     return (
-                      <td key={ch} className="py-[12px] px-[12px] text-center">
-                        <div className={`inline-flex w-[36px] h-[20px] rounded-full p-[2px] items-center cursor-pointer transition-colors ${enabled ? "bg-success" : "bg-border"}`}>
+                      <td key={channel} className="py-[12px] px-[12px] text-center">
+                        <Button
+                          type="button"
+                          onClick={() => setDraft((prev) => ({
+                            ...prev,
+                            notifications: prev.notifications.map((row, rowIndex) => rowIndex === index ? { ...row, [channel]: !enabled } : row),
+                          }))}
+                          className={`inline-flex w-[36px] h-[20px] rounded-full p-[2px] items-center transition-colors ${enabled ? "bg-success" : "bg-border"}`}
+                        >
                           <div className={`w-[16px] h-[16px] bg-card rounded-full shadow transition-transform ${enabled ? "translate-x-[16px]" : "translate-x-0"}`} />
-                        </div>
+                        </Button>
                       </td>
                     );
                   })}
@@ -89,9 +106,8 @@ export default function SettingsNotificationAutomation() {
         </div>
       </div>
 
-      {/* Automation Rules */}
-      {rules.map((rule, ri) => (
-        <div key={ri} className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm flex flex-col gap-[16px]">
+      {draft.rules.map((rule, ruleIndex) => (
+        <div key={ruleIndex} className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm flex flex-col gap-[16px]">
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-[8px]">
@@ -101,7 +117,7 @@ export default function SettingsNotificationAutomation() {
               <p className="text-[12px] font-medium text-muted mt-[4px]">{rule.desc}</p>
             </div>
             <div className="flex items-center gap-[8px]">
-              <Button className="h-[32px] px-[12px] rounded-[8px] bg-background border border-border text-[12px] font-bold text-text hover:bg-black/5 dark:hover:bg-card/5 transition-colors flex items-center gap-[4px]">
+              <Button type="button" className="h-[32px] px-[12px] rounded-[8px] bg-background border border-border text-[12px] font-bold text-text hover:bg-black/5 dark:hover:bg-card/5 transition-colors flex items-center gap-[4px]">
                 <Plus size={12} /> Thêm nhắc
               </Button>
               <div className="w-[40px] h-[22px] rounded-full bg-success p-[2px] flex items-center cursor-pointer">
@@ -111,26 +127,26 @@ export default function SettingsNotificationAutomation() {
           </div>
 
           <div className="flex flex-col gap-[8px]">
-            {rule.reminders.map((rem, remi) => (
-              <div key={remi} className="flex items-center gap-[12px] p-[12px] rounded-[10px] bg-background border border-border">
+            {rule.reminders.map((reminder, reminderIndex) => (
+              <div key={reminderIndex} className="flex items-center gap-[12px] p-[12px] rounded-[10px] bg-background border border-border">
                 <div className="w-[4px] h-[36px] rounded-full bg-primary shrink-0" />
                 <div className="w-[150px] shrink-0">
-                  <div className="text-[12px] font-bold text-text"><ReminderDayLabel days={rem.days} /></div>
+                  <div className="text-[12px] font-bold text-text"><ReminderDayLabel days={reminder.days} /></div>
                   <div className="text-[10px] font-medium text-muted">Gửi thông báo</div>
                 </div>
                 <div className="flex items-center gap-[6px] flex-wrap">
-                  {channels.map(ch => {
-                    const active = rem.channels.includes(ch);
+                  {channels.map((channel) => {
+                    const active = reminder.channels.includes(channel);
                     return (
-                      <span key={ch} className={`text-[11px] font-bold px-[8px] py-[3px] rounded-full border transition-all cursor-pointer
+                      <span key={channel} className={`text-[11px] font-bold px-[8px] py-[3px] rounded-full border transition-all cursor-pointer
                         ${active ? "bg-primary/10 text-primary border-primary/30" : "bg-background text-muted border-border"}`}>
                         {active ? <Check size={10} className="inline mr-1" /> : <X size={10} className="inline mr-1" />}
-                        {ch}
+                        {channel}
                       </span>
                     );
                   })}
                 </div>
-                <Button className="ml-auto text-muted hover:text-danger transition-colors shrink-0">
+                <Button type="button" className="ml-auto text-muted hover:text-danger transition-colors shrink-0">
                   <Trash2 size={14} />
                 </Button>
               </div>
@@ -140,7 +156,7 @@ export default function SettingsNotificationAutomation() {
       ))}
 
       <div className="flex justify-end">
-        <Button className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm">
+        <Button type="button" onClick={() => save()} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
           Lưu cấu hình thông báo
         </Button>
       </div>

@@ -19,7 +19,7 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
   intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T> | any> {
     const request = context.switchToHttp().getRequest();
     // Bypass interceptor for metrics endpoint
-    if (request.url && request.url.includes('/metrics')) {
+    if (request.url && (request.url.includes('/metrics') || request.url.includes('/settings/file'))) {
       return next.handle();
     }
 

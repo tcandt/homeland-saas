@@ -14,7 +14,16 @@ export const useContractsQuery = (params?: { page?: number; limit?: number; sear
     queryKey: contractKeys.list(params),
     queryFn: async () => {
       const response = await contractsApi.list(params);
-      return { data: response };
+      const payload = Array.isArray(response) ? { items: response } : (response as any) || {};
+      const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.data) ? payload.data : [];
+      return {
+        data: items,
+        meta: {
+          total: Number(payload.total || items.length || 0),
+          page: Number(payload.page || params?.page || 1),
+          limit: Number(payload.limit || params?.limit || items.length || 0),
+        },
+      };
     },
   });
 };

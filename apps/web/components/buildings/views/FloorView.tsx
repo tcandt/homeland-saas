@@ -1,10 +1,11 @@
 "use client";
 
 import React from "react";
-import { Building, Room } from "../mockData";
+import type { Building, Room } from "../building.types";
 import { SelectedNode } from "../MasterDetailBuildings";
 import { Settings, Image as ImageIcon, Users, AlertTriangle, ShieldAlert, CreditCard, FileText, Plus, Eye, Trash2, Edit2, Upload, MessageSquare } from "lucide-react";
 import { Button } from "../../ui/Button";
+import { getRoomDisplayName } from "../building-labels";
 
 interface Props {
   building: Building;
@@ -43,11 +44,11 @@ export default function FloorView({
   const getStatusConfig = (status: string) => {
     switch (status) {
       case "occupied":
-        return { color: "bg-emerald-500", text: "Đang thuê", borderColor: "border-emerald-500/20", textColor: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { color: "bg-indigo-500", text: "Đang thuê", borderColor: "border-indigo-500/20", textColor: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10" };
       case "vacant":
         return { color: "bg-zinc-400", text: "Trống", borderColor: "border-zinc-300 dark:border-zinc-700", textColor: "text-muted", bg: "bg-black/5 dark:bg-white/5" };
       case "deposited":
-        return { color: "bg-purple-500", text: "Đặt cọc", borderColor: "border-purple-500/20", textColor: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
+        return { color: "bg-indigo-500", text: "Đặt cọc", borderColor: "border-indigo-500/20", textColor: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10" };
       case "expiring_soon":
         return { color: "bg-amber-500", text: "Sắp hết hạn", borderColor: "border-amber-500/20", textColor: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10" };
       case "maintenance":
@@ -135,7 +136,7 @@ export default function FloorView({
                 {room.images && room.images.length > 0 ? (
                   <img 
                     src={room.images[0]} 
-                    alt={`P.${room.name}`} 
+                    alt={`P.${getRoomDisplayName(room)}`} 
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
                   />
                 ) : (
@@ -160,7 +161,7 @@ export default function FloorView({
 
                 {/* Room Number Overlay */}
                 <div className="absolute bottom-3 left-4">
-                  <span className="font-black text-[24px] text-white tracking-tight leading-none">P.{room.name}</span>
+                  <span className="font-black text-[24px] text-white tracking-tight leading-none">P.{getRoomDisplayName(room)}</span>
                 </div>
               </div>
 
@@ -194,8 +195,10 @@ export default function FloorView({
               <div className="p-4 flex flex-col gap-3 flex-1 justify-between">
                 <div>
                   <div className="flex justify-between items-baseline mb-2">
-                    <span className="text-[11px] font-black text-muted uppercase tracking-wider">Giá thuê tháng</span>
-                    <span className="font-black text-[16px] text-text">{room.monthlyPrice.toLocaleString('vi-VN')} đ</span>
+                    <span className="text-[11px] font-black text-muted uppercase tracking-wider">Tiền phòng</span>
+                    <span className="font-black text-[16px] text-text">
+                      {room.contract?.rentPrice ? `${room.contract.rentPrice.toLocaleString('vi-VN')} đ` : '-'}
+                    </span>
                   </div>
 
                   <div className="flex items-center justify-between text-[12px] text-muted border-t border-border/40 pt-3">
@@ -227,7 +230,7 @@ export default function FloorView({
               {/* HOVER QUICK ACTIONS OVERLAY */}
               <div className="absolute inset-0 bg-background/95 dark:bg-card/95 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col p-4 justify-between z-10">
                 <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                  <span className="font-black text-[18px] text-text">P.{room.name} Quick Actions</span>
+                  <span className="font-black text-[18px] text-text">P.{getRoomDisplayName(room)} Quick Actions</span>
                   <button 
                     onClick={() => onOpenRoomModal(room.id)}
                     className="w-[28px] h-[28px] rounded-full bg-black/5 dark:bg-white/5 hover:bg-[#6366f1]/10 hover:text-[#6366f1] transition-colors flex items-center justify-center"

@@ -29,8 +29,17 @@ export class BuildingsController {
   @ApiOperation({ summary: 'Get building details' })
   getDetail(@Param('id') id: string) {
     return this.buildingsService.getDetail(id, {
-      floors: true,
-      rooms: true,
+      floors: { where: { deletedAt: null } },
+      rooms: {
+        where: { deletedAt: null },
+        include: {
+          contracts: {
+            include: {
+              customer: { select: { id: true, fullName: true, phone: true, email: true, identityNo: true, gender: true, birthDate: true, nationality: true, address: true } },
+            },
+          },
+        },
+      },
     });
   }
 

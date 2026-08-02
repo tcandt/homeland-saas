@@ -15,16 +15,16 @@ export default function RoomsSpeedDial() {
         }`}
       >
         <DialButton icon={<FileText size={18} />} label="Tạo hợp đồng" color="text-indigo-600 dark:text-indigo-400" />
-        <DialButton icon={<Wrench size={18} />} label="Bảo trì" color="text-purple-600 dark:text-purple-400" />
+        <DialButton icon={<Wrench size={18} />} label="Bảo trì" color="text-indigo-600 dark:text-indigo-400" />
         <DialButton icon={<Receipt size={18} />} label="Lập hóa đơn" color="text-orange-600 dark:text-orange-400" />
         <DialButton icon={<UserPlus size={18} />} label="Nhận khách" color="text-blue-600 dark:text-blue-400" />
-        <DialButton icon={<Home size={18} />} label="Thêm phòng mới" color="text-emerald-600 dark:text-emerald-400" />
+        <DialButton icon={<Home size={18} />} label="Thêm phòng mới" color="text-indigo-600 dark:text-indigo-400" />
       </div>
 
       {/* Main FAB */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-[56px] h-[56px] rounded-full flex items-center justify-center bg-[#6366f1] text-white shadow-lg shadow-indigo-500/30 hover:bg-[#4f46e5] hover:scale-105 hover:-translate-y-1 transition-all duration-300 ${
+        className={`w-[56px] h-[56px] rounded-full flex items-center justify-center bg-primary text-white shadow-lg shadow-indigo-500/30 hover:bg-indigo-600 hover:scale-105 hover:-translate-y-1 transition-all duration-300 ${
           isOpen ? "rotate-45 bg-rose-500 hover:bg-rose-600 shadow-rose-500/30" : ""
         }`}
       >

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Building } from "../mockData";
+import type { Building } from "../building.types";
 import { SelectedNode } from "../MasterDetailBuildings";
 import { User, Phone, Mail, Calendar, CreditCard, AlignLeft, Info } from "lucide-react";
 
@@ -45,8 +45,10 @@ export default function RoomView({ building, floorId, roomId, onOpenRoomModal }:
             <span className="text-[14px] font-bold text-text">Tối đa {room.capacity || 2} người</span>
           </div>
           <div className="flex justify-between items-center pt-3 border-t border-border/50 mt-1">
-            <span className="text-[13px] font-medium text-muted">Giá thuê gốc</span>
-            <span className="text-[16px] font-black text-text">{((room.monthlyPrice) || (room as any).price || 0).toLocaleString('vi-VN')} đ</span>
+            <span className="text-[13px] font-medium text-muted">Tiền phòng</span>
+            <span className="text-[16px] font-black text-text">
+              {room.contract?.rentPrice ? `${room.contract.rentPrice.toLocaleString('vi-VN')} đ` : '-'}
+            </span>
           </div>
         </div>
 
@@ -62,7 +64,7 @@ export default function RoomView({ building, floorId, roomId, onOpenRoomModal }:
                 </div>
                 <div className="flex flex-col">
                   <span className="font-black text-[16px] text-text">{room.tenant.name}</span>
-                  <span className="text-[12px] font-bold text-[#10b981]">Đang lưu trú</span>
+                  <span className="text-[12px] font-bold text-[#8b5cf6]">Đang lưu trú</span>
                 </div>
               </div>
               <div className="flex flex-col gap-2 mt-2">

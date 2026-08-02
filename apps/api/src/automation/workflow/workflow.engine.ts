@@ -132,6 +132,23 @@ export class WorkflowEngine {
            context: payload
         });
         break;
+      case 'SEND_PAYMENT_CONFIRMATION_ZALO':
+        if (payload.customerPhone) {
+          await this.communicationService.dispatchDirect({
+            tenantId: payload.tenantId,
+            channel: 'ZALO' as any,
+            templateCode: params?.templateCode || 'PAYMENT_ZALO_CONFIRMATION',
+            recipient: payload.customerPhone,
+            userId: payload.customerId || payload.userId || null,
+            context: {
+              ...payload,
+              paymentCode: payload.metadata?.code,
+            },
+          });
+        } else {
+          this.logger.warn('Skipping Zalo payment confirmation because customerPhone is missing');
+        }
+        break;
       case 'INVALIDATE_DASHBOARD_CACHE':
         // Not actual clear all, but selective prefix logic. 
         // We will call the cache service methods.

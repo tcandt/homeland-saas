@@ -63,7 +63,7 @@ export default function OperationsFinanceRightPanel() {
           ))}
         </div>
         
-        <button className="w-full h-[40px] mt-[4px] bg-[#10b981]/10 hover:bg-[#10b981]/20 text-[#10b981] font-bold text-[13px] rounded-[10px] transition-colors flex items-center justify-center gap-[6px]">
+        <button className="w-full h-[40px] mt-[4px] bg-[#8b5cf6]/10 hover:bg-[#8b5cf6]/20 text-[#8b5cf6] font-bold text-[13px] rounded-[10px] transition-colors flex items-center justify-center gap-[6px]">
           <FileText size={14} /> Đi đến Report Center
         </button>
       </div>

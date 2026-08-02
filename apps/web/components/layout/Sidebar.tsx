@@ -2,9 +2,8 @@
 
 import React from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Home, Building, User, FileText, Wallet, Receipt, BarChart, PieChart, Settings, LayoutDashboard, Inbox, LogOut, Zap } from "lucide-react";
+import { Home, Building, User, FileText, Receipt, PieChart, Settings, LogOut } from "lucide-react";
 import { useAuthStore } from "@/lib/auth/auth-store";
 
 interface SidebarProps {
@@ -45,34 +44,39 @@ export default function Sidebar({ collapsed }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 px-[10px]">
-        <NavItem href="/" icon={<LayoutDashboard size={20} />} label="Dashboard" collapsed={collapsed} active={pathname === "/"} />
+        {/* Dashboard NavItem */}
+        <Link 
+          href="/" 
+          prefetch={false}
+          aria-label="Dashboard" 
+          className={`flex items-center gap-[12px] px-[14px] py-[10px] rounded-[10px] font-semibold mb-1 transition-colors ${
+            pathname === "/" 
+              ? "bg-[#4f46e5]/10 text-[#4f46e5]" 
+              : "text-muted hover:bg-black/5 dark:hover:bg-white/5 dark:hover:bg-slate-800 hover:text-text"
+          }`}
+        >
+          <span className={`shrink-0 ${pathname === "/" ? "text-[#4f46e5]" : ""}`}>
+            {pathname === "/" ? <Home size={20} fill="currentColor" /> : <Home size={20} />}
+          </span>
+          {!collapsed && <span>Dashboard</span>}
+        </Link>
 
         {!collapsed && <div className="mt-6 mb-2 mx-[14px] text-[10px] font-bold text-muted uppercase tracking-wider">OPERATIONS</div>}
         {collapsed && <div className="h-px bg-border my-4 mx-[14px]"></div>}
         
         <NavItem href="/buildings" icon={<Building size={20} />} label="Tòa nhà" collapsed={collapsed} active={pathname === "/buildings"} />
-        <NavItem href="/rooms" icon={<Home size={20} />} label="Phòng" collapsed={collapsed} active={pathname === "/rooms"} />
         <NavItem href="/tenants" icon={<User size={20} />} label="Khách thuê" collapsed={collapsed} active={pathname === "/tenants"} />
 
         {!collapsed && <div className="mt-6 mb-2 mx-[14px] text-[10px] font-bold text-muted uppercase tracking-wider">CONTRACTS</div>}
         {collapsed && <div className="h-px bg-border my-4 mx-[14px]"></div>}
 
-        <NavItem href="/tasks" icon={<Inbox size={20} />} label="Vận Hành" collapsed={collapsed} active={pathname === "/tasks"} />
         <NavItem href="/contracts" icon={<FileText size={20} />} label="Hợp đồng" collapsed={collapsed} active={pathname === "/contracts"} />
-        <NavItem href="/deposits" icon={<Wallet size={20} />} label="Đặt cọc" collapsed={collapsed} active={pathname === "/deposits"} />
         <NavItem href="/invoices" icon={<Receipt size={20} />} label="Hóa đơn" collapsed={collapsed} active={pathname === "/invoices"} />
 
         {hasFinanceAccess && !collapsed && <div className="mt-6 mb-2 mx-[14px] text-[10px] font-bold text-muted uppercase tracking-wider">FINANCE</div>}
         {hasFinanceAccess && collapsed && <div className="h-px bg-border my-4 mx-[14px]"></div>}
 
         {hasFinanceAccess && <NavItem href="/finance" icon={<PieChart size={20} />} label="Tài chính & Báo cáo" collapsed={collapsed} active={pathname === "/finance"} dataTestId="sidebar-nav-finance" />}
-        {hasFinanceAccess && <NavItem href="/documents" icon={<FileText size={20} />} label="Tài liệu & Ký số" collapsed={collapsed} active={pathname === "/documents"} />}
-        {hasFinanceAccess && <NavItem href="/ai" icon={<Zap size={20} className="text-[#6366f1]" />} label="AI Command Center" collapsed={collapsed} active={pathname === "/ai"} />}
-
-        {!collapsed && <div className="mt-6 mb-2 mx-[14px] text-[10px] font-bold text-muted uppercase tracking-wider">SALES</div>}
-        {collapsed && <div className="h-px bg-border my-4 mx-[14px]"></div>}
-
-        <NavItem href="/sales" icon={<BarChart size={20} />} label="Sales CRM" collapsed={collapsed} active={pathname === "/sales"} />
       </nav>
 
       {/* Footer */}
@@ -101,6 +105,7 @@ function NavItem({ href, icon, label, collapsed, active, dataTestId }: { href: s
   return (
     <Link 
       href={href} 
+      prefetch={false}
       data-testid={dataTestId}
       aria-label={label} 
       className={`flex items-center gap-[12px] px-[14px] py-[10px] rounded-[10px] font-semibold mb-1 transition-colors ${
@@ -110,7 +115,7 @@ function NavItem({ href, icon, label, collapsed, active, dataTestId }: { href: s
       }`}
     >
       <span className={`shrink-0 ${active ? "text-[#4f46e5]" : ""}`}>
-        {active ? React.cloneElement(icon as React.ReactElement, { fill: "currentColor" }) : icon}
+        {active ? React.cloneElement(icon as any, { fill: "currentColor" }) : icon}
       </span>
       {!collapsed && <span>{label}</span>}
     </Link>

@@ -66,18 +66,12 @@ export class ReportsService {
       revenue: totalRevenue,
       expenses: totalExpenses,
       netProfit: totalRevenue - totalExpenses,
-      buildings: [
-        { name: 'Demo Building', revenue: totalRevenue, expense: totalExpenses, profit: totalRevenue - totalExpenses }
-      ]
+      buildings: []
     };
   }
 
   async getRevenueByBuilding(tenantId: string) {
-    // Just mock for now, ideally aggregate by CostCenter/Building
-    return [
-      { buildingName: 'Landmark 81', revenue: 150000000 },
-      { buildingName: 'Vinhomes Central Park', revenue: 95000000 }
-    ];
+    return [];
   }
 
   async getDepositLiability(tenantId: string) {
@@ -118,9 +112,6 @@ export class ReportsService {
   }
 
   async getRevenueByRoom(tenantId: string) {
-     return [
-      { roomName: 'P101', buildingName: 'Landmark 81', revenue: 15000000 },
-      { roomName: 'P102', buildingName: 'Landmark 81', revenue: 12000000 }
-    ];
+    return [];
   }
 }

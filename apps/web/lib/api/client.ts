@@ -47,14 +47,20 @@ export const apiClient = {
       }
     }
 
+    const mergedHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(correlationId ? { 'x-correlation-id': correlationId } : {}),
+      ...(headers as Record<string, string>),
+    };
+
+    if (mergedHeaders['Content-Type'] === 'multipart/form-data' || mergedHeaders['Content-Type'] === 'undefined' || !mergedHeaders['Content-Type']) {
+       delete mergedHeaders['Content-Type'];
+    }
+
     const config: RequestInit = {
       ...customConfig,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(correlationId ? { 'x-correlation-id': correlationId } : {}),
-        ...headers,
-      },
+      headers: mergedHeaders,
     };
 
     let url = `${BASE_URL}${endpoint}`;
@@ -113,6 +119,19 @@ export const apiClient = {
 
   post<T>(endpoint: string, body?: any, options?: Omit<FetchOptions, 'method' | 'body'>) {
     return this.fetch<T>(endpoint, { ...options, method: 'POST', body: JSON.stringify(body) });
+  },
+
+  postForm<T>(endpoint: string, formData: FormData, options?: Omit<FetchOptions, 'method' | 'body'>) {
+    const { headers, ...rest } = options || {};
+    return this.fetch<T>(endpoint, {
+      ...rest,
+      method: 'POST',
+      body: formData,
+      headers: {
+        'Content-Type': 'undefined',
+        ...headers,
+      },
+    });
   },
 
   patch<T>(endpoint: string, body?: any, options?: Omit<FetchOptions, 'method' | 'body'>) {

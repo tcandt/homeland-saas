@@ -16,9 +16,10 @@ export default function GlobalError({
     console.error("Global Error Boundary caught:", error);
   }, [error]);
 
-  const isNetworkError = error.message.includes("fetch") || error.message.includes("Network") || error.message.includes("Timeout");
-  const is403 = error.message.includes("403");
-  const is404 = error.message.includes("404");
+  const errorMessage = error?.message || "";
+  const isNetworkError = errorMessage.includes("fetch") || errorMessage.includes("Network") || errorMessage.includes("Timeout");
+  const is403 = errorMessage.includes("403");
+  const is404 = errorMessage.includes("404");
 
   let title = "Something went wrong!";
   let desc = "An unexpected error occurred. Our team has been notified.";

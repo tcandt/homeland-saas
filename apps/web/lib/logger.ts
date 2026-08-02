@@ -6,7 +6,7 @@ export const logger = pino({
     service: 'homeland-web',
   },
   formatters: {
-    level(label) {
+    level(label: string) {
       return { level: label };
     },
   },

@@ -15,7 +15,7 @@ export default function OperationsFinanceFilters() {
           <input 
             type="text" 
             placeholder="Tìm giao dịch, phòng, khách..." 
-            className="w-full h-[40px] pl-[36px] pr-[16px] bg-black/5 dark:bg-white/5 border border-transparent rounded-[10px] text-[13px] text-text font-medium outline-none focus:bg-background focus:border-[#10b981] transition-all placeholder:text-muted/70"
+            className="w-full h-[40px] pl-[36px] pr-[16px] bg-black/5 dark:bg-white/5 border border-transparent rounded-[10px] text-[13px] text-text font-medium outline-none focus:bg-background focus:border-[#8b5cf6] transition-all placeholder:text-muted/70"
             onChange={(e) => setHasFilters(e.target.value.length > 0)}
           />
         </div>

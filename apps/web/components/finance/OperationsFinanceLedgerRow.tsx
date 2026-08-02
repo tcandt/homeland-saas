@@ -26,7 +26,7 @@ export default function OperationsFinanceLedgerRow({ txn, onClick }: { txn: TxnD
   
   const getTypeColor = (type: TxnType) => {
     switch (type) {
-      case "Income": return "text-[#10b981] bg-[#10b981]/10 border-[#10b981]/20";
+      case "Income": return "text-[#8b5cf6] bg-[#8b5cf6]/10 border-[#8b5cf6]/20";
       case "Expense": return "text-rose-500 bg-rose-500/10 border-rose-500/20";
       case "Adjustment": return "text-[#f97316] bg-[#f97316]/10 border-[#f97316]/20";
     }
@@ -89,7 +89,7 @@ export default function OperationsFinanceLedgerRow({ txn, onClick }: { txn: TxnD
 
       {/* 4. Financial Info & Status */}
       <div className="flex flex-col gap-[8px] flex-1 min-w-[180px] items-end">
-        <span className={`font-black text-[18px] ${txn.type === 'Income' ? 'text-[#10b981]' : txn.type === 'Expense' ? 'text-rose-500' : 'text-[#f97316]'}`}>
+        <span className={`font-black text-[18px] ${txn.type === 'Income' ? 'text-[#8b5cf6]' : txn.type === 'Expense' ? 'text-rose-500' : 'text-[#f97316]'}`}>
           {amountSign}{txn.amount}đ
         </span>
         <div className="flex items-center gap-[12px]">
@@ -122,7 +122,7 @@ export default function OperationsFinanceLedgerRow({ txn, onClick }: { txn: TxnD
           </button>
           
           {(txn.status === "Pending") && (
-            <button onClick={(e) => { e.stopPropagation(); }} className="h-[36px] px-[12px] rounded-[8px] bg-[#10b981]/10 text-[#10b981] hover:bg-[#10b981]/20 font-bold text-[13px] flex items-center gap-[6px] transition-colors">
+            <button onClick={(e) => { e.stopPropagation(); }} className="h-[36px] px-[12px] rounded-[8px] bg-[#8b5cf6]/10 text-[#8b5cf6] hover:bg-[#8b5cf6]/20 font-bold text-[13px] flex items-center gap-[6px] transition-colors">
               <CheckCircle2 size={14} /> Đối soát ngay
             </button>
           )}

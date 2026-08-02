@@ -34,7 +34,13 @@ export class RoomsController {
     return this.roomsService.getDetail(id, {
       building: { select: { id: true, name: true, code: true } },
       floor: { select: { id: true, name: true, level: true } },
-      contracts: { include: { customer: true } },
+      contracts: {
+        where: { deletedAt: null },
+        include: { customer: true },
+      },
+      roommates: {
+        where: { deletedAt: null },
+      },
     });
   }
 

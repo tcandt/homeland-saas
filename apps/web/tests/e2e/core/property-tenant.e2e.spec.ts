@@ -36,6 +36,16 @@ test.describe('Property Structure Tenant Isolation', () => {
     const contextA = await browser.newContext();
     const pageA = await contextA.newPage();
     
+    // Skip on mobile/tablet viewports since building CRUD/Explorer is desktop-only
+    const isMobile = pageA.viewportSize()?.width && pageA.viewportSize()!.width < 1024;
+    if (isMobile) {
+      await contextA.close();
+      test.skip();
+    }
+    
+    pageA.on('console', msg => console.log('TENANT A CONSOLE:', msg.text()));
+    pageA.on('pageerror', error => console.log('TENANT A ERROR:', error.message));
+    
     // Block SSE
     await pageA.route('**/api/v1/notifications/stream*', async (route) => {
       await route.fulfill({ status: 503, headers: { 'x-intentional-error': 'true' } });
@@ -45,21 +55,21 @@ test.describe('Property Structure Tenant Isolation', () => {
     await pageA.getByTestId('login-email').fill(tenantAEmail);
     await pageA.getByTestId('login-password').fill(password);
     await pageA.getByTestId('login-submit').click();
-    await pageA.waitForLoadState('networkidle');
+    await expect(pageA).toHaveURL(/\/$/, { timeout: 15000 });
 
     // 3. Create Building
     await pageA.goto('/buildings');
     await pageA.waitForLoadState('networkidle');
 
-    await pageA.getByTestId('add-building-button').locator('visible=true').first().click();
+    await pageA.getByTestId('add-building-button').filter({ visible: true }).first().click({ force: true });
     await expect(pageA.getByTestId('bname-input')).toBeVisible();
     await pageA.getByTestId('bname-input').fill(buildingNameA);
     await pageA.getByTestId('bcode-input').fill(buildingCodeA);
     await pageA.getByTestId('baddress-input').fill('Tenant A Street');
-    await pageA.getByTestId('save-button').click();
+    await pageA.getByTestId('save-button').click({ force: true });
 
     // Verify UI
-    await expect(pageA.locator(`text=${buildingNameA} >> visible=true`).first()).toBeVisible({ timeout: 10000 });
+    await expect(pageA.locator(`text=${buildingNameA}`).filter({ visible: true }).first()).toBeVisible({ timeout: 10000 });
     await contextA.close();
   });
 
@@ -86,6 +96,16 @@ test.describe('Property Structure Tenant Isolation', () => {
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
     
+    // Skip on mobile/tablet viewports since building CRUD/Explorer is desktop-only
+    const isMobile = pageB.viewportSize()?.width && pageB.viewportSize()!.width < 1024;
+    if (isMobile) {
+      await contextB.close();
+      test.skip();
+    }
+    
+    pageB.on('console', msg => console.log('TENANT B CONSOLE:', msg.text()));
+    pageB.on('pageerror', error => console.log('TENANT B ERROR:', error.message));
+    
     // Block SSE
     await pageB.route('**/api/v1/notifications/stream*', async (route) => {
       await route.fulfill({ status: 503, headers: { 'x-intentional-error': 'true' } });
@@ -95,7 +115,7 @@ test.describe('Property Structure Tenant Isolation', () => {
     await pageB.getByTestId('login-email').fill(tenantBEmail);
     await pageB.getByTestId('login-password').fill(password);
     await pageB.getByTestId('login-submit').click();
-    await pageB.waitForLoadState('networkidle');
+    await expect(pageB).toHaveURL(/\/$/, { timeout: 15000 });
 
     // 3. Go to buildings and verify Tenant A building is missing
     await pageB.goto('/buildings');

@@ -11,6 +11,10 @@ export const useCreateContractMutation = () => {
     onSuccess: () => {
       toast.success('Thêm hợp đồng thành công');
       queryClient.invalidateQueries({ queryKey: contractKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Có lỗi xảy ra khi thêm hợp đồng');
@@ -26,6 +30,10 @@ export const useUpdateContractMutation = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: contractKeys.detail(variables.id) });
       queryClient.invalidateQueries({ queryKey: contractKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Có lỗi xảy ra khi cập nhật hợp đồng');
@@ -41,9 +49,50 @@ export const useDeleteContractMutation = () => {
     onSuccess: () => {
       toast.success('Xóa hợp đồng thành công');
       queryClient.invalidateQueries({ queryKey: contractKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Có lỗi xảy ra khi xóa hợp đồng');
     },
   });
 };
+
+export const useTerminateContractMutation = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => contractsApi.terminate(id),
+    onSuccess: (_, variables) => {
+      toast.success('Chấm dứt hợp đồng thành công');
+      queryClient.invalidateQueries({ queryKey: contractKeys.detail(variables) });
+      queryClient.invalidateQueries({ queryKey: contractKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Có lỗi xảy ra khi chấm dứt hợp đồng');
+    },
+  });
+};
+
+export const useExpireContractMutation = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => contractsApi.expire(id),
+    onSuccess: (_, variables) => {
+      toast.success('Cập nhật hợp đồng thành công');
+      queryClient.invalidateQueries({ queryKey: contractKeys.detail(variables) });
+      queryClient.invalidateQueries({ queryKey: contractKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Có lỗi xảy ra');
+    },
+  });
+};
+

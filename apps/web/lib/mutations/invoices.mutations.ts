@@ -11,6 +11,10 @@ export const useCreateInvoiceMutation = () => {
     onSuccess: () => {
       toast.success('Thêm hóa đơn thành công');
       queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+      queryClient.invalidateQueries({ queryKey: ['deposits'] });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Có lỗi xảy ra khi thêm hóa đơn');
@@ -26,6 +30,10 @@ export const useUpdateInvoiceMutation = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(variables.id) });
       queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+      queryClient.invalidateQueries({ queryKey: ['deposits'] });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Có lỗi xảy ra khi cập nhật hóa đơn');
@@ -41,6 +49,10 @@ export const useDeleteInvoiceMutation = () => {
     onSuccess: () => {
       toast.success('Xóa hóa đơn thành công');
       queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+      queryClient.invalidateQueries({ queryKey: ['deposits'] });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Có lỗi xảy ra khi xóa hóa đơn');

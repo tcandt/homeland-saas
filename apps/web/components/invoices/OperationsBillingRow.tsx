@@ -13,7 +13,7 @@ export default function OperationsBillingRow({ invoice, onClick }: { invoice: an
       case "Created": return "text-[#6366f1] bg-[#6366f1]/10 border-[#6366f1]/20";
       case "Sent": return "text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20";
       case "Partially Paid": return "text-[#f97316] bg-[#f97316]/10 border-[#f97316]/20";
-      case "Paid": return "text-[#10b981] bg-[#10b981]/10 border-[#10b981]/20";
+      case "Paid": return "text-[#8b5cf6] bg-[#8b5cf6]/10 border-[#8b5cf6]/20";
       case "Overdue": return "text-rose-500 bg-rose-500/10 border-rose-500/20";
       default: return "text-muted bg-black/5 dark:bg-white/5 border-border";
     }
@@ -27,7 +27,7 @@ export default function OperationsBillingRow({ invoice, onClick }: { invoice: an
 
   const getProgressColor = () => {
     if (status === "Overdue") return "bg-rose-500";
-    if (paidPercent === 100) return "bg-[#10b981]";
+    if (paidPercent === 100) return "bg-[#8b5cf6]";
     if (paidPercent > 0) return "bg-[#6366f1]";
     return "bg-border";
   };
@@ -80,7 +80,7 @@ export default function OperationsBillingRow({ invoice, onClick }: { invoice: an
           </div>
           <div className="flex flex-col gap-[2px] items-center">
             <span className="font-bold text-[11px] text-muted uppercase">Đã thu</span>
-            <span className={`font-black ${paidPercent > 0 ? 'text-[#10b981]' : 'text-text'}`}>{paidAmount.toLocaleString()}đ</span>
+            <span className={`font-black ${paidPercent > 0 ? 'text-[#8b5cf6]' : 'text-text'}`}>{paidAmount.toLocaleString()}đ</span>
           </div>
           <div className="flex flex-col gap-[2px] items-end">
             <span className="font-bold text-[11px] text-muted uppercase">Còn nợ</span>
@@ -109,7 +109,7 @@ export default function OperationsBillingRow({ invoice, onClick }: { invoice: an
           </button>
           
           {(status !== "Paid") && (
-            <button onClick={(e) => { e.stopPropagation(); }} className="h-[36px] px-[12px] rounded-[8px] bg-[#10b981]/10 text-[#10b981] hover:bg-[#10b981]/20 font-bold text-[13px] flex items-center gap-[6px] transition-colors">
+            <button onClick={(e) => { e.stopPropagation(); }} className="h-[36px] px-[12px] rounded-[8px] bg-[#8b5cf6]/10 text-[#8b5cf6] hover:bg-[#8b5cf6]/20 font-bold text-[13px] flex items-center gap-[6px] transition-colors">
               <Wallet size={14} /> Thu tiền
             </button>
           )}

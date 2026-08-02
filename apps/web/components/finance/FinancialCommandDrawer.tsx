@@ -95,9 +95,9 @@ export default function FinancialCommandDrawer() {
           )}
           
           {isBalanced && headerRow.status === 'POSTED' && (
-            <div className="bg-[#10b981]/10 border border-[#10b981]/20 rounded-[12px] p-[12px] flex items-center gap-[8px]">
-              <CheckCircle className="text-[#10b981]" size={16} />
-              <div className="text-[#10b981] font-bold text-[13px]">Bút toán đã cân bằng và ghi sổ.</div>
+            <div className="bg-[#8b5cf6]/10 border border-[#8b5cf6]/20 rounded-[12px] p-[12px] flex items-center gap-[8px]">
+              <CheckCircle className="text-[#8b5cf6]" size={16} />
+              <div className="text-[#8b5cf6] font-bold text-[13px]">Bút toán đã cân bằng và ghi sổ.</div>
             </div>
           )}
 
@@ -117,7 +117,7 @@ export default function FinancialCommandDrawer() {
                     <div className="font-bold text-[13px] text-text">{line.accountCode} - {line.accountName}</div>
                     <div className="text-[11px] text-muted">{line.costCenterName || 'No Cost Center'}</div>
                   </div>
-                  <div className="text-[13px] font-medium text-[#10b981] text-right">
+                  <div className="text-[13px] font-medium text-[#8b5cf6] text-right">
                     {line.debit > 0 ? line.debit.toLocaleString() : ''}
                   </div>
                   <div className="text-[13px] font-medium text-rose-500 text-right">

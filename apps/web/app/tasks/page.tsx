@@ -1,3 +1,5 @@
+"use client";
+
 import AppShell from "@/components/layout/AppShell";
 import OperationsMobileFlow from "@/components/tasks/OperationsMobileFlow";
 import OperationsKpi from "@/components/tasks/OperationsKpi";
@@ -25,7 +27,7 @@ export default function TasksPage() {
       <div className="hidden md:flex relative w-full min-h-full gap-[24px]">
         {/* Decorative background blobs */}
         <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-[#6366f1]/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
-        <div className="absolute top-[20%] right-0 w-[400px] h-[400px] bg-[#10b981]/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
+        <div className="absolute top-[20%] right-0 w-[400px] h-[400px] bg-[#8b5cf6]/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
         
         {/* Main Content (Left) */}
         <div className="flex-1 flex flex-col gap-[24px] min-w-0">
@@ -55,3 +57,4 @@ export default function TasksPage() {
     </AppShell>
   );
 }
+

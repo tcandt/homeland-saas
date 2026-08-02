@@ -58,22 +58,22 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-[24px]">
-          <AuthInput 
-            label="Email / Số điện thoại" 
-            type="text" 
-            placeholder="Nhập email hoặc SĐT..." 
+          <AuthInput
+            label="Email / Số điện thoại"
+            type="text"
+            placeholder="Nhập email hoặc SĐT..."
             value={emailOrPhone}
             onChange={(e) => setEmailOrPhone(e.target.value)}
-            required 
+            required
             disabled={loading}
             data-testid="login-email"
           />
-          <PasswordField 
-            label="Mật khẩu" 
-            placeholder="••••••••" 
+          <PasswordField
+            label="Mật khẩu"
+            placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            required 
+            required
             disabled={loading}
             data-testid="login-password"
           />
@@ -88,8 +88,8 @@ export default function LoginPage() {
             </Link>
           </div>
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
             data-testid="login-submit"
             className="h-[48px] md:h-[52px] w-full rounded-[14px] bg-[#6366f1] text-white font-bold text-[15px] hover:bg-[#4f46e5] hover:shadow-[0_4px_12px_rgba(99,102,241,0.3)] transition-all disabled:opacity-70 disabled:pointer-events-none flex items-center justify-center gap-[8px]"
@@ -102,11 +102,7 @@ export default function LoginPage() {
           <SocialLoginButtons />
         </div>
 
-        <AuthFooter 
-          text="Chưa có tài khoản?" 
-          linkText="Đăng ký" 
-          href="/register" 
-        />
+        <AuthFooter text="Chưa có tài khoản?" linkText="Đăng ký" href="/register" />
       </AuthCard>
     </AuthLayout>
   );

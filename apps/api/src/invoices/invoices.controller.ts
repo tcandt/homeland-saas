@@ -57,14 +57,14 @@ export class InvoicesController {
   }
 
   @Post(':id/issue')
-  @RequirePermissions('invoice.issue') // Assuming manager can issue
+  @RequirePermissions('invoice.update') // Assuming manager can issue
   @ApiOperation({ summary: 'Issue a DRAFT invoice' })
   issue(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.invoicesService.issue(id, userId);
   }
 
   @Post(':id/pay')
-  @RequirePermissions('invoice.receive_payment') // Assuming finance can pay
+  @RequirePermissions('invoice.update') // Assuming finance can pay
   @ApiOperation({ summary: 'Record a payment against an invoice' })
   pay(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
     if (!body.amount || typeof body.amount !== 'number') {
@@ -76,14 +76,14 @@ export class InvoicesController {
   }
 
   @Post(':id/cancel')
-  @RequirePermissions('invoice.issue') // Assuming manager can cancel
+  @RequirePermissions('invoice.update') // Assuming manager can cancel
   @ApiOperation({ summary: 'Cancel an invoice' })
   cancel(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.invoicesService.cancel(id, userId);
   }
 
   @Post(':id/writeoff')
-  @RequirePermissions('invoice.writeoff') // Assuming finance can writeoff
+  @RequirePermissions('invoice.update') // Assuming finance can writeoff
   @ApiOperation({ summary: 'Write off an invoice' })
   writeoff(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.invoicesService.writeoff(id, userId);

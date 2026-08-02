@@ -99,7 +99,7 @@ export default function OperationsTicketCard({ ticket, onClick }: { ticket: Tick
           <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); }} className="text-amber-500 hover:text-amber-500 hover:bg-amber-500/10">
             <MessageSquare size={14} />
           </Button>
-          <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); }} className="text-[#10b981] hover:text-[#10b981] hover:bg-[#10b981]/10">
+          <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); }} className="text-[#8b5cf6] hover:text-[#8b5cf6] hover:bg-[#8b5cf6]/10">
             <Phone size={14} />
           </Button>
           <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); }} className="text-[#a855f7] hover:text-[#a855f7] hover:bg-[#a855f7]/10">

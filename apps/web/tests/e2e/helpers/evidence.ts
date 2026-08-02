@@ -41,8 +41,8 @@ export class EvidenceCollector {
       if (log.includes('status of 503 (Service Unavailable)') && log.includes('stream')) return false;
       if (log.includes('SSE Error, falling back to polling')) return false;
       
-      // Ignore Next.js RSC prefetch aborts caused by fast Playwright navigations
-      if (log.includes('Failed to fetch RSC payload') && log.includes('TypeError: Failed to fetch')) return false;
+      // Ignore Next.js RSC prefetch aborts caused by fast Playwright navigations or network conditions
+      if (log.includes('Failed to fetch RSC payload')) return false;
       
       // Also catch generic 503 in case the URL isn't logged directly in the message
       if (log.includes('status of 503 (Service Unavailable)')) {

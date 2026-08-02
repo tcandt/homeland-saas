@@ -56,6 +56,23 @@ enum PaymentStatus {
   OVERPAID
 }
 
+enum PaymentProvider {
+  SEPAY
+  MANUAL
+}
+
+enum PaymentSourceType {
+  INVOICE
+  DEPOSIT
+}
+
+enum PaymentRequestStatus {
+  PENDING
+  CONFIRMED
+  EXPIRED
+  CANCELLED
+}
+
 enum DepositType {
   BOOKING
   SECURITY
@@ -273,6 +290,7 @@ model Room {
   name         String
   bedCount     Int        @default(1)
   capacity     Int        @default(1)
+  area         Decimal?   @db.Decimal(10, 2)
   monthlyPrice Decimal    @db.Decimal(14, 2)
   status       RoomStatus @default(AVAILABLE)
   createdAt    DateTime   @default(now())
@@ -285,8 +303,9 @@ model Room {
   floor     Floor      @relation(fields: [floorId], references: [id])
   contracts Contract[]
   deposits  Deposit[]
+  roommates Customer[] @relation("RoomRoommates")
 
-  @@unique([tenantId, code])
+  @@unique([tenantId, buildingId, code])
   @@index([tenantId, status])
   @@index([tenantId, buildingId, status])
   @@index([tenantId, floorId, status])
@@ -300,7 +319,16 @@ model Customer {
   phone        String
   email        String?
   identityNo   String?
+  gender       String?
+  birthDate    DateTime?
+  nationality  String?
+  address      String?
   zaloPhone    String?
+  emergencyPhone String?
+  roomId       String?
+  room         Room?     @relation("RoomRoommates", fields: [roomId], references: [id])
+  relationship String?
+  idImages     String[]  @default([])
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
@@ -325,9 +353,14 @@ model Contract {
   status       ContractStatus @default(DRAFT)
   startDate    DateTime
   endDate      DateTime
+  signedAt     DateTime?
+  purpose      String?
+  firstPaymentDate DateTime?
   monthlyRent  Decimal        @db.Decimal(14, 2)
   depositMoney Decimal        @db.Decimal(14, 2)
   memberCount  Int            @default(1)
+  attachments  String[]       @default([])
+  coRepresentativeIds String[] @default([])
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   deletedAt    DateTime?
@@ -607,6 +640,44 @@ model BankAccount {
   @@unique([tenantId, accountNumber])
 }
 
+model PaymentRequest {
+  id                  String              @id @default(cuid())
+  tenantId            String
+  sourceType          PaymentSourceType
+  sourceId            String
+  provider            PaymentProvider     @default(SEPAY)
+  paymentCode         String
+  amount              Decimal             @db.Decimal(14, 2)
+  bankName            String
+  bankAccountNumber   String
+  bankAccountName     String?
+  qrUrl               String
+  status              PaymentRequestStatus @default(PENDING)
+  providerTransactionId String?
+  paidAt              DateTime?
+  metadata            Json?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([tenantId, paymentCode])
+  @@unique([provider, providerTransactionId])
+  @@index([tenantId, sourceType, sourceId])
+  @@index([tenantId, status])
+}
+
+model PaymentWebhookLog {
+  id                String   @id @default(cuid())
+  tenantId          String?
+  provider          PaymentProvider
+  providerTransactionId String
+  payload           Json
+  processedAt       DateTime?
+  createdAt         DateTime @default(now())
+
+  @@unique([provider, providerTransactionId])
+  @@index([tenantId, createdAt])
+}
+
 model CostCenter {
   id        String   @id @default(cuid())
   tenantId  String
@@ -729,6 +800,11 @@ enum NotificationChannel {
   ZALO
   SMS
   PUSH
+}
+
+enum SettingScope {
+  TENANT
+  USER
 }
 
 model WorkflowExecution {
@@ -870,6 +946,21 @@ model NotificationDelivery {
   notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 
   @@index([notificationId])
+}
+
+model AppSetting {
+  id        String       @id @default(cuid())
+  tenantId  String
+  scope     SettingScope
+  ownerId   String
+  key       String
+  value     Json
+  updatedBy String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([tenantId, scope, ownerId, key])
+  @@index([tenantId, scope, ownerId])
 }
 
 // ==========================================

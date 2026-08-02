@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { buildingsApi } from '../api/buildings.api';
 import { adaptBuilding } from '../adapters/building.adapter';
-import { Building } from '@/components/buildings/mockData';
+import type { Building } from '@/components/buildings/building.types';
 
 export const useBuildingsQuery = (params?: any) => {
   return useQuery({

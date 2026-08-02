@@ -1,12 +1,10 @@
-import { apiClient } from './client';
-import { mockData } from '../mock-data';
+import { apiClient } from "./client";
 
 export const dashboardAdapter = {
   async getDashboardData() {
-    const realData: any = await apiClient.get('/dashboard');
-    if (!realData) throw new Error('Dashboard data is empty');
-      
-    // Remove the mockData merge
+    const realData: any = await apiClient.get("/dashboard");
+    if (!realData) throw new Error("Dashboard data is empty");
+
     return {
       hero: {
         tasksCount: realData.hero?.tasksCount || 0,
@@ -21,7 +19,6 @@ export const dashboardAdapter = {
         { label: "Tỷ lệ lấp đầy", value: `${realData.occupancy?.rate || 0}%`, trend: "", positive: true, icon: "purple" },
         { label: "Dòng tiền ròng", value: `${(realData.kpis?.netCashFlow || 0).toLocaleString()} đ`, trend: "", positive: realData.kpis?.netCashFlow >= 0, icon: "orange" },
       ],
-      // Supply empty arrays instead of mockData
       revenueHistory: realData.revenueHistory || [],
       buildingHealth: realData.buildingHealth || [],
       tasks: realData.tasks || [],
@@ -29,5 +26,5 @@ export const dashboardAdapter = {
       cashFlowForecast: realData.cashFlowForecast || [],
       occupancy: realData.occupancy || { rate: 0, rented: 0, available: 0, maintenance: 0, reserved: 0 },
     };
-  }
+  },
 };

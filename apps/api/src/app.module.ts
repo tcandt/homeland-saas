@@ -23,6 +23,7 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { DepositsModule } from './deposits/deposits.module';
 import { FinanceModule } from './finance/finance.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { SalesModule } from './sales/sales.module';
 import { AiModule } from './ai/ai.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
@@ -39,6 +40,8 @@ import { MetricsModule } from './metrics/metrics.module';
 import { ClockModule } from './shared/clock/clock.module';
 import { v4 as uuidv4 } from 'uuid';
 import { RepositoriesModule } from './shared/repositories/repositories.module';
+import { SettingsModule } from './settings/settings.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -137,6 +140,7 @@ import { RepositoriesModule } from './shared/repositories/repositories.module';
     DepositsModule,
     FinanceModule,
     DashboardModule,
+    SalesModule,
     ReportsModule,
     AnalyticsModule,
     AutomationModule,
@@ -144,6 +148,8 @@ import { RepositoriesModule } from './shared/repositories/repositories.module';
     DocumentsModule,
     AiModule,
     MetricsModule,
+    SettingsModule,
+    PaymentsModule,
   ],
   controllers: [HealthController],
   providers: [

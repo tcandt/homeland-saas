@@ -6,6 +6,7 @@ import { User, FileText, Receipt, Shield, CheckCircle2, Clock, MapPin, MoreHoriz
 import { useRoomsQuery } from "@/lib/queries/rooms.queries";
 import { useRoomsStore } from "@/lib/hooks/useRoomsStore";
 import { Loader2 } from "lucide-react";
+import { getRoomDisplayName } from "@/components/buildings/building-labels";
 
 const formatMoney = (amount: number) => {
   return new Intl.NumberFormat("vi-VN").format(amount) + " đ";
@@ -75,7 +76,7 @@ function RoomCard({ room }: { room: any }) {
       {/* Top Header */}
       <div className="flex items-center justify-between p-[12px] md:p-[16px] md:px-[20px] pb-0">
         <div className="flex items-end gap-[6px] md:gap-[8px]">
-          <h3 className="font-black text-[22px] md:text-[24px] lg:text-[28px] text-text leading-none tracking-tight">P.{room.number}</h3>
+          <h3 className="font-black text-[22px] md:text-[24px] lg:text-[28px] text-text leading-none tracking-tight">P.{getRoomDisplayName(room)}</h3>
           <span className="text-[12px] md:text-[13px] font-bold text-muted mb-[1px] md:mb-[2px]">{room.type}</span>
         </div>
         <div className={`px-[8px] md:px-[10px] py-[3px] md:py-[4px] rounded-[6px] text-[10px] md:text-[11px] font-black uppercase tracking-wider ${statusConfig.bg} ${statusConfig.text}`}>
@@ -106,7 +107,9 @@ function RoomCard({ room }: { room: any }) {
         <div className="grid grid-cols-3 gap-[6px] md:gap-[8px] mb-[10px] md:mb-[12px] border-t border-b border-border/40 py-[8px] md:py-[10px]">
           <div className="flex flex-col">
             <span className="text-[9px] md:text-[10px] font-bold text-muted uppercase tracking-wider">Tiền phòng</span>
-            <span className="font-black text-[13px] md:text-[14px] text-text">{formatMoney(room.price)}</span>
+            <span className="font-black text-[13px] md:text-[14px] text-text">
+              {room.contract?.rentPrice ? formatMoney(room.contract.rentPrice) : '-'}
+            </span>
           </div>
           <div className="flex flex-col border-l border-border/40 pl-[6px] md:pl-[8px]">
             <span className="text-[9px] md:text-[10px] font-bold text-muted uppercase tracking-wider">Tiền cọc</span>
@@ -114,7 +117,7 @@ function RoomCard({ room }: { room: any }) {
           </div>
           <div className="flex flex-col border-l border-border/40 pl-[6px] md:pl-[8px]">
             <span className="text-[9px] md:text-[10px] font-bold text-muted uppercase tracking-wider">Công nợ</span>
-            <span className={`font-black text-[13px] md:text-[14px] ${room.debt && room.debt > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+            <span className={`font-black text-[13px] md:text-[14px] ${room.debt && room.debt > 0 ? 'text-rose-500' : 'text-indigo-500'}`}>
               {room.debt !== undefined ? formatMoney(room.debt) : '-'}
             </span>
           </div>
@@ -133,7 +136,7 @@ function RoomCard({ room }: { room: any }) {
 
           {room.tempResidenceStatus && (
             <div className="flex items-center gap-[4px]">
-              <Shield size={12} className={room.tempResidenceStatus === 'declared' ? "text-emerald-500" : "text-rose-500"} />
+              <Shield size={12} className={room.tempResidenceStatus === 'declared' ? "text-indigo-500" : "text-rose-500"} />
               <span className={room.tempResidenceStatus === 'declared' ? "text-text" : "text-rose-500 font-bold"}>
                 {room.tempResidenceStatus === 'declared' ? "Đã khai báo" : "Chưa khai báo"}
               </span>

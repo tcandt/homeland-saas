@@ -71,12 +71,12 @@ export default function FinanceMobileFlow() {
         <h3 className="text-[15px] font-black text-text px-1">Tổng quan Tài chính</h3>
         <div className="grid grid-cols-2 gap-[12px]">
           {/* Thu */}
-          <div className="h-[72px] bg-card border border-emerald-500/20 shadow-sm rounded-[12px] p-3 flex flex-col justify-between relative overflow-hidden">
+          <div className="h-[72px] bg-card border border-indigo-500/20 shadow-sm rounded-[12px] p-3 flex flex-col justify-between relative overflow-hidden">
             <div className="flex justify-between items-start">
               <span className="text-[12px] font-semibold text-muted uppercase">Tổng Thu</span>
-              <span className="text-[11px] font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-[4px]">+12%</span>
+              <span className="text-[11px] font-bold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded-[4px]">+12%</span>
             </div>
-            <span className="text-[24px] font-black text-emerald-500 leading-none">345.5 Tr</span>
+            <span className="text-[24px] font-black text-indigo-500 leading-none">345.5 Tr</span>
           </div>
           {/* Chi */}
           <div className="h-[72px] bg-card border border-rose-500/20 shadow-sm rounded-[12px] p-3 flex flex-col justify-between relative overflow-hidden">
@@ -138,7 +138,7 @@ export default function FinanceMobileFlow() {
           <h3 className="text-[15px] font-black text-text">Xu hướng Dòng tiền</h3>
           <div className="flex gap-3 items-center">
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+              <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
               <span className="text-[11px] font-bold text-muted">Thu</span>
             </div>
             <div className="flex items-center gap-1">
@@ -152,8 +152,8 @@ export default function FinanceMobileFlow() {
             <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible">
               <defs>
                 <linearGradient id="colorThu" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
                 </linearGradient>
                 <linearGradient id="colorChi" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4}/>
@@ -177,9 +177,9 @@ export default function FinanceMobileFlow() {
                 return (
                   <>
                     <polygon points={areaThu} fill="url(#colorThu)" />
-                    <polyline points={pointsThu} fill="none" stroke="#10b981" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+                    <polyline points={pointsThu} fill="none" stroke="#8b5cf6" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
                     {chartData.map((d, i) => (
-                      <circle key={`thu-${i}`} cx={(i / (chartData.length - 1)) * 100} cy={100 - (d.thu / max) * 100} r="2" fill="#10b981" />
+                      <circle key={`thu-${i}`} cx={(i / (chartData.length - 1)) * 100} cy={100 - (d.thu / max) * 100} r="2" fill="#8b5cf6" />
                     ))}
                     
                     <polygon points={areaChi} fill="url(#colorChi)" />
@@ -203,7 +203,7 @@ export default function FinanceMobileFlow() {
                   <div className={`w-px h-full transition-colors ${activeChartPoint === i ? 'bg-border/80' : 'bg-border/0'}`}></div>
                   {/* Tooltip */}
                   <div className={`absolute top-0 mt-0 transition-opacity bg-black dark:bg-white text-white dark:text-black text-[10px] font-bold py-1.5 px-2.5 rounded-[6px] whitespace-nowrap z-50 shadow-xl pointer-events-none ${activeChartPoint === i ? 'opacity-100' : 'opacity-0'}`}>
-                    <div className="text-emerald-500">Thu: {d.thu} Tr</div>
+                    <div className="text-indigo-500">Thu: {d.thu} Tr</div>
                     <div className="text-rose-500">Chi: {d.chi} Tr</div>
                     {/* Tooltip arrow */}
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-black dark:border-t-white"></div>
@@ -285,8 +285,8 @@ export default function FinanceMobileFlow() {
                 </div>
                 <span className={`text-[11px] font-bold ${
                   item.trend.startsWith('+') 
-                    ? (item.anomaly || item.name === "Hoàn cọc" ? 'text-rose-500' : 'text-emerald-500') 
-                    : (item.trend === '0%' ? 'text-muted' : (item.name === "Bảo trì" ? 'text-emerald-500' : 'text-rose-500'))
+                    ? (item.anomaly || item.name === "Hoàn cọc" ? 'text-rose-500' : 'text-indigo-500') 
+                    : (item.trend === '0%' ? 'text-muted' : (item.name === "Bảo trì" ? 'text-indigo-500' : 'text-rose-500'))
                 }`}>
                   {item.trend}
                 </span>
@@ -295,9 +295,9 @@ export default function FinanceMobileFlow() {
               <div className="flex flex-col gap-1.5">
                 {item.thu > 0 && (
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold text-emerald-500 w-5">Thu</span>
-                    <div className="flex-1 h-1.5 bg-emerald-500/10 rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${item.thuPercent}%` }} />
+                    <span className="text-[11px] font-bold text-indigo-500 w-5">Thu</span>
+                    <div className="flex-1 h-1.5 bg-indigo-500/10 rounded-full overflow-hidden">
+                      <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${item.thuPercent}%` }} />
                     </div>
                     <span className="text-[12px] font-black text-text w-[60px] text-right">{formatCompact(item.thu)}</span>
                   </div>
@@ -342,7 +342,7 @@ export default function FinanceMobileFlow() {
                   <span className="text-[10px] text-muted font-medium mt-0.5">{t.id}</span>
                 </div>
               </div>
-              <span className={`text-[13px] font-black ${t.type === 'in' ? 'text-emerald-500' : 'text-rose-500'}`}>
+              <span className={`text-[13px] font-black ${t.type === 'in' ? 'text-indigo-500' : 'text-rose-500'}`}>
                 {t.type === 'in' ? '+' : '-'}{formatCompact(t.amount)}
               </span>
             </div>

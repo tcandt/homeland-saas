@@ -5,8 +5,8 @@ import { Building2, TrendingUp, AlertTriangle } from "lucide-react";
 
 export default function OperationsFinanceBuildingPL() {
   const buildings = [
-    { name: "LK01.31", revenue: "95M", expense: "18M", profit: "77M", debt: "5M", occ: "100%", margin: "81%", status: "Tốt", color: "text-[#10b981]", bg: "bg-[#10b981]/10" },
-    { name: "LK02.15", revenue: "120M", expense: "25M", profit: "95M", debt: "12M", occ: "95%", margin: "79%", status: "Tốt", color: "text-[#10b981]", bg: "bg-[#10b981]/10" },
+    { name: "LK01.31", revenue: "95M", expense: "18M", profit: "77M", debt: "5M", occ: "100%", margin: "81%", status: "Tốt", color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10" },
+    { name: "LK02.15", revenue: "120M", expense: "25M", profit: "95M", debt: "12M", occ: "95%", margin: "79%", status: "Tốt", color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10" },
     { name: "LK05.08", revenue: "85M", expense: "35M", profit: "50M", debt: "45M", occ: "80%", margin: "58%", status: "Cần theo dõi", color: "text-[#f97316]", bg: "bg-[#f97316]/10" },
     { name: "LK08.24", revenue: "45M", expense: "32M", profit: "13M", debt: "65M", occ: "65%", margin: "28%", status: "Rủi ro", color: "text-rose-500", bg: "bg-rose-500/10" },
   ];
@@ -20,7 +20,7 @@ export default function OperationsFinanceBuildingPL() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-[16px]">
         {buildings.map((b, i) => (
-          <div key={i} className="border border-border rounded-[12px] p-[16px] flex flex-col gap-[16px] hover:border-[#10b981]/30 hover:shadow-sm transition-all group">
+          <div key={i} className="border border-border rounded-[12px] p-[16px] flex flex-col gap-[16px] hover:border-[#8b5cf6]/30 hover:shadow-sm transition-all group">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-[8px]">
                 <div className="w-[32px] h-[32px] rounded-full bg-black/5 dark:bg-white/5 flex items-center justify-center">
@@ -34,7 +34,7 @@ export default function OperationsFinanceBuildingPL() {
             <div className="grid grid-cols-2 gap-y-[12px] gap-x-[8px]">
               <div className="flex flex-col gap-[2px]">
                 <span className="text-[11px] font-bold text-muted uppercase">Doanh thu</span>
-                <span className="text-[15px] font-black text-[#10b981]">{b.revenue}</span>
+                <span className="text-[15px] font-black text-[#8b5cf6]">{b.revenue}</span>
               </div>
               <div className="flex flex-col gap-[2px] items-end">
                 <span className="text-[11px] font-bold text-muted uppercase">Chi phí</span>

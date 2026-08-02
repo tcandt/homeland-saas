@@ -1,14 +1,30 @@
+"use client";
+
 import React from "react";
 import { Sparkles, Clock, AlertTriangle, PenTool, UserMinus, FileWarning } from "lucide-react";
 import { Card } from "../ui/Card";
+import { useContractsQuery } from "@/lib/queries/contracts.queries";
 
 export default function OperationsContractInsights() {
+  const { data } = useContractsQuery({ limit: 100 });
+  const contracts: any[] = (data as any)?.data || [];
+
+  const expiring = contracts.filter((c: any) => {
+    if (c.status === "EXPIRING") return true;
+    if (!c.endDate) return false;
+    const daysLeft = (new Date(c.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+    return daysLeft >= 0 && daysLeft <= 30;
+  }).length;
+  const pendingSign = contracts.filter((c: any) => c.status === "DRAFT" || c.status === "PENDING_APPROVAL" || c.status === "APPROVED").length;
+  const active = contracts.filter((c: any) => c.status === "ACTIVE").length;
+  const terminated = contracts.filter((c: any) => c.status === "TERMINATED" || c.status === "EXPIRED").length;
+
   const insights = [
-    { text: "9 hợp đồng sắp hết hạn trong 30 ngày", icon: Clock, color: "text-[#f97316]" },
-    { text: "4 hợp đồng chưa ký đủ file", icon: FileWarning, color: "text-rose-500" },
-    { text: "6 hợp đồng có công nợ chưa xử lý", icon: AlertTriangle, color: "text-rose-500" },
-    { text: "3 hợp đồng cần gia hạn tuần này", icon: PenTool, color: "text-[#6366f1]" },
-    { text: "2 khách sắp trả phòng", icon: UserMinus, color: "text-[#a855f7]" },
+    { text: `${expiring} hợp đồng sắp hết hạn trong 30 ngày`, icon: Clock, color: "text-[#f97316]" },
+    { text: `${pendingSign} hợp đồng đang chờ ký/duyệt`, icon: FileWarning, color: "text-rose-500" },
+    { text: `${active} hợp đồng đang hiệu lực`, icon: Sparkles, color: "text-[#8b5cf6]" },
+    { text: `${terminated} hợp đồng đã kết thúc`, icon: PenTool, color: "text-[#6366f1]" },
+    { text: "Dữ liệu lấy trực tiếp từ DB", icon: UserMinus, color: "text-[#a855f7]" },
   ];
 
   return (
@@ -25,15 +41,10 @@ export default function OperationsContractInsights() {
 
       <div className="flex items-center gap-[24px] pl-[8px]">
         {insights.map((item, idx) => (
-          <button 
-            key={idx} 
-            className="flex items-center gap-[6px] shrink-0 group hover:opacity-80 transition-opacity"
-          >
+          <div key={idx} className="flex items-center gap-[6px] shrink-0">
             <item.icon size={14} className={item.color} />
-            <span className="font-semibold text-[13px] text-text group-hover:underline underline-offset-4 decoration-border">
-              {item.text}
-            </span>
-          </button>
+            <span className="font-semibold text-[13px] text-text truncate">{item.text}</span>
+          </div>
         ))}
       </div>
     </Card>

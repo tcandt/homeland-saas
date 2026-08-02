@@ -1,45 +1,53 @@
 import React from "react";
 import { FileText, Clock, FileWarning, CheckCircle2 } from "lucide-react";
 import { Card } from "../ui/Card";
+import { useContractsQuery } from "@/lib/queries/contracts.queries";
 
 export default function ContractsKpi() {
+  const { data } = useContractsQuery();
+  const contracts = (data as any)?.data || [];
+
+  const totalCount = contracts.length;
+  const activeCount = contracts.filter((c: any) => c.status === "ACTIVE").length;
+  
+  const expiringCount = contracts.filter((c: any) => {
+    if (c.status === "EXPIRING") return true;
+    if (c.status !== "ACTIVE") return false;
+    const end = new Date(c.endDate).getTime();
+    const now = new Date().getTime();
+    const daysLeft = (end - now) / (1000 * 3600 * 24);
+    return daysLeft >= 0 && daysLeft <= 30;
+  }).length;
+  
+  const terminatedCount = contracts.filter((c: any) => c.status === "TERMINATED" || c.status === "EXPIRED" || c.status === "EXPIRED").length;
+
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-[12px] md:gap-[20px]">
       <KpiCard 
         title="Tổng hợp đồng" 
-        value="142" 
-        trend="+12" 
-        trendUp={true}
+        value={totalCount.toString()} 
         icon={<FileText size={16} className="text-[#3b82f6]" />}
         iconBg="bg-[#3b82f6]/10"
         blobColor="bg-[#3b82f6]/10"
       />
       <KpiCard 
         title="Đang hiệu lực" 
-        value="128" 
-        trend="+5" 
-        trendUp={true}
+        value={activeCount.toString()} 
         icon={<CheckCircle2 size={16} className="text-[#22c55e]" />}
         iconBg="bg-[#22c55e]/10"
         blobColor="bg-[#22c55e]/10"
       />
       <KpiCard 
         title="Sắp hết hạn" 
-        value="9" 
-        trend="Tháng này" 
-        trendUp={false}
-        trendColor="text-[#f97316]"
+        value={expiringCount.toString()} 
         icon={<Clock size={16} className="text-[#f97316]" />}
         iconBg="bg-[#f97316]/10"
-        highlight={true}
+        highlight={expiringCount > 0}
         blobColor="bg-[#f97316]/10"
       />
       <KpiCard 
         title="Đã chấm dứt" 
-        value="5" 
-        trend="Tháng này" 
-        trendUp={false}
-        trendColor="text-muted"
+        value={terminatedCount.toString()} 
         icon={<FileWarning size={16} className="text-muted" />}
         iconBg="bg-black/5 dark:bg-white/5"
         blobColor="bg-black/5 dark:bg-white/5"

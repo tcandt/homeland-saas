@@ -263,14 +263,14 @@ function FloorPlanCanvas({ floor, selectedRoomCode, zoom, onZoomChange, onSelect
                       tabIndex={pathIndex === 0 ? 0 : -1}
                       aria-label={`Chọn toàn bộ phòng ${roomMap.label}`}
                       aria-pressed={selected}
-                      fill={selected ? "rgba(91,53,245,0.11)" : hovered || debugMode ? "rgba(91,53,245,0.075)" : "rgba(91,53,245,0)"}
+                      fill={selected ? "rgba(91,53,245,0.06)" : hovered || debugMode ? "rgba(91,53,245,0.035)" : "rgba(91,53,245,0)"}
                       stroke={selected ? "#6347f5" : hovered || debugMode ? "rgba(99,71,245,0.78)" : "transparent"}
-                      strokeWidth={selected ? 3 : 2.5}
+                      strokeWidth={selected ? 2 : 1.75}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       vectorEffect="non-scaling-stroke"
                       className="cursor-pointer outline-none transition-[fill,stroke,filter] duration-200 focus-visible:stroke-[#5b35f5] motion-reduce:transition-none"
-                      style={{ filter: selected ? "drop-shadow(0 1px 3px rgba(91,53,245,.22))" : undefined, pointerEvents: "all" }}
+                      style={{ filter: selected ? "drop-shadow(0 1px 2px rgba(91,53,245,.16))" : undefined, pointerEvents: "all" }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();

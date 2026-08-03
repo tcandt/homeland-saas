@@ -79,7 +79,7 @@ export function adaptBuildingForLK01_31(building: Building): Building {
   const copy = JSON.parse(JSON.stringify(building)) as Building;
   copy.name = "LK01-31";
   copy.code = "LK01-31";
-  copy.address = "Khu đô thị Ân Phú, Phường Tân An, Buôn Ma Thuột";
+  copy.address = "Khu đô thị An Phú, Phường Tân An, Buôn Ma Thuột";
   
   // Custom 4 floors matching mapping
   const customFloors: Floor[] = [];

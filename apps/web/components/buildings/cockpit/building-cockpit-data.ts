@@ -10,9 +10,9 @@ import type {
 import { floor2Layout } from "../views/visualizer/layouts/floor-2.layout";
 import { floor3Layout } from "../views/visualizer/layouts/floor-3.layout";
 import { floor4Layout } from "../views/visualizer/layouts/floor-4.layout";
-import { adaptBuildingForLK01_31 } from "../workspace/lk01-31-data";
 import type { CockpitBuildingSpec, CockpitFloorId, CockpitFloorSpec, CockpitRoomSpec, CockpitRoomSpace } from "./building-cockpit.types";
 import { buildingOverviewImage, floorImageMaps } from "./building-image-maps";
+import { normalizeBuildingCode, resolveBuildingTemplate } from "./building-template-registry";
 
 const WIDTH = 5;
 const LENGTH = 20;
@@ -140,24 +140,40 @@ export const groundFloorLayout: FloorLayoutSpec = {
   ],
 };
 
-const floorMeta: Array<{ id: CockpitFloorId; dbNumber: number; label: string; shortLabel: string; layout: FloorLayoutSpec; roomCodes: string[] }> = [
-  { id: "ground", dbNumber: 1, label: "Tầng trệt", shortLabel: "Trệt", layout: groundFloorLayout, roomCodes: ["PN 31-01"] },
-  { id: "1", dbNumber: 2, label: "Tầng 1", shortLabel: "Tầng 1", layout: floor2Layout, roomCodes: ["PN 31-02", "PN 31-03"] },
-  { id: "2", dbNumber: 3, label: "Tầng 2", shortLabel: "Tầng 2", layout: floor3Layout, roomCodes: ["PN 31-04", "PN 31-05"] },
-  { id: "3", dbNumber: 4, label: "Tầng 3", shortLabel: "Tầng 3", layout: floor4Layout, roomCodes: ["PN 31-06", "PN 31-07"] },
+const baseFloorMeta: Array<{ id: CockpitFloorId; dbNumber: number; label: string; shortLabel: string; layout: FloorLayoutSpec; roomSuffixes: string[] }> = [
+  { id: "ground", dbNumber: 1, label: "Tầng trệt", shortLabel: "Trệt", layout: groundFloorLayout, roomSuffixes: ["01"] },
+  { id: "1", dbNumber: 2, label: "Tầng 1", shortLabel: "Tầng 1", layout: floor2Layout, roomSuffixes: ["02", "03"] },
+  { id: "2", dbNumber: 3, label: "Tầng 2", shortLabel: "Tầng 2", layout: floor3Layout, roomSuffixes: ["04", "05"] },
+  { id: "3", dbNumber: 4, label: "Tầng 3", shortLabel: "Tầng 3", layout: floor4Layout, roomSuffixes: ["06", "07"] },
 ];
 
-const fallbackRoom: Pick<Room, "code" | "name" | "status" | "area" | "capacity" | "monthlyPrice" | "type" | "tenant" | "contract"> = {
-  code: "",
-  name: "",
-  status: "vacant",
-  area: 18,
-  capacity: 1,
-  monthlyPrice: 6500000,
-  type: "1PN",
-  tenant: null,
-  contract: undefined,
-};
+function roomCode(prefix: string, suffix: string) {
+  return `PN ${prefix}-${suffix}`;
+}
+
+function remapLayout(layout: FloorLayoutSpec, prefix: string): FloorLayoutSpec {
+  return {
+    ...layout,
+    id: layout.id.replace("31", prefix),
+    units: layout.units.map((unit) => ({
+      ...unit,
+      id: unit.id.replace(/31(?=\d{2})/g, prefix),
+      roomCode: unit.roomCode.replace(/PN\s*31-/i, `PN ${prefix}-`),
+    })),
+  };
+}
+
+function remapImageMap(floorId: CockpitFloorId, prefix: string) {
+  const imageMap = floorImageMaps[floorId];
+  return {
+    ...imageMap,
+    rooms: imageMap.rooms.map((room) => ({
+      ...room,
+      roomId: room.roomId.replace(/31(?=-?\d{2})/g, prefix),
+      label: room.label.replace(/31-/g, `${prefix}-`),
+    })),
+  };
+}
 
 const spaceLabel: Record<SpaceSpec["type"], string> = {
   "mini-bedroom": "Phòng ngủ mini",
@@ -172,23 +188,22 @@ const spaceLabel: Record<SpaceSpec["type"], string> = {
 };
 
 function getRoomType(code: string, floorId: CockpitFloorId) {
-  if (floorId === "ground") return "1 giường đơn";
-  return code.endsWith("02") || code.endsWith("04") || code.endsWith("06") ? "2PN mini + 1PK" : "1 giường đơn";
+  if (floorId === "ground") return "Studio 1 giường";
+  return code.endsWith("02") || code.endsWith("04") || code.endsWith("06") ? "Căn 2PN mini + phòng khách" : "Studio 1 giường";
 }
 
 function getAmenities(roomCode: string, floorId: CockpitFloorId) {
-  if (floorId === "ground") return ["1 giường đơn", "Bàn làm việc", "Khu bếp", "WC/Tắm riêng", "Khu để xe", "WC chung"];
+  if (floorId === "ground") return ["1 giường đơn", "Bàn làm việc", "Khu bếp", "WC/Tắm riêng trong phòng", "Quyền sử dụng khu để xe"];
   if (roomCode.endsWith("02") || roomCode.endsWith("04") || roomCode.endsWith("06")) {
-    return ["2 phòng ngủ mini", "Phòng khách", "Khu bếp", "WC/Tắm", "Cửa sổ"];
+    return ["2 phòng ngủ mini", "Phòng khách", "Khu bếp", "WC/Tắm riêng"];
   }
-  return ["1 giường đơn", "Bàn làm việc", "Khu bếp", "WC/Tắm riêng", "Tủ quần áo"];
+  return ["1 giường đơn", "Bàn làm việc", "Khu bếp", "WC/Tắm riêng trong phòng", "Tủ quần áo"];
 }
 
 function buildRoomSpecs(layout: FloorLayoutSpec, floor: Floor | undefined, floorId: CockpitFloorId): CockpitRoomSpec[] {
   const roomsByCode = new Map((floor?.rooms || []).map((room) => [normalizeCode(room.code), room]));
   return layout.units.map((unit: ApartmentUnitSpec): CockpitRoomSpec => {
     const sourceRoom = roomsByCode.get(normalizeCode(unit.roomCode));
-    const source = sourceRoom || fallbackRoom;
     const spaces = layout.spaces.filter((space) => unit.spaceIds.includes(space.id));
     const childSpaces: CockpitRoomSpace[] = spaces.map((space) => ({
       id: space.id.replace(/^pn-\d+-/, "").replace(/^ground-room-/, ""),
@@ -197,24 +212,30 @@ function buildRoomSpecs(layout: FloorLayoutSpec, floor: Floor | undefined, floor
       roomCode: unit.roomCode,
       polygon: space.boundary,
     }));
+    const spaceIds = new Set(unit.spaceIds);
+    const entryDoorCount = layout.doors.filter((item) => {
+      const connectedInside = item.connects.filter((spaceId) => spaceIds.has(spaceId)).length;
+      return connectedInside === 1;
+    }).length;
 
     return {
-      id: sourceRoom?.id || unit.roomCode,
+      id: sourceRoom?.id || `structure-${roomCodeToUrl(unit.roomCode)}`,
       code: unit.roomCode,
       urlCode: roomCodeToUrl(unit.roomCode),
       floorId,
-      name: source.name || unit.roomCode,
+      name: sourceRoom?.name || unit.roomCode,
       type: getRoomType(unit.roomCode, floorId),
-      status: source.status,
-      estimatedArea: source.area || (unit.type === "large-suite" ? 50 : 18),
-      capacity: source.capacity || (unit.type === "large-suite" ? 2 : 1),
-      occupants: source.tenant ? 1 : 0,
-      monthlyRent: source.monthlyPrice,
+      status: sourceRoom?.status || "vacant",
+      estimatedArea: sourceRoom?.area || (unit.type === "large-suite" ? 50 : 18),
+      capacity: sourceRoom?.capacity || (unit.type === "large-suite" ? 2 : 1),
+      occupants: sourceRoom?.tenant ? 1 : 0,
+      monthlyRent: sourceRoom?.monthlyPrice,
+      entryDoorCount,
       amenities: getAmenities(unit.roomCode, floorId),
       polygon: unit.boundary,
       childSpaces: unit.type === "large-suite" || floorId === "ground" ? childSpaces : childSpaces,
       sourceRoom,
-      contract: source.contract,
+      contract: sourceRoom?.contract,
     };
   });
 }
@@ -229,38 +250,47 @@ const fallbackBuilding: Building = {
   floors: [],
 };
 
-export function createLk0131CockpitSpec(buildings: Building[], allowFixtureFallback = false): CockpitBuildingSpec | null {
-  const raw = buildings.find((building) => (building.code || building.name || "").replace(".", "-").toUpperCase().includes("LK01-31")) || (allowFixtureFallback ? fallbackBuilding : null);
+export function createCockpitBuildingSpec(buildings: Building[], requestedCode: string, allowFixtureFallback = false): CockpitBuildingSpec | null {
+  const descriptor = resolveBuildingTemplate(requestedCode);
+  if (!descriptor) return null;
+  const raw = buildings.find((building) => normalizeBuildingCode(building.code || building.name) === descriptor.code)
+    || (allowFixtureFallback && descriptor.code === "LK01-31" ? fallbackBuilding : null);
   if (!raw) return null;
-  const building = adaptBuildingForLK01_31(raw);
-
-  const floors: CockpitFloorSpec[] = floorMeta.map((meta) => {
-    const sourceFloor = building.floors.find((floor) => floor.number === meta.dbNumber);
+  const floors: CockpitFloorSpec[] = baseFloorMeta.map((meta) => {
+    const sourceFloor = raw.floors.find((floor) => floor.number === meta.dbNumber);
+    const prefix = descriptor.roomPrefix || "31";
+    const layout = remapLayout(meta.layout, prefix);
     return {
       id: meta.id,
       dbNumber: meta.dbNumber,
       label: meta.label,
       shortLabel: meta.shortLabel,
-      roomCodes: meta.roomCodes,
+      roomCodes: descriptor.layoutStatus === "pending" ? [] : meta.roomSuffixes.map((suffix) => roomCode(prefix, suffix)),
       heightMeters: 3.6,
-      layout: meta.layout,
-      imageMap: floorImageMaps[meta.id],
-      rooms: buildRoomSpecs(meta.layout, sourceFloor, meta.id),
+      layout,
+      imageMap: remapImageMap(meta.id, prefix),
+      rooms: descriptor.layoutStatus === "pending" ? [] : buildRoomSpecs(layout, sourceFloor, meta.id),
     };
   });
 
   return {
-    id: building.id,
-    code: "LK01-31",
-    name: "LK01-31",
+    id: raw.id,
+    code: descriptor.code,
+    name: raw.name || descriptor.code,
     statusLabel: "Đang hoạt động",
-    address: "Khu đô thị An Phú, Phường Tân An, TP. Buôn Ma Thuột, Đắk Lắk",
+    templateId: descriptor.templateId,
+    layoutStatus: descriptor.layoutStatus,
+    address: raw.address || "Chưa cập nhật địa chỉ",
     widthMeters: WIDTH,
     lengthMeters: LENGTH,
     overviewImage: buildingOverviewImage,
     floors,
     updatedAtLabel: "09:45  •  24/05/2025",
   };
+}
+
+export function createLk0131CockpitSpec(buildings: Building[], allowFixtureFallback = false) {
+  return createCockpitBuildingSpec(buildings, "LK01-31", allowFixtureFallback);
 }
 
 export function resolveFloorLayoutSpec(building: CockpitBuildingSpec, floorId: string | null) {

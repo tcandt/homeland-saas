@@ -24,10 +24,20 @@ export function getBuildingMetrics(building: CockpitBuildingSpec) {
   const rooms = building.floors.flatMap((floor) => floor.rooms);
   const occupiedRooms = rooms.filter((room) => room.status === "occupied" || room.status === "expiring_soon").length;
   const vacantRooms = rooms.filter((room) => room.status === "vacant").length;
-  const expiringContracts = rooms.filter((room) => room.status === "expiring_soon" || room.contract).slice(0, 3).length;
+  const now = Date.now();
+  const inThirtyDays = now + 30 * 24 * 60 * 60 * 1000;
+  const expiringContracts = rooms.filter((room) => {
+    if (room.status === "expiring_soon") return true;
+    const end = room.contract?.endDate ? new Date(room.contract.endDate).getTime() : Number.NaN;
+    return Number.isFinite(end) && end >= now && end <= inThirtyDays;
+  }).length;
   const residentCount = rooms.reduce((sum, room) => sum + Math.max(room.occupants, room.status === "occupied" ? 1 : 0), 0);
   const monthlyRevenue = rooms.reduce((sum, room) => (room.status === "occupied" || room.status === "expiring_soon") ? sum + (room.monthlyRent || 0) : sum, 0);
   const occupancyRate = rooms.length ? Math.round((occupiedRooms / rooms.length) * 100) : 0;
+  const declaredTemporaryResidence = rooms.filter((room) => room.sourceRoom?.tenant?.tempResidence).length;
+  const temporaryResidenceRate = occupiedRooms ? Math.round((declaredTemporaryResidence / occupiedRooms) * 100) : 0;
+  const depositTotal = rooms.reduce((sum, room) => sum + (room.contract?.deposit || 0), 0);
+  const overduePayments = rooms.reduce((sum, room) => sum + (room.sourceRoom?.invoices || []).filter((invoice) => invoice.status !== "paid" && new Date(invoice.dueDate).getTime() < now).length, 0);
 
   return {
     totalRooms: rooms.length,
@@ -36,12 +46,13 @@ export function getBuildingMetrics(building: CockpitBuildingSpec) {
     expiringContracts,
     residentCount,
     monthlyRevenue,
-    yearlyRevenue: monthlyRevenue * 5,
-    depositTotal: 120000000,
+    yearlyRevenue: monthlyRevenue * 12,
+    depositTotal,
     occupancyRate,
-    temporaryResidenceRate: 92,
-    incompleteTemporaryResidence: 2,
-    overduePayments: 1,
+    temporaryResidenceRate,
+    declaredTemporaryResidence,
+    incompleteTemporaryResidence: Math.max(occupiedRooms - declaredTemporaryResidence, 0),
+    overduePayments,
   };
 }
 

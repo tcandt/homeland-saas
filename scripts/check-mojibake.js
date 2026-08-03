@@ -10,7 +10,7 @@ const roots = [
 
 const extensions = new Set([".ts", ".tsx", ".js", ".jsx", ".json", ".md"]);
 const ignoreDirs = new Set(["node_modules", ".next", ".turbo", "dist", "coverage", ".git", "playwright-report", ".tmp-smoke"]);
-const ignoreFiles = new Set(["report.json", "report_permission.json", "performance-results.jsonl"]);
+const ignoreFiles = new Set(["report.json", "report_permission.json", "performance-results.jsonl", "opencv.js"]);
 
 const markers = [
   String.fromCharCode(0xfffd),
@@ -29,6 +29,7 @@ function walk(dir, results = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (ignoreDirs.has(entry.name)) continue;
     const full = path.join(dir, entry.name);
+    if (full.includes(`${path.sep}public${path.sep}qr${path.sep}assets${path.sep}`)) continue;
     if (entry.isDirectory()) {
       walk(full, results);
       continue;

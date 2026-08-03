@@ -176,6 +176,11 @@
     background-color: var(--card);
   }
 
+  .dark .building-cockpit-theme [class*="bg-[#faf9ff]"],
+  .dark .building-cockpit-theme [class*="bg-[#fdfcff]"] {
+    background-color: color-mix(in srgb, var(--card) 88%, var(--primary) 12%);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .building-cockpit-theme *,
     .building-cockpit-theme *::before,

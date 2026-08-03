@@ -1,5 +1,6 @@
 import type { Contract, Room, RoomStatus } from "../building.types";
 import type { FloorLayoutSpec, Point2D, SpaceSpec } from "../views/visualizer/geometry/floor-layout.types";
+import type { BuildingLayoutStatus, BuildingTemplateId } from "./building-template-registry";
 
 export type CockpitFloorId = "ground" | "1" | "2" | "3";
 export type CockpitViewMode = "blueprint" | "model";
@@ -43,6 +44,7 @@ export interface CockpitRoomSpec {
   capacity: number;
   occupants: number;
   monthlyRent?: number;
+  entryDoorCount: number;
   amenities: string[];
   polygon: Point2D[];
   childSpaces?: CockpitRoomSpace[];
@@ -67,6 +69,8 @@ export interface CockpitBuildingSpec {
   code: string;
   name: string;
   statusLabel: string;
+  templateId: BuildingTemplateId;
+  layoutStatus: BuildingLayoutStatus;
   address: string;
   widthMeters: number;
   lengthMeters: number;

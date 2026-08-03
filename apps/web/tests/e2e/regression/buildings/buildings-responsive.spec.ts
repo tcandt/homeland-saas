@@ -61,7 +61,7 @@ test.describe("Buildings responsive presentation isolation", () => {
 
     await page.route("**/api/v1/**", async (route) => {
       const url = new URL(route.request().url());
-      if (url.pathname.endsWith("/buildings")) {
+      if (/\/buildings\/?$/.test(url.pathname)) {
         buildingRequests += 1;
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [building], total: 1 } }) });
         return;
@@ -91,5 +91,20 @@ test.describe("Buildings responsive presentation isolation", () => {
         contentType: "image/png",
       });
     }
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${process.env.BUILDINGS_QA_BASE_URL || "/buildings/LK01-31"}?floor=2`, { waitUntil: "networkidle" });
+    const keyboardHotspot = page.locator('[data-room-id="PN-31-04"] path[tabindex="0"]');
+    await keyboardHotspot.focus();
+    await keyboardHotspot.press("Enter");
+    await expect(page).toHaveURL(/floor=2.*room=PN-31-04/);
+    await expect(keyboardHotspot).toHaveAttribute("aria-pressed", "true");
+
+    await page.evaluate(() => document.documentElement.classList.add("dark"));
+    await expect(page.locator(".building-cockpit-theme")).toBeVisible();
+    await testInfo.attach("buildings-floor-room-dark.png", {
+      body: await page.screenshot({ fullPage: false }),
+      contentType: "image/png",
+    });
   });
 });

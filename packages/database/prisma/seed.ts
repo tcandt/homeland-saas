@@ -1,4 +1,5 @@
 import { PrismaClient, RoleCode, RoomStatus, ContractStatus, InvoiceStatus, DepositStatus, PaymentStatus, TaskStatus, TaskPriority, LeadStatus, DepositType } from '@prisma/client';
+import { ensureManagedBuildingStructure, MANAGED_BUILDINGS } from './building-structure';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 
@@ -151,54 +152,19 @@ async function main() {
     skipDuplicates: true,
   });
 
+  const structure = await ensureManagedBuildingStructure(prisma, org.id);
+  console.log(`Managed building structure ready: ${structure.buildingCount} buildings, ${structure.sourceRoomCount} source rooms, ${structure.clonedRoomCount} cloned rooms.`);
+
   if (process.env.SEED_MODE === 'production' || process.env.NODE_ENV === 'production') {
     console.log('Production mode detected. Skipping mock buildings, floors, rooms, contracts, invoices, and transactions.');
     console.log('Commercial-Grade Seed completed successfully in PRODUCTION mode.');
     return;
   }
 
-  // 4. Buildings & Floors & Rooms
-  const buildingCodes = ['LK01.31', 'LK01.32', 'LK08.24', 'LK08.25'];
-  const allRooms: any[] = [];
-
-  for (const bCode of buildingCodes) {
-    const building = await prisma.building.upsert({
-      where: { tenantId_code: { tenantId: org.id, code: bCode } },
-      update: {},
-      create: { tenantId: org.id, code: bCode, name: `Tòa nhà ${bCode}`, address: 'HomeLand Premium' },
-    });
-
-    // 4 floors, 5 rooms per floor = 20 rooms per building = 80 rooms total
-    for (let level = 1; level <= 4; level++) {
-      const floor = await prisma.floor.upsert({
-        where: { tenantId_buildingId_level: { tenantId: org.id, buildingId: building.id, level } },
-        update: {},
-        create: { tenantId: org.id, buildingId: building.id, level, name: `Tầng ${level}` },
-      });
-
-      for (let r = 1; r <= 5; r++) {
-        const roomCode = `${bCode}-F${level}-R${r}`;
-        const bedCount = (r % 2 === 0) ? 2 : 1;
-        
-        const room = await prisma.room.upsert({
-          where: { tenantId_buildingId_code: { tenantId: org.id, buildingId: building.id, code: roomCode } },
-          update: {},
-          create: {
-            tenantId: org.id,
-            buildingId: building.id,
-            floorId: floor.id,
-            code: roomCode,
-            name: `Phòng ${r} Tầng ${level}`,
-            bedCount,
-            capacity: bedCount === 2 ? 2 : 1,
-            monthlyPrice: bedCount === 2 ? 9500000 : 6500000,
-            status: RoomStatus.AVAILABLE,
-          },
-        });
-        allRooms.push(room);
-      }
-    }
-  }
+  // 4. Operational mock data is scoped to LK01-31 only. Structural clones stay clean.
+  const buildingCodes = [...MANAGED_BUILDINGS];
+  const sourceBuilding = await prisma.building.findUniqueOrThrow({ where: { tenantId_code: { tenantId: org.id, code: 'LK01.31' } } });
+  const allRooms = await prisma.room.findMany({ where: { tenantId: org.id, buildingId: sourceBuilding.id, code: { startsWith: 'PN 31-' }, deletedAt: null }, orderBy: { code: 'asc' } });
 
   // 5. Advanced Business Scenario distribution
   // 80 rooms total:
@@ -216,8 +182,12 @@ async function main() {
   let roomIndex = 0;
   const now = new Date();
 
-  // Create Rented Rooms (52)
-  for (let i = 0; i < 52; i++) {
+  const rentedRoomCount = Math.min(3, allRooms.length);
+  const reservedRoomCount = Math.min(1, Math.max(allRooms.length - rentedRoomCount, 0));
+  const expiringRoomCount = Math.min(1, Math.max(allRooms.length - rentedRoomCount - reservedRoomCount, 0));
+
+  // Create Rented Rooms
+  for (let i = 0; i < rentedRoomCount; i++) {
     const room = allRooms[roomIndex++];
     
     // Create Customer
@@ -294,8 +264,8 @@ async function main() {
     }
   }
 
-  // Create Reserved Rooms (12)
-  for (let i = 0; i < 12; i++) {
+  // Create Reserved Rooms
+  for (let i = 0; i < reservedRoomCount; i++) {
     const room = allRooms[roomIndex++];
     
     const customer = await prisma.customer.create({
@@ -325,8 +295,8 @@ async function main() {
     });
   }
 
-  // Create Expiring Soon Rooms (8)
-  for (let i = 0; i < 8; i++) {
+  // Create Expiring Soon Rooms
+  for (let i = 0; i < expiringRoomCount; i++) {
     const room = allRooms[roomIndex++];
     
     const customer = await prisma.customer.create({

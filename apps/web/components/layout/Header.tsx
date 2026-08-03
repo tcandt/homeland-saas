@@ -78,7 +78,7 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
 export default function Header({ onToggleSidebar }: HeaderProps) {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
-  const current = routeMeta[pathname] ?? routeMeta["/"];
+  const current = pathname.startsWith("/buildings") ? routeMeta["/buildings"] : routeMeta[pathname] ?? routeMeta["/"];
   const [mounted, setMounted] = useState(false);
   const user = useAuthStore((state) => state.user);
   const accessToken = useAuthStore((state) => state.accessToken);

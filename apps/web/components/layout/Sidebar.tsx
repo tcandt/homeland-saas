@@ -64,7 +64,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
         {!collapsed && <div className="mt-6 mb-2 mx-[14px] text-[10px] font-bold text-muted uppercase tracking-wider">OPERATIONS</div>}
         {collapsed && <div className="h-px bg-border my-4 mx-[14px]"></div>}
         
-        <NavItem href="/buildings" icon={<Building size={20} />} label="Tòa nhà" collapsed={collapsed} active={pathname === "/buildings"} />
+        <NavItem href="/buildings" icon={<Building size={20} />} label="Tòa nhà" collapsed={collapsed} active={pathname.startsWith("/buildings")} />
         <NavItem href="/tenants" icon={<User size={20} />} label="Khách thuê" collapsed={collapsed} active={pathname === "/tenants"} />
 
         {!collapsed && <div className="mt-6 mb-2 mx-[14px] text-[10px] font-bold text-muted uppercase tracking-wider">CONTRACTS</div>}

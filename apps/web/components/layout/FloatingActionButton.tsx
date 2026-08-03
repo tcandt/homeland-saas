@@ -299,7 +299,7 @@ export default function FloatingActionButton() {
       <button 
         onClick={handleClick}
         aria-label="Thêm mới"
-        className={`hidden md:flex fixed md:bottom-[40px] md:right-[40px] w-[48px] h-[48px] md:w-[60px] md:h-[60px] bg-gradient-to-br from-[#8b5cf6] to-[#4f46e5] text-white rounded-full items-center justify-center shadow-lg hover:shadow-xl transition-all hover:scale-105 z-[10000] group ${isOpen ? 'rotate-45' : ''}`}
+        className={`hidden md:flex fixed w-[48px] h-[48px] ${isBuildings ? 'md:bottom-2 md:right-2 md:h-11 md:w-11' : 'md:bottom-[40px] md:right-[40px] md:w-[60px] md:h-[60px]'} bg-gradient-to-br from-[#8b5cf6] to-[#4f46e5] text-white rounded-full items-center justify-center shadow-lg hover:shadow-xl transition-all hover:scale-105 z-[10000] group ${isOpen ? 'rotate-45' : ''}`}
       >
         <Plus className="w-[24px] h-[24px] md:w-[30px] md:h-[30px] transition-transform duration-300" />
       </button>

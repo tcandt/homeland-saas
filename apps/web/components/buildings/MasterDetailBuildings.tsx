@@ -1,16 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import type { Building, Floor, Room, Tenant, SharedTenant } from "./building.types";
+import type { Building, Floor, Room } from "./building.types";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { useCreateBuildingMutation, useUpdateBuildingMutation, useDeleteBuildingMutation } from "@/lib/mutations/buildings.mutations";
 import { useCreateFloorMutation, useUpdateFloorMutation, useDeleteFloorMutation } from "@/lib/mutations/floors.mutations";
 import { useCreateRoomMutation, useUpdateRoomMutation, useDeleteRoomMutation } from "@/lib/mutations/rooms.mutations";
-import { Loader2 } from "lucide-react";
+import { Loader2, Save, Trash2 } from "lucide-react";
 import RoomPremiumModal from "./RoomPremiumModal";
 import MobileBuildingsFlow from "./MobileBuildingsFlow";
-import BuildingsWorkspaceShell from "./workspace/BuildingsWorkspaceShell";
-import { Plus, X, Save, Trash2, Edit } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
@@ -19,6 +17,7 @@ import { toast } from "sonner";
 import { useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/lib/hooks/usePermissions';
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import BuildingCockpit from "./cockpit/BuildingCockpit";
 
 export type NodeType = "building" | "floor" | "room";
 
@@ -29,11 +28,26 @@ export interface SelectedNode {
   roomId?: string;
 }
 
+function useBuildingsMobileBreakpoint() {
+  const [isMobile, setIsMobile] = React.useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobile(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  return isMobile;
+}
+
 export default function MasterDetailBuildings() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const isMobilePresentation = useBuildingsMobileBreakpoint();
   
   // API Queries & Mutations
   const { data: buildings = [], isLoading } = useBuildingsQuery();
@@ -274,7 +288,7 @@ export default function MasterDetailBuildings() {
     return updateRoom.mutateAsync({ id: roomId, data: updatedRoomFields }).then(() => undefined);
   };
 
-  if (isLoading) {
+  if (isLoading || isMobilePresentation === null) {
     return (
       <div className="flex flex-col lg:flex-row h-full w-full relative items-center justify-center">
         <Loader2 className="w-8 h-8 text-[#6366f1] animate-spin" />
@@ -283,44 +297,19 @@ export default function MasterDetailBuildings() {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row h-full w-full relative">
-      
-      {/* -------------------- MOBILE VIEW -------------------- */}
-      <div className="flex lg:hidden flex-col w-full">
-        <MobileBuildingsFlow buildings={buildings} onOpenRoomModal={openRoomModal} />
-      </div>
-
-      {/* -------------------- DESKTOP VIEW -------------------- */}
-      <div className="hidden lg:block w-full">
-        <BuildingsWorkspaceShell
+    <div className="flex h-full w-full flex-col">
+      {isMobilePresentation ? (
+        <div className="mobile-page mobile-buildings-stable">
+          <MobileBuildingsFlow buildings={buildings} onOpenRoomModal={openRoomModal} />
+        </div>
+      ) : (
+        <BuildingCockpit
           buildings={buildings}
+          onEditBuilding={handleOpenEditBuilding}
           onOpenRoomModal={openRoomModal}
-          onEditBuilding={handleOpenEditBuilding}
-          onAddFloor={handleOpenAddFloor}
-          onAddRoomQuick={handleOpenAddRoomQuick}
-          onAddRoom={handleOpenAddRoom}
-          onEditRoom={(roomId) => openRoomModal(roomId, "overview")}
-          onDeleteRoom={handleDeleteRoom}
-          onEditFloor={handleOpenEditFloor}
-          onDeleteFloor={handleDeleteFloor}
-          canCreateFloor={permissions.canCreateFloor}
-          canUpdateBuilding={permissions.canUpdateBuilding}
         />
-      </div>
+      )}
 
-      {/* Custom Portalled components for dialog triggers */}
-      <div className="hidden">
-        {/* Helper to hook callbacks inside BuildingDetailPanel */}
-        <BuildingViewWrapper 
-          building={activeBuilding!}
-          onSelectNode={setSelectedNode}
-          onEditBuilding={handleOpenEditBuilding}
-          onAddFloor={handleOpenAddFloor}
-          onAddRoomQuick={handleOpenAddRoomQuick}
-        />
-      </div>
-
-      {/* Room detail drawers */}
       {isModalOpen && modalRoomId && (
         <RoomPremiumModal 
           roomId={modalRoomId} 

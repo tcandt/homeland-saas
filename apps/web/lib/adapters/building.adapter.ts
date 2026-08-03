@@ -3,6 +3,12 @@ import { BuildingResponse } from '../api/buildings.api';
 import { FloorResponse } from '../api/floors.api';
 import { RoomResponse } from '../api/rooms.api';
 
+const toOptionalNumber = (value: unknown): number | undefined => {
+  if (value === null || value === undefined || value === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 // Map API building to UI building
 export const adaptBuilding = (apiBuilding: any): Building => {
   return {
@@ -146,9 +152,9 @@ export const adaptRoom = (apiRoom: any): Room => {
     price: Number(apiRoom.monthlyPrice) || 0,
     status: uiStatus,
     monthlyPrice: Number(apiRoom.monthlyPrice) || 0,
-    area: apiRoom.area,
-    capacity: apiRoom.capacity,
-    bedCount: apiRoom.bedCount,
+    area: toOptionalNumber(apiRoom.area),
+    capacity: toOptionalNumber(apiRoom.capacity),
+    bedCount: toOptionalNumber(apiRoom.bedCount),
     images: [
       "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&h=450&fit=crop"
     ],

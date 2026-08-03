@@ -10,6 +10,22 @@
     --text: #0f172a;
     --muted: #64748b;
     --border: #e2e8f0;
+    --surface-raised: #ffffff;
+    --surface-muted: #f8fafc;
+    --border-strong: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --primary-foreground: #ffffff;
+    --focus-ring: #6366f1;
+    --shadow-color: 15 23 42;
+    --warning-surface: #fff7ed;
+    --warning-border: #fed7aa;
+    --danger-surface: #fff1f2;
+    --danger-border: #fecdd3;
+    --stage-bg:
+      radial-gradient(circle at 50% 44%, rgba(99, 102, 241, 0.09), transparent 38%),
+      linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     
     --primary: #4f46e5;
     --secondary: #0ea5e9;
@@ -26,6 +42,22 @@
     --text: #f8fafc;
     --muted: #94a3b8;
     --border: #334155;
+    --surface-raised: #1e293b;
+    --surface-muted: #111827;
+    --border-strong: #475569;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --primary-foreground: #ffffff;
+    --focus-ring: #818cf8;
+    --shadow-color: 0 0 0;
+    --warning-surface: rgba(245, 158, 11, 0.12);
+    --warning-border: rgba(251, 191, 36, 0.28);
+    --danger-surface: rgba(244, 63, 94, 0.12);
+    --danger-border: rgba(251, 113, 133, 0.28);
+    --stage-bg:
+      radial-gradient(circle at 50% 42%, rgba(99, 102, 241, 0.22), transparent 42%),
+      linear-gradient(180deg, #111827 0%, #0b1120 100%);
     
     --primary: #6366f1;
     --secondary: #38bdf8;
@@ -45,6 +77,10 @@
     font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background-color: var(--bg);
     color: var(--text);
+  }
+
+  *:focus-visible {
+    outline-color: var(--focus-ring);
   }
 }
 
@@ -79,6 +115,78 @@
 }
 
 @layer utilities {
+  .building-cockpit-theme {
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  .building-cockpit-theme .building-model-stage {
+    background: var(--stage-bg);
+  }
+
+  .building-cockpit-theme .cockpit-alert-warning {
+    border-color: var(--warning-border);
+    background: var(--warning-surface);
+  }
+
+  .building-cockpit-theme .cockpit-alert-danger {
+    border-color: var(--danger-border);
+    background: var(--danger-surface);
+  }
+
+  .building-cockpit-theme .bg-white,
+  .building-cockpit-theme .bg-\[\#ffffff\],
+  .building-cockpit-theme [class*="bg-[#fbfbf"],
+  .building-cockpit-theme [class*="bg-slate-50"] {
+    background-color: var(--card);
+  }
+
+  .building-cockpit-theme [class*="bg-[#fbfbfe]"] {
+    background-color: var(--bg);
+  }
+
+  .building-cockpit-theme .text-slate-950,
+  .building-cockpit-theme .text-slate-900,
+  .building-cockpit-theme .text-black {
+    color: var(--text);
+  }
+
+  .building-cockpit-theme .text-slate-700,
+  .building-cockpit-theme .text-slate-600 {
+    color: var(--text-secondary);
+  }
+
+  .building-cockpit-theme .text-slate-500,
+  .building-cockpit-theme .text-slate-400 {
+    color: var(--muted);
+  }
+
+  .building-cockpit-theme [class*="border-[#e"],
+  .building-cockpit-theme .border-slate-200 {
+    border-color: var(--border);
+  }
+
+  .building-cockpit-theme [class*="shadow-[0_"],
+  .building-cockpit-theme .shadow-sm {
+    box-shadow: 0 10px 30px rgb(var(--shadow-color) / 0.08);
+  }
+
+  .dark .building-cockpit-theme .bg-card,
+  .dark .building-cockpit-theme .bg-white {
+    background-color: var(--card);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .building-cockpit-theme *,
+    .building-cockpit-theme *::before,
+    .building-cockpit-theme *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
   .hero-gradient {
     background: linear-gradient(135deg, #4f46e5, #8b5cf6);
   }
@@ -121,4 +229,3 @@
     }
   }
 }
-

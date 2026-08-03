@@ -1199,10 +1199,11 @@ export default function RoomPremiumModal({
                       </label>
                       <Input
                         type="number"
-                        value={roomData.area}
-                        onChange={(e) =>
-                          handleFieldChange("area", Number(e.target.value))
-                        }
+                        value={roomData.area ?? ""}
+                        onChange={(e) => handleFieldChange(
+                          "area",
+                          e.target.value === "" ? undefined : Number(e.target.value),
+                        )}
                       />
                     </div>
                     <div className="flex flex-col gap-1 w-full">
@@ -1211,10 +1212,11 @@ export default function RoomPremiumModal({
                       </label>
                       <Input
                         type="number"
-                        value={roomData.capacity}
-                        onChange={(e) =>
-                          handleFieldChange("capacity", Number(e.target.value))
-                        }
+                        value={roomData.capacity ?? ""}
+                        onChange={(e) => handleFieldChange(
+                          "capacity",
+                          e.target.value === "" ? undefined : Number(e.target.value),
+                        )}
                       />
                     </div>
                   </div>

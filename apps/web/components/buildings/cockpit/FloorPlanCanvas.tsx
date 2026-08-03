@@ -8,10 +8,13 @@ import { formatVnd, getStatusLabel } from "./building-cockpit-metrics";
 
 interface FloorPlanCanvasProps {
   floor: CockpitFloorSpec;
+  buildingCode?: string;
   selectedRoomCode: string | null;
+  highlightedRoomCode?: string | null;
   zoom: number;
   onZoomChange: (zoom: number) => void;
   onSelectRoom: (room: CockpitRoomSpec) => void;
+  onHoverRoom?: (roomCode: string | null) => void;
   debugMode: boolean;
 }
 
@@ -60,6 +63,7 @@ function cloneMaps(rooms: RoomImageMap[]) {
 }
 
 function RoomTooltip({ tooltip }: { tooltip: TooltipState }) {
+  const hasOperationalData = Boolean(tooltip.room.sourceRoom);
   return (
     <div
       className="pointer-events-none absolute z-30 w-[230px] -translate-y-[calc(100%+14px)] rounded-xl border border-white/60 bg-slate-950/92 px-3 py-2.5 text-white shadow-xl backdrop-blur"
@@ -67,16 +71,26 @@ function RoomTooltip({ tooltip }: { tooltip: TooltipState }) {
       role="status"
     >
       <strong className="block text-[13px] font-black">{tooltip.room.code}</strong>
-      <span className="mt-1 block text-[11px] leading-4 text-slate-200">{tooltip.room.type}</span>
-      <span className="mt-1.5 flex items-center justify-between text-[11px] text-slate-300">
-        <span>{getStatusLabel(tooltip.room.status)} · {tooltip.room.occupants}/{tooltip.room.capacity} người</span>
-        <b className="text-white">{tooltip.room.monthlyRent ? formatVnd(tooltip.room.monthlyRent) : "—"}</b>
+      <span className="mt-1 block text-[12px] leading-4 text-slate-200">{tooltip.room.type}</span>
+      <span className="mt-1.5 flex items-center justify-between text-[12px] text-slate-300">
+        <span>{hasOperationalData ? `${getStatusLabel(tooltip.room.status)} · ${tooltip.room.occupants}/${tooltip.room.capacity} người` : "Chưa đồng bộ vận hành"}</span>
+        <b className="text-white">{hasOperationalData && tooltip.room.monthlyRent ? formatVnd(tooltip.room.monthlyRent) : "—"}</b>
       </span>
     </div>
   );
 }
 
-function FloorPlanCanvas({ floor, selectedRoomCode, zoom, onZoomChange, onSelectRoom, debugMode }: FloorPlanCanvasProps) {
+function FloorPlanCanvas({
+  floor,
+  buildingCode = "tòa nhà đang chọn",
+  selectedRoomCode,
+  highlightedRoomCode = null,
+  zoom,
+  onZoomChange,
+  onSelectRoom,
+  onHoverRoom,
+  debugMode,
+}: FloorPlanCanvasProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const panStartRef = useRef<{ pointer: Point; pan: Point } | null>(null);
@@ -199,7 +213,13 @@ function FloorPlanCanvas({ floor, selectedRoomCode, zoom, onZoomChange, onSelect
         onPointerMove={onPointerMove}
         onPointerUp={stopDragging}
         onPointerCancel={stopDragging}
-        onPointerLeave={() => { if (!panStartRef.current) { setHoveredRoomId(null); setTooltip(null); } }}
+        onPointerLeave={() => {
+          if (!panStartRef.current) {
+            setHoveredRoomId(null);
+            setTooltip(null);
+            onHoverRoom?.(null);
+          }
+        }}
         onWheel={onWheel}
       >
         {!imageLoaded && <div className="absolute inset-6 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" aria-label="Đang tải ảnh mặt bằng" />}
@@ -212,7 +232,7 @@ function FloorPlanCanvas({ floor, selectedRoomCode, zoom, onZoomChange, onSelect
         >
           <Image
             src={floor.imageMap.src}
-            alt={`Ảnh render mặt bằng 3D ${floor.label} của tòa nhà LK01-31`}
+            alt={`Ảnh render mặt bằng 3D ${floor.label} của tòa nhà ${buildingCode}`}
             width={floor.imageMap.width}
             height={floor.imageMap.height}
             sizes="(max-width: 1024px) 100vw, 1100px"
@@ -241,7 +261,9 @@ function FloorPlanCanvas({ floor, selectedRoomCode, zoom, onZoomChange, onSelect
             {draftMaps.map((roomMap) => {
               if (hiddenRoomIds.has(roomMap.roomId)) return null;
               const selected = normalizeRoomCode(selectedRoomCode || "") === normalizeRoomCode(roomMap.roomId);
-              const hovered = hoveredRoomId === roomMap.roomId;
+              const highlighted = normalizeRoomCode(highlightedRoomCode || "") === normalizeRoomCode(roomMap.roomId);
+              const hovered = hoveredRoomId === roomMap.roomId || highlighted;
+              const roomCode = roomsByCode.get(normalizeRoomCode(roomMap.roomId))?.urlCode || roomMap.roomId;
               return (
                 <g
                   key={roomMap.roomId}
@@ -250,9 +272,14 @@ function FloorPlanCanvas({ floor, selectedRoomCode, zoom, onZoomChange, onSelect
                   data-selected={selected}
                   onMouseEnter={(event) => {
                     setHoveredRoomId(roomMap.roomId);
+                    onHoverRoom?.(roomCode);
                     updatePointerPosition(event.clientX, event.clientY, roomMap.roomId);
                   }}
-                  onMouseLeave={() => { setHoveredRoomId(null); setTooltip(null); }}
+                  onMouseLeave={() => {
+                    setHoveredRoomId(null);
+                    setTooltip(null);
+                    onHoverRoom?.(null);
+                  }}
                   onClick={(event) => { event.stopPropagation(); selectRoom(roomMap.roomId); }}
                 >
                   {roomMap.paths.map((path, pathIndex) => (
@@ -276,6 +303,15 @@ function FloorPlanCanvas({ floor, selectedRoomCode, zoom, onZoomChange, onSelect
                           event.preventDefault();
                           selectRoom(roomMap.roomId);
                         }
+                      }}
+                      onFocus={() => {
+                        setHoveredRoomId(roomMap.roomId);
+                        onHoverRoom?.(roomCode);
+                      }}
+                      onBlur={() => {
+                        setHoveredRoomId(null);
+                        setTooltip(null);
+                        onHoverRoom?.(null);
                       }}
                     />
                   ))}
@@ -311,12 +347,12 @@ function FloorPlanCanvas({ floor, selectedRoomCode, zoom, onZoomChange, onSelect
 
         {tooltip && !debugMode && <RoomTooltip tooltip={tooltip} />}
         {debugMode && debugCursor && (
-          <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-blue-600 px-2.5 py-1.5 font-mono text-[11px] font-bold text-white shadow-lg">
+          <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-blue-600 px-2.5 py-1.5 font-mono text-[12px] font-bold text-white shadow-lg">
             x: {Math.round(debugCursor.x)} · y: {Math.round(debugCursor.y)}
           </div>
         )}
         {zoom > 100 && (
-          <div className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 shadow-sm backdrop-blur">
+          <div className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-[12px] font-bold text-slate-600 shadow-sm backdrop-blur">
             <Move size={13} /> Kéo để di chuyển
           </div>
         )}
@@ -327,7 +363,7 @@ function FloorPlanCanvas({ floor, selectedRoomCode, zoom, onZoomChange, onSelect
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <strong className="block text-[13px] font-black text-blue-950">Hotspot Debug Editor</strong>
-              <span className="text-[11px] font-semibold text-blue-700">Kéo các đỉnh màu xanh để căn theo tường ảnh render.</span>
+              <span className="text-[12px] font-semibold text-blue-700">Kéo các đỉnh màu xanh để căn theo tường ảnh render.</span>
             </div>
             <button type="button" onClick={copyDebugJson} className="flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-3 text-[12px] font-black text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
               {copied ? <Check size={15} /> : <Copy size={15} />} {copied ? "Đã sao chép" : "Copy JSON"}

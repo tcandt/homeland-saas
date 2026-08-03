@@ -9,6 +9,8 @@ const VIEWPORTS = [
   { name: "desktop-1920", width: 1920, height: 1080, mobile: false },
 ] as const;
 
+const PORTFOLIO_BUILDING_CODES = ["LK01-31", "LK01-32", "LK08-24", "LK08-25"] as const;
+
 const makeRoom = (floorId: string, suffix: string, status: string) => ({
   id: `room-${suffix}`,
   floorId,
@@ -69,10 +71,12 @@ test.describe("Buildings responsive presentation isolation", () => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [], total: 0, count: 0 } }) });
     });
 
+    const requestsBeforeMatrix = buildingRequests;
     for (const viewport of VIEWPORTS) {
       const beforeRequests = buildingRequests;
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.goto(process.env.BUILDINGS_QA_BASE_URL || "/buildings/LK01-31", { waitUntil: "networkidle" });
+      await expect(page.locator(viewport.mobile ? ".mobile-buildings-stable" : ".building-cockpit-theme")).toBeVisible();
 
       const state = await page.evaluate(() => ({
         cockpitCount: document.querySelectorAll(".building-cockpit-theme").length,
@@ -81,16 +85,49 @@ test.describe("Buildings responsive presentation isolation", () => {
         clientWidth: document.documentElement.clientWidth,
       }));
 
-      expect(buildingRequests - beforeRequests).toBe(1);
+      // A hard navigation may reuse React Query/Next data in the same browser
+      // context. The invariant is no duplicate building fetch per presentation.
+      expect(buildingRequests - beforeRequests).toBeLessThanOrEqual(1);
       expect(state.scrollWidth).toBe(state.clientWidth);
       expect(state.mobileCount).toBe(viewport.mobile ? 1 : 0);
       expect(state.cockpitCount).toBe(viewport.mobile ? 0 : 1);
+
+      if (!viewport.mobile) {
+        const modelViewer = page.getByTestId("building-model-viewer");
+        const floorWorkspace = page.getByTestId("floor-workspace-panel");
+        await expect(modelViewer).toHaveCount(1);
+        await expect(floorWorkspace).toHaveCount(1);
+        await expect(modelViewer).toBeVisible();
+        await expect(floorWorkspace).toBeVisible();
+
+        const [modelBox, workspaceBox] = await Promise.all([
+          modelViewer.boundingBox(),
+          floorWorkspace.boundingBox(),
+        ]);
+        expect(modelBox).not.toBeNull();
+        expect(workspaceBox).not.toBeNull();
+        if (viewport.width >= 1024) {
+          expect(Math.abs(modelBox!.y - workspaceBox!.y)).toBeLessThanOrEqual(2);
+          expect(workspaceBox!.x).toBeGreaterThan(modelBox!.x);
+        } else {
+          expect(workspaceBox!.y).toBeGreaterThan(modelBox!.y + modelBox!.height);
+        }
+
+        const portfolio = page.getByRole("region", { name: "Danh mục tòa nhà", exact: true });
+        await expect(portfolio).toBeVisible();
+        for (const code of PORTFOLIO_BUILDING_CODES) {
+          await expect(portfolio.getByRole("heading", { name: code, exact: true })).toHaveCount(1);
+        }
+      }
 
       await testInfo.attach(`buildings-${viewport.name}.png`, {
         body: await page.screenshot({ fullPage: false }),
         contentType: "image/png",
       });
     }
+
+    expect(buildingRequests - requestsBeforeMatrix).toBeGreaterThanOrEqual(1);
+    expect(buildingRequests - requestsBeforeMatrix).toBeLessThanOrEqual(VIEWPORTS.length);
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`${process.env.BUILDINGS_QA_BASE_URL || "/buildings/LK01-31"}?floor=2`, { waitUntil: "networkidle" });
@@ -102,6 +139,10 @@ test.describe("Buildings responsive presentation isolation", () => {
 
     await page.evaluate(() => document.documentElement.classList.add("dark"));
     await expect(page.locator(".building-cockpit-theme")).toBeVisible();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const reducedMotionDuration = await page.getByRole("button", { name: "Đặt lại góc nhìn" }).evaluate((element) => getComputedStyle(element).transitionDuration);
+    const reducedMotionMilliseconds = reducedMotionDuration.endsWith("ms") ? Number.parseFloat(reducedMotionDuration) : Number.parseFloat(reducedMotionDuration) * 1000;
+    expect(reducedMotionMilliseconds).toBeLessThanOrEqual(1);
     await testInfo.attach("buildings-floor-room-dark.png", {
       body: await page.screenshot({ fullPage: false }),
       contentType: "image/png",

@@ -21,7 +21,9 @@ export function getStatusTone(status: string) {
 }
 
 export function getBuildingMetrics(building: CockpitBuildingSpec) {
-  const rooms = building.floors.flatMap((floor) => floor.rooms);
+  // Layout rooms describe geometry. Portfolio KPIs must only count records that
+  // were actually synchronized from the operational API.
+  const rooms = building.floors.flatMap((floor) => floor.rooms).filter((room) => room.sourceRoom);
   const occupiedRooms = rooms.filter((room) => room.status === "occupied" || room.status === "expiring_soon").length;
   const vacantRooms = rooms.filter((room) => room.status === "vacant").length;
   const now = Date.now();
@@ -57,6 +59,7 @@ export function getBuildingMetrics(building: CockpitBuildingSpec) {
 }
 
 export function getFloorOccupancy(floor: CockpitFloorSpec) {
-  const active = floor.rooms.filter((room) => room.status === "occupied" || room.status === "expiring_soon").length;
-  return floor.rooms.length ? Math.round((active / floor.rooms.length) * 100) : 0;
+  const rooms = floor.rooms.filter((room) => room.sourceRoom);
+  const active = rooms.filter((room) => room.status === "occupied" || room.status === "expiring_soon").length;
+  return rooms.length ? Math.round((active / rooms.length) * 100) : 0;
 }

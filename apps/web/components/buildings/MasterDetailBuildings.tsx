@@ -18,6 +18,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/lib/hooks/usePermissions';
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import BuildingCockpit from "./cockpit/BuildingCockpit";
+import { normalizeBuildingCode } from "./cockpit/building-template-registry";
 
 export type NodeType = "building" | "floor" | "room";
 
@@ -126,13 +127,23 @@ export default function MasterDetailBuildings() {
     setActiveDialog("addBuilding");
   };
 
-  const handleOpenEditBuilding = () => {
-    if (!activeBuilding) return;
-    setBName(activeBuilding.name);
-    setBCode(activeBuilding.code || "");
-    setBAddress(activeBuilding.address);
-    setBNotes(activeBuilding.notes || "");
-    setBStatus(activeBuilding.status);
+  const handleOpenEditBuilding = (buildingCode: string) => {
+    const normalizedCode = normalizeBuildingCode(buildingCode);
+    const targetBuilding = buildings.find((building: Building) => (
+      normalizeBuildingCode(building.code || building.name) === normalizedCode
+    ));
+
+    if (!targetBuilding) {
+      toast.error(`Không tìm thấy tòa nhà ${buildingCode}`);
+      return;
+    }
+
+    setSelectedNode({ type: "building", buildingId: targetBuilding.id });
+    setBName(targetBuilding.name);
+    setBCode(targetBuilding.code || "");
+    setBAddress(targetBuilding.address);
+    setBNotes(targetBuilding.notes || "");
+    setBStatus(targetBuilding.status);
     setActiveDialog("editBuilding");
   };
 
@@ -305,6 +316,7 @@ export default function MasterDetailBuildings() {
       ) : (
         <BuildingCockpit
           buildings={buildings}
+          onAddBuilding={handleOpenAddBuilding}
           onEditBuilding={handleOpenEditBuilding}
           onOpenRoomModal={openRoomModal}
         />

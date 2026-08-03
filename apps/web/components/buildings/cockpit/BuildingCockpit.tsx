@@ -34,16 +34,19 @@ import {
   resolveRoomSpec,
 } from "./building-cockpit-data";
 import { normalizeBuildingCode } from "./building-template-registry";
+import { buildingTemplateRegistry } from "./building-template-registry";
 import type { CockpitBuildingSpec, CockpitFloorId, CockpitFloorSpec, CockpitRoomSpec } from "./building-cockpit.types";
 import { formatVnd, getBuildingMetrics, getFloorOccupancy, getStatusLabel, getStatusTone } from "./building-cockpit-metrics";
 import { overviewFloorHotspots } from "./building-image-maps";
 import FloorPlanCanvas from "./FloorPlanCanvas";
 import RoomInspectorDrawer from "./RoomInspectorDrawer";
 import BuildingSwitcher from "./BuildingSwitcher";
+import UnifiedBuildingCockpit from "./UnifiedBuildingCockpit";
 
 interface BuildingCockpitProps {
   buildings: Building[];
-  onEditBuilding?: () => void;
+  onAddBuilding?: () => void;
+  onEditBuilding?: (buildingCode: string) => void;
   onOpenRoomModal?: (roomId: string, tab?: string) => void;
 }
 
@@ -496,26 +499,43 @@ function FloorWorkspace({
   );
 }
 
-export default function BuildingCockpit({ buildings, onEditBuilding, onOpenRoomModal }: BuildingCockpitProps) {
+export default function BuildingCockpit({ buildings, onAddBuilding, onEditBuilding, onOpenRoomModal }: BuildingCockpitProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [zoom, setZoom] = useState(100);
   const requestedCode = normalizeBuildingCode(pathname.split("/buildings/")[1]?.split("/")[0] || "LK01-31");
-  const allowFixtureFallback = requestedCode === "LK01-31";
+  const allowFixtureFallback = process.env.NODE_ENV !== "production" && buildings.length === 0 && requestedCode === "LK01-31";
   const building = useMemo(() => createCockpitBuildingSpec(buildings, requestedCode, allowFixtureFallback), [allowFixtureFallback, buildings, requestedCode]);
+  const portfolioBuildings = useMemo(() => {
+    const resolved = buildingTemplateRegistry
+      .map((descriptor) => createCockpitBuildingSpec(buildings, descriptor.code, false))
+      .filter((item): item is CockpitBuildingSpec => Boolean(item));
+    if (building && !resolved.some((item) => item.code === building.code)) resolved.unshift(building);
+    return resolved;
+  }, [building, buildings]);
 
   const floorId = useMemo(() => getFloorParam(searchParams), [searchParams]);
   const roomParam = searchParams.get("room");
   const debugMode = process.env.NODE_ENV !== "production" && searchParams.get("debugHotspots") === "1";
 
-  const floor = building ? resolveFloorSpec(building, floorId) : null;
-  const room = building ? resolveRoomSpec(building, floorId, roomParam) : null;
+  const roomFloorMatch = building && roomParam ? findRoomFloor(building, roomParam) : null;
+  const displayedFloorId = floorId || roomFloorMatch?.floor.id || "2";
+  const floor = building ? resolveFloorSpec(building, displayedFloorId) || building.floors[0] || null : null;
+  const room = building && floor ? resolveRoomSpec(building, floor.id, roomParam) : null;
 
   useEffect(() => {
-    if (!building || floorId || !roomParam) return;
+    if (!building || !roomParam) return;
     const match = findRoomFloor(building, roomParam);
-    if (!match) return;
+    if (!match) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("room");
+      params.delete("space");
+      const query = params.toString();
+      router.replace(`${getBasePath(pathname, building)}${query ? `?${query}` : ""}`);
+      return;
+    }
+    if (floorId === match.floor.id) return;
     const params = new URLSearchParams(searchParams.toString());
     params.set("floor", match.floor.id);
     router.replace(`${getBasePath(pathname, building)}?${params.toString()}`);
@@ -525,7 +545,8 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onOpenRoomM
     if (!building) return;
     const params = new URLSearchParams(searchParams.toString());
     updater(params);
-    const next = `${getBasePath(pathname, building)}?${params.toString()}`;
+    const query = params.toString();
+    const next = `${getBasePath(pathname, building)}${query ? `?${query}` : ""}`;
     if (replace) router.replace(next);
     else router.push(next);
   }, [building, pathname, router, searchParams]);
@@ -578,26 +599,24 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onOpenRoomM
   }
 
   return (
-    <div className="building-cockpit-theme min-h-[calc(100vh-80px)] w-full bg-background p-4 text-text xl:h-[calc(100dvh-80px)] xl:min-h-0 xl:overflow-hidden">
-      <div className="h-full min-h-0 w-full">
-        {floor && building.layoutStatus === "configured" ? (
-          <FloorWorkspace
-            building={building}
-            buildings={buildings}
-            floor={floor}
-            room={room}
-            zoom={zoom}
-            setZoom={setZoom}
-            debugMode={debugMode}
-            onSelectFloor={selectFloor}
-            onSelectRoom={selectCurrentFloorRoom}
-            onCloseRoom={closeRoom}
-            onOpenRoomModal={onOpenRoomModal}
-            onSwitchBuilding={switchBuilding}
-          />
-        ) : (
-          <Overview building={building} buildings={buildings} activeFloorId={floorId} onSelectFloor={selectFloor} onSelectRoom={selectRoom} onEditBuilding={onEditBuilding} onSwitchBuilding={switchBuilding} />
-        )}
+    <div className="building-cockpit-theme min-h-[calc(100vh-80px)] w-full min-w-0 bg-background p-3 text-text lg:p-4">
+      <div className="min-h-0 w-full min-w-0">
+        <UnifiedBuildingCockpit
+          building={building}
+          portfolioBuildings={portfolioBuildings}
+          floor={floor}
+          room={room}
+          zoom={zoom}
+          setZoom={setZoom}
+          debugMode={debugMode}
+          onSelectBuilding={switchBuilding}
+          onSelectFloor={selectFloor}
+          onSelectRoom={selectCurrentFloorRoom}
+          onCloseRoom={closeRoom}
+          onAddBuilding={onAddBuilding}
+          onEditBuilding={onEditBuilding}
+          onOpenRoomModal={onOpenRoomModal}
+        />
       </div>
     </div>
   );

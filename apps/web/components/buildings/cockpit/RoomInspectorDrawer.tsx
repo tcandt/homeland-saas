@@ -25,6 +25,9 @@ function row(label: string, value: React.ReactNode) {
 export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onClose, onOpenRoomModal }: RoomInspectorDrawerProps) {
   const tone = getStatusTone(room.status);
   const selectedSpace = room.childSpaces?.find((space) => space.id === selectedSpaceId);
+  const sourceRoomId = room.sourceRoom?.id;
+  const hasOperationalData = Boolean(sourceRoomId);
+  const statusLabel = hasOperationalData ? getStatusLabel(room.status) : "Chưa đồng bộ";
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -35,19 +38,23 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
   }, [onClose]);
 
   return (
-    <aside className="fixed inset-x-3 bottom-3 z-40 max-h-[82vh] overflow-auto rounded-[16px] border border-[#e7e7f2] bg-white p-3.5 shadow-2xl lg:relative lg:inset-auto lg:flex lg:h-full lg:max-h-full lg:w-full lg:min-w-[336px] lg:shrink-0 lg:flex-col lg:overflow-hidden lg:shadow-sm" aria-label={`Thông tin phòng ${room.code}`}>
+    <aside
+      role="dialog"
+      className="fixed inset-x-3 bottom-3 z-[10002] max-h-[82vh] overflow-auto rounded-[16px] border border-[#e7e7f2] bg-white p-3.5 shadow-2xl min-[1366px]:relative min-[1366px]:inset-auto min-[1366px]:z-auto min-[1366px]:flex min-[1366px]:h-full min-[1366px]:max-h-full min-[1366px]:w-full min-[1366px]:min-w-[286px] min-[1366px]:shrink-0 min-[1366px]:flex-col min-[1366px]:overflow-hidden min-[1366px]:shadow-sm"
+      aria-label={`Thông tin phòng ${room.code}`}
+    >
       <div className="mb-2.5 flex shrink-0 items-start justify-between gap-4 border-b border-[#ececf6] pb-2.5">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-[20px] font-black tracking-tight text-slate-950">{room.code}</h2>
-            <span className="rounded-full px-2.5 py-1 text-[10px] font-black" style={{ background: tone.bg, color: tone.text }}>
-              {getStatusLabel(room.status)}
+            <span className="rounded-full px-2.5 py-1 text-[12px] font-black" style={hasOperationalData ? { background: tone.bg, color: tone.text } : { background: "#f1f5f9", color: "#64748b" }}>
+              {statusLabel}
             </span>
           </div>
           <p className="mt-1 text-[12px] font-semibold text-slate-500">
             {floor.label}{selectedSpace ? ` • ${selectedSpace.name}` : ""}
           </p>
-          {room.status === "vacant" && <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-bold text-emerald-600"><CheckCircle2 size={14} />Sẵn sàng khai thác</p>}
+          {hasOperationalData && room.status === "vacant" && <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-bold text-emerald-600"><CheckCircle2 size={14} />Sẵn sàng khai thác</p>}
         </div>
         <button type="button" onClick={onClose} aria-label="Đóng thông tin phòng" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]">
           <X size={18} />
@@ -62,7 +69,7 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
           {row("Ký hiệu phòng", room.code)}
           {row("Vị trí", floor.label)}
           {row("Diện tích ước tính", `~${room.estimatedArea.toFixed(1)} m²`)}
-          {row("Tình trạng", <span style={{ color: tone.text }}>{getStatusLabel(room.status)}</span>)}
+          {row("Tình trạng", <span style={{ color: hasOperationalData ? tone.text : "#64748b" }}>{statusLabel}</span>)}
           {row("Cửa ra vào", `${room.entryDoorCount} cửa`)}
           {row("Giá thuê", room.monthlyRent ? formatVnd(room.monthlyRent) : "Chưa đặt")}
         </div>
@@ -103,21 +110,25 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
       )}
       </div>
 
-      <div className="relative mt-2 grid shrink-0 grid-cols-[1fr_auto_auto] gap-2 border-t border-[#ececf6] pt-3">
-        <button type="button" onClick={() => onOpenRoomModal?.(room.id, "overview")} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-[#5b35f5] px-3 text-[12px] font-black text-white transition-colors hover:bg-[#4b28db] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]">
-          Mở hồ sơ phòng <ArrowRight size={15} />
-        </button>
-        <button type="button" onClick={() => onOpenRoomModal?.(room.id, "overview")} aria-label="Chỉnh sửa phòng" title="Chỉnh sửa" className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#e2defd] text-[#5b35f5] transition-colors hover:bg-[#f5f2ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]">
-          <Pencil size={16} />
-        </button>
-        <details className="group relative">
-          <summary aria-label="Mở thêm tác vụ" title="Thêm tác vụ" className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border border-[#ececf6] text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><MoreHorizontal size={18} /></summary>
-          <div className="absolute bottom-[calc(100%+8px)] right-0 z-50 w-44 rounded-xl border border-[#e7e7f2] bg-white p-1.5 shadow-xl">
-            <button type="button" className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[12px] font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><FileText size={15} />Hợp đồng</button>
-            <button type="button" className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[12px] font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><Wrench size={15} />Bảo trì</button>
-          </div>
-        </details>
-      </div>
+      {sourceRoomId && onOpenRoomModal ? (
+        <div className="relative mt-2 grid shrink-0 grid-cols-[1fr_auto_auto] gap-2 border-t border-[#ececf6] pt-3">
+          <button type="button" onClick={() => onOpenRoomModal(sourceRoomId, "overview")} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-[#5b35f5] px-3 text-[12px] font-black text-white transition-colors hover:bg-[#4b28db] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]">
+            Mở hồ sơ phòng <ArrowRight size={15} />
+          </button>
+          <button type="button" onClick={() => onOpenRoomModal(sourceRoomId, "overview")} aria-label="Chỉnh sửa phòng" title="Chỉnh sửa" className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#e2defd] text-[#5b35f5] transition-colors hover:bg-[#f5f2ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]">
+            <Pencil size={16} />
+          </button>
+          <details className="group relative">
+            <summary aria-label="Mở thêm tác vụ" title="Thêm tác vụ" className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border border-[#ececf6] text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><MoreHorizontal size={18} /></summary>
+            <div className="absolute bottom-[calc(100%+8px)] right-0 z-50 w-44 rounded-xl border border-[#e7e7f2] bg-white p-1.5 shadow-xl">
+              <button type="button" className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[12px] font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><FileText size={15} />Hợp đồng</button>
+              <button type="button" className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[12px] font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><Wrench size={15} />Bảo trì</button>
+            </div>
+          </details>
+        </div>
+      ) : (
+        <p className="mt-2 rounded-xl border border-dashed border-[#ececf6] px-3 py-2.5 text-center text-[12px] font-semibold text-slate-500">Phòng chưa được đồng bộ hồ sơ vận hành.</p>
+      )}
     </aside>
   );
 }

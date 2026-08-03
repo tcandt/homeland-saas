@@ -98,15 +98,15 @@ function FloorLabelRail({ floors, activeFloorId, onSelectFloor, onHoverFloor }: 
           onBlur={() => onHoverFloor(null)}
           className={cx(
             "pointer-events-auto absolute left-0 flex min-h-[62px] w-[124px] -translate-y-1/2 flex-col justify-center rounded-[12px] border bg-card/95 px-3 text-left shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur transition-[border-color,background-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none",
-            activeFloorId === floor.id ? "border-[#5b35f5]/50 bg-[#faf9ff] text-[#5b35f5]" : "border-[#e6e4f4] text-slate-950 hover:border-[#5b35f5]/35 hover:bg-[#fcfbff]",
+            activeFloorId === floor.id ? "border-[#0ea5e9]/50 bg-sky-500/5 text-[#0ea5e9]" : "border-border/40 dark:border-white/5 text-text hover:border-[#0ea5e9]/35 hover:bg-sky-500/5",
           )}
           style={{ top: `${12 + index * 25.5}%` }}
           aria-label={`Mở ${floor.label}`}
         >
-          <span className="flex items-center justify-between gap-2 text-[13px] font-black"><span>{floor.label}</span><span className="h-2 w-2 rounded-full bg-[#5b35f5]" /></span>
-          <span className="mt-1 text-[11px] font-bold text-slate-500">{floor.rooms.length} phòng · {getFloorOccupancy(floor)}% lấp đầy</span>
-          <span className="absolute left-full top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[#5b35f5] shadow-[0_0_0_3px_rgba(91,53,245,0.08)]" />
-          <span className="absolute left-[calc(100%+8px)] top-1/2 w-6 border-t border-[#5b35f5]/35" />
+          <span className="flex items-center justify-between gap-2 text-[13px] font-black"><span>{floor.label}</span><span className="h-2 w-2 rounded-full bg-[#0ea5e9]" /></span>
+          <span className="mt-1 text-[11px] font-bold text-muted">{floor.rooms.length} phòng · {getFloorOccupancy(floor)}% lấp đầy</span>
+          <span className="absolute left-full top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[#0ea5e9] shadow-[0_0_0_3px_rgba(14,165,233,0.08)]" />
+          <span className="absolute left-[calc(100%+8px)] top-1/2 w-6 border-t border-[#0ea5e9]/35" />
         </button>
       ))}
     </div>
@@ -134,14 +134,14 @@ function ExplodedBuildingImageStack({
 }) {
   const ordered = [...building.floors].reverse();
   return (
-    <div className="relative mx-auto h-[90%] max-h-full w-auto max-w-full shrink-0" style={{ aspectRatio: `${building.overviewImage.width} / ${building.overviewImage.height}`, transform: "translateX(14px)" }}>
+    <div className="relative mx-auto h-[90%] max-h-full w-auto max-w-full shrink-0 select-none" style={{ aspectRatio: `${building.overviewImage.width} / ${building.overviewImage.height}`, transform: "translateX(14px)" }}>
       <Image
         src={building.overviewImage.src}
         alt={`Ảnh render kiến trúc tách tầng của tòa nhà ${building.code}`}
         width={building.overviewImage.width}
         height={building.overviewImage.height}
         sizes="(max-width: 1280px) 52vw, 650px"
-        className="block h-full w-auto max-w-full object-contain drop-shadow-[0_24px_32px_rgba(15,23,42,0.12)]"
+        className="block h-full w-auto max-w-full object-contain drop-shadow-[0_24px_32px_rgba(15,23,42,0.12)] select-none"
         priority
       />
       {ordered.map((floor, index) => {
@@ -166,17 +166,17 @@ function ExplodedBuildingImageStack({
               zIndex: 10 + index,
             }}
           >
-            <Image src={building.overviewImage.src} alt="" aria-hidden fill sizes="(max-width: 1280px) 52vw, 650px" className="h-full w-full object-contain" draggable={false} />
+            <Image src={building.overviewImage.src} alt="" aria-hidden fill sizes="(max-width: 1280px) 52vw, 650px" className="h-full w-full object-contain select-none" draggable={false} />
           </button>
         );
       })}
-      <svg viewBox={`0 0 ${building.overviewImage.width} ${building.overviewImage.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
+      <svg viewBox={`0 0 ${building.overviewImage.width} ${building.overviewImage.height}`} className="pointer-events-none absolute inset-0 h-full w-full select-none" aria-hidden>
         {ordered.map((floor) => (
           <polygon
             key={floor.id}
             points={overviewFloorHotspots[floor.id]}
-            fill={floor.id === activeFloorId ? "rgba(91,53,245,0.07)" : "transparent"}
-            stroke={floor.id === activeFloorId ? "rgba(91,53,245,0.9)" : "transparent"}
+            fill={floor.id === activeFloorId ? "rgba(14,165,233,0.07)" : "transparent"}
+            stroke={floor.id === activeFloorId ? "#0ea5e9" : "transparent"}
             strokeWidth="3"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -308,15 +308,11 @@ function Overview({
       </div>
 
       {building.layoutStatus === "pending" ? (
-        <section className="building-model-stage flex min-h-0 flex-1 items-center justify-center rounded-[18px] border border-dashed border-border p-8 text-center">
+        <section className="flex min-h-0 flex-1 items-center justify-center rounded-[18px] border border-dashed border-border p-8 text-center bg-[radial-gradient(circle_at_50%_30%,#ffffff_0%,#f8fafc_62%,#eef2f7_100%)]">
           <div className="max-w-md">
-            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Layers3 size={28} /></span>
-            <h2 className="mt-5 text-xl font-black text-text">Mặt bằng đang chờ cấu hình</h2>
-            <p className="mt-2 text-sm font-semibold leading-6 text-muted">{building.code} đã có đủ 4 tầng nhưng chưa có phòng và chưa được gán ảnh render. Hệ thống không sử dụng mô hình LK01 làm dữ liệu thay thế.</p>
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-              <button type="button" onClick={onEditBuilding} className="min-h-11 rounded-xl bg-primary px-5 text-sm font-black text-white transition-colors duration-200 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none">Cấu hình mặt bằng</button>
-              <button type="button" onClick={onEditBuilding} className="min-h-11 rounded-xl border border-border bg-card px-5 text-sm font-black text-text transition-colors duration-200 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none">Xem thông tin tòa nhà</button>
-            </div>
+            <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Layers3 size={32} /></span>
+            <h2 className="mt-5 text-2xl font-black text-text uppercase tracking-wider">Coming Soon</h2>
+            <p className="mt-2 text-sm font-semibold leading-6 text-muted">Mặt bằng của {building.code} đang được thiết lập và sẽ sớm ra mắt.</p>
           </div>
         </section>
       ) : (
@@ -332,7 +328,7 @@ function Overview({
 
       <div className="grid min-h-0 flex-1 items-stretch gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(250px,290px)_minmax(250px,300px)]">
         <main className="relative h-full min-h-[560px] min-w-0 overflow-hidden rounded-[16px] xl:min-h-0">
-            <div className="building-model-stage relative flex h-full min-h-0 items-center justify-center overflow-hidden rounded-[16px] border border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+            <div className="relative flex h-full min-h-0 items-center justify-center overflow-hidden rounded-[16px] border border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] bg-[radial-gradient(circle_at_50%_30%,#ffffff_0%,#f8fafc_62%,#eef2f7_100%)] select-none">
               <FloorLabelRail floors={building.floors} activeFloorId={highlightedFloorId} onSelectFloor={onSelectFloor} onHoverFloor={setHoveredFloorId} />
               <ExplodedBuildingImageStack building={building} activeFloorId={highlightedFloorId} onSelectFloor={onSelectFloor} onHoverFloor={setHoveredFloorId} />
               <div className="absolute inset-x-4 bottom-3 z-30 mx-auto flex min-h-8 max-w-[620px] flex-wrap items-center justify-center gap-x-4 gap-y-1 rounded-xl border border-border bg-card/92 px-3 text-[10px] font-bold text-muted shadow-sm backdrop-blur">
@@ -485,7 +481,47 @@ export default function BuildingCockpit({ buildings, onAddBuilding, onEditBuildi
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const requestedCode = normalizeBuildingCode(pathname.split("/buildings/")[1]?.split("/")[0] || "LK01-31");
+
+  const pathCode = pathname.split("/buildings/")[1]?.split("/")[0];
+  const [activeBuildingCode, setActiveBuildingCode] = useState(() => normalizeBuildingCode(pathCode || "LK01-31"));
+
+  const [activeFloorId, setActiveFloorId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("floor") || "2";
+    }
+    return searchParams.get("floor") || "2";
+  });
+
+  const [activeRoomCode, setActiveRoomCode] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("room");
+    }
+    return searchParams.get("room");
+  });
+
+  // Sync with browser back/forward buttons (history popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const pathCode = window.location.pathname.split("/buildings/")[1]?.split("/")[0];
+      const params = new URLSearchParams(window.location.search);
+      if (pathCode) setActiveBuildingCode(normalizeBuildingCode(pathCode));
+      setActiveFloorId(params.get("floor") || "2");
+      setActiveRoomCode(params.get("room"));
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  // Sync state if pathname/searchParams from props change initially
+  useEffect(() => {
+    if (pathCode) {
+      setActiveBuildingCode(normalizeBuildingCode(pathCode));
+    }
+  }, [pathCode]);
+
+  const requestedCode = activeBuildingCode;
   const allowFixtureFallback = process.env.NODE_ENV !== "production" && buildings.length === 0 && requestedCode === "LK01-31";
   const building = useMemo(() => createCockpitBuildingSpec(buildings, requestedCode, allowFixtureFallback), [allowFixtureFallback, buildings, requestedCode]);
   const portfolioBuildings = useMemo(() => {
@@ -496,79 +532,60 @@ export default function BuildingCockpit({ buildings, onAddBuilding, onEditBuildi
     return resolved;
   }, [building, buildings]);
 
-  const floorId = useMemo(() => getFloorParam(searchParams), [searchParams]);
-  const roomParam = searchParams.get("room");
   const debugMode = process.env.NODE_ENV !== "production" && searchParams.get("debugHotspots") === "1";
 
-  const roomFloorMatch = building && roomParam ? findRoomFloor(building, roomParam) : null;
-  const displayedFloorId = floorId || roomFloorMatch?.floor.id || "2";
+  // Resolve active floor and room
+  const roomFloorMatch = building && activeRoomCode ? findRoomFloor(building, activeRoomCode) : null;
+  const displayedFloorId = activeFloorId || roomFloorMatch?.floor.id || "2";
   const floor = building ? resolveFloorSpec(building, displayedFloorId) || building.floors[0] || null : null;
-  const room = building && floor ? resolveRoomSpec(building, floor.id, roomParam) : null;
+  const room = building && floor ? resolveRoomSpec(building, floor.id, activeRoomCode) : null;
 
-  useEffect(() => {
-    if (!building || !roomParam) return;
-    const match = findRoomFloor(building, roomParam);
-    if (!match) {
-      const params = new URLSearchParams(searchParams.toString());
+  // Quietly update URL in browser history without triggering dynamic router reload
+  const updateUrlQuietly = useCallback((buildingCode: string, floorId: string, roomCode: string | null) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("floor", floorId);
+    if (roomCode) {
+      params.set("room", roomCode);
+    } else {
       params.delete("room");
-      params.delete("space");
-      const query = params.toString();
-      router.replace(`${getBasePath(pathname, building)}${query ? `?${query}` : ""}`);
-      return;
     }
-    if (floorId === match.floor.id) return;
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("floor", match.floor.id);
-    router.replace(`${getBasePath(pathname, building)}?${params.toString()}`);
-  }, [building, floorId, pathname, roomParam, router, searchParams]);
-
-  const updateParams = useCallback((updater: (params: URLSearchParams) => void, replace = false) => {
-    if (!building) return;
-    const params = new URLSearchParams(searchParams.toString());
-    updater(params);
+    params.delete("space");
+    params.delete("viewMode");
     const query = params.toString();
-    const next = `${getBasePath(pathname, building)}${query ? `?${query}` : ""}`;
-    if (replace) router.replace(next);
-    else router.push(next);
-  }, [building, pathname, router, searchParams]);
+    window.history.pushState(null, "", `/buildings/${buildingCode}${query ? `?${query}` : ""}`);
+  }, []);
 
   const selectFloor = useCallback((nextFloorId: CockpitFloorId | null) => {
-    updateParams((params) => {
-      if (nextFloorId) params.set("floor", nextFloorId);
-      else params.delete("floor");
-      params.delete("room");
-      params.delete("space");
-      params.delete("viewMode");
-    });
-  }, [updateParams]);
+    const fId = nextFloorId || "2";
+    setActiveFloorId(fId);
+    setActiveRoomCode(null);
+    updateUrlQuietly(activeBuildingCode, fId, null);
+  }, [activeBuildingCode, updateUrlQuietly]);
 
   const selectRoom = useCallback((nextFloorId: CockpitFloorId, nextRoom: CockpitRoomSpec) => {
-    updateParams((params) => {
-      params.set("floor", nextFloorId);
-      params.set("room", nextRoom.urlCode);
-      params.delete("space");
-    });
-  }, [updateParams]);
+    setActiveFloorId(nextFloorId);
+    setActiveRoomCode(nextRoom.urlCode);
+    updateUrlQuietly(activeBuildingCode, nextFloorId, nextRoom.urlCode);
+  }, [activeBuildingCode, updateUrlQuietly]);
 
   const selectCurrentFloorRoom = useCallback((nextRoom: CockpitRoomSpec) => {
-    updateParams((params) => {
-      params.set("floor", nextRoom.floorId);
-      params.set("room", nextRoom.urlCode);
-      params.delete("space");
-      params.delete("viewMode");
-    });
-  }, [updateParams]);
+    setActiveFloorId(nextRoom.floorId);
+    setActiveRoomCode(nextRoom.urlCode);
+    updateUrlQuietly(activeBuildingCode, nextRoom.floorId, nextRoom.urlCode);
+  }, [activeBuildingCode, updateUrlQuietly]);
 
   const closeRoom = useCallback(() => {
-    updateParams((params) => {
-      params.delete("room");
-      params.delete("space");
-    }, true);
-  }, [updateParams]);
+    setActiveRoomCode(null);
+    updateUrlQuietly(activeBuildingCode, activeFloorId, null);
+  }, [activeBuildingCode, activeFloorId, updateUrlQuietly]);
 
   const switchBuilding = useCallback((code: string) => {
-    router.push(`/buildings/${normalizeBuildingCode(code)}`);
-  }, [router]);
+    const normalized = normalizeBuildingCode(code);
+    setActiveBuildingCode(normalized);
+    setActiveFloorId("2");
+    setActiveRoomCode(null);
+    window.history.pushState(null, "", `/buildings/${normalized}`);
+  }, []);
 
   if (!building) {
     return (

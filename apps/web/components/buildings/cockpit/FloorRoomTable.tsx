@@ -23,7 +23,7 @@ function cx(...values: Array<string | false | null | undefined>) {
 }
 
 function normalizeRoomCode(value: string | null | undefined) {
-  return (value || "").trim().replace(/\s+/g, "-").toUpperCase();
+  return (value || "").trim().toUpperCase().replace(/^PN\s*/, "").replace(/[\s-]/g, "");
 }
 
 function matchesRoom(roomCode: string | null | undefined, room: CockpitRoomSpec) {
@@ -107,11 +107,11 @@ function FloorRoomTable({
   })), [floor.rooms]);
 
   return (
-    <div className={cx("w-full overflow-x-auto rounded-[12px] border border-border/70 bg-card shadow-[0_8px_20px_rgb(var(--shadow-color)/0.035)]", className)}>
+    <div className={cx("w-full overflow-x-auto rounded-[12px] border border-border/40 dark:border-white/5 bg-card shadow-[0_8px_20px_rgb(var(--shadow-color)/0.035)]", className)}>
       <table className="w-full min-w-[520px] border-collapse text-left">
         <caption className="sr-only">Danh sách phòng {floor.label}</caption>
         <thead>
-          <tr className="border-b border-border/70 bg-surface/55 text-[12px] font-black text-muted">
+          <tr className="border-b border-border/20 dark:border-white/5 bg-surface/55 text-[12px] font-black text-muted">
             <th scope="col" className="px-3 py-2.5">Phòng</th>
             <th scope="col" className="px-3 py-2.5">Loại phòng</th>
             <th scope="col" className="px-3 py-2.5">Tình trạng</th>
@@ -136,7 +136,7 @@ function FloorRoomTable({
                 onMouseEnter={() => onHoverRoom?.(room.urlCode)}
                 onMouseLeave={() => onHoverRoom?.(null)}
                 className={cx(
-                  "cursor-pointer border-b border-border/45 text-[12px] text-slate-600 transition-[background-color,box-shadow] last:border-b-0 motion-reduce:transition-none",
+                  "cursor-pointer border-b border-border/20 dark:border-white/5 text-[12px] text-muted transition-[background-color,box-shadow] last:border-b-0 motion-reduce:transition-none",
                   selected ? "bg-primary/[0.075] shadow-[inset_3px_0_0_var(--primary)]" : highlighted ? "bg-primary/[0.035]" : "hover:bg-surface/45",
                 )}
               >
@@ -146,12 +146,12 @@ function FloorRoomTable({
                     aria-pressed={selected}
                     onFocus={() => onHoverRoom?.(room.urlCode)}
                     onBlur={() => onHoverRoom?.(null)}
-                    className="rounded-md text-[12px] font-black text-slate-950 underline-offset-4 hover:text-[#5b35f5] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5] focus-visible:ring-offset-2"
+                    className="rounded-md text-[12px] font-black text-text underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                   >
                     {room.code}
                   </button>
                 </th>
-                <td className="max-w-[200px] px-3 py-2.5 font-semibold text-slate-600"><span className="block truncate" title={room.type}>{room.type}</span></td>
+                <td className="max-w-[200px] px-3 py-2.5 font-semibold text-muted"><span className="block truncate" title={room.type}>{room.type}</span></td>
                 <td className="px-3 py-2.5">
                   <span
                     className={cx("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1 text-[12px] font-bold", !hasOperationalData && "bg-slate-100 text-slate-500")}
@@ -161,8 +161,8 @@ function FloorRoomTable({
                     {hasOperationalData ? getStatusLabel(status) : "Chưa đồng bộ"}
                   </span>
                 </td>
-                <td className="max-w-[180px] px-3 py-2.5 font-semibold text-slate-700"><span className="block truncate" title={tenantLabel === EMPTY_VALUE ? undefined : tenantLabel}>{tenantLabel}</span></td>
-                <td className="whitespace-nowrap px-3 py-2.5 font-semibold tabular-nums text-slate-700">{contractEndLabel}</td>
+                <td className="max-w-[180px] px-3 py-2.5 font-semibold text-text"><span className="block truncate" title={tenantLabel === EMPTY_VALUE ? undefined : tenantLabel}>{tenantLabel}</span></td>
+                <td className="whitespace-nowrap px-3 py-2.5 font-semibold tabular-nums text-text">{contractEndLabel}</td>
                 <td className="max-w-[190px] px-3 py-2.5"><AlertCell warnings={warnings} /></td>
               </tr>
             );

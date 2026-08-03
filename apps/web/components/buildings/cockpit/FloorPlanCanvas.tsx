@@ -34,7 +34,57 @@ interface DragState {
 }
 
 function normalizeRoomCode(value: string) {
-  return value.trim().replace(/\s+/g, "-").toUpperCase();
+  return value.trim().toUpperCase().replace(/^PN\s*/i, "").replace(/[\s-]/g, "");
+}
+
+function getStatusThemeColor(status: string) {
+  switch (status) {
+    case "occupied":
+      return {
+        fill: "rgba(34, 197, 94, 0.32)",
+        fillHover: "rgba(34, 197, 94, 0.44)",
+        fillActive: "rgba(34, 197, 94, 0.52)",
+        stroke: "rgba(34, 197, 94, 0.75)",
+        strokeHover: "rgba(34, 197, 94, 0.95)",
+        strokeActive: "#22c55e",
+      };
+    case "expiring_soon":
+      return {
+        fill: "rgba(249, 115, 22, 0.32)",
+        fillHover: "rgba(249, 115, 22, 0.44)",
+        fillActive: "rgba(249, 115, 22, 0.52)",
+        stroke: "rgba(249, 115, 22, 0.75)",
+        strokeHover: "rgba(249, 115, 22, 0.95)",
+        strokeActive: "#f97316",
+      };
+    case "deposited":
+      return {
+        fill: "rgba(14, 165, 233, 0.32)",
+        fillHover: "rgba(14, 165, 233, 0.44)",
+        fillActive: "rgba(14, 165, 233, 0.52)",
+        stroke: "rgba(14, 165, 233, 0.75)",
+        strokeHover: "rgba(14, 165, 233, 0.95)",
+        strokeActive: "#0ea5e9",
+      };
+    case "maintenance":
+      return {
+        fill: "rgba(239, 68, 68, 0.32)",
+        fillHover: "rgba(239, 68, 68, 0.44)",
+        fillActive: "rgba(239, 68, 68, 0.52)",
+        stroke: "rgba(239, 68, 68, 0.75)",
+        strokeHover: "rgba(239, 68, 68, 0.95)",
+        strokeActive: "#ef4444",
+      };
+    default:
+      return {
+        fill: "rgba(148, 163, 184, 0.18)",
+        fillHover: "rgba(148, 163, 184, 0.32)",
+        fillActive: "rgba(148, 163, 184, 0.38)",
+        stroke: "rgba(148, 163, 184, 0.55)",
+        strokeHover: "rgba(148, 163, 184, 0.75)",
+        strokeActive: "#64748b",
+      };
+  }
 }
 
 function parseViewBox(viewBox: string) {
@@ -176,7 +226,7 @@ function FloorPlanCanvas({
         ref={viewportRef}
         id="floor-plan-viewport"
         data-testid="floor-plan-canvas"
-        className="relative flex min-h-[300px] w-full flex-1 items-center justify-center overflow-hidden rounded-[14px] border border-[#e7e7f2] bg-white p-2 shadow-inner sm:p-3 fullscreen:min-h-screen fullscreen:rounded-none fullscreen:border-0 fullscreen:p-8"
+        className="relative flex min-h-[300px] w-full flex-1 items-center justify-center overflow-hidden rounded-[14px] border border-border/40 dark:border-white/5 bg-white p-2 shadow-inner sm:p-3 fullscreen:min-h-screen fullscreen:rounded-none fullscreen:border-0 fullscreen:p-8"
         style={{ cursor: "default", touchAction: "manipulation" }}
         onPointerMove={onPointerMove}
         onPointerUp={stopDragging}
@@ -187,7 +237,7 @@ function FloorPlanCanvas({
           onHoverRoom?.(null);
         }}
       >
-        {!imageLoaded && <div className="absolute inset-6 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" aria-label="Đang tải ảnh mặt bằng" />}
+        {!imageLoaded && <div className="absolute inset-6 animate-pulse rounded-xl bg-slate-100 dark:bg-white/5 motion-reduce:animate-none" aria-label="Đang tải ảnh mặt bằng" />}
         <div
           className="relative w-full max-w-[1600px] origin-center select-none transition-transform duration-200 ease-out motion-reduce:transition-none"
           style={{
@@ -227,7 +277,10 @@ function FloorPlanCanvas({
               const selected = normalizeRoomCode(selectedRoomCode || "") === normalizeRoomCode(roomMap.roomId);
               const highlighted = normalizeRoomCode(highlightedRoomCode || "") === normalizeRoomCode(roomMap.roomId);
               const hovered = hoveredRoomId === roomMap.roomId || highlighted;
-              const roomCode = roomsByCode.get(normalizeRoomCode(roomMap.roomId))?.urlCode || roomMap.roomId;
+              const roomSpec = roomsByCode.get(normalizeRoomCode(roomMap.roomId));
+              const roomCode = roomSpec?.urlCode || roomMap.roomId;
+              const status = roomSpec?.status || "vacant";
+              const colors = getStatusThemeColor(status);
               return (
                 <g
                   key={roomMap.roomId}
@@ -254,14 +307,14 @@ function FloorPlanCanvas({
                       tabIndex={pathIndex === 0 ? 0 : -1}
                       aria-label={`Chọn toàn bộ phòng ${roomMap.label}`}
                       aria-pressed={selected}
-                      fill={selected ? "rgba(91,53,245,0.06)" : hovered || debugMode ? "rgba(91,53,245,0.035)" : "rgba(91,53,245,0)"}
-                      stroke={selected ? "#6347f5" : hovered || debugMode ? "rgba(99,71,245,0.78)" : "transparent"}
-                      strokeWidth={selected ? 2 : 1.75}
+                      fill={selected ? colors.fillActive : hovered || debugMode ? colors.fillHover : colors.fill}
+                      stroke={selected ? colors.strokeActive : hovered || debugMode ? colors.strokeHover : colors.stroke}
+                      strokeWidth={selected ? 2.5 : 1.75}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       vectorEffect="non-scaling-stroke"
-                      className="cursor-pointer outline-none transition-[fill,stroke,filter] duration-200 focus-visible:stroke-[#5b35f5] motion-reduce:transition-none"
-                      style={{ filter: selected ? "drop-shadow(0 1px 2px rgba(91,53,245,.16))" : undefined, pointerEvents: "all" }}
+                      className="cursor-pointer outline-none transition-[fill,stroke,filter] duration-200 focus-visible:stroke-[#0ea5e9] motion-reduce:transition-none"
+                      style={{ filter: selected ? `drop-shadow(0 2px 4px ${colors.strokeActive}40)` : undefined, pointerEvents: "all" }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
@@ -279,12 +332,31 @@ function FloorPlanCanvas({
                       }}
                     />
                   ))}
-                  {(selected || hovered || debugMode) && (
-                    <g pointerEvents="none">
-                      <rect x={roomMap.labelPosition.x - 53} y={roomMap.labelPosition.y - 18} width="106" height="32" rx="9" fill="#ffffff" fillOpacity="0.94" stroke="#5b35f5" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-                      <text x={roomMap.labelPosition.x} y={roomMap.labelPosition.y + 3} textAnchor="middle" fontSize="15" fontWeight="800" fill="#4c28df">{roomMap.label}</text>
-                    </g>
-                  )}
+                  <g pointerEvents="none">
+                    <rect
+                      x={roomMap.labelPosition.x - 85}
+                      y={roomMap.labelPosition.y - 26}
+                      width="170"
+                      height="52"
+                      rx="14"
+                      fill="#ffffff"
+                      fillOpacity="0.97"
+                      stroke={selected ? colors.strokeActive : "#cbd5e1"}
+                      strokeWidth={selected ? "3" : "1.75"}
+                      vectorEffect="non-scaling-stroke"
+                      style={{ filter: "drop-shadow(0 6px 12px rgba(0, 0, 0, 0.08))" }}
+                    />
+                    <text
+                      x={roomMap.labelPosition.x}
+                      y={roomMap.labelPosition.y + 7}
+                      textAnchor="middle"
+                      fontSize="22"
+                      fontWeight="950"
+                      fill={selected ? colors.strokeActive : "#0f172a"}
+                    >
+                      {roomMap.label}
+                    </text>
+                  </g>
                   {debugMode && roomMap.paths.flatMap((path, pathIndex) => parsePathPoints(path).map((point, pointIndex) => (
                     <circle
                       key={`${roomMap.roomId}-${pathIndex}-${pointIndex}`}

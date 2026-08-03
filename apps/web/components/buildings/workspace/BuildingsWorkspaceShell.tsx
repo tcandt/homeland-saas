@@ -73,7 +73,7 @@ export default function BuildingsWorkspaceShell({
   }
 
   return (
-    <div className="flex flex-col w-full h-full gap-5 select-none pb-12">
+    <div className="flex flex-col w-full h-full gap-5 select-none pb-12 animate-in fade-in duration-500" key={activeBuilding.id}>
       
       {/* 1. Header Cockpit Area (Compact & clean, title on left, switchers on right) */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-border/40 pb-4">

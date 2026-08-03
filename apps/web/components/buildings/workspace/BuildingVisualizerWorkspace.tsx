@@ -91,7 +91,7 @@ export default function BuildingVisualizerWorkspace({
   }, [activeFloor]);
 
   return (
-    <div className="flex-1 lg:flex-[74%] flex flex-col bg-card border border-border/60 rounded-[24px] p-6 shadow-sm min-h-[640px] justify-between relative overflow-visible">
+    <div className="flex-1 lg:flex-[74%] flex flex-col bg-card border border-border/40 dark:border-white/5 rounded-[24px] p-6 shadow-sm min-h-[640px] justify-between relative overflow-visible transition-colors">
       {/* Visual background lights */}
       <div className="absolute top-0 right-0 w-[200px] h-[200px] bg-primary/5 rounded-full blur-[60px] pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-[180px] h-[180px] bg-[#8b5cf6]/5 rounded-full blur-[50px] pointer-events-none" />
@@ -101,7 +101,7 @@ export default function BuildingVisualizerWorkspace({
         
         {/* 1. OVERVIEW MODE */}
         {activeView === "overview" && (
-          <div className="w-full flex flex-col h-full justify-between">
+          <div className="w-full flex flex-col h-full justify-between animate-in fade-in zoom-in-95 duration-300" key="overview">
             <div className="flex-1 flex items-center justify-center">
               <BuildingOverview
                 building={building}
@@ -120,9 +120,9 @@ export default function BuildingVisualizerWorkspace({
 
         {/* 2. FLOOR 2.5D PERSPECTIVE VIEW MODE */}
         {activeView === "floor-3d" && activeFloor && (
-          <div className="w-full flex flex-col h-full justify-between">
+          <div className="w-full flex flex-col h-full justify-between animate-in fade-in zoom-in-95 duration-300" key={`floor-3d-${activeFloor.id}`}>
             {/* Sub-header inside visualizer */}
-            <div className="flex items-center justify-between border-b border-border/30 pb-3 mb-4">
+            <div className="flex items-center justify-between border-b border-border/20 dark:border-white/5 pb-3 mb-4">
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-black uppercase text-muted tracking-wider">
                   Mặt cắt phối cảnh 2.5D — {activeFloorLabel}
@@ -160,11 +160,11 @@ export default function BuildingVisualizerWorkspace({
 
             {/* Custom 2.5D model container */}
             {profile === "lk01-31-custom" ? (
-              <div className="flex-1 flex flex-col items-center justify-center relative bg-white border border-border/40 rounded-2xl p-6 min-h-[440px] overflow-hidden select-none">
+              <div className="flex-1 flex flex-col items-center justify-center relative bg-card border border-border/40 dark:border-white/5 rounded-2xl p-6 min-h-[440px] overflow-hidden select-none">
                 
                 {/* Visualizer viewport conforming to 20:5 aspect ratio */}
                 <div 
-                  className="w-full max-w-[760px] aspect-[4/1] bg-[#fdfbf7] border border-border/50 rounded-xl relative shadow-md overflow-hidden flex items-center justify-center transition-all duration-300"
+                  className="w-full max-w-[760px] aspect-[4/1] bg-[#fdfbf7] border border-border/40 dark:border-white/5 rounded-xl relative shadow-md overflow-hidden flex items-center justify-center transition-all duration-300"
                   style={{ transform: `scale(${zoomLevel / 100})` }}
                 >
                   {/* Tầng trệt: parking layout cutaway */}
@@ -290,7 +290,7 @@ export default function BuildingVisualizerWorkspace({
               </div>
             ) : (
               /* Fallback for other buildings */
-              <div className="flex-1 flex flex-col items-center justify-center relative bg-card rounded-2xl border border-dashed border-border/60 p-8 min-h-[440px] text-center select-none">
+              <div className="flex-1 flex flex-col items-center justify-center relative bg-card rounded-2xl border border-dashed border-border/40 dark:border-white/10 p-8 min-h-[440px] text-center select-none">
                 <div className="w-16 h-16 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mb-4">
                   <ShieldAlert size={28} />
                 </div>
@@ -309,15 +309,17 @@ export default function BuildingVisualizerWorkspace({
         {/* 3. FLOOR 2D BLUEPRINT VIEW MODE */}
         {activeView === "floor-2d" && activeFloor && (
           profile === "lk01-31-custom" ? (
-            <ReferenceFloorPlan
-              buildingCode={building.code || building.name}
-              floor={activeFloor}
-              selectedRoomId={activeRoom?.id || null}
-              onSelectRoom={onSelectRoom}
-            />
+            <div className="h-full w-full animate-in fade-in zoom-in-95 duration-300" key={`floor-2d-${activeFloor.id}`}>
+              <ReferenceFloorPlan
+                buildingCode={building.code || building.name}
+                floor={activeFloor}
+                selectedRoomId={activeRoom?.id || null}
+                onSelectRoom={onSelectRoom}
+              />
+            </div>
           ) : (
-          <div className="flex h-full w-full flex-col">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/30 pb-3">
+          <div className="flex h-full w-full flex-col animate-in fade-in zoom-in-95 duration-300" key={`floor-2d-${activeFloor.id}`}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/20 dark:border-white/5 pb-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] font-black uppercase tracking-wider text-muted">
                   Mặt bằng kỹ thuật 2D — {activeFloorLabel}
@@ -362,7 +364,7 @@ export default function BuildingVisualizerWorkspace({
                 zoom={zoomLevel}
               />
             ) : (
-              <div className="flex min-h-[520px] flex-1 select-none flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-card p-8 text-center">
+              <div className="flex min-h-[520px] flex-1 select-none flex-col items-center justify-center rounded-2xl border border-dashed border-border/40 dark:border-white/5 bg-card p-8 text-center">
                 <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/10 text-amber-600">
                   <ShieldAlert size={28} />
                 </div>
@@ -378,8 +380,8 @@ export default function BuildingVisualizerWorkspace({
 
         {/* 4. ROOMS LIST MODE */}
         {activeView === "rooms" && (
-          <div className="w-full flex flex-col h-full justify-between">
-            <div className="flex items-center justify-between border-b border-border/30 pb-3 mb-6">
+          <div className="w-full flex flex-col h-full justify-between animate-in fade-in zoom-in-95 duration-300" key={`rooms-${selectedFloorFilter}-${selectedStatusFilter}`}>
+            <div className="flex items-center justify-between border-b border-border/20 dark:border-white/5 pb-3 mb-6">
               <div>
                 <h3 className="font-bold text-[16px] text-text">
                   Danh sách phòng vận hành
@@ -412,7 +414,7 @@ export default function BuildingVisualizerWorkspace({
       </div>
 
       {/* Visual Footnote indicator */}
-      <div className="border-t border-border/40 pt-4 mt-6 flex justify-between items-center text-[10px] text-muted font-bold uppercase tracking-wider">
+      <div className="border-t border-border/20 dark:border-white/5 pt-4 mt-6 flex justify-between items-center text-[10px] text-muted font-bold uppercase tracking-wider">
         <span>TÒA NHÀ: {building.name}</span>
         {profile === "lk01-31-custom" && <span>KHUNG ĐẤT: 5.0m × 20.0m</span>}
       </div>

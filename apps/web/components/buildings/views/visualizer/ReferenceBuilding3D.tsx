@@ -50,6 +50,46 @@ const STATUS: Record<RoomStatus, { color: string; background: string; label: str
   maintenance: { color: "#dc2626", background: "#fee2e2", label: "Bảo trì" },
 };
 
+function get3DStatusThemeColor(status: RoomStatus) {
+  switch (status) {
+    case "occupied":
+      return {
+        fill: "rgba(34, 197, 94, 0.32)",
+        fillActive: "rgba(34, 197, 94, 0.52)",
+        stroke: "rgba(34, 197, 94, 0.75)",
+        strokeActive: "#22c55e",
+      };
+    case "expiring_soon":
+      return {
+        fill: "rgba(249, 115, 22, 0.32)",
+        fillActive: "rgba(249, 115, 22, 0.52)",
+        stroke: "rgba(249, 115, 22, 0.75)",
+        strokeActive: "#f97316",
+      };
+    case "deposited":
+      return {
+        fill: "rgba(14, 165, 233, 0.32)",
+        fillActive: "rgba(14, 165, 233, 0.52)",
+        stroke: "rgba(14, 165, 233, 0.75)",
+        strokeActive: "#0ea5e9",
+      };
+    case "maintenance":
+      return {
+        fill: "rgba(239, 68, 68, 0.32)",
+        fillActive: "rgba(239, 68, 68, 0.52)",
+        stroke: "rgba(239, 68, 68, 0.75)",
+        strokeActive: "#ef4444",
+      };
+    default:
+      return {
+        fill: "rgba(148, 163, 184, 0.18)",
+        fillActive: "rgba(148, 163, 184, 0.38)",
+        stroke: "rgba(148, 163, 184, 0.55)",
+        strokeActive: "#64748b",
+      };
+  }
+}
+
 function RoomRow({
   floor,
   room,
@@ -104,12 +144,12 @@ function FloorCard({
 }) {
   const active = activeFloorId === floor.id;
   return (
-    <article className={`flex h-full flex-col rounded-2xl border bg-card p-2.5 shadow-sm transition-colors motion-reduce:transition-none ${active ? "border-primary/40" : "border-border/70 hover:border-primary/25"}`}>
+    <article className={`flex h-full flex-col rounded-2xl border bg-card p-2.5 shadow-sm transition-colors motion-reduce:transition-none ${active ? "border-primary/45" : "border-border/40 dark:border-white/5 hover:border-primary/25"}`}>
       <button
         type="button"
         onClick={() => onSelectFloor(floor.id)}
         aria-pressed={active}
-        className="flex min-h-10 w-full items-center justify-between rounded-lg border-b border-border/35 pb-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="flex min-h-10 w-full items-center justify-between rounded-lg border-b border-border/20 dark:border-white/5 pb-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         <span className="flex items-center gap-2 text-xs font-black text-text"><Layers3 size={15} className={active ? "text-primary" : "text-muted"} />{getFloorDisplayName(floor.number, building.code)}</span>
         <span className="rounded-md bg-primary/10 px-2 py-1 text-[9px] font-black text-primary">{floor.rooms.length} phòng</span>
@@ -147,6 +187,7 @@ function ReferenceBuilding3D({ building, activeFloorId, activeRoomId, onSelectFl
         <div className="relative hidden min-h-[620px] xl:block" aria-label="Chọn tầng">
           {floorGeometry.map(({ floor }, index) => {
             const active = floor.id === activeFloorId || floor.id === hoveredFloorId;
+            const BUTTON_TOPS = ["14.3%", "37.9%", "60.7%", "78.6%"];
             return (
               <button
                 key={floor.id}
@@ -154,24 +195,63 @@ function ReferenceBuilding3D({ building, activeFloorId, activeRoomId, onSelectFl
                 onClick={() => onSelectFloor(floor.id)}
                 onMouseEnter={() => setHoveredFloorId(floor.id)}
                 onMouseLeave={() => setHoveredFloorId(null)}
-                className={`absolute left-0 flex min-h-14 w-full -translate-y-1/2 flex-col justify-center rounded-xl border bg-card px-3 text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none ${active ? "border-primary/45 text-primary" : "border-border/70 text-text hover:border-primary/30"}`}
-                style={{ top: `${13 + index * 24.5}%` }}
+                className={`absolute left-0 flex min-h-14 w-full -translate-y-1/2 flex-col justify-center rounded-xl border bg-card px-3 text-left shadow-sm transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none ${active ? "border-primary/45 text-primary scale-[1.02]" : "border-border/40 dark:border-white/5 text-text hover:border-primary/30"}`}
+                style={{ top: BUTTON_TOPS[index] || "13%" }}
               >
                 <span className="text-[11px] font-black">{getFloorDisplayName(floor.number, building.code)}</span>
                 <span className="mt-0.5 truncate text-[8px] font-semibold text-muted">{floor.rooms.map((room) => room.code.replace("PN ", "")).join(", ")}</span>
-                <span className="absolute left-full top-1/2 w-8 border-t border-dashed border-primary/50" />
+                <span className={`absolute left-full top-1/2 w-8 border-t transition-colors duration-300 ${active ? "border-[#0ea5e9] border-solid stroke-[2px]" : "border-border/30 border-dashed dark:border-white/10"}`} />
               </button>
             );
           })}
         </div>
 
-        <div className="relative min-h-[620px] overflow-hidden rounded-2xl border border-slate-200 bg-[radial-gradient(circle_at_50%_30%,#ffffff_0%,#f8fafc_62%,#eef2f7_100%)] shadow-inner">
+        <div className="relative min-h-[620px] overflow-hidden rounded-2xl border border-border/40 dark:border-white/5 bg-[radial-gradient(circle_at_50%_30%,#ffffff_0%,#f8fafc_62%,#eef2f7_100%)] shadow-inner">
           <svg viewBox="228 195 366 509" preserveAspectRatio="xMidYMid meet" className="h-full min-h-[620px] w-full" role="group" aria-labelledby="reference-building-title reference-building-desc">
             <title id="reference-building-title">Tòa nhà LK01-31 dạng cutaway có nội thất</title>
             <desc id="reference-building-desc">Bốn tầng hiển thị tách rời. Có thể chọn từng tầng hoặc từng phòng trên mô hình.</desc>
-            <defs><clipPath id="reference-building-crop"><rect x="228" y="195" width="366" height="509" /></clipPath></defs>
+            <defs>
+              <clipPath id="reference-building-crop"><rect x="228" y="195" width="366" height="509" /></clipPath>
+            </defs>
             <g clipPath="url(#reference-building-crop)">
               <image href="/media__1785578495387.jpg" x="0" y="0" width="1024" height="768" preserveAspectRatio="none" pointerEvents="none" />
+
+              {/* Dynamic Guide Lines pointing to Floor slabs */}
+              {floorGeometry.map(({ floor }, index) => {
+                const active = floor.id === activeFloorId;
+                const hovered = floor.id === hoveredFloorId;
+                const targets = [
+                  { x: 263, y: 268 }, // Tầng 4
+                  { x: 264, y: 388 }, // Tầng 3
+                  { x: 264, y: 504 }, // Tầng 2
+                  { x: 270, y: 595 }  // Tầng trệt
+                ];
+                const target = targets[index] || { x: 264, y: 300 };
+                return (
+                  <g key={`guide-line-${floor.id}`} className="pointer-events-none">
+                    <line
+                      x1={228}
+                      y1={target.y}
+                      x2={target.x}
+                      y2={target.y}
+                      stroke={active ? "#0ea5e9" : hovered ? "rgba(14,165,233,0.6)" : "rgba(148,163,184,0.3)"}
+                      strokeWidth={active ? 2.5 : 1.5}
+                      strokeDasharray={active ? "none" : "3,3"}
+                      className="transition-all duration-300"
+                    />
+                    <circle
+                      cx={target.x}
+                      cy={target.y}
+                      r={active ? 4.5 : hovered ? 3.5 : 2}
+                      fill={active ? "#0ea5e9" : hovered ? "rgba(14,165,233,0.8)" : "rgba(148,163,184,0.6)"}
+                      stroke={active ? "#ffffff" : "transparent"}
+                      strokeWidth={active ? 1 : 0}
+                      className="transition-all duration-300"
+                    />
+                  </g>
+                );
+              })}
+
               {floorGeometry.map(({ floor, floorPoints, primaryRoomPoints, secondaryRoomPoints }) => {
               const active = floor.id === activeFloorId;
               const hovered = floor.id === hoveredFloorId;
@@ -187,42 +267,54 @@ function ReferenceBuilding3D({ building, activeFloorId, activeRoomId, onSelectFl
                     role="button"
                     tabIndex={0}
                     aria-label={`Mở mặt bằng ${getFloorDisplayName(floor.number, building.code)}`}
-                    className="cursor-pointer outline-none focus-visible:stroke-indigo-600"
+                    className="cursor-pointer outline-none focus-visible:stroke-indigo-600 transition-all duration-300"
                     onClick={() => onSelectFloor(floor.id)}
                     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectFloor(floor.id); } }}
                   />
-                  {primaryRoom && (
-                    <polygon
-                      points={primaryRoomPoints}
-                      fill={activeRoomId === primaryRoom.id ? "rgba(99,102,241,0.18)" : "transparent"}
-                      role="button" tabIndex={0}
-                      aria-label={`Xem thông tin ${getRoomDisplayName(primaryRoom)}`}
-                      className="cursor-pointer outline-none hover:fill-indigo-500/10 focus-visible:stroke-indigo-600"
-                      onClick={(event) => { event.stopPropagation(); onSelectRoom(floor.id, primaryRoom.id); }}
-                      onFocus={() => setHoveredFloorId(floor.id)}
-                      onBlur={() => setHoveredFloorId(null)}
-                      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelectRoom(floor.id, primaryRoom.id); } }}
-                    />
-                  )}
-                  {secondaryRoom && secondaryRoomPoints && (
-                    <polygon
-                      points={secondaryRoomPoints}
-                      fill={activeRoomId === secondaryRoom.id ? "rgba(99,102,241,0.18)" : "transparent"}
-                      role="button" tabIndex={0}
-                      aria-label={`Xem thông tin ${getRoomDisplayName(secondaryRoom)}`}
-                      className="cursor-pointer outline-none hover:fill-indigo-500/10 focus-visible:stroke-indigo-600"
-                      onClick={(event) => { event.stopPropagation(); onSelectRoom(floor.id, secondaryRoom.id); }}
-                      onFocus={() => setHoveredFloorId(floor.id)}
-                      onBlur={() => setHoveredFloorId(null)}
-                      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelectRoom(floor.id, secondaryRoom.id); } }}
-                    />
-                  )}
+                  {primaryRoom && (() => {
+                    const colors = get3DStatusThemeColor(primaryRoom.status);
+                    const selected = activeRoomId === primaryRoom.id;
+                    return (
+                      <polygon
+                        points={primaryRoomPoints}
+                        fill={selected ? colors.fillActive : colors.fill}
+                        stroke={selected ? colors.strokeActive : colors.stroke}
+                        strokeWidth={selected ? 2.5 : 1.25}
+                        role="button" tabIndex={0}
+                        aria-label={`Xem thông tin ${getRoomDisplayName(primaryRoom)}`}
+                        className="cursor-pointer outline-none transition-all duration-300"
+                        onClick={(event) => { event.stopPropagation(); onSelectRoom(floor.id, primaryRoom.id); }}
+                        onFocus={() => setHoveredFloorId(floor.id)}
+                        onBlur={() => setHoveredFloorId(null)}
+                        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelectRoom(floor.id, primaryRoom.id); } }}
+                      />
+                    );
+                  })()}
+                  {secondaryRoom && secondaryRoomPoints && (() => {
+                    const colors = get3DStatusThemeColor(secondaryRoom.status);
+                    const selected = activeRoomId === secondaryRoom.id;
+                    return (
+                      <polygon
+                        points={secondaryRoomPoints}
+                        fill={selected ? colors.fillActive : colors.fill}
+                        stroke={selected ? colors.strokeActive : colors.stroke}
+                        strokeWidth={selected ? 2.5 : 1.25}
+                        role="button" tabIndex={0}
+                        aria-label={`Xem thông tin ${getRoomDisplayName(secondaryRoom)}`}
+                        className="cursor-pointer outline-none transition-all duration-300"
+                        onClick={(event) => { event.stopPropagation(); onSelectRoom(floor.id, secondaryRoom.id); }}
+                        onFocus={() => setHoveredFloorId(floor.id)}
+                        onBlur={() => setHoveredFloorId(null)}
+                        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelectRoom(floor.id, secondaryRoom.id); } }}
+                      />
+                    );
+                  })()}
                 </g>
               );
               })}
             </g>
           </svg>
-          <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-4 rounded-xl border border-white/90 bg-white/90 px-4 py-2 text-[9px] font-bold text-slate-600 shadow-sm backdrop-blur">
+          <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-4 rounded-xl border border-border/40 dark:border-white/5 bg-card/95 px-4 py-2 text-[9px] font-bold text-muted shadow-sm backdrop-blur">
             <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-emerald-500" />Đã thuê</span>
             <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-slate-400" />Trống</span>
             <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-orange-500" />Sắp hết hạn</span>

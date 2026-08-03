@@ -21,13 +21,13 @@ export function useBuildingsWorkspace(buildings: Building[]) {
         return adaptBuildingForLK01_31(b);
       }
       if (codeClean === "LK01-32") {
-        return adaptBuildingGeneral(b, "LK01-32", "LK01-32");
+        return adaptBuildingGeneral(b, "LK01-32", "LK01-32", "Khu đô thị An Phú, Phường Tân An, Buôn Ma Thuột");
       }
       if (codeClean === "LK08-24") {
-        return adaptBuildingGeneral(b, "LK08-24", "LK08-24");
+        return adaptBuildingGeneral(b, "LK08-24", "LK08-24", "Khu dân cư Him Lam, Quận 7, TP.HCM");
       }
       if (codeClean === "LK08-25") {
-        return adaptBuildingGeneral(b, "LK08-25", "LK08-25");
+        return adaptBuildingGeneral(b, "LK08-25", "LK08-25", "Khu dân cư Him Lam, Quận 7, TP.HCM");
       }
       return b;
     });

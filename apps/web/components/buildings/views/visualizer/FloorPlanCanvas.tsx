@@ -70,7 +70,7 @@ export default function FloorPlanCanvas({
       </div>
 
       {/* Blueprint Canvas Container */}
-      <div className="relative flex-1 bg-slate-950/[0.01] dark:bg-white/[0.01] rounded-2xl border border-border/30 p-6 min-h-[380px] flex flex-col">
+      <div className="relative flex-1 bg-white rounded-2xl border border-border/30 p-6 min-h-[380px] flex flex-col">
         {hasLayoutCoordinates ? (
           // absolute positioning floor plan
           <div className="relative flex-1 w-full h-full min-h-[340px]">

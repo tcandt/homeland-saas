@@ -71,7 +71,7 @@ export default function BuildingKpiRow({ building }: BuildingKpiRowProps) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-4 w-full">
       {/* 1. Revenue */}
-      <div className="bg-card border border-border/60 rounded-xl p-4 shadow-sm flex items-center gap-3">
+      <div className="bg-card border border-border/40 dark:border-white/5 rounded-xl p-4 shadow-sm flex items-center gap-3 h-full transition-shadow hover:shadow-md">
         <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
           <CreditCard size={18} />
         </div>
@@ -82,7 +82,7 @@ export default function BuildingKpiRow({ building }: BuildingKpiRowProps) {
       </div>
 
       {/* 2. Occupied */}
-      <div className="bg-card border border-border/60 rounded-xl p-4 shadow-sm flex items-center gap-3">
+      <div className="bg-card border border-border/40 dark:border-white/5 rounded-xl p-4 shadow-sm flex items-center gap-3 h-full transition-shadow hover:shadow-md">
         <div className="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
           <Home size={18} />
         </div>
@@ -95,7 +95,7 @@ export default function BuildingKpiRow({ building }: BuildingKpiRowProps) {
       </div>
 
       {/* 3. Vacant */}
-      <div className="bg-card border border-border/60 rounded-xl p-4 shadow-sm flex items-center gap-3">
+      <div className="bg-card border border-border/40 dark:border-white/5 rounded-xl p-4 shadow-sm flex items-center gap-3 h-full transition-shadow hover:shadow-md">
         <div className="w-10 h-10 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
           <ShieldCheck size={18} />
         </div>
@@ -108,7 +108,7 @@ export default function BuildingKpiRow({ building }: BuildingKpiRowProps) {
       </div>
 
       {/* 4. Expiring Contracts */}
-      <div className="bg-card border border-border/60 rounded-xl p-4 shadow-sm flex items-center gap-3">
+      <div className="bg-card border border-border/40 dark:border-white/5 rounded-xl p-4 shadow-sm flex items-center gap-3 h-full transition-shadow hover:shadow-md">
         <div className="w-10 h-10 rounded-lg bg-orange-500/10 text-orange-500 flex items-center justify-center shrink-0">
           <ShieldAlert size={18} />
         </div>
@@ -121,7 +121,7 @@ export default function BuildingKpiRow({ building }: BuildingKpiRowProps) {
       </div>
 
       {/* 5. Temporary Residence */}
-      <div className="bg-card border border-border/60 rounded-xl p-4 shadow-sm flex items-center gap-3 col-span-2 md:col-span-1">
+      <div className="bg-card border border-border/40 dark:border-white/5 rounded-xl p-4 shadow-sm flex items-center gap-3 col-span-2 md:col-span-1 h-full transition-shadow hover:shadow-md">
         <div className="w-10 h-10 rounded-lg bg-violet-500/10 text-violet-500 flex items-center justify-center shrink-0">
           <UserCheck size={18} />
         </div>

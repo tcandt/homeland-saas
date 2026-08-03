@@ -8,9 +8,9 @@ import IsometricFloorStack from "./IsometricFloorStack";
 import ReferenceBuilding3D from "./ReferenceBuilding3D";
 import { resolveVisualizationProfile } from "../../workspace/building-profiles";
 import { getFloorDisplayName } from "../../building-labels";
-import { 
-  Layers, Users, Home, AlertCircle, Calendar, 
-  AlertTriangle, ShieldAlert, TrendingUp, Info 
+import {
+  Layers, Users, Home, AlertCircle, Calendar,
+  AlertTriangle, ShieldAlert, TrendingUp, Info
 } from "lucide-react";
 
 interface Props {
@@ -88,7 +88,7 @@ export default function BuildingOverview({
   // 3. Scan and collect highlights/warnings from all rooms
   const activeAlerts = useMemo(() => {
     const alerts: { roomId: string; roomCode: string; message: string; type: "warning" | "danger" }[] = [];
-    
+
     floorsVM.forEach(fVM => {
       fVM.rooms.forEach(rVM => {
         rVM.warnings.forEach(w => {
@@ -143,7 +143,7 @@ export default function BuildingOverview({
 
     return (
       <div className="w-full h-full flex flex-col justify-between select-none relative" style={{ minHeight: "580px" }}>
-        
+
         {/* Title / Action bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 pb-3 mb-2 shrink-0">
           <h3 className="font-black text-[13px] uppercase tracking-widest text-muted flex items-center gap-1.5">
@@ -154,26 +154,26 @@ export default function BuildingOverview({
 
         {/* Explosive View Overlay Canvas Container */}
         <div className="flex-1 w-full relative flex items-center justify-center p-2 min-h-[500px]">
-          
+
           {/* Exploded Building high-fidelity render image */}
           <div className="relative w-full max-w-[820px] aspect-[4/3] flex items-center justify-center">
             {/* The actual image from the public folder */}
-            <img 
-              src="/media__1785578495387.jpg" 
-              alt="LK01-31 Exploded View" 
+            <img
+              src="/media__1785578495387.jpg"
+              alt="LK01-31 Exploded View"
               className="w-full h-full object-contain pointer-events-none rounded-xl"
             />
 
             {/* Left Hand Callouts pointing to levels */}
             <div className="absolute inset-0 pointer-events-none">
-              
+
               {/* Floor 4 Label (Top Level) */}
-              <div 
+              <div
                 className="absolute left-[8%] top-[29%] -translate-y-1/2 pointer-events-auto flex items-center"
               >
                 <button
                   onClick={() => onSelectFloor(building.floors.find(f => f.number === 4)?.id || "")}
-                  className="bg-white dark:bg-slate-900 border border-border/70 hover:border-primary px-3 py-1.5 rounded-lg shadow-sm hover:shadow text-left transition-all duration-300 pointer-events-auto cursor-pointer"
+                  className="bg-card border border-border/40 dark:border-white/5 hover:border-primary px-3 py-1.5 rounded-lg shadow-sm hover:shadow text-left transition-all duration-300 pointer-events-auto cursor-pointer"
                 >
                   <div className="text-[10px] font-black text-primary uppercase">Tầng 4</div>
                   <div className="text-[9px] font-bold text-muted mt-0.5">PN 31-06, 31-07</div>
@@ -185,12 +185,12 @@ export default function BuildingOverview({
               </div>
 
               {/* Floor 3 Label */}
-              <div 
+              <div
                 className="absolute left-[8%] top-[49%] -translate-y-1/2 pointer-events-auto flex items-center"
               >
                 <button
                   onClick={() => onSelectFloor(building.floors.find(f => f.number === 3)?.id || "")}
-                  className="bg-white dark:bg-slate-900 border border-border/70 hover:border-primary px-3 py-1.5 rounded-lg shadow-sm hover:shadow text-left transition-all duration-300 pointer-events-auto cursor-pointer"
+                  className="bg-card border border-border/40 dark:border-white/5 hover:border-primary px-3 py-1.5 rounded-lg shadow-sm hover:shadow text-left transition-all duration-300 pointer-events-auto cursor-pointer"
                 >
                   <div className="text-[10px] font-black text-primary uppercase">Tầng 3</div>
                   <div className="text-[9px] font-bold text-muted mt-0.5">PN 31-04, 31-05</div>
@@ -201,12 +201,12 @@ export default function BuildingOverview({
               </div>
 
               {/* Floor 2 Label */}
-              <div 
+              <div
                 className="absolute left-[8%] top-[69%] -translate-y-1/2 pointer-events-auto flex items-center"
               >
                 <button
                   onClick={() => onSelectFloor(building.floors.find(f => f.number === 2)?.id || "")}
-                  className="bg-white dark:bg-slate-900 border border-border/70 hover:border-primary px-3 py-1.5 rounded-lg shadow-sm hover:shadow text-left transition-all duration-300 pointer-events-auto cursor-pointer"
+                  className="bg-card border border-border/40 dark:border-white/5 hover:border-primary px-3 py-1.5 rounded-lg shadow-sm hover:shadow text-left transition-all duration-300 pointer-events-auto cursor-pointer"
                 >
                   <div className="text-[10px] font-black text-primary uppercase">Tầng 2</div>
                   <div className="text-[9px] font-bold text-muted mt-0.5">PN 31-02, 31-03</div>
@@ -217,12 +217,12 @@ export default function BuildingOverview({
               </div>
 
               {/* Ground Floor Label */}
-              <div 
+              <div
                 className="absolute left-[8%] top-[86%] -translate-y-1/2 pointer-events-auto flex items-center"
               >
                 <button
                   onClick={() => onSelectFloor(building.floors.find(f => f.number === 1)?.id || "")}
-                  className="bg-white dark:bg-slate-900 border border-border/70 hover:border-primary px-3 py-1.5 rounded-lg shadow-sm hover:shadow text-left transition-all duration-300 pointer-events-auto cursor-pointer"
+                  className="bg-card border border-border/40 dark:border-white/5 hover:border-primary px-3 py-1.5 rounded-lg shadow-sm hover:shadow text-left transition-all duration-300 pointer-events-auto cursor-pointer"
                 >
                   <div className="text-[10px] font-black text-primary uppercase">Tầng trệt</div>
                   <div className="text-[9px] font-bold text-muted mt-0.5">PN 31-01</div>
@@ -235,10 +235,10 @@ export default function BuildingOverview({
 
             {/* Right Hand Floor Information Cards overlay */}
             <div className="absolute right-[2%] top-0 bottom-0 w-[240px] flex flex-col justify-between py-6 pointer-events-none">
-              
+
               {/* Floor 4 Card */}
-              <div 
-                className="bg-white/95 dark:bg-slate-900/95 border border-border/80 rounded-xl p-3 shadow-md flex flex-col gap-1.5 pointer-events-auto hover:border-primary transition-all duration-300 cursor-pointer"
+              <div
+                className="bg-card/95 border border-border/40 dark:border-white/5 rounded-xl p-3 shadow-md flex flex-col gap-1.5 pointer-events-auto hover:border-primary transition-all duration-300 cursor-pointer"
                 onClick={() => onSelectFloor(building.floors.find(f => f.number === 4)?.id || "")}
               >
                 <div className="flex justify-between items-center border-b border-border/30 pb-1">
@@ -259,8 +259,8 @@ export default function BuildingOverview({
               </div>
 
               {/* Floor 3 Card */}
-              <div 
-                className="bg-white/95 dark:bg-slate-900/95 border border-border/80 rounded-xl p-3 shadow-md flex flex-col gap-1.5 pointer-events-auto hover:border-primary transition-all duration-300 cursor-pointer"
+              <div
+                className="bg-card/95 border border-border/40 dark:border-white/5 rounded-xl p-3 shadow-md flex flex-col gap-1.5 pointer-events-auto hover:border-primary transition-all duration-300 cursor-pointer"
                 onClick={() => onSelectFloor(building.floors.find(f => f.number === 3)?.id || "")}
               >
                 <div className="flex justify-between items-center border-b border-border/30 pb-1">
@@ -281,8 +281,8 @@ export default function BuildingOverview({
               </div>
 
               {/* Floor 2 Card */}
-              <div 
-                className="bg-white/95 dark:bg-slate-900/95 border border-border/80 rounded-xl p-3 shadow-md flex flex-col gap-1.5 pointer-events-auto hover:border-primary transition-all duration-300 cursor-pointer"
+              <div
+                className="bg-card/95 border border-border/40 dark:border-white/5 rounded-xl p-3 shadow-md flex flex-col gap-1.5 pointer-events-auto hover:border-primary transition-all duration-300 cursor-pointer"
                 onClick={() => onSelectFloor(building.floors.find(f => f.number === 2)?.id || "")}
               >
                 <div className="flex justify-between items-center border-b border-border/30 pb-1">
@@ -303,8 +303,8 @@ export default function BuildingOverview({
               </div>
 
               {/* Floor Ground Card */}
-              <div 
-                className="bg-white/95 dark:bg-slate-900/95 border border-border/80 rounded-xl p-3 shadow-md flex flex-col gap-1.5 pointer-events-auto hover:border-primary transition-all duration-300 cursor-pointer"
+              <div
+                className="bg-card/95 border border-border/40 dark:border-white/5 rounded-xl p-3 shadow-md flex flex-col gap-1.5 pointer-events-auto hover:border-primary transition-all duration-300 cursor-pointer"
                 onClick={() => onSelectFloor(building.floors.find(f => f.number === 1)?.id || "")}
               >
                 <div className="flex justify-between items-center border-b border-border/30 pb-1">
@@ -334,24 +334,24 @@ export default function BuildingOverview({
   if (hideSidebar) {
     return (
       <div className="flex flex-col w-full h-full min-h-[580px] select-none relative">
-        <div className="flex-grow flex flex-col bg-card border border-border/60 rounded-[20px] p-5 shadow-sm relative justify-between overflow-visible">
+        <div className="flex-grow flex flex-col bg-card border border-border/40 dark:border-white/5 rounded-[20px] p-5 shadow-sm relative justify-between overflow-visible">
           <div className="absolute top-0 right-0 w-[150px] h-[150px] bg-primary/5 rounded-full blur-[40px] pointer-events-none" />
-          
+
           {/* Visualizer header metrics actions */}
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 pb-3.5 mb-2">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/20 dark:border-white/5 pb-3.5 mb-2">
             <div>
               <h3 className="font-black text-[13px] uppercase tracking-widest text-muted flex items-center gap-1.5">
                 Sơ đồ tòa nhà
               </h3>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setIsExploded(!isExploded)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[11px] font-black transition-colors ${
-                  isExploded 
-                    ? "bg-primary/10 border-primary/25 text-primary shadow-sm" 
+                  isExploded
+                    ? "bg-primary/10 border-primary/25 text-primary shadow-sm"
                     : "bg-background border-border text-muted hover:text-text"
                 }`}
               >
@@ -385,7 +385,7 @@ export default function BuildingOverview({
           )}
 
           {/* Status Legends */}
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 pt-4 border-t border-border/40 text-[10px] font-black uppercase text-muted tracking-wider">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 pt-4 border-t border-border/20 dark:border-white/5 text-[10px] font-black uppercase text-muted tracking-wider">
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-md bg-[#10b981]" /> Đã thuê</div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-md bg-[#64748b]" /> Trống</div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-md bg-[#0ea5e9]" /> Đặt cọc</div>
@@ -400,26 +400,26 @@ export default function BuildingOverview({
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 xl:gap-8 w-full select-none">
-      
+
       {/* LEFT AREA: 3D MODEL VIEWPORT (approx 68% width on desktop) */}
-      <div className="flex-grow lg:flex-[68] flex flex-col bg-card border border-border/60 rounded-[20px] p-5 shadow-sm overflow-hidden min-h-[580px] justify-between relative">
+      <div className="flex-grow lg:flex-[68] flex flex-col bg-card border border-border/40 dark:border-white/5 rounded-[20px] p-5 shadow-sm overflow-hidden min-h-[580px] justify-between relative">
         <div className="absolute top-0 right-0 w-[150px] h-[150px] bg-primary/5 rounded-full blur-[40px] pointer-events-none" />
-        
+
         {/* Visualizer header metrics actions */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 pb-3.5 mb-2">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/20 dark:border-white/5 pb-3.5 mb-2">
           <div>
             <h3 className="font-black text-[13px] uppercase tracking-widest text-muted flex items-center gap-1.5">
               Sơ đồ tòa nhà
             </h3>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setIsExploded(!isExploded)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[11px] font-black transition-colors ${
-                isExploded 
-                  ? "bg-primary/10 border-primary/25 text-primary shadow-sm" 
+                isExploded
+                  ? "bg-primary/10 border-primary/25 text-primary shadow-sm"
                   : "bg-background border-border text-muted hover:text-text"
               }`}
             >
@@ -453,7 +453,7 @@ export default function BuildingOverview({
         )}
 
         {/* Status Legends */}
-        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 pt-4 border-t border-border/40 text-[10px] font-black uppercase text-muted tracking-wider">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 pt-4 border-t border-border/20 dark:border-white/5 text-[10px] font-black uppercase text-muted tracking-wider">
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-md bg-[#10b981]" /> Đã thuê</div>
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-md bg-[#64748b]" /> Trống</div>
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-md bg-[#0ea5e9]" /> Đặt cọc</div>
@@ -465,12 +465,12 @@ export default function BuildingOverview({
       </div>
 
       {/* RIGHT AREA: OPERATIONAL DASHBOARD (approx 32% width on desktop) - Single Card Wrapper with dividers (guardrail #3) */}
-      <div className="w-full lg:w-[32%] shrink-0 bg-card border border-border/60 rounded-[20px] shadow-sm flex flex-col divide-y divide-border/40 overflow-hidden">
-        
+      <div className="w-full lg:w-[32%] shrink-0 bg-card border border-border/40 dark:border-white/5 rounded-[20px] shadow-sm flex flex-col divide-y divide-border/20 dark:divide-white/5 overflow-hidden">
+
         {/* Sub-Panel 1: Stats summary */}
         <div className="p-5 relative overflow-hidden flex flex-col gap-4">
           <div className="absolute top-0 right-0 w-[180px] h-[180px] bg-primary/5 rounded-full blur-[40px] pointer-events-none" />
-          
+
           <h3 className="font-semibold text-[14px] text-text">
             Tổng quan vận hành
           </h3>
@@ -484,16 +484,16 @@ export default function BuildingOverview({
               <span className="font-medium text-muted">Tổng số cư dân</span>
               <span className="font-semibold text-text">{buildingStats.residentCount} người</span>
             </div>
-            
-            <div className="flex flex-col gap-1.5 pt-2 border-t border-border/30">
+
+            <div className="flex flex-col gap-1.5 pt-2 border-t border-border/20 dark:border-white/5">
               <div className="flex justify-between items-center text-[12px] font-semibold">
                 <span className="text-muted">Tỷ lệ lấp đầy</span>
                 <span className="text-primary">{buildingStats.occupancyRate}%</span>
               </div>
               <div className="w-full h-1.5 bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-primary rounded-full transition-all duration-500" 
-                  style={{ width: `${buildingStats.occupancyRate}%` }} 
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{ width: `${buildingStats.occupancyRate}%` }}
                   data-testid="occupancy-rate-bar"
                 />
               </div>
@@ -510,13 +510,13 @@ export default function BuildingOverview({
           {activeAlerts.length > 0 ? (
             <div className="flex flex-col gap-2.5">
               {activeAlerts.map((alert, idx) => (
-                <div 
+                <div
                   key={idx}
                   onClick={() => onOpenRoomModal(alert.roomId)}
                   className={`flex items-center justify-between p-3 rounded-xl border text-[12px] font-semibold transition-all cursor-pointer ${
-                    alert.type === "danger" 
-                      ? "bg-rose-500/[0.03] hover:bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400" 
-                      : "bg-amber-500/[0.03] hover:bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400"
+                    alert.type === "danger"
+                      ? "bg-rose-500/[0.03] hover:bg-rose-500/10 border-rose-500/10 dark:border-rose-500/20 text-rose-600 dark:text-rose-400"
+                      : "bg-amber-500/[0.03] hover:bg-amber-500/10 border-amber-500/10 dark:border-amber-500/20 text-amber-600 dark:text-amber-400"
                   }`}
                 >
                   <div className="flex items-center gap-2 truncate">
@@ -547,7 +547,7 @@ export default function BuildingOverview({
                 <div
                   key={idx}
                   onClick={() => onOpenRoomModal(r.id)}
-                  className="flex items-center justify-between p-2.5 rounded-xl border border-[#e2e8f0] dark:border-white/10 bg-background/50 hover:bg-slate-50 dark:hover:bg-white/5 text-[12px] font-semibold text-text cursor-pointer transition-all"
+                  className="flex items-center justify-between p-2.5 rounded-xl border border-border/40 dark:border-white/5 bg-background/50 hover:bg-slate-50 dark:hover:bg-white/5 text-[12px] font-semibold text-text cursor-pointer transition-all"
                 >
                   <span>Phòng P.{r.name}</span>
                   <span className="text-[10px] text-rose-500 font-bold uppercase">{r.status}</span>

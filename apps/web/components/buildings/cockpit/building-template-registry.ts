@@ -2,11 +2,11 @@ export type BuildingTemplateId = "LK01_STANDARD" | "LK08_PENDING";
 export type BuildingLayoutStatus = "configured" | "pending";
 
 export interface BuildingTemplateDescriptor {
-  code: "LK01-31" | "LK01-32" | "LK08-24" | "LK08-25";
+  code: string;
   aliases: string[];
   templateId: BuildingTemplateId;
   layoutStatus: BuildingLayoutStatus;
-  roomPrefix: "31" | "32" | null;
+  roomPrefix: string | null;
 }
 
 export const buildingTemplateRegistry: readonly BuildingTemplateDescriptor[] = [

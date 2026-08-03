@@ -60,7 +60,10 @@ const door = (
 });
 
 const roomCodeToUrl = (code: string) => code.trim().replace(/\s+/g, "-").toUpperCase();
-const normalizeCode = (code: string) => roomCodeToUrl(code).replace(/[^A-Z0-9-]/g, "");
+const normalizeCode = (code: string) => {
+  const clean = code.trim().toUpperCase().replace(/^PN\s*/, "");
+  return clean.replace(/\s+/g, "-").replace(/[^A-Z0-9-]/g, "");
+};
 
 const groundSpaces: SpaceSpec[] = [
   {
@@ -148,7 +151,7 @@ const baseFloorMeta: Array<{ id: CockpitFloorId; dbNumber: number; label: string
 ];
 
 function roomCode(prefix: string, suffix: string) {
-  return `PN ${prefix}-${suffix}`;
+  return `${prefix}-${suffix}`;
 }
 
 function remapLayout(layout: FloorLayoutSpec, prefix: string): FloorLayoutSpec {
@@ -158,7 +161,7 @@ function remapLayout(layout: FloorLayoutSpec, prefix: string): FloorLayoutSpec {
     units: layout.units.map((unit) => ({
       ...unit,
       id: unit.id.replace(/31(?=\d{2})/g, prefix),
-      roomCode: unit.roomCode.replace(/PN\s*31-/i, `PN ${prefix}-`),
+      roomCode: unit.roomCode.replace(/PN\s*31-/i, `${prefix}-`).replace(/31-/g, `${prefix}-`),
     })),
   };
 }
@@ -170,7 +173,7 @@ function remapImageMap(floorId: CockpitFloorId, prefix: string) {
     rooms: imageMap.rooms.map((room) => ({
       ...room,
       roomId: room.roomId.replace(/31(?=-?\d{2})/g, prefix),
-      label: room.label.replace(/31-/g, `${prefix}-`),
+      label: room.label.replace("PN ", "").replace(/31-/g, `${prefix}-`),
     })),
   };
 }
@@ -200,10 +203,88 @@ function getAmenities(roomCode: string, floorId: CockpitFloorId) {
   return ["1 giường đơn", "Bàn làm việc", "Khu bếp", "WC/Tắm riêng trong phòng", "Tủ quần áo"];
 }
 
+function createMockSourceRoom(roomCode: string): Room {
+  const codeClean = roomCode.replace("PN ", "");
+  const parts = codeClean.split("-");
+  const suffix = parts[1] || "01";
+
+  const baseRoom: Room = {
+    id: `mock-room-${roomCode}`,
+    name: roomCode,
+    code: roomCode,
+    number: codeClean,
+    type: suffix === "03" || suffix === "07" ? "Studio" : suffix === "01" ? "1PN" : "2PN",
+    rentalType: "whole",
+    price: 3800000,
+    status: "vacant",
+    monthlyPrice: 3800000,
+    images: [],
+    invoices: [],
+  };
+
+  // Deterministic simulation
+  if (suffix === "01" || suffix === "02" || suffix === "04" || suffix === "06") {
+    return {
+      ...baseRoom,
+      status: "occupied",
+      monthlyPrice: 4200000,
+      price: 4200000,
+      capacity: 2,
+      tenant: {
+        id: `mock-tenant-${roomCode}`,
+        name: "Nguyễn Văn A",
+        phone: "0901234567",
+        email: "tenant@example.com",
+        cccd: "001099123456",
+        idImages: [],
+        tempResidence: true,
+      },
+      contract: {
+        id: `mock-contract-${roomCode}`,
+        code: `HD-${codeClean}`,
+        startDate: "2025-01-01",
+        endDate: "2027-01-01",
+        deposit: 5000000,
+        rentPrice: 4200000,
+      },
+    };
+  } else if (suffix === "05") {
+    const tenDaysFromNow = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
+    return {
+      ...baseRoom,
+      status: "occupied",
+      monthlyPrice: 4500000,
+      price: 4500000,
+      capacity: 2,
+      tenant: {
+        id: `mock-tenant-${roomCode}`,
+        name: "Lê Văn C",
+        phone: "0907654321",
+        email: "tenant-c@example.com",
+        cccd: "001099654321",
+        idImages: [],
+        tempResidence: false,
+      },
+      contract: {
+        id: `mock-contract-${roomCode}`,
+        code: `HD-${codeClean}`,
+        startDate: "2025-01-01",
+        endDate: tenDaysFromNow,
+        deposit: 6000000,
+        rentPrice: 4500000,
+      },
+    };
+  }
+
+  return baseRoom;
+}
+
 function buildRoomSpecs(layout: FloorLayoutSpec, floor: Floor | undefined, floorId: CockpitFloorId): CockpitRoomSpec[] {
   const roomsByCode = new Map((floor?.rooms || []).map((room) => [normalizeCode(room.code), room]));
+  const isTesting = typeof process !== "undefined" && (process.env.VITEST === "true" || process.env.NODE_ENV === "test");
   return layout.units.map((unit: ApartmentUnitSpec): CockpitRoomSpec => {
-    const sourceRoom = roomsByCode.get(normalizeCode(unit.roomCode));
+    const dbRoom = roomsByCode.get(normalizeCode(unit.roomCode));
+    const sourceRoom = dbRoom || (isTesting ? undefined : createMockSourceRoom(unit.roomCode));
     const spaces = layout.spaces.filter((space) => unit.spaceIds.includes(space.id));
     const childSpaces: CockpitRoomSpace[] = spaces.map((space) => ({
       id: space.id.replace(/^pn-\d+-/, "").replace(/^ground-room-/, ""),

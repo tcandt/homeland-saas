@@ -60,11 +60,11 @@ export default function BuildingOperationalSidebar({
   };
 
   return (
-    <div className="w-full lg:w-[26%] shrink-0 flex flex-col gap-5 select-none bg-card border border-border/60 rounded-[20px] p-5 shadow-sm min-h-[580px]">
+    <div className="w-full lg:w-[26%] shrink-0 flex flex-col gap-5 select-none bg-card border border-border/40 dark:border-white/5 rounded-[20px] p-5 shadow-sm min-h-[580px] transition-colors">
       
       {/* -------------------- ACTIVE ROOM SELECTED PANEL (Matching Image 2) -------------------- */}
       {activeRoom ? (
-        <div className="flex flex-col gap-4 text-xs font-semibold text-text">
+        <div className="flex flex-col gap-4 text-xs font-semibold text-text animate-in slide-in-from-right-4 fade-in duration-300 fill-mode-both" key={`room-${activeRoom.id}`}>
           <div className="flex justify-between items-center border-b border-border/40 pb-2 mb-1">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-black text-primary uppercase">P.{getRoomDisplayName(activeRoom)}</h3>
@@ -124,39 +124,7 @@ export default function BuildingOperationalSidebar({
               </div>
             </div>
 
-            {/* MÔ TẢ BỐ TRÍ */}
-            <div>
-              <h4 className="text-[9px] font-black uppercase text-muted tracking-widest mb-1.5">Mô tả bố trí</h4>
-              <p className="text-[11px] text-text font-bold bg-slate-50 dark:bg-white/5 p-2 rounded-lg border border-border/40 leading-relaxed">
-                {activeRoom.type === "2PN" 
-                  ? "2 phòng ngủ mini kín + 1 phòng khách + 1 bếp + 1 WC"
-                  : "1 khu ngủ + bàn LV + bếp + 1 WC/Tắm"}
-              </p>
-            </div>
 
-            {/* TIỆN ÍCH PHÒNG */}
-            <div>
-              <h4 className="text-[9px] font-black uppercase text-muted tracking-widest mb-1.5">Tiện ích phòng</h4>
-              <div className="flex flex-col gap-1 text-[11px] text-muted-foreground font-semibold leading-relaxed">
-                {activeRoom.type === "2PN" ? (
-                  <>
-                    <span>• 2 giường đơn (trong 2 PN mini)</span>
-                    <span>• 1 bàn làm việc / trang điểm</span>
-                    <span>• Khu bếp (bếp, chậu rửa, tủ lạnh)</span>
-                    <span>• 1 phòng khách (sofa, bàn trà)</span>
-                    <span>• 1 phòng tắm & WC riêng</span>
-                  </>
-                ) : (
-                  <>
-                    <span>• 1 giường đơn</span>
-                    <span>• 1 bàn làm việc (BÀN LV)</span>
-                    <span>• Khu bếp (bếp, chậu rửa, tủ lạnh)</span>
-                    <span>• 1 phòng tắm (TẮM)</span>
-                    <span>• 1 chậu rửa lavabo</span>
-                  </>
-                )}
-              </div>
-            </div>
 
             {/* THÔNG TIN TÒA NHÀ */}
             <div>
@@ -371,7 +339,7 @@ export default function BuildingOperationalSidebar({
                       <select
                         value={selectedFloorFilter}
                         onChange={(e) => setSelectedFloorFilter(e.target.value)}
-                        className="w-full text-xs font-bold bg-transparent border border-border/60 rounded-xl px-3 py-2.5 text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                        className="w-full text-xs font-bold bg-transparent border border-border/40 dark:border-white/10 rounded-xl px-3 py-2.5 text-text focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
                       >
                         <option value="all">Tất cả tầng</option>
                         {building.floors.map(f => (
@@ -390,7 +358,7 @@ export default function BuildingOperationalSidebar({
                       <select
                         value={selectedStatusFilter}
                         onChange={(e) => setSelectedStatusFilter(e.target.value)}
-                        className="w-full text-xs font-bold bg-transparent border border-border/60 rounded-xl px-3 py-2.5 text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                        className="w-full text-xs font-bold bg-transparent border border-border/40 dark:border-white/10 rounded-xl px-3 py-2.5 text-text focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
                       >
                         <option value="all">Tất cả trạng thái</option>
                         <option value="vacant">Phòng trống</option>

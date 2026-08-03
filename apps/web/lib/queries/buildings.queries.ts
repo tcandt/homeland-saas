@@ -8,7 +8,7 @@ export const useBuildingsQuery = (params?: any) => {
     queryKey: ['buildings', params],
     queryFn: async () => {
       const response = await buildingsApi.list(params);
-      const items = Array.isArray(response) ? response : (response as any).items || [];
+      const items = Array.isArray(response) ? response : (response as any).data || (response as any).items || [];
       return items.map(adaptBuilding);
     },
   });

@@ -53,7 +53,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
   return (
     <aside
       data-testid="app-sidebar"
-      className="h-full border-r border-white/10 bg-[#0d1430] text-white shadow-[12px_0_36px_rgba(15,22,51,0.16)] p-[24px_0] flex flex-col overflow-y-auto hide-scrollbar"
+      className="h-full border-r border-border/40 dark:border-transparent bg-card dark:bg-[#0f172a] text-text shadow-[12px_0_36px_rgba(0,0,0,0.03)] dark:shadow-none p-[24px_0] flex flex-col overflow-y-auto hide-scrollbar transition-colors"
     >
       <div className={`flex items-center gap-3 px-[20px] mb-8 ${collapsed ? "justify-center" : ""}`}>
         <div className="w-[42px] h-[42px] rounded-[12px] bg-gradient-to-br from-[#6956ff] to-[#7c3aed] text-white flex items-center justify-center text-xl shrink-0 shadow-[0_14px_28px_rgba(105,86,255,0.32)]">
@@ -61,8 +61,8 @@ export default function Sidebar({ collapsed }: SidebarProps) {
         </div>
         {!collapsed && (
           <div className="whitespace-nowrap overflow-hidden">
-            <div className="text-[20px] font-black tracking-tight text-white">HomeLand</div>
-            <div className="text-[12px] font-semibold text-white/60">Premium CRM</div>
+            <div className="text-[20px] font-black tracking-tight text-text">HomeLand</div>
+            <div className="text-[12px] font-semibold text-muted">Premium CRM</div>
           </div>
         )}
       </div>
@@ -92,42 +92,42 @@ export default function Sidebar({ collapsed }: SidebarProps) {
 
       <div className={`mt-4 px-[10px] pt-[14px] ${collapsed ? "flex flex-col items-center" : ""}`}>
         {!collapsed && (
-          <div className="mb-5 rounded-[16px] border border-white/15 bg-gradient-to-br from-[#4a31aa]/95 to-[#291a66]/95 p-4 shadow-[0_18px_36px_rgba(15,22,51,0.28)]">
+          <div className="mb-5 rounded-[16px] border border-primary/10 dark:border-white/5 bg-primary/[0.03] dark:bg-white/5 p-4 transition-colors">
             <div className="flex items-start gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-white/15 text-white">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-primary/10 text-primary dark:bg-white/10 dark:text-white">
                 <Rocket size={24} aria-hidden />
               </span>
               <div className="min-w-0">
-                <h3 className="text-[13px] font-black text-white">Nâng cấp trải nghiệm</h3>
-                <p className="mt-1 text-[12px] font-semibold leading-5 text-white/70">Khám phá các tính năng nâng cao cho quản lý bất động sản</p>
+                <h3 className="text-[13px] font-black text-text dark:text-white">Nâng cấp trải nghiệm</h3>
+                <p className="mt-1 text-[12px] font-semibold leading-5 text-muted-foreground dark:text-white/70">Khám phá các tính năng nâng cao cho quản lý bất động sản</p>
               </div>
             </div>
             <button
               type="button"
-              className="mt-4 flex min-h-10 w-full items-center justify-center gap-2 rounded-[10px] border border-white/25 bg-white/10 px-3 text-[12px] font-black text-white transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              className="mt-4 flex min-h-10 w-full items-center justify-center gap-2 rounded-[10px] border border-primary/20 dark:border-white/20 bg-primary text-white hover:bg-primary/95 dark:bg-white/10 dark:hover:bg-white/15 px-3 text-[12px] font-black transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               Nâng cấp ngay <ChevronRight size={15} aria-hidden />
             </button>
           </div>
         )}
 
-        <div className="mb-4 h-px bg-white/10" />
+        <div className="mb-4 h-px bg-border/60 dark:bg-white/10" />
         <div className={`flex items-center gap-3 px-[14px] ${collapsed ? "justify-center px-0 flex-col" : ""}`}>
           <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#7c4dff] to-[#4f46e5] text-[13px] font-black text-white ring-1 ring-white/20">
             SA
-            <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#0d1430] bg-emerald-400" aria-hidden />
+            <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-background dark:border-[#0f172a] bg-emerald-400" aria-hidden />
           </div>
           {!collapsed && (
             <div className="whitespace-nowrap overflow-hidden flex-1">
-              <div className="font-bold text-sm truncate text-white">{user?.fullName || "System Admin"}</div>
-              <div className="text-[12px] font-medium text-white/60 truncate">Quản trị viên</div>
+              <div className="font-bold text-sm truncate text-text">{user?.fullName || "System Admin"}</div>
+              <div className="text-[12px] font-medium text-muted truncate">Quản trị viên</div>
             </div>
           )}
           <button
             aria-label="Đăng xuất"
             data-testid="logout-button"
             onClick={handleLogout}
-            className="text-white/60 hover:text-danger transition-colors p-1 rounded-md hover:bg-danger/10"
+            className="text-muted-foreground hover:text-danger dark:text-white/60 dark:hover:text-danger transition-colors p-1 rounded-md hover:bg-danger/10"
           >
             {collapsed ? <LogOut size={18} /> : <ChevronDown size={18} />}
           </button>
@@ -138,8 +138,8 @@ export default function Sidebar({ collapsed }: SidebarProps) {
 }
 
 function SectionLabel({ collapsed, children }: { collapsed: boolean; children: React.ReactNode }) {
-  if (collapsed) return <div className="h-px bg-white/10 my-4 mx-[14px]" />;
-  return <div className="mt-6 mb-2 mx-[14px] text-[10px] font-bold uppercase tracking-wider text-white/50">{children}</div>;
+  if (collapsed) return <div className="h-px bg-border/60 dark:bg-white/10 my-4 mx-[14px]" />;
+  return <div className="mt-6 mb-2 mx-[14px] text-[10px] font-black uppercase tracking-wider text-muted-foreground/60 dark:text-white/40">{children}</div>;
 }
 
 function NavItem({ href, icon, label, collapsed, active, dataTestId }: NavItemProps) {
@@ -149,10 +149,10 @@ function NavItem({ href, icon, label, collapsed, active, dataTestId }: NavItemPr
       prefetch={false}
       data-testid={dataTestId}
       aria-label={label}
-      className={`flex items-center gap-[12px] px-[14px] py-[10px] rounded-[10px] font-semibold mb-1 transition-colors ${
+      className={`flex items-center gap-[12px] px-[14px] py-[10px] rounded-[10px] font-semibold mb-1 transition-all ${
         active
-          ? "bg-gradient-to-r from-[#5b35f5] to-[#6d4cff] text-white shadow-[0_10px_24px_rgba(91,53,245,0.22)]"
-          : "text-white/70 hover:bg-white/10 hover:text-white"
+          ? "bg-primary text-white shadow-[0_10px_24px_rgba(91,53,245,0.22)]"
+          : "text-muted-foreground hover:bg-black/5 hover:text-text dark:text-white/70 dark:hover:bg-white/5 dark:hover:text-white"
       }`}
     >
       <span className={`shrink-0 ${active ? "text-white" : ""}`}>

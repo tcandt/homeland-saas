@@ -146,7 +146,7 @@ export default function PortfolioKpiBar({
               <article
                 key={item.label}
                 title={unavailable ? emptyHint : undefined}
-                className="flex h-[86px] min-w-0 items-start gap-3 rounded-xl border border-border/80 bg-card p-3 shadow-[0_12px_30px_rgb(var(--shadow-color)/0.055)] transition-[border-color,box-shadow] duration-200 hover:border-primary/25 hover:shadow-[0_16px_34px_rgb(var(--shadow-color)/0.085)] motion-reduce:transition-none"
+                className="flex h-[86px] min-w-0 items-start gap-3 rounded-xl border border-border/80 dark:border-white/5 bg-card p-3 shadow-[0_12px_30px_rgb(var(--shadow-color)/0.055)] transition-[border-color,box-shadow] duration-200 hover:border-primary/25 hover:shadow-[0_16px_34px_rgb(var(--shadow-color)/0.085)] motion-reduce:transition-none"
               >
                 <span className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] ring-1", toneClasses[item.tone])}>
                   <Icon size={17} aria-hidden />

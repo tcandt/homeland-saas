@@ -41,7 +41,7 @@ describe("building cockpit template resolver", () => {
     expect(spec?.templateId).toBe("LK01_STANDARD");
     expect(spec?.floors).toHaveLength(4);
     expect(spec?.floors.flatMap((floor) => floor.rooms).map((room) => room.code)).toEqual([
-      "PN 32-01", "PN 32-02", "PN 32-03", "PN 32-04", "PN 32-05", "PN 32-06", "PN 32-07",
+      "32-01", "32-02", "32-03", "32-04", "32-05", "32-06", "32-07",
     ]);
     expect(spec?.floors.flatMap((floor) => floor.rooms).every((room) => room.status === "vacant" && room.contract === undefined && room.monthlyRent === undefined)).toBe(true);
     expect(spec?.floors.flatMap((floor) => floor.rooms).every((room) => room.entryDoorCount >= 1)).toBe(true);
@@ -131,9 +131,6 @@ describe("building cockpit template resolver", () => {
       occupiedRooms: 0,
       vacantRooms: 0,
       monthlyRevenue: 0,
-      depositTotal: 0,
-      temporaryResidenceRate: 0,
-      overduePayments: 0,
     });
   });
 });

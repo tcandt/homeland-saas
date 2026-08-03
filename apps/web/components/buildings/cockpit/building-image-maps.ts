@@ -13,9 +13,9 @@ function upperFloorRoom(roomId: string, floorId: CockpitFloorId, side: "left" | 
   return {
     roomId,
     floorId,
-    label: roomId.replaceAll("-", " "),
+    label: roomId.replace("PN-", ""),
     paths: upperFloorPaths[side],
-    labelPosition: side === "left" ? { x: 390, y: 604 } : { x: 1288, y: 604 },
+    labelPosition: side === "left" ? { x: 390, y: 340 } : { x: 1290, y: 340 },
   };
 }
 
@@ -35,11 +35,11 @@ export const floorImageMaps: Record<CockpitFloorId, FloorImageMap> = {
       {
         roomId: "PN-31-01",
         floorId: "ground",
-        label: "PN 31-01",
+        label: "31-01",
         paths: [
           "M 1018 42 L 1542 42 L 1580 606 L 1092 606 L 1092 474 L 1056 474 L 1056 366 L 1018 366 Z",
         ],
-        labelPosition: { x: 1320, y: 566 },
+        labelPosition: { x: 1300, y: 320 },
       },
     ],
   },

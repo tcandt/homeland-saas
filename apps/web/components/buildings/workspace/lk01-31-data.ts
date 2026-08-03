@@ -80,10 +80,10 @@ export function adaptBuildingForLK01_31(building: Building): Building {
   copy.name = "LK01-31";
   copy.code = "LK01-31";
   copy.address = "Khu đô thị An Phú, Phường Tân An, Buôn Ma Thuột";
-  
+
   // Custom 4 floors matching mapping
   const customFloors: Floor[] = [];
-  
+
   // Floor levels
   const floorData = [
     { level: 1, name: "Tầng trệt", rooms: [
@@ -108,14 +108,14 @@ export function adaptBuildingForLK01_31(building: Building): Building {
     // Attempt to preserve the real database floor ID if available
     const dbFloor = copy.floors[idx];
     const floorId = dbFloor?.id || `floor-lk01-31-f${f.level}`;
-    
+
     const rooms = f.rooms.map((r, rIdx) => {
       // Attempt to map to real DB room ID to ensure operations like Modal work
       const dbRoom = dbFloor?.rooms[rIdx];
       return {
         ...r,
         id: dbRoom?.id || r.id,
-        images: r.type === "2PN" 
+        images: r.type === "2PN"
           ? ["https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=400&q=80"]
           : ["https://images.unsplash.com/photo-1598928506311-c55ded91a20c?auto=format&fit=crop&w=400&q=80"],
         rentalType: "whole" as const,
@@ -137,10 +137,34 @@ export function adaptBuildingForLK01_31(building: Building): Building {
   return copy;
 }
 
-export function adaptBuildingGeneral(building: Building, code: string, name: string): Building {
+export function adaptBuildingGeneral(building: Building, code: string, name: string, address: string): Building {
   const copy = JSON.parse(JSON.stringify(building)) as Building;
   copy.code = code;
   copy.name = name;
-  copy.address = `Đường Đào Trí, Quận 7, TP.HCM`;
+  copy.address = address;
+
+  if (!copy.floors || copy.floors.length === 0) {
+    copy.floors = [
+      {
+        id: `floor-${code}-1`,
+        number: 1,
+        notes: "Tầng trệt",
+        rooms: [
+          { id: `room-${code}-101`, code: `PN 101`, name: "PN 101", status: "vacant" as const, monthlyPrice: 5000000, capacity: 2, area: 30, type: "1PN" as const, tenant: null, contract: undefined, rentalType: "whole" as const, price: 5000000, number: "101", bedCount: 1 },
+          { id: `room-${code}-102`, code: `PN 102`, name: "PN 102", status: "occupied" as const, monthlyPrice: 5000000, capacity: 2, area: 30, type: "1PN" as const, tenant: mockTenants["tenant-01"], contract: mockContracts["contract-01"], rentalType: "whole" as const, price: 5000000, number: "102", bedCount: 1 }
+        ]
+      },
+      {
+        id: `floor-${code}-2`,
+        number: 2,
+        notes: "Tầng 2",
+        rooms: [
+          { id: `room-${code}-201`, code: `PN 201`, name: "PN 201", status: "vacant" as const, monthlyPrice: 5000000, capacity: 2, area: 30, type: "1PN" as const, tenant: null, contract: undefined, rentalType: "whole" as const, price: 5000000, number: "201", bedCount: 1 },
+          { id: `room-${code}-202`, code: `PN 202`, name: "PN 202", status: "occupied" as const, monthlyPrice: 5000000, capacity: 2, area: 30, type: "1PN" as const, tenant: mockTenants["tenant-03"], contract: mockContracts["contract-03"], rentalType: "whole" as const, price: 5000000, number: "202", bedCount: 1 }
+        ]
+      }
+    ] as any;
+  }
+
   return copy;
 }

@@ -7,7 +7,7 @@ export const useRoomsQuery = (params?: any) => {
     queryKey: ['rooms', params],
     queryFn: async () => {
       const response = await roomsApi.list(params);
-      const items = Array.isArray(response) ? response : (response as any).items || [];
+      const items = Array.isArray(response) ? response : (response as any).data || (response as any).items || [];
       return items.map(adaptRoom);
     },
   });

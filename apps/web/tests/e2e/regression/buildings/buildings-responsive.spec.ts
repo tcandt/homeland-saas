@@ -118,6 +118,9 @@ test.describe("Buildings responsive presentation isolation", () => {
         for (const code of PORTFOLIO_BUILDING_CODES) {
           await expect(portfolio.getByRole("heading", { name: code, exact: true })).toHaveCount(1);
         }
+        await expect(page.getByRole("button", { name: "Đặt lại góc nhìn" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Thu nhỏ mặt bằng" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Phóng to mặt bằng" })).toHaveCount(0);
       }
 
       await testInfo.attach(`buildings-${viewport.name}.png`, {
@@ -140,7 +143,7 @@ test.describe("Buildings responsive presentation isolation", () => {
     await page.evaluate(() => document.documentElement.classList.add("dark"));
     await expect(page.locator(".building-cockpit-theme")).toBeVisible();
     await page.emulateMedia({ reducedMotion: "reduce" });
-    const reducedMotionDuration = await page.getByRole("button", { name: "Đặt lại góc nhìn" }).evaluate((element) => getComputedStyle(element).transitionDuration);
+    const reducedMotionDuration = await page.getByRole("button", { name: "Tầng 2", exact: true }).first().evaluate((element) => getComputedStyle(element).transitionDuration);
     const reducedMotionMilliseconds = reducedMotionDuration.endsWith("ms") ? Number.parseFloat(reducedMotionDuration) : Number.parseFloat(reducedMotionDuration) * 1000;
     expect(reducedMotionMilliseconds).toBeLessThanOrEqual(1);
     await testInfo.attach("buildings-floor-room-dark.png", {

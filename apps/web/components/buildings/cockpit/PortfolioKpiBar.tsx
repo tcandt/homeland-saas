@@ -27,12 +27,12 @@ interface KpiItem {
 }
 
 const toneClasses: Record<KpiTone, string> = {
-  primary: "bg-primary/10 text-primary",
-  success: "bg-success/10 text-success",
-  slate: "bg-surface text-muted",
-  warning: "bg-warning/10 text-warning",
-  danger: "bg-danger/10 text-danger",
-  info: "bg-info/10 text-info",
+  primary: "bg-primary/10 text-primary ring-primary/15",
+  success: "bg-success/10 text-success ring-success/15",
+  slate: "bg-surface text-muted ring-border",
+  warning: "bg-warning/10 text-warning ring-warning/15",
+  danger: "bg-danger/10 text-danger ring-danger/15",
+  info: "bg-info/10 text-info ring-info/15",
 };
 
 function cx(...values: Array<string | false | null | undefined>) {
@@ -146,19 +146,19 @@ export default function PortfolioKpiBar({
               <article
                 key={item.label}
                 title={unavailable ? emptyHint : undefined}
-                className="flex h-[82px] min-w-0 items-start gap-2.5 rounded-xl border border-border bg-card p-2.5 shadow-[0_10px_28px_rgb(var(--shadow-color)/0.045)]"
+                className="flex h-[86px] min-w-0 items-start gap-3 rounded-xl border border-border/80 bg-card p-3 shadow-[0_12px_30px_rgb(var(--shadow-color)/0.055)] transition-[border-color,box-shadow] duration-200 hover:border-primary/25 hover:shadow-[0_16px_34px_rgb(var(--shadow-color)/0.085)] motion-reduce:transition-none"
               >
-                <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]", toneClasses[item.tone])}>
+                <span className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] ring-1", toneClasses[item.tone])}>
                   <Icon size={17} aria-hidden />
                 </span>
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate text-[12px] font-bold leading-4 text-muted" title={item.label}>
                     {item.label}
                   </h2>
-                  <strong className="mt-0.5 block truncate whitespace-nowrap text-[17px] font-black leading-5 tracking-tight tabular-nums text-text" title={item.value}>
+                  <strong className="mt-1 block truncate whitespace-nowrap text-[20px] font-black leading-6 tracking-tight tabular-nums text-text" title={item.value}>
                     {item.value}
                   </strong>
-                  <p className="truncate text-[12px] font-semibold leading-4 text-muted" title={item.hint}>
+                  <p className="truncate text-[12px] font-semibold leading-4 text-muted/90" title={item.hint}>
                     {item.hint}
                   </p>
                 </div>

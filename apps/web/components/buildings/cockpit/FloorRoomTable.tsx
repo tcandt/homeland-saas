@@ -107,11 +107,11 @@ function FloorRoomTable({
   })), [floor.rooms]);
 
   return (
-    <div className={cx("w-full overflow-x-auto rounded-[12px] border border-[#ececf6] bg-white", className)}>
+    <div className={cx("w-full overflow-x-auto rounded-[12px] border border-border/70 bg-card shadow-[0_8px_20px_rgb(var(--shadow-color)/0.035)]", className)}>
       <table className="w-full min-w-[520px] border-collapse text-left">
         <caption className="sr-only">Danh sách phòng {floor.label}</caption>
         <thead>
-          <tr className="border-b border-[#ececf6] bg-slate-50/80 text-[12px] font-black text-slate-500">
+          <tr className="border-b border-border/70 bg-surface/55 text-[12px] font-black text-muted">
             <th scope="col" className="px-3 py-2.5">Phòng</th>
             <th scope="col" className="px-3 py-2.5">Loại phòng</th>
             <th scope="col" className="px-3 py-2.5">Tình trạng</th>
@@ -136,8 +136,8 @@ function FloorRoomTable({
                 onMouseEnter={() => onHoverRoom?.(room.urlCode)}
                 onMouseLeave={() => onHoverRoom?.(null)}
                 className={cx(
-                  "cursor-pointer border-b border-[#f0eff7] text-[12px] text-slate-600 transition-colors last:border-b-0 motion-reduce:transition-none",
-                  selected ? "bg-[#f6f3ff]" : highlighted ? "bg-[#faf9ff]" : "hover:bg-slate-50",
+                  "cursor-pointer border-b border-border/45 text-[12px] text-slate-600 transition-[background-color,box-shadow] last:border-b-0 motion-reduce:transition-none",
+                  selected ? "bg-primary/[0.075] shadow-[inset_3px_0_0_var(--primary)]" : highlighted ? "bg-primary/[0.035]" : "hover:bg-surface/45",
                 )}
               >
                 <th scope="row" className="px-3 py-2.5">

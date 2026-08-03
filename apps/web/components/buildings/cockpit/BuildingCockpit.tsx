@@ -14,17 +14,13 @@ import {
   ClipboardCheck,
   CheckCircle2,
   DollarSign,
-  Expand,
   FileWarning,
   ImageIcon,
   Layers3,
   MapPin,
-  Maximize2,
   Pencil,
   RefreshCw,
   Users,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import type { Building } from "../building.types";
 import {
@@ -130,17 +126,15 @@ function ExplodedBuildingImageStack({
   activeFloorId,
   onSelectFloor,
   onHoverFloor,
-  visualScale = 1,
 }: {
   building: CockpitBuildingSpec;
   activeFloorId: string | null;
   onSelectFloor: (floorId: CockpitFloorId) => void;
   onHoverFloor: (floorId: CockpitFloorId | null) => void;
-  visualScale?: number;
 }) {
   const ordered = [...building.floors].reverse();
   return (
-    <div className="relative mx-auto h-[90%] max-h-full w-auto max-w-full shrink-0 transition-transform duration-200 motion-reduce:transition-none" style={{ aspectRatio: `${building.overviewImage.width} / ${building.overviewImage.height}`, transform: `translateX(14px) scale(${visualScale})` }}>
+    <div className="relative mx-auto h-[90%] max-h-full w-auto max-w-full shrink-0" style={{ aspectRatio: `${building.overviewImage.width} / ${building.overviewImage.height}`, transform: "translateX(14px)" }}>
       <Image
         src={building.overviewImage.src}
         alt={`Ảnh render kiến trúc tách tầng của tòa nhà ${building.code}`}
@@ -294,7 +288,6 @@ function Overview({
 }) {
   const metrics = getBuildingMetrics(building);
   const [hoveredFloorId, setHoveredFloorId] = useState<CockpitFloorId | null>(null);
-  const [visualScale, setVisualScale] = useState(1);
   const highlightedFloorId = hoveredFloorId || activeFloorId;
 
   return (
@@ -341,13 +334,7 @@ function Overview({
         <main className="relative h-full min-h-[560px] min-w-0 overflow-hidden rounded-[16px] xl:min-h-0">
             <div className="building-model-stage relative flex h-full min-h-0 items-center justify-center overflow-hidden rounded-[16px] border border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
               <FloorLabelRail floors={building.floors} activeFloorId={highlightedFloorId} onSelectFloor={onSelectFloor} onHoverFloor={setHoveredFloorId} />
-              <ExplodedBuildingImageStack building={building} activeFloorId={highlightedFloorId} onSelectFloor={onSelectFloor} onHoverFloor={setHoveredFloorId} visualScale={visualScale} />
-              <div className="absolute right-3 top-3 z-30 flex items-center gap-1 rounded-xl border border-border bg-card/94 p-1 shadow-sm backdrop-blur">
-                <button type="button" title="Đặt lại góc nhìn" aria-label="Đặt lại góc nhìn" onClick={() => setVisualScale(1)} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><RefreshCw size={15} /></button>
-                <button type="button" title="Thu nhỏ" aria-label="Thu nhỏ mô hình" onClick={() => setVisualScale((value) => Math.max(.84, value - .08))} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><ZoomOut size={16} /></button>
-                <button type="button" title="Phóng to" aria-label="Phóng to mô hình" onClick={() => setVisualScale((value) => Math.min(1.16, value + .08))} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><ZoomIn size={16} /></button>
-                <button type="button" title="Vừa khung" aria-label="Đưa mô hình vừa khung" onClick={() => setVisualScale(.92)} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><Maximize2 size={16} /></button>
-              </div>
+              <ExplodedBuildingImageStack building={building} activeFloorId={highlightedFloorId} onSelectFloor={onSelectFloor} onHoverFloor={setHoveredFloorId} />
               <div className="absolute inset-x-4 bottom-3 z-30 mx-auto flex min-h-8 max-w-[620px] flex-wrap items-center justify-center gap-x-4 gap-y-1 rounded-xl border border-border bg-card/92 px-3 text-[10px] font-bold text-muted shadow-sm backdrop-blur">
                 <span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Đã thuê</span>
                 <span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-slate-400" />Trống</span>
@@ -375,8 +362,6 @@ function FloorWorkspace({
   buildings,
   floor,
   room,
-  zoom,
-  setZoom,
   debugMode,
   onSelectFloor,
   onSelectRoom,
@@ -388,8 +373,6 @@ function FloorWorkspace({
   buildings: Building[];
   floor: CockpitFloorSpec;
   room: CockpitRoomSpec | null;
-  zoom: number;
-  setZoom: React.Dispatch<React.SetStateAction<number>>;
   debugMode: boolean;
   onSelectFloor: (floorId: CockpitFloorId | null) => void;
   onSelectRoom: (room: CockpitRoomSpec) => void;
@@ -440,17 +423,16 @@ function FloorWorkspace({
               <h2 className="text-[14px] font-black uppercase tracking-wide text-slate-950">Sơ đồ mặt bằng {floor.label}</h2>
               <AlertCircle size={15} className="text-slate-400" />
             </div>
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setZoom((value) => Math.max(60, value - 10))} aria-label="Thu nhỏ" className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#ececf6] text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><ZoomOut size={16} /></button>
-              <span className="min-w-12 text-center text-[13px] font-black text-slate-600">{zoom}%</span>
-              <button type="button" onClick={() => setZoom((value) => Math.min(250, value + 10))} aria-label="Phóng to" className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#ececf6] text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><ZoomIn size={16} /></button>
-              <button type="button" onClick={() => setZoom(100)} aria-label="Fit ảnh vào màn hình" className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#ececf6] text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><Expand size={16} /></button>
-              <button type="button" onClick={() => document.getElementById("floor-plan-viewport")?.requestFullscreen?.()} aria-label="Toàn màn hình" className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#ececf6] text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]"><Maximize2 size={16} /></button>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-semibold text-slate-500">
+              <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-emerald-500" />Đã thuê</span>
+              <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-slate-400" />Trống</span>
+              <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-orange-500" />HĐ sắp hết hạn</span>
+              <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-rose-500" />Cảnh báo</span>
             </div>
           </div>
 
           <div className="min-h-0 flex-1">
-            <FloorPlanCanvas floor={floor} selectedRoomCode={room?.urlCode || null} zoom={zoom} onZoomChange={setZoom} onSelectRoom={onSelectRoom} debugMode={debugMode} />
+            <FloorPlanCanvas floor={floor} selectedRoomCode={room?.urlCode || null} onSelectRoom={onSelectRoom} debugMode={debugMode} />
           </div>
 
           <div className="mt-2.5 grid shrink-0 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
@@ -503,7 +485,6 @@ export default function BuildingCockpit({ buildings, onAddBuilding, onEditBuildi
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [zoom, setZoom] = useState(100);
   const requestedCode = normalizeBuildingCode(pathname.split("/buildings/")[1]?.split("/")[0] || "LK01-31");
   const allowFixtureFallback = process.env.NODE_ENV !== "production" && buildings.length === 0 && requestedCode === "LK01-31";
   const building = useMemo(() => createCockpitBuildingSpec(buildings, requestedCode, allowFixtureFallback), [allowFixtureFallback, buildings, requestedCode]);
@@ -586,7 +567,6 @@ export default function BuildingCockpit({ buildings, onAddBuilding, onEditBuildi
   }, [updateParams]);
 
   const switchBuilding = useCallback((code: string) => {
-    setZoom(100);
     router.push(`/buildings/${normalizeBuildingCode(code)}`);
   }, [router]);
 
@@ -606,8 +586,6 @@ export default function BuildingCockpit({ buildings, onAddBuilding, onEditBuildi
           portfolioBuildings={portfolioBuildings}
           floor={floor}
           room={room}
-          zoom={zoom}
-          setZoom={setZoom}
           debugMode={debugMode}
           onSelectBuilding={switchBuilding}
           onSelectFloor={selectFloor}

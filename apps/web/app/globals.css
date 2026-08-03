@@ -4,12 +4,12 @@
 
 @layer base {
   :root {
-    --bg: #f8fafc;
+    --bg: #f5f7fb;
     --card: #ffffff;
-    --surface: #f1f5f9;
+    --surface: #eef2f7;
     --text: #0f172a;
-    --muted: #64748b;
-    --border: #e2e8f0;
+    --muted: #66758a;
+    --border: #dfe6f0;
     --surface-raised: #ffffff;
     --surface-muted: #f8fafc;
     --border-strong: #cbd5e1;
@@ -24,10 +24,10 @@
     --danger-surface: #fff1f2;
     --danger-border: #fecdd3;
     --stage-bg:
-      radial-gradient(circle at 50% 44%, rgba(99, 102, 241, 0.09), transparent 38%),
-      linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      radial-gradient(circle at 50% 44%, rgba(99, 102, 241, 0.07), transparent 38%),
+      linear-gradient(180deg, #ffffff 0%, #f5f7fb 100%);
     
-    --primary: #4f46e5;
+    --primary: #5b35f5;
     --secondary: #0ea5e9;
     --danger: #ef4444;
     --success: #10b981;
@@ -36,15 +36,15 @@
   }
 
   .dark {
-    --bg: #0f172a;
-    --card: #1e293b;
-    --surface: #0b1120;
-    --text: #f8fafc;
-    --muted: #94a3b8;
-    --border: #334155;
-    --surface-raised: #1e293b;
-    --surface-muted: #111827;
-    --border-strong: #475569;
+    --bg: #111827;
+    --card: #1b2535;
+    --surface: #101827;
+    --text: #f7f9fc;
+    --muted: #9ba8ba;
+    --border: #334057;
+    --surface-raised: #223047;
+    --surface-muted: #151f30;
+    --border-strong: #475871;
     --text-primary: #f8fafc;
     --text-secondary: #cbd5e1;
     --text-muted: #94a3b8;
@@ -56,10 +56,10 @@
     --danger-surface: rgba(244, 63, 94, 0.12);
     --danger-border: rgba(251, 113, 133, 0.28);
     --stage-bg:
-      radial-gradient(circle at 50% 42%, rgba(99, 102, 241, 0.22), transparent 42%),
-      linear-gradient(180deg, #111827 0%, #0b1120 100%);
+      radial-gradient(circle at 50% 42%, rgba(112, 89, 255, 0.16), transparent 42%),
+      linear-gradient(180deg, #1b2535 0%, #111827 100%);
     
-    --primary: #6366f1;
+    --primary: #7c6dff;
     --secondary: #38bdf8;
     --danger: #f87171;
     --success: #34d399;

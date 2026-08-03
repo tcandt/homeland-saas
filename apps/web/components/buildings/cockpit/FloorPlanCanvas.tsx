@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Eye, EyeOff, Move, RotateCcw } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, RotateCcw } from "lucide-react";
 import type { CockpitFloorSpec, CockpitRoomSpec, RoomImageMap } from "./building-cockpit.types";
 import { formatVnd, getStatusLabel } from "./building-cockpit-metrics";
 
@@ -11,8 +11,6 @@ interface FloorPlanCanvasProps {
   buildingCode?: string;
   selectedRoomCode: string | null;
   highlightedRoomCode?: string | null;
-  zoom: number;
-  onZoomChange: (zoom: number) => void;
   onSelectRoom: (room: CockpitRoomSpec) => void;
   onHoverRoom?: (roomCode: string | null) => void;
   debugMode: boolean;
@@ -85,16 +83,12 @@ function FloorPlanCanvas({
   buildingCode = "tòa nhà đang chọn",
   selectedRoomCode,
   highlightedRoomCode = null,
-  zoom,
-  onZoomChange,
   onSelectRoom,
   onHoverRoom,
   debugMode,
 }: FloorPlanCanvasProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const panStartRef = useRef<{ pointer: Point; pan: Point } | null>(null);
-  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [imageLoaded, setImageLoaded] = useState(false);
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -111,15 +105,10 @@ function FloorPlanCanvas({
 
   useEffect(() => {
     setImageLoaded(false);
-    setPan({ x: 0, y: 0 });
     setDraftMaps(cloneMaps(floor.imageMap.rooms));
     setHiddenRoomIds(new Set());
     setTooltip(null);
   }, [floor.id, floor.imageMap.rooms]);
-
-  useEffect(() => {
-    if (zoom <= 100) setPan({ x: 0, y: 0 });
-  }, [zoom]);
 
   const pointerToViewBox = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
@@ -164,31 +153,11 @@ function FloorPlanCanvas({
       }));
       return;
     }
-    const panStart = panStartRef.current;
-    if (!panStart || zoom <= 100) return;
-    setPan({
-      x: panStart.pan.x + event.clientX - panStart.pointer.x,
-      y: panStart.pan.y + event.clientY - panStart.pointer.y,
-    });
-  }, [dragState, pointerToViewBox, updatePointerPosition, zoom]);
+  }, [dragState, pointerToViewBox, updatePointerPosition]);
 
   const stopDragging = useCallback(() => {
-    panStartRef.current = null;
     setDragState(null);
   }, []);
-
-  const onPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const target = event.target as Element;
-    if (zoom <= 100 || target.closest("[data-room-hotspot]")) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    panStartRef.current = { pointer: { x: event.clientX, y: event.clientY }, pan };
-  }, [pan, zoom]);
-
-  const onWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    if (!event.ctrlKey) return;
-    event.preventDefault();
-    onZoomChange(Math.min(250, Math.max(60, zoom + (event.deltaY > 0 ? -10 : 10))));
-  }, [onZoomChange, zoom]);
 
   const selectRoom = useCallback((roomId: string) => {
     const room = roomsByCode.get(normalizeRoomCode(roomId));
@@ -208,26 +177,21 @@ function FloorPlanCanvas({
         id="floor-plan-viewport"
         data-testid="floor-plan-canvas"
         className="relative flex min-h-[300px] w-full flex-1 items-center justify-center overflow-hidden rounded-[14px] border border-[#e7e7f2] bg-white p-2 shadow-inner sm:p-3 fullscreen:min-h-screen fullscreen:rounded-none fullscreen:border-0 fullscreen:p-8"
-        style={{ cursor: zoom > 100 ? (panStartRef.current ? "grabbing" : "grab") : "default", touchAction: "none" }}
-        onPointerDown={onPointerDown}
+        style={{ cursor: "default", touchAction: "manipulation" }}
         onPointerMove={onPointerMove}
         onPointerUp={stopDragging}
         onPointerCancel={stopDragging}
         onPointerLeave={() => {
-          if (!panStartRef.current) {
-            setHoveredRoomId(null);
-            setTooltip(null);
-            onHoverRoom?.(null);
-          }
+          setHoveredRoomId(null);
+          setTooltip(null);
+          onHoverRoom?.(null);
         }}
-        onWheel={onWheel}
       >
         {!imageLoaded && <div className="absolute inset-6 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" aria-label="Đang tải ảnh mặt bằng" />}
         <div
           className="relative w-full max-w-[1600px] origin-center select-none transition-transform duration-200 ease-out motion-reduce:transition-none"
           style={{
             aspectRatio: `${floor.imageMap.width} / ${floor.imageMap.height}`,
-            transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom / 100})`,
           }}
         >
           <Image
@@ -349,11 +313,6 @@ function FloorPlanCanvas({
         {debugMode && debugCursor && (
           <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-blue-600 px-2.5 py-1.5 font-mono text-[12px] font-bold text-white shadow-lg">
             x: {Math.round(debugCursor.x)} · y: {Math.round(debugCursor.y)}
-          </div>
-        )}
-        {zoom > 100 && (
-          <div className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-[12px] font-bold text-slate-600 shadow-sm backdrop-blur">
-            <Move size={13} /> Kéo để di chuyển
           </div>
         )}
       </div>

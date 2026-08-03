@@ -40,10 +40,10 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
   return (
     <aside
       role="dialog"
-      className="fixed inset-x-3 bottom-3 z-[10002] max-h-[82vh] overflow-auto rounded-[16px] border border-[#e7e7f2] bg-white p-3.5 shadow-2xl min-[1366px]:relative min-[1366px]:inset-auto min-[1366px]:z-auto min-[1366px]:flex min-[1366px]:h-full min-[1366px]:max-h-full min-[1366px]:w-full min-[1366px]:min-w-[286px] min-[1366px]:shrink-0 min-[1366px]:flex-col min-[1366px]:overflow-hidden min-[1366px]:shadow-sm"
+      className="fixed inset-x-3 bottom-3 z-[10002] max-h-[82vh] overflow-auto rounded-[16px] border border-[#e7e7f2] bg-white p-3.5 shadow-2xl min-[1366px]:relative min-[1366px]:inset-auto min-[1366px]:z-auto min-[1366px]:flex min-[1366px]:h-full min-[1366px]:max-h-full min-[1366px]:w-full min-[1366px]:min-w-[280px] min-[1366px]:max-w-[360px] min-[1366px]:shrink-0 min-[1366px]:flex-col min-[1366px]:overflow-hidden min-[1366px]:shadow-[0_16px_36px_rgb(var(--shadow-color)/0.075)] min-[1536px]:min-w-[320px]"
       aria-label={`Thông tin phòng ${room.code}`}
     >
-      <div className="mb-2.5 flex shrink-0 items-start justify-between gap-4 border-b border-[#ececf6] pb-2.5">
+      <div className="sticky top-0 z-10 -mx-3.5 -mt-3.5 mb-2.5 flex shrink-0 items-start justify-between gap-4 border-b border-[#ececf6] bg-white/95 px-3.5 pb-2.5 pt-3.5 backdrop-blur dark:bg-card/95">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-[20px] font-black tracking-tight text-slate-950">{room.code}</h2>
@@ -108,10 +108,43 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
           </div>
         </section>
       )}
+
+      <section className="mt-2 shrink-0 rounded-[14px] border border-[#ececf6] bg-white p-3">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-[12px] font-black uppercase tracking-wide text-slate-950">Lịch sử hoạt động</h3>
+          <button type="button" className="text-[12px] font-black text-[#5b35f5] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]">
+            Xem tất cả
+          </button>
+        </div>
+        <ol className="space-y-0">
+          {[
+            { date: "24/05/2025 10:15", title: `Cập nhật trạng thái: ${statusLabel}`, icon: CheckCircle2, tone: "emerald" },
+            { date: "20/05/2025 09:45", title: "Kết thúc hợp đồng", icon: FileText, tone: "blue" },
+            { date: "01/05/2025 14:20", title: "Tạo hợp đồng mới", icon: FileText, tone: "blue" },
+          ].map((item, index, items) => {
+            const Icon = item.icon;
+            return (
+              <li key={`${item.date}-${item.title}`} className="grid grid-cols-[22px_1fr_auto] gap-2">
+                <div className="relative flex justify-center">
+                  <span className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full ${item.tone === "emerald" ? "bg-emerald-100 text-emerald-600" : "bg-blue-50 text-blue-600"}`}>
+                    <Icon size={12} aria-hidden />
+                  </span>
+                  {index < items.length - 1 && <span className="absolute top-6 h-[calc(100%-10px)] w-px bg-[#ececf6]" aria-hidden />}
+                </div>
+                <div className="border-b border-[#f1f2f7] pb-2.5 last:border-b-0">
+                  <time className="block text-[12px] font-semibold leading-4 text-slate-500">{item.date}</time>
+                  <p className="mt-0.5 text-[12px] font-black leading-5 text-slate-800">{item.title}</p>
+                </div>
+                <span className="pt-0.5 text-right text-[11px] font-semibold text-slate-500">System Admin</span>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
       </div>
 
       {sourceRoomId && onOpenRoomModal ? (
-        <div className="relative mt-2 grid shrink-0 grid-cols-[1fr_auto_auto] gap-2 border-t border-[#ececf6] pt-3">
+        <div className="sticky bottom-0 z-10 -mx-3.5 -mb-3.5 mt-2 grid shrink-0 grid-cols-[1fr_auto_auto] gap-2 border-t border-[#ececf6] bg-white/95 px-3.5 pb-3.5 pt-3 backdrop-blur dark:bg-card/95">
           <button type="button" onClick={() => onOpenRoomModal(sourceRoomId, "overview")} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-[#5b35f5] px-3 text-[12px] font-black text-white transition-colors hover:bg-[#4b28db] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5]">
             Mở hồ sơ phòng <ArrowRight size={15} />
           </button>

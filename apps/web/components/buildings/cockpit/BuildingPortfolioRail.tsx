@@ -49,10 +49,10 @@ export default function BuildingPortfolioRail({
               <article
                 key={descriptor.code}
                 className={cx(
-                  "relative min-h-[146px] overflow-hidden rounded-2xl border bg-card p-3.5 shadow-[0_10px_28px_rgb(var(--shadow-color)/0.05)] transition-[border-color,background-color,box-shadow] duration-200 motion-reduce:transition-none",
+                  "relative min-h-[146px] overflow-hidden rounded-2xl border bg-card p-3.5 shadow-[0_12px_30px_rgb(var(--shadow-color)/0.055)] transition-[border-color,background-color,box-shadow,transform] duration-200 motion-reduce:transition-none",
                   isSelected
-                    ? "border-primary bg-primary/[0.045] shadow-[0_12px_30px_rgb(var(--shadow-color)/0.09)] ring-1 ring-primary/35"
-                    : "border-border hover:border-primary/35 hover:shadow-[0_12px_30px_rgb(var(--shadow-color)/0.08)]",
+                    ? "border-primary bg-primary/[0.055] shadow-[0_16px_36px_rgb(var(--shadow-color)/0.12)] ring-1 ring-primary/35 dark:bg-primary/[0.14]"
+                    : "border-border/80 hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_16px_34px_rgb(var(--shadow-color)/0.09)]",
                 )}
               >
                 <button
@@ -65,7 +65,7 @@ export default function BuildingPortfolioRail({
 
                 <div className="pointer-events-none relative z-10">
                   <div className="flex min-w-0 items-start gap-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-primary">
+                    <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]", isSelected ? "bg-primary text-white shadow-[0_8px_18px_rgb(var(--shadow-color)/0.15)]" : "bg-primary/10 text-primary")}>
                       <Building2 size={17} aria-hidden />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -148,7 +148,7 @@ export default function BuildingPortfolioRail({
                     <button
                       type="button"
                       onClick={() => onConfigureBuilding(descriptor.code)}
-                      className="relative z-20 mt-1.5 flex min-h-8 w-full items-center justify-center gap-2 rounded-[10px] border border-primary/25 bg-card px-3 text-[12px] font-black text-primary transition-colors duration-200 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
+                    className="relative z-20 mt-1.5 flex min-h-8 w-full items-center justify-center gap-2 rounded-[10px] border border-primary/25 bg-card/90 px-3 text-[12px] font-black text-primary shadow-[0_8px_18px_rgb(var(--shadow-color)/0.04)] transition-colors duration-200 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
                     >
                       <Settings2 size={14} aria-hidden />
                       Cấu hình mặt bằng
@@ -168,7 +168,7 @@ export default function BuildingPortfolioRail({
             type="button"
             onClick={onAddBuilding}
             disabled={!onAddBuilding}
-            className="flex min-h-[146px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-card/60 px-3 text-[12px] font-black text-muted transition-[border-color,background-color,color] duration-200 hover:border-primary/45 hover:bg-primary/[0.035] hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-60 motion-reduce:transition-none"
+            className="flex min-h-[146px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border/90 bg-card/60 px-3 text-[12px] font-black text-muted transition-[border-color,background-color,color,box-shadow] duration-200 hover:border-primary/45 hover:bg-primary/[0.035] hover:text-primary hover:shadow-[0_12px_28px_rgb(var(--shadow-color)/0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-60 motion-reduce:transition-none"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface text-primary">
               <Plus size={18} aria-hidden />

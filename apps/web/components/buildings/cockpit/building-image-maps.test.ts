@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingOverviewImage, floorImageMaps, overviewFloorHotspots } from "./building-image-maps";
+import { buildingOverviewImage, floorImageMaps, overviewFloorHotspots, overviewRoomHotspots } from "./building-image-maps";
 
 function pathPoints(path: string) {
   const values = path.match(/-?\d+(?:\.\d+)?/g)?.map(Number) || [];
@@ -68,5 +68,62 @@ describe("LK01-31 image maps", () => {
 
     const groundPoints = overviewFloorHotspots.ground.split(/\s+/).map((pair) => Number(pair.split(",")[0]));
     expect(Math.min(...groundPoints)).toBeGreaterThan(200);
+  });
+
+  it("keeps the first-floor overview hotspot off the ground-floor slab", () => {
+    const firstFloorPoints = pathPoints(overviewFloorHotspots["1"]);
+    const groundPoints = pathPoints(overviewFloorHotspots.ground);
+
+    expect(Math.max(...firstFloorPoints.map((point) => point.y))).toBeLessThan(1090);
+    expect(Math.min(...groundPoints.map((point) => point.y))).toBeGreaterThan(1070);
+    expect(Math.max(...firstFloorPoints.map((point) => point.x))).toBeLessThan(1030);
+  });
+
+  it("uses wall-aligned overview room polygons instead of covering stair cores", () => {
+    for (const roomHotspots of Object.values(overviewRoomHotspots)) {
+      for (const points of Object.values(roomHotspots)) {
+        for (const point of pathPoints(points)) {
+          expect(point.x).toBeGreaterThanOrEqual(0);
+          expect(point.x).toBeLessThanOrEqual(buildingOverviewImage.width);
+          expect(point.y).toBeGreaterThanOrEqual(0);
+          expect(point.y).toBeLessThanOrEqual(buildingOverviewImage.height);
+        }
+      }
+    }
+
+    expect(containsPoint(overviewRoomHotspots["1"]!.left!, 705, 920)).toBe(false);
+    expect(containsPoint(overviewRoomHotspots["1"]!.right!, 705, 920)).toBe(false);
+    expect(containsPoint(overviewRoomHotspots["1"]!.left!, 500, 990)).toBe(true);
+    expect(containsPoint(overviewRoomHotspots["1"]!.right!, 900, 920)).toBe(true);
+  });
+
+  it("matches the first-floor LK01-03 room boundary from the overview redline", () => {
+    expect(overviewRoomHotspots["1"]!.right).toBe("721,769 940,748 1030,1026 778,1047");
+  });
+
+  it("matches the overview redlines for every floor and room boundary", () => {
+    expect(overviewFloorHotspots).toMatchObject({
+      "3": "136,34 934,9 1023,300 222,360",
+      "2": "233,432 944,380 1023,659 241,718",
+      "1": "233,800 944,748 1023,1027 241,1086",
+      ground: "242,1137 983,1080 1021,1363 247,1417",
+    });
+    expect(overviewRoomHotspots).toMatchObject({
+      "3": {
+        left: "125,38 499,29 580,341 216,364",
+        right: "699,17 931,11 1015,304 766,324",
+      },
+      "2": {
+        left: "244,431 525,411 588,691 225,716",
+        right: "721,401 940,380 1030,658 778,679",
+      },
+      "1": {
+        left: "244,799 525,779 588,1059 225,1084",
+        right: "721,769 940,748 1030,1026 778,1047",
+      },
+      ground: {
+        right: "702,1104 986,1081 1020,1362 760,1388",
+      },
+    });
   });
 });

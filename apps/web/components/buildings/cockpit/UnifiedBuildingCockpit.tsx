@@ -20,7 +20,7 @@ import {
   getStatusLabel,
   getStatusTone,
 } from "./building-cockpit-metrics";
-import { overviewFloorHotspots } from "./building-image-maps";
+import { overviewFloorHotspots, overviewRoomHotspots } from "./building-image-maps";
 import BuildingPortfolioRail from "./BuildingPortfolioRail";
 import FloorPlanCanvas from "./FloorPlanCanvas";
 import FloorRoomTable from "./FloorRoomTable";
@@ -70,34 +70,20 @@ function StatusLegend() {
 
 
 function getOverviewRoomPoints(floorId: string, side: "left" | "right"): string | null {
-  const rawPoints = overviewFloorHotspots[floorId as CockpitFloorId];
-  if (!rawPoints) return null;
-  const coords = rawPoints.split(/\s+/).map((pair: string) => {
+  return overviewRoomHotspots[floorId as CockpitFloorId]?.[side] || null;
+}
+
+function getOverviewRoomLabelAnchor(points: string) {
+  const coords = points.split(/\s+/).map((pair) => {
     const [x, y] = pair.split(",").map(Number);
     return { x, y };
-  });
-  if (coords.length < 4) return null;
-  const [A, B, C, D] = coords;
-
-  const getPoint = (u: number, v: number) => {
-    const x = (1 - v) * ((1 - u) * A.x + u * B.x) + v * ((1 - u) * D.x + u * C.x);
-    const y = (1 - v) * ((1 - u) * A.y + u * B.y) + v * ((1 - u) * D.y + u * C.y);
-    return { x, y };
-  };
-
-  if (side === "left") {
-    const c1 = getPoint(0.02, 0.08);
-    const c2 = getPoint(0.50, 0.08);
-    const c3 = getPoint(0.56, 0.90);
-    const c4 = getPoint(0.02, 0.90);
-    return `${c1.x.toFixed(1)},${c1.y.toFixed(1)} ${c2.x.toFixed(1)},${c2.y.toFixed(1)} ${c3.x.toFixed(1)},${c3.y.toFixed(1)} ${c4.x.toFixed(1)},${c4.y.toFixed(1)}`;
-  } else {
-    const c1 = getPoint(0.76, 0.08);
-    const c2 = getPoint(0.98, 0.08);
-    const c3 = getPoint(0.98, 0.90);
-    const c4 = getPoint(0.655, 0.90);
-    return `${c1.x.toFixed(1)},${c1.y.toFixed(1)} ${c2.x.toFixed(1)},${c2.y.toFixed(1)} ${c3.x.toFixed(1)},${c3.y.toFixed(1)} ${c4.x.toFixed(1)},${c4.y.toFixed(1)}`;
-  }
+  }).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  if (!coords.length) return { x: 0, y: 0 };
+  const minX = Math.min(...coords.map((point) => point.x));
+  const maxX = Math.max(...coords.map((point) => point.x));
+  const minY = Math.min(...coords.map((point) => point.y));
+  const maxY = Math.max(...coords.map((point) => point.y));
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
 }
 
 function getOverviewRoomSpec(floor: CockpitFloorSpec, side: "left" | "right"): CockpitRoomSpec | undefined {
@@ -116,6 +102,21 @@ function getOverviewRoomSpec(floor: CockpitFloorSpec, side: "left" | "right"): C
   return undefined;
 }
 
+function getOverviewStatusText(status: string) {
+  switch (status) {
+    case "occupied":
+      return "Đã thuê";
+    case "expiring_soon":
+      return "Sắp hết HĐ";
+    case "deposited":
+      return "Đã cọc";
+    case "maintenance":
+      return "Cảnh báo";
+    default:
+      return "Trống";
+  }
+}
+
 function getOverviewStatusColor(status: string) {
   switch (status) {
     case "occupied":
@@ -123,30 +124,40 @@ function getOverviewStatusColor(status: string) {
         fill: "rgba(34, 197, 94, 0.32)",
         stroke: "rgba(34, 197, 94, 0.75)",
         strokeActive: "#22c55e",
+        labelFill: "rgba(236, 253, 245, 0.96)",
+        labelText: "#047857",
       };
     case "expiring_soon":
       return {
         fill: "rgba(249, 115, 22, 0.32)",
         stroke: "rgba(249, 115, 22, 0.75)",
         strokeActive: "#f97316",
+        labelFill: "rgba(255, 247, 237, 0.96)",
+        labelText: "#c2410c",
       };
     case "deposited":
       return {
         fill: "rgba(14, 165, 233, 0.32)",
         stroke: "rgba(14, 165, 233, 0.75)",
         strokeActive: "#0ea5e9",
+        labelFill: "rgba(240, 249, 255, 0.96)",
+        labelText: "#0369a1",
       };
     case "maintenance":
       return {
         fill: "rgba(239, 68, 68, 0.32)",
         stroke: "rgba(239, 68, 68, 0.75)",
         strokeActive: "#ef4444",
+        labelFill: "rgba(255, 241, 242, 0.96)",
+        labelText: "#be123c",
       };
     default:
       return {
         fill: "rgba(148, 163, 184, 0.18)",
         stroke: "rgba(148, 163, 184, 0.55)",
         strokeActive: "#64748b",
+        labelFill: "rgba(248, 250, 252, 0.96)",
+        labelText: "#475569",
       };
   }
 }
@@ -293,15 +304,54 @@ function BuildingModelViewer({
                       const points = getOverviewRoomPoints(floorItem.id, side);
                       if (!points) return null;
                       const selected = activeRoomId === roomSpec.id;
+                      const labelAnchor = getOverviewRoomLabelAnchor(points);
+                      const statusText = getOverviewStatusText(roomSpec.status);
                       return (
-                        <polygon
-                          key={side}
-                          points={points}
-                          fill={colors.fill}
-                          stroke={selected ? colors.strokeActive : colors.stroke}
-                          strokeWidth={selected ? 2.5 : 1.25}
-                          vectorEffect="non-scaling-stroke"
-                        />
+                        <g key={side}>
+                          <polygon
+                            points={points}
+                            fill={colors.fill}
+                            stroke={selected ? colors.strokeActive : colors.stroke}
+                            strokeWidth={selected ? 2.5 : 1.25}
+                            vectorEffect="non-scaling-stroke"
+                          />
+                          <g transform={`translate(${labelAnchor.x} ${labelAnchor.y})`} aria-label={`${roomSpec.code}: ${statusText}`}>
+                            <rect
+                              x={-66}
+                              y={-29}
+                              width={132}
+                              height={58}
+                              rx={10}
+                              fill={colors.labelFill}
+                              stroke={selected ? colors.strokeActive : colors.stroke}
+                              strokeWidth={1.25}
+                              vectorEffect="non-scaling-stroke"
+                            />
+                            <circle cx={-45} cy={9} r={6} fill={colors.strokeActive} />
+                            <text
+                              x={0}
+                              y={-5}
+                              textAnchor="middle"
+                              fill="#0f172a"
+                              fontSize={21}
+                              fontWeight={900}
+                              letterSpacing={0}
+                            >
+                              {roomSpec.code.replace(/^PN\s*/, "")}
+                            </text>
+                            <text
+                              x={10}
+                              y={17}
+                              textAnchor="middle"
+                              fill={colors.labelText}
+                              fontSize={17}
+                              fontWeight={800}
+                              letterSpacing={0}
+                            >
+                              {statusText}
+                            </text>
+                          </g>
+                        </g>
                       );
                     })}
                   </g>

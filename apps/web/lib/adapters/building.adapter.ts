@@ -16,9 +16,7 @@ export const adaptBuilding = (apiBuilding: any): Building => {
     name: apiBuilding.name || apiBuilding.code,
     code: apiBuilding.code,
     address: apiBuilding.address || "Chưa có địa chỉ",
-    images: apiBuilding.images && apiBuilding.images.length > 0 ? apiBuilding.images : [
-      "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&h=600&fit=crop"
-    ],
+    images: apiBuilding.images && apiBuilding.images.length > 0 ? apiBuilding.images : [],
     notes: apiBuilding.notes,
     status: apiBuilding.deletedAt ? "inactive" : "active",
     floors: (apiBuilding.floors || []).map((f: any) => adaptFloor(f, apiBuilding.rooms || []))
@@ -155,9 +153,7 @@ export const adaptRoom = (apiRoom: any): Room => {
     area: toOptionalNumber(apiRoom.area),
     capacity: toOptionalNumber(apiRoom.capacity),
     bedCount: toOptionalNumber(apiRoom.bedCount),
-    images: [
-      "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&h=450&fit=crop"
-    ],
+    images: apiRoom.images && apiRoom.images.length > 0 ? apiRoom.images : [],
     notes: apiRoom.notes,
     tenant,
     roommates: [],

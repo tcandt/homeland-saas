@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -7,14 +7,18 @@ import { AuditService } from '../shared/audit/audit.service';
 import { LoginInput, ChangePasswordInput, RegisterInput, ForgotPasswordInput, ResetPasswordInput } from '@homeland/shared';
 import { ErrorCodes } from '../shared/exceptions/error-codes';
 import * as crypto from 'crypto';
+import { MailProvider } from './services/mail.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly audit: AuditService,
+    private readonly mailProvider: MailProvider,
   ) {}
 
   async login(input: LoginInput, ip?: string, userAgent?: string) {
@@ -293,8 +297,11 @@ export class AuthService {
       userId: user.id
     });
 
-    // TODO: Send email
-    console.log(`[DEV ONLY] Password reset token for ${input.email}: ${token}`);
+    try {
+      await this.mailProvider.sendPasswordResetEmail(input.email, token, user.tenantId);
+    } catch (error) {
+      this.logger.error(`Password reset email failed for user ${user.id}`, error instanceof Error ? error.stack : String(error));
+    }
 
     return { success: true };
   }

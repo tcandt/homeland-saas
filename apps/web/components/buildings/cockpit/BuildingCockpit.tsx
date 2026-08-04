@@ -522,11 +522,10 @@ export default function BuildingCockpit({ buildings, onAddBuilding, onEditBuildi
   }, [pathCode]);
 
   const requestedCode = activeBuildingCode;
-  const allowFixtureFallback = process.env.NODE_ENV !== "production" && buildings.length === 0 && requestedCode === "LK01-31";
-  const building = useMemo(() => createCockpitBuildingSpec(buildings, requestedCode, allowFixtureFallback), [allowFixtureFallback, buildings, requestedCode]);
+  const building = useMemo(() => createCockpitBuildingSpec(buildings, requestedCode), [buildings, requestedCode]);
   const portfolioBuildings = useMemo(() => {
     const resolved = buildingTemplateRegistry
-      .map((descriptor) => createCockpitBuildingSpec(buildings, descriptor.code, false))
+      .map((descriptor) => createCockpitBuildingSpec(buildings, descriptor.code))
       .filter((item): item is CockpitBuildingSpec => Boolean(item));
     if (building && !resolved.some((item) => item.code === building.code)) resolved.unshift(building);
     return resolved;

@@ -16,12 +16,13 @@ export const useContractsQuery = (params?: { page?: number; limit?: number; sear
       const response = await contractsApi.list(params);
       const payload = Array.isArray(response) ? { items: response } : (response as any) || {};
       const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.data) ? payload.data : [];
+      const meta = payload.meta || {};
       return {
         data: items,
         meta: {
-          total: Number(payload.total || items.length || 0),
-          page: Number(payload.page || params?.page || 1),
-          limit: Number(payload.limit || params?.limit || items.length || 0),
+          total: Number(meta.total || payload.total || items.length || 0),
+          page: Number(meta.page || payload.page || params?.page || 1),
+          limit: Number(meta.limit || payload.limit || params?.limit || items.length || 0),
         },
       };
     },

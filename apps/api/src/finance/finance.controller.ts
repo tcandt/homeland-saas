@@ -34,8 +34,29 @@ export class FinanceController {
   @Get('export')
   @RequirePermissions('finance.read')
   async exportReport(@Request() req, @Res() res: Response) {
-    // Generate a mock CSV string
-    const csvContent = "Date,Description,Amount,Type\n2026-06-30,Salary,5000,Credit\n2026-06-30,Rent,-1000,Debit";
+    const rows = await this.reportingService.getLedger(req.user.tenantId, req.query);
+    const csvRows = rows.map((line: any) => {
+      const entry = line.journalEntry || {};
+      const account = line.account || {};
+      const values = [
+        line.createdAt?.toISOString?.() || "",
+        entry.code || "",
+        line.description || entry.description || "",
+        account.code || "",
+        account.name || "",
+        line.type || "",
+        String(line.amount || 0),
+        entry.sourceType || "",
+        entry.status || "",
+      ];
+
+      return values.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',');
+    });
+
+    const csvContent = [
+      "Date,JournalCode,Description,AccountCode,AccountName,Type,Amount,SourceType,Status",
+      ...csvRows,
+    ].join("\n");
     
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=finance_report.csv');

@@ -7,7 +7,8 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev",
+    "predev": "node scripts/kill-dev-ports.js",
+    "dev": "node scripts/dev.js",
     "build": "turbo run build",
     "prebuild": "npm run check:encoding",
     "lint": "turbo run lint",

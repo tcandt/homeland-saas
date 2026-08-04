@@ -2,9 +2,10 @@
 
 import React, { useState } from "react";
 import type { Building, Floor, Room } from "./building.types";
-import { Map, AlertTriangle, Layers, ChevronDown, ChevronRight, Plus, X, Edit2, Trash2, MoreVertical } from "lucide-react";
+import { Map, AlertTriangle, Layers, ChevronDown, ChevronRight, Plus, X, Edit2, Trash2, MoreVertical, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 import { usePermissions } from "@/lib/hooks/usePermissions";
+import { useDeleteBuildingMutation } from "@/lib/mutations/buildings.mutations";
 
 const ActionMenu = ({ onEdit, onDelete, itemName }: { onEdit: () => void, onDelete: () => void, itemName: string }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -47,6 +48,7 @@ interface Props {
 
 export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Props) {
   const permissions = usePermissions();
+  const deleteBuilding = useDeleteBuildingMutation();
   const [expandedBuildingId, setExpandedBuildingId] = useState<string | null>(null);
   const [expandedFloorIds, setExpandedFloorIds] = useState<Record<string, boolean>>({});
   const [editingBuilding, setEditingBuilding] = useState<Building | null>(null);
@@ -55,6 +57,8 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
   const [isAddRoomModalOpen, setIsAddRoomModalOpen] = useState(false);
   const [editingFloor, setEditingFloor] = useState<Floor | null>(null);
   const [isAddFloorModalOpen, setIsAddFloorModalOpen] = useState(false);
+  const [deleteConfirmBuilding, setDeleteConfirmBuilding] = useState<Building | null>(null);
+  const [deleteBuildingError, setDeleteBuildingError] = useState<string | null>(null);
   const { showToast } = useToast();
 
   const handleSaveBuilding = () => {
@@ -81,6 +85,26 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
 
   const toggleFloor = (id: string) => {
     setExpandedFloorIds(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleDeleteBuilding = (building: Building) => {
+    setDeleteBuildingError(null);
+    setDeleteConfirmBuilding(building);
+  };
+
+  const confirmDeleteBuilding = () => {
+    if (!deleteConfirmBuilding) return;
+
+    deleteBuilding.mutate({ id: deleteConfirmBuilding.id, suppressToast: true }, {
+      onSuccess: () => {
+        if (expandedBuildingId === deleteConfirmBuilding.id) setExpandedBuildingId(null);
+        setDeleteConfirmBuilding(null);
+        setDeleteBuildingError(null);
+      },
+      onError: (error: any) => {
+        setDeleteBuildingError(error?.message || "Không thể xóa tòa nhà. Vui lòng kiểm tra lại dữ liệu hợp đồng.");
+      },
+    });
   };
 
   const formatCompactMoney = (amount: number) => {
@@ -148,7 +172,7 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
                   <div className="flex items-center gap-1.5 shrink-0">
                     <ActionMenu 
                       onEdit={() => setEditingBuilding(b)} 
-                      onDelete={() => showToast("Đã xóa tòa nhà thành công", "success")} 
+                      onDelete={() => handleDeleteBuilding(b)} 
                       itemName="tòa nhà" 
                     />
                     {isExpanded ? <ChevronDown size={20} className="text-[#6366f1]" /> : <ChevronRight size={20} className="text-muted" />}
@@ -309,6 +333,72 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
         >
           <Plus size={18} className="text-[#22c55e]" /> Thêm tòa nhà
         </button>
+      )}
+
+      {deleteConfirmBuilding && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-[4px]"
+            onClick={() => !deleteBuilding.isPending && setDeleteConfirmBuilding(null)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            data-testid="delete-building-confirm-modal"
+            className="relative w-full max-w-[380px] overflow-hidden rounded-[18px] border border-border bg-card shadow-2xl animate-in zoom-in-95 duration-200"
+          >
+            <div className="flex items-start gap-3 border-b border-border/60 p-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-rose-500/10 text-rose-500">
+                <Trash2 size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[16px] font-black text-text">Xác nhận xóa tòa nhà</h3>
+                <p className="mt-1 text-[12px] font-medium leading-5 text-muted">
+                  Bạn đang xóa <span className="font-black text-text">{deleteConfirmBuilding.name}</span>. Dữ liệu sẽ được xóa mềm khỏi danh sách vận hành.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={deleteBuilding.isPending}
+                onClick={() => setDeleteConfirmBuilding(null)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] text-muted hover:bg-black/5 hover:text-text disabled:opacity-50"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <div className="rounded-[12px] border border-amber-500/20 bg-amber-500/10 p-3 text-[12px] font-semibold leading-5 text-amber-700 dark:text-amber-300">
+                Nếu tòa nhà còn phòng đang có hợp đồng hoạt động, hệ thống sẽ không cho xóa để tránh mất dữ liệu hợp đồng.
+              </div>
+              {deleteBuildingError && (
+                <div className="mt-3 rounded-[12px] border border-rose-500/20 bg-rose-500/10 p-3 text-[12px] font-bold leading-5 text-rose-600 dark:text-rose-300">
+                  {deleteBuildingError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-border/60 bg-black/[0.02] p-4 dark:bg-white/[0.02]">
+              <button
+                type="button"
+                disabled={deleteBuilding.isPending}
+                onClick={() => setDeleteConfirmBuilding(null)}
+                className="h-10 rounded-[10px] border border-border px-4 text-[13px] font-bold text-muted hover:bg-black/5 hover:text-text disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={deleteBuilding.isPending}
+                onClick={confirmDeleteBuilding}
+                className="flex h-10 items-center justify-center rounded-[10px] bg-rose-500 px-4 text-[13px] font-bold text-white shadow-sm hover:bg-rose-600 disabled:opacity-60"
+              >
+                {deleteBuilding.isPending ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Trash2 size={16} className="mr-2" />}
+                Xóa tòa nhà
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Add / Edit Building Modal */}

@@ -203,88 +203,11 @@ function getAmenities(roomCode: string, floorId: CockpitFloorId) {
   return ["1 giường đơn", "Bàn làm việc", "Khu bếp", "WC/Tắm riêng trong phòng", "Tủ quần áo"];
 }
 
-function createMockSourceRoom(roomCode: string): Room {
-  const codeClean = roomCode.replace("PN ", "");
-  const parts = codeClean.split("-");
-  const suffix = parts[1] || "01";
-
-  const baseRoom: Room = {
-    id: `mock-room-${roomCode}`,
-    name: roomCode,
-    code: roomCode,
-    number: codeClean,
-    type: suffix === "03" || suffix === "07" ? "Studio" : suffix === "01" ? "1PN" : "2PN",
-    rentalType: "whole",
-    price: 3800000,
-    status: "vacant",
-    monthlyPrice: 3800000,
-    images: [],
-    invoices: [],
-  };
-
-  // Deterministic simulation
-  if (suffix === "01" || suffix === "02" || suffix === "04" || suffix === "06") {
-    return {
-      ...baseRoom,
-      status: "occupied",
-      monthlyPrice: 4200000,
-      price: 4200000,
-      capacity: 2,
-      tenant: {
-        id: `mock-tenant-${roomCode}`,
-        name: "Nguyễn Văn A",
-        phone: "0901234567",
-        email: "tenant@example.com",
-        cccd: "001099123456",
-        idImages: [],
-        tempResidence: true,
-      },
-      contract: {
-        id: `mock-contract-${roomCode}`,
-        code: `HD-${codeClean}`,
-        startDate: "2025-01-01",
-        endDate: "2027-01-01",
-        deposit: 5000000,
-        rentPrice: 4200000,
-      },
-    };
-  } else if (suffix === "05") {
-    const tenDaysFromNow = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
-    return {
-      ...baseRoom,
-      status: "occupied",
-      monthlyPrice: 4500000,
-      price: 4500000,
-      capacity: 2,
-      tenant: {
-        id: `mock-tenant-${roomCode}`,
-        name: "Lê Văn C",
-        phone: "0907654321",
-        email: "tenant-c@example.com",
-        cccd: "001099654321",
-        idImages: [],
-        tempResidence: false,
-      },
-      contract: {
-        id: `mock-contract-${roomCode}`,
-        code: `HD-${codeClean}`,
-        startDate: "2025-01-01",
-        endDate: tenDaysFromNow,
-        deposit: 6000000,
-        rentPrice: 4500000,
-      },
-    };
-  }
-
-  return baseRoom;
-}
-
 function buildRoomSpecs(layout: FloorLayoutSpec, floor: Floor | undefined, floorId: CockpitFloorId): CockpitRoomSpec[] {
   const roomsByCode = new Map((floor?.rooms || []).map((room) => [normalizeCode(room.code), room]));
-  const isTesting = typeof process !== "undefined" && (process.env.VITEST === "true" || process.env.NODE_ENV === "test");
   return layout.units.map((unit: ApartmentUnitSpec): CockpitRoomSpec => {
     const dbRoom = roomsByCode.get(normalizeCode(unit.roomCode));
-    const sourceRoom = dbRoom || (isTesting ? undefined : createMockSourceRoom(unit.roomCode));
+    const sourceRoom = dbRoom;
     const spaces = layout.spaces.filter((space) => unit.spaceIds.includes(space.id));
     const childSpaces: CockpitRoomSpace[] = spaces.map((space) => ({
       id: space.id.replace(/^pn-\d+-/, "").replace(/^ground-room-/, ""),
@@ -321,21 +244,10 @@ function buildRoomSpecs(layout: FloorLayoutSpec, floor: Floor | undefined, floor
   });
 }
 
-const fallbackBuilding: Building = {
-  id: "fixture-lk01-31",
-  name: "LK01-31",
-  code: "LK01-31",
-  address: "Khu đô thị An Phú, Phường Tân An, TP. Buôn Ma Thuột, Đắk Lắk",
-  images: [],
-  status: "active",
-  floors: [],
-};
-
-export function createCockpitBuildingSpec(buildings: Building[], requestedCode: string, allowFixtureFallback = false): CockpitBuildingSpec | null {
+export function createCockpitBuildingSpec(buildings: Building[], requestedCode: string): CockpitBuildingSpec | null {
   const descriptor = resolveBuildingTemplate(requestedCode);
   if (!descriptor) return null;
-  const raw = buildings.find((building) => normalizeBuildingCode(building.code || building.name) === descriptor.code)
-    || (allowFixtureFallback && descriptor.code === "LK01-31" ? fallbackBuilding : null);
+  const raw = buildings.find((building) => normalizeBuildingCode(building.code || building.name) === descriptor.code);
   if (!raw) return null;
   const floors: CockpitFloorSpec[] = baseFloorMeta.map((meta) => {
     const sourceFloor = raw.floors.find((floor) => floor.number === meta.dbNumber);
@@ -370,8 +282,8 @@ export function createCockpitBuildingSpec(buildings: Building[], requestedCode: 
   };
 }
 
-export function createLk0131CockpitSpec(buildings: Building[], allowFixtureFallback = false) {
-  return createCockpitBuildingSpec(buildings, "LK01-31", allowFixtureFallback);
+export function createLk0131CockpitSpec(buildings: Building[]) {
+  return createCockpitBuildingSpec(buildings, "LK01-31");
 }
 
 export function resolveFloorLayoutSpec(building: CockpitBuildingSpec, floorId: string | null) {

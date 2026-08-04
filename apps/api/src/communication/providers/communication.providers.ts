@@ -2,6 +2,56 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CommunicationProvider } from '../communication.service';
 import { NotificationChannel } from '../../automation/automation.constants';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { SettingScope } from '@prisma/client';
+import { PrismaService } from '../../prisma.service';
+import nodemailer from 'nodemailer';
+
+type ProviderPayload = {
+  tenantId?: string;
+  recipient?: string | null;
+  title?: string;
+  message?: string;
+  context?: Record<string, any>;
+  [key: string]: any;
+};
+
+async function readTenantSetting<T extends Record<string, any>>(
+  prisma: PrismaService,
+  tenantId: string | undefined,
+  key: string,
+): Promise<T> {
+  if (!tenantId) throw new Error('Missing tenantId for provider dispatch');
+
+  const record = await prisma.appSetting.findUnique({
+    where: {
+      tenantId_scope_ownerId_key: {
+        tenantId,
+        scope: SettingScope.TENANT,
+        ownerId: tenantId,
+        key,
+      },
+    },
+  });
+
+  return ((record?.value as T) || {}) as T;
+}
+
+function assertEnabled(settings: Record<string, any>, providerName: string) {
+  if (settings.enabled === false) {
+    throw new Error(`${providerName} provider is disabled`);
+  }
+}
+
+function resolveRecipient(payload: ProviderPayload, keys: string[]) {
+  if (payload.recipient) return String(payload.recipient);
+
+  for (const key of keys) {
+    const value = payload.context?.[key];
+    if (value) return String(value);
+  }
+
+  return '';
+}
 
 @Injectable()
 export class InAppProvider implements CommunicationProvider {
@@ -27,25 +77,129 @@ export class ConsoleProvider implements CommunicationProvider {
   }
 }
 
-// STUBS
 @Injectable() export class EmailProvider implements CommunicationProvider {
   channel = NotificationChannel.EMAIL;
-  async send(payload: any): Promise<any> { 
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async send(payload: ProviderPayload): Promise<any> {
     if (payload?.testMode === 'FAIL_PROVIDER') {
       throw new Error('Simulated failure for E2E testing');
     }
-    return { success: true, stub: true }; 
+
+    const settings = await readTenantSetting<any>(this.prisma, payload.tenantId, 'email-provider');
+    assertEnabled(settings, 'Email');
+
+    const host = String(settings.smtpHost || '').trim();
+    const port = Number(settings.smtpPort || 587);
+    const recipient = resolveRecipient(payload, ['email', 'customerEmail', 'userEmail']);
+
+    if (!host || !recipient) {
+      throw new Error('Email provider is not configured');
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: Boolean(settings.smtpSecure),
+      auth: settings.smtpUser
+        ? {
+            user: settings.smtpUser,
+            pass: settings.smtpPassword || '',
+          }
+        : undefined,
+    });
+
+    const fromName = settings.fromName || 'HomeLand';
+    const fromEmail = settings.fromEmail || settings.smtpUser;
+    if (!fromEmail) throw new Error('Email sender is not configured');
+
+    const info = await transporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: recipient,
+      subject: payload.title || 'HomeLand notification',
+      text: payload.message || '',
+      html: settings.sendHtml === false ? undefined : String(payload.message || '').replace(/\n/g, '<br />'),
+    });
+
+    return { success: true, providerMessageId: info.messageId };
   }
 }
 
 @Injectable() export class TelegramProvider implements CommunicationProvider {
   channel = NotificationChannel.TELEGRAM;
-  async send(payload: any): Promise<any> { return { success: true, stub: true }; }
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async send(payload: ProviderPayload): Promise<any> {
+    const settings = await readTenantSetting<any>(this.prisma, payload.tenantId, 'telegram-provider');
+    assertEnabled(settings, 'Telegram');
+
+    const botToken = String(settings.botToken || '').trim();
+    const chatId = resolveRecipient(payload, ['telegramChatId', 'chatId']) || String(settings.defaultChatId || '').trim();
+
+    if (!botToken || !chatId) {
+      throw new Error('Telegram provider is not configured');
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: [payload.title, payload.message].filter(Boolean).join('\n\n'),
+        parse_mode: settings.parseMode || undefined,
+        disable_web_page_preview: settings.disableWebPreview ?? true,
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || body?.ok === false) {
+      throw new Error(body?.description || `Telegram send failed with ${response.status}`);
+    }
+
+    return { success: true, telegramMessageId: body?.result?.message_id };
+  }
 }
 
 @Injectable() export class ZaloProvider implements CommunicationProvider {
   channel = NotificationChannel.ZALO;
-  async send(payload: any): Promise<any> { return { success: true, stub: true }; }
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async send(payload: ProviderPayload): Promise<any> {
+    const settings = await readTenantSetting<any>(this.prisma, payload.tenantId, 'zalo-provider');
+    assertEnabled(settings, 'Zalo');
+
+    const accessToken = String(settings.accessToken || '').trim();
+    const endpoint = String(settings.messageEndpoint || 'https://openapi.zalo.me/v3.0/oa/message/cs').trim();
+    const recipient = resolveRecipient(payload, ['zaloUserId', 'customerZaloUserId', 'customerPhone']);
+
+    if (!accessToken || !recipient) {
+      throw new Error('Zalo provider is not configured');
+    }
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        access_token: accessToken,
+      },
+      body: JSON.stringify({
+        recipient: { user_id: recipient },
+        message: {
+          text: [payload.title, payload.message].filter(Boolean).join('\n\n'),
+        },
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || (body?.error && Number(body.error) !== 0)) {
+      throw new Error(body?.message || body?.error_name || `Zalo send failed with ${response.status}`);
+    }
+
+    return { success: true, zaloResponse: body };
+  }
 }
 
 @Injectable() export class SMSProvider implements CommunicationProvider {

@@ -8,7 +8,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { PrismaService } from '../prisma.service';
 import { TokenService } from './services/token.service';
 import { PasswordService } from './services/password.service';
-import { MailProvider, LoggerMailProvider } from './services/mail.service';
+import { MailProvider, DbSmtpMailProvider } from './services/mail.service';
 
 @Module({
   imports: [
@@ -31,7 +31,7 @@ import { MailProvider, LoggerMailProvider } from './services/mail.service';
     PrismaService, 
     TokenService, 
     PasswordService,
-    { provide: MailProvider, useClass: LoggerMailProvider }
+    { provide: MailProvider, useClass: DbSmtpMailProvider }
   ],
   exports: [AuthService, TokenService, PasswordService, MailProvider],
 })

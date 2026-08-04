@@ -73,7 +73,7 @@ export class BuildingsService extends BaseCrudService<Building> {
       floors: { where: { deletedAt: null } },
       rooms: {
         where: { deletedAt: null },
-        include: { contracts: { where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } }
+        include: { contracts: { where: { deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } }
       }
     });
     

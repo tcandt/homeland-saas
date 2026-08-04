@@ -4,11 +4,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BuildingsRepository } from './buildings.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { HttpException } from '@nestjs/common';
+import { PrismaService } from '../prisma.service';
 
 describe('BuildingsService', () => {
   let service: BuildingsService;
   let repository: BuildingsRepository;
   let auditService: AuditService;
+  let prismaService: PrismaService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -32,12 +34,20 @@ describe('BuildingsService', () => {
             log: vi.fn(),
           },
         },
+        {
+          provide: PrismaService,
+          useValue: {
+            room: { updateMany: vi.fn() },
+            floor: { updateMany: vi.fn() },
+          },
+        },
       ],
     }).compile();
 
     service = module.get<BuildingsService>(BuildingsService);
     repository = module.get<BuildingsRepository>(BuildingsRepository);
     auditService = module.get<AuditService>(AuditService);
+    prismaService = module.get<PrismaService>(PrismaService);
   });
 
   it('should be defined', () => {
@@ -101,7 +111,7 @@ describe('BuildingsService', () => {
 
   describe('softDelete', () => {
     it('should delete building if no business rules prevent it', async () => {
-      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'b1', _count: { floors: 0, rooms: 0 } } as any);
+      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'b1', floors: [], rooms: [] } as any);
       vi.spyOn(repository, 'softDelete').mockResolvedValue({ id: 'b1' } as any);
       
       await service.softDelete('b1', 'u1');
@@ -110,9 +120,33 @@ describe('BuildingsService', () => {
     });
 
     it('should reject delete if active floors or rooms exist', async () => {
-      vi.spyOn(repository, 'findById').mockResolvedValue({ id: 'b1', _count: { floors: 1, rooms: 0 } } as any);
+      vi.spyOn(repository, 'findById').mockResolvedValue({
+        id: 'b1',
+        floors: [],
+        rooms: [{ id: 'r1', contracts: [{ id: 'c1' }] }],
+      } as any);
       
       await expect(service.softDelete('b1', 'u1')).rejects.toThrow(HttpException);
+    });
+
+    it('should cascade soft delete floors and rooms without active contracts', async () => {
+      vi.spyOn(repository, 'findById').mockResolvedValue({
+        id: 'b1',
+        floors: [{ id: 'f1' }],
+        rooms: [{ id: 'r1', contracts: [] }],
+      } as any);
+      vi.spyOn(repository, 'softDelete').mockResolvedValue({ id: 'b1' } as any);
+
+      await service.softDelete('b1', 'u1');
+
+      expect(prismaService.room.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['r1'] } },
+        data: { deletedAt: expect.any(Date), deletedBy: 'u1' },
+      });
+      expect(prismaService.floor.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['f1'] } },
+        data: { deletedAt: expect.any(Date), deletedBy: 'u1' },
+      });
     });
   });
 });

@@ -1,24 +1,83 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { SettingScope } from '@prisma/client';
+import nodemailer from 'nodemailer';
+import { PrismaService } from '../../prisma.service';
 
 export abstract class MailProvider {
-  abstract sendPasswordResetEmail(email: string, token: string): Promise<void>;
-  abstract sendWelcomeEmail(email: string): Promise<void>;
-  abstract sendEmailVerification(email: string, token: string): Promise<void>;
+  abstract sendPasswordResetEmail(email: string, token: string, tenantId: string): Promise<void>;
+  abstract sendWelcomeEmail(email: string, tenantId: string): Promise<void>;
+  abstract sendEmailVerification(email: string, token: string, tenantId: string): Promise<void>;
 }
 
 @Injectable()
-export class LoggerMailProvider implements MailProvider {
-  private readonly logger = new Logger(LoggerMailProvider.name);
+export class DbSmtpMailProvider implements MailProvider {
+  constructor(private readonly prisma: PrismaService) {}
 
-  async sendPasswordResetEmail(email: string, token: string): Promise<void> {
-    this.logger.log(`[MAIL STUB] Password reset email sent to ${email}. Token: ${token}`);
+  private async getSettings(tenantId: string) {
+    const record = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: tenantId,
+          key: 'email-provider',
+        },
+      },
+    });
+    const settings = (record?.value as any) || {};
+
+    if (settings.enabled === false || !settings.smtpHost) {
+      throw new Error('Email provider is not configured');
+    }
+
+    return settings;
   }
 
-  async sendWelcomeEmail(email: string): Promise<void> {
-    this.logger.log(`[MAIL STUB] Welcome email sent to ${email}`);
+  private async sendMail(tenantId: string, to: string, subject: string, message: string) {
+    const settings = await this.getSettings(tenantId);
+    const transporter = nodemailer.createTransport({
+      host: settings.smtpHost,
+      port: Number(settings.smtpPort || 587),
+      secure: Boolean(settings.smtpSecure),
+      auth: settings.smtpUser
+        ? {
+            user: settings.smtpUser,
+            pass: settings.smtpPassword || '',
+          }
+        : undefined,
+    });
+    const fromName = settings.fromName || 'HomeLand';
+    const fromEmail = settings.fromEmail || settings.smtpUser;
+    if (!fromEmail) throw new Error('Email sender is not configured');
+
+    await transporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to,
+      subject,
+      text: message,
+      html: settings.sendHtml === false ? undefined : message.replace(/\n/g, '<br />'),
+    });
   }
 
-  async sendEmailVerification(email: string, token: string): Promise<void> {
-    this.logger.log(`[MAIL STUB] Email verification sent to ${email}. Token: ${token}`);
+  async sendPasswordResetEmail(email: string, token: string, tenantId: string): Promise<void> {
+    await this.sendMail(
+      tenantId,
+      email,
+      'HomeLand password reset',
+      `Use this token to reset your password:\n\n${token}\n\nThis token expires in 1 hour.`,
+    );
+  }
+
+  async sendWelcomeEmail(email: string, tenantId: string): Promise<void> {
+    await this.sendMail(tenantId, email, 'Welcome to HomeLand', 'Welcome to HomeLand.');
+  }
+
+  async sendEmailVerification(email: string, token: string, tenantId: string): Promise<void> {
+    await this.sendMail(
+      tenantId,
+      email,
+      'Verify your HomeLand email',
+      `Use this token to verify your email:\n\n${token}`,
+    );
   }
 }

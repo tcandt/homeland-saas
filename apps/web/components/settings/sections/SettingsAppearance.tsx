@@ -25,7 +25,7 @@ const fallback: AppearanceSettings = {
 export default function SettingsAppearance() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<AppearanceSettings>("appearance", "USER", fallback);
 
-  const accentColors = ["#6366f1", "#8b5cf6", "#f97316", "#3b82f6", "#ec4899", "#8b5cf6"];
+  const accentColors = ["#6366f1", "#8b5cf6", "#f97316", "#3b82f6", "#ec4899"];
 
   return (
     <form

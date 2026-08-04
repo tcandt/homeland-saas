@@ -6,6 +6,7 @@ import { Filter, FileText, Plus } from "lucide-react";
 import FinancialCommandKpi from "@/components/finance/FinancialCommandKpi";
 import FinancialCommandLedger from "@/components/finance/FinancialCommandLedger";
 import FinancialCommandDrawer from "@/components/finance/FinancialCommandDrawer";
+import FinanceMobileFlow from "@/components/finance/FinanceMobileFlow";
 import { useFinanceStore } from "@/lib/stores/finance.store";
 import { useLedgerQuery } from "@/lib/queries/finance.queries";
 import toast from "react-hot-toast";
@@ -54,7 +55,14 @@ export default function FinancePage() {
 
   return (
     <AppShell>
-      <div data-testid="finance-root" className="relative w-full min-h-full flex flex-col gap-[16px] md:gap-[24px]">
+      <div className="block md:hidden">
+        <div className="mb-4">
+          <h1 className="font-black text-[22px] text-text">Tai chinh</h1>
+        </div>
+        <FinanceMobileFlow />
+      </div>
+
+      <div data-testid="finance-root" className="hidden md:flex relative w-full min-h-full flex-col gap-[16px] md:gap-[24px]">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/50 pb-4">
           <div>
             <h1 className="font-black text-[20px] md:text-[28px] text-text tracking-tight">Financial Command Center</h1>

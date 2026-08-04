@@ -5,7 +5,7 @@ import { NotificationChannel } from '../automation/automation.constants';
 
 export interface CommunicationPayload {
   tenantId: string;
-  userId: string;
+  userId?: string | null;
   templateCode: string;
   moduleType?: string; // e.g. FINANCE, CONTRACT
   channel?: string;
@@ -49,7 +49,9 @@ export class CommunicationService {
       }
     });
 
-    const channelsToUse = preferences?.channels || [NotificationChannel.IN_APP, NotificationChannel.CONSOLE];
+    const channelsToUse = payload.channel
+      ? [payload.channel]
+      : preferences?.channels || [NotificationChannel.IN_APP, NotificationChannel.CONSOLE];
 
     // 3. Compile template
     const title = template.subject ? this.templateEngine.compile(template.subject, payload.context) : template.name;
@@ -60,6 +62,7 @@ export class CommunicationService {
       data: {
         tenantId: payload.tenantId,
         userId: payload.userId,
+        channel: payload.channel ? (payload.channel as NotificationChannel) : NotificationChannel.IN_APP,
         title,
         message,
         type: payload.templateCode,
@@ -77,7 +80,17 @@ export class CommunicationService {
           tenantId: payload.tenantId,
           notificationId: notification.id,
           channel: channelEnum,
-          payload: { title, message, context: payload.context },
+          payload: {
+            tenantId: payload.tenantId,
+            userId: payload.userId,
+            recipient: payload.recipient,
+            templateCode: payload.templateCode,
+            moduleType: payload.moduleType,
+            channel: channelEnum,
+            title,
+            message,
+            context: payload.context,
+          },
           status: 'QUEUED'
         }
       });

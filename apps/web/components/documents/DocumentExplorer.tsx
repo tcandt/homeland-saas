@@ -18,19 +18,17 @@ export default function DocumentExplorer() {
     try {
       setLoading(true);
       const authStore = localStorage.getItem("auth-storage");
-      let token = "demo-token";
+      let token = "";
       if (authStore) {
         try {
-          token = JSON.parse(authStore).state?.accessToken || "demo-token";
+          token = JSON.parse(authStore).state?.accessToken || "";
         } catch {
           // ignore malformed local storage state
         }
       }
 
       const res = await fetch("/api/v1/documents", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (!res.ok) throw new Error("Failed to fetch");
       const json = await res.json();

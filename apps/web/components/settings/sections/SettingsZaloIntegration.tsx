@@ -14,6 +14,7 @@ type ZaloSettings = {
   officialAccountId: string;
   accessToken: string;
   appSecret: string;
+  messageEndpoint: string;
   senderName: string;
   paymentRequestTemplateCode: string;
   paymentConfirmationTemplateCode: string;
@@ -26,6 +27,7 @@ const fallback: ZaloSettings = {
   officialAccountId: "",
   accessToken: "",
   appSecret: "",
+  messageEndpoint: "https://openapi.zalo.me/v3.0/oa/message/cs",
   senderName: "HomeLand",
   paymentRequestTemplateCode: "INVOICE_ZALO_PAYMENT_REQUEST",
   paymentConfirmationTemplateCode: "INVOICE_ZALO_PAYMENT_CONFIRMATION",
@@ -81,6 +83,10 @@ export default function SettingsZaloIntegration() {
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">App secret</label>
             <Input value={draft.appSecret} onChange={(event) => setDraft((prev) => ({ ...prev, appSecret: event.target.value }))} placeholder="Zalo app secret" />
+          </div>
+          <div className="flex flex-col gap-[6px] lg:col-span-2">
+            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Message API endpoint</label>
+            <Input value={draft.messageEndpoint} onChange={(event) => setDraft((prev) => ({ ...prev, messageEndpoint: event.target.value }))} placeholder="https://openapi.zalo.me/v3.0/oa/message/cs" />
           </div>
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Template yêu cầu thanh toán</label>

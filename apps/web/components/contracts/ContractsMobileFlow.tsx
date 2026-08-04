@@ -41,7 +41,7 @@ export default function ContractsMobileFlow() {
 
   const responseData = data?.data as any;
   const contracts = useMemo(() => normalizeContracts(responseData), [responseData]);
-  const total = Number(responseData?.total || contracts.length || 0);
+  const total = Number((data as any)?.meta?.total || contracts.length || 0);
 
   const stats = useMemo(() => {
     const active = contracts.filter((contract: any) => getStatusGroup(contract) === "ACTIVE").length;

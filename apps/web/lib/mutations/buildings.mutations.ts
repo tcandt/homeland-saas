@@ -66,7 +66,8 @@ export const useDeleteBuildingMutation = () => {
   const { showToast } = useToast();
 
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (input: string | { id: string; suppressToast?: boolean }) => {
+      const id = typeof input === 'string' ? input : input.id;
       await buildingsApi.delete(id);
       return id;
     },
@@ -74,8 +75,11 @@ export const useDeleteBuildingMutation = () => {
       showToast('Đã xóa tòa nhà thành công', 'success');
       queryClient.invalidateQueries({ queryKey: ['buildings'] });
     },
-    onError: (error: any) => {
-      showToast(error?.message || 'Có lỗi khi xóa tòa nhà', 'error');
+    onError: (error: any, input) => {
+      const suppressToast = typeof input !== 'string' && input?.suppressToast;
+      if (!suppressToast) {
+        showToast(error?.message || 'Có lỗi khi xóa tòa nhà', 'error');
+      }
     },
   });
 };

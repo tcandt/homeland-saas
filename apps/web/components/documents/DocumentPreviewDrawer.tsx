@@ -111,10 +111,10 @@ export default function DocumentPreviewDrawer({ open, documentId, onClose, onSig
       const authData = localStorage.getItem('auth-storage');
       if (authData) {
         const parsed = JSON.parse(authData);
-        return parsed?.state?.accessToken || 'demo-token';
+        return parsed?.state?.accessToken || '';
       }
     } catch(e) {}
-    return 'demo-token';
+    return '';
   };
 
   const loadDocument = async () => {
@@ -122,9 +122,7 @@ export default function DocumentPreviewDrawer({ open, documentId, onClose, onSig
     try {
       const token = getToken();
       const res = await fetch(`/api/v1/documents/${documentId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
       });
       if (!res.ok) throw new Error('Failed to load document');
       const data = await res.json();
@@ -153,7 +151,7 @@ export default function DocumentPreviewDrawer({ open, documentId, onClose, onSig
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           partyId: signingParty.id,

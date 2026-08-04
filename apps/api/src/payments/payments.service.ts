@@ -274,6 +274,15 @@ export class PaymentsService {
     return String(payload.transaction_id || payload.id || '');
   }
 
+  private resolveWebhookPaymentCode(payload: SePayWebhookPayload) {
+    const explicitCode = String(payload.code || payload.payment_code || '').trim();
+    if (explicitCode) return explicitCode;
+
+    const text = String(payload.content || payload.description || '').toUpperCase();
+    const match = text.match(/[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+/);
+    return match?.[0] || '';
+  }
+
   async handleSePayWebhook(payload: SePayWebhookPayload, authorization?: string) {
     const webhookSettings = await this.prisma.appSetting.findMany({
       where: {
@@ -285,16 +294,19 @@ export class PaymentsService {
       },
     });
 
-    const configuredKeys = webhookSettings
-      .map((setting) => (setting.value as any)?.webhookApiKey)
-      .filter((value): value is string => Boolean(value && String(value).trim()));
-    const expectedKeys = Array.from(new Set([process.env.SEPAY_WEBHOOK_API_KEY, ...configuredKeys].filter(Boolean) as string[]));
+    const expectedKeys = Array.from(new Set(
+      webhookSettings
+        .map((setting) => (setting.value as any)?.webhookApiKey)
+        .filter((value): value is string => Boolean(value && String(value).trim())),
+    ));
 
-    if (expectedKeys.length) {
-      const expectedAuthMatched = expectedKeys.some((key) => authorization === `Apikey ${key}`);
-      if (!expectedAuthMatched) {
-        throw new UnauthorizedException('Unauthorized SePay webhook');
-      }
+    if (!expectedKeys.length) {
+      throw new UnauthorizedException('SePay webhook is not configured');
+    }
+
+    const expectedAuthMatched = expectedKeys.some((key) => authorization === `Apikey ${key}`);
+    if (!expectedAuthMatched) {
+      throw new UnauthorizedException('Unauthorized SePay webhook');
     }
 
     const transactionId = this.resolveWebhookTransactionId(payload);
@@ -304,7 +316,8 @@ export class PaymentsService {
 
     const providerAmount = Number(payload.transferAmount ?? payload.amount ?? 0);
     const transferType = String(payload.transferType || payload.transfer_type || '').toLowerCase();
-    const paymentCode = String(payload.code || payload.payment_code || '').trim();
+    const paymentCode = this.resolveWebhookPaymentCode(payload);
+    const accountNumber = String(payload.accountNumber || payload.account_number || payload.bank_account_xid || '').trim();
 
     const log = await this.prisma.paymentWebhookLog.upsert({
       where: {
@@ -339,6 +352,7 @@ export class PaymentsService {
       where: {
         provider: PaymentProvider.SEPAY,
         paymentCode,
+        ...(accountNumber ? { bankAccountNumber: accountNumber } : {}),
       },
     });
 

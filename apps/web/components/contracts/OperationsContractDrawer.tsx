@@ -375,7 +375,10 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
   const representatives = [
     detailContract.customer,
     ...(detailContract.coRepresentatives || [])
-  ].filter(Boolean);
+  ].filter(Boolean).filter((rep: any, index: number, items: any[]) => {
+    if (!rep?.id) return true;
+    return items.findIndex((item: any) => item?.id === rep.id) === index;
+  });
 
   const { roomCode, buildingName } = getRoomLabel(detailContract);
   const memberCount = Number(detailContract.memberCount || 0);
@@ -727,7 +730,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               
               <div className="flex flex-col gap-[12px] border-b border-border/50 pb-3">
                 {representatives.map((rep: any, idx: number) => (
-                  <div key={rep.id || idx} className="flex items-center gap-2">
+                  <div key={`${rep.id || "representative"}-${idx}`} className="flex items-center gap-2">
                     <div className="w-[36px] h-[36px] rounded-[10px] bg-[#6366f1]/10 text-[#6366f1] flex items-center justify-center font-bold text-sm">
                       {(rep.fullName || rep.name)?.[0]?.toUpperCase() || '?'}
                     </div>

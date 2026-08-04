@@ -32,6 +32,7 @@ export default function RoomMapCard({ roomVM, isSelected, onSelect, onMouseEnter
   // Derive display values safely (unified formatter)
   const roomNameCompact = formatRoomCompactName(room);
   const capacity = room.capacity || 2;
+  const activeRent = room.contract?.rentPrice && room.contract.rentPrice > 0 ? room.contract.rentPrice : undefined;
   
   let tenantDisplay = "Sẵn sàng cho thuê";
   if (primaryStatus === "occupied") {
@@ -76,9 +77,9 @@ export default function RoomMapCard({ roomVM, isSelected, onSelect, onMouseEnter
         <span className={`text-[13px] font-extrabold truncate ${primaryStatus === 'vacant' ? 'italic text-muted/80' : 'text-text'}`}>
           {tenantDisplay}
         </span>
-        {primaryStatus === "occupied" && room.monthlyPrice && (
+        {primaryStatus === "occupied" && activeRent && (
           <span className="text-[12px] text-primary font-black mt-0.5">
-            {formatMoney(room.monthlyPrice)} / tháng
+            {formatMoney(activeRent)} / tháng
           </span>
         )}
       </div>

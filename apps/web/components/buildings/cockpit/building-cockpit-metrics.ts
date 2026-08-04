@@ -33,7 +33,7 @@ export function getBuildingMetrics(building: CockpitBuildingSpec) {
     const end = room.contract?.endDate ? new Date(room.contract.endDate).getTime() : Number.NaN;
     return Number.isFinite(end) && end >= now && end <= inThirtyDays;
   }).length;
-  const residentCount = rooms.reduce((sum, room) => sum + Math.max(room.occupants, room.status === "occupied" ? 1 : 0), 0);
+  const residentCount = rooms.reduce((sum, room) => sum + room.occupants, 0);
   const monthlyRevenue = rooms.reduce((sum, room) => (room.status === "occupied" || room.status === "expiring_soon") ? sum + (room.monthlyRent || 0) : sum, 0);
   const occupancyRate = rooms.length ? Math.round((occupiedRooms / rooms.length) * 100) : 0;
   const declaredTemporaryResidence = rooms.filter((room) => room.sourceRoom?.tenant?.tempResidence).length;

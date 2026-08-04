@@ -57,7 +57,7 @@ export default function FinancePage() {
     <AppShell>
       <div className="block md:hidden">
         <div className="mb-4">
-          <h1 className="font-black text-[22px] text-text">Tai chinh</h1>
+          <h1 className="font-black text-[22px] text-text">Tài chính</h1>
         </div>
         <FinanceMobileFlow />
       </div>

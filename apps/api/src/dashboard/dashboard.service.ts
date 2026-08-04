@@ -63,7 +63,7 @@ export class DashboardService {
             include: {
               contracts: {
                 where: { deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } },
-                select: { id: true, endDate: true },
+                select: { id: true, endDate: true, monthlyRent: true },
               },
             },
           },
@@ -88,15 +88,30 @@ export class DashboardService {
       }),
     ]);
 
-    const occupancyRate = totalRooms > 0 ? (occupiedRooms / totalRooms) * 100 : 0;
+    const roomsFromBuildings = buildings.flatMap((building) => building.rooms);
+    const activeRoomIds = new Set(
+      roomsFromBuildings
+        .filter((room) => room.contracts.length > 0)
+        .map((room) => room.id),
+    );
+    const syncedOccupiedRooms = activeRoomIds.size || occupiedRooms;
+    const occupancyRate = totalRooms > 0 ? (syncedOccupiedRooms / totalRooms) * 100 : 0;
     const totalDebt = openInvoices.reduce((sum, invoice) => sum + Math.max(0, Number(invoice.total) - Number(invoice.paidAmount || 0)), 0);
     const overdueInvoices = openInvoices.filter((invoice) => invoice.status === 'OVERDUE' || invoice.dueDate < now);
     const overdueAmount = overdueInvoices.reduce((sum, invoice) => sum + Math.max(0, Number(invoice.total) - Number(invoice.paidAmount || 0)), 0);
-    const revenueHistory = await this.getRevenueHistory(tenantId, now);
+    const contractMonthlyRevenue = roomsFromBuildings.reduce((sum, room) => {
+      return sum + room.contracts.reduce((roomSum, contract) => roomSum + Number(contract.monthlyRent || 0), 0);
+    }, 0);
+    const syncedRevenue = Number(profitLoss.revenue || 0) > 0 ? Number(profitLoss.revenue) : contractMonthlyRevenue;
+    const syncedProfit = Number(profitLoss.revenue || 0) > 0
+      ? Number(profitLoss.profit || 0)
+      : contractMonthlyRevenue - Number(profitLoss.expense || 0);
+    const syncedCashFlow = Number(cashFlow.net || 0) !== 0 ? Number(cashFlow.net) : syncedRevenue - Number(cashFlow.outflow || 0);
+    const revenueHistory = this.withOperationalRevenueFallback(await this.getRevenueHistory(tenantId, now), syncedRevenue);
     const buildingHealth = buildings.map((building) => {
       const roomCount = building.rooms.length;
-      const occupied = building.rooms.filter((room) => room.status === 'OCCUPIED').length;
-      const vacant = building.rooms.filter((room) => room.status === 'AVAILABLE').length;
+      const occupied = building.rooms.filter((room) => room.contracts.length > 0 || room.status === 'OCCUPIED').length;
+      const vacant = building.rooms.filter((room) => room.status === 'AVAILABLE' && room.contracts.length === 0).length;
       const expiring = building.rooms.reduce((count, room) => {
         return count + room.contracts.filter((contract) => contract.endDate >= now && contract.endDate <= thirtyDaysFromNow).length;
       }, 0);
@@ -147,18 +162,18 @@ export class DashboardService {
         { label: 'Hóa đơn chờ thu', count: openInvoices.length, amount: `${totalDebt.toLocaleString('vi-VN')} đ` },
       ],
       kpis: {
-        totalRevenue: profitLoss.revenue,
+        totalRevenue: syncedRevenue,
         totalExpense: profitLoss.expense,
-        netProfit: profitLoss.profit,
-        netCashFlow: cashFlow.net,
+        netProfit: syncedProfit,
+        netCashFlow: syncedCashFlow,
         totalDebt,
         depositHeld: Number(depositHeld._sum.amount || 0),
       },
       occupancy: {
         totalRooms,
-        occupiedRooms,
-        rented: occupiedRooms,
-        available: Math.max(0, totalRooms - occupiedRooms - reservedRooms - maintenanceRooms - cleaningRooms),
+        occupiedRooms: syncedOccupiedRooms,
+        rented: syncedOccupiedRooms,
+        available: Math.max(0, totalRooms - syncedOccupiedRooms - reservedRooms - maintenanceRooms - cleaningRooms),
         reserved: reservedRooms,
         maintenance: maintenanceRooms,
         cleaning: cleaningRooms,
@@ -169,8 +184,8 @@ export class DashboardService {
         expiringContracts,
       },
       finance: {
-        profitMargin: profitLoss.margin,
-        inflow: cashFlow.inflow,
+        profitMargin: syncedRevenue > 0 ? (syncedProfit / syncedRevenue) * 100 : profitLoss.margin,
+        inflow: Number(cashFlow.inflow || 0) > 0 ? cashFlow.inflow : syncedRevenue,
         outflow: cashFlow.outflow
       },
       revenueHistory,
@@ -217,6 +232,18 @@ export class DashboardService {
       const expenseAmount = Number(expense._sum.amount || 0);
       return { month: month.month, revenue: revenueAmount, profit: revenueAmount - expenseAmount };
     }));
+  }
+
+  private withOperationalRevenueFallback<T extends { revenue: number; profit: number }>(history: T[], monthlyRevenue: number): T[] {
+    if (monthlyRevenue <= 0 || history.some((item) => Number(item.revenue || 0) > 0)) {
+      return history;
+    }
+
+    return history.map((item, index) => (
+      index === history.length - 1
+        ? { ...item, revenue: monthlyRevenue, profit: monthlyRevenue }
+        : item
+    ));
   }
 
   private buildInsights(input: { totalDebt: number; overdueCount: number; expiringContracts: number; occupancyRate: number }) {

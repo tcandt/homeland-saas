@@ -53,6 +53,11 @@ export default function FloorPlanView({
     return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(amount);
   };
 
+  const getActiveRent = (room: RoomOperationalViewModel["room"]) => {
+    const rent = room.contract?.rentPrice;
+    return rent && rent > 0 ? rent : undefined;
+  };
+
   const getFloorName = (floorNumber: number) => {
     if (floorNumber === 1) return "Tầng trệt";
     return `Tầng ${floorNumber - 1}`;
@@ -257,7 +262,7 @@ export default function FloorPlanView({
                       <Users size={10} /> {rVM.currentOccupants}/{rVM.room.capacity || 2}
                     </span>
                     <span className="font-bold text-primary">
-                      {formatMoney(rVM.room.monthlyPrice)}
+                      {getActiveRent(rVM.room) ? formatMoney(getActiveRent(rVM.room)!) : "-"}
                     </span>
                   </div>
                 </button>

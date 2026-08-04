@@ -20,7 +20,7 @@ import {
   getStatusLabel,
   getStatusTone,
 } from "./building-cockpit-metrics";
-import { overviewFloorHotspots, overviewRoomHotspots } from "./building-image-maps";
+import { getOverviewFloorHotspots, getOverviewRoomHotspots } from "./building-image-maps";
 import BuildingPortfolioRail from "./BuildingPortfolioRail";
 import FloorPlanCanvas from "./FloorPlanCanvas";
 import FloorRoomTable from "./FloorRoomTable";
@@ -69,8 +69,8 @@ function StatusLegend() {
 
 
 
-function getOverviewRoomPoints(floorId: string, side: "left" | "right"): string | null {
-  return overviewRoomHotspots[floorId as CockpitFloorId]?.[side] || null;
+function getOverviewRoomPoints(building: CockpitBuildingSpec, floorId: string, side: "left" | "right"): string | null {
+  return getOverviewRoomHotspots(building.templateId)[floorId as CockpitFloorId]?.[side] || null;
 }
 
 function getOverviewRoomLabelAnchor(points: string) {
@@ -176,6 +176,7 @@ function BuildingModelViewer({
   onEditBuilding?: (buildingCode: string) => void;
 }) {
   const orderedFloors = useMemo(() => [...building.floors].reverse(), [building.floors]);
+  const overviewFloorPoints = useMemo(() => getOverviewFloorHotspots(building.templateId), [building.templateId]);
   const [hoveredFloorId, setHoveredFloorId] = useState<CockpitFloorId | null>(null);
   const activeFloorId = hoveredFloorId || floor.id;
 
@@ -301,7 +302,7 @@ function BuildingModelViewer({
                       const roomSpec = getOverviewRoomSpec(floorItem, side);
                       if (!roomSpec) return null;
                       const colors = getOverviewStatusColor(roomSpec.status);
-                      const points = getOverviewRoomPoints(floorItem.id, side);
+                      const points = getOverviewRoomPoints(building, floorItem.id, side);
                       if (!points) return null;
                       const selected = activeRoomId === roomSpec.id;
                       const labelAnchor = getOverviewRoomLabelAnchor(points);
@@ -363,7 +364,7 @@ function BuildingModelViewer({
                 return (
                   <polygon
                     key={item.id}
-                    points={overviewFloorHotspots[item.id]}
+                    points={overviewFloorPoints[item.id]}
                     role="button"
                     tabIndex={0}
                     aria-label={`Mở ${item.label}`}
@@ -401,12 +402,11 @@ function FloorInformation({ floor }: { floor: CockpitFloorSpec }) {
   const operationalRooms = floor.rooms.filter((item) => item.sourceRoom);
   const occupiedRooms = operationalRooms.filter((item) => item.status === "occupied" || item.status === "expiring_soon").length;
   const occupants = operationalRooms.reduce((sum, item) => sum + item.occupants, 0);
-  const capacity = operationalRooms.reduce((sum, item) => sum + item.capacity, 0);
   const revenue = operationalRooms.reduce((sum, item) => sum + ((item.status === "occupied" || item.status === "expiring_soon") ? item.monthlyRent || 0 : 0), 0);
   const values = [
     ["Phòng đã đồng bộ", `${operationalRooms.length}/${floor.rooms.length}`],
     ["Tỷ lệ lấp đầy", operationalRooms.length ? `${getFloorOccupancy({ ...floor, rooms: operationalRooms })}%` : "—"],
-    ["Công suất", operationalRooms.length ? `${occupants}/${capacity}` : "—"],
+    ["Tạm trú", operationalRooms.length ? `${occupants} người` : "—"],
     ["Doanh thu tầng", operationalRooms.length ? formatVnd(revenue) : "—"],
     ["Chiều cao tầng", `${floor.heightMeters} m`],
   ];
@@ -517,7 +517,6 @@ function FloorPlanPanel({
 function FloorOperationsPanel({ floor, onSelectRoom }: { floor: CockpitFloorSpec; onSelectRoom: (room: CockpitRoomSpec) => void }) {
   const operationalRooms = floor.rooms.filter((item) => item.sourceRoom);
   const occupied = operationalRooms.filter((item) => item.status === "occupied" || item.status === "expiring_soon").length;
-  const capacity = operationalRooms.reduce((sum, item) => sum + item.capacity, 0);
   const occupants = operationalRooms.reduce((sum, item) => sum + item.occupants, 0);
 
   return (
@@ -528,8 +527,8 @@ function FloorOperationsPanel({ floor, onSelectRoom }: { floor: CockpitFloorSpec
       </header>
       <div className="grid grid-cols-2 gap-2 border-b border-border/20 dark:border-white/5 p-3">
         <div className="rounded-xl bg-surface/55 p-2.5">
-          <span className="text-[12px] font-semibold text-muted">Công suất</span>
-          <strong className="mt-0.5 block text-[17px] font-black tabular-nums text-text">{operationalRooms.length ? `${occupants}/${capacity}` : "—"}</strong>
+          <span className="text-[12px] font-semibold text-muted">Tạm trú</span>
+          <strong className="mt-0.5 block text-[17px] font-black tabular-nums text-text">{operationalRooms.length ? `${occupants} người` : "—"}</strong>
         </div>
         <div className="rounded-xl bg-primary/[0.055] p-2.5">
           <span className="text-[12px] font-semibold text-muted">Đã thuê</span>

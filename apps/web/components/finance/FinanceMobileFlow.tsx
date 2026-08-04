@@ -61,7 +61,7 @@ export default function FinanceMobileFlow() {
   if (isError) {
     return (
       <div data-testid="finance-mobile-error" className="rounded-[12px] border border-rose-500/20 bg-rose-500/10 p-4 text-[13px] font-bold text-rose-500">
-        Khong tai duoc du lieu tai chinh tu API.
+        Không tải được dữ liệu tài chính từ API.
       </div>
     );
   }
@@ -69,40 +69,40 @@ export default function FinanceMobileFlow() {
   return (
     <div data-testid="finance-mobile-flow" className="flex w-full flex-col gap-[16px] bg-background pb-[100px]">
       <section className="grid grid-cols-2 gap-3">
-        <MetricCard label="Tong thu" value={formatMoney(stats.inflow)} icon={<TrendingUp size={16} />} tone="text-[#4f46e5] bg-[#4f46e5]/10 border-[#4f46e5]/20" />
-        <MetricCard label="Tong chi" value={formatMoney(stats.outflow)} icon={<TrendingDown size={16} />} tone="text-rose-500 bg-rose-500/10 border-rose-500/20" />
-        <MetricCard label="Loi nhuan" value={formatMoney(stats.profit)} icon={<Wallet size={16} />} tone={stats.profit >= 0 ? "text-[#16a34a] bg-[#16a34a]/10 border-[#16a34a]/20" : "text-rose-500 bg-rose-500/10 border-rose-500/20"} />
-        <MetricCard label="Lap day" value={`${Number(occupancy.rate || 0).toFixed(0)}%`} icon={<CheckCircle2 size={16} />} tone="text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20" />
+        <MetricCard label="Tổng thu" value={formatMoney(stats.inflow)} icon={<TrendingUp size={16} />} tone="text-[#4f46e5] bg-[#4f46e5]/10 border-[#4f46e5]/20" />
+        <MetricCard label="Tổng chi" value={formatMoney(stats.outflow)} icon={<TrendingDown size={16} />} tone="text-rose-500 bg-rose-500/10 border-rose-500/20" />
+        <MetricCard label="Lợi nhuận" value={formatMoney(stats.profit)} icon={<Wallet size={16} />} tone={stats.profit >= 0 ? "text-[#16a34a] bg-[#16a34a]/10 border-[#16a34a]/20" : "text-rose-500 bg-rose-500/10 border-rose-500/20"} />
+        <MetricCard label="Lấp đầy" value={`${Number(occupancy.rate || 0).toFixed(0)}%`} icon={<CheckCircle2 size={16} />} tone="text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20" />
       </section>
 
       <section className="grid grid-cols-3 gap-2">
-        <SmallStat label="Margin" value={`${stats.margin.toFixed(1)}%`} />
+        <SmallStat label="Biên LN" value={`${stats.margin.toFixed(1)}%`} />
         <SmallStat label="Draft" value={stats.draftCount.toString()} />
         <SmallStat label="Posted" value={stats.postedCount.toString()} />
       </section>
 
       <section className="rounded-[12px] border border-border bg-card p-3">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-[14px] font-black text-text">Doi soat tu DB</h3>
+          <h3 className="text-[14px] font-black text-text">Đối soát từ DB</h3>
           <AlertCircle size={16} className="text-muted" />
         </div>
         <div className="grid grid-cols-2 gap-2 text-[12px] font-bold">
-          <div className="rounded-[8px] bg-orange-500/10 p-3 text-orange-500">{stats.draftCount} but toan DRAFT</div>
-          <div className="rounded-[8px] bg-blue-500/10 p-3 text-blue-500">{stats.depositCount} nguon DEPOSIT</div>
-          <div className="rounded-[8px] bg-rose-500/10 p-3 text-rose-500">{stats.expenseCount} nguon EXPENSE</div>
-          <div className="rounded-[8px] bg-[#16a34a]/10 p-3 text-[#16a34a]">{stats.postedCount} da POSTED</div>
+          <div className="rounded-[8px] bg-orange-500/10 p-3 text-orange-500">{stats.draftCount} bút toán DRAFT</div>
+          <div className="rounded-[8px] bg-blue-500/10 p-3 text-blue-500">{stats.depositCount} nguồn DEPOSIT</div>
+          <div className="rounded-[8px] bg-rose-500/10 p-3 text-rose-500">{stats.expenseCount} nguồn EXPENSE</div>
+          <div className="rounded-[8px] bg-[#16a34a]/10 p-3 text-[#16a34a]">{stats.postedCount} đã POSTED</div>
         </div>
       </section>
 
       <section className="rounded-[12px] border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border p-3">
-          <h3 className="text-[14px] font-black text-text">So cai gan nhat</h3>
-          <span className="text-[11px] font-bold text-muted">{rows.length} dong</span>
+          <h3 className="text-[14px] font-black text-text">Sổ cái gần nhất</h3>
+          <span className="text-[11px] font-bold text-muted">{rows.length} dòng</span>
         </div>
 
         {recentRows.length === 0 ? (
           <div data-testid="empty-finance-mobile-state" className="p-5 text-center text-[13px] font-medium text-muted">
-            Chua co giao dich nao trong DB.
+            Chưa có giao dịch nào trong DB.
           </div>
         ) : (
           <div className="divide-y divide-border">

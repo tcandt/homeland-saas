@@ -9,14 +9,41 @@ const MANAGED_BUILDING_DISPLAY_ORDER = new Map<string, number>(
   MANAGED_BUILDINGS.map((code, index) => [code, index * 1000]),
 );
 export const LK01_ROOM_TOPOLOGY = [
-  { level: 1, suffix: '01', bedCount: 1, capacity: 1, area: 25, monthlyPrice: 6500000 },
-  { level: 2, suffix: '02', bedCount: 2, capacity: 2, area: 50, monthlyPrice: 9500000 },
-  { level: 2, suffix: '03', bedCount: 1, capacity: 1, area: 18, monthlyPrice: 6500000 },
-  { level: 3, suffix: '04', bedCount: 2, capacity: 2, area: 50, monthlyPrice: 9500000 },
-  { level: 3, suffix: '05', bedCount: 1, capacity: 1, area: 18, monthlyPrice: 6500000 },
-  { level: 4, suffix: '06', bedCount: 2, capacity: 2, area: 50, monthlyPrice: 9500000 },
-  { level: 4, suffix: '07', bedCount: 1, capacity: 1, area: 18, monthlyPrice: 6500000 },
+  { level: 1, suffix: '01', bedCount: 1, capacity: 2, area: 25, monthlyPrice: 0 },
+  { level: 2, suffix: '02', bedCount: 2, capacity: 4, area: 50, monthlyPrice: 0 },
+  { level: 2, suffix: '03', bedCount: 1, capacity: 2, area: 18, monthlyPrice: 0 },
+  { level: 3, suffix: '04', bedCount: 2, capacity: 4, area: 50, monthlyPrice: 0 },
+  { level: 3, suffix: '05', bedCount: 1, capacity: 2, area: 18, monthlyPrice: 0 },
+  { level: 4, suffix: '06', bedCount: 2, capacity: 4, area: 50, monthlyPrice: 0 },
+  { level: 4, suffix: '07', bedCount: 1, capacity: 2, area: 18, monthlyPrice: 0 },
 ] as const;
+
+const LK08_ROOM_TOPOLOGY = {
+  'LK08.24': [
+    { level: 1, code: 'P24-01' },
+    { level: 2, code: 'P24-02' },
+    { level: 2, code: 'P24-03' },
+    { level: 2, code: 'P24-04' },
+    { level: 3, code: 'P24-05' },
+    { level: 3, code: 'P24-06' },
+    { level: 3, code: 'P24-07' },
+    { level: 4, code: 'P24-08' },
+    { level: 4, code: 'P24-09' },
+    { level: 4, code: 'P24-10' },
+  ],
+  'LK08.25': [
+    { level: 1, code: 'P25-01' },
+    { level: 2, code: 'P25-02' },
+    { level: 2, code: 'P25-03' },
+    { level: 2, code: 'P25-04' },
+    { level: 3, code: 'P25-05' },
+    { level: 3, code: 'P25-06' },
+    { level: 3, code: 'P25-07' },
+    { level: 4, code: 'P25-08' },
+    { level: 4, code: 'P25-09' },
+    { level: 4, code: 'P25-10' },
+  ],
+} as const;
 
 const floorName = (level: number) => level === 1 ? 'Tầng trệt' : `Tầng ${level - 1}`;
 
@@ -140,6 +167,31 @@ export async function ensureManagedBuildingStructure(prisma: DatabaseClient, ten
     const uniqueCodes = new Set(targetRooms.map((room) => room.code));
     if (targetRooms.length !== 7 || uniqueCodes.size !== 7) throw new Error(`Clone LK01.32 không hợp lệ: ${targetRooms.length} phòng/${uniqueCodes.size} mã duy nhất`);
     const existingOperationalRelations = targetRooms.reduce((sum, room) => sum + room.contracts.length + room.deposits.length, 0);
+
+    for (const [buildingCode, topology] of Object.entries(LK08_ROOM_TOPOLOGY)) {
+      const building = buildings.get(buildingCode)!;
+      const floors = await tx.floor.findMany({ where: { tenantId, buildingId: building.id }, orderBy: { level: 'asc' } });
+      const floorByLevel = new Map(floors.map((floor) => [floor.level, floor]));
+
+      for (const roomSpec of topology) {
+        const floor = floorByLevel.get(roomSpec.level)!;
+        await tx.room.upsert({
+          where: { tenantId_buildingId_code: { tenantId, buildingId: building.id, code: roomSpec.code } },
+          update: { floorId: floor.id, deletedAt: null },
+          create: {
+            tenantId,
+            buildingId: building.id,
+            floorId: floor.id,
+            code: roomSpec.code,
+            name: roomSpec.code,
+            bedCount: 1,
+            capacity: 2,
+            area: 25,
+            monthlyPrice: 0,
+          },
+        });
+      }
+    }
 
     return { buildingCount: buildings.size, sourceRoomCount: sourceRooms.length, clonedRoomCount: targetRooms.length, existingOperationalRelations, cleanedLegacyRoomCount };
   });

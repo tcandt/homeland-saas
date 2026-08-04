@@ -22,8 +22,8 @@ export default function TransactionList() {
       <div className="md:bg-card md:border md:border-border/50 md:rounded-2xl md:shadow-sm md:overflow-hidden flex flex-col md:p-6 mb-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <div>
-            <h3 className="text-[16px] font-black text-text">Giao dich gan day</h3>
-            <p className="text-[12px] font-medium text-muted mt-1">Lich su thu chi tu ledger trong DB</p>
+            <h3 className="text-[16px] font-black text-text">Giao dịch gần đây</h3>
+            <p className="text-[12px] font-medium text-muted mt-1">Lịch sử thu chi từ ledger trong DB</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -31,7 +31,7 @@ export default function TransactionList() {
               <Search size={14} className="text-muted" />
               <input
                 type="text"
-                placeholder="Tim giao dich..."
+                placeholder="Tìm giao dịch..."
                 className="bg-transparent border-0 outline-none text-[12px] font-medium text-text w-full md:w-[150px] placeholder:text-muted"
               />
             </div>
@@ -47,11 +47,11 @@ export default function TransactionList() {
           </div>
         ) : isError ? (
           <div className="rounded-[12px] border border-rose-500/20 bg-rose-500/10 p-4 text-[13px] font-bold text-rose-500">
-            Khong tai duoc du lieu giao dich.
+            Không tải được dữ liệu giao dịch.
           </div>
         ) : rows.length === 0 ? (
           <div data-testid="empty-transaction-state" className="rounded-[12px] border border-border bg-black/5 p-5 text-center text-[13px] font-medium text-muted dark:bg-white/5">
-            Chua co giao dich nao trong DB.
+            Chưa có giao dịch nào trong DB.
           </div>
         ) : (
           <>
@@ -59,12 +59,12 @@ export default function TransactionList() {
               <table className="w-full text-left border-collapse">
                 <thead className="bg-muted/30">
                   <tr>
-                    <th className="py-4 px-5 pl-6 text-[11px] font-bold text-muted uppercase tracking-wider w-[120px]">Ma GD</th>
-                    <th className="py-4 px-5 text-[11px] font-bold text-muted uppercase tracking-wider w-[120px]">Ngay</th>
-                    <th className="py-4 px-5 text-[11px] font-bold text-muted uppercase tracking-wider">Noi dung</th>
-                    <th className="py-4 px-5 text-[11px] font-bold text-muted uppercase tracking-wider w-[120px]">Tai khoan</th>
-                    <th className="py-4 px-5 text-[11px] font-bold text-muted uppercase tracking-wider text-right w-[140px]">So tien</th>
-                    <th className="py-4 px-5 pr-6 text-[11px] font-bold text-muted uppercase tracking-wider text-right w-[120px]">Trang thai</th>
+                    <th className="py-4 px-5 pl-6 text-[11px] font-bold text-muted uppercase tracking-wider w-[120px]">Mã GD</th>
+                    <th className="py-4 px-5 text-[11px] font-bold text-muted uppercase tracking-wider w-[120px]">Ngày</th>
+                    <th className="py-4 px-5 text-[11px] font-bold text-muted uppercase tracking-wider">Nội dung</th>
+                    <th className="py-4 px-5 text-[11px] font-bold text-muted uppercase tracking-wider w-[120px]">Tài khoản</th>
+                    <th className="py-4 px-5 text-[11px] font-bold text-muted uppercase tracking-wider text-right w-[140px]">Số tiền</th>
+                    <th className="py-4 px-5 pr-6 text-[11px] font-bold text-muted uppercase tracking-wider text-right w-[120px]">Trạng thái</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50 bg-card">

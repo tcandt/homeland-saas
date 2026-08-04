@@ -28,6 +28,7 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
   const sourceRoomId = room.sourceRoom?.id;
   const hasOperationalData = Boolean(sourceRoomId);
   const statusLabel = hasOperationalData ? getStatusLabel(room.status) : "Chưa đồng bộ";
+  const hasActiveRent = room.status !== "vacant" && Boolean(room.monthlyRent);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -71,7 +72,7 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
           {row("Diện tích ước tính", `~${room.estimatedArea.toFixed(1)} m²`)}
           {row("Tình trạng", <span style={{ color: hasOperationalData ? tone.text : "var(--muted-foreground, #94a3b8)" }}>{statusLabel}</span>)}
           {row("Cửa ra vào", `${room.entryDoorCount} cửa`)}
-          {row("Giá thuê", room.monthlyRent ? formatVnd(room.monthlyRent) : "Chưa đặt")}
+          {row("Giá thuê", hasActiveRent ? formatVnd(room.monthlyRent) : "Thiết lập khi khách vào ở")}
         </div>
       </section>
 

@@ -11,8 +11,9 @@ import { floor2Layout } from "../views/visualizer/layouts/floor-2.layout";
 import { floor3Layout } from "../views/visualizer/layouts/floor-3.layout";
 import { floor4Layout } from "../views/visualizer/layouts/floor-4.layout";
 import type { CockpitBuildingSpec, CockpitFloorId, CockpitFloorSpec, CockpitRoomSpec, CockpitRoomSpace } from "./building-cockpit.types";
-import { buildingOverviewImage, floorImageMaps } from "./building-image-maps";
+import { floorImageMaps, getBuildingOverviewImage, getFloorImageMap } from "./building-image-maps";
 import { normalizeBuildingCode, resolveBuildingTemplate } from "./building-template-registry";
+import type { BuildingTemplateDescriptor } from "./building-template-registry";
 
 const WIDTH = 5;
 const LENGTH = 20;
@@ -143,12 +144,92 @@ export const groundFloorLayout: FloorLayoutSpec = {
   ],
 };
 
-const baseFloorMeta: Array<{ id: CockpitFloorId; dbNumber: number; label: string; shortLabel: string; layout: FloorLayoutSpec; roomSuffixes: string[] }> = [
+type FloorMeta = { id: CockpitFloorId; dbNumber: number; label: string; shortLabel: string; layout: FloorLayoutSpec; roomSuffixes: string[] };
+
+function lk08Layout(prefix: string, floorId: CockpitFloorId, suffixes: string[]): FloorLayoutSpec {
+  const isGround = floorId === "ground";
+  const upperUnits = [
+    { suffix: suffixes[0], slot: "right", boundary: rect(11.9, 0, 16, 9) },
+    { suffix: suffixes[1], slot: "middle", boundary: rect(5.85, 0, 10.05, 9) },
+    { suffix: suffixes[2], slot: "left", boundary: rect(0, 0, 5.65, 9) },
+  ].filter((unit) => unit.suffix);
+
+  const spaces: SpaceSpec[] = isGround
+    ? [
+      { id: `${prefix}-ground-parking`, type: "parking", boundary: rect(0, 0, 9.8, 9), furniture: [] },
+      { id: `${prefix}-ground-room`, type: "single-bedroom", boundary: rect(10.1, 0, 16, 9), furniture: [item(`${prefix}-01-bed`, "single-bed", 13.5, 4.8)] },
+      { id: `${prefix}-ground-bath`, type: "bathroom", boundary: rect(14.5, 0, 16, 2.5), furniture: [item(`${prefix}-01-toilet`, "toilet", 15.2, 1.2)] },
+      { id: `${prefix}-ground-kitchen`, type: "kitchen", boundary: rect(10.1, 6.8, 16, 9), furniture: [item(`${prefix}-01-counter`, "kitchen-counter", 12.8, 8)] },
+    ]
+    : [
+      { id: `${prefix}-${floorId}-corridor`, type: "corridor", boundary: rect(10.1, 0, 11.75, 9), furniture: [] },
+      ...upperUnits.flatMap((unit) => ([
+        { id: `${prefix}-${floorId}-${unit.slot}-room`, type: "single-bedroom" as const, boundary: unit.boundary, furniture: [item(`${prefix}-${unit.suffix}-bed`, "single-bed", (unit.boundary[0].x + unit.boundary[2].x) / 2, 4.6)] },
+      ])),
+    ];
+
+  const units: ApartmentUnitSpec[] = isGround
+    ? [{
+      id: `unit-${prefix}-01`,
+      roomCode: `${prefix}-01`,
+      type: "single-room",
+      boundary: rect(10.1, 0, 16, 9),
+      spaceIds: [`${prefix}-ground-room`, `${prefix}-ground-bath`, `${prefix}-ground-kitchen`],
+    }]
+    : upperUnits.map((unit) => ({
+      id: `unit-${prefix}-${unit.suffix}`,
+      roomCode: `${prefix}-${unit.suffix}`,
+      type: "single-room",
+      boundary: unit.boundary,
+      spaceIds: [`${prefix}-${floorId}-${unit.slot}-room`],
+    }));
+
+  const walls: WallSegment[] = [
+    wall(`${prefix}-${floorId}-outer-top`, 0, 0, 16, 0),
+    wall(`${prefix}-${floorId}-outer-bottom`, 0, 9, 16, 9),
+    wall(`${prefix}-${floorId}-outer-left`, 0, 0, 0, 9),
+    wall(`${prefix}-${floorId}-outer-right`, 16, 0, 16, 9),
+    wall(`${prefix}-${floorId}-stair-left`, 10.1, 0, 10.1, 9),
+    wall(`${prefix}-${floorId}-stair-right`, 11.75, 0, 11.75, 9),
+  ];
+
+  const doors: DoorOpening[] = units.map((unit, index) => door(
+    `${unit.id}-door`,
+    `${prefix}-${floorId}-stair-left`,
+    1 + index * 2,
+    0.85,
+    [isGround ? `${prefix}-ground-room` : `${prefix}-${floorId}-corridor`, unit.spaceIds[0]],
+  ));
+
+  return {
+    id: `lk08-${prefix}-${floorId}-layout`,
+    floorNumber: isGround ? 1 : Number(floorId) + 1,
+    width: 16,
+    length: 9,
+    units,
+    spaces,
+    walls,
+    doors,
+  };
+}
+
+const lk01FloorMeta: FloorMeta[] = [
   { id: "ground", dbNumber: 1, label: "Tầng trệt", shortLabel: "Trệt", layout: groundFloorLayout, roomSuffixes: ["01"] },
   { id: "1", dbNumber: 2, label: "Tầng 1", shortLabel: "Tầng 1", layout: floor2Layout, roomSuffixes: ["02", "03"] },
   { id: "2", dbNumber: 3, label: "Tầng 2", shortLabel: "Tầng 2", layout: floor3Layout, roomSuffixes: ["04", "05"] },
   { id: "3", dbNumber: 4, label: "Tầng 3", shortLabel: "Tầng 3", layout: floor4Layout, roomSuffixes: ["06", "07"] },
 ];
+
+function getFloorMeta(descriptor: BuildingTemplateDescriptor): FloorMeta[] {
+  if (descriptor.templateId !== "LK08_STANDARD") return lk01FloorMeta;
+  const prefix = descriptor.roomPrefix || "P24";
+  return [
+    { id: "ground", dbNumber: 1, label: "Tầng trệt", shortLabel: "Trệt", layout: lk08Layout(prefix, "ground", ["01"]), roomSuffixes: ["01"] },
+    { id: "1", dbNumber: 2, label: "Tầng 1", shortLabel: "Tầng 1", layout: lk08Layout(prefix, "1", ["02", "03", "04"]), roomSuffixes: ["02", "03", "04"] },
+    { id: "2", dbNumber: 3, label: "Tầng 2", shortLabel: "Tầng 2", layout: lk08Layout(prefix, "2", ["05", "06", "07"]), roomSuffixes: ["05", "06", "07"] },
+    { id: "3", dbNumber: 4, label: "Tầng 3", shortLabel: "Tầng 3", layout: lk08Layout(prefix, "3", ["08", "09", "10"]), roomSuffixes: ["08", "09", "10"] },
+  ];
+}
 
 function roomCode(prefix: string, suffix: string) {
   return `${prefix}-${suffix}`;
@@ -191,16 +272,33 @@ const spaceLabel: Record<SpaceSpec["type"], string> = {
 };
 
 function getRoomType(code: string, floorId: CockpitFloorId) {
+  if (code.startsWith("P24-") || code.startsWith("P25-")) return "Studio 1 giường";
   if (floorId === "ground") return "Studio 1 giường";
   return code.endsWith("02") || code.endsWith("04") || code.endsWith("06") ? "Căn 2PN mini + phòng khách" : "Studio 1 giường";
 }
 
 function getAmenities(roomCode: string, floorId: CockpitFloorId) {
+  if (roomCode.startsWith("P24-") || roomCode.startsWith("P25-")) return ["1 giường", "Khu bếp", "WC/Tắm riêng trong phòng", "Tủ quần áo"];
   if (floorId === "ground") return ["1 giường đơn", "Bàn làm việc", "Khu bếp", "WC/Tắm riêng trong phòng", "Quyền sử dụng khu để xe"];
   if (roomCode.endsWith("02") || roomCode.endsWith("04") || roomCode.endsWith("06")) {
     return ["2 phòng ngủ mini", "Phòng khách", "Khu bếp", "WC/Tắm riêng"];
   }
   return ["1 giường đơn", "Bàn làm việc", "Khu bếp", "WC/Tắm riêng trong phòng", "Tủ quần áo"];
+}
+
+function getMaxOccupancy(unit: ApartmentUnitSpec, sourceRoom?: Room) {
+  const bedCount = Number(sourceRoom?.bedCount || (unit.type === "large-suite" ? 2 : 1));
+  return Math.max(1, bedCount) * 2;
+}
+
+function countTemporaryResidents(room?: Room) {
+  if (!room) return 0;
+  const residents = [
+    room.tenant,
+    ...(room.roommates || []),
+    ...(room.sharedTenants || []),
+  ].filter(Boolean);
+  return residents.filter((resident) => resident?.tempResidence).length;
 }
 
 function buildRoomSpecs(layout: FloorLayoutSpec, floor: Floor | undefined, floorId: CockpitFloorId): CockpitRoomSpec[] {
@@ -221,6 +319,7 @@ function buildRoomSpecs(layout: FloorLayoutSpec, floor: Floor | undefined, floor
       const connectedInside = item.connects.filter((spaceId) => spaceIds.has(spaceId)).length;
       return connectedInside === 1;
     }).length;
+    const activeRent = sourceRoom?.contract?.rentPrice;
 
     return {
       id: sourceRoom?.id || `structure-${roomCodeToUrl(unit.roomCode)}`,
@@ -231,9 +330,9 @@ function buildRoomSpecs(layout: FloorLayoutSpec, floor: Floor | undefined, floor
       type: getRoomType(unit.roomCode, floorId),
       status: sourceRoom?.status || "vacant",
       estimatedArea: sourceRoom?.area || (unit.type === "large-suite" ? 50 : 18),
-      capacity: sourceRoom?.capacity || (unit.type === "large-suite" ? 2 : 1),
-      occupants: sourceRoom?.tenant ? 1 : 0,
-      monthlyRent: sourceRoom?.monthlyPrice,
+      capacity: getMaxOccupancy(unit, sourceRoom),
+      occupants: countTemporaryResidents(sourceRoom),
+      monthlyRent: typeof activeRent === "number" && activeRent > 0 ? activeRent : undefined,
       entryDoorCount,
       amenities: getAmenities(unit.roomCode, floorId),
       polygon: unit.boundary,
@@ -249,10 +348,11 @@ export function createCockpitBuildingSpec(buildings: Building[], requestedCode: 
   if (!descriptor) return null;
   const raw = buildings.find((building) => normalizeBuildingCode(building.code || building.name) === descriptor.code);
   if (!raw) return null;
-  const floors: CockpitFloorSpec[] = baseFloorMeta.map((meta) => {
+  const floorMeta = getFloorMeta(descriptor);
+  const floors: CockpitFloorSpec[] = floorMeta.map((meta) => {
     const sourceFloor = raw.floors.find((floor) => floor.number === meta.dbNumber);
     const prefix = descriptor.roomPrefix || "31";
-    const layout = remapLayout(meta.layout, prefix);
+    const layout = descriptor.templateId === "LK08_STANDARD" ? meta.layout : remapLayout(meta.layout, prefix);
     return {
       id: meta.id,
       dbNumber: meta.dbNumber,
@@ -261,7 +361,7 @@ export function createCockpitBuildingSpec(buildings: Building[], requestedCode: 
       roomCodes: descriptor.layoutStatus === "pending" ? [] : meta.roomSuffixes.map((suffix) => roomCode(prefix, suffix)),
       heightMeters: 3.6,
       layout,
-      imageMap: remapImageMap(meta.id, prefix),
+      imageMap: descriptor.templateId === "LK08_STANDARD" ? getFloorImageMap(descriptor.templateId, meta.id, prefix) : remapImageMap(meta.id, prefix),
       rooms: descriptor.layoutStatus === "pending" ? [] : buildRoomSpecs(layout, sourceFloor, meta.id),
     };
   });
@@ -274,9 +374,9 @@ export function createCockpitBuildingSpec(buildings: Building[], requestedCode: 
     templateId: descriptor.templateId,
     layoutStatus: descriptor.layoutStatus,
     address: raw.address || "Chưa cập nhật địa chỉ",
-    widthMeters: WIDTH,
-    lengthMeters: LENGTH,
-    overviewImage: buildingOverviewImage,
+    widthMeters: descriptor.templateId === "LK08_STANDARD" ? 16 : WIDTH,
+    lengthMeters: descriptor.templateId === "LK08_STANDARD" ? 9 : LENGTH,
+    overviewImage: getBuildingOverviewImage(descriptor.templateId),
     floors,
     updatedAtLabel: "09:45  •  24/05/2025",
   };

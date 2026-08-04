@@ -82,6 +82,7 @@ export const adaptRoom = (apiRoom: any): Room => {
     signedAt: activeContract.signedAt,
     purpose: activeContract.purpose
   } : undefined;
+  const activeRent = contract?.rentPrice && contract.rentPrice > 0 ? contract.rentPrice : 0;
 
   // Additional contract holders (2nd, 3rd, etc.) => sharedTenants with isRep: true
   const additionalContractTenants = allContracts.slice(1).map((c: any) => c.customer ? {
@@ -147,9 +148,9 @@ export const adaptRoom = (apiRoom: any): Room => {
     number: apiRoom.name || apiRoom.code,
     type: "1PN",
     rentalType: "whole",
-    price: Number(apiRoom.monthlyPrice) || 0,
+    price: activeRent,
     status: uiStatus,
-    monthlyPrice: Number(apiRoom.monthlyPrice) || 0,
+    monthlyPrice: activeRent,
     area: toOptionalNumber(apiRoom.area),
     capacity: toOptionalNumber(apiRoom.capacity),
     bedCount: toOptionalNumber(apiRoom.bedCount),

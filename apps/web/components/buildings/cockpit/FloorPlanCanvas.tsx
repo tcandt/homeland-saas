@@ -112,6 +112,10 @@ function cloneMaps(rooms: RoomImageMap[]) {
 
 function RoomTooltip({ tooltip }: { tooltip: TooltipState }) {
   const hasOperationalData = Boolean(tooltip.room.sourceRoom);
+  const hasActiveRent = tooltip.room.status !== "vacant" && Boolean(tooltip.room.monthlyRent);
+  const temporaryResidenceText = hasOperationalData && tooltip.room.occupants > 0
+    ? ` · ${tooltip.room.occupants} người tạm trú`
+    : "";
   return (
     <div
       className="pointer-events-none absolute z-30 w-[230px] -translate-y-[calc(100%+14px)] rounded-xl border border-white/60 bg-slate-950/92 px-3 py-2.5 text-white shadow-xl backdrop-blur"
@@ -121,8 +125,8 @@ function RoomTooltip({ tooltip }: { tooltip: TooltipState }) {
       <strong className="block text-[13px] font-black">{tooltip.room.code}</strong>
       <span className="mt-1 block text-[12px] leading-4 text-slate-200">{tooltip.room.type}</span>
       <span className="mt-1.5 flex items-center justify-between text-[12px] text-slate-300">
-        <span>{hasOperationalData ? `${getStatusLabel(tooltip.room.status)} · ${tooltip.room.occupants}/${tooltip.room.capacity} người` : "Chưa đồng bộ vận hành"}</span>
-        <b className="text-white">{hasOperationalData && tooltip.room.monthlyRent ? formatVnd(tooltip.room.monthlyRent) : "—"}</b>
+        <span>{hasOperationalData ? `${getStatusLabel(tooltip.room.status)}${temporaryResidenceText}` : "Chưa đồng bộ vận hành"}</span>
+        <b className="text-white">{hasOperationalData && hasActiveRent ? formatVnd(tooltip.room.monthlyRent) : "—"}</b>
       </span>
     </div>
   );

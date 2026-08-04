@@ -79,6 +79,7 @@ export default function RoomDetailDrawer({ roomId, onClose, onOpenRoomModal, onD
 
   const { primaryStatus, warnings, paymentStatus, tempResidenceStatus, remainingContractDays, currentOccupants } = roomVM;
   const statusConfig = PRIMARY_STATUS_CONFIG[primaryStatus] || PRIMARY_STATUS_CONFIG.unknown;
+  const activeRent = room.contract?.rentPrice && room.contract.rentPrice > 0 ? room.contract.rentPrice : undefined;
 
   // Compile occupants names list
   const occupantsList: string[] = [];
@@ -148,7 +149,7 @@ export default function RoomDetailDrawer({ roomId, onClose, onOpenRoomModal, onD
             <div className="flex justify-between items-baseline text-[13px]">
               <span className="text-muted font-medium">Giá thuê tháng:</span>
               <span className="text-[16px] font-semibold text-indigo-500">
-                {room.monthlyPrice ? `${formatMoney(room.monthlyPrice)}` : "-"}
+                {activeRent ? `${formatMoney(activeRent)}` : "Thiết lập khi khách vào ở"}
               </span>
             </div>
 

@@ -37,7 +37,7 @@ export default function BuildingPortfolioRail({
         <div className="grid min-w-[1050px] grid-cols-[repeat(4,minmax(220px,1fr))_132px] gap-3 items-stretch">
           {buildingTemplateRegistry.map((descriptor) => {
             const building = buildingsByCode.get(descriptor.code);
-            const isPending = descriptor.layoutStatus === "pending" || building?.layoutStatus === "pending";
+            const isPending = !building || descriptor.layoutStatus === "pending" || building.layoutStatus === "pending";
             const isSelected = descriptor.code === normalizedActiveCode;
             const metrics = building && !isPending ? getBuildingMetrics(building) : null;
             const hasMetrics = Boolean(metrics && metrics.totalRooms > 0);

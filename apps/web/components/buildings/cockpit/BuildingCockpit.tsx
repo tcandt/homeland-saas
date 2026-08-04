@@ -33,7 +33,7 @@ import { normalizeBuildingCode } from "./building-template-registry";
 import { buildingTemplateRegistry } from "./building-template-registry";
 import type { CockpitBuildingSpec, CockpitFloorId, CockpitFloorSpec, CockpitRoomSpec } from "./building-cockpit.types";
 import { formatVnd, getBuildingMetrics, getFloorOccupancy, getStatusLabel, getStatusTone } from "./building-cockpit-metrics";
-import { overviewFloorHotspots } from "./building-image-maps";
+import { getOverviewFloorHotspots } from "./building-image-maps";
 import FloorPlanCanvas from "./FloorPlanCanvas";
 import RoomInspectorDrawer from "./RoomInspectorDrawer";
 import BuildingSwitcher from "./BuildingSwitcher";
@@ -133,6 +133,7 @@ function ExplodedBuildingImageStack({
   onHoverFloor: (floorId: CockpitFloorId | null) => void;
 }) {
   const ordered = [...building.floors].reverse();
+  const overviewFloorPoints = useMemo(() => getOverviewFloorHotspots(building.templateId), [building.templateId]);
   return (
     <div className="relative mx-auto h-[90%] max-h-full w-auto max-w-full shrink-0 select-none" style={{ aspectRatio: `${building.overviewImage.width} / ${building.overviewImage.height}`, transform: "translateX(14px)" }}>
       <Image
@@ -159,7 +160,7 @@ function ExplodedBuildingImageStack({
             className="absolute inset-0 cursor-pointer outline-none transition-[transform,filter] duration-200 ease-out hover:-translate-y-2 hover:brightness-105 hover:drop-shadow-[0_16px_14px_rgba(91,53,245,0.18)] focus-visible:-translate-y-2 focus-visible:brightness-105 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
             style={{
               clipPath: toOverviewClipPath(
-                overviewFloorHotspots[floor.id],
+                overviewFloorPoints[floor.id],
                 building.overviewImage.width,
                 building.overviewImage.height,
               ),
@@ -174,7 +175,7 @@ function ExplodedBuildingImageStack({
         {ordered.map((floor) => (
           <polygon
             key={floor.id}
-            points={overviewFloorHotspots[floor.id]}
+            points={overviewFloorPoints[floor.id]}
             fill={floor.id === activeFloorId ? "rgba(14,165,233,0.07)" : "transparent"}
             stroke={floor.id === activeFloorId ? "#0ea5e9" : "transparent"}
             strokeWidth="3"
@@ -191,7 +192,6 @@ function ExplodedBuildingImageStack({
 function FloorSummaryCard({ floor, active, onSelectFloor, onSelectRoom, onHoverFloor }: { floor: CockpitFloorSpec; active: boolean; onSelectFloor: (floorId: CockpitFloorId) => void; onSelectRoom: (floorId: CockpitFloorId, room: CockpitRoomSpec) => void; onHoverFloor: (floorId: CockpitFloorId | null) => void }) {
   const occupiedRooms = floor.rooms.filter((room) => room.status === "occupied").length;
   const occupants = floor.rooms.reduce((sum, room) => sum + room.occupants, 0);
-  const capacity = floor.rooms.reduce((sum, room) => sum + room.capacity, 0);
   return (
     <article
       className={cx("relative flex min-h-[112px] flex-col overflow-hidden rounded-[14px] border bg-white p-3 shadow-[0_10px_28px_rgba(15,23,42,0.045)] transition-[border-color,background-color,box-shadow] duration-200", active ? "border-[#5b35f5]/55 bg-[#faf9ff] shadow-[0_12px_30px_rgba(91,53,245,0.10)]" : "border-[#e8e7f3] hover:border-[#5b35f5]/30")}
@@ -217,7 +217,7 @@ function FloorSummaryCard({ floor, active, onSelectFloor, onSelectRoom, onHoverF
       </div>
       <div className="mt-auto flex items-center gap-3 border-t border-[#ececf6] pt-1.5 text-[12px] leading-4 font-bold text-slate-500">
         <span>{floor.rooms.length} phòng · {getFloorOccupancy(floor)}% lấp đầy</span>
-        <span className="ml-auto tabular-nums">Công suất {occupants}/{capacity}</span>
+        <span className="ml-auto tabular-nums">Tạm trú {occupants} người</span>
       </div>
     </article>
   );
@@ -378,7 +378,6 @@ function FloorWorkspace({
 }) {
   const occupiedRooms = floor.rooms.filter((item) => item.status === "occupied").length;
   const occupants = floor.rooms.reduce((sum, item) => sum + item.occupants, 0);
-  const capacity = floor.rooms.reduce((sum, item) => sum + item.capacity, 0);
   const floorRevenue = floor.rooms.reduce((sum, item) => sum + (item.monthlyRent || 0), 0);
   return (
     <div className={cx("grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(336px,372px)]", room ? "items-stretch" : "items-start", debugMode && "overflow-y-auto")}>
@@ -453,7 +452,7 @@ function FloorWorkspace({
             <h3 className="mb-3 text-[12px] font-black uppercase tracking-wide text-slate-950">Tổng quan tầng</h3>
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-xl bg-slate-50 p-3"><span className="block text-[12px] font-semibold text-slate-500">Phòng đã thuê</span><strong className="mt-1 block text-[17px] tabular-nums text-slate-950">{occupiedRooms}/{floor.rooms.length}</strong></div>
-              <div className="rounded-xl bg-slate-50 p-3"><span className="block text-[12px] font-semibold text-slate-500">Công suất</span><strong className="mt-1 block text-[17px] tabular-nums text-slate-950">{occupants}/{capacity}</strong></div>
+              <div className="rounded-xl bg-slate-50 p-3"><span className="block text-[12px] font-semibold text-slate-500">Tạm trú</span><strong className="mt-1 block text-[17px] tabular-nums text-slate-950">{occupants} người</strong></div>
               <div className="col-span-2 rounded-xl bg-slate-50 p-3"><span className="block text-[12px] font-semibold text-slate-500">Doanh thu tầng</span><strong className="mt-1 block text-[17px] tabular-nums text-slate-950">{floorRevenue > 0 ? formatVnd(floorRevenue) : "—"}</strong><small className="text-[12px] font-semibold text-slate-500">{floorRevenue > 0 ? "Theo giá thuê đã cấu hình" : "Chưa ghi nhận doanh thu"}</small></div>
             </div>
           </section>
@@ -462,9 +461,10 @@ function FloorWorkspace({
             <div className="space-y-2">
             {floor.rooms.map((item) => {
               const tone = getStatusTone(item.status);
+              const temporaryResidenceText = item.occupants > 0 ? `${item.occupants} người tạm trú` : "";
               return (
                 <button key={item.code} type="button" onClick={() => onSelectRoom(item)} className="flex min-h-16 w-full items-center justify-between gap-3 rounded-xl border border-[#ececf6] p-3 text-left transition-colors duration-200 hover:border-[#5b35f5]/30 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b35f5] motion-reduce:transition-none">
-                  <span className="min-w-0"><b className="block text-[13px] text-slate-950">{item.code}</b><small className="mt-0.5 block truncate text-[12px] font-bold text-slate-500" title={item.type}>{item.type}</small><small className="mt-1 block text-[12px] font-semibold text-slate-500">Công suất {item.occupants}/{item.capacity}</small></span>
+                  <span className="min-w-0"><b className="block text-[13px] text-slate-950">{item.code}</b><small className="mt-0.5 block truncate text-[12px] font-bold text-slate-500" title={item.type}>{item.type}</small>{temporaryResidenceText && <small className="mt-1 block text-[12px] font-semibold text-slate-500">{temporaryResidenceText}</small>}</span>
                   <span className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-black" style={{ background: tone.bg, color: tone.text }}>{getStatusLabel(item.status)}</span>
                 </button>
               );

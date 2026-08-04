@@ -13,7 +13,8 @@ export default function BuildingHealth() {
     empty: Number(building.vacant || 0),
     warning: Number(building.warning || 0),
     warningType: building.status || "Ổn định",
-    warningColor: building.statusType === "success" ? "text-[#22c55e]" : building.statusType === "danger" ? "text-[#ef4444]" : "text-[#f97316]",
+    warningColor: building.statusType === "success" ? "text-[#22c55e]" : building.statusType === "danger" ? "text-[#ef4444]" : building.statusType === "pending" ? "text-[#f97316]" : "text-[#f97316]",
+    comingSoon: building.statusType === "pending" || building.layoutStatus === "pending",
   }));
 
   return (
@@ -38,14 +39,14 @@ export default function BuildingHealth() {
                   </div>
                   <div className="min-w-0">
                     <div className="font-bold text-[13px] text-text leading-tight truncate">{building.code}</div>
-                    <div className="text-[11px] text-muted font-medium">{building.rooms} phòng</div>
+                    <div className="text-[11px] text-muted font-medium">{building.comingSoon ? "Coming Soon" : `${building.rooms} phòng`}</div>
                   </div>
                 </div>
 
                 <ProgressRing value={building.health} />
 
-                <Metric value={`${building.occupied}/${building.rooms}`} label="Đang thuê" />
-                <Metric value={String(building.empty)} label="Phòng trống" />
+                <Metric value={building.comingSoon ? "—" : `${building.occupied}/${building.rooms}`} label="Đang thuê" />
+                <Metric value={building.comingSoon ? "—" : String(building.empty)} label="Phòng trống" />
 
                 <div className="text-center w-[95px]">
                   <div className={`font-black text-[13px] leading-tight ${building.warningColor}`}>{building.warning}</div>
@@ -64,7 +65,7 @@ export default function BuildingHealth() {
                   </div>
                   <div className="min-w-0">
                     <div className="font-bold text-[14px] text-text leading-tight truncate">{building.code}</div>
-                    <div className="text-[11px] text-muted font-medium mt-0.5">{building.rooms} phòng</div>
+                    <div className="text-[11px] text-muted font-medium mt-0.5">{building.comingSoon ? "Coming Soon" : `${building.rooms} phòng`}</div>
                   </div>
                 </div>
 
@@ -72,12 +73,12 @@ export default function BuildingHealth() {
                   <div className="flex-1 h-[4px] bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
                     <div className="h-full bg-[#22c55e] rounded-full" style={{ width: `${building.health}%` }} />
                   </div>
-                  <span className="font-bold text-[12px] text-text">{building.health}%</span>
+                  <span className="font-bold text-[12px] text-text">{building.comingSoon ? "—%" : `${building.health}%`}</span>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
                   <div className="flex flex-col items-end justify-center">
-                    <div className="text-[10px] font-bold text-[#22c55e] mb-[2px]">{building.empty} phòng trống</div>
+                    <div className="text-[10px] font-bold text-[#22c55e] mb-[2px]">{building.comingSoon ? "Chưa có thông tin phòng" : `${building.empty} phòng trống`}</div>
                     <div className={`text-[10px] font-bold ${building.warningColor}`}>{building.warning} {building.warningType}</div>
                   </div>
                   <ChevronRight size={16} className="text-muted" />

@@ -1,6 +1,7 @@
 import type { PrismaClient, Room } from '@prisma/client';
 
 type DatabaseClient = PrismaClient;
+type ManagedBuildingRecord = { id: string; code: string };
 
 export const MANAGED_BUILDINGS = ['LK01.31', 'LK01.32', 'LK08.24', 'LK08.25'] as const;
 export const LK01_ROOM_TOPOLOGY = [
@@ -15,16 +16,61 @@ export const LK01_ROOM_TOPOLOGY = [
 
 const floorName = (level: number) => level === 1 ? 'Tầng trệt' : `Tầng ${level - 1}`;
 
+const legacyPlaceholderRoomPattern = /^(LK\d{2}\.\d{2})-F\d+-R\d+$/i;
+
+async function softDeleteLegacyPlaceholderRooms(
+  tx: any,
+  tenantId: string,
+  buildings: ManagedBuildingRecord[],
+) {
+  const buildingIds = buildings.map((building) => building.id);
+  if (buildingIds.length === 0) return 0;
+
+  const candidates = await tx.room.findMany({
+    where: {
+      tenantId,
+      buildingId: { in: buildingIds },
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+      code: true,
+      contracts: { select: { id: true } },
+      deposits: { select: { id: true } },
+    },
+  });
+
+  const legacyRoomIds = candidates
+    .filter((room: any) => (
+      legacyPlaceholderRoomPattern.test(room.code)
+      && room.contracts.length === 0
+      && room.deposits.length === 0
+    ))
+    .map((room: any) => room.id);
+
+  if (legacyRoomIds.length === 0) return 0;
+
+  const result = await tx.room.updateMany({
+    where: { id: { in: legacyRoomIds }, deletedAt: null },
+    data: {
+      deletedAt: new Date(),
+      deleteReason: 'legacy-placeholder-room-cleanup',
+    },
+  });
+
+  return result.count;
+}
+
 export async function ensureManagedBuildingStructure(prisma: DatabaseClient, tenantId: string) {
   return prisma.$transaction(async (tx) => {
-    const buildings = new Map<string, { id: string }>();
+    const buildings = new Map<string, ManagedBuildingRecord>();
 
     for (const code of MANAGED_BUILDINGS) {
       const building = await tx.building.upsert({
         where: { tenantId_code: { tenantId, code } },
         update: { deletedAt: null },
         create: { tenantId, code, name: `Tòa nhà ${code.replace('.', '-')}`, address: 'HomeLand Premium' },
-        select: { id: true },
+        select: { id: true, code: true },
       });
       buildings.set(code, building);
       for (let level = 1; level <= 4; level += 1) {
@@ -35,6 +81,8 @@ export async function ensureManagedBuildingStructure(prisma: DatabaseClient, ten
         });
       }
     }
+
+    const cleanedLegacyRoomCount = await softDeleteLegacyPlaceholderRooms(tx, tenantId, [...buildings.values()]);
 
     const source = buildings.get('LK01.31')!;
     const target = buildings.get('LK01.32')!;
@@ -83,6 +131,6 @@ export async function ensureManagedBuildingStructure(prisma: DatabaseClient, ten
     if (targetRooms.length !== 7 || uniqueCodes.size !== 7) throw new Error(`Clone LK01.32 không hợp lệ: ${targetRooms.length} phòng/${uniqueCodes.size} mã duy nhất`);
     const existingOperationalRelations = targetRooms.reduce((sum, room) => sum + room.contracts.length + room.deposits.length, 0);
 
-    return { buildingCount: buildings.size, sourceRoomCount: sourceRooms.length, clonedRoomCount: targetRooms.length, existingOperationalRelations };
+    return { buildingCount: buildings.size, sourceRoomCount: sourceRooms.length, clonedRoomCount: targetRooms.length, existingOperationalRelations, cleanedLegacyRoomCount };
   });
 }

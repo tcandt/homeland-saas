@@ -153,7 +153,7 @@ async function main() {
   });
 
   const structure = await ensureManagedBuildingStructure(prisma, org.id);
-  console.log(`Managed building structure ready: ${structure.buildingCount} buildings, ${structure.sourceRoomCount} source rooms, ${structure.clonedRoomCount} cloned rooms.`);
+  console.log(`Managed building structure ready: ${structure.buildingCount} buildings, ${structure.sourceRoomCount} source rooms, ${structure.clonedRoomCount} cloned rooms, ${structure.cleanedLegacyRoomCount} legacy placeholders cleaned.`);
 
   if (process.env.SEED_MODE === 'production' || process.env.NODE_ENV === 'production') {
     console.log('Production mode detected. Skipping mock buildings, floors, rooms, contracts, invoices, and transactions.');

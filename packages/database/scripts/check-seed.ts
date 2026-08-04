@@ -19,8 +19,13 @@ async function checkSeed() {
   const missing = requiredBuildings.filter(b => !foundCodes.includes(b));
 
   const details = await prisma.building.findMany({
-    where: { code: { in: requiredBuildings } },
-    include: { floors: { include: { rooms: true } } },
+    where: { code: { in: requiredBuildings }, deletedAt: null },
+    include: {
+      floors: {
+        where: { deletedAt: null },
+        include: { rooms: { where: { deletedAt: null } } },
+      },
+    },
   });
   const invalid = details.filter((building) => building.floors.length !== 4
     || (building.code.startsWith('LK08') && building.floors.some((floor) => floor.rooms.length > 0))

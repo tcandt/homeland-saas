@@ -50,7 +50,6 @@ export const roomsApi = {
         occupied: 'OCCUPIED',
         expiring_soon: 'OCCUPIED',
         maintenance: 'MAINTENANCE',
-        cleaning: 'CLEANING',
       };
       payload.status = statusMap[payload.status] || payload.status;
     }

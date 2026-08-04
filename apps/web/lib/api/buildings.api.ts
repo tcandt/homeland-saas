@@ -6,6 +6,7 @@ export interface BuildingResponse {
   address: string;
   images: string[];
   notes?: string;
+  displayOrder?: number;
   status: 'active' | 'inactive';
   floors?: any[];
   rooms?: any[];
@@ -33,6 +34,10 @@ export const buildingsApi = {
 
   update: (id: string, data: any) => {
     return apiClient.patch<BuildingResponse>(`/buildings/${id}`, data);
+  },
+
+  move: (id: string, direction: 'up' | 'down') => {
+    return apiClient.patch<BuildingListResponse>(`/buildings/${id}/order`, { direction });
   },
 
   delete: (id: string) => {

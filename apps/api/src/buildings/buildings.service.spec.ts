@@ -37,6 +37,10 @@ describe('BuildingsService', () => {
         {
           provide: PrismaService,
           useValue: {
+            get tx() {
+              return this;
+            },
+            building: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
             room: { updateMany: vi.fn() },
             floor: { updateMany: vi.fn() },
           },
@@ -78,11 +82,12 @@ describe('BuildingsService', () => {
 
   describe('create', () => {
     it('should create building with tenantId context', async () => {
+      vi.spyOn(prismaService.building, 'findFirst').mockResolvedValue({ displayOrder: 2000 } as any);
       vi.spyOn(repository, 'create').mockResolvedValue({ id: 'b1', name: 'Building 1' } as any);
       
       await service.create({ name: 'Building 1' }, 'u1');
 
-      expect(repository.create).toHaveBeenCalledWith({ name: 'Building 1' });
+      expect(repository.create).toHaveBeenCalledWith({ name: 'Building 1', displayOrder: 3000 });
       expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
         action: 'CREATE',
         entity: 'Building',
@@ -105,6 +110,37 @@ describe('BuildingsService', () => {
         entity: 'Building',
         entityId: 'b1',
         userId: 'u1'
+      }));
+    });
+  });
+
+  describe('moveOrder', () => {
+    it('should swap display order with the previous building', async () => {
+      vi.spyOn(prismaService.building, 'findMany').mockResolvedValue([
+        { id: 'b1', displayOrder: 0 },
+        { id: 'b2', displayOrder: 1000 },
+      ] as any);
+      vi.spyOn(prismaService.building, 'update').mockResolvedValue({} as any);
+      vi.spyOn(repository, 'paginate').mockResolvedValue({
+        data: [] as any,
+        meta: { total: 0 } as any,
+      });
+
+      await service.moveOrder('b2', 'up', 'u1');
+
+      expect(prismaService.building.update).toHaveBeenCalledWith({
+        where: { id: 'b2' },
+        data: { displayOrder: 0 },
+      });
+      expect(prismaService.building.update).toHaveBeenCalledWith({
+        where: { id: 'b1' },
+        data: { displayOrder: 1000 },
+      });
+      expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'UPDATE',
+        entity: 'Building',
+        entityId: 'b2',
+        userId: 'u1',
       }));
     });
   });

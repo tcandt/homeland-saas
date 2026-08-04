@@ -4,6 +4,10 @@ type DatabaseClient = PrismaClient;
 type ManagedBuildingRecord = { id: string; code: string };
 
 export const MANAGED_BUILDINGS = ['LK01.31', 'LK01.32', 'LK08.24', 'LK08.25'] as const;
+const MANAGED_BUILDING_ADDRESS = 'Khu đô thị \u00c2n Phú, phường Tân An, tỉnh Đắk Lắk';
+const MANAGED_BUILDING_DISPLAY_ORDER = new Map<string, number>(
+  MANAGED_BUILDINGS.map((code, index) => [code, index * 1000]),
+);
 export const LK01_ROOM_TOPOLOGY = [
   { level: 1, suffix: '01', bedCount: 1, capacity: 1, area: 25, monthlyPrice: 6500000 },
   { level: 2, suffix: '02', bedCount: 2, capacity: 2, area: 50, monthlyPrice: 9500000 },
@@ -68,8 +72,14 @@ export async function ensureManagedBuildingStructure(prisma: DatabaseClient, ten
     for (const code of MANAGED_BUILDINGS) {
       const building = await tx.building.upsert({
         where: { tenantId_code: { tenantId, code } },
-        update: { deletedAt: null },
-        create: { tenantId, code, name: `Tòa nhà ${code.replace('.', '-')}`, address: 'HomeLand Premium' },
+        update: { deletedAt: null, address: MANAGED_BUILDING_ADDRESS },
+        create: {
+          tenantId,
+          code,
+          name: `Tòa nhà ${code.replace('.', '-')}`,
+          address: MANAGED_BUILDING_ADDRESS,
+          displayOrder: MANAGED_BUILDING_DISPLAY_ORDER.get(code) ?? 0,
+        },
         select: { id: true, code: true },
       });
       buildings.set(code, building);

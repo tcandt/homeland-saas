@@ -247,6 +247,7 @@ model Building {
   name         String
   address      String?
   notes        String?
+  displayOrder Int       @default(0)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
@@ -258,6 +259,7 @@ model Building {
   rooms  Room[]
 
   @@unique([tenantId, code])
+  @@index([tenantId, displayOrder])
   @@index([tenantId, deletedAt])
 }
 

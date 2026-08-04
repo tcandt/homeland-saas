@@ -3,7 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { BuildingsService } from './buildings.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
-import { CreateBuildingSchema, UpdateBuildingSchema, PaginationSchema } from '@homeland/shared';
+import { CreateBuildingSchema, MoveBuildingSchema, UpdateBuildingSchema, PaginationSchema } from '@homeland/shared';
 
 @ApiTags('Buildings')
 @ApiBearerAuth()
@@ -21,7 +21,7 @@ export class BuildingsController {
   list(@Query() query: any) {
     const { page, limit, search, sort, order } = PaginationSchema.parse(query);
     const status = query.status;
-    return this.buildingsService.listBuildings(page, limit, search, status, sort, order);
+    return this.buildingsService.listBuildings(page, limit, search, status, query.sort ? sort : undefined, order);
   }
 
   @Get(':id')
@@ -57,6 +57,14 @@ export class BuildingsController {
   update(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
     const input = UpdateBuildingSchema.parse(body);
     return this.buildingsService.update(id, input, userId, 'Buildings');
+  }
+
+  @Patch(':id/order')
+  @RequirePermissions('building.update')
+  @ApiOperation({ summary: 'Move building display priority' })
+  moveOrder(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+    const input = MoveBuildingSchema.parse(body);
+    return this.buildingsService.moveOrder(id, input.direction, userId);
   }
 
   @Delete(':id')

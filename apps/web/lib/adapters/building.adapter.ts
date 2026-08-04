@@ -19,6 +19,7 @@ export const adaptBuilding = (apiBuilding: any): Building => {
     images: apiBuilding.images && apiBuilding.images.length > 0 ? apiBuilding.images : [],
     notes: apiBuilding.notes,
     status: apiBuilding.deletedAt ? "inactive" : "active",
+    displayOrder: Number(apiBuilding.displayOrder) || 0,
     floors: (apiBuilding.floors || []).map((f: any) => adaptFloor(f, apiBuilding.rooms || []))
   };
 };
@@ -53,8 +54,7 @@ export const adaptRoom = (apiRoom: any): Room => {
   } else if (apiRoom.status === "OCCUPIED") uiStatus = "occupied";
   else if (apiRoom.status === "MAINTENANCE") uiStatus = "maintenance";
   else if (apiRoom.status === "RESERVED") uiStatus = "deposited";
-  else if (apiRoom.status === "AVAILABLE") uiStatus = "vacant";
-  else if (apiRoom.status === "CLEANING") uiStatus = "cleaning";
+  else if (apiRoom.status === "AVAILABLE" || apiRoom.status === "CLEANING") uiStatus = "vacant";
 
   const tenant = activeContract && activeContract.customer ? {
     id: activeContract.customer.id,

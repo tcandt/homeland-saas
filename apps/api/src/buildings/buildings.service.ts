@@ -17,6 +17,22 @@ export class BuildingsService extends BaseCrudService<Building> {
     super(repository, auditService, 'Building');
   }
 
+  async create(data: any, userId?: string, moduleName?: string): Promise<Building> {
+    if (data.displayOrder === undefined) {
+      const lastBuilding = await (this.prisma.tx as any).building.findFirst({
+        where: { deletedAt: null },
+        orderBy: { displayOrder: 'desc' },
+        select: { displayOrder: true },
+      });
+      data = {
+        ...data,
+        displayOrder: (lastBuilding?.displayOrder ?? -1000) + 1000,
+      };
+    }
+
+    return super.create(data, userId, moduleName);
+  }
+
   async listBuildings(
     page: number,
     limit: number,
@@ -37,7 +53,9 @@ export class BuildingsService extends BaseCrudService<Building> {
       where.status = status;
     }
 
-    const orderBy = { [sort || 'createdAt']: order || 'desc' };
+    const orderBy = sort
+      ? { [sort]: order || 'desc' }
+      : [{ displayOrder: 'asc' }, { createdAt: 'desc' }];
 
     return this.repository.paginate(where, page, limit, orderBy, {
       floors: {
@@ -66,6 +84,48 @@ export class BuildingsService extends BaseCrudService<Building> {
         }
       }
     });
+  }
+
+  async moveOrder(id: string, direction: 'up' | 'down', userId?: string): Promise<PaginatedResult<Building>> {
+    const tx: any = this.prisma.tx;
+    const buildings = await tx.building.findMany({
+      where: { deletedAt: null },
+      orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
+      select: { id: true, displayOrder: true },
+    });
+
+    const currentIndex = buildings.findIndex((building: any) => building.id === id);
+    if (currentIndex === -1) {
+      const { HttpException, HttpStatus } = await import('@nestjs/common');
+      throw new HttpException('Không tìm thấy tòa nhà cần sắp xếp.', HttpStatus.NOT_FOUND);
+    }
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= buildings.length) {
+      return this.listBuildings(1, 100);
+    }
+
+    const normalized = buildings.map((building: any, index: number) => ({
+      ...building,
+      displayOrder: index * 1000,
+    }));
+    const current = normalized[currentIndex];
+    const target = normalized[targetIndex];
+
+    await Promise.all([
+      tx.building.update({ where: { id: current.id }, data: { displayOrder: target.displayOrder } }),
+      tx.building.update({ where: { id: target.id }, data: { displayOrder: current.displayOrder } }),
+    ]);
+
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: 'Building',
+      entityId: id,
+      userId,
+      after: { direction, previousIndex: currentIndex, nextIndex: targetIndex },
+    });
+
+    return this.listBuildings(1, 100);
   }
 
   async softDelete(id: string, userId?: string, moduleName?: string): Promise<Building> {

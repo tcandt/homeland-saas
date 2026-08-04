@@ -117,5 +117,6 @@ export interface Building {
   images: string[];
   notes?: string;
   status: "active" | "inactive";
+  displayOrder?: number;
   floors: Floor[];
 }

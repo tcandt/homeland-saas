@@ -61,6 +61,27 @@ export const useUpdateBuildingMutation = () => {
   });
 };
 
+export const useMoveBuildingMutation = () => {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ id, direction }: { id: string; direction: 'up' | 'down' }) => {
+      const response = await buildingsApi.move(id, direction);
+      const items = Array.isArray(response) ? response : (response as any).data || (response as any).items || [];
+      return items.map(adaptBuilding);
+    },
+    onSuccess: (buildings) => {
+      queryClient.setQueriesData({ queryKey: ['buildings'] }, buildings);
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      showToast('Đã cập nhật thứ tự tòa nhà', 'success');
+    },
+    onError: (error: any) => {
+      showToast(error?.message || 'Có lỗi khi sắp xếp tòa nhà', 'error');
+    },
+  });
+};
+
 export const useDeleteBuildingMutation = () => {
   const queryClient = useQueryClient();
   const { showToast } = useToast();

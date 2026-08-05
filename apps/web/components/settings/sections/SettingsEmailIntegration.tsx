@@ -27,7 +27,7 @@ const fallback: EmailSettings = {
   smtpSecure: false,
   smtpUser: "",
   smtpPassword: "",
-  fromName: "HomeLand",
+  fromName: "",
   fromEmail: "",
   sendHtml: true,
 };
@@ -56,7 +56,7 @@ export default function SettingsEmailIntegration() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-[16px]">
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">SMTP host</label>
-          <Input value={draft.smtpHost} onChange={(event) => setDraft((prev) => ({ ...prev, smtpHost: event.target.value }))} placeholder="smtp.example.com" />
+          <Input value={draft.smtpHost} onChange={(event) => setDraft((prev) => ({ ...prev, smtpHost: event.target.value }))} placeholder="Nhập SMTP host" />
         </div>
         <div className="grid grid-cols-[1fr_auto] gap-[12px] items-end">
           <div className="flex flex-col gap-[6px]">
@@ -83,11 +83,11 @@ export default function SettingsEmailIntegration() {
         </div>
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Tên người gửi</label>
-          <Input value={draft.fromName} onChange={(event) => setDraft((prev) => ({ ...prev, fromName: event.target.value }))} placeholder="HomeLand" />
+          <Input value={draft.fromName} onChange={(event) => setDraft((prev) => ({ ...prev, fromName: event.target.value }))} placeholder="Nhập tên người gửi" />
         </div>
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Email người gửi</label>
-          <Input value={draft.fromEmail} onChange={(event) => setDraft((prev) => ({ ...prev, fromEmail: event.target.value }))} placeholder="no-reply@example.com" />
+          <Input value={draft.fromEmail} onChange={(event) => setDraft((prev) => ({ ...prev, fromEmail: event.target.value }))} placeholder="Nhập email người gửi" />
         </div>
       </div>
 

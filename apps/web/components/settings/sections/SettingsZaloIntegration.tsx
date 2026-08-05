@@ -23,16 +23,16 @@ type ZaloSettings = {
 };
 
 const fallback: ZaloSettings = {
-  enabled: true,
+  enabled: false,
   officialAccountId: "",
   accessToken: "",
   appSecret: "",
-  messageEndpoint: "https://openapi.zalo.me/v3.0/oa/message/cs",
-  senderName: "HomeLand",
-  paymentRequestTemplateCode: "INVOICE_ZALO_PAYMENT_REQUEST",
-  paymentConfirmationTemplateCode: "INVOICE_ZALO_PAYMENT_CONFIRMATION",
-  defaultRecipientHint: "Dùng số Zalo của khách thuê trong hồ sơ khách hàng.",
-  note: "Zalo dùng để gửi hóa đơn kèm QR và xác nhận thanh toán sau webhook SePay.",
+  messageEndpoint: "",
+  senderName: "",
+  paymentRequestTemplateCode: "",
+  paymentConfirmationTemplateCode: "",
+  defaultRecipientHint: "",
+  note: "",
 };
 
 export default function SettingsZaloIntegration() {
@@ -74,7 +74,7 @@ export default function SettingsZaloIntegration() {
           </div>
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Sender name</label>
-            <Input value={draft.senderName} onChange={(event) => setDraft((prev) => ({ ...prev, senderName: event.target.value }))} placeholder="HomeLand" />
+            <Input value={draft.senderName} onChange={(event) => setDraft((prev) => ({ ...prev, senderName: event.target.value }))} placeholder="Nhập sender name" />
           </div>
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Access token</label>
@@ -86,7 +86,7 @@ export default function SettingsZaloIntegration() {
           </div>
           <div className="flex flex-col gap-[6px] lg:col-span-2">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Message API endpoint</label>
-            <Input value={draft.messageEndpoint} onChange={(event) => setDraft((prev) => ({ ...prev, messageEndpoint: event.target.value }))} placeholder="https://openapi.zalo.me/v3.0/oa/message/cs" />
+            <Input value={draft.messageEndpoint} onChange={(event) => setDraft((prev) => ({ ...prev, messageEndpoint: event.target.value }))} placeholder="Nhập Message API endpoint" />
           </div>
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Template yêu cầu thanh toán</label>

@@ -32,17 +32,8 @@ type PricingSettings = {
 };
 
 const fallback: PricingSettings = {
-  fees: [
-    { id: "electricity", label: "Điện", unit: "VNĐ/kWh", icon: "⚡", price: "3800", method: "Per Meter", enabled: true },
-    { id: "water", label: "Nước", unit: "VNĐ/m³", icon: "💧", price: "8500", method: "Per Meter", enabled: true },
-    { id: "internet", label: "Internet", unit: "VNĐ/tháng", icon: "🌐", price: "150000", method: "Fixed", enabled: true },
-    { id: "service", label: "Dịch vụ", unit: "VNĐ/tháng", icon: "🔧", price: "100000", method: "Fixed", enabled: true },
-  ],
-  tiers: [
-    { tier: "Bậc 1", from: "0", to: "50", price: "1806" },
-    { tier: "Bậc 2", from: "51", to: "100", price: "1866" },
-    { tier: "Bậc 3", from: "101", to: "200", price: "2167" },
-  ],
+  fees: [],
+  tiers: [],
 };
 
 const methods = ["Fixed", "Tiered", "Per Person", "Per Room", "Per Meter"];
@@ -71,7 +62,7 @@ export default function SettingsPricing() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <h3 className="font-black text-[15px] text-text">Pricing & Fees</h3>
-            <p className="text-[12px] font-medium text-muted mt-[2px]">Cấu hình giá điện, nước, dịch vụ và các loại phí</p>
+            <p className="text-[12px] font-medium text-muted mt-[2px]">Cấu hình giá điện, nước, dịch vụ và các loại phí từ dữ liệu lưu thật.</p>
           </div>
           <div className="flex items-center gap-2">
             <Button type="button" className={`h-[36px] px-[14px] rounded-[10px] text-[12px] font-bold transition-colors ${activeTab === "fees" ? "bg-primary text-white" : "bg-background border border-border text-text"}`} onClick={() => setActiveTab("fees")}>
@@ -93,45 +84,45 @@ export default function SettingsPricing() {
                   <th className="text-left py-[10px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Đơn vị</th>
                   <th className="text-left py-[10px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Phương thức</th>
                   <th className="text-center py-[10px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Áp dụng</th>
-                  <th className="w-[40px]"></th>
+                  <th className="w-[40px]" />
                 </tr>
               </thead>
               <tbody>
-                {draft.fees.map((fee, index) => (
-                  <tr key={fee.id} className="border-b border-border/50 hover:bg-black/[0.02] dark:hover:bg-card/[0.02] transition-colors">
-                    <td className="py-[12px] px-[12px]">
-                      <div className="flex items-center gap-[8px]">
-                        <span className="text-[16px]">{fee.icon}</span>
-                        <span className="font-bold text-text">{fee.label}</span>
-                      </div>
-                    </td>
-                    <td className="py-[12px] px-[12px]">
-                      <Input
-                        value={fee.price}
-                        onChange={(event) => updateFee(index, "price", event.target.value)}
-                        className="w-[120px] h-[34px] px-[10px] bg-background border border-border rounded-[8px] text-[13px] font-medium text-text focus:outline-none focus:border-primary transition-all text-right"
-                      />
-                    </td>
-                    <td className="py-[12px] px-[12px] text-muted font-medium">{fee.unit}</td>
-                    <td className="py-[12px] px-[12px]">
-                      <div className="w-[120px]">
-                        <Select
-                          value={fee.method}
-                          onChange={(event) => updateFee(index, "method", event.target.value)}
-                          options={methods.map((method) => ({ label: method, value: method }))}
-                        />
-                      </div>
-                    </td>
-                    <td className="py-[12px] px-[12px] text-center">
-                      <Switch checked={fee.enabled} onChange={(event) => updateFee(index, "enabled", event.target.checked)} />
-                    </td>
-                    <td className="py-[12px] px-[12px]">
-                      <Button type="button" className="w-[28px] h-[28px] rounded-[6px] flex items-center justify-center text-muted hover:text-danger hover:bg-danger/10 transition-colors">
-                        <Trash2 size={13} />
-                      </Button>
+                {draft.fees.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-[28px] px-[12px] text-center text-[13px] font-medium text-muted">
+                      Chưa có cấu hình phí trong DB.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  draft.fees.map((fee, index) => (
+                    <tr key={fee.id} className="border-b border-border/50 hover:bg-black/[0.02] dark:hover:bg-card/[0.02] transition-colors">
+                      <td className="py-[12px] px-[12px]">
+                        <div className="flex items-center gap-[8px]">
+                          <span className="text-[16px]">{fee.icon}</span>
+                          <span className="font-bold text-text">{fee.label}</span>
+                        </div>
+                      </td>
+                      <td className="py-[12px] px-[12px]">
+                        <Input value={fee.price} onChange={(event) => updateFee(index, "price", event.target.value)} className="w-[120px] h-[34px] px-[10px] bg-background border border-border rounded-[8px] text-[13px] font-medium text-text focus:outline-none focus:border-primary transition-all text-right" />
+                      </td>
+                      <td className="py-[12px] px-[12px] text-muted font-medium">{fee.unit}</td>
+                      <td className="py-[12px] px-[12px]">
+                        <div className="w-[120px]">
+                          <Select value={fee.method} onChange={(event) => updateFee(index, "method", event.target.value)} options={methods.map((method) => ({ label: method, value: method }))} />
+                        </div>
+                      </td>
+                      <td className="py-[12px] px-[12px] text-center">
+                        <Switch checked={fee.enabled} onChange={(event) => updateFee(index, "enabled", event.target.checked)} />
+                      </td>
+                      <td className="py-[12px] px-[12px]">
+                        <Button type="button" className="w-[28px] h-[28px] rounded-[6px] flex items-center justify-center text-muted hover:text-danger hover:bg-danger/10 transition-colors">
+                          <Trash2 size={13} />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -141,26 +132,34 @@ export default function SettingsPricing() {
               <thead>
                 <tr className="bg-background border-b border-border">
                   <th className="text-left py-[8px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Bậc</th>
-                  <th className="text-left py-[8px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Từ (kWh)</th>
-                  <th className="text-left py-[8px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Đến (kWh)</th>
-                  <th className="text-left py-[8px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Đơn giá (VNĐ/kWh)</th>
+                  <th className="text-left py-[8px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Từ</th>
+                  <th className="text-left py-[8px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Đến</th>
+                  <th className="text-left py-[8px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Đơn giá</th>
                 </tr>
               </thead>
               <tbody>
-                {draft.tiers.map((tier, index) => (
-                  <tr key={tier.tier} className="border-b border-border/50 hover:bg-black/[0.02] dark:hover:bg-card/[0.02]">
-                    <td className="py-[10px] px-[12px] font-bold text-text">{tier.tier}</td>
-                    <td className="py-[10px] px-[12px]"><Input value={tier.from} onChange={(event) => updateTier(index, "from", event.target.value)} className="w-[80px] h-[32px] px-[8px] bg-background border border-border rounded-[8px] text-[12px] font-medium text-text focus:outline-none focus:border-primary text-right" /></td>
-                    <td className="py-[10px] px-[12px]"><Input value={tier.to} onChange={(event) => updateTier(index, "to", event.target.value)} className="w-[80px] h-[32px] px-[8px] bg-background border border-border rounded-[8px] text-[12px] font-medium text-text focus:outline-none focus:border-primary text-right" /></td>
-                    <td className="py-[10px] px-[12px]"><Input value={tier.price} onChange={(event) => updateTier(index, "price", event.target.value)} className="w-[120px] h-[32px] px-[8px] bg-background border border-border rounded-[8px] text-[12px] font-medium text-text focus:outline-none focus:border-primary text-right" /></td>
+                {draft.tiers.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-[28px] px-[12px] text-center text-[13px] font-medium text-muted">
+                      Chưa có cấu hình bậc thang trong DB.
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  draft.tiers.map((tier, index) => (
+                    <tr key={tier.tier} className="border-b border-border/50 hover:bg-black/[0.02] dark:hover:bg-card/[0.02]">
+                      <td className="py-[10px] px-[12px] font-bold text-text">{tier.tier}</td>
+                      <td className="py-[10px] px-[12px]"><Input value={tier.from} onChange={(event) => updateTier(index, "from", event.target.value)} className="w-[80px] h-[32px] px-[8px] bg-background border border-border rounded-[8px] text-[12px] font-medium text-text focus:outline-none focus:border-primary text-right" /></td>
+                      <td className="py-[10px] px-[12px]"><Input value={tier.to} onChange={(event) => updateTier(index, "to", event.target.value)} className="w-[80px] h-[32px] px-[8px] bg-background border border-border rounded-[8px] text-[12px] font-medium text-text focus:outline-none focus:border-primary text-right" /></td>
+                      <td className="py-[10px] px-[12px]"><Input value={tier.price} onChange={(event) => updateTier(index, "price", event.target.value)} className="w-[120px] h-[32px] px-[8px] bg-background border border-border rounded-[8px] text-[12px] font-medium text-text focus:outline-none focus:border-primary text-right" /></td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         )}
 
-        <Button type="button" className="w-fit h-[36px] px-[14px] rounded-[10px] bg-background border border-border text-[12px] font-bold text-text hover:bg-black/5 dark:hover:bg-card/5 transition-colors flex items-center gap-[6px]">
+        <Button type="button" className="w-fit h-[36px] px-[14px] rounded-[10px] bg-background border border-border text-[12px] font-bold text-text hover:bg-black/5 dark:hover:bg-card/5 transition-colors flex items-center gap-[6px]" disabled>
           <Plus size={14} /> Thêm loại phí
         </Button>
       </Card>

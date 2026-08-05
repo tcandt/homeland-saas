@@ -5,6 +5,7 @@ import { floor3Layout } from "../views/visualizer/layouts/floor-3.layout";
 import { floor4Layout } from "../views/visualizer/layouts/floor-4.layout";
 import { validateFloorLayout } from "../views/visualizer/geometry/layout-validator";
 import { resolveFloorLayoutSpec } from "./building-profiles";
+import { adaptBuildingGeneral } from "./lk01-31-data";
 
 function room(id: string, code: string): Room {
   return {
@@ -84,5 +85,28 @@ describe("resolveFloorLayoutSpec", () => {
   it("falls back for other buildings and unconfigured floors", () => {
     expect(resolveFloorLayoutSpec(building("LK01-32"), configuredFloor)).toBeNull();
     expect(resolveFloorLayoutSpec(building(), building().floors[0])).toBeNull();
+  });
+});
+
+describe("adaptBuildingGeneral", () => {
+  it("hydrates LK08 mobile building data from the managed cockpit topology", () => {
+    const adapted = adaptBuildingGeneral(
+      { ...building("LK08.24"), floors: [] },
+      "LK08-24",
+      "LK08-24",
+      "Test address",
+    );
+
+    expect(adapted.code).toBe("LK08-24");
+    expect(adapted.name).toBe("LK08-24");
+    expect(adapted.floors).toHaveLength(4);
+    expect(adapted.floors.map((floor) => floor.rooms.map((room) => room.code))).toEqual([
+      ["P24-01"],
+      ["P24-02", "P24-03", "P24-04"],
+      ["P24-05", "P24-06", "P24-07"],
+      ["P24-08", "P24-09", "P24-10"],
+    ]);
+    expect(adapted.floors.flatMap((floor) => floor.rooms)).toHaveLength(10);
+    expect(adapted.floors.flatMap((floor) => floor.rooms).every((room) => room.status === "vacant" && room.price === 0)).toBe(true);
   });
 });

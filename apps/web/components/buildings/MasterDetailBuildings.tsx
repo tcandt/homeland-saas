@@ -19,6 +19,7 @@ import { usePermissions } from '@/lib/hooks/usePermissions';
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import BuildingCockpit from "./cockpit/BuildingCockpit";
 import { normalizeBuildingCode } from "./cockpit/building-template-registry";
+import { adaptBuildingForLK01_31, adaptBuildingGeneral } from "./workspace/lk01-31-data";
 
 export type NodeType = "building" | "floor" | "room";
 
@@ -52,6 +53,14 @@ export default function MasterDetailBuildings() {
   
   // API Queries & Mutations
   const { data: buildings = [], isLoading } = useBuildingsQuery();
+  const mobileBuildings = React.useMemo(() => buildings.map((building: Building) => {
+    const code = normalizeBuildingCode(building.code || building.name);
+    if (code === "LK01-31") return adaptBuildingForLK01_31(building);
+    if (code === "LK01-32") return adaptBuildingGeneral(building, "LK01-32", "LK01-32", "Khu đô thị An Phú, Phường Tân An, Buôn Ma Thuột");
+    if (code === "LK08-24") return adaptBuildingGeneral(building, "LK08-24", "LK08-24", "Khu dân cư Him Lam, Quận 7, TP.HCM");
+    if (code === "LK08-25") return adaptBuildingGeneral(building, "LK08-25", "LK08-25", "Khu dân cư Him Lam, Quận 7, TP.HCM");
+    return building;
+  }), [buildings]);
   const permissions = usePermissions();
   const createBuilding = useCreateBuildingMutation();
   const updateBuilding = useUpdateBuildingMutation();
@@ -311,7 +320,7 @@ export default function MasterDetailBuildings() {
     <div className="flex h-full w-full flex-col">
       {isMobilePresentation ? (
         <div className="mobile-page mobile-buildings-stable">
-          <MobileBuildingsFlow buildings={buildings} onOpenRoomModal={openRoomModal} />
+          <MobileBuildingsFlow buildings={mobileBuildings} onOpenRoomModal={openRoomModal} />
         </div>
       ) : (
         <BuildingCockpit

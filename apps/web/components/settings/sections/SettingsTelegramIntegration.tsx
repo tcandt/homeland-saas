@@ -23,7 +23,7 @@ const fallback: TelegramSettings = {
   defaultChatId: "",
   parseMode: "",
   disableWebPreview: true,
-  note: "Dùng cho cảnh báo nội bộ, vận hành và báo cáo tự động.",
+  note: "",
 };
 
 export default function SettingsTelegramIntegration() {

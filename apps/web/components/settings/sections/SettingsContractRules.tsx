@@ -19,13 +19,13 @@ type ContractRulesSettings = {
 };
 
 const fallback: ContractRulesSettings = {
-  defaultTermMonths: "12",
-  renewalReminderDays: "30",
-  noticeDays: "60",
-  penaltyAmount: "2000000",
-  depositRule: "2",
-  signingMethod: "manual",
-  earlyTerminationClause: "Trong trường hợp bên thuê chấm dứt hợp đồng trước thời hạn, bên thuê phải thông báo trước 60 ngày và chịu phí phạt bằng 2 tháng tiền phòng.",
+  defaultTermMonths: "",
+  renewalReminderDays: "",
+  noticeDays: "",
+  penaltyAmount: "",
+  depositRule: "",
+  signingMethod: "",
+  earlyTerminationClause: "",
 };
 
 export default function SettingsContractRules() {
@@ -42,30 +42,26 @@ export default function SettingsContractRules() {
       <Card className="p-[20px] flex flex-col gap-[16px]">
         <h3 className="font-black text-[15px] text-text border-b border-border pb-[12px]">Contract Rules</h3>
         <div className="grid grid-cols-2 gap-[14px]">
-          <div className="flex flex-col gap-[6px]">
-            <label className="text-[12px] font-bold text-muted uppercase tracking-wide">Thời hạn hợp đồng mặc định (tháng)</label>
-            <Input value={draft.defaultTermMonths} onChange={(event) => setDraft((prev) => ({ ...prev, defaultTermMonths: event.target.value }))} />
-          </div>
-          <div className="flex flex-col gap-[6px]">
-            <label className="text-[12px] font-bold text-muted uppercase tracking-wide">Nhắc gia hạn trước (ngày)</label>
-            <Input value={draft.renewalReminderDays} onChange={(event) => setDraft((prev) => ({ ...prev, renewalReminderDays: event.target.value }))} />
-          </div>
-          <div className="flex flex-col gap-[6px]">
-            <label className="text-[12px] font-bold text-muted uppercase tracking-wide">Notice Days (báo trước khi kết thúc)</label>
-            <Input value={draft.noticeDays} onChange={(event) => setDraft((prev) => ({ ...prev, noticeDays: event.target.value }))} />
-          </div>
-          <div className="flex flex-col gap-[6px]">
-            <label className="text-[12px] font-bold text-muted uppercase tracking-wide">Phí phạt vi phạm</label>
-            <Input value={draft.penaltyAmount} onChange={(event) => setDraft((prev) => ({ ...prev, penaltyAmount: event.target.value }))} />
-          </div>
+          {[
+            { label: "Thời hạn hợp đồng mặc định (tháng)", key: "defaultTermMonths" },
+            { label: "Nhắc gia hạn trước (ngày)", key: "renewalReminderDays" },
+            { label: "Notice Days", key: "noticeDays" },
+            { label: "Phí phạt vi phạm", key: "penaltyAmount" },
+          ].map((field) => (
+            <div key={field.key} className="flex flex-col gap-[6px]">
+              <label className="text-[12px] font-bold text-muted uppercase tracking-wide">{field.label}</label>
+              <Input value={draft[field.key as keyof ContractRulesSettings]} onChange={(event) => setDraft((prev) => ({ ...prev, [field.key]: event.target.value }))} />
+            </div>
+          ))}
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold text-muted uppercase tracking-wide">Quy tắc đặt cọc mặc định</label>
             <Select
               value={draft.depositRule}
               onChange={(event) => setDraft((prev) => ({ ...prev, depositRule: event.target.value }))}
               options={[
-                { label: "2 tháng tiền phòng", value: "2" },
+                { label: "Chưa cấu hình", value: "" },
                 { label: "1 tháng tiền phòng", value: "1" },
+                { label: "2 tháng tiền phòng", value: "2" },
                 { label: "3 tháng tiền phòng", value: "3" },
                 { label: "Theo thỏa thuận", value: "custom" },
               ]}
@@ -77,6 +73,7 @@ export default function SettingsContractRules() {
               value={draft.signingMethod}
               onChange={(event) => setDraft((prev) => ({ ...prev, signingMethod: event.target.value }))}
               options={[
+                { label: "Chưa cấu hình", value: "" },
                 { label: "Ký tay + Scan", value: "manual" },
                 { label: "Chữ ký điện tử", value: "esign" },
                 { label: "Bắt buộc 2 bản", value: "2copies" },

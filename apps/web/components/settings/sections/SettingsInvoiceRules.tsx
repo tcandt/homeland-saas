@@ -20,15 +20,15 @@ type InvoiceRulesSettings = {
 };
 
 const fallback: InvoiceRulesSettings = {
-  meterCutoffDay: "25",
-  invoiceIssueDay: "1",
-  paymentDueDays: "10",
-  gracePeriodDays: "3",
-  lateInterestRate: "0.05",
-  vatRate: "0",
-  roundingMode: "none",
-  billingCycle: "monthly",
-  defaultDiscount: "0",
+  meterCutoffDay: "",
+  invoiceIssueDay: "",
+  paymentDueDays: "",
+  gracePeriodDays: "",
+  lateInterestRate: "",
+  vatRate: "",
+  roundingMode: "",
+  billingCycle: "",
+  defaultDiscount: "",
 };
 
 export default function SettingsInvoiceRules() {
@@ -46,10 +46,10 @@ export default function SettingsInvoiceRules() {
         <h3 className="font-black text-[15px] text-text border-b border-border pb-[12px]">Invoice Rules</h3>
         <div className="grid grid-cols-2 gap-[14px]">
           {[
-            { label: "Ngày chốt điện nước (ngày/tháng)", key: "meterCutoffDay" },
+            { label: "Ngày chốt điện nước", key: "meterCutoffDay" },
             { label: "Ngày tạo hóa đơn", key: "invoiceIssueDay" },
-            { label: "Hạn thanh toán (ngày sau tạo HĐ)", key: "paymentDueDays" },
-            { label: "Grace Period (ngày gia hạn)", key: "gracePeriodDays" },
+            { label: "Hạn thanh toán", key: "paymentDueDays" },
+            { label: "Grace Period", key: "gracePeriodDays" },
             { label: "Lãi suất trễ hạn", key: "lateInterestRate" },
             { label: "Giảm giá mặc định", key: "defaultDiscount" },
           ].map((field) => (
@@ -64,7 +64,8 @@ export default function SettingsInvoiceRules() {
               value={draft.vatRate}
               onChange={(event) => setDraft((prev) => ({ ...prev, vatRate: event.target.value }))}
               options={[
-                { label: "Không áp dụng (0%)", value: "0" },
+                { label: "Chưa cấu hình", value: "" },
+                { label: "0%", value: "0" },
                 { label: "5%", value: "5" },
                 { label: "8%", value: "8" },
                 { label: "10%", value: "10" },
@@ -77,9 +78,10 @@ export default function SettingsInvoiceRules() {
               value={draft.roundingMode}
               onChange={(event) => setDraft((prev) => ({ ...prev, roundingMode: event.target.value }))}
               options={[
+                { label: "Chưa cấu hình", value: "" },
                 { label: "Không làm tròn", value: "none" },
-                { label: "Làm tròn lên 1,000 VNĐ", value: "up" },
-                { label: "Làm tròn xuống 1,000 VNĐ", value: "down" },
+                { label: "Làm tròn lên 1,000 VND", value: "up" },
+                { label: "Làm tròn xuống 1,000 VND", value: "down" },
               ]}
             />
           </div>
@@ -89,7 +91,8 @@ export default function SettingsInvoiceRules() {
               value={draft.billingCycle}
               onChange={(event) => setDraft((prev) => ({ ...prev, billingCycle: event.target.value }))}
               options={[
-                { label: "Hàng tháng (mặc định)", value: "monthly" },
+                { label: "Chưa cấu hình", value: "" },
+                { label: "Hàng tháng", value: "monthly" },
                 { label: "Hàng quý", value: "quarterly" },
                 { label: "6 tháng", value: "semi" },
                 { label: "Hàng năm", value: "yearly" },

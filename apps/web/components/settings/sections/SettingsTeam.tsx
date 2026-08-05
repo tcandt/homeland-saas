@@ -23,27 +23,31 @@ const modules = [
   { name: "Settings", permissions: [{ key: "view", label: "Xem" }, { key: "edit", label: "Sửa" }, { key: "backup", label: "Backup" }, { key: "restore", label: "Restore" }, { key: "users", label: "Quản lý Users" }] },
 ];
 
-const defaultMatrix: Record<string, Record<string, Record<string, boolean>>> = {
-  Admin: Object.fromEntries(modules.map((module) => [module.name, Object.fromEntries(module.permissions.map((permission) => [permission.key, true]))])),
-  Manager: Object.fromEntries(modules.map((module) => [module.name, Object.fromEntries(module.permissions.map((permission) => [permission.key, !["delete", "backup", "restore", "users"].includes(permission.key)]))])),
-  Sales: Object.fromEntries(modules.map((module) => [module.name, Object.fromEntries(module.permissions.map((permission) => [permission.key, ["view", "create"].includes(permission.key)]))])),
-  Accountant: Object.fromEntries(modules.map((module) => [module.name, Object.fromEntries(module.permissions.map((permission) => [permission.key, ["view", "collect", "approve", "export", "journal", "reports"].includes(permission.key)]))])),
-  Maintenance: Object.fromEntries(modules.map((module) => [module.name, Object.fromEntries(module.permissions.map((permission) => [permission.key, ["view", "maintenance"].includes(permission.key)]))])),
-};
+const emptyMatrix: Record<string, Record<string, Record<string, boolean>>> = Object.fromEntries(
+  roles.map((role) => [
+    role,
+    Object.fromEntries(
+      modules.map((module) => [
+        module.name,
+        Object.fromEntries(module.permissions.map((permission) => [permission.key, false])),
+      ]),
+    ),
+  ]),
+);
 
 type TeamSettings = {
-  matrix: typeof defaultMatrix;
+  matrix: typeof emptyMatrix;
   invitation: { fullName: string; email: string; role: string };
 };
 
 const fallback: TeamSettings = {
-  matrix: defaultMatrix,
-  invitation: { fullName: "", email: "", role: "Manager" },
+  matrix: emptyMatrix,
+  invitation: { fullName: "", email: "", role: "" },
 };
 
 export default function SettingsTeam() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<TeamSettings>("team", "TENANT", fallback);
-  const [selectedRole, setSelectedRole] = useState("Manager");
+  const [selectedRole, setSelectedRole] = useState("Admin");
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 

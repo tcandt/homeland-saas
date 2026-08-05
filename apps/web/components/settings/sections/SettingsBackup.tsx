@@ -65,7 +65,7 @@ export default function SettingsBackup() {
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold text-muted uppercase tracking-wide">Retention (lưu tối đa)</label>
           <div className="flex items-center gap-[10px]">
-            <Input type="number" defaultValue="30" className="w-[100px] h-[40px] px-[12px] bg-background border border-border rounded-[10px] text-[13px] font-bold focus:outline-none focus:border-primary" />
+            <Input type="number" placeholder="0" className="w-[100px] h-[40px] px-[12px] bg-background border border-border rounded-[10px] text-[13px] font-bold focus:outline-none focus:border-primary" />
             <span className="text-[13px] font-medium text-muted">bản sao lưu</span>
           </div>
         </div>

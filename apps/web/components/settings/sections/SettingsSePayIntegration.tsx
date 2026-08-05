@@ -20,13 +20,13 @@ type SePaySettings = {
 };
 
 const fallback: SePaySettings = {
-  enabled: true,
-  paymentCodePrefix: "PAY",
-  qrTemplate: "compact",
+  enabled: false,
+  paymentCodePrefix: "",
+  qrTemplate: "",
   webhookApiKey: "",
-  invoicePaidTemplateCode: "INVOICE_PAID",
-  sendPaymentResultToZalo: true,
-  note: "QR chỉ tạo sau khi hóa đơn đã được gửi qua Zalo.",
+  invoicePaidTemplateCode: "",
+  sendPaymentResultToZalo: false,
+  note: "",
 };
 
 export default function SettingsSePayIntegration() {
@@ -67,7 +67,7 @@ export default function SettingsSePayIntegration() {
             <Input
               value={draft.paymentCodePrefix}
               onChange={(event) => setDraft((prev) => ({ ...prev, paymentCodePrefix: event.target.value }))}
-              placeholder="PAY"
+              placeholder="Nhập tiền tố mã thanh toán"
             />
           </div>
           <div className="flex flex-col gap-[6px]">
@@ -75,7 +75,7 @@ export default function SettingsSePayIntegration() {
             <Input
               value={draft.qrTemplate}
               onChange={(event) => setDraft((prev) => ({ ...prev, qrTemplate: event.target.value }))}
-              placeholder="compact"
+              placeholder="Nhập mẫu QR"
             />
           </div>
           <div className="flex flex-col gap-[6px]">
@@ -91,7 +91,7 @@ export default function SettingsSePayIntegration() {
             <Input
               value={draft.invoicePaidTemplateCode}
               onChange={(event) => setDraft((prev) => ({ ...prev, invoicePaidTemplateCode: event.target.value }))}
-              placeholder="INVOICE_PAID"
+              placeholder="Nhập template xác nhận"
             />
           </div>
         </div>

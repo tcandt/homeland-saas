@@ -1,12 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  Check,
+  Copy,
   Layers3,
   MapPin,
   Pencil,
+  RotateCcw,
 } from "lucide-react";
 import type {
   CockpitBuildingSpec,
@@ -69,15 +72,40 @@ function StatusLegend() {
 
 
 
-function getOverviewRoomPoints(building: CockpitBuildingSpec, floorId: string, side: "left" | "right"): string | null {
-  return getOverviewRoomHotspots(building.templateId)[floorId as CockpitFloorId]?.[side] || null;
+type OverviewRoomSide = "left" | "middle" | "right";
+type OverviewPoint = { x: number; y: number };
+type OverviewRoomHotspotDraft = Partial<Record<CockpitFloorId, Partial<Record<OverviewRoomSide, string>>>>;
+type OverviewDragState =
+  | { kind: "floor"; floorId: CockpitFloorId; pointIndex: number }
+  | { kind: "room"; floorId: CockpitFloorId; side: OverviewRoomSide; pointIndex: number };
+
+function parseOverviewPolygon(points: string): OverviewPoint[] {
+  return points
+    .trim()
+    .split(/\s+/)
+    .map((pair) => {
+      const [x, y] = pair.split(",").map(Number);
+      return { x, y };
+    })
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+}
+
+function pointsToOverviewPolygon(points: OverviewPoint[]) {
+  return points.map((point) => `${Math.round(point.x)},${Math.round(point.y)}`).join(" ");
+}
+
+function cloneOverviewFloorHotspots(points: Record<CockpitFloorId, string>) {
+  return { ...points };
+}
+
+function cloneOverviewRoomHotspots(points: OverviewRoomHotspotDraft): OverviewRoomHotspotDraft {
+  return Object.fromEntries(
+    Object.entries(points).map(([floorId, sides]) => [floorId, { ...(sides || {}) }]),
+  ) as OverviewRoomHotspotDraft;
 }
 
 function getOverviewRoomLabelAnchor(points: string) {
-  const coords = points.split(/\s+/).map((pair) => {
-    const [x, y] = pair.split(",").map(Number);
-    return { x, y };
-  }).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  const coords = parseOverviewPolygon(points);
   if (!coords.length) return { x: 0, y: 0 };
   const minX = Math.min(...coords.map((point) => point.x));
   const maxX = Math.max(...coords.map((point) => point.x));
@@ -86,20 +114,19 @@ function getOverviewRoomLabelAnchor(points: string) {
   return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
 }
 
-function getOverviewRoomSpec(floor: CockpitFloorSpec, side: "left" | "right"): CockpitRoomSpec | undefined {
+const overviewRoomSides = ["left", "middle", "right"] as const;
+
+function getOverviewRoomSpec(floor: CockpitFloorSpec, side: OverviewRoomSide): CockpitRoomSpec | undefined {
   if (floor.id === "ground") {
     return side === "right" ? floor.rooms[0] : undefined;
   }
-  if (floor.id === "1") {
-    return side === "left" ? floor.rooms[0] : floor.rooms[1];
+  if (floor.rooms.length >= 3) {
+    if (side === "right") return floor.rooms[0];
+    if (side === "middle") return floor.rooms[1];
+    return floor.rooms[2];
   }
-  if (floor.id === "2") {
-    return side === "left" ? floor.rooms[0] : floor.rooms[1];
-  }
-  if (floor.id === "3") {
-    return side === "left" ? floor.rooms[0] : floor.rooms[1];
-  }
-  return undefined;
+  if (side === "middle") return undefined;
+  return side === "left" ? floor.rooms[0] : floor.rooms[1];
 }
 
 function getOverviewStatusText(status: string) {
@@ -166,19 +193,90 @@ function BuildingModelViewer({
   building,
   floor,
   activeRoomId,
+  debugMode,
   onSelectFloor,
   onEditBuilding,
 }: {
   building: CockpitBuildingSpec;
   floor: CockpitFloorSpec;
   activeRoomId?: string | null;
+  debugMode: boolean;
   onSelectFloor: (floorId: CockpitFloorId) => void;
   onEditBuilding?: (buildingCode: string) => void;
 }) {
   const orderedFloors = useMemo(() => [...building.floors].reverse(), [building.floors]);
-  const overviewFloorPoints = useMemo(() => getOverviewFloorHotspots(building.templateId), [building.templateId]);
+  const initialOverviewFloorPoints = useMemo(() => getOverviewFloorHotspots(building.templateId), [building.templateId]);
+  const initialOverviewRoomPoints = useMemo(() => getOverviewRoomHotspots(building.templateId), [building.templateId]);
+  const [debugFloorPoints, setDebugFloorPoints] = useState(() => cloneOverviewFloorHotspots(initialOverviewFloorPoints));
+  const [debugRoomPoints, setDebugRoomPoints] = useState(() => cloneOverviewRoomHotspots(initialOverviewRoomPoints));
+  const [overviewEditMode, setOverviewEditMode] = useState<"floors" | "rooms">("floors");
+  const [overviewDragState, setOverviewDragState] = useState<OverviewDragState | null>(null);
+  const [overviewCopied, setOverviewCopied] = useState(false);
   const [hoveredFloorId, setHoveredFloorId] = useState<CockpitFloorId | null>(null);
+  const overviewSvgRef = useRef<SVGSVGElement>(null);
   const activeFloorId = hoveredFloorId || floor.id;
+  const overviewFloorPoints = debugMode ? debugFloorPoints : initialOverviewFloorPoints;
+  const overviewRoomPoints = debugMode ? debugRoomPoints : initialOverviewRoomPoints;
+
+  useEffect(() => {
+    setDebugFloorPoints(cloneOverviewFloorHotspots(initialOverviewFloorPoints));
+    setDebugRoomPoints(cloneOverviewRoomHotspots(initialOverviewRoomPoints));
+    setOverviewDragState(null);
+    setOverviewCopied(false);
+  }, [building.code, initialOverviewFloorPoints, initialOverviewRoomPoints]);
+
+  const overviewPointerToViewBox = useCallback((clientX: number, clientY: number) => {
+    const rect = overviewSvgRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return {
+      x: ((clientX - rect.left) / rect.width) * building.overviewImage.width,
+      y: ((clientY - rect.top) / rect.height) * building.overviewImage.height,
+    };
+  }, [building.overviewImage.height, building.overviewImage.width]);
+
+  const handleOverviewPointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    if (!debugMode || !overviewDragState) return;
+    const point = overviewPointerToViewBox(event.clientX, event.clientY);
+    if (!point) return;
+    if (overviewDragState.kind === "floor") {
+      setDebugFloorPoints((current) => {
+        const points = parseOverviewPolygon(current[overviewDragState.floorId]);
+        points[overviewDragState.pointIndex] = point;
+        return { ...current, [overviewDragState.floorId]: pointsToOverviewPolygon(points) };
+      });
+      return;
+    }
+    setDebugRoomPoints((current) => {
+      const floorDraft = { ...(current[overviewDragState.floorId] || {}) };
+      const points = parseOverviewPolygon(floorDraft[overviewDragState.side] || "");
+      points[overviewDragState.pointIndex] = point;
+      return {
+        ...current,
+        [overviewDragState.floorId]: {
+          ...floorDraft,
+          [overviewDragState.side]: pointsToOverviewPolygon(points),
+        },
+      };
+    });
+  }, [debugMode, overviewDragState, overviewPointerToViewBox]);
+
+  const copyOverviewJson = async () => {
+    const payload = {
+      buildingCode: building.code,
+      templateId: building.templateId,
+      overviewFloorHotspots: debugFloorPoints,
+      overviewRoomHotspots: debugRoomPoints,
+    };
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    setOverviewCopied(true);
+    window.setTimeout(() => setOverviewCopied(false), 1400);
+  };
+
+  const resetOverviewDraft = () => {
+    setDebugFloorPoints(cloneOverviewFloorHotspots(initialOverviewFloorPoints));
+    setDebugRoomPoints(cloneOverviewRoomHotspots(initialOverviewRoomPoints));
+    setOverviewDragState(null);
+  };
 
   return (
     <article data-testid="building-model-viewer" className="min-w-0 overflow-hidden rounded-2xl border border-border/40 dark:border-white/5 bg-card shadow-[0_16px_36px_rgb(var(--shadow-color)/0.075)]">
@@ -247,8 +345,12 @@ function BuildingModelViewer({
               priority
             />
             <svg
+              ref={overviewSvgRef}
               viewBox={`0 0 ${building.overviewImage.width} ${building.overviewImage.height}`}
-              className="absolute inset-0 h-full w-full pointer-events-none select-none"
+              className={cx("absolute inset-0 h-full w-full select-none", debugMode ? "pointer-events-auto touch-none" : "pointer-events-none")}
+              onPointerMove={handleOverviewPointerMove}
+              onPointerUp={() => setOverviewDragState(null)}
+              onPointerCancel={() => setOverviewDragState(null)}
               aria-label={`Chọn tầng của tòa nhà ${building.code}`}
             >
               {/* Vertical line connecting the buttons */}
@@ -298,11 +400,11 @@ function BuildingModelViewer({
               {orderedFloors.map((floorItem) => {
                 return (
                   <g key={`room-highlights-${floorItem.id}`} className="pointer-events-none">
-                    {(["left", "right"] as const).map((side) => {
+                    {overviewRoomSides.map((side) => {
                       const roomSpec = getOverviewRoomSpec(floorItem, side);
                       if (!roomSpec) return null;
                       const colors = getOverviewStatusColor(roomSpec.status);
-                      const points = getOverviewRoomPoints(building, floorItem.id, side);
+                      const points = overviewRoomPoints[floorItem.id]?.[side] || null;
                       if (!points) return null;
                       const selected = activeRoomId === roomSpec.id;
                       const labelAnchor = getOverviewRoomLabelAnchor(points);
@@ -359,6 +461,32 @@ function BuildingModelViewer({
                 );
               })}
 
+              {debugMode && overviewEditMode === "rooms" && orderedFloors.flatMap((floorItem) => {
+                return overviewRoomSides.flatMap((side) => {
+                  const points = overviewRoomPoints[floorItem.id]?.[side];
+                  if (!points) return [];
+                  return parseOverviewPolygon(points).map((point, pointIndex) => (
+                    <circle
+                      key={`overview-room-debug-${floorItem.id}-${side}-${pointIndex}`}
+                      cx={point.x}
+                      cy={point.y}
+                      r={7}
+                      fill="#f97316"
+                      stroke="#ffffff"
+                      strokeWidth={2.5}
+                      vectorEffect="non-scaling-stroke"
+                      className="pointer-events-auto cursor-grab active:cursor-grabbing"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                        setOverviewDragState({ kind: "room", floorId: floorItem.id, side, pointIndex });
+                      }}
+                    />
+                  ));
+                });
+              })}
+
               {orderedFloors.map((item) => {
                 const active = activeFloorId === item.id;
                 return (
@@ -373,7 +501,10 @@ function BuildingModelViewer({
                     stroke={active ? "#0ea5e9" : "transparent"}
                     strokeWidth="3"
                     vectorEffect="non-scaling-stroke"
-                    className="cursor-pointer pointer-events-auto outline-none transition-[fill,stroke,filter] duration-200 select-none hover:fill-[rgba(14,165,233,0.055)] focus-visible:stroke-[#0ea5e9] motion-reduce:transition-none"
+                    className={cx(
+                      "cursor-pointer outline-none transition-[fill,stroke,filter] duration-200 select-none hover:fill-[rgba(14,165,233,0.055)] focus-visible:stroke-[#0ea5e9] motion-reduce:transition-none",
+                      debugMode && overviewEditMode === "rooms" ? "pointer-events-none" : "pointer-events-auto",
+                    )}
                     onClick={() => onSelectFloor(item.id)}
                     onMouseEnter={() => setHoveredFloorId(item.id)}
                     onMouseLeave={() => setHoveredFloorId(null)}
@@ -388,10 +519,73 @@ function BuildingModelViewer({
                   />
                 );
               })}
+
+              {debugMode && overviewEditMode === "floors" && orderedFloors.flatMap((item) => {
+                const points = parseOverviewPolygon(overviewFloorPoints[item.id]);
+                return points.map((point, pointIndex) => (
+                  <circle
+                    key={`overview-floor-debug-${item.id}-${pointIndex}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r={7}
+                    fill="#0ea5e9"
+                    stroke="#ffffff"
+                    strokeWidth={2.5}
+                    vectorEffect="non-scaling-stroke"
+                    className="pointer-events-auto cursor-grab active:cursor-grabbing"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      setOverviewDragState({ kind: "floor", floorId: item.id, pointIndex });
+                    }}
+                  />
+                ));
+              })}
             </svg>
           </div>
         </div>
       </div>
+
+      {debugMode && (
+        <div className="border-b border-border/20 dark:border-white/5 px-3.5 py-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-sky-300 bg-sky-50/70 p-2 text-[12px] font-bold text-slate-700">
+            <span className="mr-1 text-sky-700">3D Overview Polygon Editor</span>
+            <div className="flex rounded-lg border border-sky-200 bg-white p-0.5">
+              {(["floors", "rooms"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setOverviewEditMode(mode)}
+                  className={cx(
+                    "rounded-md px-2.5 py-1 transition-colors",
+                    overviewEditMode === mode ? "bg-sky-500 text-white" : "text-slate-600 hover:bg-sky-50",
+                  )}
+                >
+                  {mode === "floors" ? "Tang" : "Phong"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={copyOverviewJson}
+              className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 py-1 text-sky-700 hover:bg-sky-50"
+            >
+              {overviewCopied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+              {overviewCopied ? "Copied" : "Copy JSON"}
+            </button>
+            <button
+              type="button"
+              onClick={resetOverviewDraft}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-slate-600 hover:bg-slate-50"
+            >
+              <RotateCcw size={14} aria-hidden />
+              Khoi phuc
+            </button>
+            <span className="text-slate-500">Keo cac diem tren so do tong the 3D.</span>
+          </div>
+        </div>
+      )}
 
       <div className="px-3.5 py-2.5"><StatusLegend /></div>
     </article>
@@ -631,7 +825,7 @@ export default function UnifiedBuildingCockpit({
         <PendingLayout building={building} onEditBuilding={onEditBuilding} />
       ) : (
         <div className="grid min-w-0 items-start gap-3 lg:grid-cols-2 min-[1366px]:grid-cols-[minmax(300px,0.95fr)_minmax(460px,1.62fr)_minmax(280px,0.68fr)] min-[1536px]:grid-cols-[minmax(340px,0.95fr)_minmax(560px,1.62fr)_minmax(320px,0.68fr)]">
-          <BuildingModelViewer building={building} floor={floor} activeRoomId={room?.id} onSelectFloor={onSelectFloor} onEditBuilding={onEditBuilding} />
+          <BuildingModelViewer building={building} floor={floor} activeRoomId={room?.id} debugMode={debugMode} onSelectFloor={onSelectFloor} onEditBuilding={onEditBuilding} />
           <FloorPlanPanel
             building={building}
             floor={floor}

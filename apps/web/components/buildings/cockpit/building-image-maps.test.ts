@@ -169,11 +169,20 @@ describe("LK08 image maps", () => {
     const floorHotspots = getOverviewFloorHotspots("LK08_STANDARD");
     const roomHotspots = getOverviewRoomHotspots("LK08_STANDARD");
 
-    expect(floorHotspots["3"]).toBe("130,72 910,38 972,306 188,370");
-    expect(floorHotspots["1"]).toBe("210,772 910,720 984,1012 214,1078");
-    expect(floorHotspots["2"]).toBe("210,418 898,366 972,658 214,724");
-    expect(floorHotspots.ground).toBe("220,1132 948,1076 972,1338 225,1400");
-    expect(roomHotspots.ground?.right).toBe("705,1094 966,1068 1001,1322 758,1348");
+    expect(floorHotspots["3"]).toBe("105,73 930,30 1003,309 173,360");
+    expect(floorHotspots["1"]).toBe("188,778 933,729 1005,1014 192,1075");
+    expect(floorHotspots["2"]).toBe("188,421 932,376 1008,662 189,722");
+    expect(floorHotspots.ground).toBe("205,1129 958,1075 1003,1338 215,1401");
+    expect(roomHotspots["3"]?.left).toBe("112,78 367,58 409,349 172,366");
+    expect(roomHotspots["3"]?.middle).toBe("368,58 614,45 651,266 399,283");
+    expect(roomHotspots["3"]?.right).toBe("734,38 926,27 1003,308 792,324");
+    expect(roomHotspots["2"]?.left).toBe("379,409 185,421 185,722 421,704");
+    expect(roomHotspots["2"]?.middle).toBe("624,396 376,409 413,638 660,621");
+    expect(roomHotspots["2"]?.right).toBe("734,385 930,371 1007,660 801,676");
+    expect(roomHotspots["1"]?.left).toBe("391,763 627,745 667,971 425,990");
+    expect(roomHotspots["1"]?.middle).toBe("187,770 391,764 432,1054 187,1072");
+    expect(roomHotspots["1"]?.right).toBe("742,740 937,725 1011,1013 805,1028");
+    expect(roomHotspots.ground?.right).toBe("668,1095 959,1074 1002,1340 720,1361");
     expect(getOverviewFloorHotspots("LK01_STANDARD")["3"]).toBe("136,34 934,9 1023,300 222,360");
     expect(getOverviewFloorHotspots("LK01_STANDARD")["1"]).toBe("233,800 944,748 1023,1027 241,1086");
     expect(getOverviewFloorHotspots("LK01_STANDARD")["2"]).toBe("233,432 944,380 1023,659 241,718");
@@ -182,17 +191,17 @@ describe("LK08 image maps", () => {
     expect(containsPoint(floorHotspots["3"], 720, 190)).toBe(true);
     expect(containsPoint(floorHotspots["3"], 968, 292)).toBe(true);
     expect(containsPoint(floorHotspots["3"], 995, 220)).toBe(false);
-    expect(containsPoint(floorHotspots["3"], 920, 34)).toBe(false);
+    expect(containsPoint(floorHotspots["3"], 920, 34)).toBe(true);
     expect(containsPoint(floorHotspots["3"], 145, 82)).toBe(true);
-    expect(containsPoint(floorHotspots["3"], 190, 360)).toBe(true);
+    expect(containsPoint(floorHotspots["3"], 190, 360)).toBe(false);
     expect(containsPoint(floorHotspots["1"], 720, 850)).toBe(true);
-    expect(containsPoint(floorHotspots["1"], 930, 735)).toBe(false);
+    expect(containsPoint(floorHotspots["1"], 930, 735)).toBe(true);
     expect(containsPoint(floorHotspots["1"], 1005, 900)).toBe(false);
     expect(containsPoint(floorHotspots["1"], 225, 760)).toBe(false);
     expect(containsPoint(floorHotspots["1"], 224, 1068)).toBe(true);
     expect(containsPoint(floorHotspots["1"], 720, 1078)).toBe(false);
     expect(containsPoint(floorHotspots["2"], 720, 496)).toBe(true);
-    expect(containsPoint(floorHotspots["2"], 918, 381)).toBe(false);
+    expect(containsPoint(floorHotspots["2"], 918, 381)).toBe(true);
     expect(containsPoint(floorHotspots["2"], 993, 546)).toBe(false);
     expect(containsPoint(floorHotspots["2"], 224, 714)).toBe(true);
     expect(containsPoint(floorHotspots.ground, 720, 1210)).toBe(true);
@@ -204,6 +213,9 @@ describe("LK08 image maps", () => {
     expect(containsPoint(floorHotspots.ground, 1010, 1220)).toBe(false);
     expect(containsPoint(floorHotspots.ground, 960, 1328)).toBe(true);
     expect(containsPoint(floorHotspots.ground, 980, 1352)).toBe(false);
+    expect(containsPoint(roomHotspots["1"]!.left!, 500, 880)).toBe(true);
+    expect(containsPoint(roomHotspots["1"]!.middle!, 300, 880)).toBe(true);
+    expect(containsPoint(roomHotspots["1"]!.right!, 900, 880)).toBe(true);
     expect(containsPoint(roomHotspots.ground!.right!, 870, 1210)).toBe(true);
     expect(containsPoint(roomHotspots.ground!.right!, 620, 1210)).toBe(false);
   });
@@ -212,13 +224,15 @@ describe("LK08 image maps", () => {
     const map = getFloorImageMap("LK08_STANDARD", "ground", "P24");
     const room = map.rooms[0];
 
-    expect(room.paths[0]).toBe("M 988 122 L 1348 122 L 1376 512 L 1006 512 Z");
-    expect(room.paths.some((path) => containsPoint(path, 1204, 320))).toBe(true);
-    expect(room.paths.some((path) => containsPoint(path, 970, 320))).toBe(false);
-    expect(room.paths.some((path) => containsPoint(path, 1358, 320))).toBe(true);
-    expect(room.paths.some((path) => containsPoint(path, 1400, 320))).toBe(false);
-    expect(room.paths.some((path) => containsPoint(path, 1204, 100))).toBe(false);
-    expect(room.paths.some((path) => containsPoint(path, 1204, 540))).toBe(false);
+    expect(room.paths[0]).toBe("M 1038 122 L 1510 122 L 1562 512 L 1058 512 Z");
+    expect(room.paths.some((path) => containsPoint(path, 1316, 320))).toBe(true);
+    expect(room.paths.some((path) => containsPoint(path, 1018, 320))).toBe(false);
+    expect(room.paths.some((path) => containsPoint(path, 1515, 320))).toBe(true);
+    expect(room.paths.some((path) => containsPoint(path, 1560, 500))).toBe(true);
+    expect(room.paths.some((path) => containsPoint(path, 1580, 320))).toBe(false);
+    expect(room.paths.some((path) => containsPoint(path, 1062, 500))).toBe(true);
+    expect(room.paths.some((path) => containsPoint(path, 1316, 100))).toBe(false);
+    expect(room.paths.some((path) => containsPoint(path, 1316, 540))).toBe(false);
   });
 
   it("keeps LK08 room hotspots off balconies and stair cores", () => {
@@ -230,21 +244,45 @@ describe("LK08 image maps", () => {
     expect(right.paths.some((path) => containsPoint(path, 1265, 530))).toBe(true);
     expect(right.paths.some((path) => containsPoint(path, 1265, 565))).toBe(false);
     expect(right.paths.some((path) => containsPoint(path, 1040, 300))).toBe(false);
-    expect(right.paths.some((path) => containsPoint(path, 1098, 300))).toBe(true);
-    expect(right.paths.some((path) => containsPoint(path, 1405, 300))).toBe(false);
+    expect(right.paths.some((path) => containsPoint(path, 1165, 300))).toBe(true);
+    expect(right.paths.some((path) => containsPoint(path, 1535, 300))).toBe(false);
     expect(middle.paths.some((path) => containsPoint(path, 740, 285))).toBe(true);
     expect(middle.paths.some((path) => containsPoint(path, 740, 90))).toBe(false);
     expect(middle.paths.some((path) => containsPoint(path, 740, 420))).toBe(true);
     expect(middle.paths.some((path) => containsPoint(path, 740, 450))).toBe(false);
     expect(middle.paths.some((path) => containsPoint(path, 995, 300))).toBe(false);
-    expect(middle.paths.some((path) => containsPoint(path, 930, 300))).toBe(false);
+    expect(middle.paths.some((path) => containsPoint(path, 930, 300))).toBe(true);
     expect(left.paths.some((path) => containsPoint(path, 320, 300))).toBe(true);
-    expect(left.paths.some((path) => containsPoint(path, 60, 300))).toBe(false);
-    expect(left.paths.some((path) => containsPoint(path, 120, 300))).toBe(false);
-    expect(left.paths.some((path) => containsPoint(path, 180, 120))).toBe(false);
-    expect(left.paths.some((path) => containsPoint(path, 215, 120))).toBe(true);
+    expect(left.paths.some((path) => containsPoint(path, 20, 300))).toBe(false);
+    expect(left.paths.some((path) => containsPoint(path, 80, 300))).toBe(true);
+    expect(left.paths.some((path) => containsPoint(path, 70, 120))).toBe(false);
+    expect(left.paths.some((path) => containsPoint(path, 100, 120))).toBe(true);
     expect(left.paths.some((path) => containsPoint(path, 320, 86))).toBe(false);
     expect(left.paths.some((path) => containsPoint(path, 320, 520))).toBe(true);
-    expect(left.paths.some((path) => containsPoint(path, 320, 552))).toBe(false);
+    expect(left.paths.some((path) => containsPoint(path, 320, 558))).toBe(false);
+  });
+
+  it("syncs LK08 upper-floor 2.5D polygons across floors and building prefixes", () => {
+    const expectedBySuffix = {
+      "02": "M 1152 97 L 1467 99 L 1527 550 L 1176 550 Z",
+      "03": "M 500 95 L 933 97 L 945 432 L 495 429 Z",
+      "04": "M 78 100 L 501 98 L 498 546 L 36 555 Z",
+    } as const;
+    const floors = [
+      { floorId: "1", suffixes: ["02", "03", "04"] },
+      { floorId: "2", suffixes: ["05", "06", "07"] },
+      { floorId: "3", suffixes: ["08", "09", "10"] },
+    ] as const;
+
+    for (const prefix of ["P24", "P25"]) {
+      for (const { floorId, suffixes } of floors) {
+        const map = getFloorImageMap("LK08_STANDARD", floorId, prefix);
+        suffixes.forEach((suffix, index) => {
+          const templateSuffix = String(Number(suffix) - (floorId === "1" ? 0 : floorId === "2" ? 3 : 6)).padStart(2, "0") as keyof typeof expectedBySuffix;
+          expect(map.rooms[index].roomId).toBe(`${prefix}-${suffix}`);
+          expect(map.rooms[index].paths[0]).toBe(expectedBySuffix[templateSuffix]);
+        });
+      }
+    }
   });
 });

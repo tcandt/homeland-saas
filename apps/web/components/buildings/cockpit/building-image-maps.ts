@@ -1,6 +1,8 @@
 import type { CockpitFloorId, FloorImageMap, RoomImageMap } from "./building-cockpit.types";
 import type { BuildingTemplateId } from "./building-template-registry";
 
+type OverviewRoomHotspotSide = "left" | "middle" | "right";
+
 const upperFloorPaths = {
   left: [
     "M 42 42 L 746 42 L 746 642 L 30 642 Z",
@@ -83,15 +85,15 @@ export const floorImageMaps: Record<CockpitFloorId, FloorImageMap> = {
 };
 
 const lk08RoomHotspots: Record<string, Pick<RoomImageMap, "paths" | "labelPosition">> = {
-  "02": { paths: ["M 1088 104 L 1358 104 L 1392 548 L 1108 548 Z"], labelPosition: { x: 1240, y: 304 } },
-  "03": { paths: ["M 558 104 L 898 104 L 910 432 L 550 432 Z"], labelPosition: { x: 738, y: 283 } },
-  "04": { paths: ["M 212 96 L 548 96 L 548 540 L 167 540 Z"], labelPosition: { x: 358, y: 300 } },
-  "05": { paths: ["M 1088 104 L 1358 104 L 1392 548 L 1108 548 Z"], labelPosition: { x: 1240, y: 304 } },
-  "06": { paths: ["M 558 104 L 898 104 L 910 432 L 550 432 Z"], labelPosition: { x: 738, y: 283 } },
-  "07": { paths: ["M 212 96 L 548 96 L 548 540 L 167 540 Z"], labelPosition: { x: 358, y: 300 } },
-  "08": { paths: ["M 1088 104 L 1358 104 L 1392 548 L 1108 548 Z"], labelPosition: { x: 1240, y: 304 } },
-  "09": { paths: ["M 558 104 L 898 104 L 910 432 L 550 432 Z"], labelPosition: { x: 738, y: 283 } },
-  "10": { paths: ["M 212 96 L 548 96 L 548 540 L 167 540 Z"], labelPosition: { x: 358, y: 300 } },
+  "02": { paths: ["M 1152 97 L 1467 99 L 1527 550 L 1176 550 Z"], labelPosition: { x: 1240, y: 304 } },
+  "03": { paths: ["M 500 95 L 933 97 L 945 432 L 495 429 Z"], labelPosition: { x: 738, y: 283 } },
+  "04": { paths: ["M 78 100 L 501 98 L 498 546 L 36 555 Z"], labelPosition: { x: 358, y: 300 } },
+  "05": { paths: ["M 1152 97 L 1467 99 L 1527 550 L 1176 550 Z"], labelPosition: { x: 1240, y: 304 } },
+  "06": { paths: ["M 500 95 L 933 97 L 945 432 L 495 429 Z"], labelPosition: { x: 738, y: 283 } },
+  "07": { paths: ["M 78 100 L 501 98 L 498 546 L 36 555 Z"], labelPosition: { x: 358, y: 300 } },
+  "08": { paths: ["M 1152 97 L 1467 99 L 1527 550 L 1176 550 Z"], labelPosition: { x: 1240, y: 304 } },
+  "09": { paths: ["M 500 95 L 933 97 L 945 432 L 495 429 Z"], labelPosition: { x: 738, y: 283 } },
+  "10": { paths: ["M 78 100 L 501 98 L 498 546 L 36 555 Z"], labelPosition: { x: 358, y: 300 } },
 };
 
 function lk08Room(roomId: string, floorId: CockpitFloorId, suffix: string): RoomImageMap {
@@ -131,8 +133,8 @@ export function getFloorImageMap(templateId: BuildingTemplateId, floorId: Cockpi
         roomId: `${prefix}-01`,
         floorId,
         label: `${prefix}-01`,
-        paths: ["M 988 122 L 1348 122 L 1376 512 L 1006 512 Z"],
-        labelPosition: { x: 1204, y: 316 },
+        paths: ["M 1038 122 L 1510 122 L 1562 512 L 1058 512 Z"],
+        labelPosition: { x: 1316, y: 316 },
       }],
     };
   }
@@ -150,13 +152,13 @@ export const overviewFloorHotspots: Record<CockpitFloorId, string> = {
 
 export const lk08OverviewFloorHotspots: Record<CockpitFloorId, string> = {
   ...overviewFloorHotspots,
-  "3": "130,72 910,28 972,308 188,370",
-  "2": "210,418 898,366 972,658 214,724",
-  "1": "210,772 910,720 984,1012 214,1078",
-  ground: "220,1132 948,1076 972,1338 225,1400",
+  "3": "105,73 930,30 1003,309 173,360",
+  "2": "188,421 932,376 1008,662 189,722",
+  "1": "188,778 933,729 1005,1014 192,1075",
+  ground: "205,1129 958,1075 1003,1338 215,1401",
 };
 
-export const overviewRoomHotspots: Partial<Record<CockpitFloorId, Partial<Record<"left" | "right", string>>>> = {
+export const overviewRoomHotspots: Partial<Record<CockpitFloorId, Partial<Record<OverviewRoomHotspotSide, string>>>> = {
   "3": {
     left: "125,38 499,29 580,341 216,364",
     right: "699,17 931,11 1015,304 766,324",
@@ -174,10 +176,25 @@ export const overviewRoomHotspots: Partial<Record<CockpitFloorId, Partial<Record
   },
 };
 
-export const lk08OverviewRoomHotspots: Partial<Record<CockpitFloorId, Partial<Record<"left" | "right", string>>>> = {
+export const lk08OverviewRoomHotspots: Partial<Record<CockpitFloorId, Partial<Record<OverviewRoomHotspotSide, string>>>> = {
   ...overviewRoomHotspots,
+  "3": {
+    left: "112,78 367,58 409,349 172,366",
+    middle: "368,58 614,45 651,266 399,283",
+    right: "734,38 926,27 1003,308 792,324",
+  },
+  "2": {
+    left: "379,409 185,421 185,722 421,704",
+    middle: "624,396 376,409 413,638 660,621",
+    right: "734,385 930,371 1007,660 801,676",
+  },
+  "1": {
+    left: "391,763 627,745 667,971 425,990",
+    middle: "187,770 391,764 432,1054 187,1072",
+    right: "742,740 937,725 1011,1013 805,1028",
+  },
   ground: {
-    right: "705,1094 966,1068 1001,1322 758,1348",
+    right: "668,1095 959,1074 1002,1340 720,1361",
   },
 };
 

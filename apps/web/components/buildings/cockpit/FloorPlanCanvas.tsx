@@ -152,6 +152,8 @@ function FloorPlanCanvas({
   const [draftMaps, setDraftMaps] = useState(() => cloneMaps(floor.imageMap.rooms));
   const [copied, setCopied] = useState(false);
   const dimensions = useMemo(() => parseViewBox(floor.imageMap.viewBox), [floor.imageMap.viewBox]);
+  const isLk08ImageMap = floor.imageMap.src.includes("/buildings/lk08/");
+  const compactScale = isLk08ImageMap ? (floor.id === "ground" ? 1.06 : 1.1) : 1;
   const roomsByCode = useMemo(
     () => new Map(floor.rooms.map((room) => [normalizeRoomCode(room.urlCode), room])),
     [floor.rooms],
@@ -246,6 +248,7 @@ function FloorPlanCanvas({
           className="relative w-full max-w-[1600px] origin-center select-none transition-transform duration-200 ease-out motion-reduce:transition-none"
           style={{
             aspectRatio: `${floor.imageMap.width} / ${floor.imageMap.height}`,
+            transform: compactScale === 1 ? undefined : `scale(${compactScale})`,
           }}
         >
           <Image

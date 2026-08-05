@@ -21,9 +21,8 @@ export function getStatusTone(status: string) {
 }
 
 export function getBuildingMetrics(building: CockpitBuildingSpec) {
-  // Layout rooms describe geometry. Portfolio KPIs must only count records that
-  // were actually synchronized from the operational API.
-  const rooms = building.floors.flatMap((floor) => floor.rooms).filter((room) => room.sourceRoom);
+  const rooms = building.floors.flatMap((floor) => floor.rooms);
+  const operationalRooms = rooms.filter((room) => room.sourceRoom);
   const occupiedRooms = rooms.filter((room) => room.status === "occupied" || room.status === "expiring_soon").length;
   const vacantRooms = rooms.filter((room) => room.status === "vacant").length;
   const now = Date.now();
@@ -33,13 +32,13 @@ export function getBuildingMetrics(building: CockpitBuildingSpec) {
     const end = room.contract?.endDate ? new Date(room.contract.endDate).getTime() : Number.NaN;
     return Number.isFinite(end) && end >= now && end <= inThirtyDays;
   }).length;
-  const residentCount = rooms.reduce((sum, room) => sum + room.occupants, 0);
-  const monthlyRevenue = rooms.reduce((sum, room) => (room.status === "occupied" || room.status === "expiring_soon") ? sum + (room.monthlyRent || 0) : sum, 0);
+  const residentCount = operationalRooms.reduce((sum, room) => sum + room.occupants, 0);
+  const monthlyRevenue = operationalRooms.reduce((sum, room) => (room.status === "occupied" || room.status === "expiring_soon") ? sum + (room.monthlyRent || 0) : sum, 0);
   const occupancyRate = rooms.length ? Math.round((occupiedRooms / rooms.length) * 100) : 0;
-  const declaredTemporaryResidence = rooms.filter((room) => room.sourceRoom?.tenant?.tempResidence).length;
+  const declaredTemporaryResidence = operationalRooms.filter((room) => room.sourceRoom?.tenant?.tempResidence).length;
   const temporaryResidenceRate = occupiedRooms ? Math.round((declaredTemporaryResidence / occupiedRooms) * 100) : 0;
-  const depositTotal = rooms.reduce((sum, room) => sum + (room.contract?.deposit || 0), 0);
-  const overduePayments = rooms.reduce((sum, room) => sum + (room.sourceRoom?.invoices || []).filter((invoice) => invoice.status !== "paid" && new Date(invoice.dueDate).getTime() < now).length, 0);
+  const depositTotal = operationalRooms.reduce((sum, room) => sum + (room.contract?.deposit || 0), 0);
+  const overduePayments = operationalRooms.reduce((sum, room) => sum + (room.sourceRoom?.invoices || []).filter((invoice) => invoice.status !== "paid" && new Date(invoice.dueDate).getTime() < now).length, 0);
 
   return {
     totalRooms: rooms.length,
@@ -59,7 +58,6 @@ export function getBuildingMetrics(building: CockpitBuildingSpec) {
 }
 
 export function getFloorOccupancy(floor: CockpitFloorSpec) {
-  const rooms = floor.rooms.filter((room) => room.sourceRoom);
-  const active = rooms.filter((room) => room.status === "occupied" || room.status === "expiring_soon").length;
-  return rooms.length ? Math.round((active / rooms.length) * 100) : 0;
+  const active = floor.rooms.filter((room) => room.status === "occupied" || room.status === "expiring_soon").length;
+  return floor.rooms.length ? Math.round((active / floor.rooms.length) * 100) : 0;
 }

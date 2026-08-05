@@ -47,14 +47,14 @@ describe("building cockpit template resolver", () => {
     expect(spec?.floors.flatMap((floor) => floor.rooms).every((room) => room.entryDoorCount >= 1)).toBe(true);
     expect(spec?.floors.flatMap((floor) => floor.rooms).some((room) => room.type === "Căn 2PN mini + phòng khách")).toBe(true);
     expect(spec && getBuildingMetrics(spec)).toMatchObject({
-      totalRooms: 0,
+      totalRooms: 7,
       occupiedRooms: 0,
-      vacantRooms: 0,
+      vacantRooms: 7,
       monthlyRevenue: 0,
     });
   });
 
-  it("aggregates only rooms synchronized from operational data", () => {
+  it("counts layout rooms while keeping financial metrics tied to operational data", () => {
     const tenDaysFromNow = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const source = building("LK01-31");
@@ -107,13 +107,13 @@ describe("building cockpit template resolver", () => {
     expect(spec?.floors.flatMap((floor) => floor.rooms)).toHaveLength(7);
     expect(spec?.floors.flatMap((floor) => floor.rooms).filter((room) => room.sourceRoom)).toHaveLength(2);
     expect(spec && getBuildingMetrics(spec)).toMatchObject({
-      totalRooms: 2,
+      totalRooms: 7,
       occupiedRooms: 1,
-      vacantRooms: 1,
+      vacantRooms: 6,
       residentCount: 1,
       monthlyRevenue: 5_000_000,
       depositTotal: 10_000_000,
-      occupancyRate: 50,
+      occupancyRate: 14,
       expiringContracts: 1,
       declaredTemporaryResidence: 1,
       incompleteTemporaryResidence: 0,
@@ -198,9 +198,9 @@ describe("building cockpit template resolver", () => {
       "P24-01", "P24-02", "P24-03", "P24-04", "P24-05", "P24-06", "P24-07", "P24-08", "P24-09", "P24-10",
     ]);
     expect(lk0824 && getBuildingMetrics(lk0824)).toMatchObject({
-      totalRooms: 0,
+      totalRooms: 10,
       occupiedRooms: 0,
-      vacantRooms: 0,
+      vacantRooms: 10,
       monthlyRevenue: 0,
     });
 
@@ -236,9 +236,9 @@ describe("building cockpit template resolver", () => {
     expect(spec?.floors).toHaveLength(4);
     expect(spec?.floors.flatMap((floor) => floor.rooms).filter((room) => room.sourceRoom)).toHaveLength(1);
     expect(spec && getBuildingMetrics(spec)).toMatchObject({
-      totalRooms: 1,
+      totalRooms: 10,
       occupiedRooms: 0,
-      vacantRooms: 1,
+      vacantRooms: 10,
       monthlyRevenue: 0,
     });
   });

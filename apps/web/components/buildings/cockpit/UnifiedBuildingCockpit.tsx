@@ -594,13 +594,12 @@ function BuildingModelViewer({
 
 function FloorInformation({ floor }: { floor: CockpitFloorSpec }) {
   const operationalRooms = floor.rooms.filter((item) => item.sourceRoom);
-  const occupiedRooms = operationalRooms.filter((item) => item.status === "occupied" || item.status === "expiring_soon").length;
   const occupants = operationalRooms.reduce((sum, item) => sum + item.occupants, 0);
   const revenue = operationalRooms.reduce((sum, item) => sum + ((item.status === "occupied" || item.status === "expiring_soon") ? item.monthlyRent || 0 : 0), 0);
   const values = [
     ["Phòng đã đồng bộ", `${operationalRooms.length}/${floor.rooms.length}`],
-    ["Tỷ lệ lấp đầy", operationalRooms.length ? `${getFloorOccupancy({ ...floor, rooms: operationalRooms })}%` : "—"],
-    ["Tạm trú", operationalRooms.length ? `${occupants} người` : "—"],
+    ["Tỷ lệ lấp đầy", `${getFloorOccupancy(floor)}%`],
+    ["Tạm trú", `${occupants} người`],
     ["Doanh thu tầng", operationalRooms.length ? formatVnd(revenue) : "—"],
     ["Chiều cao tầng", `${floor.heightMeters} m`],
   ];
@@ -638,6 +637,7 @@ function FloorPlanPanel({
 }) {
   const [tab, setTab] = useState<"rooms" | "floor">("rooms");
   const panelRef = useRef<HTMLElement>(null);
+  const compactFloorPlan = building.templateId === "LK08_STANDARD";
 
   return (
     <section ref={panelRef} data-testid="floor-workspace-panel" className="min-w-0 overflow-hidden rounded-2xl border border-border/40 dark:border-white/5 bg-card shadow-[0_16px_36px_rgb(var(--shadow-color)/0.075)]">
@@ -676,7 +676,10 @@ function FloorPlanPanel({
           <h3 className="text-[12px] font-black uppercase tracking-wide text-text">Sơ đồ mặt bằng {floor.label}</h3>
           <StatusLegend />
         </div>
-        <div className="h-[340px] rounded-[14px] bg-surface/45 p-2 min-[1366px]:h-[390px]">
+        <div className={cx(
+          "rounded-[14px] bg-surface/45 p-2",
+          compactFloorPlan ? "h-[285px] min-[1366px]:h-[330px]" : "h-[340px] min-[1366px]:h-[390px]",
+        )}>
           <FloorPlanCanvas
             floor={floor}
             buildingCode={building.code}
@@ -710,23 +713,23 @@ function FloorPlanPanel({
 
 function FloorOperationsPanel({ floor, onSelectRoom }: { floor: CockpitFloorSpec; onSelectRoom: (room: CockpitRoomSpec) => void }) {
   const operationalRooms = floor.rooms.filter((item) => item.sourceRoom);
-  const occupied = operationalRooms.filter((item) => item.status === "occupied" || item.status === "expiring_soon").length;
+  const occupied = floor.rooms.filter((item) => item.status === "occupied" || item.status === "expiring_soon").length;
   const occupants = operationalRooms.reduce((sum, item) => sum + item.occupants, 0);
 
   return (
     <aside className="hidden h-fit min-w-0 overflow-hidden rounded-2xl border border-border/40 dark:border-white/5 bg-card shadow-[0_16px_36px_rgb(var(--shadow-color)/0.075)] min-[1366px]:sticky min-[1366px]:top-3 min-[1366px]:block" aria-label={`Thông tin ${floor.label}`}>
       <header className="border-b border-border/20 dark:border-white/5 px-4 py-3.5">
         <h2 className="text-[16px] font-black text-text">Thông tin tầng</h2>
-        <p className="mt-1 text-[12px] font-semibold text-muted">{floor.label} · {operationalRooms.length ? `${occupied}/${operationalRooms.length} phòng đã thuê` : "chưa có dữ liệu vận hành"}</p>
+        <p className="mt-1 text-[12px] font-semibold text-muted">{floor.label} · {occupied}/{floor.rooms.length} phòng đã thuê</p>
       </header>
       <div className="grid grid-cols-2 gap-2 border-b border-border/20 dark:border-white/5 p-3">
         <div className="rounded-xl bg-surface/55 p-2.5">
           <span className="text-[12px] font-semibold text-muted">Tạm trú</span>
-          <strong className="mt-0.5 block text-[17px] font-black tabular-nums text-text">{operationalRooms.length ? `${occupants} người` : "—"}</strong>
+          <strong className="mt-0.5 block text-[17px] font-black tabular-nums text-text">{occupants} người</strong>
         </div>
         <div className="rounded-xl bg-primary/[0.055] p-2.5">
           <span className="text-[12px] font-semibold text-muted">Đã thuê</span>
-          <strong className="mt-0.5 block text-[17px] font-black tabular-nums text-primary">{operationalRooms.length ? `${occupied}/${operationalRooms.length}` : "—"}</strong>
+          <strong className="mt-0.5 block text-[17px] font-black tabular-nums text-primary">{occupied}/{floor.rooms.length}</strong>
         </div>
       </div>
       <div className="space-y-2.5 p-3">

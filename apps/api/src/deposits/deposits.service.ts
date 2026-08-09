@@ -118,14 +118,20 @@ export class DepositsService extends BaseCrudService<Deposit> {
     return updated;
   }
 
-  async cancel(id: string, reason: string, userId: string) {
+  async cancel(id: string, reason: string, userId: string, resolutionAction?: 'REFUND' | 'KEEP' | 'DEDUCT') {
     const deposit = await this.repository.findById(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING && deposit.status !== DepositStatus.PAID) {
       throw new BadRequestException('Deposit status cannot be cancelled');
     }
+    if (deposit.status === DepositStatus.PAID && !resolutionAction) {
+      throw new BadRequestException('Paid deposits require REFUND, KEEP, or DEDUCT resolution before cancel');
+    }
 
-    const updateData = { status: DepositStatus.CANCELLED, note: reason };
+    const updateData = {
+      status: DepositStatus.CANCELLED,
+      note: deposit.status === DepositStatus.PAID ? `[${resolutionAction}] ${reason}` : reason,
+    };
     const updated = await this.repository.update(id, updateData);
     
     await this.auditService.log({

@@ -80,7 +80,7 @@ export class DepositsController {
   @ApiOperation({ summary: 'Cancel deposit' })
   cancel(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
     const input = CancelDepositSchema.parse(body);
-    return this.depositsService.cancel(id, input.reason, userId);
+    return this.depositsService.cancel(id, input.reason, userId, input.resolutionAction);
   }
 
   @Post(':id/convert-contract')

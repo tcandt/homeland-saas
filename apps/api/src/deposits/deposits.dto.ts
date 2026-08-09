@@ -28,6 +28,7 @@ export const RefundDepositSchema = z.object({
 
 export const CancelDepositSchema = z.object({
   reason: z.string().min(1, 'Reason is required for cancel'),
+  resolutionAction: z.enum(['REFUND', 'KEEP', 'DEDUCT']).optional(),
 });
 
 export const PaginationSchema = z.object({

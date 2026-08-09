@@ -569,7 +569,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hiển thị giao dịch sai bank.
 - [x] Hiển thị giao dịch treo chưa match payment code.
 - [ ] Cho phép gán thủ công giao dịch vào hóa đơn/cọc.
-- [ ] Ghi nhận thanh toán một phần.
+- [x] Ghi nhận thanh toán một phần.
 - [ ] Xử lý thừa tiền bằng hoàn lại, dư có hoặc cấn trừ kỳ sau.
 - [x] Cảnh báo nếu tiền vào bank không thuộc owner của tòa/phòng.
 - [x] Chống ghi nhận trùng webhook.
@@ -620,11 +620,11 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Lưu lý do hủy/hoàn/giữ cọc.
 - [ ] Lưu chứng từ hoàn tiền.
 - [ ] Gửi thông báo cho khách và nội bộ.
-- [ ] Không cho `cancel` cọc đã paid nếu chưa chọn rõ hoàn/giữ/khấu trừ.
+- [x] Không cho `cancel` cọc đã paid nếu chưa chọn rõ hoàn/giữ/khấu trừ.
 
 ### 10. Hóa đơn và công nợ
 
-- [ ] Hỗ trợ thanh toán một phần.
+- [x] Hỗ trợ thanh toán một phần.
 - [ ] Hỗ trợ dư tiền khách.
 - [ ] Cấn trừ dư tiền vào kỳ sau.
 - [ ] Hoàn dư tiền nếu cần.

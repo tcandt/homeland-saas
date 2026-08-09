@@ -515,21 +515,21 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 4. Báo cáo chia lợi nhuận theo owner
 
-- [ ] Làm màn chi tiết cho từng owner.
-- [ ] Hiển thị danh sách tòa thuộc owner.
-- [ ] Hiển thị tổng doanh thu.
-- [ ] Hiển thị tổng chi phí.
-- [ ] Hiển thị lợi nhuận trước hoàn ứng.
-- [ ] Hiển thị khoản owner đã ứng hộ cho owner khác.
-- [ ] Hiển thị khoản owner phải hoàn cho người khác.
-- [ ] Hiển thị lợi nhuận sau hoàn ứng/khấu trừ.
-- [ ] Lọc theo tháng/quý/năm.
-- [ ] Drill-down từ owner xuống tòa.
+- [x] Làm màn chi tiết cho từng owner.
+- [x] Hiển thị danh sách tòa thuộc owner.
+- [x] Hiển thị tổng doanh thu.
+- [x] Hiển thị tổng chi phí.
+- [x] Hiển thị lợi nhuận trước hoàn ứng.
+- [x] Hiển thị khoản owner đã ứng hộ cho owner khác.
+- [x] Hiển thị khoản owner phải hoàn cho người khác.
+- [x] Hiển thị lợi nhuận sau hoàn ứng/khấu trừ.
+- [x] Lọc theo tháng/quý/năm.
+- [x] Drill-down từ owner xuống tòa.
 - [ ] Drill-down từ tòa xuống phòng.
 - [ ] Drill-down từ phòng xuống hợp đồng/hóa đơn/chi phí.
 - [ ] Export Excel.
 - [ ] Export PDF.
-- [ ] Thêm biểu đồ xu hướng lợi nhuận theo tháng.
+- [x] Thêm biểu đồ xu hướng lợi nhuận theo tháng.
 
 ### 5. Báo cáo theo tòa nhà
 

@@ -19,6 +19,9 @@ export const financeApi = {
   getOwnerProfitSummary: async () => {
     return await apiClient.get<any>('/finance/owners/profit-summary');
   },
+  getOwnerProfitDetail: async (id: string, params?: Record<string, any>) => {
+    return await apiClient.get<any>(`/finance/owners/${id}/profit-detail`, { params });
+  },
   getExpenses: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/expenses', { params });
   },

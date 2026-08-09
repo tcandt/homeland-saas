@@ -335,6 +335,156 @@ export class FinanceReportingService {
     }));
   }
 
+  async getOwnerProfitDetail(tenantId: string, ownerId: string, options: { year?: string; month?: string } = {}) {
+    const owner = await this.prisma.owner.findFirst({
+      where: { tenantId, id: ownerId, isActive: true },
+      include: { buildings: { select: { id: true, code: true, name: true }, orderBy: { displayOrder: 'asc' } } },
+    });
+    if (!owner) throw new BadRequestException('OWNER_NOT_FOUND');
+
+    const period = this.buildPeriodRange(options.year, options.month);
+    const ownerWhere = { tenantId, costCenter: { ownerId: owner.id }, createdAt: period };
+    const expenseWhere = { tenantId, ownerId: owner.id, deletedAt: null, status: { in: ['APPROVED', 'PAID'] as any }, date: period };
+
+    const [revenues, journalExpenses, directExpenses, advancedByOwner, owedToOtherOwners] = await Promise.all([
+      this.prisma.journalLine.aggregate({
+        where: { ...ownerWhere, account: { type: 'REVENUE' }, type: 'CREDIT' },
+        _sum: { amount: true },
+      }),
+      this.prisma.journalLine.aggregate({
+        where: { ...ownerWhere, account: { type: 'EXPENSE' }, type: 'DEBIT' },
+        _sum: { amount: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: expenseWhere,
+        _sum: { amount: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: {
+          tenantId,
+          paidByOwnerId: owner.id,
+          ownerId: { not: owner.id },
+          deletedAt: null,
+          status: { in: ['APPROVED', 'PAID'] as any },
+          date: period,
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: {
+          tenantId,
+          ownerId: owner.id,
+          paidByOwnerId: { not: null },
+          NOT: { paidByOwnerId: owner.id },
+          deletedAt: null,
+          status: { in: ['APPROVED', 'PAID'] as any },
+          date: period,
+        },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const buildingBreakdown = await Promise.all(owner.buildings.map(async (building) => {
+      const [buildingRevenue, buildingJournalExpense, buildingDirectExpense] = await Promise.all([
+        this.prisma.journalLine.aggregate({
+          where: {
+            tenantId,
+            costCenter: { buildingId: building.id },
+            account: { type: 'REVENUE' },
+            type: 'CREDIT',
+            createdAt: period,
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.journalLine.aggregate({
+          where: {
+            tenantId,
+            costCenter: { buildingId: building.id },
+            account: { type: 'EXPENSE' },
+            type: 'DEBIT',
+            createdAt: period,
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.expense.aggregate({
+          where: {
+            tenantId,
+            buildingId: building.id,
+            deletedAt: null,
+            status: { in: ['APPROVED', 'PAID'] as any },
+            date: period,
+          },
+          _sum: { amount: true },
+        }),
+      ]);
+
+      const revenue = Number(buildingRevenue._sum.amount || 0);
+      const expense = Math.max(Number(buildingJournalExpense._sum.amount || 0), Number(buildingDirectExpense._sum.amount || 0));
+      return {
+        building,
+        revenue,
+        expense,
+        profit: revenue - expense,
+      };
+    }));
+
+    const expenseRows = await this.getExpenses(tenantId, {
+      ownerId: owner.id,
+      startDate: period.gte?.toISOString(),
+      endDate: period.lte?.toISOString(),
+    });
+
+    const selectedYear = Number(options.year || new Date().getFullYear());
+    const trend = await Promise.all(Array.from({ length: 12 }, async (_, index) => {
+      const range = this.buildPeriodRange(String(selectedYear), String(index + 1));
+      const [monthlyRevenue, monthlyExpense] = await Promise.all([
+        this.prisma.journalLine.aggregate({
+          where: { tenantId, costCenter: { ownerId: owner.id }, account: { type: 'REVENUE' }, type: 'CREDIT', createdAt: range },
+          _sum: { amount: true },
+        }),
+        this.prisma.expense.aggregate({
+          where: { tenantId, ownerId: owner.id, deletedAt: null, status: { in: ['APPROVED', 'PAID'] as any }, date: range },
+          _sum: { amount: true },
+        }),
+      ]);
+      const revenue = Number(monthlyRevenue._sum.amount || 0);
+      const expense = Number(monthlyExpense._sum.amount || 0);
+      return {
+        month: index + 1,
+        revenue,
+        expense,
+        profit: revenue - expense,
+      };
+    }));
+
+    const revenue = Number(revenues._sum.amount || 0);
+    const expense = Math.max(Number(journalExpenses._sum.amount || 0), Number(directExpenses._sum.amount || 0));
+    const advanceReceivable = Number(advancedByOwner._sum.amount || 0);
+    const advancePayable = Number(owedToOtherOwners._sum.amount || 0);
+
+    return {
+      owner: { id: owner.id, code: owner.code, name: owner.name },
+      period: {
+        year: selectedYear,
+        month: options.month ? Number(options.month) : null,
+        startDate: period.gte,
+        endDate: period.lte,
+      },
+      buildings: owner.buildings,
+      summary: {
+        revenue,
+        expense,
+        profitBeforeAdvance: revenue - expense,
+        advanceReceivable,
+        advancePayable,
+        profitAfterAdvance: revenue - expense - advancePayable + advanceReceivable,
+      },
+      buildingBreakdown,
+      expenses: expenseRows,
+      trend,
+    };
+  }
+
   private async resolveCostCenter(tenantId: string, costCenterId?: string, buildingId?: string) {
     if (costCenterId) {
       const costCenter = await this.prisma.costCenter.findFirst({ where: { tenantId, id: costCenterId } });
@@ -374,6 +524,30 @@ export class FinanceReportingService {
     const year = new Date().getFullYear();
     const count = await this.prisma.expense.count({ where: { tenantId, code: { startsWith: `EXP-${year}-` } } });
     return `EXP-${year}-${String(count + 1).padStart(4, '0')}`;
+  }
+
+  private buildPeriodRange(year?: string, month?: string) {
+    const selectedYear = Number(year || new Date().getFullYear());
+    if (!Number.isInteger(selectedYear)) {
+      throw new BadRequestException('PERIOD_YEAR_INVALID');
+    }
+
+    if (!month) {
+      return {
+        gte: new Date(selectedYear, 0, 1),
+        lte: new Date(selectedYear, 11, 31, 23, 59, 59, 999),
+      };
+    }
+
+    const selectedMonth = Number(month);
+    if (!Number.isInteger(selectedMonth) || selectedMonth < 1 || selectedMonth > 12) {
+      throw new BadRequestException('PERIOD_MONTH_INVALID');
+    }
+
+    return {
+      gte: new Date(selectedYear, selectedMonth - 1, 1),
+      lte: new Date(selectedYear, selectedMonth, 0, 23, 59, 59, 999),
+    };
   }
 
   private async postExpenseJournal(tenantId: string, expense: any) {

@@ -8,6 +8,7 @@ export const financeKeys = {
   profitLoss: (params: any) => [...financeKeys.all, 'profitLoss', params] as const,
   building: (code: string, params: any) => [...financeKeys.all, 'building', code, params] as const,
   ownerProfitSummary: () => [...financeKeys.all, 'ownerProfitSummary'] as const,
+  ownerProfitDetail: (id: string, params: any) => [...financeKeys.all, 'ownerProfitDetail', id, params] as const,
   expenses: (params: any) => [...financeKeys.all, 'expenses', params] as const,
 };
 
@@ -44,6 +45,14 @@ export function useOwnerProfitSummaryQuery() {
   return useQuery({
     queryKey: financeKeys.ownerProfitSummary(),
     queryFn: () => financeAdapter.getOwnerProfitSummary(),
+  });
+}
+
+export function useOwnerProfitDetailQuery(id: string, params?: Record<string, any>) {
+  return useQuery({
+    queryKey: financeKeys.ownerProfitDetail(id, params),
+    queryFn: () => financeAdapter.getOwnerProfitDetail(id, params),
+    enabled: !!id,
   });
 }
 

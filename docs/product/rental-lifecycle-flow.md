@@ -476,7 +476,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hiển thị số tiền.
 - [x] Hiển thị trạng thái duyệt.
 - [x] Hiển thị trạng thái hoàn ứng/khấu trừ.
-- [ ] Hiển thị chứng từ nếu có.
+- [x] Hiển thị chứng từ nếu có.
 - [x] Thêm lọc theo tháng.
 - [x] Thêm lọc theo năm.
 - [x] Thêm lọc theo tòa.
@@ -508,7 +508,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Thêm upload ảnh hóa đơn/chứng từ.
 - [ ] Cho phép nhiều file trên một khoản chi.
 - [ ] Preview chứng từ trong modal chi tiết.
-- [ ] Lưu `attachmentUrls`.
+- [x] Lưu `attachmentUrls`.
 - [ ] Kiểm tra dung lượng file.
 - [ ] Kiểm tra loại file hợp lệ.
 - [ ] Thêm quyền xem/tải chứng từ.

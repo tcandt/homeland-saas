@@ -46,6 +46,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
   const [amount, setAmount] = useState("");
   const [paidByName, setPaidByName] = useState("");
   const [vendor, setVendor] = useState("");
+  const [attachmentUrls, setAttachmentUrls] = useState("");
   const [description, setDescription] = useState("");
   const [isSubmitting, setSubmitting] = useState(false);
 
@@ -77,6 +78,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
     setAmount("");
     setPaidByName("");
     setVendor("");
+    setAttachmentUrls("");
     setDescription("");
   };
 
@@ -108,6 +110,10 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         amount: numericAmount,
         paidByName: paidByName.trim() || null,
         vendor: vendor.trim() || null,
+        attachmentUrls: attachmentUrls
+          .split(/\r?\n/)
+          .map((url) => url.trim())
+          .filter(Boolean),
         description: description.trim() || `${categoryOptions.find((item) => item.value === category)?.label || "Chi phí"} - ${selectedBuilding?.code || selectedBuilding?.name || ""}`,
       });
 
@@ -178,7 +184,9 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
           <Input value={vendor} onChange={(event) => setVendor(event.target.value)} placeholder="VD: Cửa hàng vật tư" />
         </Field>
 
-        <div className="hidden md:block" />
+        <Field label="Chứng từ">
+          <Textarea value={attachmentUrls} onChange={(event) => setAttachmentUrls(event.target.value)} placeholder="Mỗi dòng một link hóa đơn, ảnh chuyển khoản..." />
+        </Field>
 
         <div className="md:col-span-2">
           <Field label="Mô tả">

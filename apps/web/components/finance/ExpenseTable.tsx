@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { CheckCircle2, CircleDollarSign, FilterX, ReceiptText, RotateCcw, Search, Split, XCircle } from "lucide-react";
+import { CheckCircle2, CircleDollarSign, FilterX, Paperclip, ReceiptText, RotateCcw, Search, Split, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -368,6 +368,26 @@ export default function ExpenseTable() {
                       <Badge variant="neutral">{categoryLabels[expense.category] || expense.category || "Khác"}</Badge>
                       {expense.vendor && <Badge variant="neutral">{expense.vendor}</Badge>}
                     </div>
+                    {Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {expense.attachmentUrls.slice(0, 2).map((url: string, index: number) => (
+                          <a
+                            key={`${expense.id}-attachment-${index}`}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px] font-bold text-muted hover:text-[#8b5cf6]"
+                          >
+                            <Paperclip size={11} /> Chứng từ {index + 1}
+                          </a>
+                        ))}
+                        {expense.attachmentUrls.length > 2 && (
+                          <span className="rounded-full bg-surface px-2 py-1 text-[11px] font-bold text-muted">
+                            +{expense.attachmentUrls.length - 2}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="font-bold text-text">{expense.owner?.name || "Chưa gắn chủ"}</div>

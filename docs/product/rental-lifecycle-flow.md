@@ -677,6 +677,11 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Seed account riêng `adminA@homeland.local` và `adminB@homeland.local` cho hai owner.
 - [x] Chặn admin thường chỉnh token, cookie, mật khẩu Hunonic ở backend.
 - [x] Khóa input token/mật khẩu Hunonic trên UI nếu không phải owner admin A/B.
+- [x] Lưu IP/User-Agent vào audit log khi login thành công hoặc thất bại.
+- [x] Ghi audit log khi lưu Settings, có redact token/cookie/mật khẩu nhạy cảm.
+- [x] Ghi audit log khi admin thường bị chặn chỉnh token Hunonic.
+- [x] Thêm API `GET /audit/logs` để xem lịch sử thao tác gần nhất.
+- [x] Hiển thị lịch sử Auth/Settings trong màn Owner Management.
 - [ ] Quyền xem tài chính.
 - [ ] Quyền tạo chi phí.
 - [ ] Quyền sửa chi phí.
@@ -686,7 +691,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Quyền xem lợi nhuận owner.
 - [ ] Quyền export báo cáo.
 - [ ] Audit log cho mọi thao tác tiền.
-- [ ] Audit log cho login, thay đổi cài đặt, đổi owner, sửa token và thao tác tài chính.
+- [x] Audit log cho login, thay đổi cài đặt và sửa token.
+- [ ] Audit log cho đổi owner và các thao tác tài chính còn thiếu.
 - [ ] Cảnh báo thao tác nhạy cảm bằng popup xác nhận.
 
 ### 15. UI/UX cleanup

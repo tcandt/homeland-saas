@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
+import { AuditService } from '../shared/audit/audit.service';
 
 export interface SettingsSectionRecord {
   key: string;
@@ -11,7 +12,10 @@ export interface SettingsSectionRecord {
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   private resolveOwnerId(scope: SettingScope, tenantId: string, userId: string) {
     return scope === SettingScope.USER ? userId : tenantId;
@@ -82,6 +86,17 @@ export class SettingsService {
       },
     });
 
+    await this.audit.log({
+      action: 'UPDATE',
+      entity: 'AppSetting',
+      entityId: record.id,
+      module: 'Settings',
+      tenantId,
+      userId,
+      before: sanitizeSettingsAuditValue(key, previous?.value),
+      after: sanitizeSettingsAuditValue(key, nextValue),
+    });
+
     return {
       key: record.key,
       scope: record.scope,
@@ -99,6 +114,17 @@ export class SettingsService {
     });
     const email = user?.email?.toLowerCase() ?? '';
     if (email === 'admina@homeland.local' || email === 'adminb@homeland.local') return;
+
+    await this.audit.log({
+      action: 'UPDATE',
+      entity: 'AppSetting',
+      entityId: key,
+      module: 'Settings',
+      tenantId,
+      userId,
+      before: { denied: true, reason: 'HUNONIC_SECRET_UPDATE_FORBIDDEN', key },
+      after: sanitizeSettingsAuditValue(key, value),
+    });
 
     throw new BadRequestException('Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu Hunonic.');
   }
@@ -123,4 +149,17 @@ function isRecord(value: unknown): value is Record<string, any> {
 function containsHunonicSecret(value: Prisma.InputJsonValue) {
   if (!isRecord(value)) return false;
   return ['password', 'websiteToken', 'websiteCookie'].some((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function sanitizeSettingsAuditValue(key: string, value: Prisma.JsonValue | Prisma.InputJsonValue | undefined) {
+  if (!value || !isRecord(value)) return value ?? null;
+  const sanitized = { ...value };
+  if (key === 'hunonic') {
+    for (const secretKey of ['password', 'websiteToken', 'websiteCookie']) {
+      if (Object.prototype.hasOwnProperty.call(sanitized, secretKey)) {
+        sanitized[secretKey] = sanitized[secretKey] ? '__redacted__' : '';
+      }
+    }
+  }
+  return sanitized;
 }

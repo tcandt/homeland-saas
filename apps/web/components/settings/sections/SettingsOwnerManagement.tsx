@@ -1,10 +1,12 @@
 "use client";
 
 import React from "react";
-import { Building2, LockKeyhole, UsersRound } from "lucide-react";
+import useSWR from "swr";
+import { Activity, Building2, LockKeyhole, RefreshCcw, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { auditApi } from "@/lib/api/audit.api";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 
 type OwnerSettings = {
@@ -24,6 +26,27 @@ const fallback: OwnerSettings = {
   ownerABuildings: ["LK01-31", "LK08-25"],
   ownerBBuildings: ["LK01-32", "LK08-24"],
 };
+
+const actionLabels: Record<string, string> = {
+  LOGIN_SUCCESS: "Đăng nhập thành công",
+  LOGIN_FAILED: "Đăng nhập thất bại",
+  LOGOUT_SUCCESS: "Đăng xuất",
+  UPDATE: "Cập nhật",
+};
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString("vi-VN");
+}
+
+function describeAuditChange(log: any) {
+  if (log.module === "Auth") return log.entity || "User";
+  if (log.module === "Settings") {
+    const denied = Boolean((log.before as any)?.denied);
+    if (denied) return "Từ chối cập nhật token Hunonic";
+    return `Cài đặt ${log.entityId || ""}`.trim();
+  }
+  return log.entityId || log.entity;
+}
 
 function OwnerCard({
   title,
@@ -80,6 +103,10 @@ function OwnerCard({
 
 export default function SettingsOwnerManagement() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<OwnerSettings>("owners", "TENANT", fallback);
+  const audit = useSWR(["owner-audit-logs"], () => auditApi.logs({ limit: 20, module: "Auth,Settings" }), {
+    revalidateOnFocus: false,
+  });
+  const auditRows = audit.data || [];
 
   return (
     <Card className="p-[20px]">
@@ -111,6 +138,63 @@ export default function SettingsOwnerManagement() {
 
         <div className="rounded-[14px] border border-blue-200 bg-blue-50 px-[14px] py-[12px] text-[12px] font-semibold leading-relaxed text-blue-900">
           Mapping hiện tại: LK01-31 và LK08-25 thuộc chủ Tính; LK01-32 và LK08-24 thuộc chủ Thể. Account owner A/B có toàn quyền vận hành, còn account admin thường chỉ vận hành và không chỉnh sửa token cài đặt.
+        </div>
+
+        <div className="overflow-hidden rounded-[16px] border border-border bg-background/70">
+          <div className="flex flex-col gap-[10px] border-b border-border px-[14px] py-[12px] sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-[8px] text-[13px] font-black text-text">
+                <Activity size={16} className="text-primary" /> Lịch sử đăng nhập và chỉnh sửa
+              </div>
+              <p className="mt-[3px] text-[12px] text-muted">20 log gần nhất của Auth và Settings để truy vết owner/admin thao tác.</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => audit.mutate()} isLoading={audit.isLoading}>
+              <RefreshCcw size={13} className="mr-2" /> Làm mới
+            </Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-[760px] w-full text-left">
+              <thead className="bg-muted/10">
+                <tr>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Thời điểm</th>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Người thao tác</th>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Module</th>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Hành động</th>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Chi tiết</th>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {audit.isLoading && (
+                  <tr>
+                    <td colSpan={6} className="px-[14px] py-[24px] text-center text-[13px] font-semibold text-muted">Đang tải lịch sử...</td>
+                  </tr>
+                )}
+                {!audit.isLoading && auditRows.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-[14px] py-[24px] text-center text-[13px] font-semibold text-muted">Chưa có log phù hợp.</td>
+                  </tr>
+                )}
+                {auditRows.map((log) => (
+                  <tr key={log.id} className="border-t border-border">
+                    <td className="whitespace-nowrap px-[14px] py-[11px] text-[12px] font-semibold text-muted">{formatDateTime(log.createdAt)}</td>
+                    <td className="px-[14px] py-[11px]">
+                      <div className="text-[12px] font-black text-text">{log.user?.fullName || "Hệ thống"}</div>
+                      <div className="text-[11px] font-semibold text-muted">{log.user?.email || "Không có user"}</div>
+                    </td>
+                    <td className="px-[14px] py-[11px] text-[12px] font-bold text-text">{log.module || "-"}</td>
+                    <td className="px-[14px] py-[11px]">
+                      <span className="rounded-full bg-primary/10 px-[9px] py-[4px] text-[11px] font-black text-primary">
+                        {actionLabels[log.action] || log.action}
+                      </span>
+                    </td>
+                    <td className="max-w-[220px] truncate px-[14px] py-[11px] text-[12px] font-semibold text-text">{describeAuditChange(log)}</td>
+                    <td className="whitespace-nowrap px-[14px] py-[11px] text-[12px] font-semibold text-muted">{log.ip || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="flex justify-end">

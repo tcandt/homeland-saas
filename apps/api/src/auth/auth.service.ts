@@ -46,18 +46,18 @@ export class AuthService {
     });
 
     if (!user) {
-      await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', module: 'Auth', before: { emailOrPhone: input.emailOrPhone }});
+      await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', module: 'Auth', before: { emailOrPhone: input.emailOrPhone }, ip, userAgent });
       throw new UnauthorizedException({ code: ErrorCodes.AUTH_INVALID_CREDENTIALS, message: 'Invalid credentials' });
     }
 
     if (user.status !== 'ACTIVE') {
-      await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', entityId: user.id, module: 'Auth', before: { reason: 'Account disabled' }});
+      await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', entityId: user.id, module: 'Auth', before: { reason: 'Account disabled' }, tenantId: user.tenantId, ip, userAgent });
       throw new UnauthorizedException({ code: 'AUTH_ACCOUNT_DISABLED', message: 'Account is disabled' });
     }
 
     const isMatch = await bcrypt.compare(input.password, user.passwordHash);
     if (!isMatch) {
-      await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', entityId: user.id, module: 'Auth', before: { reason: 'Wrong password' }});
+      await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', entityId: user.id, module: 'Auth', before: { reason: 'Wrong password' }, tenantId: user.tenantId, ip, userAgent });
       throw new UnauthorizedException({ code: ErrorCodes.AUTH_INVALID_CREDENTIALS, message: 'Invalid credentials' });
     }
 
@@ -100,7 +100,9 @@ export class AuthService {
       entityId: user.id,
       module: 'Auth',
       tenantId: user.tenantId,
-      userId: user.id
+      userId: user.id,
+      ip,
+      userAgent,
     });
 
     return {

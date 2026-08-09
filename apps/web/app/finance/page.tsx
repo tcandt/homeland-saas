@@ -90,7 +90,7 @@ export default function FinancePage() {
               onClick={() => setExpenseModalOpen(true)}
               className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px] bg-[#8b5cf6] hover:bg-[#6366f1] text-white shadow-[#8b5cf6]/20"
             >
-              <Plus size={16} className="mr-1.5" /> Them chi phi
+              <Plus size={16} className="mr-1.5" /> Thêm chi phí
             </Button>
           </div>
         </div>
@@ -106,7 +106,7 @@ export default function FinancePage() {
             data-testid="finance-chart"
             className="lg:col-span-2 bg-card border border-border rounded-[16px] h-[250px] md:h-[300px] flex items-center justify-center flex-col"
           >
-            <span className="text-muted font-bold text-[14px]">Biểu đồ Dòng tiền (Cash Flow)</span>
+            <span className="text-muted font-bold text-[14px]">Biểu đồ dòng tiền (Cash Flow)</span>
             <span className="text-muted/50 text-[12px]">Data loaded from API</span>
           </div>
           <div className="col-span-1 bg-card border border-border rounded-[16px] h-[250px] md:h-[300px] flex items-center justify-center flex-col">

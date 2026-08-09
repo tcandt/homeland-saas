@@ -18,9 +18,9 @@ export default function OwnerProfitSummary() {
     <section className="bg-card border border-border rounded-[16px] overflow-hidden shadow-sm">
       <div className="p-[16px] md:p-[20px] border-b border-border flex items-start justify-between gap-4">
         <div>
-          <h2 className="font-black text-[16px] md:text-[18px] text-text">Chia loi nhuan theo chu</h2>
+          <h2 className="font-black text-[16px] md:text-[18px] text-text">Chia lợi nhuận theo chủ</h2>
           <p className="text-[12px] md:text-[13px] text-muted mt-1">
-            Tong hop doanh thu, chi phi, tien ung ho va khoan can khau tru cho tung chu so huu.
+            Tổng hợp doanh thu, chi phí, tiền ứng hộ và khoản cần khấu trừ cho từng chủ sở hữu.
           </p>
         </div>
         <div className="hidden md:flex h-10 w-10 items-center justify-center rounded-xl bg-[#8b5cf6]/10 text-[#8b5cf6]">
@@ -30,12 +30,12 @@ export default function OwnerProfitSummary() {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-0">
         {isLoading && (
-          <div className="p-[20px] text-[13px] font-semibold text-muted">Dang tai bao cao...</div>
+          <div className="p-[20px] text-[13px] font-semibold text-muted">Đang tải báo cáo...</div>
         )}
 
         {!isLoading && rows.length === 0 && (
           <div className="p-[20px] text-[13px] font-semibold text-muted">
-            Chua co du lieu owner. Hay gan chu so huu cho toa nha de bat dau theo doi.
+            Chưa có dữ liệu chủ sở hữu. Hãy gắn chủ sở hữu cho tòa nhà để bắt đầu theo dõi.
           </div>
         )}
 
@@ -51,20 +51,20 @@ export default function OwnerProfitSummary() {
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-muted">
                   <Building2 size={13} />
-                  {(row.buildings || []).map((building: any) => building.code).join(", ") || "Chua gan toa"}
+                  {(row.buildings || []).map((building: any) => building.code).join(", ") || "Chưa gắn tòa"}
                 </div>
               </div>
               <div className="rounded-xl bg-[#10b981]/10 px-3 py-2 text-right">
-                <div className="text-[10px] font-black uppercase text-[#059669]">Con lai</div>
+                <div className="text-[10px] font-black uppercase text-[#059669]">Còn lại</div>
                 <div className="text-[16px] font-black text-[#059669]">{formatMoney(Number(row.profitAfterAdvance || 0))}</div>
               </div>
             </div>
 
             <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Metric label="Tong thu" value={row.revenue} tone="income" />
-              <Metric label="Tong chi" value={row.expense} tone="expense" />
-              <Metric label="Can thu hoan ung" value={row.advanceReceivable} tone="income" />
-              <Metric label="Can khau tru" value={row.advancePayable} tone="expense" />
+              <Metric label="Tổng thu" value={row.revenue} tone="income" />
+              <Metric label="Tổng chi" value={row.expense} tone="expense" />
+              <Metric label="Cần thu hoàn ứng" value={row.advanceReceivable} tone="income" />
+              <Metric label="Cần khấu trừ" value={row.advancePayable} tone="expense" />
             </div>
           </article>
         ))}

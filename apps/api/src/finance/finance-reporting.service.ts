@@ -127,10 +127,11 @@ export class FinanceReportingService {
     });
   }
 
-  async getExpenses(tenantId: string, options: { ownerId?: string; buildingId?: string; status?: string; startDate?: string; endDate?: string } = {}) {
+  async getExpenses(tenantId: string, options: { ownerId?: string; buildingId?: string; category?: string; status?: string; startDate?: string; endDate?: string } = {}) {
     const where: any = { tenantId, deletedAt: null };
     if (options.ownerId) where.ownerId = options.ownerId;
     if (options.buildingId) where.buildingId = options.buildingId;
+    if (options.category) where.category = options.category;
     if (options.status) where.status = options.status;
     if (options.startDate || options.endDate) {
       where.date = {};
@@ -138,7 +139,7 @@ export class FinanceReportingService {
       if (options.endDate) where.date.lte = new Date(options.endDate);
     }
 
-    return this.prisma.expense.findMany({
+    const expenses = await this.prisma.expense.findMany({
       where,
       include: {
         owner: { select: { id: true, code: true, name: true } },
@@ -147,6 +148,33 @@ export class FinanceReportingService {
       },
       orderBy: { date: 'desc' },
     });
+
+    const buildingIds = Array.from(new Set(expenses.map((expense) => expense.buildingId).filter(Boolean))) as string[];
+    const roomIds = Array.from(new Set(expenses.map((expense) => expense.roomId).filter(Boolean))) as string[];
+
+    const [buildings, rooms] = await Promise.all([
+      buildingIds.length
+        ? this.prisma.building.findMany({
+            where: { tenantId, id: { in: buildingIds }, deletedAt: null },
+            select: { id: true, code: true, name: true },
+          })
+        : Promise.resolve([]),
+      roomIds.length
+        ? this.prisma.room.findMany({
+            where: { tenantId, id: { in: roomIds }, deletedAt: null },
+            select: { id: true, code: true, name: true, buildingId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const buildingById = new Map(buildings.map((building) => [building.id, building]));
+    const roomById = new Map(rooms.map((room) => [room.id, room]));
+
+    return expenses.map((expense) => ({
+      ...expense,
+      building: expense.buildingId ? buildingById.get(expense.buildingId) || null : null,
+      room: expense.roomId ? roomById.get(expense.roomId) || null : null,
+    }));
   }
 
   async createExpense(tenantId: string, userId: string | undefined, data: any) {

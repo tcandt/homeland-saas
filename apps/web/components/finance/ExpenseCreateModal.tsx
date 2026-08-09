@@ -19,20 +19,20 @@ type ExpenseCreateModalProps = {
 };
 
 const categoryOptions = [
-  { value: "SUPPLIES", label: "Vat tu / dung cu" },
-  { value: "REPAIR", label: "Sua chua" },
-  { value: "MAINTENANCE", label: "Bao tri" },
-  { value: "UTILITY", label: "Dien nuoc chung" },
-  { value: "CLEANING", label: "Ve sinh" },
-  { value: "REFUND", label: "Hoan tien khach" },
-  { value: "STAFF", label: "Nhan su" },
-  { value: "OTHER", label: "Khac" },
+  { value: "SUPPLIES", label: "Vật tư / dụng cụ" },
+  { value: "REPAIR", label: "Sửa chữa" },
+  { value: "MAINTENANCE", label: "Bảo trì" },
+  { value: "UTILITY", label: "Điện nước chung" },
+  { value: "CLEANING", label: "Vệ sinh" },
+  { value: "REFUND", label: "Hoàn tiền khách" },
+  { value: "STAFF", label: "Nhân sự" },
+  { value: "OTHER", label: "Khác" },
 ];
 
 const statusOptions = [
-  { value: "PENDING", label: "Cho duyet" },
-  { value: "APPROVED", label: "Da duyet" },
-  { value: "PAID", label: "Da chi" },
+  { value: "PENDING", label: "Chờ duyệt" },
+  { value: "APPROVED", label: "Đã duyệt" },
+  { value: "PAID", label: "Đã chi" },
 ];
 
 export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateModalProps) {
@@ -59,11 +59,11 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
     const matched = summaries.find((row: any) =>
       (row.buildings || []).some((building: any) => building.id === buildingId),
     );
-    return matched?.owner?.name || "Tu suy tu toa nha";
+    return matched?.owner?.name || "Tự suy từ tòa nhà";
   }, [ownerSummary, buildingId]);
 
   const buildingOptions = useMemo(() => [
-    { value: "", label: "Chon toa nha" },
+    { value: "", label: "Chọn tòa nhà" },
     ...(buildings as any[]).map((building) => ({
       value: building.id,
       label: building.code || building.name,
@@ -91,11 +91,11 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
     const numericAmount = Number(String(amount).replace(/[^\d.]/g, ""));
 
     if (!buildingId) {
-      toast.error("Can chon toa nha");
+      toast.error("Cần chọn tòa nhà");
       return;
     }
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      toast.error("So tien khong hop le");
+      toast.error("Số tiền không hợp lệ");
       return;
     }
 
@@ -108,10 +108,10 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         amount: numericAmount,
         paidByName: paidByName.trim() || null,
         vendor: vendor.trim() || null,
-        description: description.trim() || `${categoryOptions.find((item) => item.value === category)?.label || "Chi phi"} - ${selectedBuilding?.code || selectedBuilding?.name || ""}`,
+        description: description.trim() || `${categoryOptions.find((item) => item.value === category)?.label || "Chi phí"} - ${selectedBuilding?.code || selectedBuilding?.name || ""}`,
       });
 
-      toast.success("Da tao chi phi phat sinh");
+      toast.success("Đã tạo chi phí phát sinh");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: financeKeys.ownerProfitSummary() }),
         queryClient.invalidateQueries({ queryKey: financeKeys.expenses(undefined) }),
@@ -120,7 +120,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
       reset();
       onClose();
     } catch (error: any) {
-      toast.error(error?.message || "Khong tao duoc chi phi");
+      toast.error(error?.message || "Không tạo được chi phí");
     } finally {
       setSubmitting(false);
     }
@@ -130,7 +130,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="Them chi phi phat sinh"
+      title="Thêm chi phí phát sinh"
       maxWidth="max-w-3xl"
       zIndex={10040}
       headerActions={
@@ -141,48 +141,48 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
       footer={
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>
-            Huy
+            Hủy
           </Button>
           <Button type="submit" form="expense-create-form" isLoading={isSubmitting}>
-            Luu chi phi
+            Lưu chi phí
           </Button>
         </div>
       }
     >
       <form id="expense-create-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Toa nha">
+        <Field label="Tòa nhà">
           <Select value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} />
         </Field>
 
-        <Field label="Chu so huu">
+        <Field label="Chủ sở hữu">
           <Input value={ownerName} disabled />
         </Field>
 
-        <Field label="Loai chi phi">
+        <Field label="Loại chi phí">
           <Select value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} />
         </Field>
 
-        <Field label="Trang thai">
+        <Field label="Trạng thái">
           <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} />
         </Field>
 
-        <Field label="So tien">
+        <Field label="Số tiền">
           <Input inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="VD: 350000" />
         </Field>
 
-        <Field label="Nguoi chi / ung tien">
-          <Input value={paidByName} onChange={(event) => setPaidByName(event.target.value)} placeholder="VD: Chu A, Chu B, admin..." />
+        <Field label="Người chi / ứng tiền">
+          <Input value={paidByName} onChange={(event) => setPaidByName(event.target.value)} placeholder="VD: Chủ A, Chủ B, admin..." />
         </Field>
 
-        <Field label="Nha cung cap">
-          <Input value={vendor} onChange={(event) => setVendor(event.target.value)} placeholder="VD: Cua hang vat tu" />
+        <Field label="Nhà cung cấp">
+          <Input value={vendor} onChange={(event) => setVendor(event.target.value)} placeholder="VD: Cửa hàng vật tư" />
         </Field>
 
         <div className="hidden md:block" />
 
         <div className="md:col-span-2">
-          <Field label="Mo ta">
-            <Textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="VD: Mua dung cu ve sinh XXX, YYY, ZZZ cho LK01-31" />
+          <Field label="Mô tả">
+            <Textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="VD: Mua dụng cụ vệ sinh XXX, YYY, ZZZ cho LK01-31" />
           </Field>
         </div>
       </form>

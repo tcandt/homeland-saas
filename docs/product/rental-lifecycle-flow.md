@@ -579,13 +579,13 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 - [ ] Thu cọc tạo journal entry.
 - [ ] Thanh toán hóa đơn tạo journal entry.
-- [ ] Chi phí đã chi tạo journal entry.
+- [x] Chi phí đã chi tạo journal entry.
 - [ ] Hoàn cọc tạo journal entry.
 - [ ] Hoàn tiền phòng tạo journal entry.
 - [ ] Khấu trừ cọc tạo journal entry.
 - [ ] Cấn trừ dư tiền kỳ sau tạo journal entry.
-- [ ] Đảm bảo journal entry cân bằng debit/credit.
-- [ ] Chống tạo trùng journal entry theo `sourceType` và `sourceId`.
+- [x] Đảm bảo journal entry chi phí cân bằng debit/credit.
+- [x] Chống tạo trùng journal entry chi phí theo `sourceType` và `sourceId`.
 - [ ] Cho phép reversal thay vì sửa/xóa bút toán đã posted.
 
 ### 8. Quyết toán trả phòng

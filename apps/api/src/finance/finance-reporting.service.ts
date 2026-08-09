@@ -692,7 +692,7 @@ export class FinanceReportingService {
         ownerId: building.ownerId,
         buildingId,
         code: `CC-${building.code}`,
-        name: `Chi nhanh ${building.code}`,
+        name: `Chi nhánh ${building.code}`,
       },
     });
   }
@@ -739,6 +739,26 @@ export class FinanceReportingService {
     ]);
     if (!expenseAccount || !bankAccount) return null;
 
+    const lines = [
+      {
+        tenantId,
+        accountId: expenseAccount.id,
+        costCenterId: expense.costCenterId,
+        type: 'DEBIT' as any,
+        amount: expense.amount,
+        description: expense.description,
+      },
+      {
+        tenantId,
+        accountId: bankAccount.id,
+        costCenterId: expense.costCenterId,
+        type: 'CREDIT' as any,
+        amount: expense.amount,
+        description: expense.description,
+      },
+    ];
+    this.assertBalancedJournalLines(lines);
+
     return this.prisma.journalEntry.create({
       data: {
         tenantId,
@@ -749,27 +769,23 @@ export class FinanceReportingService {
         status: 'POSTED',
         postedAt: new Date(),
         lines: {
-          create: [
-            {
-              tenantId,
-              accountId: expenseAccount.id,
-              costCenterId: expense.costCenterId,
-              type: 'DEBIT' as any,
-              amount: expense.amount,
-              description: expense.description,
-            },
-            {
-              tenantId,
-              accountId: bankAccount.id,
-              costCenterId: expense.costCenterId,
-              type: 'CREDIT' as any,
-              amount: expense.amount,
-              description: expense.description,
-            },
-          ],
+          create: lines,
         },
       },
     });
+  }
+
+  private assertBalancedJournalLines(lines: Array<{ type: 'DEBIT' | 'CREDIT'; amount: any }>) {
+    const debit = lines
+      .filter((line) => line.type === 'DEBIT')
+      .reduce((total, line) => total + Number(line.amount || 0), 0);
+    const credit = lines
+      .filter((line) => line.type === 'CREDIT')
+      .reduce((total, line) => total + Number(line.amount || 0), 0);
+
+    if (debit <= 0 || credit <= 0 || Math.abs(debit - credit) > 0.01) {
+      throw new BadRequestException('JOURNAL_ENTRY_NOT_BALANCED');
+    }
   }
 
   private async logExpenseAudit(tenantId: string, userId: string | undefined, expenseId: string, action: 'CREATE' | 'UPDATE' | 'CANCEL', before: any, after: any) {

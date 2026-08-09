@@ -3,14 +3,26 @@
 import React, { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { CheckCircle2, CircleDollarSign, FilterX, ReceiptText, Search } from "lucide-react";
+import { CheckCircle2, CircleDollarSign, FilterX, ReceiptText, RotateCcw, Search, Split, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { financeApi } from "@/lib/api/finance.api";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { financeKeys, useExpensesQuery, useOwnerProfitSummaryQuery } from "@/lib/queries/finance.queries";
+
+type ExpenseActionType = "approve" | "pay" | "cancel" | "reimburse" | "deduct";
+
+type PendingAction = {
+  type: ExpenseActionType;
+  expense: any;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  variant?: "primary" | "danger";
+};
 
 const statusOptions = [
   { value: "", label: "Tất cả trạng thái" },
@@ -101,6 +113,7 @@ export default function ExpenseTable() {
   const [month, setMonth] = useState("");
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
@@ -183,22 +196,71 @@ export default function ExpenseTable() {
     ]);
   };
 
-  const approve = async (expense: any, markPaid: boolean) => {
-    const message = markPaid
-      ? `Đánh dấu đã chi cho ${expense.code}?`
-      : `Duyệt chi phí ${expense.code}?`;
-    if (!window.confirm(message)) return;
-
+  const executeAction = async () => {
+    if (!pendingAction) return;
+    const { expense, type } = pendingAction;
     setBusyId(expense.id);
     try {
-      await financeApi.approveExpense(expense.id, { markPaid });
-      toast.success(markPaid ? "Đã đánh dấu đã chi" : "Đã duyệt chi phí");
+      if (type === "approve") {
+        await financeApi.approveExpense(expense.id, { markPaid: false });
+        toast.success("Đã duyệt chi phí");
+      }
+      if (type === "pay") {
+        await financeApi.approveExpense(expense.id, { markPaid: true });
+        toast.success("Đã đánh dấu đã chi");
+      }
+      if (type === "cancel") {
+        await financeApi.cancelExpense(expense.id, { reason: "Hủy từ bảng chi phí" });
+        toast.success("Đã hủy chi phí");
+      }
+      if (type === "reimburse") {
+        await financeApi.updateExpenseSettlement(expense.id, { settlementStatus: "REIMBURSED" });
+        toast.success("Đã đánh dấu hoàn ứng");
+      }
+      if (type === "deduct") {
+        await financeApi.updateExpenseSettlement(expense.id, { settlementStatus: "DEDUCTED_FROM_PROFIT" });
+        toast.success("Đã khấu trừ vào lợi nhuận");
+      }
       await invalidate();
     } catch (error: any) {
       toast.error(error?.message || "Không cập nhật được chi phí");
     } finally {
       setBusyId(null);
+      setPendingAction(null);
     }
+  };
+
+  const openAction = (type: ExpenseActionType, expense: any) => {
+    const code = expense.code || "chi phí";
+    const configs: Record<ExpenseActionType, Omit<PendingAction, "type" | "expense">> = {
+      approve: {
+        title: "Duyệt chi phí",
+        description: `Duyệt ${code} để đưa khoản chi vào quy trình theo dõi lợi nhuận.`,
+        confirmLabel: "Duyệt chi phí",
+      },
+      pay: {
+        title: "Đánh dấu đã chi",
+        description: `Xác nhận ${code} đã được chi tiền. Nếu có cấu hình tài khoản kế toán, hệ thống sẽ tạo bút toán chi phí.`,
+        confirmLabel: "Đã chi",
+      },
+      cancel: {
+        title: "Hủy chi phí",
+        description: `Hủy ${code}. Chỉ áp dụng cho khoản chưa ghi sổ đã chi; khoản đã chi cần bút toán đảo thay vì hủy trực tiếp.`,
+        confirmLabel: "Hủy chi phí",
+        variant: "danger",
+      },
+      reimburse: {
+        title: "Đánh dấu đã hoàn ứng",
+        description: `Xác nhận khoản ứng hộ của ${code} đã được hoàn lại cho người chi.`,
+        confirmLabel: "Đã hoàn ứng",
+      },
+      deduct: {
+        title: "Khấu trừ vào lợi nhuận",
+        description: `Đánh dấu ${code} sẽ được khấu trừ khi chia lợi nhuận giữa các chủ.`,
+        confirmLabel: "Khấu trừ",
+      },
+    };
+    setPendingAction({ type, expense, ...configs[type] });
   };
 
   const resetFilters = () => {
@@ -217,6 +279,7 @@ export default function ExpenseTable() {
   }, [queryParams, search]);
 
   return (
+    <>
     <section className="bg-card border border-border rounded-[16px] overflow-hidden shadow-sm">
       <div className="p-[16px] md:p-[20px] border-b border-border flex flex-col gap-4">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
@@ -331,7 +394,7 @@ export default function ExpenseTable() {
                           size="sm"
                           variant="outline"
                           isLoading={busyId === expense.id}
-                          onClick={() => approve(expense, false)}
+                          onClick={() => openAction("approve", expense)}
                         >
                           <CheckCircle2 size={14} className="mr-1" /> Duyệt
                         </Button>
@@ -341,9 +404,40 @@ export default function ExpenseTable() {
                           size="sm"
                           variant="primary"
                           isLoading={busyId === expense.id}
-                          onClick={() => approve(expense, true)}
+                          onClick={() => openAction("pay", expense)}
                         >
                           <CircleDollarSign size={14} className="mr-1" /> Đã chi
+                        </Button>
+                      )}
+                      {expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            isLoading={busyId === expense.id}
+                            onClick={() => openAction("reimburse", expense)}
+                          >
+                            <RotateCcw size={14} className="mr-1" /> Hoàn ứng
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            isLoading={busyId === expense.id}
+                            onClick={() => openAction("deduct", expense)}
+                          >
+                            <Split size={14} className="mr-1" /> Khấu trừ
+                          </Button>
+                        </>
+                      )}
+                      {expense.status !== "PAID" && expense.status !== "CANCELLED" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          isLoading={busyId === expense.id}
+                          onClick={() => openAction("cancel", expense)}
+                          className="text-rose-600 hover:text-rose-700"
+                        >
+                          <XCircle size={14} className="mr-1" /> Hủy
                         </Button>
                       )}
                     </div>
@@ -370,5 +464,43 @@ export default function ExpenseTable() {
         </>
       )}
     </section>
+    <Modal
+      isOpen={!!pendingAction}
+      onClose={() => (busyId ? undefined : setPendingAction(null))}
+      title={pendingAction?.title || "Xác nhận"}
+      maxWidth="max-w-lg"
+      zIndex={10060}
+      footer={
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button variant="outline" onClick={() => setPendingAction(null)} disabled={!!busyId}>
+            Hủy
+          </Button>
+          <Button
+            variant={pendingAction?.variant === "danger" ? "danger" : "primary"}
+            onClick={executeAction}
+            isLoading={!!busyId}
+          >
+            {pendingAction?.confirmLabel || "Xác nhận"}
+          </Button>
+        </div>
+      }
+    >
+      <div className="rounded-2xl border border-border bg-surface p-4">
+        <div className="text-[13px] leading-6 text-muted">{pendingAction?.description}</div>
+        {pendingAction?.expense && (
+          <div className="mt-4 grid grid-cols-2 gap-3 text-[12px]">
+            <div className="rounded-xl bg-card p-3">
+              <div className="font-black uppercase text-muted">Mã chi phí</div>
+              <div className="mt-1 font-black text-text">{pendingAction.expense.code}</div>
+            </div>
+            <div className="rounded-xl bg-card p-3">
+              <div className="font-black uppercase text-muted">Số tiền</div>
+              <div className="mt-1 font-black text-text">{formatMoney(Number(pendingAction.expense.amount))}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+    </>
   );
 }

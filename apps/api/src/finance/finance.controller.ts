@@ -61,6 +61,18 @@ export class FinanceController {
     return this.reportingService.approveExpense(req.user.tenantId, req.user?.id, id, Boolean(body?.markPaid));
   }
 
+  @Patch('expenses/:id/cancel')
+  @RequirePermissions('finance.update')
+  async cancelExpense(@Param('id') id: string, @Request() req, @Body() body: any) {
+    return this.reportingService.cancelExpense(req.user.tenantId, req.user?.id, id, body?.reason);
+  }
+
+  @Patch('expenses/:id/settlement')
+  @RequirePermissions('finance.update')
+  async updateExpenseSettlement(@Param('id') id: string, @Request() req, @Body() body: any) {
+    return this.reportingService.updateExpenseSettlement(req.user.tenantId, req.user?.id, id, body?.settlementStatus);
+  }
+
   @Get('export')
   @RequirePermissions('finance.read')
   async exportReport(@Request() req, @Res() res: Response) {

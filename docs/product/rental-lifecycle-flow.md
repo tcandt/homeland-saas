@@ -468,7 +468,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hiển thị mã chi phí.
 - [x] Hiển thị ngày phát sinh.
 - [x] Hiển thị tòa nhà thông qua cost center.
-- [ ] Hiển thị phòng nếu có.
+- [x] Hiển thị phòng nếu có.
 - [x] Hiển thị chủ chịu chi phí.
 - [x] Hiển thị người chi/người ứng tiền.
 - [x] Hiển thị loại chi phí.
@@ -477,30 +477,30 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hiển thị trạng thái duyệt.
 - [x] Hiển thị trạng thái hoàn ứng/khấu trừ.
 - [ ] Hiển thị chứng từ nếu có.
-- [ ] Thêm lọc theo tháng.
-- [ ] Thêm lọc theo năm.
-- [ ] Thêm lọc theo tòa.
-- [ ] Thêm lọc theo owner.
+- [x] Thêm lọc theo tháng.
+- [x] Thêm lọc theo năm.
+- [x] Thêm lọc theo tòa.
+- [x] Thêm lọc theo owner.
 - [x] Thêm lọc theo người chi qua ô tìm kiếm.
 - [x] Thêm lọc theo loại chi phí.
 - [x] Thêm lọc theo trạng thái.
 - [x] Thêm tìm kiếm theo mô tả, mã chi phí, nhà cung cấp.
-- [ ] Thêm phân trang.
-- [ ] Thêm trạng thái loading, empty, error.
+- [x] Thêm phân trang.
+- [x] Thêm trạng thái loading, empty, error.
 - [ ] Tối ưu responsive mobile.
 
 ### 2. Workflow duyệt chi và hoàn ứng
 
 - [x] Thêm nút duyệt chi phí.
 - [x] Thêm nút đánh dấu đã chi.
-- [ ] Thêm nút hủy chi phí.
-- [ ] Thêm nút đánh dấu đã hoàn ứng.
-- [ ] Thêm nút đánh dấu đã khấu trừ vào lợi nhuận.
+- [x] Thêm nút hủy chi phí.
+- [x] Thêm nút đánh dấu đã hoàn ứng.
+- [x] Thêm nút đánh dấu đã khấu trừ vào lợi nhuận.
 - [x] Thêm popup xác nhận trước khi duyệt/đánh dấu đã chi.
-- [ ] Lưu `approvedBy`.
-- [ ] Lưu `approvedAt`.
-- [ ] Lưu `reimbursedAt`.
-- [ ] Ghi audit log cho mỗi lần đổi trạng thái.
+- [x] Lưu `approvedBy`.
+- [x] Lưu `approvedAt`.
+- [x] Lưu `reimbursedAt`.
+- [x] Ghi audit log cho mỗi lần đổi trạng thái.
 - [ ] Không cho sửa số tiền sau khi đã posted journal, trừ khi tạo bút toán điều chỉnh.
 
 ### 3. Upload và quản lý chứng từ chi phí

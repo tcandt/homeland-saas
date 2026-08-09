@@ -239,6 +239,48 @@ export class FinanceReportingService {
       await this.postExpenseJournal(tenantId, updated);
     }
 
+    await this.logExpenseAudit(tenantId, userId, id, 'UPDATE', expense, updated);
+    return updated;
+  }
+
+  async cancelExpense(tenantId: string, userId: string | undefined, id: string, reason?: string) {
+    const expense = await this.prisma.expense.findFirst({ where: { tenantId, id, deletedAt: null } });
+    if (!expense) throw new BadRequestException('EXPENSE_NOT_FOUND');
+    if (expense.status === 'PAID') throw new BadRequestException('EXPENSE_PAID_REQUIRES_REVERSAL');
+    if (expense.status === 'CANCELLED') return expense;
+
+    const updated = await this.prisma.expense.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        settlementStatus: 'NONE',
+        description: reason ? `${expense.description || ''}\nLý do hủy: ${reason}`.trim() : expense.description,
+      } as any,
+    });
+
+    await this.logExpenseAudit(tenantId, userId, id, 'CANCEL', expense, updated);
+    return updated;
+  }
+
+  async updateExpenseSettlement(tenantId: string, userId: string | undefined, id: string, settlementStatus?: string) {
+    const allowed = ['PENDING_REIMBURSEMENT', 'REIMBURSED', 'DEDUCTED_FROM_PROFIT', 'NONE'];
+    if (!settlementStatus || !allowed.includes(settlementStatus)) {
+      throw new BadRequestException('EXPENSE_SETTLEMENT_STATUS_INVALID');
+    }
+
+    const expense = await this.prisma.expense.findFirst({ where: { tenantId, id, deletedAt: null } });
+    if (!expense) throw new BadRequestException('EXPENSE_NOT_FOUND');
+    if (expense.status === 'CANCELLED') throw new BadRequestException('EXPENSE_CANCELLED');
+
+    const updated = await this.prisma.expense.update({
+      where: { id },
+      data: {
+        settlementStatus,
+        reimbursedAt: settlementStatus === 'REIMBURSED' ? new Date() : expense.reimbursedAt,
+      } as any,
+    });
+
+    await this.logExpenseAudit(tenantId, userId, id, 'UPDATE', expense, updated);
     return updated;
   }
 
@@ -377,5 +419,24 @@ export class FinanceReportingService {
         },
       },
     });
+  }
+
+  private async logExpenseAudit(tenantId: string, userId: string | undefined, expenseId: string, action: 'UPDATE' | 'CANCEL', before: any, after: any) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId,
+          module: 'Finance',
+          entity: 'Expense',
+          entityId: expenseId,
+          action: action as any,
+          before,
+          after,
+        },
+      });
+    } catch (error) {
+      console.error('Expense audit log failed:', error);
+    }
   }
 }

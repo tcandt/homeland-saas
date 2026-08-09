@@ -28,6 +28,12 @@ export const financeApi = {
   approveExpense: async (id: string, payload?: { markPaid?: boolean }) => {
     return await apiClient.patch<any>(`/finance/expenses/${id}/approve`, payload || {});
   },
+  cancelExpense: async (id: string, payload?: { reason?: string }) => {
+    return await apiClient.patch<any>(`/finance/expenses/${id}/cancel`, payload || {});
+  },
+  updateExpenseSettlement: async (id: string, payload: { settlementStatus: string }) => {
+    return await apiClient.patch<any>(`/finance/expenses/${id}/settlement`, payload);
+  },
   exportReport: async () => {
     const response = await apiClient.get('/finance/export', { responseType: 'blob' } as any);
     return response;

@@ -210,6 +210,98 @@ export class FinanceReportingService {
     });
   }
 
+  async getBankCashFlow(tenantId: string, options: { year?: string; month?: string; ownerId?: string } = {}) {
+    const period = this.buildPeriodRange(options.year, options.month);
+    const bankAccounts = await this.prisma.bankAccount.findMany({
+      where: {
+        tenantId,
+        ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+      },
+      include: {
+        owner: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: [{ ownerId: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    const paymentRequests = await this.prisma.paymentRequest.findMany({
+      where: {
+        tenantId,
+        bankAccountId: { in: bankAccounts.map((bank) => bank.id) },
+        createdAt: period,
+      },
+      select: {
+        id: true,
+        bankAccountId: true,
+        ownerId: true,
+        amount: true,
+        status: true,
+        sourceType: true,
+        sourceId: true,
+        paymentCode: true,
+        createdAt: true,
+        paidAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const requestsByBank = new Map<string, typeof paymentRequests>();
+    for (const request of paymentRequests) {
+      if (!request.bankAccountId) continue;
+      const rows = requestsByBank.get(request.bankAccountId) || [];
+      rows.push(request);
+      requestsByBank.set(request.bankAccountId, rows);
+    }
+
+    const rows = bankAccounts.map((bank) => {
+      const requests = requestsByBank.get(bank.id) || [];
+      const confirmed = requests.filter((request) => request.status === 'CONFIRMED');
+      const pending = requests.filter((request) => request.status === 'PENDING');
+      const cancelled = requests.filter((request) => request.status === 'CANCELLED' || request.status === 'EXPIRED');
+      const confirmedAmount = confirmed.reduce((total, request) => total + Number(request.amount || 0), 0);
+      const pendingAmount = pending.reduce((total, request) => total + Number(request.amount || 0), 0);
+      const latestPaidAt = confirmed
+        .map((request) => request.paidAt)
+        .filter(Boolean)
+        .sort((a, b) => Number(b) - Number(a))[0] || null;
+
+      return {
+        bankAccount: {
+          id: bank.id,
+          bankName: bank.bankName,
+          accountNumber: bank.accountNumber,
+          accountName: bank.accountName,
+          isActive: bank.isActive,
+        },
+        owner: bank.owner,
+        requestCount: requests.length,
+        confirmedCount: confirmed.length,
+        pendingCount: pending.length,
+        cancelledCount: cancelled.length,
+        confirmedAmount,
+        pendingAmount,
+        latestPaidAt,
+        latestRequestAt: requests[0]?.createdAt || null,
+        recentRequests: requests.slice(0, 5),
+      };
+    });
+
+    return {
+      period: {
+        year: Number(options.year || new Date().getFullYear()),
+        month: options.month ? Number(options.month) : null,
+        startDate: period.gte,
+        endDate: period.lte,
+      },
+      summary: {
+        bankCount: rows.length,
+        requestCount: rows.reduce((total, row) => total + row.requestCount, 0),
+        confirmedAmount: rows.reduce((total, row) => total + row.confirmedAmount, 0),
+        pendingAmount: rows.reduce((total, row) => total + row.pendingAmount, 0),
+      },
+      rows,
+    };
+  }
+
   async getExpenses(tenantId: string, options: { ownerId?: string; buildingId?: string; category?: string; status?: string; startDate?: string; endDate?: string } = {}) {
     const where: any = { tenantId, deletedAt: null };
     if (options.ownerId) where.ownerId = options.ownerId;

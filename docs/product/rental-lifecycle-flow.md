@@ -419,6 +419,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 - [x] Thêm API `GET /finance/owners`.
 - [x] Thêm API `GET /finance/owners/profit-summary`.
+- [x] Thêm API `GET /finance/banks/cashflow`.
 - [x] Thêm API `GET /finance/expenses`.
 - [x] Thêm API `POST /finance/expenses`.
 - [x] Thêm API `PATCH /finance/expenses/:id/approve`.
@@ -673,7 +674,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Thêm màn tra cứu bank theo owner trong Settings.
 - [x] Chọn bank mặc định cho owner trong Settings và dùng khi tạo QR SePay.
 - [ ] Kiểm tra bank đang dùng bởi payment request trước khi tắt/xóa.
-- [ ] Báo cáo dòng tiền theo bank.
+- [x] Báo cáo dòng tiền theo bank trên Finance page.
 
 ### 14. Bảo mật và phân quyền
 

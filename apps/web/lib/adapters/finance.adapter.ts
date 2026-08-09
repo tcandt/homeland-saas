@@ -89,6 +89,10 @@ export const financeAdapter = {
     return await financeApi.getOwnerProfitDetail(id, params);
   },
 
+  getBankCashFlow: async (params?: Record<string, any>) => {
+    return await financeApi.getBankCashFlow(params);
+  },
+
   getExpenses: async (params?: Record<string, any>) => {
     return await financeApi.getExpenses(params);
   }

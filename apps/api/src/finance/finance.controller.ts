@@ -55,6 +55,12 @@ export class FinanceController {
     return this.reportingService.getOwnerProfitDetail(req.user.tenantId, id, query);
   }
 
+  @Get('banks/cashflow')
+  @RequirePermissions('finance.read')
+  async getBankCashFlow(@Request() req, @Query() query: any) {
+    return this.reportingService.getBankCashFlow(req.user.tenantId, query);
+  }
+
   @Get('expenses')
   @RequirePermissions('finance.read')
   async getExpenses(@Request() req) {

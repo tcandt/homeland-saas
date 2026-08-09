@@ -717,8 +717,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 - [x] Unit test finance reporting.
 - [ ] Unit test owner profit summary.
-- [ ] Unit test create expense.
-- [ ] Unit test approve expense.
+- [x] Unit test create expense.
+- [x] Unit test approve expense.
 - [ ] Test payment request chọn bank theo owner.
 - [ ] Test SePay webhook thiếu tiền.
 - [ ] Test SePay webhook thừa tiền.

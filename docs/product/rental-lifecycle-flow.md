@@ -719,7 +719,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Unit test owner profit summary.
 - [x] Unit test create expense.
 - [x] Unit test approve expense.
-- [ ] Test payment request chọn bank theo owner.
+- [x] Test payment request chọn bank theo owner.
 - [ ] Test SePay webhook thiếu tiền.
 - [ ] Test SePay webhook thừa tiền.
 - [ ] Test SePay webhook sai nội dung.

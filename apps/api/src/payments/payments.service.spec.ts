@@ -19,6 +19,9 @@ describe('PaymentsService', () => {
         update: vi.fn(),
         create: vi.fn(),
       },
+      bankAccount: {
+        findFirst: vi.fn(),
+      },
       ...prismaOverrides,
     };
 
@@ -95,6 +98,80 @@ describe('PaymentsService', () => {
         providerTransactionId: 'txn-1',
         paidAt: expect.any(Date),
       }),
+    });
+  });
+
+  it('creates invoice payment requests with the owner bank account', async () => {
+    const bankAccount = {
+      id: 'bank-owner-a',
+      ownerId: 'owner-a',
+      bankName: 'ACB',
+      accountNumber: '123456789',
+      accountName: 'Owner A',
+      isActive: true,
+      createdAt: new Date('2026-08-09T00:00:00.000Z'),
+    };
+    const { service, prisma, invoicesService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue({ value: { paymentCodePrefix: 'INV' } }),
+      },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue(bankAccount),
+      },
+      paymentRequest: {
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        create: vi.fn().mockImplementation(({ data }) => Promise.resolve({
+          id: 'request-1',
+          ...data,
+          status: PaymentRequestStatus.PENDING,
+          provider: PaymentProvider.SEPAY,
+          createdAt: new Date('2026-08-09T00:00:00.000Z'),
+          updatedAt: new Date('2026-08-09T00:00:00.000Z'),
+        })),
+      },
+    });
+    invoicesService.getDetail.mockResolvedValue({
+      id: 'invoice-1',
+      tenantId: 'tenant-1',
+      code: 'INV-001',
+      total: 500000,
+      paidAmount: 100000,
+      customerId: 'customer-1',
+      contract: {
+        roomId: 'room-1',
+        room: {
+          buildingId: 'building-1',
+          building: { ownerId: 'owner-a' },
+        },
+      },
+    });
+
+    const request = await service.createInvoiceRequest('invoice-1', 'user-1');
+
+    expect(prisma.bankAccount.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', isActive: true, ownerId: 'owner-a' },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(prisma.paymentRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant-1',
+        ownerId: 'owner-a',
+        buildingId: 'building-1',
+        roomId: 'room-1',
+        bankAccountId: 'bank-owner-a',
+        sourceType: PaymentSourceType.INVOICE,
+        sourceId: 'invoice-1',
+        amount: 400000,
+        bankName: 'ACB',
+        bankAccountNumber: '123456789',
+      }),
+    });
+    expect(request).toMatchObject({
+      id: 'request-1',
+      amount: 400000,
+      bankAccountNumber: '123456789',
     });
   });
 });

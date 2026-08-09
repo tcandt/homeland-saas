@@ -25,6 +25,7 @@ describe('InvoicesService', () => {
         invoice: {
           findUniqueOrThrow: vi.fn(),
           update: vi.fn(),
+          updateMany: vi.fn(),
         },
         $transaction: vi.fn((cb) => cb(prisma.tx)),
         payment: { create: vi.fn() },
@@ -130,6 +131,25 @@ describe('InvoicesService', () => {
       });
 
       await expect(service.pay('inv-1', 50, 'MANUAL', '', 'user-1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('markOverdueInvoices', () => {
+    it('marks issued and partially paid invoices as overdue when due date has passed', async () => {
+      prisma.tx.invoice.updateMany.mockResolvedValue({ count: 3 });
+
+      const result = await service.markOverdueInvoices('tenant-1');
+
+      expect(prisma.tx.invoice.updateMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: 'tenant-1',
+          deletedAt: null,
+          status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID] },
+          dueDate: { lt: expect.any(Date) },
+        },
+        data: { status: InvoiceStatus.OVERDUE },
+      });
+      expect(result).toMatchObject({ updated: 3, checkedAt: expect.any(Date) });
     });
   });
 });

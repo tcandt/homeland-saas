@@ -56,6 +56,13 @@ export class InvoicesController {
     return this.invoicesService.create(data, userId, 'Invoices');
   }
 
+  @Post('mark-overdue')
+  @RequirePermissions('invoice.update')
+  @ApiOperation({ summary: 'Mark due invoices as OVERDUE' })
+  markOverdue(@CurrentUser('tenantId') tenantId: string) {
+    return this.invoicesService.markOverdueInvoices(tenantId);
+  }
+
   @Post(':id/issue')
   @RequirePermissions('invoice.update') // Assuming manager can issue
   @ApiOperation({ summary: 'Issue a DRAFT invoice' })

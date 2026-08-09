@@ -119,6 +119,26 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     return updated;
   }
 
+  async markOverdueInvoices(tenantId: string) {
+    const now = new Date();
+    const result = await this.prisma.tx.invoice.updateMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID] },
+        dueDate: { lt: now },
+      },
+      data: {
+        status: InvoiceStatus.OVERDUE,
+      },
+    });
+
+    return {
+      updated: result.count,
+      checkedAt: now,
+    };
+  }
+
   async pay(id: string, amount: number, provider: string, providerRef: string, userId: string) {
     const invoice = await this.getDetail(id);
 

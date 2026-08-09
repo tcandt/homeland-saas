@@ -586,7 +586,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Cấn trừ dư tiền kỳ sau tạo journal entry.
 - [x] Đảm bảo journal entry chi phí cân bằng debit/credit.
 - [x] Chống tạo trùng journal entry chi phí theo `sourceType` và `sourceId`.
-- [ ] Cho phép reversal thay vì sửa/xóa bút toán đã posted.
+- [x] Cho phép reversal thay vì sửa/xóa bút toán đã posted.
 
 ### 8. Quyết toán trả phòng
 

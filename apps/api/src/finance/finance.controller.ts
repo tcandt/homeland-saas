@@ -2,16 +2,26 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Request, Res } from '
 import * as ExcelJS from 'exceljs';
 import { Response } from 'express';
 import { FinanceReportingService } from './finance-reporting.service';
+import { JournalEntryService } from './journal-entry.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 
 @Controller('finance')
 export class FinanceController {
-  constructor(private readonly reportingService: FinanceReportingService) {}
+  constructor(
+    private readonly reportingService: FinanceReportingService,
+    private readonly journalEntryService: JournalEntryService,
+  ) {}
 
   @Get('ledger')
   @RequirePermissions('finance.read')
   async getLedger(@Request() req) {
     return this.reportingService.getLedger(req.user.tenantId, req.query);
+  }
+
+  @Patch('journal-entries/:id/reverse')
+  @RequirePermissions('finance.update')
+  async reverseJournalEntry(@Param('id') id: string, @Request() req, @Body() body: any) {
+    return this.journalEntryService.reverseJournalEntry(req.user.tenantId, id, req.user?.id, body?.reason);
   }
 
   @Get('cashflow')

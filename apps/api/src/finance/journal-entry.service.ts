@@ -57,4 +57,68 @@ export class JournalEntryService {
       }
     });
   }
+
+  async reverseJournalEntry(tenantId: string, journalEntryId: string, userId?: string, reason?: string) {
+    const original = await this.prisma.journalEntry.findFirst({
+      where: { tenantId, id: journalEntryId },
+      include: { lines: true },
+    });
+
+    if (!original) throw new BadRequestException('JOURNAL_ENTRY_NOT_FOUND');
+    if (original.status !== 'POSTED' && original.status !== 'REVERSED') {
+      throw new BadRequestException('ONLY_POSTED_JOURNAL_CAN_BE_REVERSED');
+    }
+
+    const existingReversal = await this.prisma.journalEntry.findFirst({
+      where: {
+        tenantId,
+        sourceType: 'REVERSAL' as any,
+        sourceId: original.id,
+      },
+      include: { lines: true },
+    });
+
+    if (existingReversal) return existingReversal;
+    if (original.status === 'REVERSED') {
+      throw new BadRequestException('JOURNAL_ENTRY_ALREADY_REVERSED');
+    }
+
+    const reversalCode = `REV-${original.code}`;
+    return this.prisma.$transaction(async (tx) => {
+      const reversal = await tx.journalEntry.create({
+        data: {
+          tenantId,
+          code: reversalCode,
+          sourceType: 'REVERSAL' as any,
+          sourceId: original.id,
+          description: reason || `Đảo bút toán ${original.code}`,
+          entryDate: new Date(),
+          status: 'POSTED',
+          createdBy: userId || null,
+          postedAt: new Date(),
+          lines: {
+            create: original.lines.map((line) => ({
+              tenantId,
+              accountId: line.accountId,
+              costCenterId: line.costCenterId,
+              type: line.type === 'DEBIT' ? 'CREDIT' : 'DEBIT',
+              amount: line.amount,
+              description: `Đảo: ${line.description || original.description || original.code}`,
+            })),
+          },
+        },
+        include: { lines: true },
+      });
+
+      await tx.journalEntry.update({
+        where: { id: original.id },
+        data: {
+          status: 'REVERSED',
+          reversedAt: new Date(),
+        },
+      });
+
+      return reversal;
+    });
+  }
 }

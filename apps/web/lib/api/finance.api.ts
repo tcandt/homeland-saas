@@ -28,6 +28,9 @@ export const financeApi = {
   getBankCashFlow: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/banks/cashflow', { params });
   },
+  getSePayReconciliation: async (params?: Record<string, any>) => {
+    return await apiClient.get<any>('/finance/sepay/reconciliation', { params });
+  },
   getExpenses: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/expenses', { params });
   },

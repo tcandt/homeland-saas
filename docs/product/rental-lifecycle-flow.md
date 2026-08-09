@@ -560,20 +560,20 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 6. Đối soát SePay
 
-- [ ] Thêm màn đối soát SePay.
-- [ ] Hiển thị giao dịch khớp hóa đơn.
-- [ ] Hiển thị giao dịch khớp cọc.
-- [ ] Hiển thị giao dịch thiếu tiền.
-- [ ] Hiển thị giao dịch thừa tiền.
-- [ ] Hiển thị giao dịch sai nội dung.
-- [ ] Hiển thị giao dịch sai bank.
-- [ ] Hiển thị giao dịch treo chưa match payment code.
+- [x] Thêm màn đối soát SePay read-only trên Finance page.
+- [x] Hiển thị giao dịch khớp hóa đơn.
+- [x] Hiển thị giao dịch khớp cọc.
+- [x] Hiển thị giao dịch thiếu tiền.
+- [x] Hiển thị giao dịch thừa tiền.
+- [x] Hiển thị giao dịch sai nội dung/chưa match payment code.
+- [x] Hiển thị giao dịch sai bank.
+- [x] Hiển thị giao dịch treo chưa match payment code.
 - [ ] Cho phép gán thủ công giao dịch vào hóa đơn/cọc.
 - [ ] Ghi nhận thanh toán một phần.
 - [ ] Xử lý thừa tiền bằng hoàn lại, dư có hoặc cấn trừ kỳ sau.
-- [ ] Cảnh báo nếu tiền vào bank không thuộc owner của tòa/phòng.
-- [ ] Chống ghi nhận trùng webhook.
-- [ ] Log toàn bộ webhook raw payload.
+- [x] Cảnh báo nếu tiền vào bank không thuộc owner của tòa/phòng.
+- [x] Chống ghi nhận trùng webhook.
+- [x] Log toàn bộ webhook raw payload.
 
 ### 7. Hạch toán tự động
 

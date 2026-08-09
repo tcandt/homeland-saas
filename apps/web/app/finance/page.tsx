@@ -12,6 +12,7 @@ import ExpenseCreateModal from "@/components/finance/ExpenseCreateModal";
 import ExpenseTable from "@/components/finance/ExpenseTable";
 import BuildingProfitSummary from "@/components/finance/BuildingProfitSummary";
 import BankCashFlowSummary from "@/components/finance/BankCashFlowSummary";
+import SePayReconciliationSummary from "@/components/finance/SePayReconciliationSummary";
 import { useFinanceStore } from "@/lib/stores/finance.store";
 import { useLedgerQuery } from "@/lib/queries/finance.queries";
 import toast from "react-hot-toast";
@@ -108,6 +109,8 @@ export default function FinancePage() {
         {permissions.canReadOwnerProfit && <OwnerProfitSummary />}
 
         <BankCashFlowSummary />
+
+        <SePayReconciliationSummary />
 
         <ExpenseTable />
 

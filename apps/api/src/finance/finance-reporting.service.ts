@@ -302,6 +302,95 @@ export class FinanceReportingService {
     };
   }
 
+  async getSePayReconciliation(tenantId: string, options: { year?: string; month?: string; status?: string } = {}) {
+    const period = this.buildPeriodRange(options.year, options.month);
+    const logs = await this.prisma.paymentWebhookLog.findMany({
+      where: {
+        provider: 'SEPAY' as any,
+        createdAt: period,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    const paymentCodes = Array.from(new Set(
+      logs
+        .map((log) => this.resolveWebhookPaymentCode(log.payload as any))
+        .filter(Boolean),
+    ));
+
+    const requests = paymentCodes.length ? await this.prisma.paymentRequest.findMany({
+      where: {
+        tenantId,
+        paymentCode: { in: paymentCodes },
+      },
+      include: {
+        owner: { select: { id: true, code: true, name: true } },
+        bankAccount: { select: { id: true, bankName: true, accountNumber: true, accountName: true } },
+      },
+    }) : [];
+    const requestByCode = new Map(requests.map((request) => [request.paymentCode, request]));
+
+    const rows = logs.map((log) => {
+      const payload = log.payload as any;
+      const paymentCode = this.resolveWebhookPaymentCode(payload);
+      const amount = Number(payload?.transferAmount ?? payload?.amount ?? 0);
+      const accountNumber = String(payload?.accountNumber || payload?.account_number || payload?.bank_account_xid || '').trim();
+      const transferType = String(payload?.transferType || payload?.transfer_type || '').toLowerCase();
+      const request = paymentCode ? requestByCode.get(paymentCode) : null;
+      const expectedAmount = request ? Number(request.amount || 0) : 0;
+      const amountDiff = request ? amount - expectedAmount : amount;
+      const directionInvalid = transferType === 'debit' || transferType === 'out';
+
+      let status = 'UNMATCHED';
+      if (directionInvalid) status = 'IGNORED_OUTGOING';
+      else if (!paymentCode || !request) status = 'UNMATCHED';
+      else if (accountNumber && request.bankAccountNumber !== accountNumber) status = 'WRONG_BANK';
+      else if (amount < expectedAmount) status = 'SHORT_AMOUNT';
+      else if (amount > expectedAmount) status = 'OVER_AMOUNT';
+      else status = 'MATCHED';
+
+      return {
+        id: log.id,
+        providerTransactionId: log.providerTransactionId,
+        createdAt: log.createdAt,
+        processedAt: log.processedAt,
+        status,
+        paymentCode,
+        amount,
+        expectedAmount,
+        amountDiff,
+        accountNumber,
+        transferType,
+        sourceType: request?.sourceType || null,
+        sourceId: request?.sourceId || null,
+        requestStatus: request?.status || null,
+        owner: request?.owner || null,
+        bankAccount: request?.bankAccount || null,
+      };
+    });
+
+    const filteredRows = options.status ? rows.filter((row) => row.status === options.status) : rows;
+    return {
+      period: {
+        year: Number(options.year || new Date().getFullYear()),
+        month: options.month ? Number(options.month) : null,
+        startDate: period.gte,
+        endDate: period.lte,
+      },
+      summary: {
+        total: rows.length,
+        matched: rows.filter((row) => row.status === 'MATCHED').length,
+        unmatched: rows.filter((row) => row.status === 'UNMATCHED').length,
+        shortAmount: rows.filter((row) => row.status === 'SHORT_AMOUNT').length,
+        overAmount: rows.filter((row) => row.status === 'OVER_AMOUNT').length,
+        wrongBank: rows.filter((row) => row.status === 'WRONG_BANK').length,
+        ignoredOutgoing: rows.filter((row) => row.status === 'IGNORED_OUTGOING').length,
+      },
+      rows: filteredRows,
+    };
+  }
+
   async getExpenses(tenantId: string, options: { ownerId?: string; buildingId?: string; category?: string; status?: string; startDate?: string; endDate?: string } = {}) {
     const where: any = { tenantId, deletedAt: null };
     if (options.ownerId) where.ownerId = options.ownerId;
@@ -725,6 +814,15 @@ export class FinanceReportingService {
       gte: new Date(selectedYear, selectedMonth - 1, 1),
       lte: new Date(selectedYear, selectedMonth, 0, 23, 59, 59, 999),
     };
+  }
+
+  private resolveWebhookPaymentCode(payload: any) {
+    const explicitCode = String(payload?.code || payload?.payment_code || '').trim();
+    if (explicitCode) return explicitCode;
+
+    const text = String(payload?.content || payload?.description || '').toUpperCase();
+    const match = text.match(/[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+/);
+    return match?.[0] || '';
   }
 
   private async postExpenseJournal(tenantId: string, expense: any) {

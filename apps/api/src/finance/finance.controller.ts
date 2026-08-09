@@ -61,6 +61,12 @@ export class FinanceController {
     return this.reportingService.getBankCashFlow(req.user.tenantId, query);
   }
 
+  @Get('sepay/reconciliation')
+  @RequirePermissions('finance.read')
+  async getSePayReconciliation(@Request() req, @Query() query: any) {
+    return this.reportingService.getSePayReconciliation(req.user.tenantId, query);
+  }
+
   @Get('expenses')
   @RequirePermissions('finance.read')
   async getExpenses(@Request() req) {

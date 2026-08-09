@@ -93,6 +93,10 @@ export const financeAdapter = {
     return await financeApi.getBankCashFlow(params);
   },
 
+  getSePayReconciliation: async (params?: Record<string, any>) => {
+    return await financeApi.getSePayReconciliation(params);
+  },
+
   getExpenses: async (params?: Record<string, any>) => {
     return await financeApi.getExpenses(params);
   }

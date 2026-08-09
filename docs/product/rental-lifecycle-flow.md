@@ -577,8 +577,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 7. Hạch toán tự động
 
-- [ ] Thu cọc tạo journal entry.
-- [ ] Thanh toán hóa đơn tạo journal entry.
+- [x] Thu cọc tạo journal entry.
+- [x] Thanh toán hóa đơn tạo journal entry.
 - [x] Chi phí đã chi tạo journal entry.
 - [ ] Hoàn cọc tạo journal entry.
 - [ ] Hoàn tiền phòng tạo journal entry.

@@ -486,6 +486,53 @@ export class FinanceReportingService {
     return expense;
   }
 
+  async updateExpense(tenantId: string, userId: string | undefined, id: string, data: any) {
+    const expense = await this.prisma.expense.findFirst({ where: { tenantId, id, deletedAt: null } });
+    if (!expense) throw new BadRequestException('EXPENSE_NOT_FOUND');
+    if (expense.status === 'CANCELLED') throw new BadRequestException('EXPENSE_CANCELLED');
+
+    const postedJournal = await this.prisma.journalEntry.findFirst({
+      where: { tenantId, sourceType: 'EXPENSE' as any, sourceId: expense.id, status: 'POSTED' },
+    });
+
+    const amountProvided = data.amount !== undefined && data.amount !== null && data.amount !== '';
+    const nextAmount = amountProvided ? Number(data.amount) : Number(expense.amount);
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      throw new BadRequestException('EXPENSE_AMOUNT_INVALID');
+    }
+    if ((expense.status === 'PAID' || postedJournal) && Math.abs(nextAmount - Number(expense.amount)) > 0.01) {
+      throw new BadRequestException('EXPENSE_AMOUNT_LOCKED_AFTER_POSTED');
+    }
+
+    const shouldResolveCostCenter = Boolean(data.costCenterId || data.buildingId);
+    const costCenter = shouldResolveCostCenter
+      ? await this.resolveCostCenter(tenantId, data.costCenterId, data.buildingId)
+      : null;
+    const ownerId = data.ownerId || costCenter?.ownerId || expense.ownerId;
+    if (!ownerId) throw new BadRequestException('EXPENSE_OWNER_REQUIRED');
+
+    const updated = await this.prisma.expense.update({
+      where: { id },
+      data: {
+        ...(shouldResolveCostCenter && costCenter ? { costCenterId: costCenter.id } : {}),
+        ownerId,
+        buildingId: data.buildingId !== undefined ? data.buildingId || costCenter?.buildingId || null : expense.buildingId,
+        roomId: data.roomId !== undefined ? data.roomId || null : expense.roomId,
+        paidByOwnerId: data.paidByOwnerId !== undefined ? data.paidByOwnerId || null : expense.paidByOwnerId,
+        paidByName: data.paidByName !== undefined ? data.paidByName || null : expense.paidByName,
+        category: data.category || expense.category,
+        vendor: data.vendor !== undefined ? data.vendor || null : expense.vendor,
+        amount: nextAmount,
+        description: data.description !== undefined ? data.description || null : expense.description,
+        attachmentUrls: Array.isArray(data.attachmentUrls) ? data.attachmentUrls : expense.attachmentUrls,
+        date: data.date ? new Date(data.date) : expense.date,
+      } as any,
+    });
+
+    await this.logExpenseAudit(tenantId, userId, id, 'UPDATE', expense, updated);
+    return updated;
+  }
+
   async approveExpense(tenantId: string, userId: string | undefined, id: string, markPaid = false) {
     const expense = await this.prisma.expense.findFirst({ where: { tenantId, id, deletedAt: null } });
     if (!expense) throw new BadRequestException('EXPENSE_NOT_FOUND');

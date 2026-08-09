@@ -515,7 +515,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Ghi audit log cho mỗi lần đổi trạng thái.
 - [x] Ghi audit log khi tạo chi phí phát sinh.
 - [x] Khóa không cho chuyển ngược chi phí đã `PAID` về trạng thái khác qua endpoint approve.
-- [ ] Không cho sửa số tiền sau khi đã posted journal, trừ khi tạo bút toán điều chỉnh.
+- [x] Không cho sửa số tiền sau khi đã posted journal, trừ khi tạo bút toán điều chỉnh.
 
 ### 3. Upload và quản lý chứng từ chi phí
 
@@ -688,7 +688,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hiển thị lịch sử Auth/Settings trong màn Owner Management.
 - [x] Quyền xem tài chính.
 - [x] Quyền tạo chi phí.
-- [ ] Quyền sửa chi phí.
+- [x] Quyền sửa chi phí ở API/backend.
 - [x] Quyền duyệt chi.
 - [x] Quyền đánh dấu đã chi.
 - [x] Quyền hoàn ứng.

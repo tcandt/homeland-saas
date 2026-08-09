@@ -79,6 +79,12 @@ export class FinanceController {
     return this.reportingService.createExpense(req.user.tenantId, req.user?.id, body);
   }
 
+  @Patch('expenses/:id')
+  @RequirePermissions('finance.update')
+  async updateExpense(@Param('id') id: string, @Request() req, @Body() body: any) {
+    return this.reportingService.updateExpense(req.user.tenantId, req.user?.id, id, body);
+  }
+
   @Patch('expenses/:id/approve')
   @RequirePermissions('finance.approve')
   async approveExpense(@Param('id') id: string, @Request() req) {

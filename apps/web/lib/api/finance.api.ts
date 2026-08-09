@@ -37,6 +37,9 @@ export const financeApi = {
   createExpense: async (payload: Record<string, any>) => {
     return await apiClient.post<any>('/finance/expenses', payload);
   },
+  updateExpense: async (id: string, payload: Record<string, any>) => {
+    return await apiClient.patch<any>(`/finance/expenses/${id}`, payload);
+  },
   approveExpense: async (id: string, payload?: { markPaid?: boolean }) => {
     return await apiClient.patch<any>(`/finance/expenses/${id}/approve`, payload || {});
   },

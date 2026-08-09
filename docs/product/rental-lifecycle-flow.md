@@ -720,9 +720,9 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Unit test create expense.
 - [x] Unit test approve expense.
 - [x] Test payment request chọn bank theo owner.
-- [ ] Test SePay webhook thiếu tiền.
-- [ ] Test SePay webhook thừa tiền.
-- [ ] Test SePay webhook sai nội dung.
+- [x] Test SePay webhook thiếu tiền.
+- [x] Test SePay webhook thừa tiền.
+- [x] Test SePay webhook sai nội dung.
 - [ ] Test settlement trả phòng.
 - [ ] E2E Finance page.
 - [ ] E2E tạo chi phí phát sinh.

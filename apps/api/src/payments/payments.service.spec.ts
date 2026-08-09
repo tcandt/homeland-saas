@@ -174,4 +174,117 @@ describe('PaymentsService', () => {
       bankAccountNumber: '123456789',
     });
   });
+
+  it('does not confirm SePay webhooks when the transfer amount is short', async () => {
+    const { service, prisma, invoicesService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findUnique: vi.fn(),
+      },
+      paymentWebhookLog: {
+        upsert: vi.fn().mockResolvedValue({ id: 'log-1', processedAt: null }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'request-1',
+          tenantId: 'tenant-1',
+          sourceType: PaymentSourceType.INVOICE,
+          sourceId: 'invoice-1',
+          status: PaymentRequestStatus.PENDING,
+          amount: 100000,
+        }),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+    });
+
+    await service.handleSePayWebhook({
+      id: 'txn-short',
+      code: 'PAY-TENANT-ABC-XYZ',
+      transferType: 'in',
+      transferAmount: 90000,
+    }, 'Apikey db-key');
+
+    expect(invoicesService.pay).not.toHaveBeenCalled();
+    expect(prisma.paymentRequest.update).not.toHaveBeenCalled();
+    expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
+      where: { id: 'log-1' },
+      data: { processedAt: expect.any(Date) },
+    });
+  });
+
+  it('confirms SePay webhooks with overpayment using the requested amount', async () => {
+    const { service, prisma, invoicesService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findUnique: vi.fn(),
+      },
+      paymentWebhookLog: {
+        upsert: vi.fn().mockResolvedValue({ id: 'log-1', processedAt: null }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'request-1',
+          tenantId: 'tenant-1',
+          sourceType: PaymentSourceType.INVOICE,
+          sourceId: 'invoice-1',
+          status: PaymentRequestStatus.PENDING,
+          amount: 100000,
+        }),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+    });
+    invoicesService.pay.mockResolvedValue({ id: 'invoice-1' });
+
+    await service.handleSePayWebhook({
+      id: 'txn-over',
+      code: 'PAY-TENANT-ABC-XYZ',
+      transferType: 'in',
+      transferAmount: 120000,
+    }, 'Apikey db-key');
+
+    expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 100000, 'SEPAY', 'txn-over', 'SEPAY_WEBHOOK');
+    expect(prisma.paymentRequest.update).toHaveBeenCalledWith({
+      where: { id: 'request-1' },
+      data: expect.objectContaining({
+        status: PaymentRequestStatus.CONFIRMED,
+        providerTransactionId: 'txn-over',
+      }),
+    });
+  });
+
+  it('ignores SePay webhooks with no payment code content', async () => {
+    const { service, prisma, invoicesService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findUnique: vi.fn(),
+      },
+      paymentWebhookLog: {
+        upsert: vi.fn().mockResolvedValue({ id: 'log-1', processedAt: null }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+    });
+
+    await service.handleSePayWebhook({
+      id: 'txn-wrong-content',
+      content: 'NO MATCHING CODE',
+      transferType: 'in',
+      transferAmount: 100000,
+    }, 'Apikey db-key');
+
+    expect(prisma.paymentRequest.findFirst).not.toHaveBeenCalled();
+    expect(invoicesService.pay).not.toHaveBeenCalled();
+    expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
+      where: { id: 'log-1' },
+      data: { processedAt: expect.any(Date) },
+    });
+  });
 });

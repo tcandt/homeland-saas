@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Request, Res } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Request, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { FinanceReportingService } from './finance-reporting.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
@@ -29,6 +29,36 @@ export class FinanceController {
   @RequirePermissions('finance.read')
   async getBuildingFinance(@Param('code') code: string, @Request() req) {
     return this.reportingService.getBuildingFinance(req.user.tenantId, code);
+  }
+
+  @Get('owners')
+  @RequirePermissions('finance.read')
+  async getOwners(@Request() req) {
+    return this.reportingService.getOwners(req.user.tenantId);
+  }
+
+  @Get('owners/profit-summary')
+  @RequirePermissions('finance.read')
+  async getOwnerProfitSummary(@Request() req) {
+    return this.reportingService.getOwnerProfitSummary(req.user.tenantId);
+  }
+
+  @Get('expenses')
+  @RequirePermissions('finance.read')
+  async getExpenses(@Request() req) {
+    return this.reportingService.getExpenses(req.user.tenantId, req.query);
+  }
+
+  @Post('expenses')
+  @RequirePermissions('finance.create')
+  async createExpense(@Request() req, @Body() body: any) {
+    return this.reportingService.createExpense(req.user.tenantId, req.user?.id, body);
+  }
+
+  @Patch('expenses/:id/approve')
+  @RequirePermissions('finance.update')
+  async approveExpense(@Param('id') id: string, @Request() req, @Body() body: any) {
+    return this.reportingService.approveExpense(req.user.tenantId, req.user?.id, id, Boolean(body?.markPaid));
   }
 
   @Get('export')

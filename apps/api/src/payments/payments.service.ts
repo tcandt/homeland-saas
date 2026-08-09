@@ -74,13 +74,16 @@ export class PaymentsService {
     return (record?.value as any) || {};
   }
 
-  private async resolveBankAccount(tenantId: string) {
+  private async resolveBankAccount(tenantId: string, ownerId?: string | null) {
     const sepayConfig = await this.resolveSePayConfig(tenantId);
     if (sepayConfig.enabled === false) {
       throw new BadRequestException('SePay đang tắt trong Settings');
     }
 
     const bankAccount = await this.prisma.bankAccount.findFirst({
+      where: { tenantId, isActive: true, ...(ownerId ? { ownerId } : {}) },
+      orderBy: { createdAt: 'asc' },
+    }) || await this.prisma.bankAccount.findFirst({
       where: { tenantId, isActive: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -122,9 +125,10 @@ export class PaymentsService {
     amount: number,
     memoPrefix: string,
     metadata?: Prisma.InputJsonValue,
+    allocation?: { ownerId?: string | null; buildingId?: string | null; roomId?: string | null },
   ): Promise<PaymentRequestResponse> {
     const sepayConfig = await this.resolveSePayConfig(tenantId);
-    const bankAccount = await this.resolveBankAccount(tenantId);
+    const bankAccount = await this.resolveBankAccount(tenantId, allocation?.ownerId);
     const paymentCodePrefix = String(sepayConfig.paymentCodePrefix || memoPrefix || 'PAY');
     const paymentCode = randomCode(paymentCodePrefix, tenantId);
     const memo = `${paymentCode} ${sourceType.toLowerCase()} ${sourceId}`;
@@ -140,6 +144,10 @@ export class PaymentsService {
     const request = await this.prisma.paymentRequest.create({
       data: {
         tenantId,
+        ownerId: allocation?.ownerId || bankAccount.ownerId || null,
+        buildingId: allocation?.buildingId || null,
+        roomId: allocation?.roomId || null,
+        bankAccountId: bankAccount.id,
         sourceType,
         sourceId,
         provider: PaymentProvider.SEPAY,
@@ -185,6 +193,11 @@ export class PaymentsService {
       remaining,
       'INV',
       { invoiceCode: invoice.code, customerId: invoice.customerId, createdBy: userId },
+      {
+        ownerId: invoice.contract?.room?.building?.ownerId,
+        buildingId: invoice.contract?.room?.buildingId,
+        roomId: invoice.contract?.roomId,
+      },
     );
   }
 
@@ -230,6 +243,11 @@ export class PaymentsService {
       Number(deposit.amount),
       'DEP',
       { depositCode: deposit.code, customerId: deposit.customerId, createdBy: userId },
+      {
+        ownerId: deposit.room?.building?.ownerId,
+        buildingId: deposit.room?.buildingId,
+        roomId: deposit.roomId,
+      },
     );
   }
 
@@ -398,5 +416,4 @@ export class PaymentsService {
     return { success: true };
   }
 }
-
 

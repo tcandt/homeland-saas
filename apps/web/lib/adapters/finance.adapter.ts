@@ -75,5 +75,13 @@ export const financeAdapter = {
   getBuildingFinance: async (code: string, params?: Record<string, any>) => {
     const data = await financeApi.getBuildingFinance(code, params);
     return data;
+  },
+
+  getOwnerProfitSummary: async () => {
+    return await financeApi.getOwnerProfitSummary();
+  },
+
+  getExpenses: async (params?: Record<string, any>) => {
+    return await financeApi.getExpenses(params);
   }
 };

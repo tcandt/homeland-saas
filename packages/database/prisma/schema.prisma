@@ -166,6 +166,31 @@ model TenantOrg {
 
   users     User[]
   buildings Building[]
+  owners    Owner[]
+}
+
+model Owner {
+  id        String   @id @default(cuid())
+  tenantId  String
+  code      String
+  name      String
+  phone     String?
+  email     String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant          TenantOrg        @relation(fields: [tenantId], references: [id])
+  buildings       Building[]
+  bankAccounts    BankAccount[]
+  costCenters     CostCenter[]
+  expenses        Expense[]
+  paidExpenses    Expense[]        @relation("ExpensePaidByOwner")
+  paymentRequests PaymentRequest[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
 }
 
 model User {
@@ -243,6 +268,7 @@ model RolePermission {
 model Building {
   id           String    @id @default(cuid())
   tenantId     String
+  ownerId      String?
   code         String
   name         String
   address      String?
@@ -255,11 +281,13 @@ model Building {
   deleteReason String?
 
   tenant               TenantOrg             @relation(fields: [tenantId], references: [id])
+  owner                Owner?                @relation(fields: [ownerId], references: [id])
   floors               Floor[]
   rooms                Room[]
   hunonicMeterMappings HunonicMeterMapping[]
 
   @@unique([tenantId, code])
+  @@index([tenantId, ownerId])
   @@index([tenantId, displayOrder])
   @@index([tenantId, deletedAt])
 }
@@ -596,6 +624,24 @@ enum ExpenseStatus {
   CANCELLED
 }
 
+enum ExpenseCategory {
+  SUPPLIES
+  REPAIR
+  MAINTENANCE
+  UTILITY
+  CLEANING
+  REFUND
+  STAFF
+  OTHER
+}
+
+enum ExpenseSettlementStatus {
+  NONE
+  PENDING_REIMBURSEMENT
+  REIMBURSED
+  DEDUCTED_FROM_PROFIT
+}
+
 enum ReceiptStatus {
   DRAFT
   PENDING
@@ -634,6 +680,7 @@ model CashAccount {
 model BankAccount {
   id            String   @id @default(cuid())
   tenantId      String
+  ownerId       String?
   bankName      String
   accountNumber String
   accountName   String
@@ -642,12 +689,20 @@ model BankAccount {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  owner           Owner?           @relation(fields: [ownerId], references: [id])
+  paymentRequests PaymentRequest[]
+
   @@unique([tenantId, accountNumber])
+  @@index([tenantId, ownerId])
 }
 
 model PaymentRequest {
   id                    String               @id @default(cuid())
   tenantId              String
+  ownerId               String?
+  buildingId            String?
+  roomId                String?
+  bankAccountId         String?
   sourceType            PaymentSourceType
   sourceId              String
   provider              PaymentProvider      @default(SEPAY)
@@ -664,8 +719,14 @@ model PaymentRequest {
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
 
+  owner       Owner?       @relation(fields: [ownerId], references: [id])
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
+
   @@unique([tenantId, paymentCode])
   @@unique([provider, providerTransactionId])
+  @@index([tenantId, ownerId])
+  @@index([tenantId, buildingId])
+  @@index([tenantId, bankAccountId])
   @@index([tenantId, sourceType, sourceId])
   @@index([tenantId, status])
 }
@@ -686,37 +747,59 @@ model PaymentWebhookLog {
 model CostCenter {
   id        String   @id @default(cuid())
   tenantId  String
+  ownerId   String?
+  buildingId String?
   code      String
   name      String
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  owner        Owner?        @relation(fields: [ownerId], references: [id])
   journalLines JournalLine[]
   expenses     Expense[]
 
   @@unique([tenantId, code])
+  @@index([tenantId, ownerId])
+  @@index([tenantId, buildingId])
 }
 
 model Expense {
-  id           String        @id @default(cuid())
-  tenantId     String
-  code         String
-  costCenterId String
-  amount       Decimal       @db.Decimal(14, 2)
-  status       ExpenseStatus @default(DRAFT)
-  description  String?
-  date         DateTime      @default(now())
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  deletedAt    DateTime?
-  deletedBy    String?
-  deleteReason String?
+  id               String                  @id @default(cuid())
+  tenantId         String
+  code             String
+  costCenterId     String
+  ownerId          String?
+  buildingId       String?
+  roomId           String?
+  paidByOwnerId    String?
+  paidByName       String?
+  category         ExpenseCategory         @default(OTHER)
+  vendor           String?
+  amount           Decimal                 @db.Decimal(14, 2)
+  status           ExpenseStatus           @default(DRAFT)
+  settlementStatus ExpenseSettlementStatus @default(NONE)
+  description      String?
+  attachmentUrls   String[]                @default([])
+  approvedBy       String?
+  approvedAt       DateTime?
+  reimbursedAt     DateTime?
+  date             DateTime                @default(now())
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  deletedAt        DateTime?
+  deletedBy        String?
+  deleteReason     String?
 
-  costCenter CostCenter @relation(fields: [costCenterId], references: [id])
+  costCenter  CostCenter @relation(fields: [costCenterId], references: [id])
+  owner       Owner?     @relation(fields: [ownerId], references: [id])
+  paidByOwner Owner?     @relation("ExpensePaidByOwner", fields: [paidByOwnerId], references: [id])
 
   @@unique([tenantId, code])
   @@index([tenantId, costCenterId, status])
+  @@index([tenantId, ownerId, date])
+  @@index([tenantId, paidByOwnerId, settlementStatus])
+  @@index([tenantId, buildingId, date])
 }
 
 model Receipt {

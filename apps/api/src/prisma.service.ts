@@ -6,7 +6,10 @@ const TENANT_AWARE_MODELS = [
   'Building', 'Floor', 'Room', 'Customer', 'Contract', 
   'Deposit', 'Invoice', 'Payment', 'CreditNote', 'Task', 
   'SalesLead', 'NotificationJob', 'User', 'AuditLog',
-  'AppSetting', 'PaymentRequest', 'PaymentWebhookLog'
+  'AppSetting', 'PaymentRequest', 'PaymentWebhookLog',
+  'Owner', 'BankAccount', 'CashAccount', 'ChartOfAccount',
+  'CostCenter', 'Expense', 'Receipt', 'JournalEntry', 'JournalLine',
+  'Reconciliation'
 ];
 
 @Injectable()

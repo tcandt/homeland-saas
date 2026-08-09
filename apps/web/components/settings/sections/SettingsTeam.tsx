@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Input } from "@/components/ui/Input";
-import { Button } from "@/components/ui/Button";
-import { Select } from "@/components/ui/Select";
 import { createPortal } from "react-dom";
-import { Check, X } from "lucide-react";
+import { Check, Plus, X } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 
 const roles = ["Admin", "Manager", "Sales", "Accountant", "Maintenance"];
@@ -42,7 +42,7 @@ type TeamSettings = {
 
 const fallback: TeamSettings = {
   matrix: emptyMatrix,
-  invitation: { fullName: "", email: "", role: "" },
+  invitation: { fullName: "", email: "", role: "Admin" },
 };
 
 export default function SettingsTeam() {
@@ -55,8 +55,8 @@ export default function SettingsTeam() {
     setMounted(true);
   }, []);
 
-  const matrix = draft.matrix;
-  const invitation = draft.invitation;
+  const matrix = draft.matrix || emptyMatrix;
+  const invitation = draft.invitation || fallback.invitation;
   const teamMembers: any[] = [];
 
   const toggle = (mod: string, perm: string) => {
@@ -75,15 +75,16 @@ export default function SettingsTeam() {
     }));
   };
 
-  const openInvite = () => setIsAddMemberOpen(true);
+  const closeInvite = () => setIsAddMemberOpen(false);
 
   return (
     <div className="flex flex-col gap-[20px]">
       <div className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm flex flex-col gap-[16px]">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-[12px]">
           <h3 className="font-black text-[15px] text-text">Thành viên nhóm ({teamMembers.length})</h3>
-          <Button type="button" onClick={openInvite} className="h-[36px] px-[14px] rounded-[10px] bg-primary text-white font-bold text-[12px] hover:bg-primary/90 transition-colors">
-            + Thêm thành viên
+          <Button type="button" onClick={() => setIsAddMemberOpen(true)} className="h-[36px] px-[14px] rounded-[10px] bg-primary text-white font-bold text-[12px] hover:bg-primary/90 transition-colors">
+            <Plus size={14} />
+            Thêm thành viên
           </Button>
         </div>
         {teamMembers.length === 0 ? (
@@ -94,9 +95,9 @@ export default function SettingsTeam() {
       </div>
 
       <div className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm">
-        <div className="flex items-center justify-between mb-[16px]">
+        <div className="flex items-center justify-between gap-[12px] mb-[16px]">
           <h3 className="font-black text-[15px] text-text">Permission Matrix</h3>
-          <div className="flex items-center gap-[8px] flex-wrap">
+          <div className="flex items-center gap-[8px] flex-wrap justify-end">
             {roles.map((role) => (
               <Button
                 type="button"
@@ -119,8 +120,8 @@ export default function SettingsTeam() {
               </tr>
             </thead>
             <tbody>
-              {modules.map((module, index) => (
-                <tr key={index} className="border-t border-border hover:bg-black/[0.02] dark:hover:bg-card/[0.02] transition-colors">
+              {modules.map((module) => (
+                <tr key={module.name} className="border-t border-border hover:bg-black/[0.02] dark:hover:bg-card/[0.02] transition-colors">
                   <td className="py-[10px] px-[12px] font-bold text-text sticky left-0 bg-card z-10">{module.name}</td>
                   <td className="py-[10px] px-[12px]" colSpan={8}>
                     <div className="flex flex-wrap gap-[6px]">
@@ -154,13 +155,13 @@ export default function SettingsTeam() {
 
       {mounted && isAddMemberOpen && createPortal(
         <>
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-[99998] animate-in fade-in duration-200" onClick={() => setIsAddMemberOpen(false)} />
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-[99998] animate-in fade-in duration-200" onClick={closeInvite} />
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-[20px] pointer-events-none">
-            <div className="w-full max-w-[450px] bg-card rounded-[16px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 pointer-events-auto">
-              <div className="h-[60px] border-b border-border flex items-center justify-between px-[20px]">
+            <div className="w-full max-w-[450px] bg-card rounded-[16px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 pointer-events-auto overflow-hidden">
+              <div className="h-[60px] border-b border-border flex items-center justify-between gap-[12px] px-[20px]">
                 <h2 className="font-black text-[16px] text-text">Thêm thành viên</h2>
-                <Button type="button" onClick={() => setIsAddMemberOpen(false)} className="w-[32px] h-[32px] rounded-full hover:bg-black/5 dark:hover:bg-card/5 flex items-center justify-center transition-colors">
-                  <X size={16} className="text-muted" />
+                <Button type="button" variant="ghost" size="icon" onClick={closeInvite} className="rounded-full shrink-0 text-muted hover:text-text">
+                  <X size={18} />
                 </Button>
               </div>
               <div className="p-[20px] flex flex-col gap-[16px]">
@@ -174,14 +175,14 @@ export default function SettingsTeam() {
                 </div>
                 <div>
                   <label className="block text-[12px] font-bold text-text mb-[6px]">Vai trò</label>
-                  <Select value={invitation.role} onChange={(event) => setDraft((prev) => ({ ...prev, invitation: { ...prev.invitation, role: event.target.value } }))} options={roles.map((role) => ({ label: role, value: role }))} />
+                  <Select value={invitation.role || "Admin"} onChange={(event) => setDraft((prev) => ({ ...prev, invitation: { ...prev.invitation, role: event.target.value } }))} options={roles.map((role) => ({ label: role, value: role }))} />
                 </div>
               </div>
               <div className="p-[20px] pt-0 flex gap-[12px]">
-                <Button type="button" onClick={() => setIsAddMemberOpen(false)} className="flex-1 h-[40px] rounded-[10px] bg-card border border-border font-bold text-[13px] text-text hover:bg-black/5 dark:hover:bg-card/5 transition-colors">
+                <Button type="button" onClick={closeInvite} className="flex-1 h-[40px] rounded-[10px] bg-card border border-border font-bold text-[13px] text-text hover:bg-black/5 dark:hover:bg-card/5 transition-colors">
                   Hủy
                 </Button>
-                <Button type="button" onClick={() => setIsAddMemberOpen(false)} className="flex-1 h-[40px] rounded-[10px] bg-primary font-bold text-[13px] text-white hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20">
+                <Button type="button" onClick={closeInvite} className="flex-1 h-[40px] rounded-[10px] bg-primary font-bold text-[13px] text-white hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20">
                   Lưu thành viên
                 </Button>
               </div>

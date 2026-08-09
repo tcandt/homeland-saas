@@ -155,6 +155,54 @@ async function main() {
   const structure = await ensureManagedBuildingStructure(prisma, org.id);
   console.log(`Managed building structure ready: ${structure.buildingCount} buildings, ${structure.sourceRoomCount} source rooms, ${structure.clonedRoomCount} cloned rooms, ${structure.cleanedLegacyRoomCount} legacy placeholders cleaned.`);
 
+  const ownerA = await prisma.owner.upsert({
+    where: { tenantId_code: { tenantId: org.id, code: 'OWNER-A' } },
+    update: { name: 'Owner A', isActive: true },
+    create: { tenantId: org.id, code: 'OWNER-A', name: 'Owner A', notes: 'Shared admin account for HomeLand operations.' },
+  });
+
+  const ownerB = await prisma.owner.upsert({
+    where: { tenantId_code: { tenantId: org.id, code: 'OWNER-B' } },
+    update: { name: 'Owner B', isActive: true },
+    create: { tenantId: org.id, code: 'OWNER-B', name: 'Owner B', notes: 'Shared admin account for HomeLand operations.' },
+  });
+
+  const ownerByBuildingCode: Record<string, string> = {
+    'LK01.31': ownerA.id,
+    'LK01.32': ownerA.id,
+    'LK08.24': ownerB.id,
+    'LK08.25': ownerB.id,
+  };
+
+  for (const [code, ownerId] of Object.entries(ownerByBuildingCode)) {
+    await prisma.building.updateMany({
+      where: { tenantId: org.id, code },
+      data: { ownerId },
+    });
+  }
+
+  await prisma.bankAccount.upsert({
+    where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444555' } },
+    update: { ownerId: ownerA.id },
+    create: { tenantId: org.id, ownerId: ownerA.id, bankName: 'Techcombank', accountNumber: '190333444555', accountName: 'CONG TY TNHH HOMELAND - OWNER A' },
+  });
+
+  await prisma.bankAccount.upsert({
+    where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444556' } },
+    update: { ownerId: ownerB.id },
+    create: { tenantId: org.id, ownerId: ownerB.id, bankName: 'Techcombank', accountNumber: '190333444556', accountName: 'CONG TY TNHH HOMELAND - OWNER B' },
+  });
+
+  for (const bCode of MANAGED_BUILDINGS) {
+    const building = await prisma.building.findUnique({ where: { tenantId_code: { tenantId: org.id, code: bCode } } });
+    if (!building) continue;
+    await prisma.costCenter.upsert({
+      where: { tenantId_code: { tenantId: org.id, code: `CC-${bCode}` } },
+      update: { ownerId: ownerByBuildingCode[bCode], buildingId: building.id },
+      create: { tenantId: org.id, ownerId: ownerByBuildingCode[bCode], buildingId: building.id, code: `CC-${bCode}`, name: `Chi nhánh ${bCode}` },
+    });
+  }
+
   if (process.env.SEED_MODE === 'production' || process.env.NODE_ENV === 'production') {
     console.log('Production mode detected. Skipping mock buildings, floors, rooms, contracts, invoices, and transactions.');
     console.log('Commercial-Grade Seed completed successfully in PRODUCTION mode.');
@@ -385,16 +433,23 @@ async function main() {
 
   await prisma.bankAccount.upsert({
     where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444555' } },
-    update: {},
-    create: { tenantId: org.id, bankName: 'Techcombank', accountNumber: '190333444555', accountName: 'CONG TY TNHH HOMELAND' },
+    update: { ownerId: ownerA.id },
+    create: { tenantId: org.id, ownerId: ownerA.id, bankName: 'Techcombank', accountNumber: '190333444555', accountName: 'CONG TY TNHH HOMELAND - OWNER A' },
+  });
+
+  await prisma.bankAccount.upsert({
+    where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444556' } },
+    update: { ownerId: ownerB.id },
+    create: { tenantId: org.id, ownerId: ownerB.id, bankName: 'Techcombank', accountNumber: '190333444556', accountName: 'CONG TY TNHH HOMELAND - OWNER B' },
   });
 
   const createdCostCenters: Record<string, any> = {};
   for (const bCode of buildingCodes) {
+    const building = await prisma.building.findUnique({ where: { tenantId_code: { tenantId: org.id, code: bCode } } });
     createdCostCenters[bCode] = await prisma.costCenter.upsert({
       where: { tenantId_code: { tenantId: org.id, code: `CC-${bCode}` } },
-      update: {},
-      create: { tenantId: org.id, code: `CC-${bCode}`, name: `Chi nhánh ${bCode}` },
+      update: { ownerId: ownerByBuildingCode[bCode], buildingId: building?.id },
+      create: { tenantId: org.id, ownerId: ownerByBuildingCode[bCode], buildingId: building?.id, code: `CC-${bCode}`, name: `Chi nhánh ${bCode}` },
     });
   }
 
@@ -404,6 +459,11 @@ async function main() {
       tenantId: org.id,
       code: `EXP-${now.getFullYear()}-001`,
       costCenterId: createdCostCenters[buildingCodes[0]].id,
+      ownerId: ownerByBuildingCode[buildingCodes[0]],
+      buildingId: createdCostCenters[buildingCodes[0]].buildingId,
+      paidByName: ownerA.name,
+      category: 'UTILITY' as any,
+      settlementStatus: 'DEDUCTED_FROM_PROFIT' as any,
       amount: 1500000,
       status: 'PAID' as any,
       description: 'Tiền điện tháng trước',

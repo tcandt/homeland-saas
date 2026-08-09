@@ -2,11 +2,17 @@
 
 import React from "react";
 import {
-  Activity, Building2, Briefcase, Palette, User, Shield, Users, Key,
-  BedDouble, DollarSign, FileSignature, Receipt,
-  GitBranch, Bell, PlugZap,
-  BookOpen, FileText, Plug, Database, ScrollText,
-  ChevronRight
+  Activity,
+  Bell,
+  BookOpen,
+  ChevronRight,
+  Database,
+  FileText,
+  Plug,
+  PlugZap,
+  Shield,
+  User,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import type { SettingsSection } from "@/app/settings/page";
@@ -21,8 +27,6 @@ const groups: SidebarGroup[] = [
     label: "SYSTEM",
     items: [
       { id: "overview", icon: <Activity size={15} />, label: "Overview & Status", desc: "Tổng quan hệ thống" },
-      { id: "business", icon: <Briefcase size={15} />, label: "Business Profile", desc: "Thông tin công ty" },
-      { id: "appearance", icon: <Palette size={15} />, label: "Appearance & Locale", desc: "Giao diện, ngôn ngữ" },
     ],
   },
   {
@@ -31,14 +35,6 @@ const groups: SidebarGroup[] = [
       { id: "profile", icon: <User size={15} />, label: "My Profile", desc: "Hồ sơ cá nhân" },
       { id: "security", icon: <Shield size={15} />, label: "Account Security", desc: "Bảo mật tài khoản" },
       { id: "team", icon: <Users size={15} />, label: "Team & Roles", desc: "Nhân sự, phân quyền" },
-    ],
-  },
-  {
-    label: "OPERATIONS",
-    items: [
-      { id: "pricing", icon: <DollarSign size={15} />, label: "Pricing & Fees", desc: "Điện, nước, phí dịch vụ" },
-      { id: "contracts", icon: <FileSignature size={15} />, label: "Contract Rules", desc: "Quy tắc hợp đồng" },
-      { id: "invoices", icon: <Receipt size={15} />, label: "Invoice Rules", desc: "Kỳ hóa đơn, thuế" },
     ],
   },
   {

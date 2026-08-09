@@ -13,6 +13,21 @@ export const financeApi = {
   getBuildingFinance: async (code: string, params?: Record<string, any>) => {
     return await apiClient.get<any>(`/finance/building/${code}`, { params });
   },
+  getOwners: async () => {
+    return await apiClient.get<any>('/finance/owners');
+  },
+  getOwnerProfitSummary: async () => {
+    return await apiClient.get<any>('/finance/owners/profit-summary');
+  },
+  getExpenses: async (params?: Record<string, any>) => {
+    return await apiClient.get<any>('/finance/expenses', { params });
+  },
+  createExpense: async (payload: Record<string, any>) => {
+    return await apiClient.post<any>('/finance/expenses', payload);
+  },
+  approveExpense: async (id: string, payload?: { markPaid?: boolean }) => {
+    return await apiClient.patch<any>(`/finance/expenses/${id}/approve`, payload || {});
+  },
   exportReport: async () => {
     const response = await apiClient.get('/finance/export', { responseType: 'blob' } as any);
     return response;

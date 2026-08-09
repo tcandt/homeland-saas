@@ -7,6 +7,8 @@ export const financeKeys = {
   cashFlow: (params: any) => [...financeKeys.all, 'cashFlow', params] as const,
   profitLoss: (params: any) => [...financeKeys.all, 'profitLoss', params] as const,
   building: (code: string, params: any) => [...financeKeys.all, 'building', code, params] as const,
+  ownerProfitSummary: () => [...financeKeys.all, 'ownerProfitSummary'] as const,
+  expenses: (params: any) => [...financeKeys.all, 'expenses', params] as const,
 };
 
 export function useLedgerQuery(params?: Record<string, any>) {
@@ -35,5 +37,19 @@ export function useBuildingFinanceQuery(code: string, params?: Record<string, an
     queryKey: financeKeys.building(code, params),
     queryFn: () => financeAdapter.getBuildingFinance(code, params),
     enabled: !!code,
+  });
+}
+
+export function useOwnerProfitSummaryQuery() {
+  return useQuery({
+    queryKey: financeKeys.ownerProfitSummary(),
+    queryFn: () => financeAdapter.getOwnerProfitSummary(),
+  });
+}
+
+export function useExpensesQuery(params?: Record<string, any>) {
+  return useQuery({
+    queryKey: financeKeys.expenses(params),
+    queryFn: () => financeAdapter.getExpenses(params),
   });
 }

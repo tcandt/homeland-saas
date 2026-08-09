@@ -1,12 +1,15 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import { Filter, FileText, Plus } from "lucide-react";
 import FinancialCommandKpi from "@/components/finance/FinancialCommandKpi";
 import FinancialCommandLedger from "@/components/finance/FinancialCommandLedger";
 import FinancialCommandDrawer from "@/components/finance/FinancialCommandDrawer";
 import FinanceMobileFlow from "@/components/finance/FinanceMobileFlow";
+import OwnerProfitSummary from "@/components/finance/OwnerProfitSummary";
+import ExpenseCreateModal from "@/components/finance/ExpenseCreateModal";
+import ExpenseTable from "@/components/finance/ExpenseTable";
 import { useFinanceStore } from "@/lib/stores/finance.store";
 import { useLedgerQuery } from "@/lib/queries/finance.queries";
 import toast from "react-hot-toast";
@@ -16,6 +19,7 @@ import { financeApi } from "@/lib/api/finance.api";
 export default function FinancePage() {
   const selectedJournalId = useFinanceStore((s) => s.selectedJournalId);
   const { data: ledgerRows } = useLedgerQuery();
+  const [isExpenseModalOpen, setExpenseModalOpen] = useState(false);
 
   const reconciliation = useMemo(() => {
     const rows = ledgerRows || [];
@@ -82,13 +86,20 @@ export default function FinancePage() {
             >
               <FileText size={14} className="text-muted mr-1.5" /> Xuất báo cáo
             </Button>
-            <Button className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px] bg-[#8b5cf6] hover:bg-[#6366f1] text-white shadow-[#8b5cf6]/20">
-              <Plus size={16} className="mr-1.5" /> Tạo bút toán
+            <Button
+              onClick={() => setExpenseModalOpen(true)}
+              className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px] bg-[#8b5cf6] hover:bg-[#6366f1] text-white shadow-[#8b5cf6]/20"
+            >
+              <Plus size={16} className="mr-1.5" /> Them chi phi
             </Button>
           </div>
         </div>
 
         <FinancialCommandKpi />
+
+        <OwnerProfitSummary />
+
+        <ExpenseTable />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-[16px] md:gap-[24px]">
           <div
@@ -136,6 +147,7 @@ export default function FinancePage() {
       </div>
 
       {selectedJournalId && <FinancialCommandDrawer />}
+      <ExpenseCreateModal isOpen={isExpenseModalOpen} onClose={() => setExpenseModalOpen(false)} />
     </AppShell>
   );
 }

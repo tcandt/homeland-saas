@@ -4,39 +4,27 @@ import React, { useTransition, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import SettingsSidebar from "@/components/settings/SettingsSidebar";
 import SettingsOverview from "@/components/settings/sections/SettingsOverview";
-import SettingsBusinessProfile from "@/components/settings/sections/SettingsBusinessProfile";
-import SettingsAppearance from "@/components/settings/sections/SettingsAppearance";
 import SettingsProfile from "@/components/settings/sections/SettingsProfile";
 import SettingsSecurity from "@/components/settings/sections/SettingsSecurity";
 import SettingsTeam from "@/components/settings/sections/SettingsTeam";
-import SettingsPricing from "@/components/settings/sections/SettingsPricing";
-import SettingsContractRules from "@/components/settings/sections/SettingsContractRules";
-import SettingsInvoiceRules from "@/components/settings/sections/SettingsInvoiceRules";
 import SettingsNotificationAutomation from "@/components/settings/sections/SettingsNotificationAutomation";
 import SettingsAccounting from "@/components/settings/sections/SettingsAccounting";
 import SettingsTemplates from "@/components/settings/sections/SettingsTemplates";
 import SettingsIntegrations from "@/components/settings/sections/SettingsIntegrations";
 import SettingsHunonicIntegration from "@/components/settings/sections/SettingsHunonicIntegration";
 import SettingsBackup from "@/components/settings/sections/SettingsBackup";
-import { Save, Download, Clock, Database } from "lucide-react";
 
 export type SettingsSection =
-  | "overview" | "business" | "appearance"
+  | "overview"
   | "profile" | "security" | "team"
-  | "pricing" | "contracts" | "invoices"
   | "notifications"
   | "accounting" | "templates" | "integrations" | "hunonic" | "backup";
 
 const mobileSectionOptions: Array<{ value: SettingsSection; label: string }> = [
   { value: "overview", label: "Overview & Status" },
-  { value: "business", label: "Business Profile" },
-  { value: "appearance", label: "Appearance & Locale" },
   { value: "profile", label: "My Profile" },
   { value: "security", label: "Account Security" },
   { value: "team", label: "Team & Roles" },
-  { value: "pricing", label: "Pricing & Fees" },
-  { value: "contracts", label: "Contract Rules" },
-  { value: "invoices", label: "Invoice Rules" },
   { value: "notifications", label: "Notification Automation" },
   { value: "accounting", label: "Accounting Config" },
   { value: "templates", label: "Templates" },
@@ -56,14 +44,9 @@ export default function SettingsPage() {
   const renderContent = () => {
     switch (activeSection) {
       case "overview": return <SettingsOverview />;
-      case "business": return <SettingsBusinessProfile />;
-      case "appearance": return <SettingsAppearance />;
       case "profile": return <SettingsProfile />;
       case "security": return <SettingsSecurity />;
       case "team": return <SettingsTeam />;
-      case "pricing": return <SettingsPricing />;
-      case "contracts": return <SettingsContractRules />;
-      case "invoices": return <SettingsInvoiceRules />;
       case "notifications": return <SettingsNotificationAutomation />;
       case "accounting": return <SettingsAccounting />;
       case "templates": return <SettingsTemplates />;

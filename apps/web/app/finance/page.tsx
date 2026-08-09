@@ -10,6 +10,7 @@ import FinanceMobileFlow from "@/components/finance/FinanceMobileFlow";
 import OwnerProfitSummary from "@/components/finance/OwnerProfitSummary";
 import ExpenseCreateModal from "@/components/finance/ExpenseCreateModal";
 import ExpenseTable from "@/components/finance/ExpenseTable";
+import BuildingProfitSummary from "@/components/finance/BuildingProfitSummary";
 import { useFinanceStore } from "@/lib/stores/finance.store";
 import { useLedgerQuery } from "@/lib/queries/finance.queries";
 import toast from "react-hot-toast";
@@ -101,19 +102,17 @@ export default function FinancePage() {
 
         <ExpenseTable />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-[16px] md:gap-[24px]">
+        <div className="grid grid-cols-1 gap-[16px] md:gap-[24px]">
           <div
             data-testid="finance-chart"
-            className="lg:col-span-2 bg-card border border-border rounded-[16px] h-[250px] md:h-[300px] flex items-center justify-center flex-col"
+            className="bg-card border border-border rounded-[16px] h-[250px] md:h-[300px] flex items-center justify-center flex-col"
           >
             <span className="text-muted font-bold text-[14px]">Biểu đồ dòng tiền (Cash Flow)</span>
             <span className="text-muted/50 text-[12px]">Data loaded from API</span>
           </div>
-          <div className="col-span-1 bg-card border border-border rounded-[16px] h-[250px] md:h-[300px] flex items-center justify-center flex-col">
-            <span className="text-muted font-bold text-[14px]">Hiệu quả tòa nhà (Building P&amp;L)</span>
-            <span className="text-muted/50 text-[12px]">Data loaded from API</span>
-          </div>
         </div>
+
+        <BuildingProfitSummary />
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-[16px] md:gap-[24px]">
           <FinancialCommandLedger />

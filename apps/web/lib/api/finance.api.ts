@@ -13,6 +13,9 @@ export const financeApi = {
   getBuildingFinance: async (code: string, params?: Record<string, any>) => {
     return await apiClient.get<any>(`/finance/building/${code}`, { params });
   },
+  getBuildingProfitSummary: async (params?: Record<string, any>) => {
+    return await apiClient.get<any>('/finance/buildings/profit-summary', { params });
+  },
   getOwners: async () => {
     return await apiClient.get<any>('/finance/owners');
   },

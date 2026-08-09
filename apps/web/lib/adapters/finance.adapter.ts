@@ -77,6 +77,10 @@ export const financeAdapter = {
     return data;
   },
 
+  getBuildingProfitSummary: async (params?: Record<string, any>) => {
+    return await financeApi.getBuildingProfitSummary(params);
+  },
+
   getOwnerProfitSummary: async () => {
     return await financeApi.getOwnerProfitSummary();
   },

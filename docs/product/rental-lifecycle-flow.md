@@ -533,16 +533,16 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 5. Báo cáo theo tòa nhà
 
-- [ ] Thay block placeholder Building P&L bằng dữ liệu thật.
-- [ ] Doanh thu thuê phòng theo tòa.
+- [x] Thay block placeholder Building P&L bằng dữ liệu thật.
+- [x] Doanh thu thuê phòng theo tòa.
 - [ ] Doanh thu điện theo tòa.
 - [ ] Doanh thu nước/dịch vụ theo tòa.
-- [ ] Chi phí trực tiếp theo tòa.
-- [ ] Lợi nhuận theo tòa.
-- [ ] Công nợ theo tòa.
-- [ ] Tỷ lệ lấp đầy theo tòa.
-- [ ] So sánh 4 tòa trên cùng một màn hình.
-- [ ] Cảnh báo tòa có chi phí bất thường.
+- [x] Chi phí trực tiếp theo tòa.
+- [x] Lợi nhuận theo tòa.
+- [x] Công nợ theo tòa.
+- [x] Tỷ lệ lấp đầy theo tòa.
+- [x] So sánh 4 tòa trên cùng một màn hình.
+- [x] Cảnh báo tòa có chi phí bất thường.
 
 ### 6. Đối soát SePay
 

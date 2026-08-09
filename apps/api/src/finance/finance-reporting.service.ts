@@ -110,6 +110,89 @@ export class FinanceReportingService {
     };
   }
 
+  async getBuildingProfitSummary(tenantId: string, options: { year?: string; month?: string } = {}) {
+    const period = this.buildPeriodRange(options.year, options.month);
+    const buildings = await this.prisma.building.findMany({
+      where: { tenantId, deletedAt: null },
+      include: {
+        owner: { select: { id: true, code: true, name: true } },
+        rooms: { where: { deletedAt: null }, select: { id: true, status: true } },
+      },
+      orderBy: { displayOrder: 'asc' },
+    });
+
+    return Promise.all(buildings.map(async (building) => {
+      const occupiedRooms = building.rooms.filter((room) => room.status !== 'AVAILABLE').length;
+      const [revenues, journalExpenses, directExpenses, overdueInvoices] = await Promise.all([
+        this.prisma.journalLine.aggregate({
+          where: {
+            tenantId,
+            costCenter: { buildingId: building.id },
+            account: { type: 'REVENUE' },
+            type: 'CREDIT',
+            createdAt: period,
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.journalLine.aggregate({
+          where: {
+            tenantId,
+            costCenter: { buildingId: building.id },
+            account: { type: 'EXPENSE' },
+            type: 'DEBIT',
+            createdAt: period,
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.expense.aggregate({
+          where: {
+            tenantId,
+            buildingId: building.id,
+            deletedAt: null,
+            status: { in: ['APPROVED', 'PAID'] as any },
+            date: period,
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.invoice.count({
+          where: {
+            tenantId,
+            contract: { room: { buildingId: building.id } },
+            status: 'OVERDUE' as any,
+            deletedAt: null,
+          },
+        }),
+      ]);
+
+      const revenue = Number(revenues._sum.amount || 0);
+      const expense = Math.max(Number(journalExpenses._sum.amount || 0), Number(directExpenses._sum.amount || 0));
+      const profit = revenue - expense;
+      const expenseRatio = revenue > 0 ? (expense / revenue) * 100 : expense > 0 ? 100 : 0;
+
+      return {
+        building: {
+          id: building.id,
+          code: building.code,
+          name: building.name,
+          roomCount: building.rooms.length,
+          occupiedRooms,
+          occupancyRate: building.rooms.length ? Math.round((occupiedRooms / building.rooms.length) * 100) : 0,
+        },
+        owner: building.owner,
+        revenue,
+        expense,
+        profit,
+        margin: revenue > 0 ? Math.round((profit / revenue) * 100) : 0,
+        overdueInvoices,
+        alerts: [
+          ...(expenseRatio >= 35 ? ['Chi phí vượt 35% doanh thu kỳ này'] : []),
+          ...(overdueInvoices > 0 ? [`${overdueInvoices} hóa đơn quá hạn`] : []),
+          ...(building.rooms.length && occupiedRooms === 0 ? ['Tòa chưa có phòng đang thuê'] : []),
+        ],
+      };
+    }));
+  }
+
   async getOwners(tenantId: string) {
     return this.prisma.owner.findMany({
       where: { tenantId, isActive: true },

@@ -31,6 +31,12 @@ export class FinanceController {
     return this.reportingService.getBuildingFinance(req.user.tenantId, code);
   }
 
+  @Get('buildings/profit-summary')
+  @RequirePermissions('finance.read')
+  async getBuildingProfitSummary(@Request() req, @Query() query: any) {
+    return this.reportingService.getBuildingProfitSummary(req.user.tenantId, query);
+  }
+
   @Get('owners')
   @RequirePermissions('finance.read')
   async getOwners(@Request() req) {

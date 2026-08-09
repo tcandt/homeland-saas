@@ -29,6 +29,7 @@ export const usePermissions = () => {
     canSettleExpense: hasPermissionOrLegacy('finance.settle', 'finance.update'),
     canExportFinance: hasPermissionOrLegacy('finance.export', 'finance.read'),
     canReadOwnerProfit: hasPermissionOrLegacy('finance.ownerProfit.read', 'finance.read'),
+    canReadExpenseAttachment: hasPermissionOrLegacy('finance.attachment.read', 'finance.read'),
 
     hasPermission,
   };

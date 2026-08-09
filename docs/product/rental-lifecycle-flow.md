@@ -525,7 +525,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Lưu `attachmentUrls`.
 - [x] Kiểm tra dung lượng file.
 - [x] Kiểm tra loại file hợp lệ.
-- [ ] Thêm quyền xem/tải chứng từ.
+- [x] Thêm quyền xem/tải chứng từ.
 
 ### 4. Báo cáo chia lợi nhuận theo owner
 

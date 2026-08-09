@@ -376,7 +376,7 @@ export default function ExpenseTable() {
                       <Badge variant="neutral">{categoryLabels[expense.category] || expense.category || "Khác"}</Badge>
                       {expense.vendor && <Badge variant="neutral">{expense.vendor}</Badge>}
                     </div>
-                    {Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 && (
+                    {permissions.canReadExpenseAttachment && Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {expense.attachmentUrls.slice(0, 2).map((url: string, index: number) => (
                           <a

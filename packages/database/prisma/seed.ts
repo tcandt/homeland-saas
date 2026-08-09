@@ -35,7 +35,7 @@ async function main() {
     'invoice.read', 'invoice.create', 'invoice.update', 'invoice.delete', 'invoice.collect',
     'deposit.read', 'deposit.create', 'deposit.update', 'deposit.delete', 'deposit.collect', 'deposit.refund', 'deposit.convert', 'deposit.cancel',
     'finance.read', 'finance.create', 'finance.update', 'finance.delete',
-    'finance.approve', 'finance.pay', 'finance.settle', 'finance.export', 'finance.ownerProfit.read',
+    'finance.approve', 'finance.pay', 'finance.settle', 'finance.export', 'finance.ownerProfit.read', 'finance.attachment.read',
     'task.read', 'task.create', 'task.update', 'task.delete',
     'sales.read', 'sales.create', 'sales.update', 'sales.delete',
     'setting.read', 'setting.update',

@@ -707,11 +707,11 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Chuẩn hóa tiếng Việt có dấu toàn bộ Finance/Expenses/Settings.
 - [ ] Tối ưu Finance page trên mobile.
 - [ ] Tối ưu bảng chi phí responsive.
-- [ ] Toast không bị che bởi modal.
-- [ ] Modal xác nhận đẹp hơn.
-- [ ] Loading state mượt hơn.
-- [ ] Empty state rõ hành động tiếp theo.
-- [ ] Giữ tone giao diện dịu, sạch, ít rối.
+- [x] Toast không bị che bởi modal.
+- [x] Modal xác nhận đẹp hơn cho thao tác chi phí.
+- [x] Loading state mượt hơn cho bảng chi phí.
+- [x] Empty state rõ hành động tiếp theo cho bảng chi phí.
+- [x] Giữ tone giao diện dịu, sạch, ít rối cho Finance/Expense.
 
 ### 16. Kiểm thử
 

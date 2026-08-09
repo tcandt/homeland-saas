@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { CheckCircle2, CircleDollarSign, FilterX, Paperclip, ReceiptText, RotateCcw, Search, Split, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDollarSign, FilterX, Paperclip, ReceiptText, RotateCcw, Search, Split, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -23,6 +23,7 @@ type PendingAction = {
   description: string;
   confirmLabel: string;
   variant?: "primary" | "danger";
+  tone?: "success" | "warning" | "danger";
 };
 
 const statusOptions = [
@@ -239,27 +240,32 @@ export default function ExpenseTable() {
         title: "Duyệt chi phí",
         description: `Duyệt ${code} để đưa khoản chi vào quy trình theo dõi lợi nhuận.`,
         confirmLabel: "Duyệt chi phí",
+        tone: "success",
       },
       pay: {
         title: "Đánh dấu đã chi",
         description: `Xác nhận ${code} đã được chi tiền. Nếu có cấu hình tài khoản kế toán, hệ thống sẽ tạo bút toán chi phí.`,
         confirmLabel: "Đã chi",
+        tone: "warning",
       },
       cancel: {
         title: "Hủy chi phí",
         description: `Hủy ${code}. Chỉ áp dụng cho khoản chưa ghi sổ đã chi; khoản đã chi cần bút toán đảo thay vì hủy trực tiếp.`,
         confirmLabel: "Hủy chi phí",
         variant: "danger",
+        tone: "danger",
       },
       reimburse: {
         title: "Đánh dấu đã hoàn ứng",
         description: `Xác nhận khoản ứng hộ của ${code} đã được hoàn lại cho người chi.`,
         confirmLabel: "Đã hoàn ứng",
+        tone: "success",
       },
       deduct: {
         title: "Khấu trừ vào lợi nhuận",
         description: `Đánh dấu ${code} sẽ được khấu trừ khi chia lợi nhuận giữa các chủ.`,
         confirmLabel: "Khấu trừ",
+        tone: "warning",
       },
     };
     setPendingAction({ type, expense, ...configs[type] });
@@ -489,7 +495,20 @@ export default function ExpenseTable() {
     <Modal
       isOpen={!!pendingAction}
       onClose={() => (busyId ? undefined : setPendingAction(null))}
-      title={pendingAction?.title || "Xác nhận"}
+      title={
+        <span className="flex items-center gap-3">
+          <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${
+            pendingAction?.tone === "danger"
+              ? "bg-rose-50 text-rose-600"
+              : pendingAction?.tone === "warning"
+                ? "bg-amber-50 text-amber-600"
+                : "bg-emerald-50 text-emerald-600"
+          }`}>
+            {pendingAction?.tone === "danger" ? <AlertTriangle size={20} /> : <CheckCircle2 size={20} />}
+          </span>
+          <span>{pendingAction?.title || "Xác nhận"}</span>
+        </span>
+      }
       maxWidth="max-w-lg"
       zIndex={10060}
       footer={
@@ -507,20 +526,38 @@ export default function ExpenseTable() {
         </div>
       }
     >
-      <div className="rounded-2xl border border-border bg-surface p-4">
+      <div className="rounded-2xl border border-border bg-gradient-to-b from-surface to-card p-4 shadow-sm">
         <div className="text-[13px] leading-6 text-muted">{pendingAction?.description}</div>
         {pendingAction?.expense && (
-          <div className="mt-4 grid grid-cols-2 gap-3 text-[12px]">
-            <div className="rounded-xl bg-card p-3">
+          <div className="mt-4 grid grid-cols-1 gap-3 text-[12px] sm:grid-cols-2">
+            <div className="rounded-xl border border-border bg-card p-3">
               <div className="font-black uppercase text-muted">Mã chi phí</div>
               <div className="mt-1 font-black text-text">{pendingAction.expense.code}</div>
             </div>
-            <div className="rounded-xl bg-card p-3">
+            <div className="rounded-xl border border-border bg-card p-3">
               <div className="font-black uppercase text-muted">Số tiền</div>
               <div className="mt-1 font-black text-text">{formatMoney(Number(pendingAction.expense.amount))}</div>
             </div>
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="font-black uppercase text-muted">Chủ / tòa</div>
+              <div className="mt-1 font-black text-text">{pendingAction.expense.owner?.name || "Chưa gắn chủ"}</div>
+              <div className="mt-0.5 text-[11px] font-semibold text-muted">{pendingAction.expense.building?.code || pendingAction.expense.costCenter?.code || "-"}</div>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="font-black uppercase text-muted">Trạng thái hiện tại</div>
+              <div className="mt-1 font-black text-text">{statusLabels[pendingAction.expense.status] || pendingAction.expense.status}</div>
+            </div>
           </div>
         )}
+        <div className={`mt-4 rounded-xl border px-3 py-2 text-[12px] font-bold ${
+          pendingAction?.tone === "danger"
+            ? "border-rose-200 bg-rose-50 text-rose-700"
+            : pendingAction?.tone === "warning"
+              ? "border-amber-200 bg-amber-50 text-amber-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700"
+        }`}>
+          Thao tác này sẽ được ghi nhận vào lịch sử tài chính để phục vụ đối soát và chia lợi nhuận.
+        </div>
       </div>
     </Modal>
     </>

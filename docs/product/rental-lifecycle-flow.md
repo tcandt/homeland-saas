@@ -715,7 +715,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 16. Kiểm thử
 
-- [ ] Unit test finance reporting.
+- [x] Unit test finance reporting.
 - [ ] Unit test owner profit summary.
 - [ ] Unit test create expense.
 - [ ] Unit test approve expense.

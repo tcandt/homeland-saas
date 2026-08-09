@@ -1,15 +1,16 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { ReceiptText } from "lucide-react";
+import { Paperclip, ReceiptText, UploadCloud, X } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { financeApi } from "@/lib/api/finance.api";
+import { settingsApi } from "@/lib/api/settings.api";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { financeKeys, useOwnerProfitSummaryQuery } from "@/lib/queries/finance.queries";
 
@@ -17,6 +18,9 @@ type ExpenseCreateModalProps = {
   isOpen: boolean;
   onClose: () => void;
 };
+
+const allowedProofTypes = ["image/jpeg", "image/png", "image/webp"];
+const maxProofSize = 2 * 1024 * 1024;
 
 const categoryOptions = [
   { value: "SUPPLIES", label: "Vật tư / dụng cụ" },
@@ -37,6 +41,7 @@ const statusOptions = [
 
 export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateModalProps) {
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { data: buildings = [] } = useBuildingsQuery({ limit: 100 });
   const { data: ownerSummary = [] } = useOwnerProfitSummaryQuery();
 
@@ -46,9 +51,10 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
   const [amount, setAmount] = useState("");
   const [paidByName, setPaidByName] = useState("");
   const [vendor, setVendor] = useState("");
-  const [attachmentUrls, setAttachmentUrls] = useState("");
+  const [attachmentUrls, setAttachmentUrls] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [isSubmitting, setSubmitting] = useState(false);
+  const [isUploading, setUploading] = useState(false);
 
   const selectedBuilding = useMemo(
     () => (buildings as any[]).find((building) => building.id === buildingId),
@@ -78,14 +84,50 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
     setAmount("");
     setPaidByName("");
     setVendor("");
-    setAttachmentUrls("");
+    setAttachmentUrls([]);
     setDescription("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleClose = () => {
-    if (isSubmitting) return;
+    if (isSubmitting || isUploading) return;
     reset();
     onClose();
+  };
+
+  const handleFiles = async (fileList: FileList | null) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+
+    const invalidType = files.find((file) => !allowedProofTypes.includes(file.type));
+    if (invalidType) {
+      toast.error("Chỉ hỗ trợ ảnh JPG, PNG hoặc WEBP cho chứng từ.");
+      return;
+    }
+
+    const oversized = files.find((file) => file.size > maxProofSize);
+    if (oversized) {
+      toast.error("Mỗi file chứng từ tối đa 2MB.");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const uploaded = await Promise.all(
+        files.map((file) => settingsApi.uploadAsset(file, {
+          folder: "settings",
+          purpose: "expense-proof",
+          scope: "TENANT",
+        })),
+      );
+      setAttachmentUrls((prev) => [...prev, ...uploaded.map((item) => item.url)]);
+      toast.success(`Đã tải lên ${uploaded.length} chứng từ`);
+    } catch (error: any) {
+      toast.error(error?.message || "Không tải được chứng từ");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -110,10 +152,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         amount: numericAmount,
         paidByName: paidByName.trim() || null,
         vendor: vendor.trim() || null,
-        attachmentUrls: attachmentUrls
-          .split(/\r?\n/)
-          .map((url) => url.trim())
-          .filter(Boolean),
+        attachmentUrls,
         description: description.trim() || `${categoryOptions.find((item) => item.value === category)?.label || "Chi phí"} - ${selectedBuilding?.code || selectedBuilding?.name || ""}`,
       });
 
@@ -146,7 +185,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
       }
       footer={
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>
+          <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting || isUploading}>
             Hủy
           </Button>
           <Button type="submit" form="expense-create-form" isLoading={isSubmitting}>
@@ -185,8 +224,44 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         </Field>
 
         <Field label="Chứng từ">
-          <Textarea value={attachmentUrls} onChange={(event) => setAttachmentUrls(event.target.value)} placeholder="Mỗi dòng một link hóa đơn, ảnh chuyển khoản..." />
+          <div className="flex flex-col gap-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              className="hidden"
+              onChange={(event) => handleFiles(event.target.files)}
+            />
+            <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} isLoading={isUploading} className="justify-start">
+              <UploadCloud size={15} className="mr-2" /> Tải ảnh chứng từ
+            </Button>
+            <div className="text-[11px] font-semibold text-muted">Hỗ trợ JPG, PNG, WEBP. Mỗi file tối đa 2MB.</div>
+          </div>
         </Field>
+
+        {attachmentUrls.length > 0 && (
+          <div className="md:col-span-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {attachmentUrls.map((url, index) => (
+              <div key={`${url}-${index}`} className="group relative overflow-hidden rounded-2xl border border-border bg-surface">
+                <a href={url} target="_blank" rel="noreferrer" className="block">
+                  <img src={url} alt={`Chứng từ ${index + 1}`} className="h-28 w-full object-cover" />
+                </a>
+                <div className="flex items-center justify-between gap-2 px-3 py-2 text-[11px] font-bold text-muted">
+                  <span className="inline-flex items-center gap-1"><Paperclip size={12} /> Chứng từ {index + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachmentUrls((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+                    className="rounded-full p-1 text-muted hover:bg-rose-50 hover:text-rose-600"
+                    aria-label={`Xóa chứng từ ${index + 1}`}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="md:col-span-2">
           <Field label="Mô tả">

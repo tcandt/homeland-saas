@@ -519,12 +519,12 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 3. Upload và quản lý chứng từ chi phí
 
-- [ ] Thêm upload ảnh hóa đơn/chứng từ.
-- [ ] Cho phép nhiều file trên một khoản chi.
-- [ ] Preview chứng từ trong modal chi tiết.
+- [x] Thêm upload ảnh hóa đơn/chứng từ.
+- [x] Cho phép nhiều file trên một khoản chi.
+- [x] Preview chứng từ trong modal tạo chi phí.
 - [x] Lưu `attachmentUrls`.
-- [ ] Kiểm tra dung lượng file.
-- [ ] Kiểm tra loại file hợp lệ.
+- [x] Kiểm tra dung lượng file.
+- [x] Kiểm tra loại file hợp lệ.
 - [ ] Thêm quyền xem/tải chứng từ.
 
 ### 4. Báo cáo chia lợi nhuận theo owner

@@ -84,6 +84,93 @@ export class FinanceReportingService {
     };
   }
 
+  async getDebtSummary(tenantId: string) {
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        status: { notIn: ['PAID', 'CANCELLED', 'WRITTEN_OFF'] as any },
+      },
+      include: {
+        customer: { select: { id: true, fullName: true, phone: true } },
+        contract: {
+          include: {
+            room: {
+              include: {
+                building: { include: { owner: { select: { id: true, code: true, name: true } } } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    const byCustomer = new Map<string, any>();
+    const byRoom = new Map<string, any>();
+    const byBuilding = new Map<string, any>();
+    const byOwner = new Map<string, any>();
+    let totalDebt = 0;
+    let overdueDebt = 0;
+    const now = new Date();
+
+    const addDebt = (map: Map<string, any>, key: string, label: string, amount: number, overdueAmount: number, extra: Record<string, any> = {}) => {
+      const current = map.get(key) || { id: key, label, invoiceCount: 0, debt: 0, overdueDebt: 0, ...extra };
+      current.invoiceCount += 1;
+      current.debt += amount;
+      current.overdueDebt += overdueAmount;
+      map.set(key, current);
+    };
+
+    for (const invoice of invoices) {
+      const debt = Math.max(0, Number(invoice.total || 0) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0));
+      if (debt <= 0) continue;
+
+      const isOverdue = invoice.dueDate < now || invoice.status === 'OVERDUE';
+      const overdueAmount = isOverdue ? debt : 0;
+      const room = invoice.contract?.room;
+      const building = room?.building;
+      const owner = building?.owner;
+
+      totalDebt += debt;
+      overdueDebt += overdueAmount;
+
+      addDebt(byCustomer, invoice.customerId, invoice.customer?.fullName || invoice.customerId, debt, overdueAmount, {
+        phone: invoice.customer?.phone || null,
+      });
+      if (room) {
+        addDebt(byRoom, room.id, room.code || room.name || room.id, debt, overdueAmount, {
+          buildingId: building?.id || null,
+          buildingCode: building?.code || building?.name || null,
+        });
+      }
+      if (building) {
+        addDebt(byBuilding, building.id, building.code || building.name || building.id, debt, overdueAmount, {
+          ownerId: owner?.id || null,
+          ownerName: owner?.name || owner?.code || null,
+        });
+      }
+      if (owner) {
+        addDebt(byOwner, owner.id, owner.name || owner.code || owner.id, debt, overdueAmount, {
+          ownerCode: owner.code || null,
+        });
+      }
+    }
+
+    const sortByDebt = (rows: any[]) => rows.sort((a, b) => b.debt - a.debt);
+    return {
+      totals: {
+        invoiceCount: invoices.length,
+        debt: totalDebt,
+        overdueDebt,
+      },
+      customers: sortByDebt(Array.from(byCustomer.values())),
+      rooms: sortByDebt(Array.from(byRoom.values())),
+      buildings: sortByDebt(Array.from(byBuilding.values())),
+      owners: sortByDebt(Array.from(byOwner.values())),
+    };
+  }
+
   async getBuildingFinance(tenantId: string, buildingCode: string) {
     const costCenter = await this.prisma.costCenter.findUnique({
       where: { tenantId_code: { tenantId, code: `CC-${buildingCode}` } }

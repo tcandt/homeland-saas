@@ -14,6 +14,9 @@ describe('FinanceReportingService', () => {
       journalEntry: {
         findFirst: vi.fn(),
       },
+      invoice: {
+        findMany: vi.fn(),
+      },
       building: {
         findFirst: vi.fn(),
       },
@@ -94,6 +97,82 @@ describe('FinanceReportingService', () => {
         entityId: 'expense-1',
       }),
     }));
+  });
+
+  it('summarizes open invoice debt by customer, room, building, and owner', async () => {
+    const { service, prisma } = createService({
+      invoice: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'invoice-1',
+            tenantId: 'tenant-1',
+            customerId: 'customer-1',
+            status: 'ISSUED',
+            total: 1000000,
+            paidAmount: 250000,
+            creditAmount: 0,
+            dueDate: new Date('2026-01-01T00:00:00.000Z'),
+            customer: { id: 'customer-1', fullName: 'Khách A', phone: '0901' },
+            contract: {
+              room: {
+                id: 'room-1',
+                code: '31-01',
+                name: '31-01',
+                building: {
+                  id: 'building-1',
+                  code: 'LK01-31',
+                  name: 'LK01-31',
+                  owner: { id: 'owner-1', code: 'TINH', name: 'Tính' },
+                },
+              },
+            },
+          },
+          {
+            id: 'invoice-2',
+            tenantId: 'tenant-1',
+            customerId: 'customer-1',
+            status: 'PARTIALLY_PAID',
+            total: 500000,
+            paidAmount: 100000,
+            creditAmount: 50000,
+            dueDate: new Date('2099-01-01T00:00:00.000Z'),
+            customer: { id: 'customer-1', fullName: 'Khách A', phone: '0901' },
+            contract: {
+              room: {
+                id: 'room-1',
+                code: '31-01',
+                name: '31-01',
+                building: {
+                  id: 'building-1',
+                  code: 'LK01-31',
+                  name: 'LK01-31',
+                  owner: { id: 'owner-1', code: 'TINH', name: 'Tính' },
+                },
+              },
+            },
+          },
+        ]),
+      },
+    });
+
+    const summary = await service.getDebtSummary('tenant-1');
+
+    expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        deletedAt: null,
+        status: { notIn: ['PAID', 'CANCELLED', 'WRITTEN_OFF'] },
+      }),
+    }));
+    expect(summary.totals).toMatchObject({
+      invoiceCount: 2,
+      debt: 1100000,
+      overdueDebt: 750000,
+    });
+    expect(summary.customers[0]).toMatchObject({ id: 'customer-1', debt: 1100000, invoiceCount: 2 });
+    expect(summary.rooms[0]).toMatchObject({ id: 'room-1', debt: 1100000, buildingCode: 'LK01-31' });
+    expect(summary.buildings[0]).toMatchObject({ id: 'building-1', debt: 1100000, ownerName: 'Tính' });
+    expect(summary.owners[0]).toMatchObject({ id: 'owner-1', debt: 1100000, ownerCode: 'TINH' });
   });
 
   it('approves a pending expense without posting a payment journal', async () => {

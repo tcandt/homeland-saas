@@ -36,6 +36,12 @@ export class FinanceController {
     return this.reportingService.getProfitLoss(req.user.tenantId);
   }
 
+  @Get('debt-summary')
+  @RequirePermissions('finance.read')
+  async getDebtSummary(@Request() req) {
+    return this.reportingService.getDebtSummary(req.user.tenantId);
+  }
+
   @Get('building/:code')
   @RequirePermissions('finance.read')
   async getBuildingFinance(@Param('code') code: string, @Request() req) {

@@ -631,10 +631,10 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Tự động chuyển hóa đơn sang quá hạn.
 - [ ] Nhắc nợ trước hạn.
 - [ ] Nhắc nợ sau hạn.
-- [ ] Báo cáo công nợ theo khách.
-- [ ] Báo cáo công nợ theo phòng.
-- [ ] Báo cáo công nợ theo tòa.
-- [ ] Báo cáo công nợ theo owner.
+- [x] Báo cáo công nợ theo khách.
+- [x] Báo cáo công nợ theo phòng.
+- [x] Báo cáo công nợ theo tòa.
+- [x] Báo cáo công nợ theo owner.
 
 ### 11. Hunonic và điện nước
 

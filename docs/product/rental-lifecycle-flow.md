@@ -433,6 +433,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 - [x] Payment request có metadata owner/building/room/bank.
 - [x] Tạo QR thanh toán chọn bank theo owner nếu suy ra được từ phòng/tòa.
+- [x] Ưu tiên bank mặc định của owner khi tạo QR SePay, fallback an toàn về bank đang bật đầu tiên.
 - [x] Fallback về bank active đầu tiên nếu chưa xác định được owner.
 - [x] Giữ tương thích với luồng payment cũ.
 
@@ -670,7 +671,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hiển thị mapping cố định: Tính quản lý LK01-31/LK08-25, Thể quản lý LK01-32/LK08-24.
 - [ ] Đổi owner của tòa có audit log.
 - [x] Thêm màn tra cứu bank theo owner trong Settings.
-- [ ] Chọn bank mặc định cho owner.
+- [x] Chọn bank mặc định cho owner trong Settings và dùng khi tạo QR SePay.
 - [ ] Kiểm tra bank đang dùng bởi payment request trước khi tắt/xóa.
 - [ ] Báo cáo dòng tiền theo bank.
 

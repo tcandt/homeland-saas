@@ -2,7 +2,7 @@
 
 import React from "react";
 import useSWR from "swr";
-import { Activity, Building2, CreditCard, LockKeyhole, RefreshCcw, UsersRound } from "lucide-react";
+import { Activity, Building2, CreditCard, LockKeyhole, RefreshCcw, Star, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -23,7 +23,11 @@ type OwnerSettings = {
   ownerBBuildings: string[];
 };
 
-const fallback: OwnerSettings = {
+type OwnerBankDefaults = {
+  defaults: Record<string, string>;
+};
+
+const ownerFallback: OwnerSettings = {
   ownerAName: "Tính",
   ownerBName: "Thể",
   ownerAAccountEmail: "adminA@homeland.local",
@@ -32,8 +36,12 @@ const fallback: OwnerSettings = {
   ownerBContactEmail: "",
   ownerAPhone: "",
   ownerBPhone: "",
-  ownerABuildings: ["LK01-31", "LK08-25"],
   ownerBBuildings: ["LK01-32", "LK08-24"],
+  ownerABuildings: ["LK01-31", "LK08-25"],
+};
+
+const bankDefaultsFallback: OwnerBankDefaults = {
+  defaults: {},
 };
 
 const actionLabels: Record<string, string> = {
@@ -99,16 +107,16 @@ function OwnerCard({
       <div className="mt-[14px] grid grid-cols-1 gap-[12px]">
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Tên chủ sở hữu</label>
-          <Input value={name} onChange={(event) => onNameChange(event.target.value)} />
+          <Input value={name || ""} onChange={(event) => onNameChange(event.target.value)} />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-[12px]">
+        <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2">
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Email liên hệ</label>
-            <Input value={contactEmail} onChange={(event) => onContactEmailChange(event.target.value)} placeholder="Email nhận đối soát" />
+            <Input value={contactEmail || ""} onChange={(event) => onContactEmailChange(event.target.value)} placeholder="Email nhận đối soát" />
           </div>
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Số điện thoại</label>
-            <Input value={phone} onChange={(event) => onPhoneChange(event.target.value)} placeholder="Số điện thoại chủ" />
+            <Input value={phone || ""} onChange={(event) => onPhoneChange(event.target.value)} placeholder="Số điện thoại chủ" />
           </div>
         </div>
         <div className="rounded-[12px] border border-border bg-card px-[12px] py-[10px]">
@@ -135,7 +143,13 @@ function OwnerCard({
 }
 
 export default function SettingsOwnerManagement() {
-  const { draft, setDraft, isSaving, save } = useSettingsSection<OwnerSettings>("owners", "TENANT", fallback);
+  const { draft, setDraft, isSaving, save } = useSettingsSection<OwnerSettings>("owners", "TENANT", ownerFallback);
+  const {
+    draft: bankDefaultsDraft,
+    setDraft: setBankDefaultsDraft,
+    isSaving: isSavingBankDefaults,
+    save: saveBankDefaults,
+  } = useSettingsSection<OwnerBankDefaults>("owner-bank-defaults", "TENANT", bankDefaultsFallback);
   const audit = useSWR(["owner-audit-logs"], () => auditApi.logs({ limit: 20, module: "Auth,Settings" }), {
     revalidateOnFocus: false,
   });
@@ -145,6 +159,15 @@ export default function SettingsOwnerManagement() {
   const auditRows = audit.data || [];
   const ownerRows = Array.isArray(owners.data) ? owners.data : [];
 
+  const setDefaultBank = (ownerId: string, bankAccountId: string) => {
+    setBankDefaultsDraft((prev) => {
+      const nextDefaults = { ...(prev.defaults || {}) };
+      if (bankAccountId) nextDefaults[ownerId] = bankAccountId;
+      else delete nextDefaults[ownerId];
+      return { ...prev, defaults: nextDefaults };
+    });
+  };
+
   return (
     <Card className="p-[20px]">
       <div className="flex flex-col gap-[18px]">
@@ -152,18 +175,18 @@ export default function SettingsOwnerManagement() {
           <div className="text-[12px] font-black uppercase tracking-[0.16em] text-primary">Owner management</div>
           <h3 className="text-[20px] font-black text-text">Chủ sở hữu và phân tòa</h3>
           <p className="max-w-[780px] text-[13px] leading-relaxed text-muted">
-            Cấu hình tên hiển thị của hai chủ sở hữu và account quản trị riêng để theo dõi lịch sử đăng nhập, thay đổi, chỉnh sửa. Admin vận hành không được chỉnh sửa token tích hợp nhạy cảm.
+            Cấu hình tên hiển thị của hai chủ sở hữu, account quản trị riêng và bank mặc định để tạo QR SePay đúng chủ. Admin vận hành không được chỉnh token tích hợp nhạy cảm.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-[16px]">
+        <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-2">
           <OwnerCard
             title="Owner A"
             name={draft.ownerAName}
             email={draft.ownerAAccountEmail}
             contactEmail={draft.ownerAContactEmail}
             phone={draft.ownerAPhone}
-            buildings={draft.ownerABuildings}
+            buildings={draft.ownerABuildings || []}
             onNameChange={(value) => setDraft((prev) => ({ ...prev, ownerAName: value }))}
             onContactEmailChange={(value) => setDraft((prev) => ({ ...prev, ownerAContactEmail: value }))}
             onPhoneChange={(value) => setDraft((prev) => ({ ...prev, ownerAPhone: value }))}
@@ -174,7 +197,7 @@ export default function SettingsOwnerManagement() {
             email={draft.ownerBAccountEmail}
             contactEmail={draft.ownerBContactEmail}
             phone={draft.ownerBPhone}
-            buildings={draft.ownerBBuildings}
+            buildings={draft.ownerBBuildings || []}
             onNameChange={(value) => setDraft((prev) => ({ ...prev, ownerBName: value }))}
             onContactEmailChange={(value) => setDraft((prev) => ({ ...prev, ownerBContactEmail: value }))}
             onPhoneChange={(value) => setDraft((prev) => ({ ...prev, ownerBPhone: value }))}
@@ -186,16 +209,23 @@ export default function SettingsOwnerManagement() {
         </div>
 
         <div className="overflow-hidden rounded-[16px] border border-border bg-background/70">
-          <div className="flex flex-col gap-[10px] border-b border-border px-[14px] py-[12px] sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-[10px] border-b border-border px-[14px] py-[12px] lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="flex items-center gap-[8px] text-[13px] font-black text-text">
                 <CreditCard size={16} className="text-primary" /> Bank SePay theo chủ sở hữu
               </div>
-              <p className="mt-[3px] text-[12px] text-muted">Dữ liệu đọc từ bank account đã gắn owner. Dùng để đối soát tiền vào đúng chủ/tòa.</p>
+              <p className="mt-[3px] text-[12px] text-muted">
+                Chọn bank mặc định cho từng owner. Khi tạo QR, hệ thống ưu tiên bank mặc định rồi mới fallback về bank đang bật đầu tiên của owner.
+              </p>
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => owners.mutate()} isLoading={owners.isLoading}>
-              <RefreshCcw size={13} className="mr-2" /> Làm mới
-            </Button>
+            <div className="flex flex-wrap gap-[8px]">
+              <Button type="button" variant="outline" size="sm" onClick={() => owners.mutate()} isLoading={owners.isLoading}>
+                <RefreshCcw size={13} className="mr-2" /> Làm mới
+              </Button>
+              <Button type="button" size="sm" onClick={() => saveBankDefaults(bankDefaultsDraft)} isLoading={isSavingBankDefaults}>
+                <Star size={13} className="mr-2" /> Lưu bank mặc định
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-[12px] p-[14px] xl:grid-cols-2">
@@ -209,41 +239,66 @@ export default function SettingsOwnerManagement() {
                 Chưa có bank account theo owner.
               </div>
             )}
-            {ownerRows.map((owner: any) => (
-              <div key={owner.id} className="rounded-[14px] border border-border bg-card p-[14px]">
-                <div className="flex items-start justify-between gap-[12px]">
-                  <div>
-                    <div className="text-[12px] font-black text-text">{owner.name}</div>
-                    <div className="mt-[2px] text-[11px] font-semibold text-muted">{(owner.buildings || []).map((building: any) => building.code).join(", ") || "Chưa gắn tòa"}</div>
-                  </div>
-                  <span className="rounded-full bg-primary/10 px-[9px] py-[4px] text-[11px] font-black text-primary">
-                    {(owner.bankAccounts || []).length} bank
-                  </span>
-                </div>
-
-                <div className="mt-[12px] flex flex-col gap-[8px]">
-                  {(owner.bankAccounts || []).length === 0 && (
-                    <div className="rounded-[12px] border border-dashed border-border px-[12px] py-[10px] text-[12px] font-semibold text-muted">
-                      Owner này chưa có bank account.
-                    </div>
-                  )}
-                  {(owner.bankAccounts || []).map((bank: any) => (
-                    <div key={bank.id} className="rounded-[12px] border border-border bg-background/80 px-[12px] py-[10px]">
-                      <div className="flex items-start justify-between gap-[12px]">
-                        <div className="min-w-0">
-                          <div className="truncate text-[13px] font-black text-text">{bank.bankName}</div>
-                          <div className="mt-[2px] truncate text-[12px] font-semibold text-muted">{bank.accountName}</div>
-                        </div>
-                        <span className={`rounded-full px-[8px] py-[3px] text-[10px] font-black ${bank.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                          {bank.isActive ? "Đang bật" : "Đã tắt"}
-                        </span>
+            {ownerRows.map((owner: any) => {
+              const activeBanks = (owner.bankAccounts || []).filter((bank: any) => bank.isActive);
+              const defaultBankId = bankDefaultsDraft.defaults?.[owner.id] || "";
+              return (
+                <div key={owner.id} className="rounded-[14px] border border-border bg-card p-[14px]">
+                  <div className="flex items-start justify-between gap-[12px]">
+                    <div>
+                      <div className="text-[12px] font-black text-text">{owner.name}</div>
+                      <div className="mt-[2px] text-[11px] font-semibold text-muted">
+                        {(owner.buildings || []).map((building: any) => building.code).join(", ") || "Chưa gắn tòa"}
                       </div>
-                      <div className="mt-[8px] text-[12px] font-black text-text">{maskAccountNumber(bank.accountNumber)}</div>
                     </div>
-                  ))}
+                    <span className="rounded-full bg-primary/10 px-[9px] py-[4px] text-[11px] font-black text-primary">
+                      {(owner.bankAccounts || []).length} bank
+                    </span>
+                  </div>
+
+                  <label className="mt-[12px] flex flex-col gap-[6px]">
+                    <span className="text-[11px] font-black uppercase tracking-wide text-muted">Bank mặc định khi tạo QR</span>
+                    <select
+                      value={defaultBankId}
+                      onChange={(event) => setDefaultBank(owner.id, event.target.value)}
+                      className="h-[42px] rounded-[12px] border border-border bg-background px-[12px] text-[13px] font-bold text-text outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    >
+                      <option value="">Tự động chọn bank đầu tiên đang bật</option>
+                      {activeBanks.map((bank: any) => (
+                        <option key={bank.id} value={bank.id}>
+                          {bank.bankName} - {bank.accountName || maskAccountNumber(bank.accountNumber)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="mt-[12px] flex flex-col gap-[8px]">
+                    {(owner.bankAccounts || []).length === 0 && (
+                      <div className="rounded-[12px] border border-dashed border-border px-[12px] py-[10px] text-[12px] font-semibold text-muted">
+                        Owner này chưa có bank account.
+                      </div>
+                    )}
+                    {(owner.bankAccounts || []).map((bank: any) => (
+                      <div key={bank.id} className="rounded-[12px] border border-border bg-background/80 px-[12px] py-[10px]">
+                        <div className="flex items-start justify-between gap-[12px]">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-[6px]">
+                              <div className="truncate text-[13px] font-black text-text">{bank.bankName}</div>
+                              {defaultBankId === bank.id && <Star size={13} className="shrink-0 fill-primary text-primary" />}
+                            </div>
+                            <div className="mt-[2px] truncate text-[12px] font-semibold text-muted">{bank.accountName}</div>
+                          </div>
+                          <span className={`rounded-full px-[8px] py-[3px] text-[10px] font-black ${bank.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                            {bank.isActive ? "Đang bật" : "Đã tắt"}
+                          </span>
+                        </div>
+                        <div className="mt-[8px] text-[12px] font-black text-text">{maskAccountNumber(bank.accountNumber)}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -274,12 +329,16 @@ export default function SettingsOwnerManagement() {
               <tbody>
                 {audit.isLoading && (
                   <tr>
-                    <td colSpan={6} className="px-[14px] py-[24px] text-center text-[13px] font-semibold text-muted">Đang tải lịch sử...</td>
+                    <td colSpan={6} className="px-[14px] py-[24px] text-center text-[13px] font-semibold text-muted">
+                      Đang tải lịch sử...
+                    </td>
                   </tr>
                 )}
                 {!audit.isLoading && auditRows.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-[14px] py-[24px] text-center text-[13px] font-semibold text-muted">Chưa có log phù hợp.</td>
+                    <td colSpan={6} className="px-[14px] py-[24px] text-center text-[13px] font-semibold text-muted">
+                      Chưa có log phù hợp.
+                    </td>
                   </tr>
                 )}
                 {auditRows.map((log) => (

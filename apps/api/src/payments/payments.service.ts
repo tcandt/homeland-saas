@@ -74,13 +74,42 @@ export class PaymentsService {
     return (record?.value as any) || {};
   }
 
+  private async resolveOwnerDefaultBankAccountId(tenantId: string, ownerId?: string | null) {
+    if (!ownerId) return null;
+
+    const record = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: tenantId,
+          key: 'owner-bank-defaults',
+        },
+      },
+    });
+
+    const defaults = (record?.value as any)?.defaults || {};
+    const bankAccountId = typeof defaults[ownerId] === 'string' ? defaults[ownerId] : null;
+    return bankAccountId || null;
+  }
+
   private async resolveBankAccount(tenantId: string, ownerId?: string | null) {
     const sepayConfig = await this.resolveSePayConfig(tenantId);
     if (sepayConfig.enabled === false) {
       throw new BadRequestException('SePay đang tắt trong Settings');
     }
 
-    const bankAccount = await this.prisma.bankAccount.findFirst({
+    const defaultBankAccountId = await this.resolveOwnerDefaultBankAccountId(tenantId, ownerId);
+    const defaultBankAccount = defaultBankAccountId ? await this.prisma.bankAccount.findFirst({
+      where: {
+        tenantId,
+        id: defaultBankAccountId,
+        isActive: true,
+        ...(ownerId ? { ownerId } : {}),
+      },
+    }) : null;
+
+    const bankAccount = defaultBankAccount || await this.prisma.bankAccount.findFirst({
       where: { tenantId, isActive: true, ...(ownerId ? { ownerId } : {}) },
       orderBy: { createdAt: 'asc' },
     }) || await this.prisma.bankAccount.findFirst({
@@ -416,4 +445,3 @@ export class PaymentsService {
     return { success: true };
   }
 }
-

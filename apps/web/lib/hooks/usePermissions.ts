@@ -3,6 +3,8 @@ import { useAuthStore } from '../auth/auth-store';
 export const usePermissions = () => {
   const { user } = useAuthStore();
   const permissions = user?.permissions || [];
+  const hasPermission = (perm: string) => permissions.includes(perm);
+  const hasPermissionOrLegacy = (perm: string, legacyPerm: string) => hasPermission(perm) || hasPermission(legacyPerm);
 
   return {
     canCreateBuilding: permissions.includes('building.create'),
@@ -20,6 +22,14 @@ export const usePermissions = () => {
     canUpdateRoom: permissions.includes('room.update'),
     canDeleteRoom: permissions.includes('room.delete'),
 
-    hasPermission: (perm: string) => permissions.includes(perm),
+    canReadFinance: hasPermission('finance.read'),
+    canCreateExpense: hasPermission('finance.create'),
+    canApproveExpense: hasPermissionOrLegacy('finance.approve', 'finance.update'),
+    canPayExpense: hasPermissionOrLegacy('finance.pay', 'finance.update'),
+    canSettleExpense: hasPermissionOrLegacy('finance.settle', 'finance.update'),
+    canExportFinance: hasPermissionOrLegacy('finance.export', 'finance.read'),
+    canReadOwnerProfit: hasPermissionOrLegacy('finance.ownerProfit.read', 'finance.read'),
+
+    hasPermission,
   };
 };

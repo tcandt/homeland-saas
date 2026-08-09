@@ -686,14 +686,14 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Ghi audit log khi admin thường bị chặn chỉnh token Hunonic.
 - [x] Thêm API `GET /audit/logs` để xem lịch sử thao tác gần nhất.
 - [x] Hiển thị lịch sử Auth/Settings trong màn Owner Management.
-- [ ] Quyền xem tài chính.
-- [ ] Quyền tạo chi phí.
+- [x] Quyền xem tài chính.
+- [x] Quyền tạo chi phí.
 - [ ] Quyền sửa chi phí.
-- [ ] Quyền duyệt chi.
-- [ ] Quyền đánh dấu đã chi.
-- [ ] Quyền hoàn ứng.
-- [ ] Quyền xem lợi nhuận owner.
-- [ ] Quyền export báo cáo.
+- [x] Quyền duyệt chi.
+- [x] Quyền đánh dấu đã chi.
+- [x] Quyền hoàn ứng.
+- [x] Quyền xem lợi nhuận owner.
+- [x] Quyền export báo cáo.
 - [x] Audit log cho tạo, duyệt, hủy, hoàn ứng/khấu trừ chi phí phát sinh.
 - [ ] Audit log cho các thao tác tiền ngoài expense còn thiếu.
 - [x] Audit log cho login, thay đổi cài đặt và sửa token.

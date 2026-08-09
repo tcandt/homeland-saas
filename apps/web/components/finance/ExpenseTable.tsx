@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/Select";
 import { financeApi } from "@/lib/api/finance.api";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { financeKeys, useExpensesQuery, useOwnerProfitSummaryQuery } from "@/lib/queries/finance.queries";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 
 type ExpenseActionType = "approve" | "pay" | "cancel" | "reimburse" | "deduct";
 
@@ -101,6 +102,7 @@ const buildMonthRange = (year: string, month: string) => {
 
 export default function ExpenseTable() {
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
   const { data: buildings = [] } = useBuildingsQuery({ limit: 100 });
   const { data: ownerSummary = [] } = useOwnerProfitSummaryQuery();
 
@@ -206,7 +208,7 @@ export default function ExpenseTable() {
         toast.success("Đã duyệt chi phí");
       }
       if (type === "pay") {
-        await financeApi.approveExpense(expense.id, { markPaid: true });
+        await financeApi.payExpense(expense.id);
         toast.success("Đã đánh dấu đã chi");
       }
       if (type === "cancel") {
@@ -409,7 +411,7 @@ export default function ExpenseTable() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2">
-                      {expense.status === "PENDING" && (
+                      {permissions.canApproveExpense && expense.status === "PENDING" && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -419,7 +421,7 @@ export default function ExpenseTable() {
                           <CheckCircle2 size={14} className="mr-1" /> Duyệt
                         </Button>
                       )}
-                      {expense.status !== "PAID" && expense.status !== "CANCELLED" && (
+                      {permissions.canPayExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
                         <Button
                           size="sm"
                           variant="primary"
@@ -429,7 +431,7 @@ export default function ExpenseTable() {
                           <CircleDollarSign size={14} className="mr-1" /> Đã chi
                         </Button>
                       )}
-                      {expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
+                      {permissions.canSettleExpense && expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
                         <>
                           <Button
                             size="sm"
@@ -449,7 +451,7 @@ export default function ExpenseTable() {
                           </Button>
                         </>
                       )}
-                      {expense.status !== "PAID" && expense.status !== "CANCELLED" && (
+                      {permissions.canApproveExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
                         <Button
                           size="sm"
                           variant="outline"

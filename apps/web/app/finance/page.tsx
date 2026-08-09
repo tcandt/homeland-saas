@@ -17,8 +17,10 @@ import { useLedgerQuery } from "@/lib/queries/finance.queries";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/Button";
 import { financeApi } from "@/lib/api/finance.api";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 
 export default function FinancePage() {
+  const permissions = usePermissions();
   const selectedJournalId = useFinanceStore((s) => s.selectedJournalId);
   const { data: ledgerRows } = useLedgerQuery();
   const [isExpenseModalOpen, setExpenseModalOpen] = useState(false);
@@ -80,26 +82,30 @@ export default function FinancePage() {
             <Button variant="outline" className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px]">
               <Filter size={14} className="text-muted mr-1.5" /> Bộ lọc
             </Button>
-            <Button
-              data-testid="finance-export-button"
-              variant="outline"
-              onClick={handleExport}
-              className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px]"
-            >
-              <FileText size={14} className="text-muted mr-1.5" /> Xuất báo cáo
-            </Button>
-            <Button
-              onClick={() => setExpenseModalOpen(true)}
-              className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px] bg-[#8b5cf6] hover:bg-[#6366f1] text-white shadow-[#8b5cf6]/20"
-            >
-              <Plus size={16} className="mr-1.5" /> Thêm chi phí
-            </Button>
+            {permissions.canExportFinance && (
+              <Button
+                data-testid="finance-export-button"
+                variant="outline"
+                onClick={handleExport}
+                className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px]"
+              >
+                <FileText size={14} className="text-muted mr-1.5" /> Xuất báo cáo
+              </Button>
+            )}
+            {permissions.canCreateExpense && (
+              <Button
+                onClick={() => setExpenseModalOpen(true)}
+                className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px] bg-[#8b5cf6] hover:bg-[#6366f1] text-white shadow-[#8b5cf6]/20"
+              >
+                <Plus size={16} className="mr-1.5" /> Thêm chi phí
+              </Button>
+            )}
           </div>
         </div>
 
         <FinancialCommandKpi />
 
-        <OwnerProfitSummary />
+        {permissions.canReadOwnerProfit && <OwnerProfitSummary />}
 
         <BankCashFlowSummary />
 

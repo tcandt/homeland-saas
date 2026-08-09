@@ -8,6 +8,19 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 export class PermissionsGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
+  private readonly legacyPermissionAliases: Record<string, string[]> = {
+    'finance.approve': ['finance.update'],
+    'finance.pay': ['finance.update'],
+    'finance.settle': ['finance.update'],
+    'finance.export': ['finance.read'],
+    'finance.ownerProfit.read': ['finance.read'],
+  };
+
+  private hasPermission(userPermissions: string[], permission: string) {
+    if (userPermissions.includes(permission)) return true;
+    return (this.legacyPermissionAliases[permission] || []).some((alias) => userPermissions.includes(alias));
+  }
+
   canActivate(context: ExecutionContext): boolean {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -32,7 +45,7 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException({ code: ErrorCodes.PERMISSION_DENIED, message: 'You do not have permission to perform this action' });
     }
 
-    const hasPermission = requiredPermissions.every(permission => user.permissions.includes(permission));
+    const hasPermission = requiredPermissions.every(permission => this.hasPermission(user.permissions, permission));
     if (!hasPermission) {
       throw new ForbiddenException({ code: ErrorCodes.PERMISSION_DENIED, message: 'You do not have permission to perform this action' });
     }

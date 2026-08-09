@@ -44,13 +44,13 @@ export class FinanceController {
   }
 
   @Get('owners/profit-summary')
-  @RequirePermissions('finance.read')
+  @RequirePermissions('finance.ownerProfit.read')
   async getOwnerProfitSummary(@Request() req) {
     return this.reportingService.getOwnerProfitSummary(req.user.tenantId);
   }
 
   @Get('owners/:id/profit-detail')
-  @RequirePermissions('finance.read')
+  @RequirePermissions('finance.ownerProfit.read')
   async getOwnerProfitDetail(@Param('id') id: string, @Request() req, @Query() query: any) {
     return this.reportingService.getOwnerProfitDetail(req.user.tenantId, id, query);
   }
@@ -74,9 +74,15 @@ export class FinanceController {
   }
 
   @Patch('expenses/:id/approve')
-  @RequirePermissions('finance.update')
-  async approveExpense(@Param('id') id: string, @Request() req, @Body() body: any) {
-    return this.reportingService.approveExpense(req.user.tenantId, req.user?.id, id, Boolean(body?.markPaid));
+  @RequirePermissions('finance.approve')
+  async approveExpense(@Param('id') id: string, @Request() req) {
+    return this.reportingService.approveExpense(req.user.tenantId, req.user?.id, id, false);
+  }
+
+  @Patch('expenses/:id/pay')
+  @RequirePermissions('finance.pay')
+  async payExpense(@Param('id') id: string, @Request() req) {
+    return this.reportingService.approveExpense(req.user.tenantId, req.user?.id, id, true);
   }
 
   @Patch('expenses/:id/cancel')
@@ -86,13 +92,13 @@ export class FinanceController {
   }
 
   @Patch('expenses/:id/settlement')
-  @RequirePermissions('finance.update')
+  @RequirePermissions('finance.settle')
   async updateExpenseSettlement(@Param('id') id: string, @Request() req, @Body() body: any) {
     return this.reportingService.updateExpenseSettlement(req.user.tenantId, req.user?.id, id, body?.settlementStatus);
   }
 
   @Get('export')
-  @RequirePermissions('finance.read')
+  @RequirePermissions('finance.export')
   async exportReport(@Request() req, @Res() res: Response) {
     const rows = await this.reportingService.getLedger(req.user.tenantId, req.query);
     const csvRows = rows.map((line: any) => {

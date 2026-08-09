@@ -511,6 +511,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Lưu `approvedAt`.
 - [x] Lưu `reimbursedAt`.
 - [x] Ghi audit log cho mỗi lần đổi trạng thái.
+- [x] Ghi audit log khi tạo chi phí phát sinh.
+- [x] Khóa không cho chuyển ngược chi phí đã `PAID` về trạng thái khác qua endpoint approve.
 - [ ] Không cho sửa số tiền sau khi đã posted journal, trừ khi tạo bút toán điều chỉnh.
 
 ### 3. Upload và quản lý chứng từ chi phí
@@ -690,9 +692,10 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Quyền hoàn ứng.
 - [ ] Quyền xem lợi nhuận owner.
 - [ ] Quyền export báo cáo.
-- [ ] Audit log cho mọi thao tác tiền.
+- [x] Audit log cho tạo, duyệt, hủy, hoàn ứng/khấu trừ chi phí phát sinh.
+- [ ] Audit log cho các thao tác tiền ngoài expense còn thiếu.
 - [x] Audit log cho login, thay đổi cài đặt và sửa token.
-- [ ] Audit log cho đổi owner và các thao tác tài chính còn thiếu.
+- [ ] Audit log cho đổi owner và các thao tác tài chính ngoài expense còn thiếu.
 - [ ] Cảnh báo thao tác nhạy cảm bằng popup xác nhận.
 
 ### 15. UI/UX cleanup

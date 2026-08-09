@@ -301,6 +301,7 @@ export class FinanceReportingService {
       await this.postExpenseJournal(tenantId, expense);
     }
 
+    await this.logExpenseAudit(tenantId, userId, expense.id, 'CREATE', null, expense);
     return expense;
   }
 
@@ -308,6 +309,7 @@ export class FinanceReportingService {
     const expense = await this.prisma.expense.findFirst({ where: { tenantId, id, deletedAt: null } });
     if (!expense) throw new BadRequestException('EXPENSE_NOT_FOUND');
     if (expense.status === 'CANCELLED') throw new BadRequestException('EXPENSE_CANCELLED');
+    if (expense.status === 'PAID') throw new BadRequestException('EXPENSE_PAID_LOCKED');
 
     const updated = await this.prisma.expense.update({
       where: { id },
@@ -678,7 +680,7 @@ export class FinanceReportingService {
     });
   }
 
-  private async logExpenseAudit(tenantId: string, userId: string | undefined, expenseId: string, action: 'UPDATE' | 'CANCEL', before: any, after: any) {
+  private async logExpenseAudit(tenantId: string, userId: string | undefined, expenseId: string, action: 'CREATE' | 'UPDATE' | 'CANCEL', before: any, after: any) {
     try {
       await this.prisma.auditLog.create({
         data: {

@@ -12,13 +12,14 @@ import SettingsAccounting from "@/components/settings/sections/SettingsAccountin
 import SettingsTemplates from "@/components/settings/sections/SettingsTemplates";
 import SettingsIntegrations from "@/components/settings/sections/SettingsIntegrations";
 import SettingsHunonicIntegration from "@/components/settings/sections/SettingsHunonicIntegration";
+import SettingsOwnerManagement from "@/components/settings/sections/SettingsOwnerManagement";
 import SettingsBackup from "@/components/settings/sections/SettingsBackup";
 
 export type SettingsSection =
   | "overview"
   | "profile" | "security" | "team"
   | "notifications"
-  | "accounting" | "templates" | "integrations" | "hunonic" | "backup";
+  | "accounting" | "templates" | "integrations" | "owners" | "hunonic" | "backup";
 
 const mobileSectionOptions: Array<{ value: SettingsSection; label: string }> = [
   { value: "overview", label: "Overview & Status" },
@@ -29,6 +30,7 @@ const mobileSectionOptions: Array<{ value: SettingsSection; label: string }> = [
   { value: "accounting", label: "Accounting Config" },
   { value: "templates", label: "Templates" },
   { value: "integrations", label: "Integration Center" },
+  { value: "owners", label: "Owner Management" },
   { value: "hunonic", label: "Hunonic Electricity" },
   { value: "backup", label: "Data & Backup" },
 ];
@@ -51,6 +53,7 @@ export default function SettingsPage() {
       case "accounting": return <SettingsAccounting />;
       case "templates": return <SettingsTemplates />;
       case "integrations": return <SettingsIntegrations />;
+      case "owners": return <SettingsOwnerManagement />;
       case "hunonic": return <SettingsHunonicIntegration />;
       case "backup": return <SettingsBackup />;
       default: return <SettingsOverview />;

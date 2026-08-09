@@ -123,6 +123,18 @@ async function main() {
     create: { tenantId: org.id, email: 'admin@homeland.local', fullName: 'System Admin', passwordHash },
   });
 
+  const ownerAUser = await prisma.user.upsert({
+    where: { tenantId_email: { tenantId: org.id, email: 'adminA@homeland.local' } },
+    update: { fullName: 'Owner Admin - Tính' },
+    create: { tenantId: org.id, email: 'adminA@homeland.local', fullName: 'Owner Admin - Tính', passwordHash },
+  });
+
+  const ownerBUser = await prisma.user.upsert({
+    where: { tenantId_email: { tenantId: org.id, email: 'adminB@homeland.local' } },
+    update: { fullName: 'Owner Admin - Thể' },
+    create: { tenantId: org.id, email: 'adminB@homeland.local', fullName: 'Owner Admin - Thể', passwordHash },
+  });
+
   const managerUser = await prisma.user.upsert({
     where: { tenantId_email: { tenantId: org.id, email: 'manager@homeland.local' } },
     update: {},
@@ -145,6 +157,8 @@ async function main() {
   await prisma.userRole.createMany({
     data: [
       { userId: adminUser.id, roleId: adminRole.id },
+      { userId: ownerAUser.id, roleId: adminRole.id },
+      { userId: ownerBUser.id, roleId: adminRole.id },
       { userId: managerUser.id, roleId: managerRole.id },
       { userId: salesUser.id, roleId: salesRole.id },
       { userId: financeUser.id, roleId: financeRole.id },
@@ -157,21 +171,21 @@ async function main() {
 
   const ownerA = await prisma.owner.upsert({
     where: { tenantId_code: { tenantId: org.id, code: 'OWNER-A' } },
-    update: { name: 'Owner A', isActive: true },
-    create: { tenantId: org.id, code: 'OWNER-A', name: 'Owner A', notes: 'Shared admin account for HomeLand operations.' },
+    update: { name: 'Tính', isActive: true, notes: 'Owner account: adminA@homeland.local. Buildings: LK01-31, LK08-25.' },
+    create: { tenantId: org.id, code: 'OWNER-A', name: 'Tính', notes: 'Owner account: adminA@homeland.local. Buildings: LK01-31, LK08-25.' },
   });
 
   const ownerB = await prisma.owner.upsert({
     where: { tenantId_code: { tenantId: org.id, code: 'OWNER-B' } },
-    update: { name: 'Owner B', isActive: true },
-    create: { tenantId: org.id, code: 'OWNER-B', name: 'Owner B', notes: 'Shared admin account for HomeLand operations.' },
+    update: { name: 'Thể', isActive: true, notes: 'Owner account: adminB@homeland.local. Buildings: LK01-32, LK08-24.' },
+    create: { tenantId: org.id, code: 'OWNER-B', name: 'Thể', notes: 'Owner account: adminB@homeland.local. Buildings: LK01-32, LK08-24.' },
   });
 
   const ownerByBuildingCode: Record<string, string> = {
     'LK01.31': ownerA.id,
-    'LK01.32': ownerA.id,
+    'LK01.32': ownerB.id,
     'LK08.24': ownerB.id,
-    'LK08.25': ownerB.id,
+    'LK08.25': ownerA.id,
   };
 
   for (const [code, ownerId] of Object.entries(ownerByBuildingCode)) {
@@ -183,14 +197,14 @@ async function main() {
 
   await prisma.bankAccount.upsert({
     where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444555' } },
-    update: { ownerId: ownerA.id },
-    create: { tenantId: org.id, ownerId: ownerA.id, bankName: 'Techcombank', accountNumber: '190333444555', accountName: 'CONG TY TNHH HOMELAND - OWNER A' },
+    update: { ownerId: ownerA.id, accountName: 'HKD NGUYEN DUC TINH' },
+    create: { tenantId: org.id, ownerId: ownerA.id, bankName: 'Techcombank', accountNumber: '190333444555', accountName: 'HKD NGUYEN DUC TINH' },
   });
 
   await prisma.bankAccount.upsert({
     where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444556' } },
-    update: { ownerId: ownerB.id },
-    create: { tenantId: org.id, ownerId: ownerB.id, bankName: 'Techcombank', accountNumber: '190333444556', accountName: 'CONG TY TNHH HOMELAND - OWNER B' },
+    update: { ownerId: ownerB.id, accountName: 'HKD PHAN VAN THE' },
+    create: { tenantId: org.id, ownerId: ownerB.id, bankName: 'Techcombank', accountNumber: '190333444556', accountName: 'HKD PHAN VAN THE' },
   });
 
   for (const bCode of MANAGED_BUILDINGS) {
@@ -433,14 +447,14 @@ async function main() {
 
   await prisma.bankAccount.upsert({
     where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444555' } },
-    update: { ownerId: ownerA.id },
-    create: { tenantId: org.id, ownerId: ownerA.id, bankName: 'Techcombank', accountNumber: '190333444555', accountName: 'CONG TY TNHH HOMELAND - OWNER A' },
+    update: { ownerId: ownerA.id, accountName: 'HKD NGUYEN DUC TINH' },
+    create: { tenantId: org.id, ownerId: ownerA.id, bankName: 'Techcombank', accountNumber: '190333444555', accountName: 'HKD NGUYEN DUC TINH' },
   });
 
   await prisma.bankAccount.upsert({
     where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444556' } },
-    update: { ownerId: ownerB.id },
-    create: { tenantId: org.id, ownerId: ownerB.id, bankName: 'Techcombank', accountNumber: '190333444556', accountName: 'CONG TY TNHH HOMELAND - OWNER B' },
+    update: { ownerId: ownerB.id, accountName: 'HKD PHAN VAN THE' },
+    create: { tenantId: org.id, ownerId: ownerB.id, bankName: 'Techcombank', accountNumber: '190333444556', accountName: 'HKD PHAN VAN THE' },
   });
 
   const createdCostCenters: Record<string, any> = {};

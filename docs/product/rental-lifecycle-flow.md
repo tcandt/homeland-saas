@@ -256,7 +256,15 @@ flowchart TD
 
 ## Mô hình nhiều chủ dùng chung vận hành
 
-Hai chủ sở hữu có thể dùng chung một tài khoản admin để vận hành trên cùng website. Hệ thống vẫn phải tách dữ liệu tài chính theo chủ sở hữu ở tầng nghiệp vụ, không phụ thuộc vào tài khoản đăng nhập.
+Hai chủ sở hữu theo dõi chung trên cùng website và cùng luồng SePay, nhưng cần có account riêng để truy vết lịch sử đăng nhập, thay đổi và chỉnh sửa. Hệ thống vẫn phải tách dữ liệu tài chính theo chủ sở hữu ở tầng nghiệp vụ, không phụ thuộc vào việc vận hành chung một màn hình quản trị.
+
+### Mapping chủ sở hữu hiện tại
+
+| Chủ sở hữu | Account quản trị | Tòa thuộc chủ | Quyền nhạy cảm |
+|---|---|---|---|
+| Tính | `adminA@homeland.local` | `LK01-31`, `LK08-25` | Owner/admin toàn quyền, được chỉnh token tích hợp |
+| Thể | `adminB@homeland.local` | `LK01-32`, `LK08-24` | Owner/admin toàn quyền, được chỉnh token tích hợp |
+| Admin vận hành | `admin@homeland.local` | Xem và vận hành chung | Không được chỉnh token, cookie, mật khẩu tích hợp |
 
 ### Nguyên tắc phân tách
 
@@ -264,7 +272,7 @@ Hai chủ sở hữu có thể dùng chung một tài khoản admin để vận 
 |---|---|---|
 | Chủ sở hữu | Mỗi chủ có một hồ sơ owner riêng | Biết tòa/phòng/doanh thu/chi phí thuộc chủ nào |
 | Tòa nhà | Mỗi tòa gắn với một chủ chính, hoặc tỷ lệ sở hữu nếu có đồng sở hữu | Chia lợi nhuận đúng theo quyền sở hữu |
-| Tài khoản admin | Cùng một account admin có thể thao tác cho cả hai chủ | Đơn giản vận hành, vẫn cần audit log người thao tác |
+| Tài khoản admin | Owner A/B có account riêng; admin vận hành dùng account chung nhưng bị chặn thao tác token nhạy cảm | Truy vết được người đăng nhập/thao tác và giảm rủi ro lộ token |
 | Bank SePay | Tích hợp nhiều tài khoản bank vào cùng luồng SePay | Webhook phải nhận diện bank account để phân bổ tiền vào đúng chủ/tòa |
 | Payment request | Mỗi QR cần lưu `bankAccountId`, `ownerId`, `buildingId`, `sourceType`, `sourceId` | Tránh tiền vào sai tài khoản nhưng hệ thống không biết |
 | Đối soát | Một màn đối soát chung, lọc theo bank/chủ/tòa/phòng | Theo dõi tất cả dòng tiền tại một nơi |
@@ -399,8 +407,10 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 - [x] Seed `Owner A`.
 - [x] Seed `Owner B`.
-- [x] Gắn `LK01.31` và `LK01.32` với `Owner A`.
-- [x] Gắn `LK08.24` và `LK08.25` với `Owner B`.
+- [x] Seed owner Tính với account `adminA@homeland.local`.
+- [x] Seed owner Thể với account `adminB@homeland.local`.
+- [x] Gắn `LK01.31` và `LK08.25` với owner Tính.
+- [x] Gắn `LK01.32` và `LK08.24` với owner Thể.
 - [x] Seed 2 bank account mẫu tương ứng 2 owner.
 - [x] Backfill cost center theo building và owner.
 - [x] Chạy seed lại an toàn bằng upsert, không reset dữ liệu.
@@ -651,10 +661,11 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 13. Owner và Bank Management
 
-- [ ] Thêm màn quản lý owner.
-- [ ] Thêm sửa tên owner.
+- [x] Thêm màn cấu hình owner trong Settings.
+- [x] Thêm sửa tên hiển thị owner trong Settings.
 - [ ] Thêm thông tin liên hệ owner.
-- [ ] Gắn tòa với owner.
+- [x] Gắn tòa với owner trong seed và backfill an toàn.
+- [x] Hiển thị mapping cố định: Tính quản lý LK01-31/LK08-25, Thể quản lý LK01-32/LK08-24.
 - [ ] Đổi owner của tòa có audit log.
 - [ ] Thêm màn quản lý bank theo owner.
 - [ ] Chọn bank mặc định cho owner.
@@ -663,6 +674,9 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 14. Bảo mật và phân quyền
 
+- [x] Seed account riêng `adminA@homeland.local` và `adminB@homeland.local` cho hai owner.
+- [x] Chặn admin thường chỉnh token, cookie, mật khẩu Hunonic ở backend.
+- [x] Khóa input token/mật khẩu Hunonic trên UI nếu không phải owner admin A/B.
 - [ ] Quyền xem tài chính.
 - [ ] Quyền tạo chi phí.
 - [ ] Quyền sửa chi phí.
@@ -672,12 +686,14 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Quyền xem lợi nhuận owner.
 - [ ] Quyền export báo cáo.
 - [ ] Audit log cho mọi thao tác tiền.
+- [ ] Audit log cho login, thay đổi cài đặt, đổi owner, sửa token và thao tác tài chính.
 - [ ] Cảnh báo thao tác nhạy cảm bằng popup xác nhận.
 
 ### 15. UI/UX cleanup
 
-- [ ] Sửa các text mojibake còn tồn tại nếu hiển thị trên UI.
-- [ ] Chuẩn hóa tiếng Việt có dấu.
+- [x] Sửa các text mojibake đã phát hiện trong Settings sidebar, API client và settings hook.
+- [ ] Tiếp tục rà soát các text mojibake còn tồn tại nếu hiển thị trên UI.
+- [ ] Chuẩn hóa tiếng Việt có dấu toàn bộ Finance/Expenses/Settings.
 - [ ] Tối ưu Finance page trên mobile.
 - [ ] Tối ưu bảng chi phí responsive.
 - [ ] Toast không bị che bởi modal.

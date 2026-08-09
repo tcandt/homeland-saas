@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
+import { useAuthStore } from "@/lib/auth/auth-store";
 import { hunonicApi, HunonicSettingsPayload } from "@/lib/api/hunonic.api";
 
 const fallback: Required<HunonicSettingsPayload> = {
@@ -53,6 +54,7 @@ function buildHunonicPayload(
 }
 
 export default function SettingsHunonicIntegration() {
+  const user = useAuthStore((state) => state.user);
   const { draft, setDraft, isSaving, save } = useSettingsSection<Required<HunonicSettingsPayload>>("hunonic", "TENANT", fallback);
   const overview = useSWR(["hunonic-overview"], () => hunonicApi.overview(), { revalidateOnFocus: false });
   const rates = useSWR(["hunonic-rates"], () => hunonicApi.rates(), { revalidateOnFocus: false });
@@ -91,6 +93,7 @@ export default function SettingsHunonicIntegration() {
   const readingRows = (historyData.readings || []) as any[];
   const historySummary = historyData.summary || {};
   const pagination = historyData.pagination || { page: 1, limit: 25, total: 0, totalPages: 1 };
+  const canEditHunonicSecrets = ["admina@homeland.local", "adminb@homeland.local"].includes((user?.email || "").toLowerCase());
 
   const testConnection = async () => {
     setIsTesting(true);
@@ -250,14 +253,16 @@ export default function SettingsHunonicIntegration() {
             </div>
             <div className="flex flex-col gap-[6px]">
               <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Bearer token</label>
-              <Input type="password" value={draft.websiteToken ?? ""} onChange={(event) => {
+              <Input type="password" value={draft.websiteToken ?? ""} disabled={!canEditHunonicSecrets} onChange={(event) => {
+                if (!canEditHunonicSecrets) return;
                 setSecretTouched((prev) => ({ ...prev, websiteToken: true }));
                 setDraft((prev) => ({ ...prev, websiteToken: event.target.value }));
               }} />
             </div>
             <div className="xl:col-span-2 flex flex-col gap-[6px]">
               <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Cookie header</label>
-              <Input type="password" value={draft.websiteCookie ?? ""} onChange={(event) => {
+              <Input type="password" value={draft.websiteCookie ?? ""} disabled={!canEditHunonicSecrets} onChange={(event) => {
+                if (!canEditHunonicSecrets) return;
                 setSecretTouched((prev) => ({ ...prev, websiteCookie: true }));
                 setDraft((prev) => ({ ...prev, websiteCookie: event.target.value }));
               }} />
@@ -276,11 +281,18 @@ export default function SettingsHunonicIntegration() {
             </div>
             <div className="flex flex-col gap-[6px]">
               <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Mật khẩu</label>
-              <Input type="password" value={draft.password ?? ""} onChange={(event) => {
+              <Input type="password" value={draft.password ?? ""} disabled={!canEditHunonicSecrets} onChange={(event) => {
+                if (!canEditHunonicSecrets) return;
                 setSecretTouched((prev) => ({ ...prev, password: true }));
                 setDraft((prev) => ({ ...prev, password: event.target.value }));
               }} />
             </div>
+          </div>
+        )}
+
+        {!canEditHunonicSecrets && (
+          <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-[12px] py-[10px] text-[12px] font-semibold text-amber-800">
+            Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu tích hợp Hunonic. Admin vận hành chỉ được xem trạng thái, kiểm tra kết nối và sync.
           </div>
         )}
 

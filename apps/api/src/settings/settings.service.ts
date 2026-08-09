@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 
@@ -47,6 +47,7 @@ export class SettingsService {
     updatedBy?: string,
   ): Promise<SettingsSectionRecord> {
     const ownerId = this.resolveOwnerId(scope, tenantId, userId);
+    await this.ensureSecretUpdateAllowed(tenantId, userId, key, value);
     const previous = await this.prisma.appSetting.findUnique({
       where: {
         tenantId_scope_ownerId_key: {
@@ -88,6 +89,19 @@ export class SettingsService {
       updatedAt: record.updatedAt,
     };
   }
+
+  private async ensureSecretUpdateAllowed(tenantId: string, userId: string, key: string, value: Prisma.InputJsonValue) {
+    if (key !== 'hunonic' || !containsHunonicSecret(value)) return;
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+      select: { email: true },
+    });
+    const email = user?.email?.toLowerCase() ?? '';
+    if (email === 'admina@homeland.local' || email === 'adminb@homeland.local') return;
+
+    throw new BadRequestException('Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu Hunonic.');
+  }
 }
 
 function mergePreservedSecrets(key: string, previous: Prisma.JsonValue | undefined, next: Prisma.InputJsonValue) {
@@ -104,4 +118,9 @@ function mergePreservedSecrets(key: string, previous: Prisma.JsonValue | undefin
 
 function isRecord(value: unknown): value is Record<string, any> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function containsHunonicSecret(value: Prisma.InputJsonValue) {
+  if (!isRecord(value)) return false;
+  return ['password', 'websiteToken', 'websiteCookie'].some((key) => Object.prototype.hasOwnProperty.call(value, key));
 }

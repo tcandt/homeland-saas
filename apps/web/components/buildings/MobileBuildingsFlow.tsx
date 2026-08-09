@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import type { Building, Floor, Room } from "./building.types";
-import { ArrowDown, ArrowUp, Map, AlertTriangle, Layers, ChevronDown, ChevronRight, Plus, X, Edit2, Trash2, MoreVertical, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Map, AlertTriangle, Layers, ChevronDown, ChevronRight, X, Edit2, Trash2, MoreVertical, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { useDeleteBuildingMutation, useMoveBuildingMutation } from "@/lib/mutations/buildings.mutations";
@@ -351,7 +351,7 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
                                     <div className="flex flex-col gap-0 mt-auto">
                                       <span className={`text-[11px] font-bold truncate ${statusColor}`}>{statusText}</span>
                                       <span className="text-[9px] text-muted font-medium truncate mt-0.5">
-                                        {r.rentalType === "whole" ? "Nguyên phòng" : "Ở ghép (Dorm)"}
+                                        {r.type === "Office" ? "Văn Phòng" : r.rentalType === "whole" ? "Nguyên phòng" : "Ở ghép (Dorm)"}
                                       </span>
                                     </div>
                                   </div>
@@ -359,42 +359,17 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
                               })}
                             </div>
                             
-                            {/* Add Room Button */}
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); setIsAddRoomModalOpen(true); }}
-                              className="w-full py-2.5 rounded-[10px] font-bold text-[12px] border border-dashed border-border bg-transparent text-muted hover:text-text hover:border-[#6366f1] hover:bg-[#6366f1]/5 transition-colors flex items-center justify-center gap-1.5"
-                            >
-                              <Plus size={14} /> Thêm phòng
-                            </button>
                           </div>
                         )}
                       </div>
                     );
                   })}
-                  
-                  {/* Add Floor Button */}
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); setIsAddFloorModalOpen(true); }}
-                    className="w-full mt-2 py-3 rounded-[12px] font-bold text-[13px] border border-dashed border-border bg-transparent text-muted hover:text-text hover:border-[#6366f1] hover:bg-[#6366f1]/5 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Plus size={16} /> Thêm tầng
-                  </button>
                 </div>
               )}
             </div>
           );
         })}
       </div>
-
-      {permissions.canCreateBuilding && (
-        <button 
-          data-testid="add-building-button"
-          onClick={() => setIsAddModalOpen(true)}
-          className="w-full mt-4 py-3.5 rounded-[14px] font-bold text-[14px] border border-border bg-card text-text transition-colors flex items-center justify-center gap-2 shadow-sm hover:bg-black/5 dark:hover:bg-white/5"
-        >
-          <Plus size={18} className="text-[#22c55e]" /> Thêm tòa nhà
-        </button>
-      )}
 
       {deleteConfirmBuilding && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200">

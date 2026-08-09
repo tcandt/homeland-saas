@@ -12,6 +12,7 @@ interface FloorPlanCanvasProps {
   selectedRoomCode: string | null;
   highlightedRoomCode?: string | null;
   onSelectRoom: (room: CockpitRoomSpec) => void;
+  onOpenRoomInspector?: (room: CockpitRoomSpec) => void;
   onHoverRoom?: (roomCode: string | null) => void;
   debugMode: boolean;
 }
@@ -138,6 +139,7 @@ function FloorPlanCanvas({
   selectedRoomCode,
   highlightedRoomCode = null,
   onSelectRoom,
+  onOpenRoomInspector,
   onHoverRoom,
   debugMode,
 }: FloorPlanCanvasProps) {
@@ -152,8 +154,6 @@ function FloorPlanCanvas({
   const [draftMaps, setDraftMaps] = useState(() => cloneMaps(floor.imageMap.rooms));
   const [copied, setCopied] = useState(false);
   const dimensions = useMemo(() => parseViewBox(floor.imageMap.viewBox), [floor.imageMap.viewBox]);
-  const isLk08ImageMap = floor.imageMap.src.includes("/buildings/lk08/");
-  const compactScale = isLk08ImageMap ? (floor.id === "ground" ? 1.06 : 1.1) : 1;
   const roomsByCode = useMemo(
     () => new Map(floor.rooms.map((room) => [normalizeRoomCode(room.urlCode), room])),
     [floor.rooms],
@@ -220,6 +220,11 @@ function FloorPlanCanvas({
     if (room) onSelectRoom(room);
   }, [onSelectRoom, roomsByCode]);
 
+  const openRoomInspector = useCallback((roomId: string) => {
+    const room = roomsByCode.get(normalizeRoomCode(roomId));
+    if (room) onOpenRoomInspector?.(room);
+  }, [onOpenRoomInspector, roomsByCode]);
+
   const copyDebugJson = useCallback(async () => {
     await navigator.clipboard.writeText(JSON.stringify(draftMaps, null, 2));
     setCopied(true);
@@ -232,7 +237,7 @@ function FloorPlanCanvas({
         ref={viewportRef}
         id="floor-plan-viewport"
         data-testid="floor-plan-canvas"
-        className="relative flex min-h-[300px] w-full flex-1 items-center justify-center overflow-hidden rounded-[14px] border border-border/40 dark:border-white/5 bg-white p-2 shadow-inner sm:p-3 fullscreen:min-h-screen fullscreen:rounded-none fullscreen:border-0 fullscreen:p-8"
+        className="relative flex min-h-[260px] w-full flex-1 items-center justify-center overflow-hidden rounded-[14px] border border-border/30 dark:border-white/5 bg-white p-2 shadow-inner sm:p-3 fullscreen:min-h-screen fullscreen:rounded-none fullscreen:border-0 fullscreen:p-8"
         style={{ cursor: "default", touchAction: "manipulation" }}
         onPointerMove={onPointerMove}
         onPointerUp={stopDragging}
@@ -245,10 +250,9 @@ function FloorPlanCanvas({
       >
         {!imageLoaded && <div className="absolute inset-6 animate-pulse rounded-xl bg-slate-100 dark:bg-white/5 motion-reduce:animate-none" aria-label="Đang tải ảnh mặt bằng" />}
         <div
-          className="relative w-full max-w-[1600px] origin-center select-none transition-transform duration-200 ease-out motion-reduce:transition-none"
+          className="relative h-full max-h-full w-full max-w-full origin-center select-none"
           style={{
             aspectRatio: `${floor.imageMap.width} / ${floor.imageMap.height}`,
-            transform: compactScale === 1 ? undefined : `scale(${compactScale})`,
           }}
         >
           <Image
@@ -266,7 +270,7 @@ function FloorPlanCanvas({
           <svg
             ref={svgRef}
             viewBox={floor.imageMap.viewBox}
-            preserveAspectRatio="none"
+            preserveAspectRatio="xMidYMid meet"
             className="absolute inset-0 h-full w-full"
             aria-label={`Vùng chọn phòng trên ${floor.label}`}
           >
@@ -305,6 +309,7 @@ function FloorPlanCanvas({
                     onHoverRoom?.(null);
                   }}
                   onClick={(event) => { event.stopPropagation(); selectRoom(roomMap.roomId); }}
+                  onDoubleClick={(event) => { event.stopPropagation(); openRoomInspector(roomMap.roomId); }}
                 >
                   {roomMap.paths.map((path, pathIndex) => (
                     <path

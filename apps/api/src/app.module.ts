@@ -42,6 +42,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { RepositoriesModule } from './shared/repositories/repositories.module';
 import { SettingsModule } from './settings/settings.module';
 import { PaymentsModule } from './payments/payments.module';
+import { HunonicModule } from './hunonic/hunonic.module';
 
 @Module({
   imports: [
@@ -150,6 +151,7 @@ import { PaymentsModule } from './payments/payments.module';
     MetricsModule,
     SettingsModule,
     PaymentsModule,
+    HunonicModule,
   ],
   controllers: [HealthController],
   providers: [

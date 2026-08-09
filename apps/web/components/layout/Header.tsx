@@ -88,14 +88,15 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!accessToken) return;
 
     const fetchInitialCount = async () => {
-      const token = localStorage.getItem("token");
-      if (!token) return;
-
       try {
         const res = await fetch("/api/v1/notifications/unread-count", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${accessToken}` },
         });
 
         if (res.ok) {
@@ -109,11 +110,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
     fetchInitialCount();
 
-    const token = localStorage.getItem("token");
-    if (!token) return;
-
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
-    const sse = new EventSource(`${apiUrl}/notifications/stream?token=${token}`);
+    const sse = new EventSource(`${apiUrl}/notifications/stream?token=${encodeURIComponent(accessToken)}`);
 
     sse.onmessage = (event) => {
       try {
@@ -136,7 +134,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       sse.close();
       window.clearInterval(pollingFallback);
     };
-  }, []);
+  }, [accessToken]);
 
   const getDisplayName = () => {
     const profileName = (profileSection?.value as any)?.fullName?.trim?.() || "";

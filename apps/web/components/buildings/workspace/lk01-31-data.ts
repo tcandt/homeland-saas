@@ -11,7 +11,7 @@ function toMobileRoomType(type: string): RoomType {
   if (type.includes("2PN")) return "2PN";
   if (type.includes("Studio")) return "Studio";
   if (type.includes("Dorm")) return "Dorm";
-  if (type.includes("Office")) return "Office";
+  if (type.includes("Office") || type.includes("Văn Phòng")) return "Office";
   return "1PN";
 }
 

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import useSWR from "swr";
 import { createPortal } from "react-dom";
 import type {
   Building,
@@ -37,6 +38,7 @@ import {
   Camera,
   QrCode,
   MoreHorizontal,
+  Zap,
 } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 import { numberToWordsVietnamese } from "../../lib/utils/number-to-words";
@@ -64,6 +66,7 @@ import {
 import { useDeleteRoomMutation } from "@/lib/mutations/rooms.mutations";
 import { customersApi } from "@/lib/api/customers.api";
 import { contractsApi } from "@/lib/api/contracts.api";
+import { hunonicApi } from "@/lib/api/hunonic.api";
 import { getRoomDisplayName } from "./building-labels";
 
 interface Props {
@@ -315,8 +318,14 @@ export default function RoomPremiumModal({
   const deleteRoomMutation = useDeleteRoomMutation();
 
   const { data: invoicesResponse } = useInvoicesQuery({ roomId });
+  const { data: electricityResponse, isLoading: isElectricityLoading } = useSWR(
+    roomId ? ["hunonic-room-electricity", roomId] : null,
+    () => hunonicApi.roomElectricity(roomId),
+    { revalidateOnFocus: false, refreshInterval: 60 * 60 * 1000 },
+  );
   const { data: customersResponse } = useCustomersQuery({ limit: 100 });
   const realInvoices = (invoicesResponse as any)?.data?.items || [];
+  const electricity = electricityResponse as any;
   const customers = useMemo(() => {
     const payload = customersResponse as any;
     const items = payload?.data?.items || payload?.data || payload?.items || [];
@@ -1148,6 +1157,37 @@ export default function RoomPremiumModal({
                   <h3 className="font-black text-[14px] md:text-[15px] uppercase tracking-widest text-muted border-b border-border/40 pb-2">
                     Thông tin cơ bản phòng
                   </h3>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-[14px] border border-emerald-500/20 bg-emerald-500/[0.035] p-4">
+                    <div className="sm:col-span-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-[13px] font-black text-text">
+                        <Zap size={16} className="text-emerald-600" /> Điện Hunonic
+                      </div>
+                      <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-black text-emerald-700">
+                        Sync 1 giờ
+                      </span>
+                    </div>
+                    {electricity ? (
+                      <>
+                        <div className="rounded-xl border border-border/40 bg-card p-3">
+                          <div className="text-[11px] font-bold uppercase text-muted">Công tơ</div>
+                          <div className="mt-1 text-[14px] font-black text-text">{electricity.deviceName || electricity.displayName}</div>
+                        </div>
+                        <div className="rounded-xl border border-border/40 bg-card p-3">
+                          <div className="text-[11px] font-bold uppercase text-muted">kWh tháng này</div>
+                          <div className="mt-1 text-[14px] font-black text-text">{Number(electricity.energyMonthKwh || 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} kWh</div>
+                        </div>
+                        <div className="rounded-xl border border-border/40 bg-card p-3">
+                          <div className="text-[11px] font-bold uppercase text-muted">Tiền điện</div>
+                          <div className="mt-1 text-[14px] font-black text-emerald-700">{formatCompactMoney(Number(electricity.moneyMonthVnd || 0))}</div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="sm:col-span-3 rounded-xl border border-dashed border-emerald-500/25 bg-card/70 px-3 py-3 text-[12px] font-semibold text-muted">
+                        {isElectricityLoading ? "Đang tải dữ liệu công tơ..." : "Chưa có dữ liệu Hunonic cho phòng này. Kiểm tra Settings > Hunonic Electricity rồi chạy Sync ngay."}
+                      </div>
+                    )}
+                  </div>
 
                   <div className="flex flex-col gap-4 w-full">
                     <div className="flex flex-col gap-1 w-full">

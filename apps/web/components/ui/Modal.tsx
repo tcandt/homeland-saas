@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "./Button";
 
@@ -29,9 +30,9 @@ export const Modal: React.FC<ModalProps> = ({
     return () => { document.body.style.overflow = ''; };
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
-  return (
+  return createPortal((
     <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex }}>
       <div 
         className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200" 
@@ -62,5 +63,5 @@ export const Modal: React.FC<ModalProps> = ({
         )}
       </div>
     </div>
-  );
+  ), document.body);
 };

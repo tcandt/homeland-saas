@@ -12,6 +12,7 @@ export interface FloorRoomTableProps {
   selectedRoomCode?: string | null;
   highlightedRoomCode?: string | null;
   onSelectRoom: (room: CockpitRoomSpec) => void;
+  onOpenRoomInspector?: (room: CockpitRoomSpec) => void;
   onHoverRoom?: (roomCode: string | null) => void;
   className?: string;
 }
@@ -96,6 +97,7 @@ function FloorRoomTable({
   selectedRoomCode = null,
   highlightedRoomCode = null,
   onSelectRoom,
+  onOpenRoomInspector,
   onHoverRoom,
   className,
 }: FloorRoomTableProps) {
@@ -133,6 +135,7 @@ function FloorRoomTable({
                 data-room-code={room.urlCode}
                 aria-selected={selected}
                 onClick={() => onSelectRoom(room)}
+                onDoubleClick={() => onOpenRoomInspector?.(room)}
                 onMouseEnter={() => onHoverRoom?.(room.urlCode)}
                 onMouseLeave={() => onHoverRoom?.(null)}
                 className={cx(

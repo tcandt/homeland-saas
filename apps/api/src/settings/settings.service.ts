@@ -47,6 +47,17 @@ export class SettingsService {
     updatedBy?: string,
   ): Promise<SettingsSectionRecord> {
     const ownerId = this.resolveOwnerId(scope, tenantId, userId);
+    const previous = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope,
+          ownerId,
+          key,
+        },
+      },
+    });
+    const nextValue = mergePreservedSecrets(key, previous?.value, value);
     const record = await this.prisma.appSetting.upsert({
       where: {
         tenantId_scope_ownerId_key: {
@@ -61,11 +72,11 @@ export class SettingsService {
         scope,
         ownerId,
         key,
-        value,
+        value: nextValue,
         updatedBy,
       },
       update: {
-        value,
+        value: nextValue,
         updatedBy,
       },
     });
@@ -77,4 +88,20 @@ export class SettingsService {
       updatedAt: record.updatedAt,
     };
   }
+}
+
+function mergePreservedSecrets(key: string, previous: Prisma.JsonValue | undefined, next: Prisma.InputJsonValue) {
+  if (key !== 'hunonic' || !isRecord(previous) || !isRecord(next)) return next;
+
+  const merged = { ...previous, ...next };
+  for (const secretKey of ['password', 'websiteToken', 'websiteCookie']) {
+    if (!Object.prototype.hasOwnProperty.call(next, secretKey)) {
+      merged[secretKey] = previous[secretKey];
+    }
+  }
+  return merged as Prisma.InputJsonValue;
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

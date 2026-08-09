@@ -16,6 +16,7 @@ import SettingsNotificationAutomation from "@/components/settings/sections/Setti
 import SettingsAccounting from "@/components/settings/sections/SettingsAccounting";
 import SettingsTemplates from "@/components/settings/sections/SettingsTemplates";
 import SettingsIntegrations from "@/components/settings/sections/SettingsIntegrations";
+import SettingsHunonicIntegration from "@/components/settings/sections/SettingsHunonicIntegration";
 import SettingsBackup from "@/components/settings/sections/SettingsBackup";
 import { Save, Download, Clock, Database } from "lucide-react";
 
@@ -24,7 +25,7 @@ export type SettingsSection =
   | "profile" | "security" | "team"
   | "pricing" | "contracts" | "invoices"
   | "notifications"
-  | "accounting" | "templates" | "integrations" | "backup";
+  | "accounting" | "templates" | "integrations" | "hunonic" | "backup";
 
 const mobileSectionOptions: Array<{ value: SettingsSection; label: string }> = [
   { value: "overview", label: "Overview & Status" },
@@ -40,6 +41,7 @@ const mobileSectionOptions: Array<{ value: SettingsSection; label: string }> = [
   { value: "accounting", label: "Accounting Config" },
   { value: "templates", label: "Templates" },
   { value: "integrations", label: "Integration Center" },
+  { value: "hunonic", label: "Hunonic Electricity" },
   { value: "backup", label: "Data & Backup" },
 ];
 
@@ -66,6 +68,7 @@ export default function SettingsPage() {
       case "accounting": return <SettingsAccounting />;
       case "templates": return <SettingsTemplates />;
       case "integrations": return <SettingsIntegrations />;
+      case "hunonic": return <SettingsHunonicIntegration />;
       case "backup": return <SettingsBackup />;
       default: return <SettingsOverview />;
     }

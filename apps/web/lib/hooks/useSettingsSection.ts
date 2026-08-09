@@ -27,7 +27,7 @@ export function useSettingsSection<T extends Record<string, any>>(key: string, s
       const saved = await settingsApi.saveSection(key, payload, scope);
       await mutate(saved, { revalidate: false });
       toast.success('Đã lưu cài đặt');
-      setDraft(payload);
+      setDraft(saved?.value ? { ...fallback, ...(saved.value as T) } : payload);
       return saved;
     } catch (error: any) {
       toast.error(error?.message || 'Không thể lưu cài đặt');

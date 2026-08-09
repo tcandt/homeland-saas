@@ -4,7 +4,7 @@ import React from "react";
 import {
   Activity, Building2, Briefcase, Palette, User, Shield, Users, Key,
   BedDouble, DollarSign, FileSignature, Receipt,
-  GitBranch, Bell,
+  GitBranch, Bell, PlugZap,
   BookOpen, FileText, Plug, Database, ScrollText,
   ChevronRight
 } from "lucide-react";
@@ -53,6 +53,7 @@ const groups: SidebarGroup[] = [
       { id: "accounting", icon: <BookOpen size={15} />, label: "Accounting Config", desc: "Tài khoản, kế toán" },
       { id: "templates", icon: <FileText size={15} />, label: "Templates", desc: "Mẫu hợp đồng, hóa đơn" },
       { id: "integrations", icon: <Plug size={15} />, label: "Integration Center", desc: "Kết nối ứng dụng" },
+      { id: "hunonic", icon: <PlugZap size={15} />, label: "Hunonic Electricity", desc: "Công tơ điện LK01" },
       { id: "backup", icon: <Database size={15} />, label: "Data & Backup", desc: "Sao lưu dữ liệu" },
     ],
   },

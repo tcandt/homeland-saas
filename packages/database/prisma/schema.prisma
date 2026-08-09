@@ -254,9 +254,10 @@ model Building {
   deletedBy    String?
   deleteReason String?
 
-  tenant TenantOrg @relation(fields: [tenantId], references: [id])
-  floors Floor[]
-  rooms  Room[]
+  tenant               TenantOrg             @relation(fields: [tenantId], references: [id])
+  floors               Floor[]
+  rooms                Room[]
+  hunonicMeterMappings HunonicMeterMapping[]
 
   @@unique([tenantId, code])
   @@index([tenantId, displayOrder])
@@ -301,11 +302,13 @@ model Room {
   deletedBy    String?
   deleteReason String?
 
-  building  Building   @relation(fields: [buildingId], references: [id])
-  floor     Floor      @relation(fields: [floorId], references: [id])
-  contracts Contract[]
-  deposits  Deposit[]
-  roommates Customer[] @relation("RoomRoommates")
+  building             Building              @relation(fields: [buildingId], references: [id])
+  floor                Floor                 @relation(fields: [floorId], references: [id])
+  contracts            Contract[]
+  deposits             Deposit[]
+  roommates            Customer[]            @relation("RoomRoommates")
+  hunonicMeterMappings HunonicMeterMapping[]
+  hunonicMeterReadings HunonicMeterReading[]
 
   @@unique([tenantId, buildingId, code])
   @@index([tenantId, status])
@@ -315,27 +318,27 @@ model Room {
 }
 
 model Customer {
-  id           String    @id @default(cuid())
-  tenantId     String
-  fullName     String
-  phone        String
-  email        String?
-  identityNo   String?
-  gender       String?
-  birthDate    DateTime?
-  nationality  String?
-  address      String?
-  zaloPhone    String?
+  id             String    @id @default(cuid())
+  tenantId       String
+  fullName       String
+  phone          String
+  email          String?
+  identityNo     String?
+  gender         String?
+  birthDate      DateTime?
+  nationality    String?
+  address        String?
+  zaloPhone      String?
   emergencyPhone String?
-  roomId       String?
-  room         Room?     @relation("RoomRoommates", fields: [roomId], references: [id])
-  relationship String?
-  idImages     String[]  @default([])
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
-  deletedBy    String?
-  deleteReason String?
+  roomId         String?
+  room           Room?     @relation("RoomRoommates", fields: [roomId], references: [id])
+  relationship   String?
+  idImages       String[]  @default([])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+  deletedBy      String?
+  deleteReason   String?
 
   contracts Contract[]
   deposits  Deposit[]
@@ -347,27 +350,27 @@ model Customer {
 }
 
 model Contract {
-  id           String         @id @default(cuid())
-  tenantId     String
-  roomId       String
-  customerId   String
-  code         String
-  status       ContractStatus @default(DRAFT)
-  startDate    DateTime
-  endDate      DateTime
-  signedAt     DateTime?
-  purpose      String?
-  firstPaymentDate DateTime?
-  monthlyRent  Decimal        @db.Decimal(14, 2)
-  depositMoney Decimal        @db.Decimal(14, 2)
-  memberCount  Int            @default(1)
-  attachments  String[]       @default([])
-  coRepresentativeIds String[] @default([])
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  deletedAt    DateTime?
-  deletedBy    String?
-  deleteReason String?
+  id                  String         @id @default(cuid())
+  tenantId            String
+  roomId              String
+  customerId          String
+  code                String
+  status              ContractStatus @default(DRAFT)
+  startDate           DateTime
+  endDate             DateTime
+  signedAt            DateTime?
+  purpose             String?
+  firstPaymentDate    DateTime?
+  monthlyRent         Decimal        @db.Decimal(14, 2)
+  depositMoney        Decimal        @db.Decimal(14, 2)
+  memberCount         Int            @default(1)
+  attachments         String[]       @default([])
+  coRepresentativeIds String[]       @default([])
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  deletedAt           DateTime?
+  deletedBy           String?
+  deleteReason        String?
 
   room     Room      @relation(fields: [roomId], references: [id])
   customer Customer  @relation(fields: [customerId], references: [id])
@@ -643,23 +646,23 @@ model BankAccount {
 }
 
 model PaymentRequest {
-  id                  String              @id @default(cuid())
-  tenantId            String
-  sourceType          PaymentSourceType
-  sourceId            String
-  provider            PaymentProvider     @default(SEPAY)
-  paymentCode         String
-  amount              Decimal             @db.Decimal(14, 2)
-  bankName            String
-  bankAccountNumber   String
-  bankAccountName     String?
-  qrUrl               String
-  status              PaymentRequestStatus @default(PENDING)
+  id                    String               @id @default(cuid())
+  tenantId              String
+  sourceType            PaymentSourceType
+  sourceId              String
+  provider              PaymentProvider      @default(SEPAY)
+  paymentCode           String
+  amount                Decimal              @db.Decimal(14, 2)
+  bankName              String
+  bankAccountNumber     String
+  bankAccountName       String?
+  qrUrl                 String
+  status                PaymentRequestStatus @default(PENDING)
   providerTransactionId String?
-  paidAt              DateTime?
-  metadata            Json?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  paidAt                DateTime?
+  metadata              Json?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
 
   @@unique([tenantId, paymentCode])
   @@unique([provider, providerTransactionId])
@@ -668,13 +671,13 @@ model PaymentRequest {
 }
 
 model PaymentWebhookLog {
-  id                String   @id @default(cuid())
-  tenantId          String?
-  provider          PaymentProvider
+  id                    String          @id @default(cuid())
+  tenantId              String?
+  provider              PaymentProvider
   providerTransactionId String
-  payload           Json
-  processedAt       DateTime?
-  createdAt         DateTime @default(now())
+  payload               Json
+  processedAt           DateTime?
+  createdAt             DateTime        @default(now())
 
   @@unique([provider, providerTransactionId])
   @@index([tenantId, createdAt])
@@ -963,6 +966,84 @@ model AppSetting {
 
   @@unique([tenantId, scope, ownerId, key])
   @@index([tenantId, scope, ownerId])
+}
+
+model HunonicMeterMapping {
+  id               String    @id @default(cuid())
+  tenantId         String
+  buildingId       String?
+  roomId           String?
+  buildingCode     String
+  roomCode         String
+  displayName      String
+  provider         String    @default("hunonic")
+  providerMeterId  String
+  providerDeviceId String?
+  providerRootId   String?
+  providerHomeId   String?
+  providerRoomId   String?
+  homeName         String?
+  roomName         String?
+  deviceName       String
+  rootType         String?
+  enabled          Boolean   @default(true)
+  lastStatus       String?
+  lastReadingKwh   Decimal?  @db.Decimal(14, 3)
+  lastAmountVnd    Decimal?  @db.Decimal(14, 0)
+  lastSyncedAt     DateTime?
+  raw              Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  building Building?             @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  room     Room?                 @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  readings HunonicMeterReading[]
+
+  @@unique([tenantId, providerMeterId])
+  @@index([tenantId, buildingCode, roomCode])
+  @@index([tenantId, buildingId])
+  @@index([tenantId, roomId])
+}
+
+model HunonicMeterReading {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  meterMappingId     String
+  roomId             String?
+  readingAt          DateTime
+  status             String?
+  powerCurrentW      Decimal? @db.Decimal(14, 3)
+  energyMonthKwh     Decimal? @db.Decimal(14, 3)
+  moneyMonthVnd      Decimal? @db.Decimal(14, 0)
+  energyPrevMonthKwh Decimal? @db.Decimal(14, 3)
+  moneyPrevMonthVnd  Decimal? @db.Decimal(14, 0)
+  currentMonth       String?
+  raw                Json?
+  createdAt          DateTime @default(now())
+
+  meterMapping HunonicMeterMapping @relation(fields: [meterMappingId], references: [id], onDelete: Cascade)
+  room         Room?               @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, meterMappingId, readingAt])
+  @@index([tenantId, roomId, readingAt])
+  @@index([tenantId, readingAt])
+}
+
+model HunonicSyncLog {
+  id            String    @id @default(cuid())
+  tenantId      String
+  status        String
+  source        String?
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  metersFound   Int       @default(0)
+  readingsSaved Int       @default(0)
+  message       String?
+  error         String?
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, startedAt])
+  @@index([tenantId, status])
 }
 
 // ==========================================

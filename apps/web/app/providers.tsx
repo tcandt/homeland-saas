@@ -63,6 +63,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       <AuthSyncBridge />
       <Toaster
         position="top-right"
+        containerStyle={{ zIndex: 100000 }}
         toastOptions={{
           duration: 3500,
           style: {

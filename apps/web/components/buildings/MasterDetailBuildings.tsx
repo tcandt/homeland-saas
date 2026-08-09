@@ -325,7 +325,6 @@ export default function MasterDetailBuildings() {
       ) : (
         <BuildingCockpit
           buildings={buildings}
-          onAddBuilding={handleOpenAddBuilding}
           onEditBuilding={handleOpenEditBuilding}
           onOpenRoomModal={openRoomModal}
         />

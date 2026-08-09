@@ -272,6 +272,7 @@ const spaceLabel: Record<SpaceSpec["type"], string> = {
 };
 
 function getRoomType(code: string, floorId: CockpitFloorId) {
+  if (normalizeCode(code) === "32-01") return "Văn Phòng";
   if (code.startsWith("P24-") || code.startsWith("P25-")) return "Studio 1 giường";
   if (floorId === "ground") return "Studio 1 giường";
   return code.endsWith("02") || code.endsWith("04") || code.endsWith("06") ? "Căn 2PN mini + phòng khách" : "Studio 1 giường";

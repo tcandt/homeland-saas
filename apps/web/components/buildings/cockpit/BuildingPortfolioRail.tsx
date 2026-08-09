@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Check, Plus, Settings2 } from "lucide-react";
+import { Building2, Check, Settings2 } from "lucide-react";
 import type { CockpitBuildingSpec } from "./building-cockpit.types";
 import { getBuildingMetrics } from "./building-cockpit-metrics";
 import { buildingTemplateRegistry, normalizeBuildingCode } from "./building-template-registry";
@@ -10,7 +10,6 @@ export interface BuildingPortfolioRailProps {
   activeBuildingCode: string;
   onSelectBuilding: (code: string) => void;
   onConfigureBuilding?: (code: string) => void;
-  onAddBuilding?: () => void;
   className?: string;
 }
 
@@ -23,7 +22,6 @@ export default function BuildingPortfolioRail({
   activeBuildingCode,
   onSelectBuilding,
   onConfigureBuilding,
-  onAddBuilding,
   className,
 }: BuildingPortfolioRailProps) {
   const buildingsByCode = new Map(
@@ -33,8 +31,8 @@ export default function BuildingPortfolioRail({
 
   return (
     <section aria-label="Danh mục tòa nhà" className={cx("min-w-0", className)}>
-      <div className="overflow-x-auto pb-4 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 dark:[&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-primary/50 dark:hover:[&::-webkit-scrollbar-thumb]:bg-primary/50 transition-colors duration-200">
-        <div className="grid min-w-[1050px] grid-cols-[repeat(4,minmax(220px,1fr))_132px] gap-3 items-stretch">
+      <div className="overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="grid min-w-[880px] grid-cols-4 gap-3 items-stretch 2xl:min-w-0">
           {buildingTemplateRegistry.map((descriptor) => {
             const building = buildingsByCode.get(descriptor.code);
             const isPending = !building || descriptor.layoutStatus === "pending" || building.layoutStatus === "pending";
@@ -49,10 +47,10 @@ export default function BuildingPortfolioRail({
               <article
                 key={descriptor.code}
                 className={cx(
-                  "relative min-h-[160px] h-full flex flex-col justify-between overflow-hidden rounded-2xl border bg-card p-3.5 shadow-[0_12px_30px_rgb(var(--shadow-color)/0.055)] transition-[border-color,background-color,box-shadow] duration-200 motion-reduce:transition-none",
+                  "relative min-h-[140px] h-full flex flex-col justify-between overflow-hidden rounded-xl border bg-card p-3.5 shadow-[0_8px_20px_rgb(var(--shadow-color)/0.035)] transition-[border-color,background-color,box-shadow] duration-200 motion-reduce:transition-none",
                   isSelected
-                    ? "border-primary bg-primary/[0.055] shadow-[0_16px_36px_rgb(var(--shadow-color)/0.12)] ring-1 ring-primary/35 dark:bg-primary/[0.14]"
-                    : "border-border/40 dark:border-white/5",
+                    ? "border-primary bg-primary/[0.055] shadow-[0_12px_26px_rgb(var(--shadow-color)/0.10)] ring-1 ring-primary/25 dark:bg-primary/[0.14]"
+                    : "border-border/25 dark:border-white/5",
                 )}
               >
                 <button
@@ -60,7 +58,7 @@ export default function BuildingPortfolioRail({
                   onClick={() => onSelectBuilding(descriptor.code)}
                   aria-pressed={isSelected}
                   aria-label={`Chọn tòa nhà ${descriptor.code}, ${statusLabel}`}
-                  className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                  className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
                 />
 
                 <div className="pointer-events-none relative z-10 flex-1 flex flex-col justify-between h-full">
@@ -170,17 +168,6 @@ export default function BuildingPortfolioRail({
             );
           })}
 
-          <button
-            type="button"
-            onClick={onAddBuilding}
-            disabled={!onAddBuilding}
-            className="flex min-h-[160px] h-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border/90 bg-card/60 px-3 text-[12px] font-black text-muted transition-[border-color,background-color,color,box-shadow] duration-200 hover:border-primary/45 hover:bg-primary/[0.035] hover:text-primary hover:shadow-[0_12px_28px_rgb(var(--shadow-color)/0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-60 motion-reduce:transition-none"
-          >
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface text-primary">
-              <Plus size={18} aria-hidden />
-            </span>
-            Thêm tòa nhà
-          </button>
         </div>
       </div>
     </section>

@@ -40,7 +40,6 @@ interface UnifiedBuildingCockpitProps {
   onSelectFloor: (floorId: CockpitFloorId) => void;
   onSelectRoom: (room: CockpitRoomSpec) => void;
   onCloseRoom: () => void;
-  onAddBuilding?: () => void;
   onEditBuilding?: (buildingCode: string) => void;
   onOpenRoomModal?: (roomId: string, tab?: string) => void;
 }
@@ -279,7 +278,7 @@ function BuildingModelViewer({
   };
 
   return (
-    <article data-testid="building-model-viewer" className="min-w-0 overflow-hidden rounded-2xl border border-border/40 dark:border-white/5 bg-card shadow-[0_16px_36px_rgb(var(--shadow-color)/0.075)]">
+    <article data-testid="building-model-viewer" className="flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-border/30 dark:border-white/5 bg-card shadow-[0_10px_26px_rgb(var(--shadow-color)/0.055)]">
       <header className="flex min-h-[60px] items-start justify-between gap-3 border-b border-border/20 dark:border-white/5 px-3.5 py-2.5">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
@@ -304,7 +303,7 @@ function BuildingModelViewer({
         )}
       </header>
 
-      <div className="relative h-[470px] overflow-hidden border-y border-border/20 dark:border-white/5 bg-[radial-gradient(circle_at_50%_30%,#ffffff_0%,#f8fafc_62%,#eef2f7_100%)] min-[1366px]:h-[585px] select-none">
+      <div className="relative min-h-[clamp(430px,58vh,560px)] flex-1 overflow-hidden border-y border-border/20 dark:border-white/5 bg-[radial-gradient(circle_at_50%_30%,#ffffff_0%,#f8fafc_62%,#eef2f7_100%)] min-[1536px]:min-h-[clamp(500px,62vh,640px)] select-none">
         <div className="pointer-events-none absolute inset-y-0 left-2 z-20 w-[88px] min-[1366px]:left-2.5">
           {orderedFloors.map((item, index) => (
             <button
@@ -329,9 +328,9 @@ function BuildingModelViewer({
           ))}
         </div>
 
-        <div className="absolute inset-2 left-[64px] flex items-center justify-center min-[1366px]:left-[58px]">
+        <div className="absolute inset-2 left-[60px] flex items-center justify-center min-[1536px]:left-[58px]">
           <div
-            className="relative h-[96%] max-w-full origin-center"
+            className="relative h-[94%] max-w-full origin-center min-[1536px]:h-[96%]"
             style={{ aspectRatio: `${building.overviewImage.width} / ${building.overviewImage.height}` }}
           >
             <Image
@@ -625,6 +624,7 @@ function FloorPlanPanel({
   onHighlightRoom,
   onSelectFloor,
   onSelectRoom,
+  onOpenRoomInspector,
 }: {
   building: CockpitBuildingSpec;
   floor: CockpitFloorSpec;
@@ -634,13 +634,12 @@ function FloorPlanPanel({
   onHighlightRoom: (roomCode: string | null) => void;
   onSelectFloor: (floorId: CockpitFloorId) => void;
   onSelectRoom: (room: CockpitRoomSpec) => void;
+  onOpenRoomInspector: (room: CockpitRoomSpec) => void;
 }) {
   const [tab, setTab] = useState<"rooms" | "floor">("rooms");
   const panelRef = useRef<HTMLElement>(null);
-  const compactFloorPlan = building.templateId === "LK08_STANDARD";
-
   return (
-    <section ref={panelRef} data-testid="floor-workspace-panel" className="min-w-0 overflow-hidden rounded-2xl border border-border/40 dark:border-white/5 bg-card shadow-[0_16px_36px_rgb(var(--shadow-color)/0.075)]">
+    <section ref={panelRef} data-testid="floor-workspace-panel" className="flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-border/30 dark:border-white/5 bg-card shadow-[0_10px_26px_rgb(var(--shadow-color)/0.055)]">
       <header className="border-b border-border/20 dark:border-white/5 px-3.5 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -671,21 +670,19 @@ function FloorPlanPanel({
         </div>
       </header>
 
-      <div className="p-3">
+      <div className="flex min-h-0 flex-1 flex-col p-3">
         <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-[12px] font-black uppercase tracking-wide text-text">Sơ đồ mặt bằng {floor.label}</h3>
           <StatusLegend />
         </div>
-        <div className={cx(
-          "rounded-[14px] bg-surface/45 p-2",
-          compactFloorPlan ? "h-[285px] min-[1366px]:h-[330px]" : "h-[340px] min-[1366px]:h-[390px]",
-        )}>
+        <div className="h-[clamp(300px,42vh,430px)] rounded-[14px] bg-surface/45 p-2 min-[1536px]:h-[clamp(360px,44vh,500px)]">
           <FloorPlanCanvas
             floor={floor}
             buildingCode={building.code}
             selectedRoomCode={room?.urlCode || null}
             highlightedRoomCode={highlightedRoomCode}
             onSelectRoom={onSelectRoom}
+            onOpenRoomInspector={onOpenRoomInspector}
             onHoverRoom={onHighlightRoom}
             debugMode={debugMode}
           />
@@ -702,6 +699,7 @@ function FloorPlanPanel({
               selectedRoomCode={room?.urlCode || null}
               highlightedRoomCode={highlightedRoomCode}
               onSelectRoom={onSelectRoom}
+              onOpenRoomInspector={onOpenRoomInspector}
               onHoverRoom={onHighlightRoom}
             />
           ) : <FloorInformation floor={floor} />}
@@ -717,7 +715,7 @@ function FloorOperationsPanel({ floor, onSelectRoom }: { floor: CockpitFloorSpec
   const occupants = operationalRooms.reduce((sum, item) => sum + item.occupants, 0);
 
   return (
-    <aside className="hidden h-fit min-w-0 overflow-hidden rounded-2xl border border-border/40 dark:border-white/5 bg-card shadow-[0_16px_36px_rgb(var(--shadow-color)/0.075)] min-[1366px]:sticky min-[1366px]:top-3 min-[1366px]:block" aria-label={`Thông tin ${floor.label}`}>
+    <aside className="hidden h-full min-w-0 overflow-hidden rounded-2xl border border-border/30 dark:border-white/5 bg-card shadow-[0_10px_26px_rgb(var(--shadow-color)/0.055)] min-[1536px]:sticky min-[1536px]:top-3 min-[1536px]:flex min-[1536px]:flex-col" aria-label={`Thông tin ${floor.label}`}>
       <header className="border-b border-border/20 dark:border-white/5 px-4 py-3.5">
         <h2 className="text-[16px] font-black text-text">Thông tin tầng</h2>
         <p className="mt-1 text-[12px] font-semibold text-muted">{floor.label} · {occupied}/{floor.rooms.length} phòng đã thuê</p>
@@ -732,7 +730,7 @@ function FloorOperationsPanel({ floor, onSelectRoom }: { floor: CockpitFloorSpec
           <strong className="mt-0.5 block text-[17px] font-black tabular-nums text-primary">{occupied}/{floor.rooms.length}</strong>
         </div>
       </div>
-      <div className="space-y-2.5 p-3">
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3">
         {floor.rooms.map((item) => {
           const available = Boolean(item.sourceRoom);
           const tone = getStatusTone(item.status);
@@ -791,11 +789,11 @@ export default function UnifiedBuildingCockpit({
   onSelectFloor,
   onSelectRoom,
   onCloseRoom,
-  onAddBuilding,
   onEditBuilding,
   onOpenRoomModal,
 }: UnifiedBuildingCockpitProps) {
   const [highlightedRoomCode, setHighlightedRoomCode] = useState<string | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const lastRoomTriggerRef = useRef<HTMLElement | null>(null);
   const previousRoomRef = useRef<CockpitRoomSpec | null>(room);
 
@@ -813,6 +811,16 @@ export default function UnifiedBuildingCockpit({
     onSelectRoom(nextRoom);
   };
 
+  const openRoomInspector = (nextRoom: CockpitRoomSpec) => {
+    selectRoom(nextRoom);
+    setInspectorOpen(true);
+  };
+
+  const closeRoomInspector = () => {
+    setInspectorOpen(false);
+    onCloseRoom();
+  };
+
   return (
     <div className="space-y-3">
       <BuildingPortfolioRail
@@ -820,14 +828,13 @@ export default function UnifiedBuildingCockpit({
         activeBuildingCode={building.code}
         onSelectBuilding={onSelectBuilding}
         onConfigureBuilding={onEditBuilding}
-        onAddBuilding={onAddBuilding}
       />
       <PortfolioKpiBar buildings={portfolioBuildings} />
 
       {building.layoutStatus === "pending" || !floor ? (
         <PendingLayout building={building} onEditBuilding={onEditBuilding} />
       ) : (
-        <div className="grid min-w-0 items-start gap-3 lg:grid-cols-2 min-[1366px]:grid-cols-[minmax(300px,0.95fr)_minmax(460px,1.62fr)_minmax(280px,0.68fr)] min-[1536px]:grid-cols-[minmax(340px,0.95fr)_minmax(560px,1.62fr)_minmax(320px,0.68fr)]">
+        <div className="grid min-w-0 items-stretch gap-3 lg:grid-cols-2 min-[1536px]:grid-cols-[minmax(310px,0.82fr)_minmax(600px,1.7fr)_minmax(380px,0.78fr)]">
           <BuildingModelViewer building={building} floor={floor} activeRoomId={room?.id} debugMode={debugMode} onSelectFloor={onSelectFloor} onEditBuilding={onEditBuilding} />
           <FloorPlanPanel
             building={building}
@@ -838,25 +845,28 @@ export default function UnifiedBuildingCockpit({
             onHighlightRoom={setHighlightedRoomCode}
             onSelectFloor={onSelectFloor}
             onSelectRoom={selectRoom}
+            onOpenRoomInspector={openRoomInspector}
           />
           {room ? (
             <>
               <button
                 type="button"
                 aria-label="Đóng lớp phủ thông tin phòng"
-                onClick={onCloseRoom}
-                className="fixed inset-0 z-[10001] hidden cursor-default bg-black/45 backdrop-blur-[1px] md:block min-[1366px]:hidden"
+                onClick={closeRoomInspector}
+                className={inspectorOpen ? "fixed inset-0 z-[10001] hidden cursor-default bg-black/45 backdrop-blur-[1px] md:block min-[1536px]:hidden" : "hidden"}
               />
-              <RoomInspectorDrawer
-                floor={floor}
-                room={room}
-                selectedSpaceId={null}
-                onClose={onCloseRoom}
-                onOpenRoomModal={room.sourceRoom && onOpenRoomModal ? (roomId, tab) => {
-                  onCloseRoom();
-                  onOpenRoomModal(roomId, tab);
-                } : undefined}
-              />
+              <div className={inspectorOpen ? "contents" : "hidden min-[1536px]:contents"}>
+                <RoomInspectorDrawer
+                  floor={floor}
+                  room={room}
+                  selectedSpaceId={null}
+                  onClose={closeRoomInspector}
+                  onOpenRoomModal={room.sourceRoom && onOpenRoomModal ? (roomId, tab) => {
+                    closeRoomInspector();
+                    onOpenRoomModal(roomId, tab);
+                  } : undefined}
+                />
+              </div>
             </>
           ) : <FloorOperationsPanel floor={floor} onSelectRoom={selectRoom} />}
         </div>

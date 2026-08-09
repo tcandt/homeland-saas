@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { ArrowRight, CheckCircle2, FileText, MoreHorizontal, Pencil, Wrench, X } from "lucide-react";
+import useSWR from "swr";
+import { ArrowRight, Bolt, CheckCircle2, FileText, MoreHorizontal, Pencil, Wrench, X } from "lucide-react";
 import type { CockpitFloorSpec, CockpitRoomSpec } from "./building-cockpit.types";
 import { formatVnd, getStatusLabel, getStatusTone } from "./building-cockpit-metrics";
+import { hunonicApi } from "@/lib/api/hunonic.api";
 
 interface RoomInspectorDrawerProps {
   floor: CockpitFloorSpec;
@@ -15,9 +17,9 @@ interface RoomInspectorDrawerProps {
 
 function row(label: string, value: React.ReactNode) {
   return (
-    <div className="flex items-center justify-between gap-4 text-[13px] leading-5 w-full">
-      <span className="text-muted shrink-0">{label}</span>
-      <span className="text-right font-bold text-text truncate max-w-[200px]" title={String(value)}>{value}</span>
+    <div className="grid w-full grid-cols-[minmax(96px,0.85fr)_minmax(0,1.15fr)] items-start gap-3 rounded-lg px-1 py-1.5 text-[13px] leading-5">
+      <span className="text-muted">{label}</span>
+      <span className="min-w-0 text-right font-bold text-text break-words" title={typeof value === "string" || typeof value === "number" ? String(value) : undefined}>{value}</span>
     </div>
   );
 }
@@ -27,6 +29,11 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
   const selectedSpace = room.childSpaces?.find((space) => space.id === selectedSpaceId);
   const sourceRoomId = room.sourceRoom?.id;
   const hasOperationalData = Boolean(sourceRoomId);
+  const electricityQuery = useSWR(sourceRoomId ? ["hunonic-room-electricity", sourceRoomId] : null, () => hunonicApi.roomElectricity(sourceRoomId!), {
+    revalidateOnFocus: false,
+    refreshInterval: 60 * 60 * 1000,
+  });
+  const electricity = electricityQuery.data as any;
   const statusLabel = hasOperationalData ? getStatusLabel(room.status) : "Chưa đồng bộ";
   const hasActiveRent = room.status !== "vacant" && Boolean(room.monthlyRent);
 
@@ -41,10 +48,10 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
   return (
     <aside
       role="dialog"
-      className="fixed inset-x-3 bottom-3 z-[10002] max-h-[82vh] overflow-auto rounded-[16px] border border-border/40 dark:border-white/5 bg-card p-3.5 shadow-2xl min-[1366px]:relative min-[1366px]:inset-auto min-[1366px]:z-auto min-[1366px]:flex min-[1366px]:h-full min-[1366px]:max-h-full min-[1366px]:w-full min-[1366px]:min-w-[280px] min-[1366px]:max-w-[360px] min-[1366px]:shrink-0 min-[1366px]:flex-col min-[1366px]:overflow-hidden min-[1366px]:shadow-[0_16px_36px_rgb(var(--shadow-color)/0.075)] min-[1536px]:min-w-[320px] transition-colors"
+      className="fixed inset-x-3 bottom-3 z-[10002] max-h-[82vh] overflow-auto rounded-[16px] border border-border/40 dark:border-white/5 bg-card p-3.5 shadow-2xl min-[1536px]:relative min-[1536px]:inset-auto min-[1536px]:z-auto min-[1536px]:flex min-[1536px]:h-full min-[1536px]:max-h-full min-[1536px]:w-full min-[1536px]:min-w-0 min-[1536px]:max-w-none min-[1536px]:shrink min-[1536px]:flex-col min-[1536px]:overflow-hidden min-[1536px]:shadow-[0_16px_36px_rgb(var(--shadow-color)/0.075)] transition-colors"
       aria-label={`Thông tin phòng ${room.code}`}
     >
-      <div className="sticky top-0 z-10 -mx-3.5 -mt-3.5 mb-2.5 flex shrink-0 items-start justify-between gap-4 border-b border-border/40 bg-card/95 px-3.5 pb-2.5 pt-3.5 backdrop-blur">
+      <div className="sticky top-0 z-10 -mx-3.5 -mt-3.5 mb-4 flex shrink-0 items-start justify-between gap-4 border-b border-border/40 bg-card/95 px-3.5 pb-3.5 pt-3.5 backdrop-blur">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-[20px] font-black tracking-tight text-text truncate">{room.code}</h2>
@@ -62,10 +69,10 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-      <section className="shrink-0 rounded-[14px] border border-border/40 bg-black/5 dark:bg-white/5 p-3">
+      <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto pr-1 pt-0.5">
+      <section className="shrink-0 rounded-[14px] border border-border/30 bg-black/5 dark:bg-white/5 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
         <h3 className="mb-2.5 text-[12px] font-black uppercase tracking-wide text-text">Thông tin phòng</h3>
-        <div className="space-y-1.5 w-full">
+        <div className="w-full divide-y divide-border/30">
           {row("Loại phòng", room.type)}
           {row("Ký hiệu phòng", room.code)}
           {row("Vị trí", floor.label)}
@@ -76,12 +83,36 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
         </div>
       </section>
 
-
+      <section className="shrink-0 rounded-[14px] border border-emerald-500/20 bg-emerald-500/[0.035] p-3.5 shadow-[0_8px_20px_rgb(var(--shadow-color)/0.03)]">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2 text-[12px] font-black uppercase tracking-wide text-text">
+            <Bolt size={14} className="text-emerald-600" /> Điện Hunonic
+          </h3>
+          <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-black text-emerald-700">
+            Sync 1 giờ
+          </span>
+        </div>
+        {electricity ? (
+          <div className="w-full divide-y divide-emerald-500/15 rounded-xl bg-card/75 px-2">
+            {row("Công tơ", electricity.deviceName || electricity.displayName)}
+            {row("Tháng này", `${Number(electricity.energyMonthKwh || 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} kWh`)}
+            {row("Tiền điện", formatVnd(Number(electricity.moneyMonthVnd || 0)))}
+            {row("Cập nhật", electricity.lastSyncedAt ? new Date(electricity.lastSyncedAt).toLocaleString("vi-VN") : "Chưa có dữ liệu")}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-emerald-500/25 bg-card/70 px-3 py-3 text-[12px] font-semibold text-muted">
+            {electricityQuery.isLoading ? "Đang tải dữ liệu công tơ..." : "Phòng này chưa có dữ liệu Hunonic. Hãy kiểm tra mapping trong Settings > Hunonic Electricity."}
+          </div>
+        )}
+      </section>
 
       {room.contract && (
-        <section className="mt-2 shrink-0 rounded-[14px] border border-border/40 bg-card p-3">
-          <h3 className="mb-2 text-[12px] font-black uppercase tracking-wide text-text">Hợp đồng</h3>
-          <div className="space-y-1.5 w-full">
+        <section className="shrink-0 rounded-[14px] border border-primary/15 bg-primary/[0.025] p-3.5 shadow-[0_8px_20px_rgb(var(--shadow-color)/0.035)]">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-[12px] font-black uppercase tracking-wide text-text">Hợp đồng</h3>
+            <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-black text-primary">Đang theo dõi</span>
+          </div>
+          <div className="w-full divide-y divide-primary/10 rounded-xl bg-card/75 px-2">
             {row("Mã hợp đồng", room.contract.code)}
             {row("Tiền cọc", formatVnd(room.contract.deposit))}
             {row("Ngày hết hạn", room.contract.endDate)}
@@ -89,14 +120,14 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
         </section>
       )}
 
-      <section className="mt-2 shrink-0 rounded-[14px] border border-border/40 bg-card p-3">
+      <section className="shrink-0 rounded-[14px] border border-border/30 bg-card p-3.5 shadow-[0_8px_20px_rgb(var(--shadow-color)/0.03)]">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h3 className="text-[12px] font-black uppercase tracking-wide text-text">Lịch sử hoạt động</h3>
           <button type="button" className="text-[12px] font-black text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
             Xem tất cả
           </button>
         </div>
-        <ol className="space-y-0">
+        <ol className="space-y-2">
           {[
             { date: "24/05/2025 10:15", title: `Cập nhật trạng thái: ${statusLabel}`, icon: CheckCircle2, tone: "emerald" },
             { date: "20/05/2025 09:45", title: "Kết thúc hợp đồng", icon: FileText, tone: "blue" },
@@ -104,16 +135,15 @@ export default function RoomInspectorDrawer({ floor, room, selectedSpaceId, onCl
           ].map((item, index, items) => {
             const Icon = item.icon;
             return (
-              <li key={`${item.date}-${item.title}`} className="grid grid-cols-[22px_1fr_auto] gap-2">
+              <li key={`${item.date}-${item.title}`} className="grid grid-cols-[24px_minmax(0,1fr)_auto] gap-2 rounded-xl border border-border/25 bg-surface/45 px-2.5 py-2">
                 <div className="relative flex justify-center">
-                  <span className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full ${item.tone === "emerald" ? "bg-emerald-500/10 text-emerald-500" : "bg-blue-500/10 text-blue-500"}`}>
+                  <span className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full ring-1 ring-white ${item.tone === "emerald" ? "bg-emerald-500/10 text-emerald-500" : "bg-blue-500/10 text-blue-500"}`}>
                     <Icon size={12} aria-hidden />
                   </span>
-                  {index < items.length - 1 && <span className="absolute top-6 h-[calc(100%-10px)] w-px bg-border/40 dark:bg-white/5" aria-hidden />}
                 </div>
-                <div className="border-b border-border/40 pb-2.5 last:border-b-0 min-w-0">
+                <div className="min-w-0">
                   <time className="block text-[12px] font-semibold leading-4 text-muted">{item.date}</time>
-                  <p className="mt-0.5 text-[12px] font-black leading-5 text-text truncate">{item.title}</p>
+                  <p className="mt-0.5 text-[12px] font-black leading-5 text-text line-clamp-2">{item.title}</p>
                 </div>
                 <span className="pt-0.5 text-right text-[11px] font-semibold text-muted">System Admin</span>
               </li>

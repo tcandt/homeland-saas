@@ -14,6 +14,10 @@ type OwnerSettings = {
   ownerBName: string;
   ownerAAccountEmail: string;
   ownerBAccountEmail: string;
+  ownerAContactEmail: string;
+  ownerBContactEmail: string;
+  ownerAPhone: string;
+  ownerBPhone: string;
   ownerABuildings: string[];
   ownerBBuildings: string[];
 };
@@ -23,6 +27,10 @@ const fallback: OwnerSettings = {
   ownerBName: "Thể",
   ownerAAccountEmail: "adminA@homeland.local",
   ownerBAccountEmail: "adminB@homeland.local",
+  ownerAContactEmail: "",
+  ownerBContactEmail: "",
+  ownerAPhone: "",
+  ownerBPhone: "",
   ownerABuildings: ["LK01-31", "LK08-25"],
   ownerBBuildings: ["LK01-32", "LK08-24"],
 };
@@ -52,14 +60,22 @@ function OwnerCard({
   title,
   name,
   email,
+  contactEmail,
+  phone,
   buildings,
   onNameChange,
+  onContactEmailChange,
+  onPhoneChange,
 }: {
   title: string;
   name: string;
   email: string;
+  contactEmail: string;
+  phone: string;
   buildings: string[];
   onNameChange: (value: string) => void;
+  onContactEmailChange: (value: string) => void;
+  onPhoneChange: (value: string) => void;
 }) {
   return (
     <div className="rounded-[16px] border border-border bg-background/70 p-[16px]">
@@ -77,6 +93,16 @@ function OwnerCard({
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Tên chủ sở hữu</label>
           <Input value={name} onChange={(event) => onNameChange(event.target.value)} />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-[12px]">
+          <div className="flex flex-col gap-[6px]">
+            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Email liên hệ</label>
+            <Input value={contactEmail} onChange={(event) => onContactEmailChange(event.target.value)} placeholder="Email nhận đối soát" />
+          </div>
+          <div className="flex flex-col gap-[6px]">
+            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Số điện thoại</label>
+            <Input value={phone} onChange={(event) => onPhoneChange(event.target.value)} placeholder="Số điện thoại chủ" />
+          </div>
         </div>
         <div className="rounded-[12px] border border-border bg-card px-[12px] py-[10px]">
           <div className="flex items-center gap-[8px] text-[12px] font-bold text-muted">
@@ -124,15 +150,23 @@ export default function SettingsOwnerManagement() {
             title="Owner A"
             name={draft.ownerAName}
             email={draft.ownerAAccountEmail}
+            contactEmail={draft.ownerAContactEmail}
+            phone={draft.ownerAPhone}
             buildings={draft.ownerABuildings}
             onNameChange={(value) => setDraft((prev) => ({ ...prev, ownerAName: value }))}
+            onContactEmailChange={(value) => setDraft((prev) => ({ ...prev, ownerAContactEmail: value }))}
+            onPhoneChange={(value) => setDraft((prev) => ({ ...prev, ownerAPhone: value }))}
           />
           <OwnerCard
             title="Owner B"
             name={draft.ownerBName}
             email={draft.ownerBAccountEmail}
+            contactEmail={draft.ownerBContactEmail}
+            phone={draft.ownerBPhone}
             buildings={draft.ownerBBuildings}
             onNameChange={(value) => setDraft((prev) => ({ ...prev, ownerBName: value }))}
+            onContactEmailChange={(value) => setDraft((prev) => ({ ...prev, ownerBContactEmail: value }))}
+            onPhoneChange={(value) => setDraft((prev) => ({ ...prev, ownerBPhone: value }))}
           />
         </div>
 

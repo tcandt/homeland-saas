@@ -665,7 +665,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 - [x] Thêm màn cấu hình owner trong Settings.
 - [x] Thêm sửa tên hiển thị owner trong Settings.
-- [ ] Thêm thông tin liên hệ owner.
+- [x] Thêm thông tin liên hệ owner trong Settings.
 - [x] Gắn tòa với owner trong seed và backfill an toàn.
 - [x] Hiển thị mapping cố định: Tính quản lý LK01-31/LK08-25, Thể quản lý LK01-32/LK08-24.
 - [ ] Đổi owner của tòa có audit log.

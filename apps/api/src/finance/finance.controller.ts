@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Request, Res } from '@nestjs/common';
+import * as ExcelJS from 'exceljs';
 import { Response } from 'express';
 import { FinanceReportingService } from './finance-reporting.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
@@ -107,6 +108,56 @@ export class FinanceController {
   @RequirePermissions('finance.settle')
   async updateExpenseSettlement(@Param('id') id: string, @Request() req, @Body() body: any) {
     return this.reportingService.updateExpenseSettlement(req.user.tenantId, req.user?.id, id, body?.settlementStatus);
+  }
+
+  @Get('export.xlsx')
+  @RequirePermissions('finance.export')
+  async exportExcelReport(@Request() req, @Res() res: Response) {
+    const rows = await this.reportingService.getLedger(req.user.tenantId, req.query);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'HomeLand';
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet('Finance Ledger');
+
+    worksheet.columns = [
+      { header: 'Ngày', key: 'date', width: 22 },
+      { header: 'Mã bút toán', key: 'journalCode', width: 18 },
+      { header: 'Diễn giải', key: 'description', width: 42 },
+      { header: 'Mã tài khoản', key: 'accountCode', width: 16 },
+      { header: 'Tài khoản', key: 'accountName', width: 26 },
+      { header: 'Loại', key: 'type', width: 12 },
+      { header: 'Số tiền', key: 'amount', width: 18 },
+      { header: 'Nguồn', key: 'sourceType', width: 18 },
+      { header: 'Trạng thái', key: 'status', width: 14 },
+    ];
+
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    worksheet.getRow(1).height = 24;
+
+    rows.forEach((line: any) => {
+      const entry = line.journalEntry || {};
+      const account = line.account || {};
+      worksheet.addRow({
+        date: line.createdAt ? new Date(line.createdAt).toLocaleString('vi-VN') : '',
+        journalCode: entry.code || '',
+        description: line.description || entry.description || '',
+        accountCode: account.code || '',
+        accountName: account.name || '',
+        type: line.type || '',
+        amount: Number(line.amount || 0),
+        sourceType: entry.sourceType || '',
+        status: entry.status || '',
+      });
+    });
+
+    worksheet.getColumn('amount').numFmt = '#,##0';
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=finance_report.xlsx');
+    return res.status(200).send(Buffer.from(buffer));
   }
 
   @Get('export')

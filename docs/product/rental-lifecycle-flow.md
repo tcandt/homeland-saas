@@ -541,7 +541,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Drill-down từ owner xuống tòa.
 - [ ] Drill-down từ tòa xuống phòng.
 - [ ] Drill-down từ phòng xuống hợp đồng/hóa đơn/chi phí.
-- [ ] Export Excel.
+- [x] Export Excel.
 - [ ] Export PDF.
 - [x] Thêm biểu đồ xu hướng lợi nhuận theo tháng.
 

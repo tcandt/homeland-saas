@@ -38,13 +38,13 @@ export default function FinancePage() {
 
   const handleExport = async () => {
     try {
-      const response: any = await financeApi.exportReport();
+      const response: any = await financeApi.exportExcelReport();
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
 
       const contentDisposition = response.headers["content-disposition"];
-      let filename = "finance_report.csv";
+      let filename = "finance_report.xlsx";
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
         if (filenameMatch && filenameMatch.length === 2) {
@@ -56,9 +56,10 @@ export default function FinancePage() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      toast.success("Xuất báo cáo thành công!");
+      window.URL.revokeObjectURL(url);
+      toast.success("Xuất báo cáo Excel thành công!");
     } catch (error) {
-      toast.error("Có lỗi xảy ra khi xuất báo cáo", { icon: "❌" });
+      toast.error("Có lỗi xảy ra khi xuất báo cáo", { icon: "!" });
     }
   };
 
@@ -76,7 +77,7 @@ export default function FinancePage() {
           <div>
             <h1 className="font-black text-[20px] md:text-[28px] text-text tracking-tight">Financial Command Center</h1>
             <p className="text-[12px] md:text-[13px] font-medium text-muted mt-1">
-              Phân tích dòng tiền, kiểm soát công nợ & sổ cái kế toán
+              Phân tích dòng tiền, kiểm soát công nợ và sổ cái kế toán
             </p>
           </div>
           <div className="flex items-center gap-[8px] md:gap-[12px] overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
@@ -90,7 +91,7 @@ export default function FinancePage() {
                 onClick={handleExport}
                 className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px]"
               >
-                <FileText size={14} className="text-muted mr-1.5" /> Xuất báo cáo
+                <FileText size={14} className="text-muted mr-1.5" /> Xuất Excel
               </Button>
             )}
             {permissions.canCreateExpense && (
@@ -120,7 +121,7 @@ export default function FinancePage() {
             className="bg-card border border-border rounded-[16px] h-[250px] md:h-[300px] flex items-center justify-center flex-col"
           >
             <span className="text-muted font-bold text-[14px]">Biểu đồ dòng tiền (Cash Flow)</span>
-            <span className="text-muted/50 text-[12px]">Data loaded from API</span>
+            <span className="text-muted/50 text-[12px]">Dữ liệu được tải từ API</span>
           </div>
         </div>
 

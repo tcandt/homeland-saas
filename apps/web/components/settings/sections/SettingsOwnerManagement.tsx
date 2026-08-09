@@ -2,11 +2,12 @@
 
 import React from "react";
 import useSWR from "swr";
-import { Activity, Building2, LockKeyhole, RefreshCcw, UsersRound } from "lucide-react";
+import { Activity, Building2, CreditCard, LockKeyhole, RefreshCcw, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { auditApi } from "@/lib/api/audit.api";
+import { financeApi } from "@/lib/api/finance.api";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 
 type OwnerSettings = {
@@ -54,6 +55,12 @@ function describeAuditChange(log: any) {
     return `Cài đặt ${log.entityId || ""}`.trim();
   }
   return log.entityId || log.entity;
+}
+
+function maskAccountNumber(value?: string) {
+  if (!value) return "-";
+  if (value.length <= 4) return value;
+  return `${"*".repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
 }
 
 function OwnerCard({
@@ -132,7 +139,11 @@ export default function SettingsOwnerManagement() {
   const audit = useSWR(["owner-audit-logs"], () => auditApi.logs({ limit: 20, module: "Auth,Settings" }), {
     revalidateOnFocus: false,
   });
+  const owners = useSWR(["finance-owners-for-settings"], () => financeApi.getOwners(), {
+    revalidateOnFocus: false,
+  });
   const auditRows = audit.data || [];
+  const ownerRows = Array.isArray(owners.data) ? owners.data : [];
 
   return (
     <Card className="p-[20px]">
@@ -172,6 +183,68 @@ export default function SettingsOwnerManagement() {
 
         <div className="rounded-[14px] border border-blue-200 bg-blue-50 px-[14px] py-[12px] text-[12px] font-semibold leading-relaxed text-blue-900">
           Mapping hiện tại: LK01-31 và LK08-25 thuộc chủ Tính; LK01-32 và LK08-24 thuộc chủ Thể. Account owner A/B có toàn quyền vận hành, còn account admin thường chỉ vận hành và không chỉnh sửa token cài đặt.
+        </div>
+
+        <div className="overflow-hidden rounded-[16px] border border-border bg-background/70">
+          <div className="flex flex-col gap-[10px] border-b border-border px-[14px] py-[12px] sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-[8px] text-[13px] font-black text-text">
+                <CreditCard size={16} className="text-primary" /> Bank SePay theo chủ sở hữu
+              </div>
+              <p className="mt-[3px] text-[12px] text-muted">Dữ liệu đọc từ bank account đã gắn owner. Dùng để đối soát tiền vào đúng chủ/tòa.</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => owners.mutate()} isLoading={owners.isLoading}>
+              <RefreshCcw size={13} className="mr-2" /> Làm mới
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-[12px] p-[14px] xl:grid-cols-2">
+            {owners.isLoading && (
+              <div className="col-span-full rounded-[14px] border border-border bg-card px-[14px] py-[20px] text-center text-[13px] font-semibold text-muted">
+                Đang tải danh sách bank...
+              </div>
+            )}
+            {!owners.isLoading && ownerRows.length === 0 && (
+              <div className="col-span-full rounded-[14px] border border-border bg-card px-[14px] py-[20px] text-center text-[13px] font-semibold text-muted">
+                Chưa có bank account theo owner.
+              </div>
+            )}
+            {ownerRows.map((owner: any) => (
+              <div key={owner.id} className="rounded-[14px] border border-border bg-card p-[14px]">
+                <div className="flex items-start justify-between gap-[12px]">
+                  <div>
+                    <div className="text-[12px] font-black text-text">{owner.name}</div>
+                    <div className="mt-[2px] text-[11px] font-semibold text-muted">{(owner.buildings || []).map((building: any) => building.code).join(", ") || "Chưa gắn tòa"}</div>
+                  </div>
+                  <span className="rounded-full bg-primary/10 px-[9px] py-[4px] text-[11px] font-black text-primary">
+                    {(owner.bankAccounts || []).length} bank
+                  </span>
+                </div>
+
+                <div className="mt-[12px] flex flex-col gap-[8px]">
+                  {(owner.bankAccounts || []).length === 0 && (
+                    <div className="rounded-[12px] border border-dashed border-border px-[12px] py-[10px] text-[12px] font-semibold text-muted">
+                      Owner này chưa có bank account.
+                    </div>
+                  )}
+                  {(owner.bankAccounts || []).map((bank: any) => (
+                    <div key={bank.id} className="rounded-[12px] border border-border bg-background/80 px-[12px] py-[10px]">
+                      <div className="flex items-start justify-between gap-[12px]">
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] font-black text-text">{bank.bankName}</div>
+                          <div className="mt-[2px] truncate text-[12px] font-semibold text-muted">{bank.accountName}</div>
+                        </div>
+                        <span className={`rounded-full px-[8px] py-[3px] text-[10px] font-black ${bank.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                          {bank.isActive ? "Đang bật" : "Đã tắt"}
+                        </span>
+                      </div>
+                      <div className="mt-[8px] text-[12px] font-black text-text">{maskAccountNumber(bank.accountNumber)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="overflow-hidden rounded-[16px] border border-border bg-background/70">

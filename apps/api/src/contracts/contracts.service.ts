@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
-import { Contract, ContractStatus, DepositStatus, InvoiceItemType, InvoiceStatus, RoomStatus } from '@prisma/client';
+import { Contract, ContractStatus, DepositStatus, InvoiceItemType, InvoiceStatus, ReceiptStatus, RoomStatus } from '@prisma/client';
 import { ContractSettlementInput, PaginatedResult } from '@homeland/shared';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
@@ -292,7 +292,20 @@ export class ContractsService extends BaseCrudService<Contract> {
         },
       });
 
-      return { updatedContract, updatedRoom, invoice };
+      const refundReceipt = settlement.totals.refundToCustomer > 0
+        ? await tx.receipt.create({
+            data: {
+              tenantId: contract.tenantId,
+              code: this.buildRefundReceiptCode(contract.code),
+              amount: settlement.totals.refundToCustomer,
+              status: ReceiptStatus.COMPLETED,
+              description: `Contract settlement refund for ${contract.code}`,
+              date: settlement.actualMoveOutDate,
+            },
+          })
+        : null;
+
+      return { updatedContract, updatedRoom, invoice, refundReceipt };
     });
 
     await this.auditService.log({
@@ -304,9 +317,29 @@ export class ContractsService extends BaseCrudService<Contract> {
       after: {
         ...result.updatedContract,
         settlement,
+        refundReceipt: result.refundReceipt
+          ? {
+              id: result.refundReceipt.id,
+              code: result.refundReceipt.code,
+              amount: result.refundReceipt.amount,
+              status: result.refundReceipt.status,
+            }
+          : null,
       },
       userId,
     });
+
+    if (result.refundReceipt) {
+      await this.auditService.log({
+        action: 'CREATE',
+        entity: 'Receipt',
+        entityId: result.refundReceipt.id,
+        module: 'Contracts',
+        before: null,
+        after: result.refundReceipt,
+        userId,
+      });
+    }
 
     if (settlement.totals.refundToCustomer > 0) {
       this.eventPublisher.publish('contract.settlement.refunded', {
@@ -405,5 +438,10 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   private roundMoney(value: number) {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+  }
+
+  private buildRefundReceiptCode(contractCode: string) {
+    const normalizedCode = String(contractCode || 'CONTRACT').replace(/[^A-Z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toUpperCase();
+    return `RCT-${normalizedCode}-${Date.now()}`;
   }
 }

@@ -604,7 +604,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Tính hoàn cọc.
 - [x] Tính khấu trừ cọc.
 - [x] Tạo hóa đơn quyết toán nếu khách còn phải trả.
-- [ ] Tạo phiếu hoàn tiền nếu hệ thống phải trả lại khách.
+- [x] Tạo phiếu hoàn tiền nếu hệ thống phải trả lại khách.
 - [ ] Ghi chứng từ và audit log.
 - [ ] Chuyển phòng sang `CLEANING` hoặc `MAINTENANCE`.
 - [ ] Sau khi hoàn tất vệ sinh/bảo trì, chuyển phòng về `AVAILABLE`.

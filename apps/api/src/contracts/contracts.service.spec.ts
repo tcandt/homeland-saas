@@ -20,6 +20,9 @@ describe('ContractsService', () => {
         contract: {
           update: vi.fn(),
         },
+        receipt: {
+          create: vi.fn(),
+        },
         room: {
           findUnique: vi.fn(),
           update: vi.fn(),
@@ -302,6 +305,7 @@ describe('ContractsService', () => {
       prismaService.tx.contract.update.mockResolvedValue(updatedContract);
       prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
       prismaService.tx.invoice.create = vi.fn().mockResolvedValue({ id: 'inv2' });
+      prismaService.tx.receipt.create.mockResolvedValue({ id: 'rcpt-1', code: 'RCT-C-002-1', amount: 500, status: 'COMPLETED' });
 
       await service.terminateContract('c1', 'user1', {
         actualMoveOutDate: '2026-08-10T00:00:00.000Z',
@@ -336,6 +340,59 @@ describe('ContractsService', () => {
             ],
           },
         }),
+      }));
+      expect(prismaService.tx.receipt.create).not.toHaveBeenCalled();
+      expect(eventPublisher.publish).not.toHaveBeenCalledWith(
+        'contract.settlement.refunded',
+        expect.anything(),
+      );
+    });
+
+    it('should create a completed refund receipt when settlement credits exceed charges', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-REFUND',
+        status: ContractStatus.ACTIVE,
+        roomId: 'r1',
+        tenantId: 't1',
+        customerId: 'cu1',
+        customer: { fullName: 'Khach A', phone: '0901' },
+        monthlyRent: 9000,
+      };
+      const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.contract.update.mockResolvedValue(updatedContract);
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
+      prismaService.tx.invoice.create = vi.fn().mockResolvedValue({ id: 'inv3' });
+      prismaService.tx.receipt.create.mockResolvedValue({ id: 'rcpt-1', code: 'RCT-C-REFUND-1', amount: 500, status: 'COMPLETED' });
+
+      await service.terminateContract('c1', 'user1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 1,
+        depositToRefund: 800,
+      });
+
+      expect(prismaService.tx.receipt.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 't1',
+          amount: 500,
+          status: 'COMPLETED',
+          description: 'Contract settlement refund for C-REFUND',
+        }),
+      }));
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'contract.settlement.refunded',
+        expect.objectContaining({
+          amount: 500,
+          sourceId: 'c1',
+          sourceType: 'REFUND',
+        }),
+      );
+      expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'CREATE',
+        entity: 'Receipt',
+        entityId: 'rcpt-1',
       }));
     });
 

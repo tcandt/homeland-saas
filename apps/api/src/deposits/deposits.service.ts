@@ -95,7 +95,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
   }
 
   async refund(id: string, reason: string, userId: string) {
-    const deposit = await this.repository.findById(id);
+    const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.PAID) {
       throw new BadRequestException('Can only refund PAID deposits');
@@ -113,6 +113,24 @@ export class DepositsService extends BaseCrudService<Deposit> {
       action: 'REFUND',
       before: deposit,
       after: updated,
+    });
+
+    this.eventPublisher.publish('deposit.refunded', {
+      tenantId: deposit.tenantId,
+      userId,
+      customerId: deposit.customerId,
+      customerName: deposit.customer?.fullName,
+      customerPhone: deposit.customer?.phone,
+      metadata: {
+        code: deposit.code,
+        note: reason,
+        refundSourceType: 'DEPOSIT',
+      },
+      sourceId: deposit.id,
+      sourceType: 'REFUND',
+      amount: Number(deposit.amount),
+      paymentProvider: 'MANUAL',
+      occurredAt: new Date(),
     });
 
     return updated;

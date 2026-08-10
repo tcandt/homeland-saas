@@ -24,7 +24,7 @@ export class WorkflowEngine {
   }
 
   async executeWorkflow(workflowName: string, eventName: string, payload: any) {
-    const workflow = WORKFLOW_REGISTRY.find(w => w.name === workflowName);
+    const workflow = WORKFLOW_REGISTRY.find((item) => item.name === workflowName);
     if (!workflow) {
       this.logger.warn(`Workflow ${workflowName} not found`);
       return;
@@ -43,7 +43,7 @@ export class WorkflowEngine {
     });
 
     try {
-      const steps = [...workflow.steps].sort((a, b) => a.order - b.order);
+      const steps = [...workflow.steps].sort((left, right) => left.order - right.order);
 
       for (const step of steps) {
         const stepExec = await this.prisma.workflowStepExecution.create({
@@ -65,10 +65,14 @@ export class WorkflowEngine {
             where: { id: stepExec.id },
             data: { status: WorkflowStatus.SUCCESS, completedAt: new Date() },
           });
-        } catch (stepErr) {
+        } catch (stepErr: any) {
           await this.prisma.workflowStepExecution.update({
             where: { id: stepExec.id },
-            data: { status: WorkflowStatus.FAILED, completedAt: new Date(), error: stepErr.message },
+            data: {
+              status: WorkflowStatus.FAILED,
+              completedAt: new Date(),
+              error: stepErr.message,
+            },
           });
           throw stepErr;
         }
@@ -79,7 +83,7 @@ export class WorkflowEngine {
         data: { status: WorkflowStatus.SUCCESS, completedAt: new Date() },
       });
       this.logger.log(`Workflow ${workflowName} completed successfully.`);
-    } catch (err) {
+    } catch (err: any) {
       await this.prisma.workflowExecution.update({
         where: { id: execution.id },
         data: { status: WorkflowStatus.FAILED, completedAt: new Date(), error: err.message },
@@ -126,22 +130,29 @@ export class WorkflowEngine {
         await this.analyticsCache.invalidateFinance(payload.tenantId);
         break;
       case 'GENERATE_DOCUMENT':
-        await this.documentsService.generateDocument(payload.tenantId, params?.templateCode || 'CONTRACT_TEMPLATE', payload, {
-          title: payload.title || `Document for ${payload.code || 'Entity'}`,
-          sourceType: payload.sourceType || (eventName ? eventName.split('.')[0].toUpperCase() : 'UNKNOWN'),
-          sourceId: payload.id || payload.sourceId,
-          createdBy: 'automation_engine',
-        });
+        await this.documentsService.generateDocument(
+          payload.tenantId,
+          params?.templateCode || 'CONTRACT_TEMPLATE',
+          payload,
+          {
+            title: payload.title || `Document for ${payload.code || 'Entity'}`,
+            sourceType: payload.sourceType || (eventName ? eventName.split('.')[0].toUpperCase() : 'UNKNOWN'),
+            sourceId: payload.id || payload.sourceId,
+            createdBy: 'automation_engine',
+          },
+        );
         break;
       case 'REQUEST_SIGNATURE':
         if (payload.documentId) {
           await this.documentsService.requestSignature(payload.tenantId, payload.documentId, {
             title: `Signature required for ${payload.code || 'Document'}`,
-            parties: params?.parties || [{
-              name: payload.customerName || 'Customer',
-              email: payload.customerEmail || 'customer@example.com',
-              role: 'CUSTOMER',
-            }],
+            parties: params?.parties || [
+              {
+                name: payload.customerName || 'Customer',
+                email: payload.customerEmail || 'customer@example.com',
+                role: 'CUSTOMER',
+              },
+            ],
           });
         }
         break;
@@ -159,31 +170,61 @@ export class WorkflowEngine {
     const bankAccount = await this.prisma.chartOfAccount.findFirst({
       where: { tenantId: payload.tenantId, code: '1100' },
     });
-    const creditAccountCode = payload.sourceType === 'INVOICE' ? '4000' : '1300';
-    const creditAccount = await this.prisma.chartOfAccount.findFirst({
-      where: { tenantId: payload.tenantId, code: creditAccountCode },
+    const offsetAccountCode =
+      payload.sourceType === 'INVOICE'
+        ? '4000'
+        : payload.sourceType === 'REFUND' && payload.metadata?.refundSourceType === 'DEPOSIT'
+          ? '1300'
+          : '1300';
+    const offsetAccount = await this.prisma.chartOfAccount.findFirst({
+      where: { tenantId: payload.tenantId, code: offsetAccountCode },
     });
 
-    if (!bankAccount || !creditAccount) {
+    if (!bankAccount || !offsetAccount) {
       throw new Error('Required Chart of Accounts not found');
     }
+
+    const isRefund = payload.sourceType === 'REFUND';
+    const lines = isRefund
+      ? [
+          {
+            accountId: offsetAccount.id,
+            type: 'DEBIT',
+            amount: payload.amount,
+            description: 'Giam nghia vu phai tra coc',
+          },
+          {
+            accountId: bankAccount.id,
+            type: 'CREDIT',
+            amount: payload.amount,
+            description: 'Chi tien hoan coc',
+          },
+        ]
+      : [
+          {
+            accountId: bankAccount.id,
+            type: 'DEBIT',
+            amount: payload.amount,
+            description: 'Tien vao ngan hang',
+          },
+          {
+            accountId: offsetAccount.id,
+            type: 'CREDIT',
+            amount: payload.amount,
+            description: payload.sourceType === 'INVOICE' ? 'Doanh thu hoa don' : 'Phai tra coc',
+          },
+        ];
 
     await this.journalEntryService.createJournalEntry(payload.tenantId, {
       code: `JE-${payload.sourceType || 'SYS'}-${Date.now()}`,
       sourceType: payload.sourceType || 'UNKNOWN',
       sourceId: payload.id || payload.sourceId,
-      description: payload.metadata?.code ? `Ghi nhận ${payload.sourceType} ${payload.metadata.code}` : `Ghi nhận ${payload.sourceType}`,
+      description: payload.metadata?.code
+        ? `${isRefund ? 'Hoan' : 'Ghi nhan'} ${payload.sourceType} ${payload.metadata.code}`
+        : `${isRefund ? 'Hoan' : 'Ghi nhan'} ${payload.sourceType}`,
       entryDate: new Date(),
       status: 'POSTED',
-      lines: [
-        { accountId: bankAccount.id, type: 'DEBIT', amount: payload.amount, description: 'Tiền vào ngân hàng' },
-        {
-          accountId: creditAccount.id,
-          type: 'CREDIT',
-          amount: payload.amount,
-          description: payload.sourceType === 'INVOICE' ? 'Doanh thu hóa đơn' : 'Phải trả cọc',
-        },
-      ],
+      lines,
     });
   }
 }

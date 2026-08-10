@@ -19,6 +19,11 @@ export class AutomationListener {
     await this.processEvent('invoice.paid', payload);
   }
 
+  @OnEvent('deposit.refunded')
+  async handleDepositRefunded(payload: DomainEventPayload) {
+    await this.processEvent('deposit.refunded', payload);
+  }
+
   @OnEvent('contract.created')
   async handleContractCreated(payload: DomainEventPayload) {
     await this.processEvent('contract.created', payload);
@@ -31,7 +36,7 @@ export class AutomationListener {
     // For this sprint, we statically map them in workflow engine, but we trigger the check here.
     
     // We only process specific events to avoid infinite loops for now
-    const supportedEvents = ['deposit.collected', 'invoice.paid', 'contract.created'];
+    const supportedEvents = ['deposit.collected', 'deposit.refunded', 'invoice.paid', 'contract.created'];
     if (supportedEvents.includes(eventName)) {
       // Find workflows that trigger on this event
       const workflows = await this.automationService.getWorkflows();

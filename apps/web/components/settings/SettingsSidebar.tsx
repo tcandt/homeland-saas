@@ -27,32 +27,32 @@ const groups: SidebarGroup[] = [
   {
     label: "SYSTEM",
     items: [
-      { id: "overview", icon: <Activity size={15} />, label: "Overview & Status", desc: "Tổng quan hệ thống" },
+      { id: "overview", icon: <Activity size={15} />, label: "Tổng quan hệ thống", desc: "Tình trạng và cấu hình chung" },
     ],
   },
   {
     label: "ACCESS & SECURITY",
     items: [
-      { id: "profile", icon: <User size={15} />, label: "My Profile", desc: "Hồ sơ cá nhân" },
-      { id: "security", icon: <Shield size={15} />, label: "Account Security", desc: "Bảo mật tài khoản" },
-      { id: "team", icon: <Users size={15} />, label: "Team & Roles", desc: "Nhân sự, phân quyền" },
+      { id: "profile", icon: <User size={15} />, label: "Hồ sơ cá nhân", desc: "Thông tin tài khoản đăng nhập" },
+      { id: "security", icon: <Shield size={15} />, label: "Bảo mật tài khoản", desc: "Mật khẩu và kiểm soát truy cập" },
+      { id: "team", icon: <Users size={15} />, label: "Nhân sự & phân quyền", desc: "Account nội bộ và vai trò" },
     ],
   },
   {
     label: "AUTOMATION",
     items: [
-      { id: "notifications", icon: <Bell size={15} />, label: "Notification Automation", desc: "Chuỗi nhắc thông báo" },
+      { id: "notifications", icon: <Bell size={15} />, label: "Tự động thông báo", desc: "Chuỗi nhắc và rule gửi tin" },
     ],
   },
   {
     label: "FINANCE & DATA",
     items: [
-      { id: "accounting", icon: <BookOpen size={15} />, label: "Accounting Config", desc: "Tài khoản, kế toán" },
-      { id: "templates", icon: <FileText size={15} />, label: "Templates", desc: "Mẫu hợp đồng, hóa đơn" },
-      { id: "integrations", icon: <Plug size={15} />, label: "Integration Center", desc: "Kết nối ứng dụng" },
-      { id: "owners", icon: <UsersRound size={15} />, label: "Owner Management", desc: "Chủ sở hữu và phân tòa" },
-      { id: "hunonic", icon: <PlugZap size={15} />, label: "Hunonic Electricity", desc: "Công tơ điện LK01" },
-      { id: "backup", icon: <Database size={15} />, label: "Data & Backup", desc: "Sao lưu dữ liệu" },
+      { id: "accounting", icon: <BookOpen size={15} />, label: "Cấu hình kế toán", desc: "Tài khoản và hạch toán" },
+      { id: "templates", icon: <FileText size={15} />, label: "Biểu mẫu", desc: "Mẫu hợp đồng và hóa đơn" },
+      { id: "integrations", icon: <Plug size={15} />, label: "Trung tâm tích hợp", desc: "Kết nối ứng dụng và webhook" },
+      { id: "owners", icon: <UsersRound size={15} />, label: "Chủ sở hữu", desc: "Phân tòa và tài khoản owner" },
+      { id: "hunonic", icon: <PlugZap size={15} />, label: "Điện Hunonic", desc: "Công tơ điện và đồng bộ LK01" },
+      { id: "backup", icon: <Database size={15} />, label: "Sao lưu dữ liệu", desc: "Lưu trữ và khôi phục" },
     ],
   },
 ];
@@ -64,10 +64,10 @@ interface Props {
 
 export default function SettingsSidebar({ activeSection, onSelect }: Props) {
   return (
-    <div className="w-full lg:w-[280px] shrink-0 flex flex-col gap-[8px] lg:sticky lg:top-[80px]">
+    <div className="flex w-full shrink-0 flex-col gap-[8px] lg:sticky lg:top-[80px] lg:w-[280px]">
       {groups.map((group) => (
         <div key={group.label} className="flex flex-col gap-[2px]">
-          <div className="text-[10px] font-black text-muted tracking-[0.12em] uppercase px-[12px] py-[6px]">
+          <div className="px-[12px] py-[6px] text-[10px] font-black uppercase tracking-[0.12em] text-muted">
             {group.label}
           </div>
           {group.items.map((item) => {
@@ -77,16 +77,16 @@ export default function SettingsSidebar({ activeSection, onSelect }: Props) {
                 key={item.id}
                 onClick={() => onSelect(item.id)}
                 variant={isActive ? "primary" : "ghost"}
-                className={`flex items-center gap-[10px] px-[12px] py-[10px] h-auto rounded-xl text-left transition-all duration-150 group w-full justify-start ${isActive ? "shadow-sm" : ""}`}
+                className={`group flex h-auto w-full items-center justify-start gap-[10px] rounded-xl px-[12px] py-[10px] text-left transition-all duration-150 ${isActive ? "shadow-sm" : ""}`}
               >
                 <span className={`shrink-0 ${isActive ? "text-white" : "text-muted group-hover:text-primary"}`}>
                   {item.icon}
                 </span>
-                <div className="flex flex-col flex-1 min-w-0 items-start">
+                <div className="flex min-w-0 flex-1 flex-col items-start">
                   <span className={`text-[13px] font-bold leading-none ${isActive ? "text-white" : "text-text"}`}>
                     {item.label}
                   </span>
-                  <span className={`text-[11px] font-medium mt-[2px] ${isActive ? "text-white/70" : "text-muted"}`}>
+                  <span className={`mt-[2px] text-[11px] font-medium ${isActive ? "text-white/70" : "text-muted"}`}>
                     {item.desc}
                   </span>
                 </div>

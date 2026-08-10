@@ -14,10 +14,10 @@ import { financeKeys, useSePayReconciliationQuery } from "@/lib/queries/finance.
 const statusOptions = [
   { value: "", label: "Tất cả" },
   { value: "MATCHED", label: "Đã khớp" },
-  { value: "UNMATCHED", label: "Chưa match" },
+  { value: "UNMATCHED", label: "Chưa khớp" },
   { value: "SHORT_AMOUNT", label: "Thiếu tiền" },
   { value: "OVER_AMOUNT", label: "Thừa tiền" },
-  { value: "WRONG_BANK", label: "Sai bank" },
+  { value: "WRONG_BANK", label: "Sai ngân hàng" },
   { value: "IGNORED_OUTGOING", label: "Giao dịch ra" },
 ];
 
@@ -34,10 +34,10 @@ const overpaymentResolutionOptions = [
 
 const statusLabels: Record<string, string> = {
   MATCHED: "Đã khớp",
-  UNMATCHED: "Chưa match",
+  UNMATCHED: "Chưa khớp",
   SHORT_AMOUNT: "Thiếu tiền",
   OVER_AMOUNT: "Thừa tiền",
-  WRONG_BANK: "Sai bank",
+  WRONG_BANK: "Sai ngân hàng",
   IGNORED_OUTGOING: "Giao dịch ra",
 };
 

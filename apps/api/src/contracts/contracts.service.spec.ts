@@ -4,6 +4,7 @@ import { ContractsService } from './contracts.service';
 import { ContractsRepository } from './contracts.repository';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
+import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { ContractStatus, RoomStatus } from '@prisma/client';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 
@@ -11,6 +12,7 @@ describe('ContractsService', () => {
   let service: ContractsService;
   let prismaService: any;
   let auditService: any;
+  let eventPublisher: any;
 
   beforeEach(async () => {
     prismaService = {
@@ -33,6 +35,10 @@ describe('ContractsService', () => {
       log: vi.fn(),
     };
 
+    eventPublisher = {
+      publish: vi.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ContractsService,
@@ -49,6 +55,10 @@ describe('ContractsService', () => {
         {
           provide: AuditService,
           useValue: auditService,
+        },
+        {
+          provide: DomainEventPublisher,
+          useValue: eventPublisher,
         },
       ],
     }).compile();

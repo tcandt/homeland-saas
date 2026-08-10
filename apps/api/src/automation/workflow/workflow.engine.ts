@@ -168,7 +168,9 @@ export class WorkflowEngine {
   private async createJournalEntryFromPaymentEvent(payload: any) {
     if (!payload.amount) return;
 
-    const isDepositRefund = payload.sourceType === 'REFUND' && payload.metadata?.refundSourceType === 'DEPOSIT';
+    const refundSourceType = payload.metadata?.refundSourceType;
+    const isDepositRefund = payload.sourceType === 'REFUND' && refundSourceType === 'DEPOSIT';
+    const isContractSettlementRefund = payload.sourceType === 'REFUND' && refundSourceType === 'CONTRACT_SETTLEMENT';
     const isDepositDeduction = payload.sourceType === 'ADJUSTMENT' && payload.metadata?.adjustmentType === 'DEPOSIT_DEDUCTION';
 
     if (isDepositDeduction) {
@@ -205,6 +207,46 @@ export class WorkflowEngine {
             type: 'CREDIT',
             amount: payload.amount,
             description: 'Ghi nhan doanh thu giu coc',
+          },
+        ],
+      });
+      return;
+    }
+
+    if (isContractSettlementRefund) {
+      const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100');
+      const contraRevenue = await this.resolveChartOfAccount(
+        payload.tenantId,
+        '4015',
+        'Rental Refund Contra Revenue',
+        AccountType.REVENUE,
+      );
+
+      if (!bankAccount || !contraRevenue) {
+        throw new Error('Required Chart of Accounts not found');
+      }
+
+      await this.journalEntryService.createJournalEntry(payload.tenantId, {
+        code: `JE-${payload.sourceType || 'SYS'}-${Date.now()}`,
+        sourceType: payload.sourceType || 'UNKNOWN',
+        sourceId: payload.id || payload.sourceId,
+        description: payload.metadata?.code
+          ? `Contract settlement refund ${payload.metadata.code}`
+          : 'Contract settlement refund',
+        entryDate: new Date(),
+        status: 'POSTED',
+        lines: [
+          {
+            accountId: contraRevenue.id,
+            type: 'DEBIT',
+            amount: payload.amount,
+            description: 'Contract settlement refund to tenant',
+          },
+          {
+            accountId: bankAccount.id,
+            type: 'CREDIT',
+            amount: payload.amount,
+            description: 'Cash out for contract settlement refund',
           },
         ],
       });

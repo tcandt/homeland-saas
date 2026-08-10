@@ -167,4 +167,37 @@ describe('WorkflowEngine', () => {
       }),
     );
   });
+
+  it('posts contract settlement refunds to contra revenue and bank accounts', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'settlement-contra-revenue', code: '4015' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1',
+      sourceType: 'REFUND',
+      sourceId: 'contract-1',
+      amount: 350000,
+      metadata: { code: 'C-001', refundSourceType: 'CONTRACT_SETTLEMENT' },
+    });
+
+    expect(prisma.chartOfAccount.findFirst).toHaveBeenNthCalledWith(1, {
+      where: { tenantId: 'tenant-1', code: '1100' },
+    });
+    expect(prisma.chartOfAccount.findFirst).toHaveBeenNthCalledWith(2, {
+      where: { tenantId: 'tenant-1', code: '4015' },
+    });
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        sourceType: 'REFUND',
+        sourceId: 'contract-1',
+        lines: [
+          expect.objectContaining({ accountId: 'settlement-contra-revenue', type: 'DEBIT', amount: 350000 }),
+          expect.objectContaining({ accountId: 'bank-account', type: 'CREDIT', amount: 350000 }),
+        ],
+      }),
+    );
+  });
 });

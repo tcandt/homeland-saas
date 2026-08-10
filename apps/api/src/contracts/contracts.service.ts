@@ -3,6 +3,7 @@ import { Contract, ContractStatus, DepositStatus, InvoiceItemType, InvoiceStatus
 import { ContractSettlementInput, PaginatedResult } from '@homeland/shared';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
+import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { BaseCrudService } from '../shared/services/base-crud.service';
 import { mapStatusFilter } from './contracts.adapter';
 import { ContractsRepository } from './contracts.repository';
@@ -13,6 +14,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     repository: ContractsRepository,
     auditService: AuditService,
     private readonly prisma: PrismaService,
+    private readonly eventPublisher: DomainEventPublisher,
   ) {
     super(repository, auditService, 'Contract');
   }
@@ -305,6 +307,27 @@ export class ContractsService extends BaseCrudService<Contract> {
       },
       userId,
     });
+
+    if (settlement.totals.refundToCustomer > 0) {
+      this.eventPublisher.publish('contract.settlement.refunded', {
+        tenantId: contract.tenantId,
+        userId,
+        customerId: contract.customerId,
+        customerName: contract.customer?.fullName,
+        customerPhone: contract.customer?.phone,
+        metadata: {
+          code: contract.code,
+          refundSourceType: 'CONTRACT_SETTLEMENT',
+          actualMoveOutDate: settlement.actualMoveOutDate,
+          settlement,
+        },
+        sourceId: contract.id,
+        sourceType: 'REFUND',
+        amount: settlement.totals.refundToCustomer,
+        paymentProvider: 'MANUAL',
+        occurredAt: new Date(),
+      });
+    }
 
     return result.updatedContract;
   }

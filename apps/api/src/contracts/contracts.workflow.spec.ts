@@ -4,12 +4,14 @@ import { ContractsService } from './contracts.service';
 import { ContractsRepository } from './contracts.repository';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
+import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { ContractStatus, RoomStatus, DepositStatus } from '@prisma/client';
 
 describe('Contracts Workflow Verification', () => {
   let service: ContractsService;
   let prismaService: any;
   let auditService: any;
+  let eventPublisher: any;
 
   // In-memory state for the full workflow
   let currentContract: any;
@@ -83,6 +85,10 @@ describe('Contracts Workflow Verification', () => {
       log: vi.fn(),
     };
 
+    eventPublisher = {
+      publish: vi.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ContractsService,
@@ -99,6 +105,10 @@ describe('Contracts Workflow Verification', () => {
         {
           provide: AuditService,
           useValue: auditService,
+        },
+        {
+          provide: DomainEventPublisher,
+          useValue: eventPublisher,
         },
       ],
     }).compile();

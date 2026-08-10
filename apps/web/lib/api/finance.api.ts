@@ -34,6 +34,9 @@ export const financeApi = {
   manualAssignSePayTransaction: async (payload: { logId: string; sourceType: 'INVOICE' | 'DEPOSIT'; sourceCode: string }) => {
     return await apiClient.post<any>('/payments/sepay/manual-assign', payload);
   },
+  resolveSePayOverpayment: async (payload: { logId: string; resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD' | 'REFUND_PENDING' }) => {
+    return await apiClient.post<any>('/payments/sepay/resolve-overpayment', payload);
+  },
   getExpenses: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/expenses', { params });
   },

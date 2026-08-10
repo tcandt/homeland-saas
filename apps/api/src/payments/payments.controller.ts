@@ -61,6 +61,18 @@ export class PaymentsController {
     return this.paymentsService.manualAssignSePayTransaction(tenantId, userId, body as any);
   }
 
+  @Post('sepay/resolve-overpayment')
+  @ApiBearerAuth()
+  @RequirePermissions('finance.update')
+  @ApiOperation({ summary: 'Resolve an overpaid SePay transaction' })
+  resolveSePayOverpayment(
+    @Body() body: { logId: string; resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD' | 'REFUND_PENDING' },
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.paymentsService.resolveSePayOverpayment(tenantId, userId, body as any);
+  }
+
   @Post('sepay/webhook')
   @Public()
   @ApiOperation({ summary: 'SePay webhook for payment confirmation' })

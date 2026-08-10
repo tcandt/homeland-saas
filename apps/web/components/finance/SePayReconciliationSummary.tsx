@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Link2, SearchCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Link2, RotateCcw, SearchCheck } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -24,6 +24,12 @@ const statusOptions = [
 const sourceTypeOptions = [
   { value: "INVOICE", label: "Hóa đơn" },
   { value: "DEPOSIT", label: "Phiếu cọc" },
+];
+
+const overpaymentResolutionOptions = [
+  { value: "CREDIT_BALANCE", label: "Dư có khách hàng" },
+  { value: "CARRY_FORWARD", label: "Cấn trừ kỳ sau" },
+  { value: "REFUND_PENDING", label: "Chờ hoàn lại" },
 ];
 
 const statusLabels: Record<string, string> = {
@@ -54,8 +60,10 @@ export default function SePayReconciliationSummary() {
   const [month, setMonth] = useState("");
   const [status, setStatus] = useState("");
   const [activeRow, setActiveRow] = useState<any | null>(null);
+  const [resolutionRow, setResolutionRow] = useState<any | null>(null);
   const [sourceType, setSourceType] = useState<"INVOICE" | "DEPOSIT">("INVOICE");
   const [sourceCode, setSourceCode] = useState("");
+  const [overpaymentResolution, setOverpaymentResolution] = useState<"CREDIT_BALANCE" | "CARRY_FORWARD" | "REFUND_PENDING">("CREDIT_BALANCE");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const params = useMemo(() => ({ year, ...(month ? { month } : {}), ...(status ? { status } : {}) }), [month, status, year]);
   const { data, isLoading, isError } = useSePayReconciliationQuery(params);
@@ -87,6 +95,16 @@ export default function SePayReconciliationSummary() {
     setIsSubmitting(false);
   };
 
+  const openResolveModal = (row: any) => {
+    setResolutionRow(row);
+    setOverpaymentResolution("CREDIT_BALANCE");
+  };
+
+  const closeResolveModal = () => {
+    setResolutionRow(null);
+    setIsSubmitting(false);
+  };
+
   const handleManualAssign = async () => {
     if (!activeRow || !sourceCode.trim()) {
       toast.error("Cần nhập mã hóa đơn hoặc mã cọc.");
@@ -105,6 +123,23 @@ export default function SePayReconciliationSummary() {
       closeAssignModal();
     } catch (error: any) {
       toast.error(error?.message || "Không thể gán giao dịch SePay.");
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleResolveOverpayment = async () => {
+    if (!resolutionRow) return;
+    setIsSubmitting(true);
+    try {
+      await financeApi.resolveSePayOverpayment({
+        logId: resolutionRow.id,
+        resolution: overpaymentResolution,
+      });
+      await queryClient.invalidateQueries({ queryKey: financeKeys.all });
+      toast.success("Đã xử lý tiền thừa.");
+      closeResolveModal();
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể xử lý tiền thừa.");
       setIsSubmitting(false);
     }
   };
@@ -167,6 +202,7 @@ export default function SePayReconciliationSummary() {
                 )}
                 {rows.map((row: any) => {
                   const canManualAssign = row.status !== "MATCHED" && row.status !== "IGNORED_OUTGOING";
+                  const canResolveOverpayment = row.status === "OVER_AMOUNT";
                   return (
                     <tr key={row.id} className="border-t border-border">
                       <td className="px-4 py-3 text-[12px] font-semibold text-muted">{formatDateTime(row.createdAt)}</td>
@@ -192,14 +228,22 @@ export default function SePayReconciliationSummary() {
                         <div className="text-[11px] text-muted">{row.owner?.name || "Chưa xác định owner"}</div>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {canManualAssign ? (
-                          <Button variant="outline" size="sm" onClick={() => openAssignModal(row)}>
-                            <Link2 size={14} className="mr-1.5" />
-                            Gán tay
-                          </Button>
-                        ) : (
-                          <span className="text-[12px] font-semibold text-muted">-</span>
-                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          {canResolveOverpayment && (
+                            <Button variant="outline" size="sm" onClick={() => openResolveModal(row)}>
+                              <RotateCcw size={14} className="mr-1.5" />
+                              Xử lý thừa
+                            </Button>
+                          )}
+                          {canManualAssign ? (
+                            <Button variant="outline" size="sm" onClick={() => openAssignModal(row)}>
+                              <Link2 size={14} className="mr-1.5" />
+                              Gán tay
+                            </Button>
+                          ) : !canResolveOverpayment ? (
+                            <span className="text-[12px] font-semibold text-muted">-</span>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -258,6 +302,59 @@ export default function SePayReconciliationSummary() {
                   placeholder={sourceType === "INVOICE" ? "VD: INV-001" : "VD: DEP-001"}
                 />
               </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={!!resolutionRow}
+        onClose={closeResolveModal}
+        title="Xử lý tiền thừa SePay"
+        maxWidth="max-w-xl"
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <Button variant="outline" onClick={closeResolveModal}>
+              Hủy
+            </Button>
+            <Button onClick={handleResolveOverpayment} disabled={isSubmitting}>
+              {isSubmitting ? "Đang xử lý..." : "Xác nhận xử lý"}
+            </Button>
+          </div>
+        }
+      >
+        {resolutionRow && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-[14px] border border-border bg-surface p-3">
+                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Payment code</div>
+                <div className="mt-2 text-[13px] font-black text-text">{resolutionRow.paymentCode || "-"}</div>
+              </div>
+              <div className="rounded-[14px] border border-border bg-surface p-3">
+                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Tiền vào</div>
+                <div className="mt-2 text-[13px] font-black text-[#059669]">{formatVnd(resolutionRow.amount || 0)}</div>
+              </div>
+              <div className="rounded-[14px] border border-border bg-surface p-3">
+                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Tiền thừa</div>
+                <div className="mt-2 text-[13px] font-black text-blue-600">{formatVnd(Math.max(0, Number(resolutionRow.amount || 0) - Number(resolutionRow.expectedAmount || 0)))}</div>
+              </div>
+            </div>
+
+            <div className="rounded-[14px] border border-blue-200 bg-blue-50 p-3 text-[12px] leading-5 text-blue-900">
+              `Dư có khách hàng` và `Cấn trừ kỳ sau` sẽ tạo credit note để dùng về sau. `Chờ hoàn lại` sẽ tạo tác vụ vận hành để kế toán xử lý hoàn tiền.
+            </div>
+
+            <div>
+              <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">Hướng xử lý</div>
+              <Select
+                value={overpaymentResolution}
+                onChange={(event) =>
+                  setOverpaymentResolution(
+                    event.target.value as "CREDIT_BALANCE" | "CARRY_FORWARD" | "REFUND_PENDING",
+                  )
+                }
+                options={overpaymentResolutionOptions}
+              />
             </div>
           </div>
         )}

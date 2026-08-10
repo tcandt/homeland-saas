@@ -570,7 +570,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hiển thị giao dịch treo chưa match payment code.
 - [x] Cho phép gán thủ công giao dịch vào hóa đơn/cọc.
 - [x] Ghi nhận thanh toán một phần.
-- [ ] Xử lý thừa tiền bằng hoàn lại, dư có hoặc cấn trừ kỳ sau.
+- [x] Xử lý thừa tiền bằng hoàn lại, dư có hoặc cấn trừ kỳ sau.
 - [x] Cảnh báo nếu tiền vào bank không thuộc owner của tòa/phòng.
 - [x] Chống ghi nhận trùng webhook.
 - [x] Log toàn bộ webhook raw payload.

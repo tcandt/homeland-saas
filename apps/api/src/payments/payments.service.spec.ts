@@ -20,6 +20,12 @@ describe('PaymentsService', () => {
         update: vi.fn(),
         create: vi.fn(),
       },
+      task: {
+        create: vi.fn(),
+      },
+      creditNote: {
+        create: vi.fn(),
+      },
       bankAccount: {
         findFirst: vi.fn(),
       },
@@ -423,5 +429,125 @@ describe('PaymentsService', () => {
         sourceCode: 'DEP-001',
       }),
     ).rejects.toThrow('Số tiền giao dịch phải đúng bằng tiền cọc');
+  });
+
+  it('resolves invoice overpayment into customer credit balance', async () => {
+    const { service, prisma } = createService({
+      paymentWebhookLog: {
+        upsert: vi.fn(),
+        update: vi.fn(),
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'log-over-1',
+          tenantId: 'tenant-1',
+          payload: {
+            id: 'txn-over-1',
+            code: 'PAY-TENANT-OVER-001',
+            transferType: 'in',
+            transferAmount: 120000,
+          },
+        }),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'request-over-1',
+          tenantId: 'tenant-1',
+          sourceType: PaymentSourceType.INVOICE,
+          sourceId: 'invoice-1',
+          paymentCode: 'PAY-TENANT-OVER-001',
+          amount: 100000,
+          metadata: {},
+        }),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+      invoice: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'invoice-1',
+          customerId: 'customer-1',
+          code: 'INV-001',
+        }),
+      },
+      creditNote: {
+        create: vi.fn(),
+      },
+    });
+
+    await expect(
+      service.resolveSePayOverpayment('tenant-1', 'user-1', {
+        logId: 'log-over-1',
+        resolution: 'CREDIT_BALANCE',
+      }),
+    ).resolves.toMatchObject({
+      success: true,
+      paymentCode: 'PAY-TENANT-OVER-001',
+      resolution: 'CREDIT_BALANCE',
+      overpaidAmount: 20000,
+    });
+
+    expect(prisma.creditNote.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant-1',
+        customerId: 'customer-1',
+        sourceInvoiceId: 'invoice-1',
+        amount: 20000,
+        remainingAmount: 20000,
+      }),
+    });
+    expect(prisma.task.create).not.toHaveBeenCalled();
+  });
+
+  it('resolves overpayment into refund pending task', async () => {
+    const { service, prisma } = createService({
+      paymentWebhookLog: {
+        upsert: vi.fn(),
+        update: vi.fn(),
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'log-over-2',
+          tenantId: 'tenant-1',
+          payload: {
+            id: 'txn-over-2',
+            code: 'PAY-TENANT-OVER-002',
+            transferType: 'in',
+            transferAmount: 150000,
+          },
+        }),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'request-over-2',
+          tenantId: 'tenant-1',
+          sourceType: PaymentSourceType.DEPOSIT,
+          sourceId: 'deposit-1',
+          paymentCode: 'PAY-TENANT-OVER-002',
+          amount: 100000,
+          metadata: {},
+        }),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+      task: {
+        create: vi.fn(),
+      },
+    });
+
+    await expect(
+      service.resolveSePayOverpayment('tenant-1', 'user-1', {
+        logId: 'log-over-2',
+        resolution: 'REFUND_PENDING',
+      }),
+    ).resolves.toMatchObject({
+      success: true,
+      resolution: 'REFUND_PENDING',
+      overpaidAmount: 50000,
+    });
+
+    expect(prisma.task.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant-1',
+        status: 'TODO',
+        priority: 'HIGH',
+      }),
+    });
+    expect(prisma.creditNote.create).not.toHaveBeenCalled();
   });
 });

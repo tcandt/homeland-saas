@@ -563,6 +563,152 @@ export class PaymentsService {
     };
   }
 
+  async resolveSePayOverpayment(
+    tenantId: string,
+    userId: string,
+    payload: { logId: string; resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD' | 'REFUND_PENDING' },
+  ) {
+    const log = await this.prisma.paymentWebhookLog.findFirst({
+      where: { id: payload.logId, tenantId },
+    });
+    if (!log) {
+      throw new BadRequestException('Không tìm thấy log SePay cần xử lý.');
+    }
+
+    const rawPayload = log.payload as any;
+    const paymentCode = this.resolveWebhookPaymentCode(rawPayload);
+    if (!paymentCode) {
+      throw new BadRequestException('Log SePay không có payment code hợp lệ.');
+    }
+
+    const request = await this.prisma.paymentRequest.findFirst({
+      where: {
+        tenantId,
+        provider: PaymentProvider.SEPAY,
+        paymentCode,
+      },
+      include: {
+        owner: true,
+      },
+    });
+    if (!request) {
+      throw new BadRequestException('Không tìm thấy payment request tương ứng.');
+    }
+    if (request.sourceType !== PaymentSourceType.INVOICE && request.sourceType !== PaymentSourceType.DEPOSIT) {
+      throw new BadRequestException('Nguồn thanh toán này chưa hỗ trợ xử lý tiền thừa.');
+    }
+
+    const providerAmount = Number(rawPayload.transferAmount ?? rawPayload.amount ?? 0);
+    const requestedAmount = Number(request.amount || 0);
+    const overpaidAmount = providerAmount - requestedAmount;
+    if (overpaidAmount <= 0) {
+      throw new BadRequestException('Giao dịch này không có tiền thừa để xử lý.');
+    }
+
+    const existingResolution = (request.metadata as any)?.overpaymentResolution || rawPayload?.overpaymentResolution;
+    if (existingResolution) {
+      throw new BadRequestException('Tiền thừa của giao dịch này đã được xử lý.');
+    }
+
+    const metadata = {
+      ...((request.metadata as any) || {}),
+      overpaymentResolution: payload.resolution,
+      overpaymentAmount: overpaidAmount,
+      overpaymentResolvedBy: userId,
+      overpaymentResolvedAt: new Date().toISOString(),
+      overpaymentLogId: payload.logId,
+    };
+
+    if (payload.resolution === 'REFUND_PENDING') {
+      const title =
+        request.sourceType === PaymentSourceType.INVOICE
+          ? `Hoàn lại tiền thừa SePay cho hóa đơn ${request.sourceId}`
+          : `Hoàn lại tiền thừa SePay cho phiếu cọc ${request.sourceId}`;
+
+      await this.prisma.task.create({
+        data: {
+          tenantId,
+          title,
+          description: `Payment code ${paymentCode} thừa ${overpaidAmount} đ. Cần xử lý hoàn lại tiền cho khách.`,
+          status: 'TODO' as any,
+          priority: 'HIGH' as any,
+        },
+      });
+    } else {
+      let customerId = '';
+      let sourceInvoiceId: string | null = null;
+      if (request.sourceType === PaymentSourceType.INVOICE) {
+        const invoice = await this.prisma.invoice.findFirst({
+          where: { tenantId, id: request.sourceId, deletedAt: null },
+          select: {
+            id: true,
+            customerId: true,
+            code: true,
+          },
+        });
+        if (!invoice) {
+          throw new BadRequestException('Không tìm thấy hóa đơn gốc để tạo dư có.');
+        }
+        customerId = invoice.customerId;
+        sourceInvoiceId = invoice.id;
+      } else {
+        const deposit = await this.prisma.deposit.findFirst({
+          where: { tenantId, id: request.sourceId, deletedAt: null },
+          select: {
+            id: true,
+            customerId: true,
+            code: true,
+          },
+        });
+        if (!deposit) {
+          throw new BadRequestException('Không tìm thấy phiếu cọc gốc để tạo dư có.');
+        }
+        customerId = deposit.customerId;
+      }
+
+      await this.prisma.creditNote.create({
+        data: {
+          tenantId,
+          customerId,
+          sourceInvoiceId,
+          amount: overpaidAmount,
+          remainingAmount: overpaidAmount,
+          reason:
+            payload.resolution === 'CARRY_FORWARD'
+              ? `SePay overpayment ${paymentCode} - carry forward`
+              : `SePay overpayment ${paymentCode} - credit balance`,
+        },
+      });
+    }
+
+    await this.prisma.paymentRequest.update({
+      where: { id: request.id },
+      data: {
+        metadata: metadata as any,
+      },
+    });
+
+    await this.prisma.paymentWebhookLog.update({
+      where: { id: log.id },
+      data: {
+        payload: {
+          ...rawPayload,
+          overpaymentResolution: payload.resolution,
+          overpaymentAmount: overpaidAmount,
+          overpaymentResolvedBy: userId,
+          overpaymentResolvedAt: new Date().toISOString(),
+        } as any,
+      },
+    });
+
+    return {
+      success: true,
+      paymentCode,
+      resolution: payload.resolution,
+      overpaidAmount,
+    };
+  }
+
   private resolveWebhookTransactionId(payload: SePayWebhookPayload) {
     return String(payload.transaction_id || payload.id || '');
   }

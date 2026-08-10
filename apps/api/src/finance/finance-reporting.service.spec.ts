@@ -10,12 +10,19 @@ describe('FinanceReportingService', () => {
         create: vi.fn(),
         count: vi.fn().mockResolvedValue(0),
         update: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       journalEntry: {
         findFirst: vi.fn(),
       },
+      journalLine: {
+        aggregate: vi.fn(),
+      },
+      contract: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       invoice: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
         count: vi.fn(),
       },
       invoiceItem: {
@@ -327,15 +334,56 @@ describe('FinanceReportingService', () => {
           .mockResolvedValueOnce({ _sum: { amount: 2500000 } })
           .mockResolvedValueOnce({ _sum: { amount: 600000 } }),
       },
+      contract: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'contract-1',
+            roomId: 'room-1',
+            code: 'HD-31-01',
+            status: 'ACTIVE',
+            startDate: new Date('2026-08-01T00:00:00.000Z'),
+            endDate: new Date('2027-07-31T00:00:00.000Z'),
+            monthlyRent: 1800000,
+            customer: { id: 'customer-1', fullName: 'Khach A', phone: '0901' },
+          },
+        ]),
+      },
       expense: {
         findFirst: vi.fn(),
         create: vi.fn(),
         count: vi.fn().mockResolvedValue(0),
         update: vi.fn(),
         aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 500000 } }),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'expense-room-1',
+            roomId: 'room-1',
+            code: 'EXP-ROOM-1',
+            status: 'PAID',
+            category: 'REPAIR',
+            amount: 120000,
+            settlementStatus: 'REIMBURSED',
+            description: 'Repair lamp',
+            paidByOwner: { id: 'owner-1', name: 'Tinh' },
+            paidByName: null,
+          },
+        ]),
       },
       invoice: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'invoice-1',
+            contractId: 'contract-1',
+            code: 'INV-31-01',
+            status: 'ISSUED',
+            dueDate: new Date('2026-08-31T00:00:00.000Z'),
+            total: 2500000,
+            paidAmount: 500000,
+            creditAmount: 0,
+            customer: { id: 'customer-1', fullName: 'Khach A' },
+            contract: { roomId: 'room-1' },
+          },
+        ]),
         count: vi.fn().mockResolvedValue(2),
       },
       invoiceItem: {
@@ -394,6 +442,24 @@ describe('FinanceReportingService', () => {
         waterAndService: 270000,
         other: 80000,
       },
+      contracts: [
+        expect.objectContaining({
+          code: 'HD-31-01',
+          status: 'ACTIVE',
+        }),
+      ],
+      invoices: [
+        expect.objectContaining({
+          code: 'INV-31-01',
+          remainingAmount: 2000000,
+        }),
+      ],
+      expenses: [
+        expect.objectContaining({
+          code: 'EXP-ROOM-1',
+          amount: 120000,
+        }),
+      ],
     });
     expect(summary[0].roomBreakdown[1]).toMatchObject({
       room: { id: 'room-2', status: 'AVAILABLE' },

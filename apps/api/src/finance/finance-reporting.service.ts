@@ -210,7 +210,8 @@ export class FinanceReportingService {
 
     return Promise.all(buildings.map(async (building) => {
       const occupiedRooms = building.rooms.filter((room) => room.status !== 'AVAILABLE').length;
-      const [revenues, journalExpenses, directExpenses, overdueInvoices, revenueItems] = await Promise.all([
+      const roomIds = building.rooms.map((room) => room.id);
+      const [revenues, journalExpenses, directExpenses, overdueInvoices, revenueItems, contracts, invoices, expenses] = await Promise.all([
         this.prisma.journalLine.aggregate({
           where: {
             tenantId,
@@ -283,6 +284,88 @@ export class FinanceReportingService {
             },
           },
         }),
+        this.prisma.contract.findMany({
+          where: {
+            tenantId,
+            roomId: { in: roomIds },
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            roomId: true,
+            code: true,
+            status: true,
+            startDate: true,
+            endDate: true,
+            monthlyRent: true,
+            customer: {
+              select: {
+                id: true,
+                fullName: true,
+                phone: true,
+              },
+            },
+          },
+          orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
+        }),
+        this.prisma.invoice.findMany({
+          where: {
+            tenantId,
+            contract: {
+              roomId: { in: roomIds },
+            },
+            deletedAt: null,
+            createdAt: period,
+          },
+          select: {
+            id: true,
+            contractId: true,
+            code: true,
+            status: true,
+            dueDate: true,
+            total: true,
+            paidAmount: true,
+            creditAmount: true,
+            customer: {
+              select: {
+                id: true,
+                fullName: true,
+              },
+            },
+            contract: {
+              select: {
+                roomId: true,
+              },
+            },
+          },
+          orderBy: [{ dueDate: 'desc' }, { createdAt: 'desc' }],
+        }),
+        this.prisma.expense.findMany({
+          where: {
+            tenantId,
+            roomId: { in: roomIds },
+            deletedAt: null,
+            date: period,
+          },
+          select: {
+            id: true,
+            roomId: true,
+            code: true,
+            status: true,
+            category: true,
+            amount: true,
+            settlementStatus: true,
+            description: true,
+            paidByName: true,
+            paidByOwner: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        }),
       ]);
 
       const revenue = Number(revenues._sum.amount || 0);
@@ -316,6 +399,9 @@ export class FinanceReportingService {
             waterAndService: 0,
             other: 0,
           },
+          contracts: [],
+          invoices: [],
+          expenses: [],
         });
       }
 
@@ -336,6 +422,9 @@ export class FinanceReportingService {
             waterAndService: 0,
             other: 0,
           },
+          contracts: [],
+          invoices: [],
+          expenses: [],
         };
 
         const amount = Number(item.amount || 0);
@@ -350,6 +439,57 @@ export class FinanceReportingService {
           current.revenueBreakdown.other += amount;
         }
         roomBreakdownMap.set(room.id, current);
+      }
+
+      for (const contract of contracts) {
+        const current = roomBreakdownMap.get(contract.roomId);
+        if (!current) continue;
+        current.contracts.push({
+          id: contract.id,
+          code: contract.code,
+          status: contract.status,
+          startDate: contract.startDate,
+          endDate: contract.endDate,
+          monthlyRent: Number(contract.monthlyRent || 0),
+          customer: contract.customer,
+        });
+      }
+
+      for (const invoice of invoices) {
+        const roomId = invoice.contract?.roomId;
+        if (!roomId) continue;
+        const current = roomBreakdownMap.get(roomId);
+        if (!current) continue;
+        current.invoices.push({
+          id: invoice.id,
+          code: invoice.code,
+          status: invoice.status,
+          dueDate: invoice.dueDate,
+          total: Number(invoice.total || 0),
+          paidAmount: Number(invoice.paidAmount || 0),
+          creditAmount: Number(invoice.creditAmount || 0),
+          remainingAmount: Math.max(
+            0,
+            Number(invoice.total || 0) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0),
+          ),
+          customer: invoice.customer,
+        });
+      }
+
+      for (const expense of expenses) {
+        if (!expense.roomId) continue;
+        const current = roomBreakdownMap.get(expense.roomId);
+        if (!current) continue;
+        current.expenses.push({
+          id: expense.id,
+          code: expense.code,
+          status: expense.status,
+          category: expense.category,
+          amount: Number(expense.amount || 0),
+          settlementStatus: expense.settlementStatus,
+          description: expense.description,
+          paidByName: expense.paidByOwner?.name || expense.paidByName || null,
+        });
       }
 
       const roomBreakdown = Array.from(roomBreakdownMap.values()).sort(

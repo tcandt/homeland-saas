@@ -540,7 +540,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Lọc theo tháng/quý/năm.
 - [x] Drill-down từ owner xuống tòa.
 - [x] Drill-down từ tòa xuống phòng.
-- [ ] Drill-down từ phòng xuống hợp đồng/hóa đơn/chi phí.
+- [x] Drill-down từ phòng xuống hợp đồng/hóa đơn/chi phí.
 - [x] Export Excel.
 - [x] Export PDF.
 - [x] Thêm biểu đồ xu hướng lợi nhuận theo tháng.

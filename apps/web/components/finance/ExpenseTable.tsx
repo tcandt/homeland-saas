@@ -300,6 +300,42 @@ export default function ExpenseTable() {
     setPage(1);
   }, [queryParams, search]);
 
+  const renderActions = (expense: any) => (
+    <div className="flex flex-wrap justify-end gap-2">
+      {permissions.canApproveExpense && expense.status === "PENDING" && (
+        <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("approve", expense)}>
+          <CheckCircle2 size={14} className="mr-1" /> Duyệt
+        </Button>
+      )}
+      {permissions.canPayExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
+        <Button size="sm" variant="primary" isLoading={busyId === expense.id} onClick={() => openAction("pay", expense)}>
+          <CircleDollarSign size={14} className="mr-1" /> Đã chi
+        </Button>
+      )}
+      {permissions.canSettleExpense && expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
+        <>
+          <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("reimburse", expense)}>
+            <RotateCcw size={14} className="mr-1" /> Hoàn ứng
+          </Button>
+          <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("deduct", expense)}>
+            <Split size={14} className="mr-1" /> Khấu trừ
+          </Button>
+        </>
+      )}
+      {permissions.canApproveExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
+        <Button
+          size="sm"
+          variant="outline"
+          isLoading={busyId === expense.id}
+          onClick={() => openAction("cancel", expense)}
+          className="text-rose-600 hover:text-rose-700"
+        >
+          <XCircle size={14} className="mr-1" /> Hủy
+        </Button>
+      )}
+    </div>
+  );
+
   return (
     <>
       <section className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
@@ -366,7 +402,54 @@ export default function ExpenseTable() {
 
         {!isLoading && !isError && filtered.length > 0 && (
           <>
-            <div className="overflow-x-auto">
+            <div className="grid grid-cols-1 gap-3 xl:hidden p-4">
+              {visibleRows.map((expense: any) => (
+                <article key={`${expense.id}-card`} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[14px] font-black text-text">{expense.code}</div>
+                      <div className="mt-1 text-[12px] font-semibold text-muted">{formatDate(expense.date || expense.createdAt)}</div>
+                    </div>
+                    <Badge variant={statusVariant[expense.status] || "neutral"}>{statusLabels[expense.status] || expense.status}</Badge>
+                  </div>
+
+                  <div className="mt-3 text-[13px] font-medium text-text">{expense.description || "Không có mô tả"}</div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge variant="neutral">{categoryLabels[expense.category] || expense.category || "Khác"}</Badge>
+                    {expense.vendor && <Badge variant="neutral">{expense.vendor}</Badge>}
+                    <Badge variant="neutral">{settlementLabels[expense.settlementStatus] || expense.settlementStatus || "Không hoàn ứng"}</Badge>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-surface p-3 text-[12px]">
+                    <InfoCell label="Chủ / tòa" value={`${expense.owner?.name || "Chưa gắn chủ"}${expense.building?.code ? ` / ${expense.building.code}` : ""}`} />
+                    <InfoCell label="Phòng" value={expense.room?.code || "Chi phí theo tòa"} />
+                    <InfoCell label="Người chi" value={expense.paidByOwner?.name || expense.paidByName || "-"} />
+                    <InfoCell label="Số tiền" value={formatMoney(Number(expense.amount))} valueClassName="text-[14px] text-text" />
+                  </div>
+
+                  {permissions.canReadExpenseAttachment && Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {expense.attachmentUrls.slice(0, 3).map((url: string, index: number) => (
+                        <a
+                          key={`${expense.id}-attachment-card-${index}`}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px] font-bold text-muted hover:text-[#8b5cf6]"
+                        >
+                          <Paperclip size={11} /> Chứng từ {index + 1}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-4 border-t border-border pt-3">{renderActions(expense)}</div>
+                </article>
+              ))}
+            </div>
+
+            <div className="hidden xl:block overflow-x-auto">
               <table className="w-full min-w-[1120px] text-left text-sm">
                 <thead className="border-b border-border bg-surface text-[11px] uppercase text-muted">
                   <tr>
@@ -426,41 +509,7 @@ export default function ExpenseTable() {
                       <td className="px-4 py-3">
                         <Badge variant={statusVariant[expense.status] || "neutral"}>{statusLabels[expense.status] || expense.status}</Badge>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-2">
-                          {permissions.canApproveExpense && expense.status === "PENDING" && (
-                            <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("approve", expense)}>
-                              <CheckCircle2 size={14} className="mr-1" /> Duyệt
-                            </Button>
-                          )}
-                          {permissions.canPayExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
-                            <Button size="sm" variant="primary" isLoading={busyId === expense.id} onClick={() => openAction("pay", expense)}>
-                              <CircleDollarSign size={14} className="mr-1" /> Đã chi
-                            </Button>
-                          )}
-                          {permissions.canSettleExpense && expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
-                            <>
-                              <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("reimburse", expense)}>
-                                <RotateCcw size={14} className="mr-1" /> Hoàn ứng
-                              </Button>
-                              <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("deduct", expense)}>
-                                <Split size={14} className="mr-1" /> Khấu trừ
-                              </Button>
-                            </>
-                          )}
-                          {permissions.canApproveExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              isLoading={busyId === expense.id}
-                              onClick={() => openAction("cancel", expense)}
-                              className="text-rose-600 hover:text-rose-700"
-                            >
-                              <XCircle size={14} className="mr-1" /> Hủy
-                            </Button>
-                          )}
-                        </div>
-                      </td>
+                      <td className="px-4 py-3">{renderActions(expense)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -553,5 +602,14 @@ export default function ExpenseTable() {
         </div>
       </Modal>
     </>
+  );
+}
+
+function InfoCell({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-black uppercase text-muted">{label}</div>
+      <div className={`mt-1 truncate font-bold text-text ${valueClassName || ""}`}>{value}</div>
+    </div>
   );
 }

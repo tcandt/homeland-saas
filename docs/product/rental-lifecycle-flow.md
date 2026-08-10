@@ -499,7 +499,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Thêm tìm kiếm theo mô tả, mã chi phí, nhà cung cấp.
 - [x] Thêm phân trang.
 - [x] Thêm trạng thái loading, empty, error.
-- [ ] Tối ưu responsive mobile.
+- [x] Tối ưu responsive mobile.
 
 ### 2. Workflow duyệt chi và hoàn ứng
 
@@ -709,7 +709,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Tiếp tục rà soát các text mojibake còn tồn tại trong Owner Management.
 - [x] Chuẩn hóa tiếng Việt có dấu toàn bộ Finance/Expenses/Settings.
 - [ ] Tối ưu Finance page trên mobile.
-- [ ] Tối ưu bảng chi phí responsive.
+- [x] Tối ưu bảng chi phí responsive.
 - [x] Toast không bị che bởi modal.
 - [x] Modal xác nhận đẹp hơn cho thao tác chi phí.
 - [x] Loading state mượt hơn cho bảng chi phí.

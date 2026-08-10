@@ -3,7 +3,9 @@ import { apiClient } from './client';
 export interface BuildingResponse {
   id: string;
   name: string;
+  code?: string;
   address: string;
+  ownerId?: string | null;
   images: string[];
   notes?: string;
   displayOrder?: number;

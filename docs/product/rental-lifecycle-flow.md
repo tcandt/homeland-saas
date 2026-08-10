@@ -670,7 +670,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Thêm thông tin liên hệ owner trong Settings.
 - [x] Gắn tòa với owner trong seed và backfill an toàn.
 - [x] Hiển thị mapping cố định: Tính quản lý LK01-31/LK08-25, Thể quản lý LK01-32/LK08-24.
-- [ ] Đổi owner của tòa có audit log.
+- [x] Đổi owner của tòa có audit log.
 - [x] Thêm màn tra cứu bank theo owner trong Settings.
 - [x] Chọn bank mặc định cho owner trong Settings và dùng khi tạo QR SePay.
 - [ ] Kiểm tra bank đang dùng bởi payment request trước khi tắt/xóa.

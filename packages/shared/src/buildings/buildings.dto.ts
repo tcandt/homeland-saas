@@ -4,6 +4,7 @@ export const CreateBuildingSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   code: z.string().min(1, 'Code is required'),
   address: z.string().min(1, 'Address is required'),
+  ownerId: z.string().min(1).optional().nullable(),
   notes: z.string().optional(),
   displayOrder: z.coerce.number().int().min(0).optional(),
 });

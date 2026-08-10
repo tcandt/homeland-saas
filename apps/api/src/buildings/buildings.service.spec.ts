@@ -112,6 +112,33 @@ describe('BuildingsService', () => {
         userId: 'u1'
       }));
     });
+
+    it('should audit owner changes when reassigning a building', async () => {
+      vi.spyOn(repository, 'findById').mockResolvedValue({
+        id: 'b1',
+        name: 'LK01-31',
+        ownerId: 'owner-a',
+      } as any);
+      vi.spyOn(repository, 'update').mockResolvedValue({
+        id: 'b1',
+        name: 'LK01-31',
+        ownerId: 'owner-b',
+      } as any);
+
+      await service.update('b1', { ownerId: 'owner-b' }, 'u1');
+
+      expect(repository.update).toHaveBeenCalledWith('b1', { ownerId: 'owner-b' });
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'UPDATE',
+          entity: 'Building',
+          entityId: 'b1',
+          userId: 'u1',
+          before: expect.objectContaining({ ownerId: 'owner-a' }),
+          after: expect.objectContaining({ ownerId: 'owner-b' }),
+        }),
+      );
+    });
   });
 
   describe('moveOrder', () => {

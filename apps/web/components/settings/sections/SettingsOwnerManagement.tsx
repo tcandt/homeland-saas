@@ -6,7 +6,9 @@ import { Activity, Building2, CreditCard, LockKeyhole, RefreshCcw, Star, UsersRo
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { useToast } from "@/components/ui/ToastContext";
 import { auditApi } from "@/lib/api/audit.api";
+import { buildingsApi } from "@/lib/api/buildings.api";
 import { financeApi } from "@/lib/api/finance.api";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 
@@ -143,6 +145,7 @@ function OwnerCard({
 }
 
 export default function SettingsOwnerManagement() {
+  const { showToast } = useToast();
   const { draft, setDraft, isSaving, save } = useSettingsSection<OwnerSettings>("owners", "TENANT", ownerFallback);
   const {
     draft: bankDefaultsDraft,
@@ -158,6 +161,33 @@ export default function SettingsOwnerManagement() {
   });
   const auditRows = audit.data || [];
   const ownerRows = Array.isArray(owners.data) ? owners.data : [];
+  const [savingBuildingId, setSavingBuildingId] = React.useState("");
+  const [buildingOwnerDraft, setBuildingOwnerDraft] = React.useState<Record<string, string>>({});
+
+  const buildingAssignments = React.useMemo(
+    () =>
+      ownerRows.flatMap((owner: any) =>
+        (owner.buildings || []).map((building: any) => ({
+          id: building.id,
+          code: building.code,
+          name: building.name,
+          ownerId: owner.id,
+          ownerName: owner.name,
+        })),
+      ),
+    [ownerRows],
+  );
+
+  React.useEffect(() => {
+    if (buildingAssignments.length === 0) return;
+    setBuildingOwnerDraft((prev) => {
+      const next = { ...prev };
+      for (const building of buildingAssignments) {
+        if (!next[building.id]) next[building.id] = building.ownerId;
+      }
+      return next;
+    });
+  }, [buildingAssignments]);
 
   const setDefaultBank = (ownerId: string, bankAccountId: string) => {
     setBankDefaultsDraft((prev) => {
@@ -166,6 +196,23 @@ export default function SettingsOwnerManagement() {
       else delete nextDefaults[ownerId];
       return { ...prev, defaults: nextDefaults };
     });
+  };
+
+  const saveBuildingOwner = async (buildingId: string) => {
+    const nextOwnerId = buildingOwnerDraft[buildingId];
+    const current = buildingAssignments.find((building) => building.id === buildingId);
+    if (!current || !nextOwnerId || nextOwnerId === current.ownerId) return;
+
+    try {
+      setSavingBuildingId(buildingId);
+      await buildingsApi.update(buildingId, { ownerId: nextOwnerId });
+      await owners.mutate();
+      showToast("Đã cập nhật chủ sở hữu tòa nhà", "success");
+    } catch (error: any) {
+      showToast(error?.message || "Không thể cập nhật chủ sở hữu", "error");
+    } finally {
+      setSavingBuildingId("");
+    }
   };
 
   return (
@@ -209,6 +256,84 @@ export default function SettingsOwnerManagement() {
         </div>
 
         <div className="overflow-hidden rounded-[16px] border border-border bg-background/70">
+          <div className="flex flex-col gap-[10px] border-b border-border px-[14px] py-[12px] lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-[8px] text-[13px] font-black text-text">
+                <Building2 size={16} className="text-primary" /> Gán chủ sở hữu theo tòa
+              </div>
+              <p className="mt-[3px] text-[12px] text-muted">
+                Mỗi lần đổi owner sẽ ghi audit log với before/after để truy vết vận hành.
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => owners.mutate()} isLoading={owners.isLoading}>
+              <RefreshCcw size={13} className="mr-2" /> Làm mới
+            </Button>
+          </div>
+
+          <div className="overflow-x-auto border-b border-border">
+            <table className="min-w-[720px] w-full text-left">
+              <thead className="bg-muted/10">
+                <tr>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Tòa</th>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Chủ hiện tại</th>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Chuyển sang</th>
+                  <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {buildingAssignments.map((building) => {
+                  const selectedOwnerId = buildingOwnerDraft[building.id] || building.ownerId;
+                  const changed = selectedOwnerId !== building.ownerId;
+                  return (
+                    <tr key={building.id} className="border-t border-border">
+                      <td className="px-[14px] py-[12px]">
+                        <div className="text-[13px] font-black text-text">{building.code}</div>
+                        <div className="text-[11px] font-semibold text-muted">{building.name}</div>
+                      </td>
+                      <td className="px-[14px] py-[12px] text-[12px] font-bold text-text">{building.ownerName}</td>
+                      <td className="px-[14px] py-[12px]">
+                        <select
+                          value={selectedOwnerId}
+                          onChange={(event) =>
+                            setBuildingOwnerDraft((prev) => ({
+                              ...prev,
+                              [building.id]: event.target.value,
+                            }))
+                          }
+                          className="h-[40px] min-w-[220px] rounded-[12px] border border-border bg-background px-[12px] text-[13px] font-bold text-text outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        >
+                          {ownerRows.map((owner: any) => (
+                            <option key={owner.id} value={owner.id}>
+                              {owner.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-[14px] py-[12px] text-right">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={changed ? "primary" : "outline"}
+                          disabled={!changed || savingBuildingId === building.id}
+                          isLoading={savingBuildingId === building.id}
+                          onClick={() => saveBuildingOwner(building.id)}
+                        >
+                          Lưu owner
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!owners.isLoading && buildingAssignments.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-[14px] py-[24px] text-center text-[13px] font-semibold text-muted">
+                      Chưa có dữ liệu tòa nhà để gán owner.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
           <div className="flex flex-col gap-[10px] border-b border-border px-[14px] py-[12px] lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="flex items-center gap-[8px] text-[13px] font-black text-text">

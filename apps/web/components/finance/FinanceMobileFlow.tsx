@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { AlertCircle, CheckCircle2, Clock, FileText, Loader2, Receipt, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import dayjs from "dayjs";
+import { AlertCircle, CheckCircle2, Clock, FileText, Loader2, Receipt, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { useDashboardQuery } from "@/lib/queries/dashboard.queries";
 import { useCashFlowQuery, useLedgerQuery, useProfitLossQuery } from "@/lib/queries/finance.queries";
 
@@ -71,26 +71,36 @@ export default function FinanceMobileFlow() {
       <section className="grid grid-cols-2 gap-3">
         <MetricCard label="Tổng thu" value={formatMoney(stats.inflow)} icon={<TrendingUp size={16} />} tone="text-[#4f46e5] bg-[#4f46e5]/10 border-[#4f46e5]/20" />
         <MetricCard label="Tổng chi" value={formatMoney(stats.outflow)} icon={<TrendingDown size={16} />} tone="text-rose-500 bg-rose-500/10 border-rose-500/20" />
-        <MetricCard label="Lợi nhuận" value={formatMoney(stats.profit)} icon={<Wallet size={16} />} tone={stats.profit >= 0 ? "text-[#16a34a] bg-[#16a34a]/10 border-[#16a34a]/20" : "text-rose-500 bg-rose-500/10 border-rose-500/20"} />
-        <MetricCard label="Lấp đầy" value={`${Number(occupancy.rate || 0).toFixed(0)}%`} icon={<CheckCircle2 size={16} />} tone="text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20" />
+        <MetricCard
+          label="Lợi nhuận"
+          value={formatMoney(stats.profit)}
+          icon={<Wallet size={16} />}
+          tone={stats.profit >= 0 ? "text-[#16a34a] bg-[#16a34a]/10 border-[#16a34a]/20" : "text-rose-500 bg-rose-500/10 border-rose-500/20"}
+        />
+        <MetricCard
+          label="Lấp đầy"
+          value={`${Number(occupancy.rate || 0).toFixed(0)}%`}
+          icon={<CheckCircle2 size={16} />}
+          tone="text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20"
+        />
       </section>
 
       <section className="grid grid-cols-3 gap-2">
         <SmallStat label="Biên LN" value={`${stats.margin.toFixed(1)}%`} />
-        <SmallStat label="Draft" value={stats.draftCount.toString()} />
-        <SmallStat label="Posted" value={stats.postedCount.toString()} />
+        <SmallStat label="Nháp" value={stats.draftCount.toString()} />
+        <SmallStat label="Đã ghi sổ" value={stats.postedCount.toString()} />
       </section>
 
       <section className="rounded-[12px] border border-border bg-card p-3">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-[14px] font-black text-text">Đối soát từ DB</h3>
+          <h3 className="text-[14px] font-black text-text">Đối soát từ dữ liệu ghi sổ</h3>
           <AlertCircle size={16} className="text-muted" />
         </div>
         <div className="grid grid-cols-2 gap-2 text-[12px] font-bold">
-          <div className="rounded-[8px] bg-orange-500/10 p-3 text-orange-500">{stats.draftCount} bút toán DRAFT</div>
-          <div className="rounded-[8px] bg-blue-500/10 p-3 text-blue-500">{stats.depositCount} nguồn DEPOSIT</div>
-          <div className="rounded-[8px] bg-rose-500/10 p-3 text-rose-500">{stats.expenseCount} nguồn EXPENSE</div>
-          <div className="rounded-[8px] bg-[#16a34a]/10 p-3 text-[#16a34a]">{stats.postedCount} đã POSTED</div>
+          <div className="rounded-[8px] bg-orange-500/10 p-3 text-orange-500">{stats.draftCount} bút toán nháp</div>
+          <div className="rounded-[8px] bg-blue-500/10 p-3 text-blue-500">{stats.depositCount} nguồn tiền cọc</div>
+          <div className="rounded-[8px] bg-rose-500/10 p-3 text-rose-500">{stats.expenseCount} nguồn chi phí</div>
+          <div className="rounded-[8px] bg-[#16a34a]/10 p-3 text-[#16a34a]">{stats.postedCount} bút toán đã ghi sổ</div>
         </div>
       </section>
 
@@ -102,7 +112,7 @@ export default function FinanceMobileFlow() {
 
         {recentRows.length === 0 ? (
           <div data-testid="empty-finance-mobile-state" className="p-5 text-center text-[13px] font-medium text-muted">
-            Chưa có giao dịch nào trong DB.
+            Chưa có giao dịch nào trong dữ liệu ghi sổ.
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -121,7 +131,8 @@ export default function FinanceMobileFlow() {
                     </div>
                   </div>
                   <div className={`shrink-0 text-right text-[12px] font-black ${isInflow ? "text-[#4f46e5]" : "text-rose-500"}`}>
-                    {isInflow ? "+" : "-"}{formatMoney(Math.abs(amount))}
+                    {isInflow ? "+" : "-"}
+                    {formatMoney(Math.abs(amount))}
                   </div>
                 </div>
               );

@@ -6,20 +6,16 @@ import {
   Building2,
   ChevronDown,
   ChevronUp,
-  Droplets,
   FileText,
-  ReceiptText,
   ScrollText,
   TrendingUp,
   Wrench,
-  Zap,
 } from "lucide-react";
 import { Select } from "@/components/ui/Select";
 import { useBuildingProfitSummaryQuery } from "@/lib/queries/finance.queries";
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
-const formatDate = (value?: string | Date | null) =>
-  value ? new Date(value).toLocaleDateString("vi-VN") : "-";
+const formatDate = (value?: string | Date | null) => (value ? new Date(value).toLocaleDateString("vi-VN") : "-");
 
 function RoomStatusBadge({ status }: { status: string }) {
   const tone =
@@ -29,12 +25,7 @@ function RoomStatusBadge({ status }: { status: string }) {
         ? "bg-emerald-50 text-emerald-700"
         : "bg-amber-50 text-amber-700";
 
-  const label =
-    status === "AVAILABLE"
-      ? "Trống"
-      : status === "RENTED" || status === "OCCUPIED"
-        ? "Đang thuê"
-        : status;
+  const label = status === "AVAILABLE" ? "Trống" : status === "RENTED" || status === "OCCUPIED" ? "Đang thuê" : status;
 
   return <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${tone}`}>{label}</span>;
 }
@@ -47,7 +38,9 @@ function InvoiceStatusBadge({ status }: { status: string }) {
         ? "bg-rose-50 text-rose-700"
         : "bg-amber-50 text-amber-700";
 
-  return <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${tone}`}>{status}</span>;
+  const label = status === "PAID" ? "Đã thanh toán" : status === "OVERDUE" ? "Quá hạn" : status;
+
+  return <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${tone}`}>{label}</span>;
 }
 
 function ExpenseStatusBadge({ status }: { status: string }) {
@@ -58,7 +51,9 @@ function ExpenseStatusBadge({ status }: { status: string }) {
         ? "bg-sky-50 text-sky-700"
         : "bg-slate-100 text-slate-700";
 
-  return <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${tone}`}>{status}</span>;
+  const label = status === "PAID" ? "Đã chi" : status === "APPROVED" ? "Đã duyệt" : status;
+
+  return <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${tone}`}>{label}</span>;
 }
 
 export default function BuildingProfitSummary() {
@@ -107,9 +102,7 @@ export default function BuildingProfitSummary() {
 
       {isLoading && <div className="p-8 text-center text-[13px] font-semibold text-muted">Đang tải báo cáo tòa nhà...</div>}
       {isError && <div className="p-8 text-center text-[13px] font-semibold text-rose-500">Không tải được báo cáo tòa nhà.</div>}
-      {!isLoading && !isError && rows.length === 0 && (
-        <div className="p-8 text-center text-[13px] font-semibold text-muted">Chưa có dữ liệu tòa nhà.</div>
-      )}
+      {!isLoading && !isError && rows.length === 0 && <div className="p-8 text-center text-[13px] font-semibold text-muted">Chưa có dữ liệu tòa nhà.</div>}
 
       {!isLoading && !isError && rows.length > 0 && (
         <div className="overflow-x-auto">
@@ -165,9 +158,7 @@ export default function BuildingProfitSummary() {
                       <td className="px-4 py-3 text-right font-bold text-sky-600">{formatVnd(row.revenueBreakdown?.waterAndService || 0)}</td>
                       <td className="px-4 py-3 text-right font-bold text-[#059669]">{formatVnd(row.revenue)}</td>
                       <td className="px-4 py-3 text-right font-bold text-rose-500">{formatVnd(row.expense)}</td>
-                      <td className={`px-4 py-3 text-right font-black ${positive ? "text-[#059669]" : "text-rose-500"}`}>
-                        {formatVnd(row.profit)}
-                      </td>
+                      <td className={`px-4 py-3 text-right font-black ${positive ? "text-[#059669]" : "text-rose-500"}`}>{formatVnd(row.profit)}</td>
                       <td className="px-4 py-3 text-right">
                         <span
                           className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-black ${
@@ -199,7 +190,7 @@ export default function BuildingProfitSummary() {
                         <td colSpan={11} className="px-4 py-4">
                           <div className="overflow-hidden rounded-[14px] border border-border bg-white">
                             <div className="border-b border-border px-4 py-3">
-                              <div className="text-[12px] font-black uppercase text-muted">Drill-down theo phòng</div>
+                              <div className="text-[12px] font-black uppercase text-muted">Chi tiết theo phòng</div>
                               <div className="mt-1 text-[13px] text-muted">
                                 Doanh thu từng phòng trong tòa {row.building.code || row.building.name}. Bấm từng phòng để xem hợp đồng, hóa đơn và chi phí.
                               </div>
@@ -230,9 +221,7 @@ export default function BuildingProfitSummary() {
                                           <td className="px-4 py-3 text-center">
                                             <button
                                               type="button"
-                                              onClick={() =>
-                                                setExpandedRoomKey((current) => (current === roomKey ? null : roomKey))
-                                              }
+                                              onClick={() => setExpandedRoomKey((current) => (current === roomKey ? null : roomKey))}
                                               className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-white text-text transition hover:bg-surface"
                                               aria-label={roomExpanded ? "Thu gọn chi tiết phòng" : "Mở chi tiết phòng"}
                                             >
@@ -278,13 +267,9 @@ export default function BuildingProfitSummary() {
                                                               {contract.customer?.fullName || "Không có khách"} · {formatDate(contract.startDate)} - {formatDate(contract.endDate)}
                                                             </div>
                                                           </div>
-                                                          <span className="rounded-full bg-violet-50 px-2 py-1 text-[11px] font-bold text-violet-700">
-                                                            {contract.status}
-                                                          </span>
+                                                          <span className="rounded-full bg-violet-50 px-2 py-1 text-[11px] font-bold text-violet-700">{contract.status}</span>
                                                         </div>
-                                                        <div className="mt-2 text-[12px] font-bold text-[#059669]">
-                                                          {formatVnd(contract.monthlyRent || 0)}
-                                                        </div>
+                                                        <div className="mt-2 text-[12px] font-bold text-[#059669]">{formatVnd(contract.monthlyRent || 0)}</div>
                                                       </div>
                                                     ))}
                                                   </div>
@@ -350,7 +335,7 @@ export default function BuildingProfitSummary() {
                                                           <div className="text-[13px] font-black text-rose-500">{formatVnd(expense.amount || 0)}</div>
                                                         </div>
                                                         <div className="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                                                          Settlement: {expense.settlementStatus}
+                                                          Quyết toán: {expense.settlementStatus}
                                                         </div>
                                                       </div>
                                                     ))}

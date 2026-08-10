@@ -10,9 +10,9 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { financeApi } from "@/lib/api/finance.api";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { financeKeys, useExpensesQuery, useOwnerProfitSummaryQuery } from "@/lib/queries/finance.queries";
-import { usePermissions } from "@/lib/hooks/usePermissions";
 
 type ExpenseActionType = "approve" | "pay" | "cancel" | "reimburse" | "deduct";
 
@@ -120,35 +120,46 @@ export default function ExpenseTable() {
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
-  const queryParams = useMemo(() => ({
-    ...buildMonthRange(year, month),
-    ...(ownerId ? { ownerId } : {}),
-    ...(buildingId ? { buildingId } : {}),
-    ...(status ? { status } : {}),
-    ...(category ? { category } : {}),
-  }), [buildingId, category, month, ownerId, status, year]);
+  const queryParams = useMemo(
+    () => ({
+      ...buildMonthRange(year, month),
+      ...(ownerId ? { ownerId } : {}),
+      ...(buildingId ? { buildingId } : {}),
+      ...(status ? { status } : {}),
+      ...(category ? { category } : {}),
+    }),
+    [buildingId, category, month, ownerId, status, year],
+  );
 
   const { data, isLoading, isError, refetch } = useExpensesQuery(queryParams);
   const expenses = Array.isArray(data) ? data : [];
 
-  const ownerOptions = useMemo(() => [
-    { value: "", label: "Tất cả chủ" },
-    ...(Array.isArray(ownerSummary) ? ownerSummary : []).map((row: any) => ({
-      value: row.owner?.id,
-      label: row.owner?.name || row.owner?.code || "Chủ sở hữu",
-    })).filter((item: any) => item.value),
-  ], [ownerSummary]);
+  const ownerOptions = useMemo(
+    () => [
+      { value: "", label: "Tất cả chủ" },
+      ...(Array.isArray(ownerSummary) ? ownerSummary : [])
+        .map((row: any) => ({
+          value: row.owner?.id,
+          label: row.owner?.name || row.owner?.code || "Chủ sở hữu",
+        }))
+        .filter((item: any) => item.value),
+    ],
+    [ownerSummary],
+  );
 
-  const buildingOptions = useMemo(() => [
-    { value: "", label: "Tất cả tòa" },
-    ...(buildings as any[])
-      .filter((building) => {
-        if (!ownerId) return true;
-        const matchedOwner = (Array.isArray(ownerSummary) ? ownerSummary : []).find((row: any) => row.owner?.id === ownerId);
-        return (matchedOwner?.buildings || []).some((ownerBuilding: any) => ownerBuilding.id === building.id);
-      })
-      .map((building) => ({ value: building.id, label: building.code || building.name })),
-  ], [buildings, ownerId, ownerSummary]);
+  const buildingOptions = useMemo(
+    () => [
+      { value: "", label: "Tất cả tòa" },
+      ...(buildings as any[])
+        .filter((building) => {
+          if (!ownerId) return true;
+          const matchedOwner = (Array.isArray(ownerSummary) ? ownerSummary : []).find((row: any) => row.owner?.id === ownerId);
+          return (matchedOwner?.buildings || []).some((ownerBuilding: any) => ownerBuilding.id === building.id);
+        })
+        .map((building) => ({ value: building.id, label: building.code || building.name })),
+    ],
+    [buildings, ownerId, ownerSummary],
+  );
 
   const yearOptions = useMemo(() => {
     const baseYear = new Date().getFullYear();
@@ -183,10 +194,13 @@ export default function ExpenseTable() {
         expense.room?.name,
         expense.costCenter?.code,
         expense.costCenter?.name,
-      ].filter(Boolean).join(" ").toLowerCase();
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [expenses, search]);
+  }, [category, expenses, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visibleRows = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -288,278 +302,256 @@ export default function ExpenseTable() {
 
   return (
     <>
-    <section className="bg-card border border-border rounded-[16px] overflow-hidden shadow-sm">
-      <div className="p-[16px] md:p-[20px] border-b border-border flex flex-col gap-4">
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <ReceiptText size={18} className="text-[#8b5cf6]" />
-              <h2 className="font-black text-[16px] md:text-[18px] text-text">Chi phí phát sinh</h2>
+      <section className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-border p-[16px] md:p-[20px]">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <ReceiptText size={18} className="text-[#8b5cf6]" />
+                <h2 className="text-[16px] font-black text-text md:text-[18px]">Chi phí phát sinh</h2>
+              </div>
+              <p className="mt-1 text-[12px] text-muted md:text-[13px]">
+                Theo dõi vật tư, sửa chữa, hoàn tiền và các khoản người khác ứng hộ để khấu trừ khi chia lợi nhuận.
+              </p>
             </div>
-            <p className="text-[12px] md:text-[13px] text-muted mt-1">
-              Theo dõi vật tư, sửa chữa, hoàn tiền và các khoản người khác ứng hộ để khấu trừ khi chia lợi nhuận.
-            </p>
+            <div className="rounded-xl border border-border bg-muted/20 px-3 py-2 text-right">
+              <div className="text-[10px] font-black uppercase text-muted">Bản ghi</div>
+              <div className="text-[18px] font-black text-text">{filtered.length}</div>
+            </div>
           </div>
-          <div className="rounded-xl bg-muted/20 border border-border px-3 py-2 text-right">
-            <div className="text-[10px] font-black uppercase text-muted">Bản ghi</div>
-            <div className="text-[18px] font-black text-text">{filtered.length}</div>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_150px_150px_140px_140px_140px_140px_auto] gap-3">
-          <div className="relative">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Tìm mã chi phí, phòng, người chi, nhà cung cấp..."
-              className="pl-9"
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_150px_150px_120px_130px_150px_160px_auto]">
+            <div className="relative md:col-span-2 xl:col-span-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Tìm mã chi phí, phòng, người chi, nhà cung cấp..."
+                className="pl-9"
+              />
+            </div>
+            <Select
+              value={ownerId}
+              onChange={(event) => {
+                setOwnerId(event.target.value);
+                setBuildingId("");
+              }}
+              options={ownerOptions}
             />
-          </div>
-          <Select value={ownerId} onChange={(event) => { setOwnerId(event.target.value); setBuildingId(""); }} options={ownerOptions} />
-          <Select value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} />
-          <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
-          <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
-          <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} />
-          <Select value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} />
-          <Button variant="outline" onClick={resetFilters} className="h-10 px-3">
-            <FilterX size={15} />
-          </Button>
-        </div>
-      </div>
-
-      {isLoading && (
-        <div className="p-8 text-center text-[13px] font-semibold text-muted">Đang tải chi phí...</div>
-      )}
-
-      {isError && (
-        <div className="p-8 text-center">
-          <div className="text-[13px] font-semibold text-rose-500">Không tải được danh sách chi phí.</div>
-          <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
-            Thử lại
-          </Button>
-        </div>
-      )}
-
-      {!isLoading && !isError && filtered.length === 0 && (
-        <div className="p-8 text-center text-[13px] font-semibold text-muted">
-          Chưa có chi phí phù hợp bộ lọc.
-        </div>
-      )}
-
-      {!isLoading && !isError && filtered.length > 0 && (
-        <>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] text-left text-sm">
-            <thead className="bg-surface border-b border-border text-[11px] uppercase text-muted">
-              <tr>
-                <th className="px-4 py-3 font-black">Ngày</th>
-                <th className="px-4 py-3 font-black">Chi phí</th>
-                <th className="px-4 py-3 font-black">Chủ / Tòa</th>
-                <th className="px-4 py-3 font-black">Phòng</th>
-                <th className="px-4 py-3 font-black">Người chi</th>
-                <th className="px-4 py-3 font-black text-right">Số tiền</th>
-                <th className="px-4 py-3 font-black">Trạng thái</th>
-                <th className="px-4 py-3 font-black text-right">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRows.map((expense: any) => (
-                <tr key={expense.id} className="border-b border-border/70 hover:bg-black/5 dark:hover:bg-white/5">
-                  <td className="px-4 py-3 text-[13px] font-semibold text-muted">
-                    {formatDate(expense.date || expense.createdAt)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-black text-text">{expense.code}</div>
-                    <div className="text-[12px] text-muted line-clamp-1">{expense.description || "-"}</div>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      <Badge variant="neutral">{categoryLabels[expense.category] || expense.category || "Khác"}</Badge>
-                      {expense.vendor && <Badge variant="neutral">{expense.vendor}</Badge>}
-                    </div>
-                    {permissions.canReadExpenseAttachment && Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {expense.attachmentUrls.slice(0, 2).map((url: string, index: number) => (
-                          <a
-                            key={`${expense.id}-attachment-${index}`}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px] font-bold text-muted hover:text-[#8b5cf6]"
-                          >
-                            <Paperclip size={11} /> Chứng từ {index + 1}
-                          </a>
-                        ))}
-                        {expense.attachmentUrls.length > 2 && (
-                          <span className="rounded-full bg-surface px-2 py-1 text-[11px] font-bold text-muted">
-                            +{expense.attachmentUrls.length - 2}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-bold text-text">{expense.owner?.name || "Chưa gắn chủ"}</div>
-                    <div className="text-[12px] text-muted">{expense.building?.code || expense.costCenter?.code || "-"}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-bold text-text">{expense.room?.code || "-"}</div>
-                    <div className="text-[12px] text-muted">{expense.room?.name || "Chi phí theo tòa"}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-bold text-text">{expense.paidByOwner?.name || expense.paidByName || "-"}</div>
-                    <div className="text-[12px] text-muted">{settlementLabels[expense.settlementStatus] || expense.settlementStatus || "Không hoàn ứng"}</div>
-                  </td>
-                  <td className="px-4 py-3 text-right font-black text-text">
-                    {formatMoney(Number(expense.amount))}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge variant={statusVariant[expense.status] || "neutral"}>{statusLabels[expense.status] || expense.status}</Badge>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-2">
-                      {permissions.canApproveExpense && expense.status === "PENDING" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          isLoading={busyId === expense.id}
-                          onClick={() => openAction("approve", expense)}
-                        >
-                          <CheckCircle2 size={14} className="mr-1" /> Duyệt
-                        </Button>
-                      )}
-                      {permissions.canPayExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          isLoading={busyId === expense.id}
-                          onClick={() => openAction("pay", expense)}
-                        >
-                          <CircleDollarSign size={14} className="mr-1" /> Đã chi
-                        </Button>
-                      )}
-                      {permissions.canSettleExpense && expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            isLoading={busyId === expense.id}
-                            onClick={() => openAction("reimburse", expense)}
-                          >
-                            <RotateCcw size={14} className="mr-1" /> Hoàn ứng
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            isLoading={busyId === expense.id}
-                            onClick={() => openAction("deduct", expense)}
-                          >
-                            <Split size={14} className="mr-1" /> Khấu trừ
-                          </Button>
-                        </>
-                      )}
-                      {permissions.canApproveExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          isLoading={busyId === expense.id}
-                          onClick={() => openAction("cancel", expense)}
-                          className="text-rose-600 hover:text-rose-700"
-                        >
-                          <XCircle size={14} className="mr-1" /> Hủy
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex flex-col gap-3 border-t border-border p-4 text-[12px] font-semibold text-muted sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            Hiển thị {visibleRows.length} / {filtered.length} chi phí
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-              Trước
-            </Button>
-            <span className="min-w-16 text-center">Trang {page}/{totalPages}</span>
-            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
-              Sau
+            <Select value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} />
+            <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
+            <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
+            <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} />
+            <Select value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} />
+            <Button variant="outline" onClick={resetFilters} className="h-10 px-3">
+              <FilterX size={15} />
             </Button>
           </div>
         </div>
-        </>
-      )}
-    </section>
-    <Modal
-      isOpen={!!pendingAction}
-      onClose={() => (busyId ? undefined : setPendingAction(null))}
-      title={
-        <span className="flex items-center gap-3">
-          <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${
-            pendingAction?.tone === "danger"
-              ? "bg-rose-50 text-rose-600"
-              : pendingAction?.tone === "warning"
-                ? "bg-amber-50 text-amber-600"
-                : "bg-emerald-50 text-emerald-600"
-          }`}>
-            {pendingAction?.tone === "danger" ? <AlertTriangle size={20} /> : <CheckCircle2 size={20} />}
-          </span>
-          <span>{pendingAction?.title || "Xác nhận"}</span>
-        </span>
-      }
-      maxWidth="max-w-lg"
-      zIndex={10060}
-      footer={
-        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button variant="outline" onClick={() => setPendingAction(null)} disabled={!!busyId}>
-            Hủy
-          </Button>
-          <Button
-            variant={pendingAction?.variant === "danger" ? "danger" : "primary"}
-            onClick={executeAction}
-            isLoading={!!busyId}
-          >
-            {pendingAction?.confirmLabel || "Xác nhận"}
-          </Button>
-        </div>
-      }
-    >
-      <div className="rounded-2xl border border-border bg-gradient-to-b from-surface to-card p-4 shadow-sm">
-        <div className="text-[13px] leading-6 text-muted">{pendingAction?.description}</div>
-        {pendingAction?.expense && (
-          <div className="mt-4 grid grid-cols-1 gap-3 text-[12px] sm:grid-cols-2">
-            <div className="rounded-xl border border-border bg-card p-3">
-              <div className="font-black uppercase text-muted">Mã chi phí</div>
-              <div className="mt-1 font-black text-text">{pendingAction.expense.code}</div>
-            </div>
-            <div className="rounded-xl border border-border bg-card p-3">
-              <div className="font-black uppercase text-muted">Số tiền</div>
-              <div className="mt-1 font-black text-text">{formatMoney(Number(pendingAction.expense.amount))}</div>
-            </div>
-            <div className="rounded-xl border border-border bg-card p-3">
-              <div className="font-black uppercase text-muted">Chủ / tòa</div>
-              <div className="mt-1 font-black text-text">{pendingAction.expense.owner?.name || "Chưa gắn chủ"}</div>
-              <div className="mt-0.5 text-[11px] font-semibold text-muted">{pendingAction.expense.building?.code || pendingAction.expense.costCenter?.code || "-"}</div>
-            </div>
-            <div className="rounded-xl border border-border bg-card p-3">
-              <div className="font-black uppercase text-muted">Trạng thái hiện tại</div>
-              <div className="mt-1 font-black text-text">{statusLabels[pendingAction.expense.status] || pendingAction.expense.status}</div>
-            </div>
+
+        {isLoading && <div className="p-8 text-center text-[13px] font-semibold text-muted">Đang tải chi phí...</div>}
+
+        {isError && (
+          <div className="p-8 text-center">
+            <div className="text-[13px] font-semibold text-rose-500">Không tải được danh sách chi phí.</div>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
+              Thử lại
+            </Button>
           </div>
         )}
-        <div className={`mt-4 rounded-xl border px-3 py-2 text-[12px] font-bold ${
-          pendingAction?.tone === "danger"
-            ? "border-rose-200 bg-rose-50 text-rose-700"
-            : pendingAction?.tone === "warning"
-              ? "border-amber-200 bg-amber-50 text-amber-700"
-              : "border-emerald-200 bg-emerald-50 text-emerald-700"
-        }`}>
-          Thao tác này sẽ được ghi nhận vào lịch sử tài chính để phục vụ đối soát và chia lợi nhuận.
+
+        {!isLoading && !isError && filtered.length === 0 && (
+          <div className="p-8 text-center text-[13px] font-semibold text-muted">Chưa có chi phí phù hợp bộ lọc.</div>
+        )}
+
+        {!isLoading && !isError && filtered.length > 0 && (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1120px] text-left text-sm">
+                <thead className="border-b border-border bg-surface text-[11px] uppercase text-muted">
+                  <tr>
+                    <th className="px-4 py-3 font-black">Ngày</th>
+                    <th className="px-4 py-3 font-black">Chi phí</th>
+                    <th className="px-4 py-3 font-black">Chủ / tòa</th>
+                    <th className="px-4 py-3 font-black">Phòng</th>
+                    <th className="px-4 py-3 font-black">Người chi</th>
+                    <th className="px-4 py-3 text-right font-black">Số tiền</th>
+                    <th className="px-4 py-3 font-black">Trạng thái</th>
+                    <th className="px-4 py-3 text-right font-black">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.map((expense: any) => (
+                    <tr key={expense.id} className="border-b border-border/70 hover:bg-black/5 dark:hover:bg-white/5">
+                      <td className="px-4 py-3 text-[13px] font-semibold text-muted">{formatDate(expense.date || expense.createdAt)}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-black text-text">{expense.code}</div>
+                        <div className="line-clamp-1 text-[12px] text-muted">{expense.description || "-"}</div>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <Badge variant="neutral">{categoryLabels[expense.category] || expense.category || "Khác"}</Badge>
+                          {expense.vendor && <Badge variant="neutral">{expense.vendor}</Badge>}
+                        </div>
+                        {permissions.canReadExpenseAttachment && Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {expense.attachmentUrls.slice(0, 2).map((url: string, index: number) => (
+                              <a
+                                key={`${expense.id}-attachment-${index}`}
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px] font-bold text-muted hover:text-[#8b5cf6]"
+                              >
+                                <Paperclip size={11} /> Chứng từ {index + 1}
+                              </a>
+                            ))}
+                            {expense.attachmentUrls.length > 2 && (
+                              <span className="rounded-full bg-surface px-2 py-1 text-[11px] font-bold text-muted">+{expense.attachmentUrls.length - 2}</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-bold text-text">{expense.owner?.name || "Chưa gắn chủ"}</div>
+                        <div className="text-[12px] text-muted">{expense.building?.code || expense.costCenter?.code || "-"}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-bold text-text">{expense.room?.code || "-"}</div>
+                        <div className="text-[12px] text-muted">{expense.room?.name || "Chi phí theo tòa"}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-bold text-text">{expense.paidByOwner?.name || expense.paidByName || "-"}</div>
+                        <div className="text-[12px] text-muted">{settlementLabels[expense.settlementStatus] || expense.settlementStatus || "Không hoàn ứng"}</div>
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-text">{formatMoney(Number(expense.amount))}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={statusVariant[expense.status] || "neutral"}>{statusLabels[expense.status] || expense.status}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-2">
+                          {permissions.canApproveExpense && expense.status === "PENDING" && (
+                            <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("approve", expense)}>
+                              <CheckCircle2 size={14} className="mr-1" /> Duyệt
+                            </Button>
+                          )}
+                          {permissions.canPayExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
+                            <Button size="sm" variant="primary" isLoading={busyId === expense.id} onClick={() => openAction("pay", expense)}>
+                              <CircleDollarSign size={14} className="mr-1" /> Đã chi
+                            </Button>
+                          )}
+                          {permissions.canSettleExpense && expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
+                            <>
+                              <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("reimburse", expense)}>
+                                <RotateCcw size={14} className="mr-1" /> Hoàn ứng
+                              </Button>
+                              <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("deduct", expense)}>
+                                <Split size={14} className="mr-1" /> Khấu trừ
+                              </Button>
+                            </>
+                          )}
+                          {permissions.canApproveExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              isLoading={busyId === expense.id}
+                              onClick={() => openAction("cancel", expense)}
+                              className="text-rose-600 hover:text-rose-700"
+                            >
+                              <XCircle size={14} className="mr-1" /> Hủy
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex flex-col gap-3 border-t border-border p-4 text-[12px] font-semibold text-muted sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                Hiển thị {visibleRows.length} / {filtered.length} chi phí
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+                  Trước
+                </Button>
+                <span className="min-w-16 text-center">Trang {page}/{totalPages}</span>
+                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
+                  Sau
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </section>
+
+      <Modal
+        isOpen={!!pendingAction}
+        onClose={() => (busyId ? undefined : setPendingAction(null))}
+        title={
+          <span className="flex items-center gap-3">
+            <span
+              className={`flex h-10 w-10 items-center justify-center rounded-2xl ${
+                pendingAction?.tone === "danger"
+                  ? "bg-rose-50 text-rose-600"
+                  : pendingAction?.tone === "warning"
+                    ? "bg-amber-50 text-amber-600"
+                    : "bg-emerald-50 text-emerald-600"
+              }`}
+            >
+              {pendingAction?.tone === "danger" ? <AlertTriangle size={20} /> : <CheckCircle2 size={20} />}
+            </span>
+            <span>{pendingAction?.title || "Xác nhận"}</span>
+          </span>
+        }
+        maxWidth="max-w-lg"
+        zIndex={10060}
+        footer={
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={() => setPendingAction(null)} disabled={!!busyId}>
+              Hủy
+            </Button>
+            <Button variant={pendingAction?.variant === "danger" ? "danger" : "primary"} onClick={executeAction} isLoading={!!busyId}>
+              {pendingAction?.confirmLabel || "Xác nhận"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="rounded-2xl border border-border bg-gradient-to-b from-surface to-card p-4 shadow-sm">
+          <div className="text-[13px] leading-6 text-muted">{pendingAction?.description}</div>
+          {pendingAction?.expense && (
+            <div className="mt-4 grid grid-cols-1 gap-3 text-[12px] sm:grid-cols-2">
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="font-black uppercase text-muted">Mã chi phí</div>
+                <div className="mt-1 font-black text-text">{pendingAction.expense.code}</div>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="font-black uppercase text-muted">Số tiền</div>
+                <div className="mt-1 font-black text-text">{formatMoney(Number(pendingAction.expense.amount))}</div>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="font-black uppercase text-muted">Chủ / tòa</div>
+                <div className="mt-1 font-black text-text">{pendingAction.expense.owner?.name || "Chưa gắn chủ"}</div>
+                <div className="mt-0.5 text-[11px] font-semibold text-muted">{pendingAction.expense.building?.code || pendingAction.expense.costCenter?.code || "-"}</div>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="font-black uppercase text-muted">Trạng thái hiện tại</div>
+                <div className="mt-1 font-black text-text">{statusLabels[pendingAction.expense.status] || pendingAction.expense.status}</div>
+              </div>
+            </div>
+          )}
+          <div
+            className={`mt-4 rounded-xl border px-3 py-2 text-[12px] font-bold ${
+              pendingAction?.tone === "danger"
+                ? "border-rose-200 bg-rose-50 text-rose-700"
+                : pendingAction?.tone === "warning"
+                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            Thao tác này sẽ được ghi nhận vào lịch sử tài chính để phục vụ đối soát và chia lợi nhuận.
+          </div>
         </div>
-      </div>
-    </Modal>
+      </Modal>
     </>
   );
 }

@@ -707,7 +707,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 - [x] Sửa các text mojibake đã phát hiện trong Settings sidebar, API client và settings hook.
 - [x] Tiếp tục rà soát các text mojibake còn tồn tại trong Owner Management.
-- [ ] Chuẩn hóa tiếng Việt có dấu toàn bộ Finance/Expenses/Settings.
+- [x] Chuẩn hóa tiếng Việt có dấu toàn bộ Finance/Expenses/Settings.
 - [ ] Tối ưu Finance page trên mobile.
 - [ ] Tối ưu bảng chi phí responsive.
 - [x] Toast không bị che bởi modal.

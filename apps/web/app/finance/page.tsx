@@ -1,28 +1,60 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import AppShell from "@/components/layout/AppShell";
 import { Filter, FileText, Plus } from "lucide-react";
-import FinancialCommandKpi from "@/components/finance/FinancialCommandKpi";
-import FinancialCommandLedger from "@/components/finance/FinancialCommandLedger";
-import FinancialCommandDrawer from "@/components/finance/FinancialCommandDrawer";
-import FinanceMobileFlow from "@/components/finance/FinanceMobileFlow";
-import OwnerProfitSummary from "@/components/finance/OwnerProfitSummary";
+import toast from "react-hot-toast";
+import AppShell from "@/components/layout/AppShell";
+import { Button } from "@/components/ui/Button";
+import BankCashFlowSummary from "@/components/finance/BankCashFlowSummary";
+import BuildingProfitSummary from "@/components/finance/BuildingProfitSummary";
 import ExpenseCreateModal from "@/components/finance/ExpenseCreateModal";
 import ExpenseTable from "@/components/finance/ExpenseTable";
-import BuildingProfitSummary from "@/components/finance/BuildingProfitSummary";
-import BankCashFlowSummary from "@/components/finance/BankCashFlowSummary";
+import FinanceMobileFlow from "@/components/finance/FinanceMobileFlow";
+import FinancialCommandDrawer from "@/components/finance/FinancialCommandDrawer";
+import FinancialCommandKpi from "@/components/finance/FinancialCommandKpi";
+import FinancialCommandLedger from "@/components/finance/FinancialCommandLedger";
+import OwnerProfitSummary from "@/components/finance/OwnerProfitSummary";
 import SePayReconciliationSummary from "@/components/finance/SePayReconciliationSummary";
-import { useFinanceStore } from "@/lib/stores/finance.store";
-import { useLedgerQuery } from "@/lib/queries/finance.queries";
-import toast from "react-hot-toast";
-import { Button } from "@/components/ui/Button";
 import { financeApi } from "@/lib/api/finance.api";
 import { usePermissions } from "@/lib/hooks/usePermissions";
+import { useLedgerQuery } from "@/lib/queries/finance.queries";
+import { useFinanceStore } from "@/lib/stores/finance.store";
+
+async function downloadFinanceFile(
+  request: () => Promise<any>,
+  fallbackName: string,
+  successMessage: string,
+  errorMessage: string,
+) {
+  try {
+    const response: any = await request();
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement("a");
+    link.href = url;
+
+    const contentDisposition = response.headers["content-disposition"];
+    let filename = fallbackName;
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename=\"?([^\"]+)\"?/);
+      if (filenameMatch && filenameMatch.length === 2) {
+        filename = filenameMatch[1];
+      }
+    }
+
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    toast.success(successMessage);
+  } catch {
+    toast.error(errorMessage, { icon: "!" });
+  }
+}
 
 export default function FinancePage() {
   const permissions = usePermissions();
-  const selectedJournalId = useFinanceStore((s) => s.selectedJournalId);
+  const selectedJournalId = useFinanceStore((state) => state.selectedJournalId);
   const { data: ledgerRows } = useLedgerQuery();
   const [isExpenseModalOpen, setExpenseModalOpen] = useState(false);
 
@@ -36,32 +68,21 @@ export default function FinancePage() {
     };
   }, [ledgerRows]);
 
-  const handleExport = async () => {
-    try {
-      const response: any = await financeApi.exportExcelReport();
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
+  const handleExportExcel = () =>
+    downloadFinanceFile(
+      () => financeApi.exportExcelReport(),
+      "finance_report.xlsx",
+      "Xuất báo cáo Excel thành công.",
+      "Có lỗi xảy ra khi xuất Excel.",
+    );
 
-      const contentDisposition = response.headers["content-disposition"];
-      let filename = "finance_report.xlsx";
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (filenameMatch && filenameMatch.length === 2) {
-          filename = filenameMatch[1];
-        }
-      }
-
-      link.setAttribute("download", filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-      toast.success("Xuất báo cáo Excel thành công!");
-    } catch (error) {
-      toast.error("Có lỗi xảy ra khi xuất báo cáo", { icon: "!" });
-    }
-  };
+  const handleExportPdf = () =>
+    downloadFinanceFile(
+      () => financeApi.exportPdfReport(),
+      "finance_report.pdf",
+      "Xuất báo cáo PDF thành công.",
+      "Có lỗi xảy ra khi xuất PDF.",
+    );
 
   return (
     <AppShell>
@@ -72,34 +93,53 @@ export default function FinancePage() {
         <FinanceMobileFlow />
       </div>
 
-      <div data-testid="finance-root" className="hidden md:flex relative w-full min-h-full flex-col gap-[16px] md:gap-[24px]">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/50 pb-4">
+      <div
+        data-testid="finance-root"
+        className="hidden min-h-full w-full flex-col gap-[16px] md:flex md:gap-[24px]"
+      >
+        <div className="flex flex-col justify-between gap-4 border-b border-border/50 pb-4 md:flex-row md:items-center">
           <div>
-            <h1 className="font-black text-[20px] md:text-[28px] text-text tracking-tight">Financial Command Center</h1>
-            <p className="text-[12px] md:text-[13px] font-medium text-muted mt-1">
-              Phân tích dòng tiền, kiểm soát công nợ và sổ cái kế toán
+            <h1 className="text-[20px] font-black tracking-tight text-text md:text-[28px]">
+              Financial Command Center
+            </h1>
+            <p className="mt-1 text-[12px] font-medium text-muted md:text-[13px]">
+              Phân tích dòng tiền, kiểm soát công nợ và sổ cái kế toán.
             </p>
           </div>
-          <div className="flex items-center gap-[8px] md:gap-[12px] overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
-            <Button variant="outline" className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px]">
-              <Filter size={14} className="text-muted mr-1.5" /> Bộ lọc
+          <div className="hide-scrollbar flex items-center gap-[8px] overflow-x-auto pb-2 md:gap-[12px] md:pb-0">
+            <Button variant="outline" className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]">
+              <Filter size={14} className="mr-1.5 text-muted" />
+              Bộ lọc
             </Button>
             {permissions.canExportFinance && (
               <Button
-                data-testid="finance-export-button"
+                data-testid="finance-export-excel-button"
                 variant="outline"
-                onClick={handleExport}
-                className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px]"
+                onClick={handleExportExcel}
+                className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]"
               >
-                <FileText size={14} className="text-muted mr-1.5" /> Xuất Excel
+                <FileText size={14} className="mr-1.5 text-muted" />
+                Xuất Excel
+              </Button>
+            )}
+            {permissions.canExportFinance && (
+              <Button
+                data-testid="finance-export-pdf-button"
+                variant="outline"
+                onClick={handleExportPdf}
+                className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]"
+              >
+                <FileText size={14} className="mr-1.5 text-muted" />
+                Xuất PDF
               </Button>
             )}
             {permissions.canCreateExpense && (
               <Button
                 onClick={() => setExpenseModalOpen(true)}
-                className="shrink-0 h-[32px] md:h-[36px] px-[12px] md:px-[16px] bg-[#8b5cf6] hover:bg-[#6366f1] text-white shadow-[#8b5cf6]/20"
+                className="h-[32px] shrink-0 bg-[#8b5cf6] px-[12px] text-white shadow-[#8b5cf6]/20 hover:bg-[#6366f1] md:h-[36px] md:px-[16px]"
               >
-                <Plus size={16} className="mr-1.5" /> Thêm chi phí
+                <Plus size={16} className="mr-1.5" />
+                Thêm chi phí
               </Button>
             )}
           </div>
@@ -110,47 +150,48 @@ export default function FinancePage() {
         {permissions.canReadOwnerProfit && <OwnerProfitSummary />}
 
         <BankCashFlowSummary />
-
         <SePayReconciliationSummary />
-
         <ExpenseTable />
 
         <div className="grid grid-cols-1 gap-[16px] md:gap-[24px]">
           <div
             data-testid="finance-chart"
-            className="bg-card border border-border rounded-[16px] h-[250px] md:h-[300px] flex items-center justify-center flex-col"
+            className="flex h-[250px] flex-col items-center justify-center rounded-[16px] border border-border bg-card md:h-[300px]"
           >
-            <span className="text-muted font-bold text-[14px]">Biểu đồ dòng tiền (Cash Flow)</span>
-            <span className="text-muted/50 text-[12px]">Dữ liệu được tải từ API</span>
+            <span className="text-[14px] font-bold text-muted">Biểu đồ dòng tiền (Cash Flow)</span>
+            <span className="text-[12px] text-muted/50">Dữ liệu được tải từ API.</span>
           </div>
         </div>
 
         <BuildingProfitSummary />
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-[16px] md:gap-[24px]">
+        <div className="grid grid-cols-1 gap-[16px] md:gap-[24px] lg:grid-cols-[1fr_300px]">
           <FinancialCommandLedger />
 
           <div
             data-testid="finance-right-panel"
-            className="bg-card border border-border rounded-[16px] flex flex-col h-auto md:h-[600px] overflow-hidden hidden lg:flex"
+            className="hidden h-auto flex-col overflow-hidden rounded-[16px] border border-border bg-card lg:flex md:h-[600px]"
           >
-            <div className="p-[16px] border-b border-border">
-              <h3 className="font-bold text-text">Đối soát (Reconciliation)</h3>
-              <p className="text-[12px] text-muted mt-1">Tổng hợp theo dữ liệu ledger thực tế</p>
+            <div className="border-b border-border p-[16px]">
+              <h3 className="font-bold text-text">Đối soát</h3>
+              <p className="mt-1 text-[12px] text-muted">Tổng hợp theo dữ liệu ledger thực tế.</p>
             </div>
-            <div className="p-[16px] flex flex-col gap-4">
-              <div className="bg-orange-500/10 border border-orange-500/20 rounded-[8px] p-3">
-                <div className="font-bold text-[13px] text-orange-500">{reconciliation.draftCount} Bút toán DRAFT</div>
-                <div className="text-[11px] text-orange-500/80 mt-1">
+            <div className="flex flex-col gap-4 p-[16px]">
+              <div className="rounded-[8px] border border-orange-500/20 bg-orange-500/10 p-3">
+                <div className="text-[13px] font-bold text-orange-500">
+                  {reconciliation.draftCount} bút toán DRAFT
+                </div>
+                <div className="mt-1 text-[11px] text-orange-500/80">
                   Chưa ghi sổ, cần kiểm tra trước khi POST.
                 </div>
               </div>
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-[8px] p-3">
-                <div className="font-bold text-[13px] text-blue-500">
-                  {reconciliation.postedCount} Bút toán POSTED
+              <div className="rounded-[8px] border border-blue-500/20 bg-blue-500/10 p-3">
+                <div className="text-[13px] font-bold text-blue-500">
+                  {reconciliation.postedCount} bút toán POSTED
                 </div>
-                <div className="text-[11px] text-blue-500/80 mt-1">
-                  {reconciliation.depositCount} nguồn DEPOSIT, {reconciliation.expenseCount} nguồn EXPENSE.
+                <div className="mt-1 text-[11px] text-blue-500/80">
+                  {reconciliation.depositCount} nguồn DEPOSIT, {reconciliation.expenseCount} nguồn
+                  EXPENSE.
                 </div>
               </div>
             </div>

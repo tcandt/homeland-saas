@@ -59,5 +59,9 @@ export const financeApi = {
   exportExcelReport: async () => {
     const response = await apiClient.get('/finance/export.xlsx', { responseType: 'blob' } as any);
     return response;
+  },
+  exportPdfReport: async () => {
+    const response = await apiClient.get('/finance/export.pdf', { responseType: 'blob' } as any);
+    return response;
   }
 };

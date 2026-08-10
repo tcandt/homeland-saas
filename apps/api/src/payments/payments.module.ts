@@ -5,9 +5,10 @@ import { PrismaService } from '../prisma.service';
 import { InvoicesModule } from '../invoices/invoices.module';
 import { DepositsModule } from '../deposits/deposits.module';
 import { CommunicationModule } from '../communication/communication.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
-  imports: [InvoicesModule, DepositsModule, CommunicationModule],
+  imports: [InvoicesModule, DepositsModule, CommunicationModule, FinanceModule],
   controllers: [PaymentsController],
   providers: [PaymentsService, PrismaService],
 })

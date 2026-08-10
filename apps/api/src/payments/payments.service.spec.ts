@@ -26,6 +26,12 @@ describe('PaymentsService', () => {
       creditNote: {
         create: vi.fn(),
       },
+      journalEntry: {
+        findFirst: vi.fn(),
+      },
+      chartOfAccount: {
+        findFirst: vi.fn(),
+      },
       bankAccount: {
         findFirst: vi.fn(),
       },
@@ -49,12 +55,22 @@ describe('PaymentsService', () => {
     const communicationService = {
       dispatchDirect: vi.fn(),
     };
+    const journalEntryService = {
+      createJournalEntry: vi.fn(),
+    };
 
     return {
       prisma,
       invoicesService,
       depositsService,
-      service: new PaymentsService(prisma as any, invoicesService as any, depositsService as any, communicationService as any),
+      journalEntryService,
+      service: new PaymentsService(
+        prisma as any,
+        invoicesService as any,
+        depositsService as any,
+        communicationService as any,
+        journalEntryService as any,
+      ),
     };
   }
 
@@ -432,7 +448,7 @@ describe('PaymentsService', () => {
   });
 
   it('resolves invoice overpayment into customer credit balance', async () => {
-    const { service, prisma } = createService({
+    const { service, prisma, journalEntryService } = createService({
       paymentWebhookLog: {
         upsert: vi.fn(),
         update: vi.fn(),
@@ -468,7 +484,18 @@ describe('PaymentsService', () => {
         }),
       },
       creditNote: {
-        create: vi.fn(),
+        create: vi.fn().mockResolvedValue({
+          id: 'credit-note-1',
+        }),
+      },
+      journalEntry: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      chartOfAccount: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+          .mockResolvedValueOnce({ id: 'liability-account', code: '1300' }),
       },
     });
 
@@ -493,6 +520,17 @@ describe('PaymentsService', () => {
         remainingAmount: 20000,
       }),
     });
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        sourceType: 'ADJUSTMENT',
+        sourceId: 'credit-note-1',
+        lines: [
+          expect.objectContaining({ accountId: 'bank-account', type: 'DEBIT', amount: 20000 }),
+          expect.objectContaining({ accountId: 'liability-account', type: 'CREDIT', amount: 20000 }),
+        ],
+      }),
+    );
     expect(prisma.task.create).not.toHaveBeenCalled();
   });
 

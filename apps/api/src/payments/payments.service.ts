@@ -1,10 +1,11 @@
 ﻿import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { PaymentProvider, PaymentRequestStatus, PaymentSourceType, Prisma, SettingScope } from '@prisma/client';
+import { JournalSourceType, PaymentProvider, PaymentRequestStatus, PaymentSourceType, Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { DepositsService } from '../deposits/deposits.service';
 import { CommunicationService } from '../communication/communication.service';
 import { NotificationChannel } from '../automation/automation.constants';
+import { JournalEntryService } from '../finance/journal-entry.service';
 
 type SePayWebhookPayload = {
   id?: number | string;
@@ -57,7 +58,66 @@ export class PaymentsService {
     private readonly invoicesService: InvoicesService,
     private readonly depositsService: DepositsService,
     private readonly communicationService: CommunicationService,
+    private readonly journalEntryService: JournalEntryService,
   ) {}
+
+  private async createOverpaymentJournalEntry(
+    tenantId: string,
+    creditNoteId: string,
+    paymentCode: string,
+    amount: number,
+    resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD',
+  ) {
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: {
+        tenantId,
+        sourceType: JournalSourceType.ADJUSTMENT,
+        sourceId: creditNoteId,
+      },
+      select: { id: true },
+    });
+    if (existing) return existing;
+
+    const bankAccount = await this.prisma.chartOfAccount.findFirst({
+      where: { tenantId, code: '1100' },
+    });
+    const customerCreditLiability = await this.prisma.chartOfAccount.findFirst({
+      where: { tenantId, code: '1300' },
+    });
+
+    if (!bankAccount || !customerCreditLiability) {
+      throw new BadRequestException('Khong tim thay tai khoan ke toan de ghi nhan tien thua.');
+    }
+
+    return this.journalEntryService.createJournalEntry(tenantId, {
+      code: `JE-OVERPAY-${Date.now()}`,
+      sourceType: JournalSourceType.ADJUSTMENT,
+      sourceId: creditNoteId,
+      description:
+        resolution === 'CARRY_FORWARD'
+          ? `Ghi nhan tien thua SePay ${paymentCode} de can tru ky sau`
+          : `Ghi nhan tien thua SePay ${paymentCode} vao du co khach hang`,
+      entryDate: new Date(),
+      status: 'POSTED',
+      lines: [
+        {
+          accountId: bankAccount.id,
+          type: 'DEBIT',
+          amount,
+          description: 'Tien thua da vao ngan hang',
+        },
+        {
+          accountId: customerCreditLiability.id,
+          type: 'CREDIT',
+          amount,
+          description:
+            resolution === 'CARRY_FORWARD'
+              ? 'No phai tra khach de can tru ky sau'
+              : 'No phai tra khach dang nam giu',
+        },
+      ],
+    });
+  }
 
   private async resolveSePayConfig(tenantId: string) {
     const record = await this.prisma.appSetting.findUnique({
@@ -666,7 +726,7 @@ export class PaymentsService {
         customerId = deposit.customerId;
       }
 
-      await this.prisma.creditNote.create({
+      const creditNote = await this.prisma.creditNote.create({
         data: {
           tenantId,
           customerId,
@@ -679,6 +739,14 @@ export class PaymentsService {
               : `SePay overpayment ${paymentCode} - credit balance`,
         },
       });
+
+      await this.createOverpaymentJournalEntry(
+        tenantId,
+        creditNote.id,
+        paymentCode,
+        overpaidAmount,
+        payload.resolution,
+      );
     }
 
     await this.prisma.paymentRequest.update({

@@ -583,7 +583,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hoàn cọc tạo journal entry.
 - [ ] Hoàn tiền phòng tạo journal entry.
 - [ ] Khấu trừ cọc tạo journal entry.
-- [ ] Cấn trừ dư tiền kỳ sau tạo journal entry.
+- [x] Cấn trừ dư tiền kỳ sau tạo journal entry.
 - [x] Đảm bảo journal entry chi phí cân bằng debit/credit.
 - [x] Chống tạo trùng journal entry chi phí theo `sourceType` và `sourceId`.
 - [x] Cho phép reversal thay vì sửa/xóa bút toán đã posted.

@@ -32,6 +32,10 @@ describe('FinanceReportingService', () => {
         findFirst: vi.fn(),
         findMany: vi.fn(),
       },
+      owner: {
+        findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       costCenter: {
         findFirst: vi.fn(),
         findUnique: vi.fn(),
@@ -470,5 +474,85 @@ describe('FinanceReportingService', () => {
         tenantId: 'tenant-1',
       }),
     }));
+  });
+
+  it('summarizes profit by owner including advances between owners', async () => {
+    const { service, prisma } = createService({
+      owner: {
+        findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'owner-1',
+            code: 'TINH',
+            name: 'Tinh',
+            buildings: [
+              { id: 'building-1', code: 'LK01-31', name: 'LK01-31' },
+              { id: 'building-2', code: 'LK08-25', name: 'LK08-25' },
+            ],
+          },
+          {
+            id: 'owner-2',
+            code: 'THE',
+            name: 'The',
+            buildings: [{ id: 'building-3', code: 'LK01-32', name: 'LK01-32' }],
+          },
+        ]),
+      },
+      journalLine: {
+        aggregate: vi
+          .fn()
+          .mockResolvedValueOnce({ _sum: { amount: 12000000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 2500000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 8000000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 1000000 } }),
+      },
+      expense: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
+        update: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        aggregate: vi
+          .fn()
+          .mockResolvedValueOnce({ _sum: { amount: 2800000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 500000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 300000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 900000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 1300000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 200000 } }),
+      },
+    });
+
+    const summary = await service.getOwnerProfitSummary('tenant-1');
+
+    expect(prisma.owner.findMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', isActive: true },
+      include: { buildings: { select: { id: true, code: true, name: true } } },
+      orderBy: { code: 'asc' },
+    });
+    expect(summary).toHaveLength(2);
+    expect(summary[0]).toMatchObject({
+      owner: { id: 'owner-1', code: 'TINH', name: 'Tinh' },
+      revenue: 12000000,
+      expense: 2800000,
+      profitBeforeAdvance: 9200000,
+      advanceReceivable: 500000,
+      advancePayable: 300000,
+      profitAfterAdvance: 9400000,
+      buildings: [
+        { id: 'building-1', code: 'LK01-31', name: 'LK01-31' },
+        { id: 'building-2', code: 'LK08-25', name: 'LK08-25' },
+      ],
+    });
+    expect(summary[1]).toMatchObject({
+      owner: { id: 'owner-2', code: 'THE', name: 'The' },
+      revenue: 8000000,
+      expense: 1000000,
+      profitBeforeAdvance: 7000000,
+      advanceReceivable: 1300000,
+      advancePayable: 200000,
+      profitAfterAdvance: 8100000,
+      buildings: [{ id: 'building-3', code: 'LK01-32', name: 'LK01-32' }],
+    });
   });
 });

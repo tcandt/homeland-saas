@@ -185,6 +185,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
   const statusConfig = detailContract ? getContractStatusConfig(detailContract.status) : null;
   const [settlementForm, setSettlementForm] = useState({
     actualMoveOutDate: toDateInputValue(),
+    roomTurnoverStatus: "CLEANING",
     rentDaysCharged: "0",
     baseRentAmount: "",
     electricityAmount: "",
@@ -219,6 +220,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
 
     return {
       actualMoveOutDate: settlementForm.actualMoveOutDate,
+      roomTurnoverStatus: settlementForm.roomTurnoverStatus as "CLEANING" | "MAINTENANCE",
       rentDaysCharged: settlementForm.rentDaysCharged.trim() ? Number(settlementForm.rentDaysCharged) : 0,
       baseRentAmount: parseOptionalNumber(settlementForm.baseRentAmount),
       electricityAmount: parseOptionalNumber(settlementForm.electricityAmount),
@@ -253,6 +255,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
     if (!detailContract?.id) return;
     setSettlementForm({
       actualMoveOutDate: toDateInputValue(),
+      roomTurnoverStatus: "CLEANING",
       rentDaysCharged: "0",
       baseRentAmount: "",
       electricityAmount: "",
@@ -996,6 +999,14 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
           <div className="space-y-5">
             <div className="grid gap-4 md:grid-cols-2">
               <Input type="date" value={settlementForm.actualMoveOutDate} onChange={(event) => updateSettlementField("actualMoveOutDate", event.target.value)} />
+              <Select
+                value={settlementForm.roomTurnoverStatus}
+                onChange={(event) => updateSettlementField("roomTurnoverStatus", event.target.value)}
+                options={[
+                  { label: "Bàn giao vệ sinh", value: "CLEANING" },
+                  { label: "Bàn giao bảo trì", value: "MAINTENANCE" },
+                ]}
+              />
               <Input type="number" min="0" max="31" placeholder="Số ngày tính tiền thuê" value={settlementForm.rentDaysCharged} onChange={(event) => updateSettlementField("rentDaysCharged", event.target.value)} />
             </div>
             <div className="grid gap-3 md:grid-cols-2">
@@ -1026,6 +1037,13 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                 <div className="mt-2 text-2xl font-black text-emerald-600">{formatCurrency(settlementPreview?.totals?.creditTotal)}</div>
               </Card>
             </div>
+
+            <Card className="p-4">
+              <div className="text-xs font-bold uppercase tracking-wide text-muted">Room turnover</div>
+              <div className="mt-2 text-base font-black text-text">
+                {settlementPreview?.roomTurnoverStatus === "MAINTENANCE" ? "Bảo trì trước khi mở bán" : "Vệ sinh trước khi mở bán"}
+              </div>
+            </Card>
 
             <Card className="overflow-hidden">
               <div className="border-b border-border px-4 py-3">

@@ -252,6 +252,7 @@ export class ContractsService extends BaseCrudService<Contract> {
       ? this.buildSettlementPreview(contract, input as ContractSettlementInput)
       : this.buildSettlementPreview(contract, {
           actualMoveOutDate: new Date(),
+          roomTurnoverStatus: 'CLEANING',
           rentDaysCharged: 0,
         });
 
@@ -263,7 +264,7 @@ export class ContractsService extends BaseCrudService<Contract> {
 
       const updatedRoom = await tx.room.update({
         where: { id: contract.roomId },
-        data: { status: RoomStatus.CLEANING },
+        data: { status: settlement.roomTurnoverStatus },
       });
 
       const invoice = await tx.invoice.create({
@@ -418,6 +419,10 @@ export class ContractsService extends BaseCrudService<Contract> {
         roomId: contract.roomId,
       },
       actualMoveOutDate,
+      roomTurnoverStatus:
+        input.roomTurnoverStatus === 'MAINTENANCE' || damageFee > 0
+          ? RoomStatus.MAINTENANCE
+          : RoomStatus.CLEANING,
       assumptions: {
         monthlyRent,
         dailyRent: this.roundMoney(dailyRent),

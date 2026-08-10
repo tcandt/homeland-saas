@@ -396,6 +396,35 @@ describe('ContractsService', () => {
       }));
     });
 
+    it('should move room to maintenance when settlement indicates maintenance turnover', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-MAINT',
+        status: ContractStatus.ACTIVE,
+        roomId: 'r1',
+        tenantId: 't1',
+        customerId: 'cu1',
+        monthlyRent: 9000,
+      };
+      const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.contract.update.mockResolvedValue(updatedContract);
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.MAINTENANCE });
+      prismaService.tx.invoice.create = vi.fn().mockResolvedValue({ id: 'inv4' });
+
+      await service.terminateContract('c1', 'user1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        roomTurnoverStatus: 'MAINTENANCE',
+        rentDaysCharged: 0,
+      });
+
+      expect(prismaService.tx.room.update).toHaveBeenCalledWith({
+        where: { id: 'r1' },
+        data: { status: RoomStatus.MAINTENANCE },
+      });
+    });
+
     it('should throw BadRequestException if contract is not ACTIVE or EXPIRING', async () => {
       vi.spyOn(service, 'getDetail').mockResolvedValue({ id: 'c1', status: ContractStatus.DRAFT } as any);
       await expect(service.terminateContract('c1', 'user1')).rejects.toThrow(BadRequestException);

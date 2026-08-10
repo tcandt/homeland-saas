@@ -597,16 +597,16 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Tính tiền thuê theo ngày.
 - [ ] Chốt điện tại ngày trả phòng.
 - [ ] Chốt nước tại ngày trả phòng.
-- [ ] Tính phí dịch vụ còn lại.
-- [ ] Tính phí phát sinh/hư hỏng.
-- [ ] Tính hỗ trợ nước nếu có.
-- [ ] Tính hoàn tiền phòng nếu trả sớm và chính sách cho phép.
+- [x] Tính phí dịch vụ còn lại.
+- [x] Tính phí phát sinh/hư hỏng.
+- [x] Tính hỗ trợ nước nếu có.
+- [x] Tính hoàn tiền phòng nếu trả sớm và chính sách cho phép.
 - [x] Tính hoàn cọc.
 - [x] Tính khấu trừ cọc.
 - [x] Tạo hóa đơn quyết toán nếu khách còn phải trả.
 - [x] Tạo phiếu hoàn tiền nếu hệ thống phải trả lại khách.
-- [ ] Ghi chứng từ và audit log.
-- [ ] Chuyển phòng sang `CLEANING` hoặc `MAINTENANCE`.
+- [x] Ghi chứng từ và audit log.
+- [x] Chuyển phòng sang `CLEANING` hoặc `MAINTENANCE`.
 - [ ] Sau khi hoàn tất vệ sinh/bảo trì, chuyển phòng về `AVAILABLE`.
 
 ### 9. Đặt cọc nâng cao

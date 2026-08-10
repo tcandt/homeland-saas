@@ -229,7 +229,7 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   async previewSettlement(id: string, input: ContractSettlementInput) {
     const contract = await this.getDetail(id);
-    return this.buildSettlementPreview(contract, input);
+    return this.composeSettlementPreview(contract, input);
   }
 
   async terminateContract(id: string, userId: string, input?: Partial<ContractSettlementInput>): Promise<Contract> {
@@ -249,8 +249,8 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
 
     const settlement = input?.actualMoveOutDate
-      ? this.buildSettlementPreview(contract, input as ContractSettlementInput)
-      : this.buildSettlementPreview(contract, {
+      ? await this.composeSettlementPreview(contract, input as ContractSettlementInput)
+      : await this.composeSettlementPreview(contract, {
           actualMoveOutDate: new Date(),
           roomTurnoverStatus: 'CLEANING',
           rentDaysCharged: 0,
@@ -443,6 +443,61 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   private roundMoney(value: number) {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+  }
+
+  private async composeSettlementPreview(contract: any, input: ContractSettlementInput) {
+    const preview = this.buildSettlementPreview(contract, input);
+    const utilitySnapshot = await this.getUtilitySnapshot(contract.tenantId, contract.roomId, preview.actualMoveOutDate);
+    return {
+      ...preview,
+      utilitySnapshot,
+    };
+  }
+
+  private async getUtilitySnapshot(tenantId: string, roomId: string, moveOutDate: Date) {
+    if (!tenantId || !roomId) {
+      return { electricity: null };
+    }
+
+    const mapping = await (this.prisma as any).hunonicMeterMapping.findFirst({
+      where: {
+        tenantId,
+        roomId,
+        enabled: true,
+      },
+      include: {
+        readings: {
+          where: {
+            readingAt: {
+              lte: moveOutDate,
+            },
+          },
+          orderBy: { readingAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (!mapping) {
+      return { electricity: null };
+    }
+
+    const latestReading = Array.isArray(mapping.readings) ? mapping.readings[0] : null;
+    return {
+      electricity: {
+        meterId: mapping.id,
+        providerMeterId: mapping.providerMeterId,
+        displayName: mapping.displayName,
+        deviceName: mapping.deviceName,
+        status: mapping.lastStatus,
+        monthKwh: Number(latestReading?.energyMonthKwh ?? mapping.lastReadingKwh ?? 0),
+        monthAmountVnd: Number(latestReading?.moneyMonthVnd ?? mapping.lastAmountVnd ?? 0),
+        powerCurrentW: Number(latestReading?.powerCurrentW ?? 0),
+        readingAt: latestReading?.readingAt ?? mapping.lastSyncedAt ?? null,
+        source: latestReading ? 'HUNONIC_READING' : 'HUNONIC_MAPPING',
+      },
+    };
   }
 
   private buildRefundReceiptCode(contractCode: string) {

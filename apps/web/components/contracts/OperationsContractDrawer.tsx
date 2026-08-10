@@ -1078,6 +1078,36 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
 
             <Card className="overflow-hidden">
               <div className="border-b border-border px-4 py-3">
+                <div className="text-sm font-black text-text">Đối chiếu điện Hunonic</div>
+              </div>
+              {settlementPreview?.utilitySnapshot?.electricity ? (
+                <div className="grid gap-3 px-4 py-4 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Công tơ</div>
+                    <div className="mt-1 text-sm font-black text-text">{settlementPreview.utilitySnapshot.electricity.displayName}</div>
+                    <div className="text-xs text-muted">{settlementPreview.utilitySnapshot.electricity.deviceName || "Hunonic meter"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Mốc đọc gần nhất</div>
+                    <div className="mt-1 text-sm font-black text-text">{formatDateTime(settlementPreview.utilitySnapshot.electricity.readingAt)}</div>
+                    <div className="text-xs text-muted">{settlementPreview.utilitySnapshot.electricity.source}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">kWh tháng hiện tại</div>
+                    <div className="mt-1 text-lg font-black text-text">{Number(settlementPreview.utilitySnapshot.electricity.monthKwh || 0).toLocaleString("vi-VN")} kWh</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Tiền điện tháng hiện tại</div>
+                    <div className="mt-1 text-lg font-black text-emerald-600">{formatCurrency(settlementPreview.utilitySnapshot.electricity.monthAmountVnd)}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="px-4 py-6 text-sm text-muted">Chưa có snapshot điện Hunonic cho phòng này trước ngày trả phòng.</div>
+              )}
+            </Card>
+
+            <Card className="overflow-hidden">
+              <div className="border-b border-border px-4 py-3">
                 <div className="text-sm font-black text-text">Khoản thu</div>
               </div>
               <div className="divide-y divide-border/60">

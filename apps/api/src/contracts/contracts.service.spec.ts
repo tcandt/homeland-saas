@@ -16,6 +16,9 @@ describe('ContractsService', () => {
 
   beforeEach(async () => {
     prismaService = {
+      hunonicMeterMapping: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
       tx: { invoice: { create: vi.fn() },
         contract: {
           update: vi.fn(),
@@ -462,6 +465,7 @@ describe('ContractsService', () => {
       expect(result.totals.netReceivable).toBe(1100);
       expect(result.totals.refundToCustomer).toBe(0);
       expect(result.invoiceItems).toHaveLength(4);
+      expect(result.utilitySnapshot).toEqual({ electricity: null });
     });
   });
 

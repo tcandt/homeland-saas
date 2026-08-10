@@ -27,6 +27,9 @@ describe('Contracts Workflow Verification', () => {
     currentInvoice = null;
 
     prismaService = {
+      hunonicMeterMapping: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
       tx: {
         contract: {
           update: vi.fn().mockImplementation(async ({ where, data }) => {

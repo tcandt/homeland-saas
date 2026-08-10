@@ -58,18 +58,23 @@ describe('PaymentsService', () => {
     const journalEntryService = {
       createJournalEntry: vi.fn(),
     };
+    const auditService = {
+      log: vi.fn(),
+    };
 
     return {
       prisma,
       invoicesService,
       depositsService,
       journalEntryService,
+      auditService,
       service: new PaymentsService(
         prisma as any,
         invoicesService as any,
         depositsService as any,
         communicationService as any,
         journalEntryService as any,
+        auditService as any,
       ),
     };
   }
@@ -81,7 +86,7 @@ describe('PaymentsService', () => {
   });
 
   it('matches pending payment request by payment code and bank account number', async () => {
-    const { service, prisma, invoicesService } = createService({
+    const { service, prisma, invoicesService, auditService } = createService({
       appSetting: {
         findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
@@ -140,7 +145,7 @@ describe('PaymentsService', () => {
       isActive: true,
       createdAt: new Date('2026-08-09T00:00:00.000Z'),
     };
-    const { service, prisma, invoicesService } = createService({
+    const { service, prisma, invoicesService, auditService } = createService({
       appSetting: {
         findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn().mockResolvedValue({ value: { paymentCodePrefix: 'INV' } }),
@@ -205,7 +210,7 @@ describe('PaymentsService', () => {
   });
 
   it('does not confirm SePay webhooks when the transfer amount is short', async () => {
-    const { service, prisma, invoicesService } = createService({
+    const { service, prisma, invoicesService, auditService } = createService({
       appSetting: {
         findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
@@ -244,7 +249,7 @@ describe('PaymentsService', () => {
   });
 
   it('confirms SePay webhooks with overpayment using the requested amount', async () => {
-    const { service, prisma, invoicesService } = createService({
+    const { service, prisma, invoicesService, auditService } = createService({
       appSetting: {
         findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
@@ -286,7 +291,7 @@ describe('PaymentsService', () => {
   });
 
   it('ignores SePay webhooks with no payment code content', async () => {
-    const { service, prisma, invoicesService } = createService({
+    const { service, prisma, invoicesService, auditService } = createService({
       appSetting: {
         findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
@@ -318,7 +323,7 @@ describe('PaymentsService', () => {
   });
 
   it('manually assigns a SePay transaction to an invoice by invoice code', async () => {
-    const { service, prisma, invoicesService } = createService({
+    const { service, prisma, invoicesService, auditService } = createService({
       paymentWebhookLog: {
         upsert: vi.fn(),
         update: vi.fn(),
@@ -401,6 +406,15 @@ describe('PaymentsService', () => {
         processedAt: expect.any(Date),
       },
     });
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        module: 'Payments',
+        entity: 'SePayManualAssignment',
+        entityId: 'log-1',
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+      }),
+    );
   });
 
   it('rejects manual deposit assignment when transferred amount does not equal deposit amount', async () => {
@@ -448,7 +462,7 @@ describe('PaymentsService', () => {
   });
 
   it('resolves invoice overpayment into customer credit balance', async () => {
-    const { service, prisma, journalEntryService } = createService({
+    const { service, prisma, journalEntryService, auditService } = createService({
       paymentWebhookLog: {
         upsert: vi.fn(),
         update: vi.fn(),
@@ -531,11 +545,20 @@ describe('PaymentsService', () => {
         ],
       }),
     );
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        module: 'Payments',
+        entity: 'SePayOverpaymentResolution',
+        entityId: 'request-over-1',
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+      }),
+    );
     expect(prisma.task.create).not.toHaveBeenCalled();
   });
 
   it('resolves overpayment into refund pending task', async () => {
-    const { service, prisma } = createService({
+    const { service, prisma, auditService } = createService({
       paymentWebhookLog: {
         upsert: vi.fn(),
         update: vi.fn(),
@@ -586,6 +609,15 @@ describe('PaymentsService', () => {
         priority: 'HIGH',
       }),
     });
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        module: 'Payments',
+        entity: 'SePayOverpaymentResolution',
+        entityId: 'request-over-2',
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+      }),
+    );
     expect(prisma.creditNote.create).not.toHaveBeenCalled();
   });
 });

@@ -695,6 +695,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Quyền xem lợi nhuận owner.
 - [x] Quyền export báo cáo.
 - [x] Audit log cho tạo, duyệt, hủy, hoàn ứng/khấu trừ chi phí phát sinh.
+- [x] Audit log cho gán tay giao dịch SePay.
+- [x] Audit log cho xử lý tiền thừa SePay.
 - [ ] Audit log cho các thao tác tiền ngoài expense còn thiếu.
 - [x] Audit log cho login, thay đổi cài đặt và sửa token.
 - [ ] Audit log cho đổi owner và các thao tác tài chính ngoài expense còn thiếu.

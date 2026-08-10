@@ -1,11 +1,12 @@
 ﻿import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { JournalSourceType, PaymentProvider, PaymentRequestStatus, PaymentSourceType, Prisma, SettingScope } from '@prisma/client';
+import { AuditAction, JournalSourceType, PaymentProvider, PaymentRequestStatus, PaymentSourceType, Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { DepositsService } from '../deposits/deposits.service';
 import { CommunicationService } from '../communication/communication.service';
 import { NotificationChannel } from '../automation/automation.constants';
 import { JournalEntryService } from '../finance/journal-entry.service';
+import { AuditService } from '../shared/audit/audit.service';
 
 type SePayWebhookPayload = {
   id?: number | string;
@@ -59,6 +60,7 @@ export class PaymentsService {
     private readonly depositsService: DepositsService,
     private readonly communicationService: CommunicationService,
     private readonly journalEntryService: JournalEntryService,
+    private readonly auditService: AuditService,
   ) {}
 
   private async createOverpaymentJournalEntry(
@@ -614,6 +616,29 @@ export class PaymentsService {
       },
     });
 
+    await this.auditService.log({
+      action: AuditAction.UPDATE,
+      module: 'Payments',
+      entity: 'SePayManualAssignment',
+      entityId: log.id,
+      tenantId,
+      userId,
+      before: {
+        logId: log.id,
+        paymentCode,
+        sourceType: existingRequest?.sourceType || null,
+        sourceId: existingRequest?.sourceId || null,
+      },
+      after: {
+        logId: log.id,
+        paymentCode,
+        sourceType: payload.sourceType,
+        sourceCode: payload.sourceCode,
+        amount: providerAmount,
+        transactionId,
+      },
+    });
+
     return {
       success: true,
       paymentCode,
@@ -766,6 +791,28 @@ export class PaymentsService {
           overpaymentResolvedBy: userId,
           overpaymentResolvedAt: new Date().toISOString(),
         } as any,
+      },
+    });
+
+    await this.auditService.log({
+      action: AuditAction.UPDATE,
+      module: 'Payments',
+      entity: 'SePayOverpaymentResolution',
+      entityId: request.id,
+      tenantId,
+      userId,
+      before: {
+        requestId: request.id,
+        paymentCode,
+        resolution: existingResolution || null,
+        amount: requestedAmount,
+      },
+      after: {
+        requestId: request.id,
+        paymentCode,
+        resolution: payload.resolution,
+        overpaidAmount,
+        ownerId: request.ownerId || null,
       },
     });
 

@@ -6,9 +6,10 @@ import { InvoicesModule } from '../invoices/invoices.module';
 import { DepositsModule } from '../deposits/deposits.module';
 import { CommunicationModule } from '../communication/communication.module';
 import { FinanceModule } from '../finance/finance.module';
+import { AuditModule } from '../shared/audit/audit.module';
 
 @Module({
-  imports: [InvoicesModule, DepositsModule, CommunicationModule, FinanceModule],
+  imports: [InvoicesModule, DepositsModule, CommunicationModule, FinanceModule, AuditModule],
   controllers: [PaymentsController],
   providers: [PaymentsService, PrismaService],
 })

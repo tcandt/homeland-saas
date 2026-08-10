@@ -1,5 +1,23 @@
 import { apiClient } from './client';
 
+export type ContractSettlementPayload = {
+  actualMoveOutDate: string;
+  rentDaysCharged?: number;
+  baseRentAmount?: number;
+  electricityAmount?: number;
+  waterAmount?: number;
+  serviceAmount?: number;
+  damageFee?: number;
+  penaltyFee?: number;
+  otherChargeAmount?: number;
+  roomRefundAmount?: number;
+  waterSupportAmount?: number;
+  otherCreditAmount?: number;
+  depositToRefund?: number;
+  depositToDeduct?: number;
+  note?: string | null;
+};
+
 export const contractsApi = {
   list: (params?: { page?: number; limit?: number; search?: string; status?: string; roomId?: string; customerId?: string }) => {
     return apiClient.get('/contracts', { params });
@@ -33,8 +51,12 @@ export const contractsApi = {
     return apiClient.post(`/contracts/${id}/activate`);
   },
 
-  terminate: (id: string) => {
-    return apiClient.post(`/contracts/${id}/terminate`);
+  previewSettlement: (id: string, payload: ContractSettlementPayload) => {
+    return apiClient.post(`/contracts/${id}/settlement-preview`, payload);
+  },
+
+  terminate: (id: string, payload?: Partial<ContractSettlementPayload>) => {
+    return apiClient.post(`/contracts/${id}/terminate`, payload);
   },
 
   expire: (id: string) => {

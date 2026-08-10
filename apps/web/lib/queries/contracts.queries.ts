@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { contractsApi } from '../api/contracts.api';
+import { ContractSettlementPayload, contractsApi } from '../api/contracts.api';
 
 export const contractKeys = {
   all: ['contracts'] as const,
@@ -61,6 +61,18 @@ export const useActivateContractMutation = () => {
 
 export const useTerminateContractMutation = () => {
   return useMutation({
-    mutationFn: (id: string) => contractsApi.terminate(id),
+    mutationFn: (input: string | { id: string; payload?: Partial<ContractSettlementPayload> }) => {
+      if (typeof input === 'string') {
+        return contractsApi.terminate(input);
+      }
+      return contractsApi.terminate(input.id, input.payload);
+    },
+  });
+};
+
+export const useSettlementPreviewMutation = () => {
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: ContractSettlementPayload }) =>
+      contractsApi.previewSettlement(id, payload),
   });
 };

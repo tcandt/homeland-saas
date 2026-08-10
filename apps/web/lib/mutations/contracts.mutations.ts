@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { contractsApi } from '../api/contracts.api';
-import { contractKeys } from '../queries/contracts.queries';
 import toast from 'react-hot-toast';
+import { ContractSettlementPayload, contractsApi } from '../api/contracts.api';
+import { contractKeys } from '../queries/contracts.queries';
 
 export const useCreateContractMutation = () => {
   const queryClient = useQueryClient();
@@ -64,10 +64,16 @@ export const useTerminateContractMutation = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => contractsApi.terminate(id),
+    mutationFn: (input: string | { id: string; payload?: Partial<ContractSettlementPayload> }) => {
+      if (typeof input === 'string') {
+        return contractsApi.terminate(input);
+      }
+      return contractsApi.terminate(input.id, input.payload);
+    },
     onSuccess: (_, variables) => {
+      const contractId = typeof variables === 'string' ? variables : variables.id;
       toast.success('Chấm dứt hợp đồng thành công');
-      queryClient.invalidateQueries({ queryKey: contractKeys.detail(variables) });
+      queryClient.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
       queryClient.invalidateQueries({ queryKey: contractKeys.lists() });
       queryClient.invalidateQueries({ queryKey: ['buildings'] });
       queryClient.invalidateQueries({ queryKey: ['rooms'] });
@@ -95,4 +101,3 @@ export const useExpireContractMutation = () => {
     },
   });
 };
-

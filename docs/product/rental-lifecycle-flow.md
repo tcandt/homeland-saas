@@ -607,7 +607,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Tạo phiếu hoàn tiền nếu hệ thống phải trả lại khách.
 - [x] Ghi chứng từ và audit log.
 - [x] Chuyển phòng sang `CLEANING` hoặc `MAINTENANCE`.
-- [ ] Sau khi hoàn tất vệ sinh/bảo trì, chuyển phòng về `AVAILABLE`.
+- [x] Sau khi hoàn tất vệ sinh/bảo trì, chuyển phòng về `AVAILABLE`.
 
 ### 9. Đặt cọc nâng cao
 

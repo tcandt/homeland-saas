@@ -24,6 +24,7 @@ import {
   useSettlementPreviewMutation,
 } from "../../lib/queries/contracts.queries";
 import { useDeleteContractMutation } from "../../lib/mutations/contracts.mutations";
+import { useUpdateRoomMutation } from "../../lib/mutations/rooms.mutations";
 import { apiClient } from "../../lib/api/client";
 import { ContractSettlementPayload, contractsApi } from "../../lib/api/contracts.api";
 import { customersApi } from "../../lib/api/customers.api";
@@ -209,6 +210,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
   const terminateMutation = useTerminateContractMutation();
   const settlementPreviewMutation = useSettlementPreviewMutation();
   const deleteMutation = useDeleteContractMutation();
+  const updateRoomMutation = useUpdateRoomMutation();
 
   const buildSettlementPayload = React.useCallback((): ContractSettlementPayload => {
     const parseOptionalNumber = (value: string) => {
@@ -312,6 +314,23 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
         onSuccess: () => {
           setIsSettlementModalOpen(false);
           handleSuccess("Đã chấm dứt hợp đồng và tạo quyết toán");
+        },
+        onError: handleError,
+      }
+    );
+  };
+
+  const handleMarkRoomAvailable = () => {
+    if (!detailContract?.room?.id) return;
+    updateRoomMutation.mutate(
+      {
+        id: detailContract.room.id,
+        data: { status: "AVAILABLE" },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["contractDetail", detailContract.id] });
+          showToast("Đã chuyển phòng về trạng thái sẵn sàng khai thác", "success");
         },
         onError: handleError,
       }
@@ -590,6 +609,18 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                   onClick={handleOpenSettlementModal}
                 >
                   Quyết toán trả phòng
+                </Button>
+              )}
+            {(detailContract.status === "TERMINATED" || detailContract.status === "EXPIRED") &&
+              (detailContract.room?.status === "CLEANING" || detailContract.room?.status === "MAINTENANCE") &&
+              hasPermission("room.update") && (
+                <Button
+                  data-testid="btn-room-ready"
+                  variant="outline"
+                  onClick={handleMarkRoomAvailable}
+                  isLoading={updateRoomMutation.isPending}
+                >
+                  Hoan tat ve sinh / bao tri
                 </Button>
               )}
             {false && (detailContract.status === "ACTIVE" || detailContract.status === "EXPIRING") &&

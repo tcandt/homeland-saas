@@ -3,7 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { ContractsService } from './contracts.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
-import { CreateContractSchema, UpdateContractSchema, PaginationSchema } from '@homeland/shared';
+import { CreateContractSchema, UpdateContractSchema, PaginationSchema, ContractSettlementInputSchema } from '@homeland/shared';
 import { normalizeContractStatus } from './contracts.adapter';
 
 @ApiTags('Contracts')
@@ -114,8 +114,9 @@ export class ContractsController {
   @Post(':id/terminate')
   @RequirePermissions('contract.update')
   @ApiOperation({ summary: 'Terminate contract' })
-  terminate(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.contractsService.terminateContract(id, userId);
+  terminate(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+    const input = body ? ContractSettlementInputSchema.partial().parse(body) : undefined;
+    return this.contractsService.terminateContract(id, userId, input);
   }
 
   @Post(':id/expire')
@@ -123,5 +124,13 @@ export class ContractsController {
   @ApiOperation({ summary: 'Expire contract' })
   expire(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.contractsService.expireContract(id, userId);
+  }
+
+  @Post(':id/settlement-preview')
+  @RequirePermissions('contract.read')
+  @ApiOperation({ summary: 'Preview final settlement for contract termination' })
+  settlementPreview(@Param('id') id: string, @Body() body: any) {
+    const input = ContractSettlementInputSchema.parse(body);
+    return this.contractsService.previewSettlement(id, input);
   }
 }

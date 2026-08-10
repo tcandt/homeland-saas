@@ -229,8 +229,8 @@ describe('ContractsService', () => {
   });
 
   describe('terminateContract', () => {
-    it('should terminate an ACTIVE contract, update room to CLEANING, and create draft invoice', async () => {
-      const mockContract = { id: 'c1', status: ContractStatus.ACTIVE, roomId: 'r1', tenantId: 't1', customerId: 'cu1' };
+    it('should terminate an ACTIVE contract, update room to CLEANING, and create zero-settlement draft invoice by default', async () => {
+      const mockContract = { id: 'c1', code: 'C-001', status: ContractStatus.ACTIVE, roomId: 'r1', tenantId: 't1', customerId: 'cu1', monthlyRent: 9000 };
       const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
       
       vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
@@ -256,20 +256,116 @@ describe('ContractsService', () => {
           contractId: 'c1',
           status: 'DRAFT',
           subtotal: 0,
+          creditAmount: 0,
         })
       }));
       
       expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
         action: 'UPDATE',
         entityId: 'c1',
-        after: updatedContract,
+        after: expect.objectContaining({
+          ...updatedContract,
+          settlement: expect.objectContaining({
+            totals: expect.objectContaining({
+              chargeTotal: 0,
+              creditTotal: 0,
+            }),
+          }),
+        }),
       }));
       expect(result).toEqual(updatedContract);
+    });
+
+    it('should create itemized settlement invoice when termination input is provided', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-002',
+        status: ContractStatus.ACTIVE,
+        roomId: 'r1',
+        tenantId: 't1',
+        customerId: 'cu1',
+        monthlyRent: 9000,
+      };
+      const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.contract.update.mockResolvedValue(updatedContract);
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
+      prismaService.tx.invoice.create = vi.fn().mockResolvedValue({ id: 'inv2' });
+
+      await service.terminateContract('c1', 'user1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 10,
+        electricityAmount: 250,
+        waterAmount: 100,
+        depositToRefund: 500,
+      });
+
+      expect(prismaService.tx.invoice.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          contractId: 'c1',
+          status: 'DRAFT',
+          subtotal: 3350,
+          total: 3350,
+          creditAmount: 500,
+          items: {
+            create: [
+              expect.objectContaining({
+                type: 'RENT',
+                amount: 3000,
+                description: 'Final rent settlement (10 days)',
+              }),
+              expect.objectContaining({
+                type: 'UTILITY_ELECTRICITY',
+                amount: 250,
+              }),
+              expect.objectContaining({
+                type: 'UTILITY_WATER',
+                amount: 100,
+              }),
+            ],
+          },
+        }),
+      }));
     });
 
     it('should throw BadRequestException if contract is not ACTIVE or EXPIRING', async () => {
       vi.spyOn(service, 'getDetail').mockResolvedValue({ id: 'c1', status: ContractStatus.DRAFT } as any);
       await expect(service.terminateContract('c1', 'user1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('previewSettlement', () => {
+    it('should calculate settlement totals from explicit inputs', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-003',
+        status: ContractStatus.ACTIVE,
+        roomId: 'r1',
+        customerId: 'cu1',
+        monthlyRent: 12000,
+      };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+
+      const result = await service.previewSettlement('c1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 5,
+        electricityAmount: 300,
+        waterAmount: 120,
+        serviceAmount: 80,
+        roomRefundAmount: 400,
+        depositToRefund: 1000,
+        note: 'preview',
+      });
+
+      expect(result.assumptions.monthlyRent).toBe(12000);
+      expect(result.assumptions.dailyRent).toBe(400);
+      expect(result.totals.chargeTotal).toBe(2500);
+      expect(result.totals.creditTotal).toBe(1400);
+      expect(result.totals.netReceivable).toBe(1100);
+      expect(result.totals.refundToCustomer).toBe(0);
+      expect(result.invoiceItems).toHaveLength(4);
     });
   });
 

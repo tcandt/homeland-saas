@@ -590,7 +590,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 8. Quyết toán trả phòng
 
-- [ ] Thêm Settlement Engine.
+- [x] Thêm Settlement Engine.
 - [ ] Tạo màn bảng quyết toán trả phòng.
 - [ ] Chọn hợp đồng cần trả phòng.
 - [ ] Chọn ngày trả phòng thực tế.
@@ -726,7 +726,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Test SePay webhook thiếu tiền.
 - [x] Test SePay webhook thừa tiền.
 - [x] Test SePay webhook sai nội dung.
-- [ ] Test settlement trả phòng.
+- [x] Test settlement trả phòng.
 - [ ] E2E Finance page.
 - [ ] E2E tạo chi phí phát sinh.
 - [ ] E2E duyệt chi phí.

@@ -1,11 +1,11 @@
 import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
-import { BaseCrudService } from '../shared/services/base-crud.service';
-import { Contract, ContractStatus, RoomStatus, InvoiceStatus, DepositStatus } from '@prisma/client';
-import { ContractsRepository } from './contracts.repository';
-import { AuditService } from '../shared/audit/audit.service';
-import { PaginatedResult } from '@homeland/shared';
-import { mapStatusFilter } from './contracts.adapter';
+import { Contract, ContractStatus, DepositStatus, InvoiceItemType, InvoiceStatus, RoomStatus } from '@prisma/client';
+import { ContractSettlementInput, PaginatedResult } from '@homeland/shared';
 import { PrismaService } from '../prisma.service';
+import { AuditService } from '../shared/audit/audit.service';
+import { BaseCrudService } from '../shared/services/base-crud.service';
+import { mapStatusFilter } from './contracts.adapter';
+import { ContractsRepository } from './contracts.repository';
 
 @Injectable()
 export class ContractsService extends BaseCrudService<Contract> {
@@ -38,7 +38,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     customerId?: string,
     sort?: string,
     order?: string,
-    tenantId?: string
+    tenantId?: string,
   ): Promise<PaginatedResult<Contract>> {
     const where: any = { tenantId };
     if (search) {
@@ -55,15 +55,15 @@ export class ContractsService extends BaseCrudService<Contract> {
 
     return this.repository.paginate(where, page, limit, orderBy, {
       customer: { select: { id: true, fullName: true, phone: true } },
-      room: { 
-        select: { id: true, code: true, building: { select: { id: true, name: true } } } 
-      }
+      room: {
+        select: { id: true, code: true, building: { select: { id: true, name: true } } },
+      },
     });
   }
 
   async submitContract(id: string, userId: string): Promise<Contract> {
     const contract = await this.getDetail(id);
-    
+
     if (contract.status !== ContractStatus.DRAFT) {
       throw new BadRequestException(`Cannot submit contract in ${contract.status} status. Only DRAFT is allowed.`);
     }
@@ -88,7 +88,7 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   async approveContract(id: string, userId: string): Promise<Contract> {
     const contract = await this.getDetail(id);
-    
+
     if (contract.status !== ContractStatus.PENDING_APPROVAL) {
       throw new BadRequestException(`Cannot approve contract in ${contract.status} status. Only PENDING_APPROVAL is allowed.`);
     }
@@ -99,19 +99,16 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
 
     const result = await this.prisma.tx.$transaction(async (tx) => {
-      // 1. Update contract to APPROVED
       const updatedContract = await tx.contract.update({
         where: { id },
         data: { status: ContractStatus.APPROVED },
       });
 
-      // 2. Reserve Room
       const updatedRoom = await tx.room.update({
         where: { id: contract.roomId },
         data: { status: RoomStatus.RESERVED },
       });
 
-      // 3. Create Deposit Draft
       const deposit = await tx.deposit.create({
         data: {
           tenantId: contract.tenantId,
@@ -120,8 +117,8 @@ export class ContractsService extends BaseCrudService<Contract> {
           customerId: contract.customerId,
           contractId: contract.id,
           amount: contract.depositMoney,
-          status: 'DRAFT', // using draft status
-        }
+          status: 'DRAFT',
+        },
       });
 
       return { updatedContract, updatedRoom, deposit };
@@ -165,25 +162,21 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
 
     const result = await this.prisma.tx.$transaction(async (tx) => {
-      // 1. Update contract to ACTIVE
       const updatedContract = await tx.contract.update({
         where: { id },
         data: { status: ContractStatus.ACTIVE },
       });
 
-      // 2. Occupy Room
       const updatedRoom = await tx.room.update({
         where: { id: contract.roomId },
         data: { status: RoomStatus.OCCUPIED },
       });
 
-      // 3. Convert Deposit
       const updatedDeposit = await tx.deposit.update({
         where: { id: deposit.id },
         data: { status: DepositStatus.CONVERTED_TO_CONTRACT },
       });
 
-      // 4. Create initial Invoice
       const invoice = await tx.invoice.create({
         data: {
           tenantId: contract.tenantId,
@@ -191,7 +184,7 @@ export class ContractsService extends BaseCrudService<Contract> {
           contractId: contract.id,
           customerId: contract.customerId,
           status: InvoiceStatus.ISSUED,
-          dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+          dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           subtotal: contract.monthlyRent,
           discount: 0,
           total: contract.monthlyRent,
@@ -206,9 +199,9 @@ export class ContractsService extends BaseCrudService<Contract> {
                 quantity: 1,
                 unitPrice: contract.monthlyRent,
                 amount: contract.monthlyRent,
-              }
-            ]
-          }
+              },
+            ],
+          },
         },
       });
 
@@ -228,35 +221,49 @@ export class ContractsService extends BaseCrudService<Contract> {
     return result.updatedContract;
   }
 
-  async terminateContract(id: string, userId: string): Promise<Contract> {
-    return this.finalizeContract(id, userId, ContractStatus.TERMINATED);
-  }
-
   async expireContract(id: string, userId: string): Promise<Contract> {
     return this.finalizeContract(id, userId, ContractStatus.EXPIRED);
   }
 
-  private async finalizeContract(id: string, userId: string, targetStatus: ContractStatus): Promise<Contract> {
+  async previewSettlement(id: string, input: ContractSettlementInput) {
+    const contract = await this.getDetail(id);
+    return this.buildSettlementPreview(contract, input);
+  }
+
+  async terminateContract(id: string, userId: string, input?: Partial<ContractSettlementInput>): Promise<Contract> {
+    return this.finalizeContract(id, userId, ContractStatus.TERMINATED, input);
+  }
+
+  private async finalizeContract(
+    id: string,
+    userId: string,
+    targetStatus: ContractStatus,
+    input?: Partial<ContractSettlementInput>,
+  ): Promise<Contract> {
     const contract = await this.getDetail(id);
 
     if (contract.status !== ContractStatus.ACTIVE && contract.status !== ContractStatus.EXPIRING) {
       throw new BadRequestException(`Cannot finalize contract in ${contract.status} status. Only ACTIVE or EXPIRING is allowed.`);
     }
 
+    const settlement = input?.actualMoveOutDate
+      ? this.buildSettlementPreview(contract, input as ContractSettlementInput)
+      : this.buildSettlementPreview(contract, {
+          actualMoveOutDate: new Date(),
+          rentDaysCharged: 0,
+        });
+
     const result = await this.prisma.tx.$transaction(async (tx) => {
-      // 1. Update contract status
       const updatedContract = await tx.contract.update({
         where: { id },
         data: { status: targetStatus },
       });
 
-      // 2. Room becomes CLEANING
       const updatedRoom = await tx.room.update({
         where: { id: contract.roomId },
         data: { status: RoomStatus.CLEANING },
       });
 
-      // 3. Create final invoice as DRAFT
       const invoice = await tx.invoice.create({
         data: {
           tenantId: contract.tenantId,
@@ -264,12 +271,22 @@ export class ContractsService extends BaseCrudService<Contract> {
           contractId: contract.id,
           customerId: contract.customerId,
           status: InvoiceStatus.DRAFT,
-          dueDate: new Date(), // Immediate due date for final settlement
-          subtotal: 0, // Manual adjustments to follow
+          dueDate: settlement.actualMoveOutDate,
+          subtotal: settlement.totals.chargeTotal,
           discount: 0,
-          total: 0,
+          total: settlement.totals.chargeTotal,
           paidAmount: 0,
-          creditAmount: 0,
+          creditAmount: Math.min(settlement.totals.creditTotal, settlement.totals.chargeTotal),
+          items: {
+            create: settlement.invoiceItems.map((item) => ({
+              tenantId: contract.tenantId,
+              type: item.type,
+              description: item.description,
+              quantity: 1,
+              unitPrice: item.amount,
+              amount: item.amount,
+            })),
+          },
         },
       });
 
@@ -282,10 +299,88 @@ export class ContractsService extends BaseCrudService<Contract> {
       entityId: id,
       module: 'Contracts',
       before: contract,
-      after: result.updatedContract,
+      after: {
+        ...result.updatedContract,
+        settlement,
+      },
       userId,
     });
 
     return result.updatedContract;
+  }
+
+  private buildSettlementPreview(contract: any, input: ContractSettlementInput) {
+    const actualMoveOutDate = new Date(input.actualMoveOutDate);
+    if (Number.isNaN(actualMoveOutDate.getTime())) {
+      throw new BadRequestException('SETTLEMENT_MOVE_OUT_DATE_INVALID');
+    }
+
+    const monthlyRent = Number(contract.monthlyRent || 0);
+    const dailyRent = monthlyRent > 0 ? monthlyRent / 30 : 0;
+    const rentDaysCharged = input.rentDaysCharged ?? 0;
+    const rentChargeAmount = this.roundMoney(input.baseRentAmount ?? dailyRent * rentDaysCharged);
+    const electricityAmount = this.roundMoney(input.electricityAmount ?? 0);
+    const waterAmount = this.roundMoney(input.waterAmount ?? 0);
+    const serviceAmount = this.roundMoney(input.serviceAmount ?? 0);
+    const damageFee = this.roundMoney(input.damageFee ?? 0);
+    const penaltyFee = this.roundMoney(input.penaltyFee ?? 0);
+    const otherChargeAmount = this.roundMoney(input.otherChargeAmount ?? 0);
+    const roomRefundAmount = this.roundMoney(input.roomRefundAmount ?? 0);
+    const waterSupportAmount = this.roundMoney(input.waterSupportAmount ?? 0);
+    const otherCreditAmount = this.roundMoney(input.otherCreditAmount ?? 0);
+    const depositToRefund = this.roundMoney(input.depositToRefund ?? 0);
+    const depositToDeduct = this.roundMoney(input.depositToDeduct ?? 0);
+
+    const chargeLines = [
+      { key: 'rentChargeAmount', type: 'RENT' as InvoiceItemType, description: `Final rent settlement (${rentDaysCharged} days)`, amount: rentChargeAmount },
+      { key: 'electricityAmount', type: 'UTILITY_ELECTRICITY' as InvoiceItemType, description: 'Final electricity charge', amount: electricityAmount },
+      { key: 'waterAmount', type: 'UTILITY_WATER' as InvoiceItemType, description: 'Final water charge', amount: waterAmount },
+      { key: 'serviceAmount', type: 'SERVICE' as InvoiceItemType, description: 'Outstanding service charge', amount: serviceAmount },
+      { key: 'damageFee', type: 'PENALTY' as InvoiceItemType, description: 'Damage compensation', amount: damageFee },
+      { key: 'penaltyFee', type: 'PENALTY' as InvoiceItemType, description: 'Early termination penalty', amount: penaltyFee },
+      { key: 'otherChargeAmount', type: 'OTHER' as InvoiceItemType, description: 'Other final charge', amount: otherChargeAmount },
+      { key: 'depositToDeduct', type: 'OTHER' as InvoiceItemType, description: 'Deposit deduction against debt', amount: depositToDeduct },
+    ].filter((line) => line.amount > 0);
+
+    const creditLines = [
+      { key: 'roomRefundAmount', description: 'Room refund', amount: roomRefundAmount },
+      { key: 'waterSupportAmount', description: 'Water support', amount: waterSupportAmount },
+      { key: 'otherCreditAmount', description: 'Other credit', amount: otherCreditAmount },
+      { key: 'depositToRefund', description: 'Deposit refund', amount: depositToRefund },
+    ].filter((line) => line.amount > 0);
+
+    const chargeTotal = this.roundMoney(chargeLines.reduce((sum, line) => sum + line.amount, 0));
+    const creditTotal = this.roundMoney(creditLines.reduce((sum, line) => sum + line.amount, 0));
+    const netReceivable = this.roundMoney(Math.max(chargeTotal - creditTotal, 0));
+    const refundToCustomer = this.roundMoney(Math.max(creditTotal - chargeTotal, 0));
+
+    return {
+      contract: {
+        id: contract.id,
+        code: contract.code,
+        customerId: contract.customerId,
+        roomId: contract.roomId,
+      },
+      actualMoveOutDate,
+      assumptions: {
+        monthlyRent,
+        dailyRent: this.roundMoney(dailyRent),
+        rentDaysCharged,
+        note: input.note || null,
+      },
+      charges: chargeLines,
+      credits: creditLines,
+      invoiceItems: chargeLines.map(({ key, ...line }) => line),
+      totals: {
+        chargeTotal,
+        creditTotal,
+        netReceivable,
+        refundToCustomer,
+      },
+    };
+  }
+
+  private roundMoney(value: number) {
+    return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
   }
 }

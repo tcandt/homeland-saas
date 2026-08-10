@@ -31,5 +31,24 @@ export const CreateContractSchema = z.object({
 
 export const UpdateContractSchema = CreateContractSchema.partial();
 
+export const ContractSettlementInputSchema = z.object({
+  actualMoveOutDate: z.string().or(z.date()),
+  rentDaysCharged: z.number().min(0).max(31).optional(),
+  baseRentAmount: z.number().min(0).optional(),
+  electricityAmount: z.number().min(0).optional(),
+  waterAmount: z.number().min(0).optional(),
+  serviceAmount: z.number().min(0).optional(),
+  damageFee: z.number().min(0).optional(),
+  penaltyFee: z.number().min(0).optional(),
+  otherChargeAmount: z.number().min(0).optional(),
+  roomRefundAmount: z.number().min(0).optional(),
+  waterSupportAmount: z.number().min(0).optional(),
+  otherCreditAmount: z.number().min(0).optional(),
+  depositToRefund: z.number().min(0).optional(),
+  depositToDeduct: z.number().min(0).optional(),
+  note: z.string().max(2000).optional().nullable(),
+});
+
 export type CreateContractInput = z.infer<typeof CreateContractSchema>;
 export type UpdateContractInput = z.infer<typeof UpdateContractSchema>;
+export type ContractSettlementInput = z.infer<typeof ContractSettlementInputSchema>;

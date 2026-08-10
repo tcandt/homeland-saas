@@ -591,19 +591,19 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 ### 8. Quyết toán trả phòng
 
 - [x] Thêm Settlement Engine.
-- [ ] Tạo màn bảng quyết toán trả phòng.
-- [ ] Chọn hợp đồng cần trả phòng.
-- [ ] Chọn ngày trả phòng thực tế.
-- [ ] Tính tiền thuê theo ngày.
+- [x] Tạo màn bảng quyết toán trả phòng.
+- [x] Chọn hợp đồng cần trả phòng.
+- [x] Chọn ngày trả phòng thực tế.
+- [x] Tính tiền thuê theo ngày.
 - [ ] Chốt điện tại ngày trả phòng.
 - [ ] Chốt nước tại ngày trả phòng.
 - [ ] Tính phí dịch vụ còn lại.
 - [ ] Tính phí phát sinh/hư hỏng.
 - [ ] Tính hỗ trợ nước nếu có.
 - [ ] Tính hoàn tiền phòng nếu trả sớm và chính sách cho phép.
-- [ ] Tính hoàn cọc.
-- [ ] Tính khấu trừ cọc.
-- [ ] Tạo hóa đơn quyết toán nếu khách còn phải trả.
+- [x] Tính hoàn cọc.
+- [x] Tính khấu trừ cọc.
+- [x] Tạo hóa đơn quyết toán nếu khách còn phải trả.
 - [ ] Tạo phiếu hoàn tiền nếu hệ thống phải trả lại khách.
 - [ ] Ghi chứng từ và audit log.
 - [ ] Chuyển phòng sang `CLEANING` hoặc `MAINTENANCE`.

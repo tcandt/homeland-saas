@@ -8,6 +8,9 @@ import { Modal } from "../ui/Modal";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
+import { Input } from "../ui/Input";
+import { Select } from "../ui/Select";
+import { Textarea } from "../ui/Textarea";
 import { getContractStatusConfig } from "../../lib/contracts/contract-status";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../ui/ToastContext";
@@ -18,16 +21,30 @@ import {
   useActivateContractMutation, 
   useTerminateContractMutation,
   useContractDetailQuery,
+  useSettlementPreviewMutation,
 } from "../../lib/queries/contracts.queries";
 import { useDeleteContractMutation } from "../../lib/mutations/contracts.mutations";
 import { apiClient } from "../../lib/api/client";
-import { contractsApi } from "../../lib/api/contracts.api";
+import { ContractSettlementPayload, contractsApi } from "../../lib/api/contracts.api";
 import { customersApi } from "../../lib/api/customers.api";
 
 function formatDate(value?: string | null) {
   if (!value) return "Chưa có";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Chưa có" : date.toLocaleString("vi-VN");
+}
+
+function formatCurrency(value?: number | null) {
+  return `${Number(value || 0).toLocaleString("vi-VN")}đ`;
+}
+
+function toDateInputValue(value?: string | Date | null) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
 }
 
 function getNextPaymentPeriod(startDateStr: string, endDateStr: string) {
@@ -144,6 +161,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
   const { showToast } = useToast();
   const { hasPermission } = usePermissions();
   
+  const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
   const [showTerminateConfirm, setShowTerminateConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [documentDeleteConfirm, setDocumentDeleteConfirm] = useState<{type: 'contract' | 'cccd', index: number} | null>(null);
@@ -165,12 +183,58 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
   const detailQuery = useContractDetailQuery(contract?.id || "");
   const detailContract = detailQuery.data?.data || contract;
   const statusConfig = detailContract ? getContractStatusConfig(detailContract.status) : null;
+  const [settlementForm, setSettlementForm] = useState({
+    actualMoveOutDate: toDateInputValue(),
+    rentDaysCharged: "0",
+    baseRentAmount: "",
+    electricityAmount: "",
+    waterAmount: "",
+    serviceAmount: "",
+    damageFee: "",
+    penaltyFee: "",
+    otherChargeAmount: "",
+    roomRefundAmount: "",
+    waterSupportAmount: "",
+    otherCreditAmount: "",
+    depositToRefund: "",
+    depositToDeduct: "",
+    note: "",
+  });
+  const [settlementPreview, setSettlementPreview] = useState<any | null>(null);
 
   const submitMutation = useSubmitContractMutation();
   const approveMutation = useApproveContractMutation();
   const activateMutation = useActivateContractMutation();
   const terminateMutation = useTerminateContractMutation();
+  const settlementPreviewMutation = useSettlementPreviewMutation();
   const deleteMutation = useDeleteContractMutation();
+
+  const buildSettlementPayload = React.useCallback((): ContractSettlementPayload => {
+    const parseOptionalNumber = (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return undefined;
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    return {
+      actualMoveOutDate: settlementForm.actualMoveOutDate,
+      rentDaysCharged: settlementForm.rentDaysCharged.trim() ? Number(settlementForm.rentDaysCharged) : 0,
+      baseRentAmount: parseOptionalNumber(settlementForm.baseRentAmount),
+      electricityAmount: parseOptionalNumber(settlementForm.electricityAmount),
+      waterAmount: parseOptionalNumber(settlementForm.waterAmount),
+      serviceAmount: parseOptionalNumber(settlementForm.serviceAmount),
+      damageFee: parseOptionalNumber(settlementForm.damageFee),
+      penaltyFee: parseOptionalNumber(settlementForm.penaltyFee),
+      otherChargeAmount: parseOptionalNumber(settlementForm.otherChargeAmount),
+      roomRefundAmount: parseOptionalNumber(settlementForm.roomRefundAmount),
+      waterSupportAmount: parseOptionalNumber(settlementForm.waterSupportAmount),
+      otherCreditAmount: parseOptionalNumber(settlementForm.otherCreditAmount),
+      depositToRefund: parseOptionalNumber(settlementForm.depositToRefund),
+      depositToDeduct: parseOptionalNumber(settlementForm.depositToDeduct),
+      note: settlementForm.note.trim() || undefined,
+    };
+  }, [settlementForm]);
 
   const handleSuccess = (message: string) => {
     showToast(message, "success");
@@ -183,6 +247,72 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
 
   const handleError = (error: any) => {
     showToast(error?.response?.data?.message || "Có lỗi xảy ra", "error");
+  };
+
+  useEffect(() => {
+    if (!detailContract?.id) return;
+    setSettlementForm({
+      actualMoveOutDate: toDateInputValue(),
+      rentDaysCharged: "0",
+      baseRentAmount: "",
+      electricityAmount: "",
+      waterAmount: "",
+      serviceAmount: "",
+      damageFee: "",
+      penaltyFee: "",
+      otherChargeAmount: "",
+      roomRefundAmount: "",
+      waterSupportAmount: "",
+      otherCreditAmount: "",
+      depositToRefund: detailContract.depositMoney ? String(detailContract.depositMoney) : "",
+      depositToDeduct: "",
+      note: "",
+    });
+    setSettlementPreview(null);
+    setIsSettlementModalOpen(false);
+  }, [detailContract?.id, detailContract?.depositMoney]);
+
+  useEffect(() => {
+    if (!isSettlementModalOpen || !detailContract?.id) return;
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const preview = await settlementPreviewMutation.mutateAsync({
+          id: detailContract.id,
+          payload: buildSettlementPayload(),
+        });
+        setSettlementPreview(preview);
+      } catch {
+        setSettlementPreview(null);
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [isSettlementModalOpen, detailContract?.id, buildSettlementPayload, settlementPreviewMutation]);
+
+  const updateSettlementField = (field: keyof typeof settlementForm, value: string) => {
+    setSettlementForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleOpenSettlementModal = () => {
+    setIsSettlementModalOpen(true);
+  };
+
+  const handleConfirmTermination = () => {
+    if (!detailContract?.id) return;
+    terminateMutation.mutate(
+      {
+        id: detailContract.id,
+        payload: buildSettlementPayload(),
+      },
+      {
+        onSuccess: () => {
+          setIsSettlementModalOpen(false);
+          handleSuccess("Đã chấm dứt hợp đồng và tạo quyết toán");
+        },
+        onError: handleError,
+      }
+    );
   };
 
   const handlePrintCompiledPdf = async () => {
@@ -450,6 +580,16 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               </Button>
             )}
             {(detailContract.status === "ACTIVE" || detailContract.status === "EXPIRING") &&
+              hasPermission("contract.terminate") && (
+                <Button
+                  data-testid="btn-open-settlement"
+                  variant="outline"
+                  onClick={handleOpenSettlementModal}
+                >
+                  Quyết toán trả phòng
+                </Button>
+              )}
+            {false && (detailContract.status === "ACTIVE" || detailContract.status === "EXPIRING") &&
               hasPermission("contract.terminate") &&
               (showTerminateConfirm ? (
                 <div className="flex items-center gap-2">
@@ -479,7 +619,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                   data-testid="btn-terminate-contract"
                   variant="ghost"
                   className="text-rose-500 hover:bg-rose-500/10"
-                  onClick={() => setShowTerminateConfirm(true)}
+                  onClick={handleOpenSettlementModal}
                 >
                   <Trash2 size={16} className="mr-2" /> Chấm dứt
                 </Button>
@@ -813,6 +953,115 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               else if (documentDeleteConfirm?.type === 'cccd') handleRemoveCCCD(documentDeleteConfirm.index);
               setDocumentDeleteConfirm(null);
             }}>Xác nhận xóa</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isSettlementModalOpen}
+        onClose={() => setIsSettlementModalOpen(false)}
+        title="Quyết toán trả phòng"
+        maxWidth="max-w-[1200px]"
+        footer={
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-muted">
+              {settlementPreview ? (
+                <span>
+                  Thu thêm: <span className="font-black text-text">{formatCurrency(settlementPreview?.totals?.netReceivable)}</span>
+                  {" · "}
+                  Hoàn khách: <span className="font-black text-emerald-600">{formatCurrency(settlementPreview?.totals?.refundToCustomer)}</span>
+                </span>
+              ) : (
+                <span>Nhập số liệu để xem preview quyết toán.</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" onClick={() => setIsSettlementModalOpen(false)}>
+                Đóng
+              </Button>
+              <Button
+                variant="danger"
+                data-testid="btn-confirm-terminate-settlement"
+                onClick={handleConfirmTermination}
+                isLoading={terminateMutation.isPending}
+                disabled={!settlementPreview || settlementPreviewMutation.isPending}
+              >
+                Xác nhận chấm dứt
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Input type="date" value={settlementForm.actualMoveOutDate} onChange={(event) => updateSettlementField("actualMoveOutDate", event.target.value)} />
+              <Input type="number" min="0" max="31" placeholder="Số ngày tính tiền thuê" value={settlementForm.rentDaysCharged} onChange={(event) => updateSettlementField("rentDaysCharged", event.target.value)} />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Input placeholder="Tiền thuê quyết toán" value={settlementForm.baseRentAmount} onChange={(event) => updateSettlementField("baseRentAmount", event.target.value)} />
+              <Input placeholder="Tiền điện" value={settlementForm.electricityAmount} onChange={(event) => updateSettlementField("electricityAmount", event.target.value)} />
+              <Input placeholder="Tiền nước" value={settlementForm.waterAmount} onChange={(event) => updateSettlementField("waterAmount", event.target.value)} />
+              <Input placeholder="Phí dịch vụ" value={settlementForm.serviceAmount} onChange={(event) => updateSettlementField("serviceAmount", event.target.value)} />
+              <Input placeholder="Phí hư hỏng" value={settlementForm.damageFee} onChange={(event) => updateSettlementField("damageFee", event.target.value)} />
+              <Input placeholder="Phí phạt" value={settlementForm.penaltyFee} onChange={(event) => updateSettlementField("penaltyFee", event.target.value)} />
+              <Input placeholder="Khoản thu khác" value={settlementForm.otherChargeAmount} onChange={(event) => updateSettlementField("otherChargeAmount", event.target.value)} />
+              <Input placeholder="Khấu trừ cọc vào công nợ" value={settlementForm.depositToDeduct} onChange={(event) => updateSettlementField("depositToDeduct", event.target.value)} />
+              <Input placeholder="Hoàn tiền phòng" value={settlementForm.roomRefundAmount} onChange={(event) => updateSettlementField("roomRefundAmount", event.target.value)} />
+              <Input placeholder="Hỗ trợ tiền nước" value={settlementForm.waterSupportAmount} onChange={(event) => updateSettlementField("waterSupportAmount", event.target.value)} />
+              <Input placeholder="Giảm trừ khác" value={settlementForm.otherCreditAmount} onChange={(event) => updateSettlementField("otherCreditAmount", event.target.value)} />
+              <Input placeholder="Hoàn cọc" value={settlementForm.depositToRefund} onChange={(event) => updateSettlementField("depositToRefund", event.target.value)} />
+            </div>
+            <Textarea placeholder="Ghi chú quyết toán" value={settlementForm.note} onChange={(event) => updateSettlementField("note", event.target.value)} />
+          </div>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Card className="p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-muted">Charge total</div>
+                <div className="mt-2 text-2xl font-black text-text">{formatCurrency(settlementPreview?.totals?.chargeTotal)}</div>
+              </Card>
+              <Card className="p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-muted">Credit total</div>
+                <div className="mt-2 text-2xl font-black text-emerald-600">{formatCurrency(settlementPreview?.totals?.creditTotal)}</div>
+              </Card>
+            </div>
+
+            <Card className="overflow-hidden">
+              <div className="border-b border-border px-4 py-3">
+                <div className="text-sm font-black text-text">Khoản thu</div>
+              </div>
+              <div className="divide-y divide-border/60">
+                {(settlementPreview?.charges || []).length > 0 ? (
+                  settlementPreview.charges.map((item: any) => (
+                    <div key={item.key} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                      <span className="text-muted">{item.description}</span>
+                      <span className="font-black text-text">{formatCurrency(item.amount)}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-4 py-6 text-sm text-muted">Chưa có khoản thu phát sinh.</div>
+                )}
+              </div>
+            </Card>
+
+            <Card className="overflow-hidden">
+              <div className="border-b border-border px-4 py-3">
+                <div className="text-sm font-black text-text">Khoản hoàn / giảm trừ</div>
+              </div>
+              <div className="divide-y divide-border/60">
+                {(settlementPreview?.credits || []).length > 0 ? (
+                  settlementPreview.credits.map((item: any) => (
+                    <div key={item.key} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                      <span className="text-muted">{item.description}</span>
+                      <span className="font-black text-emerald-600">{formatCurrency(item.amount)}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-4 py-6 text-sm text-muted">Chưa có khoản hoàn hoặc giảm trừ.</div>
+                )}
+              </div>
+            </Card>
           </div>
         </div>
       </Modal>

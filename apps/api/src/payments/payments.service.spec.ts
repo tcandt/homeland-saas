@@ -13,6 +13,7 @@ describe('PaymentsService', () => {
       paymentWebhookLog: {
         upsert: vi.fn(),
         update: vi.fn(),
+        findFirst: vi.fn(),
       },
       paymentRequest: {
         findFirst: vi.fn(),
@@ -20,6 +21,12 @@ describe('PaymentsService', () => {
         create: vi.fn(),
       },
       bankAccount: {
+        findFirst: vi.fn(),
+      },
+      invoice: {
+        findFirst: vi.fn(),
+      },
+      deposit: {
         findFirst: vi.fn(),
       },
       ...prismaOverrides,
@@ -286,5 +293,135 @@ describe('PaymentsService', () => {
       where: { id: 'log-1' },
       data: { processedAt: expect.any(Date) },
     });
+  });
+
+  it('manually assigns a SePay transaction to an invoice by invoice code', async () => {
+    const { service, prisma, invoicesService } = createService({
+      paymentWebhookLog: {
+        upsert: vi.fn(),
+        update: vi.fn(),
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'log-1',
+          payload: {
+            id: 'txn-manual-1',
+            code: 'PAY-TENANT-MANUAL-001',
+            transferType: 'in',
+            transferAmount: 90000,
+            accountNumber: '123456789',
+            gateway: 'ACB',
+          },
+        }),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: 'request-1',
+          tenantId: 'tenant-1',
+          paymentCode: 'PAY-TENANT-MANUAL-001',
+        }),
+        update: vi.fn(),
+      },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1',
+          bankName: 'ACB',
+          accountNumber: '123456789',
+          accountName: 'Owner A',
+        }),
+      },
+      invoice: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'invoice-1',
+          tenantId: 'tenant-1',
+          code: 'INV-001',
+          total: 150000,
+          paidAmount: 50000,
+          creditAmount: 10000,
+          contract: {
+            roomId: 'room-1',
+            room: {
+              buildingId: 'building-1',
+              building: { ownerId: 'owner-a' },
+            },
+          },
+        }),
+      },
+    });
+    invoicesService.pay.mockResolvedValue({ id: 'invoice-1' });
+
+    await expect(
+      service.manualAssignSePayTransaction('tenant-1', 'user-1', {
+        logId: 'log-1',
+        sourceType: PaymentSourceType.INVOICE,
+        sourceCode: 'INV-001',
+      }),
+    ).resolves.toMatchObject({
+      success: true,
+      paymentCode: 'PAY-TENANT-MANUAL-001',
+      amount: 90000,
+    });
+
+    expect(prisma.paymentRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant-1',
+        sourceType: PaymentSourceType.INVOICE,
+        sourceId: 'invoice-1',
+        paymentCode: 'PAY-TENANT-MANUAL-001',
+        amount: 90000,
+        bankAccountNumber: '123456789',
+      }),
+    });
+    expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 90000, 'SEPAY', 'txn-manual-1', 'user-1');
+    expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
+      where: { id: 'log-1' },
+      data: {
+        tenantId: 'tenant-1',
+        processedAt: expect.any(Date),
+      },
+    });
+  });
+
+  it('rejects manual deposit assignment when transferred amount does not equal deposit amount', async () => {
+    const { service } = createService({
+      paymentWebhookLog: {
+        upsert: vi.fn(),
+        update: vi.fn(),
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'log-1',
+          payload: {
+            id: 'txn-manual-2',
+            code: 'PAY-TENANT-MANUAL-002',
+            transferType: 'in',
+            transferAmount: 50000,
+          },
+        }),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
+      deposit: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'deposit-1',
+          tenantId: 'tenant-1',
+          code: 'DEP-001',
+          amount: 80000,
+          roomId: 'room-1',
+          room: {
+            buildingId: 'building-1',
+            building: { ownerId: 'owner-a' },
+          },
+        }),
+      },
+    });
+
+    await expect(
+      service.manualAssignSePayTransaction('tenant-1', 'user-1', {
+        logId: 'log-1',
+        sourceType: PaymentSourceType.DEPOSIT,
+        sourceCode: 'DEP-001',
+      }),
+    ).rejects.toThrow('Số tiền giao dịch phải đúng bằng tiền cọc');
   });
 });

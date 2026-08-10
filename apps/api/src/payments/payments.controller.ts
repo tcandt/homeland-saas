@@ -49,6 +49,18 @@ export class PaymentsController {
     return this.paymentsService.getRequest(id, tenantId);
   }
 
+  @Post('sepay/manual-assign')
+  @ApiBearerAuth()
+  @RequirePermissions('finance.update')
+  @ApiOperation({ summary: 'Manually assign a SePay transaction to an invoice or deposit' })
+  manualAssignSePayTransaction(
+    @Body() body: { logId: string; sourceType: 'INVOICE' | 'DEPOSIT'; sourceCode: string },
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.paymentsService.manualAssignSePayTransaction(tenantId, userId, body as any);
+  }
+
   @Post('sepay/webhook')
   @Public()
   @ApiOperation({ summary: 'SePay webhook for payment confirmation' })

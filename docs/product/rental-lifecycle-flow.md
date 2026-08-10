@@ -568,7 +568,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hiển thị giao dịch sai nội dung/chưa match payment code.
 - [x] Hiển thị giao dịch sai bank.
 - [x] Hiển thị giao dịch treo chưa match payment code.
-- [ ] Cho phép gán thủ công giao dịch vào hóa đơn/cọc.
+- [x] Cho phép gán thủ công giao dịch vào hóa đơn/cọc.
 - [x] Ghi nhận thanh toán một phần.
 - [ ] Xử lý thừa tiền bằng hoàn lại, dư có hoặc cấn trừ kỳ sau.
 - [x] Cảnh báo nếu tiền vào bank không thuộc owner của tòa/phòng.

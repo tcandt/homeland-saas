@@ -317,6 +317,252 @@ export class PaymentsService {
     return request;
   }
 
+  async manualAssignSePayTransaction(
+    tenantId: string,
+    userId: string,
+    payload: { logId: string; sourceType: PaymentSourceType; sourceCode: string },
+  ) {
+    const log = await this.prisma.paymentWebhookLog.findFirst({
+      where: {
+        id: payload.logId,
+      },
+    });
+    if (!log) {
+      throw new BadRequestException('Không tìm thấy giao dịch SePay cần gán.');
+    }
+
+    const rawPayload = log.payload as SePayWebhookPayload;
+    const paymentCode = this.resolveWebhookPaymentCode(rawPayload);
+    if (!paymentCode) {
+      throw new BadRequestException('Giao dịch không có payment code để gán thủ công.');
+    }
+
+    const transferType = String(rawPayload.transferType || rawPayload.transfer_type || '').toLowerCase();
+    if (transferType === 'debit' || transferType === 'out') {
+      throw new BadRequestException('Không thể gán giao dịch ra.');
+    }
+
+    const transactionId = this.resolveWebhookTransactionId(rawPayload);
+    const providerAmount = Number(rawPayload.transferAmount ?? rawPayload.amount ?? 0);
+    const accountNumber = String(rawPayload.accountNumber || rawPayload.account_number || rawPayload.bank_account_xid || '').trim();
+
+    if (!providerAmount || providerAmount <= 0) {
+      throw new BadRequestException('Số tiền giao dịch không hợp lệ.');
+    }
+
+    const existingRequest = await this.prisma.paymentRequest.findFirst({
+      where: {
+        tenantId,
+        paymentCode,
+      },
+    });
+
+    if (existingRequest?.status === PaymentRequestStatus.CONFIRMED && existingRequest.providerTransactionId !== transactionId) {
+      throw new BadRequestException('Payment code này đã được xác nhận bởi giao dịch khác.');
+    }
+
+    if (payload.sourceType === PaymentSourceType.INVOICE) {
+      const invoice = await this.prisma.invoice.findFirst({
+        where: {
+          tenantId,
+          code: payload.sourceCode,
+          deletedAt: null,
+        },
+        include: {
+          contract: {
+            include: {
+              room: {
+                include: {
+                  building: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!invoice) {
+        throw new BadRequestException('Không tìm thấy hóa đơn để gán.');
+      }
+
+      const remaining = Number(invoice.total || 0) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0);
+      if (providerAmount > remaining) {
+        throw new BadRequestException(`Số tiền giao dịch vượt số dư hóa đơn ${remaining}. Hãy xử lý thừa tiền ở bước riêng.`);
+      }
+
+      const bankAccount = accountNumber
+        ? await this.prisma.bankAccount.findFirst({ where: { tenantId, accountNumber } })
+        : await this.resolveBankAccount(tenantId, invoice.contract?.room?.building?.ownerId);
+
+      const request =
+        existingRequest ||
+        (await this.prisma.paymentRequest.create({
+          data: {
+            tenantId,
+            ownerId: invoice.contract?.room?.building?.ownerId || null,
+            buildingId: invoice.contract?.room?.buildingId || null,
+            roomId: invoice.contract?.roomId || null,
+            bankAccountId: bankAccount?.id || null,
+            sourceType: PaymentSourceType.INVOICE,
+            sourceId: invoice.id,
+            provider: PaymentProvider.SEPAY,
+            paymentCode,
+            amount: providerAmount,
+            bankName: bankAccount?.bankName || String(rawPayload.gateway || 'SEPAY'),
+            bankAccountNumber: accountNumber || bankAccount?.accountNumber || '',
+            bankAccountName: bankAccount?.accountName || null,
+            qrUrl: '',
+            metadata: {
+              manualAssigned: true,
+              sourceCode: payload.sourceCode,
+              logId: payload.logId,
+              assignedBy: userId,
+            },
+          },
+        }));
+
+      if (existingRequest) {
+        await this.prisma.paymentRequest.update({
+          where: { id: existingRequest.id },
+          data: {
+            sourceType: PaymentSourceType.INVOICE,
+            sourceId: invoice.id,
+            amount: providerAmount,
+            ownerId: invoice.contract?.room?.building?.ownerId || null,
+            buildingId: invoice.contract?.room?.buildingId || null,
+            roomId: invoice.contract?.roomId || null,
+            bankAccountId: bankAccount?.id || existingRequest.bankAccountId || null,
+            bankName: bankAccount?.bankName || existingRequest.bankName,
+            bankAccountNumber: accountNumber || existingRequest.bankAccountNumber,
+            bankAccountName: bankAccount?.accountName || existingRequest.bankAccountName,
+            metadata: {
+              manualAssigned: true,
+              sourceCode: payload.sourceCode,
+              logId: payload.logId,
+              assignedBy: userId,
+            },
+          },
+        });
+      }
+
+      await this.invoicesService.pay(invoice.id, providerAmount, 'SEPAY', transactionId, userId);
+
+      await this.prisma.paymentRequest.update({
+        where: { id: request.id },
+        data: {
+          status: PaymentRequestStatus.CONFIRMED,
+          providerTransactionId: transactionId,
+          paidAt: new Date(),
+        },
+      });
+    } else if (payload.sourceType === PaymentSourceType.DEPOSIT) {
+      const deposit = await this.prisma.deposit.findFirst({
+        where: {
+          tenantId,
+          code: payload.sourceCode,
+          deletedAt: null,
+        },
+        include: {
+          room: {
+            include: {
+              building: true,
+            },
+          },
+        },
+      });
+      if (!deposit) {
+        throw new BadRequestException('Không tìm thấy phiếu cọc để gán.');
+      }
+
+      if (providerAmount !== Number(deposit.amount || 0)) {
+        throw new BadRequestException(`Số tiền giao dịch phải đúng bằng tiền cọc ${Number(deposit.amount || 0)}.`);
+      }
+
+      const bankAccount = accountNumber
+        ? await this.prisma.bankAccount.findFirst({ where: { tenantId, accountNumber } })
+        : await this.resolveBankAccount(tenantId, deposit.room?.building?.ownerId);
+
+      const request =
+        existingRequest ||
+        (await this.prisma.paymentRequest.create({
+          data: {
+            tenantId,
+            ownerId: deposit.room?.building?.ownerId || null,
+            buildingId: deposit.room?.buildingId || null,
+            roomId: deposit.roomId,
+            bankAccountId: bankAccount?.id || null,
+            sourceType: PaymentSourceType.DEPOSIT,
+            sourceId: deposit.id,
+            provider: PaymentProvider.SEPAY,
+            paymentCode,
+            amount: providerAmount,
+            bankName: bankAccount?.bankName || String(rawPayload.gateway || 'SEPAY'),
+            bankAccountNumber: accountNumber || bankAccount?.accountNumber || '',
+            bankAccountName: bankAccount?.accountName || null,
+            qrUrl: '',
+            metadata: {
+              manualAssigned: true,
+              sourceCode: payload.sourceCode,
+              logId: payload.logId,
+              assignedBy: userId,
+            },
+          },
+        }));
+
+      if (existingRequest) {
+        await this.prisma.paymentRequest.update({
+          where: { id: existingRequest.id },
+          data: {
+            sourceType: PaymentSourceType.DEPOSIT,
+            sourceId: deposit.id,
+            amount: providerAmount,
+            ownerId: deposit.room?.building?.ownerId || null,
+            buildingId: deposit.room?.buildingId || null,
+            roomId: deposit.roomId,
+            bankAccountId: bankAccount?.id || existingRequest.bankAccountId || null,
+            bankName: bankAccount?.bankName || existingRequest.bankName,
+            bankAccountNumber: accountNumber || existingRequest.bankAccountNumber,
+            bankAccountName: bankAccount?.accountName || existingRequest.bankAccountName,
+            metadata: {
+              manualAssigned: true,
+              sourceCode: payload.sourceCode,
+              logId: payload.logId,
+              assignedBy: userId,
+            },
+          },
+        });
+      }
+
+      await this.depositsService.collect(deposit.id, `Manual SePay assignment ${transactionId}`, userId);
+
+      await this.prisma.paymentRequest.update({
+        where: { id: request.id },
+        data: {
+          status: PaymentRequestStatus.CONFIRMED,
+          providerTransactionId: transactionId,
+          paidAt: new Date(),
+        },
+      });
+    } else {
+      throw new BadRequestException('Loại nguồn thanh toán không hỗ trợ.');
+    }
+
+    await this.prisma.paymentWebhookLog.update({
+      where: { id: log.id },
+      data: {
+        tenantId,
+        processedAt: new Date(),
+      },
+    });
+
+    return {
+      success: true,
+      paymentCode,
+      sourceType: payload.sourceType,
+      sourceCode: payload.sourceCode,
+      amount: providerAmount,
+    };
+  }
+
   private resolveWebhookTransactionId(payload: SePayWebhookPayload) {
     return String(payload.transaction_id || payload.id || '');
   }

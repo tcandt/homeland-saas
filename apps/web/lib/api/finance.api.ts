@@ -31,6 +31,9 @@ export const financeApi = {
   getSePayReconciliation: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/sepay/reconciliation', { params });
   },
+  manualAssignSePayTransaction: async (payload: { logId: string; sourceType: 'INVOICE' | 'DEPOSIT'; sourceCode: string }) => {
+    return await apiClient.post<any>('/payments/sepay/manual-assign', payload);
+  },
   getExpenses: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/expenses', { params });
   },

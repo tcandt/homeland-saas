@@ -699,13 +699,14 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Audit log cho xử lý tiền thừa SePay.
 - [ ] Audit log cho các thao tác tiền ngoài expense còn thiếu.
 - [x] Audit log cho login, thay đổi cài đặt và sửa token.
-- [ ] Audit log cho đổi owner và các thao tác tài chính ngoài expense còn thiếu.
-- [ ] Cảnh báo thao tác nhạy cảm bằng popup xác nhận.
+- [x] Audit log cho đổi owner.
+- [ ] Audit log cho các thao tác tài chính ngoài expense còn thiếu.
+- [x] Cảnh báo thao tác nhạy cảm bằng popup xác nhận.
 
 ### 15. UI/UX cleanup
 
 - [x] Sửa các text mojibake đã phát hiện trong Settings sidebar, API client và settings hook.
-- [ ] Tiếp tục rà soát các text mojibake còn tồn tại nếu hiển thị trên UI.
+- [x] Tiếp tục rà soát các text mojibake còn tồn tại trong Owner Management.
 - [ ] Chuẩn hóa tiếng Việt có dấu toàn bộ Finance/Expenses/Settings.
 - [ ] Tối ưu Finance page trên mobile.
 - [ ] Tối ưu bảng chi phí responsive.

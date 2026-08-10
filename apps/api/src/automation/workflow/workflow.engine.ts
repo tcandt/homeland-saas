@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AccountType } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { WORKFLOW_REGISTRY } from './workflow.registry';
 import { WorkflowStatus } from '../automation.constants';
@@ -167,24 +168,57 @@ export class WorkflowEngine {
   private async createJournalEntryFromPaymentEvent(payload: any) {
     if (!payload.amount) return;
 
-    const bankAccount = await this.prisma.chartOfAccount.findFirst({
-      where: { tenantId: payload.tenantId, code: '1100' },
-    });
-    const offsetAccountCode =
-      payload.sourceType === 'INVOICE'
-        ? '4000'
-        : payload.sourceType === 'REFUND' && payload.metadata?.refundSourceType === 'DEPOSIT'
-          ? '1300'
-          : '1300';
-    const offsetAccount = await this.prisma.chartOfAccount.findFirst({
-      where: { tenantId: payload.tenantId, code: offsetAccountCode },
-    });
+    const isDepositRefund = payload.sourceType === 'REFUND' && payload.metadata?.refundSourceType === 'DEPOSIT';
+    const isDepositDeduction = payload.sourceType === 'ADJUSTMENT' && payload.metadata?.adjustmentType === 'DEPOSIT_DEDUCTION';
 
+    if (isDepositDeduction) {
+      const depositLiability = await this.resolveChartOfAccount(payload.tenantId, '1300');
+      const deductionRevenue = await this.resolveChartOfAccount(
+        payload.tenantId,
+        '4300',
+        'Deposit Forfeiture Revenue',
+        AccountType.REVENUE,
+      );
+
+      if (!depositLiability || !deductionRevenue) {
+        throw new Error('Required Chart of Accounts not found');
+      }
+
+      await this.journalEntryService.createJournalEntry(payload.tenantId, {
+        code: `JE-${payload.sourceType || 'SYS'}-${Date.now()}`,
+        sourceType: payload.sourceType || 'UNKNOWN',
+        sourceId: payload.id || payload.sourceId,
+        description: payload.metadata?.code
+          ? `Khau tru coc ${payload.metadata.code}`
+          : 'Khau tru coc',
+        entryDate: new Date(),
+        status: 'POSTED',
+        lines: [
+          {
+            accountId: depositLiability.id,
+            type: 'DEBIT',
+            amount: payload.amount,
+            description: 'Giam nghia vu phai tra coc',
+          },
+          {
+            accountId: deductionRevenue.id,
+            type: 'CREDIT',
+            amount: payload.amount,
+            description: 'Ghi nhan doanh thu giu coc',
+          },
+        ],
+      });
+      return;
+    }
+
+    const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100');
+    const offsetAccountCode = payload.sourceType === 'INVOICE' ? '4000' : '1300';
+    const offsetAccount = await this.resolveChartOfAccount(payload.tenantId, offsetAccountCode);
     if (!bankAccount || !offsetAccount) {
       throw new Error('Required Chart of Accounts not found');
     }
 
-    const isRefund = payload.sourceType === 'REFUND';
+    const isRefund = isDepositRefund;
     const lines = isRefund
       ? [
           {
@@ -225,6 +259,28 @@ export class WorkflowEngine {
       entryDate: new Date(),
       status: 'POSTED',
       lines,
+    });
+  }
+
+  private async resolveChartOfAccount(
+    tenantId: string,
+    code: string,
+    fallbackName?: string,
+    fallbackType?: AccountType,
+  ) {
+    const existing = await this.prisma.chartOfAccount.findFirst({
+      where: { tenantId, code },
+    });
+    if (existing) return existing;
+    if (!fallbackName || !fallbackType) return null;
+
+    return this.prisma.chartOfAccount.create({
+      data: {
+        tenantId,
+        code,
+        name: fallbackName,
+        type: fallbackType,
+      },
     });
   }
 }

@@ -424,6 +424,7 @@ async function main() {
     { code: '4000', name: 'Rental Revenue', type: 'REVENUE' as any },
     { code: '4100', name: 'Utility Revenue', type: 'REVENUE' as any },
     { code: '4200', name: 'Service Revenue', type: 'REVENUE' as any },
+    { code: '4300', name: 'Deposit Forfeiture Revenue', type: 'REVENUE' as any },
     { code: '5000', name: 'Electricity Expense', type: 'EXPENSE' as any },
     { code: '5100', name: 'Water Expense', type: 'EXPENSE' as any },
     { code: '5200', name: 'Maintenance Expense', type: 'EXPENSE' as any },

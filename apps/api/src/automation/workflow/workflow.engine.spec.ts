@@ -134,4 +134,37 @@ describe('WorkflowEngine', () => {
       }),
     );
   });
+
+  it('posts deducted deposits to deposit liability and forfeiture revenue accounts', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'deposit-liability', code: '1300' })
+      .mockResolvedValueOnce({ id: 'forfeiture-revenue', code: '4300' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1',
+      sourceType: 'ADJUSTMENT',
+      sourceId: 'deposit-1',
+      amount: 100000,
+      metadata: { code: 'DEP-001', adjustmentType: 'DEPOSIT_DEDUCTION' },
+    });
+
+    expect(prisma.chartOfAccount.findFirst).toHaveBeenNthCalledWith(1, {
+      where: { tenantId: 'tenant-1', code: '1300' },
+    });
+    expect(prisma.chartOfAccount.findFirst).toHaveBeenNthCalledWith(2, {
+      where: { tenantId: 'tenant-1', code: '4300' },
+    });
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        sourceType: 'ADJUSTMENT',
+        sourceId: 'deposit-1',
+        lines: [
+          expect.objectContaining({ accountId: 'deposit-liability', type: 'DEBIT', amount: 100000 }),
+          expect.objectContaining({ accountId: 'forfeiture-revenue', type: 'CREDIT', amount: 100000 }),
+        ],
+      }),
+    );
+  });
 });

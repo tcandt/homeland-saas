@@ -90,5 +90,27 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         order: 3,
       },
     ],
+  },
+  {
+    name: 'deposit.deducted.workflow',
+    description: 'Process a deducted deposit',
+    triggerEvent: 'deposit.deducted',
+    steps: [
+      {
+        name: 'Create Journal Entry',
+        type: 'CREATE_JOURNAL_ENTRY',
+        order: 1,
+      },
+      {
+        name: 'Invalidate Dashboard Cache',
+        type: 'INVALIDATE_DASHBOARD_CACHE',
+        order: 2,
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 3,
+      },
+    ],
   }
 ];

@@ -115,4 +115,61 @@ describe('DepositsService', () => {
       }),
     );
   });
+
+  it('publishes a deposit.deducted event when deducting a paid deposit on cancel', async () => {
+    const { service, repository, auditService, eventPublisher } = createService();
+    const deposit = {
+      id: 'deposit-1',
+      tenantId: 'tenant-1',
+      customerId: 'customer-1',
+      code: 'DEP-001',
+      amount: 1500000,
+      status: DepositStatus.PAID,
+      note: null,
+      customer: {
+        fullName: 'Nguyen Van A',
+        phone: '0909000001',
+      },
+    };
+
+    repository.findById.mockResolvedValue(deposit);
+    repository.update.mockResolvedValue({
+      ...deposit,
+      status: DepositStatus.CANCELLED,
+      note: '[DEDUCT] Giu lai tien coc',
+    });
+
+    await expect(service.cancel('deposit-1', 'Giu lai tien coc', 'user-1', 'DEDUCT')).resolves.toMatchObject({
+      status: DepositStatus.CANCELLED,
+      note: '[DEDUCT] Giu lai tien coc',
+    });
+
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'CANCEL',
+        entity: 'Deposit',
+        entityId: 'deposit-1',
+      }),
+    );
+    expect(eventPublisher.publish).toHaveBeenCalledWith(
+      'deposit.deducted',
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+        customerId: 'customer-1',
+        customerName: 'Nguyen Van A',
+        customerPhone: '0909000001',
+        sourceId: 'deposit-1',
+        sourceType: 'ADJUSTMENT',
+        amount: 1500000,
+        paymentProvider: 'MANUAL',
+        metadata: expect.objectContaining({
+          code: 'DEP-001',
+          note: 'Giu lai tien coc',
+          adjustmentType: 'DEPOSIT_DEDUCTION',
+          resolutionAction: 'DEDUCT',
+        }),
+      }),
+    );
+  });
 });

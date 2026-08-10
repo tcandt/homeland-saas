@@ -137,7 +137,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
   }
 
   async cancel(id: string, reason: string, userId: string, resolutionAction?: 'REFUND' | 'KEEP' | 'DEDUCT') {
-    const deposit = await this.repository.findById(id);
+    const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING && deposit.status !== DepositStatus.PAID) {
       throw new BadRequestException('Deposit status cannot be cancelled');
@@ -162,6 +162,27 @@ export class DepositsService extends BaseCrudService<Deposit> {
       before: deposit,
       after: updated,
     });
+
+    if (deposit.status === DepositStatus.PAID && resolutionAction === 'DEDUCT') {
+      this.eventPublisher.publish('deposit.deducted', {
+        tenantId: deposit.tenantId,
+        userId,
+        customerId: deposit.customerId,
+        customerName: deposit.customer?.fullName,
+        customerPhone: deposit.customer?.phone,
+        metadata: {
+          code: deposit.code,
+          note: reason,
+          adjustmentType: 'DEPOSIT_DEDUCTION',
+          resolutionAction,
+        },
+        sourceId: deposit.id,
+        sourceType: 'ADJUSTMENT',
+        amount: Number(deposit.amount),
+        paymentProvider: 'MANUAL',
+        occurredAt: new Date(),
+      });
+    }
 
     return updated;
   }

@@ -26,12 +26,14 @@ export default function BankCashFlowSummary() {
   const { data, isLoading, isError } = useBankCashFlowQuery(params);
   const rows = Array.isArray(data?.rows) ? data.rows : [];
 
-  const yearOptions = useMemo(() => (
-    Array.from({ length: 5 }, (_, index) => {
-      const value = String(currentYear - index);
-      return { value, label: value };
-    })
-  ), [currentYear]);
+  const yearOptions = useMemo(
+    () =>
+      Array.from({ length: 5 }, (_, index) => {
+        const value = String(currentYear - index);
+        return { value, label: value };
+      }),
+    [currentYear],
+  );
 
   const monthOptions = [
     { value: "", label: "Cả năm" },
@@ -43,11 +45,11 @@ export default function BankCashFlowSummary() {
       <div className="flex flex-col gap-4 border-b border-border p-[16px] md:flex-row md:items-start md:justify-between md:p-[20px]">
         <div>
           <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#16a34a]">
-            <Landmark size={14} /> SePay bank cashflow
+            <Landmark size={14} /> Dòng tiền SePay
           </div>
-          <h2 className="mt-2 text-[16px] font-black text-text md:text-[18px]">Dòng tiền theo tài khoản bank</h2>
+          <h2 className="mt-2 text-[16px] font-black text-text md:text-[18px]">Dòng tiền theo tài khoản ngân hàng</h2>
           <p className="mt-1 max-w-[720px] text-[12px] leading-5 text-muted md:text-[13px]">
-            Tổng hợp QR đã tạo, tiền đã xác nhận và tiền đang chờ theo từng bank của owner. Dùng để đối soát tiền vào đúng chủ/tòa.
+            Tổng hợp QR đã tạo, tiền đã xác nhận và tiền đang chờ theo từng tài khoản của owner. Dùng để đối soát tiền vào đúng chủ và đúng tòa.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:min-w-[310px]">
@@ -57,21 +59,21 @@ export default function BankCashFlowSummary() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 border-b border-border p-[16px] md:grid-cols-4 md:p-[20px]">
-        <Metric icon={<WalletCards size={15} />} label="Tài khoản bank" value={data?.summary?.bankCount || 0} />
+        <Metric icon={<WalletCards size={15} />} label="Tài khoản ngân hàng" value={data?.summary?.bankCount || 0} />
         <Metric icon={<QrCode size={15} />} label="QR đã tạo" value={data?.summary?.requestCount || 0} />
         <Metric label="Đã xác nhận" value={formatVnd(data?.summary?.confirmedAmount || 0)} tone="income" />
         <Metric label="Đang chờ" value={formatVnd(data?.summary?.pendingAmount || 0)} tone="warning" />
       </div>
 
-      {isLoading && <div className="p-8 text-center text-[13px] font-semibold text-muted">Đang tải dòng tiền theo bank...</div>}
-      {isError && <div className="p-8 text-center text-[13px] font-semibold text-rose-500">Không tải được báo cáo bank.</div>}
+      {isLoading && <div className="p-8 text-center text-[13px] font-semibold text-muted">Đang tải dòng tiền theo ngân hàng...</div>}
+      {isError && <div className="p-8 text-center text-[13px] font-semibold text-rose-500">Không tải được báo cáo ngân hàng.</div>}
 
       {!isLoading && !isError && (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-surface text-[11px] uppercase text-muted">
               <tr>
-                <th className="px-4 py-3 font-black">Bank</th>
+                <th className="px-4 py-3 font-black">Ngân hàng</th>
                 <th className="px-4 py-3 font-black">Owner</th>
                 <th className="px-4 py-3 font-black text-center">QR</th>
                 <th className="px-4 py-3 font-black text-right">Đã xác nhận</th>
@@ -84,7 +86,7 @@ export default function BankCashFlowSummary() {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-[13px] font-semibold text-muted">
-                    Chưa có tài khoản bank hoặc payment request trong kỳ.
+                    Chưa có tài khoản ngân hàng hoặc payment request trong kỳ.
                   </td>
                 </tr>
               )}

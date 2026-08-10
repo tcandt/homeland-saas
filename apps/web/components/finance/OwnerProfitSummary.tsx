@@ -33,23 +33,21 @@ export default function OwnerProfitSummary() {
 
   return (
     <>
-      <section className="bg-card border border-border rounded-[16px] overflow-hidden shadow-sm">
-        <div className="p-[16px] md:p-[20px] border-b border-border flex items-start justify-between gap-4">
+      <section className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
+        <div className="flex items-start justify-between gap-4 border-b border-border p-[16px] md:p-[20px]">
           <div>
-            <h2 className="font-black text-[16px] md:text-[18px] text-text">Chia lợi nhuận theo chủ</h2>
-            <p className="text-[12px] md:text-[13px] text-muted mt-1">
+            <h2 className="text-[16px] font-black text-text md:text-[18px]">Chia lợi nhuận theo chủ</h2>
+            <p className="mt-1 text-[12px] text-muted md:text-[13px]">
               Tổng hợp doanh thu, chi phí, tiền ứng hộ và khoản cần khấu trừ cho từng chủ sở hữu.
             </p>
           </div>
-          <div className="hidden md:flex h-10 w-10 items-center justify-center rounded-xl bg-[#8b5cf6]/10 text-[#8b5cf6]">
+          <div className="hidden h-10 w-10 items-center justify-center rounded-xl bg-[#8b5cf6]/10 text-[#8b5cf6] md:flex">
             <HandCoins size={18} />
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-0">
-          {isLoading && (
-            <div className="p-[20px] text-[13px] font-semibold text-muted">Đang tải báo cáo...</div>
-          )}
+        <div className="grid grid-cols-1 gap-0 xl:grid-cols-2">
+          {isLoading && <div className="p-[20px] text-[13px] font-semibold text-muted">Đang tải báo cáo...</div>}
 
           {!isLoading && rows.length === 0 && (
             <div className="p-[20px] text-[13px] font-semibold text-muted">
@@ -58,14 +56,12 @@ export default function OwnerProfitSummary() {
           )}
 
           {rows.map((row: any) => (
-            <article key={row.owner.id} className="p-[16px] md:p-[20px] border-b xl:odd:border-r border-border">
+            <article key={row.owner.id} className="border-b border-border p-[16px] md:p-[20px] xl:odd:border-r">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-black text-[15px] md:text-[16px] text-text">{row.owner.name}</span>
-                    <span className="rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-black text-muted">
-                      {row.owner.code}
-                    </span>
+                    <span className="text-[15px] font-black text-text md:text-[16px]">{row.owner.name}</span>
+                    <span className="rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-black text-muted">{row.owner.code}</span>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-muted">
                     <Building2 size={13} />
@@ -83,7 +79,7 @@ export default function OwnerProfitSummary() {
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                 <Metric label="Tổng thu" value={row.revenue} tone="income" />
                 <Metric label="Tổng chi" value={row.expense} tone="expense" />
                 <Metric label="Cần thu hoàn ứng" value={row.advanceReceivable} tone="income" />
@@ -106,12 +102,14 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
   const params = useMemo(() => ({ year, ...(month ? { month } : {}) }), [month, year]);
   const { data, isLoading, isError } = useOwnerProfitDetailQuery(ownerId, params);
 
-  const yearOptions = useMemo(() => (
-    Array.from({ length: 5 }, (_, index) => {
-      const value = String(currentYear - index);
-      return { value, label: value };
-    })
-  ), [currentYear]);
+  const yearOptions = useMemo(
+    () =>
+      Array.from({ length: 5 }, (_, index) => {
+        const value = String(currentYear - index);
+        return { value, label: value };
+      }),
+    [currentYear],
+  );
 
   const monthOptions = [
     { value: "", label: "Cả năm" },
@@ -129,9 +127,9 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
       zIndex={10050}
     >
       <div className="flex flex-col gap-5">
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_150px_150px] gap-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_150px_150px]">
           <div>
-            <div className="text-[11px] font-black uppercase tracking-wide text-[#16a34a]">Owner profit detail</div>
+            <div className="text-[11px] font-black uppercase tracking-wide text-[#16a34a]">Owner Profit Detail</div>
             <p className="mt-1 text-[13px] leading-6 text-muted">
               Lọc theo tháng/năm để xem doanh thu, chi phí, khoản hoàn ứng và lợi nhuận còn lại của từng chủ.
             </p>
@@ -145,7 +143,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
 
         {!isLoading && !isError && data && (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
               <DetailMetric label="Tổng thu" value={data.summary?.revenue} tone="income" />
               <DetailMetric label="Tổng chi" value={data.summary?.expense} tone="expense" />
               <DetailMetric label="Trước hoàn ứng" value={data.summary?.profitBeforeAdvance} tone="income" />
@@ -153,7 +151,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
               <DetailMetric label="Còn lại" value={data.summary?.profitAfterAdvance} tone="income" />
             </div>
 
-            <section className="rounded-2xl border border-border overflow-hidden">
+            <section className="overflow-hidden rounded-2xl border border-border">
               <div className="border-b border-border bg-surface px-4 py-3">
                 <h3 className="text-[13px] font-black uppercase text-text">Tòa thuộc chủ</h3>
               </div>
@@ -162,9 +160,9 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                   <thead className="bg-surface text-[11px] uppercase text-muted">
                     <tr>
                       <th className="px-4 py-3 font-black">Tòa</th>
-                      <th className="px-4 py-3 font-black text-right">Doanh thu</th>
-                      <th className="px-4 py-3 font-black text-right">Chi phí</th>
-                      <th className="px-4 py-3 font-black text-right">Lợi nhuận</th>
+                      <th className="px-4 py-3 text-right font-black">Doanh thu</th>
+                      <th className="px-4 py-3 text-right font-black">Chi phí</th>
+                      <th className="px-4 py-3 text-right font-black">Lợi nhuận</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -186,7 +184,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                 <h3 className="text-[13px] font-black uppercase text-text">Xu hướng lợi nhuận {year}</h3>
                 <span className="text-[12px] font-semibold text-muted">12 tháng</span>
               </div>
-              <div className="grid grid-cols-12 items-end gap-2 min-h-[140px]">
+              <div className="grid min-h-[140px] grid-cols-12 items-end gap-2">
                 {(data.trend || []).map((item: any) => {
                   const height = Math.max(8, Math.round((Math.abs(Number(item.profit || 0)) / maxTrend) * 120));
                   const positive = Number(item.profit || 0) >= 0;
@@ -204,7 +202,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border overflow-hidden">
+            <section className="overflow-hidden rounded-2xl border border-border">
               <div className="border-b border-border bg-surface px-4 py-3">
                 <h3 className="text-[13px] font-black uppercase text-text">Chi phí trong kỳ</h3>
               </div>
@@ -219,7 +217,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                         <th className="px-4 py-3 font-black">Tòa / phòng</th>
                         <th className="px-4 py-3 font-black">Loại</th>
                         <th className="px-4 py-3 font-black">Người chi</th>
-                        <th className="px-4 py-3 font-black text-right">Số tiền</th>
+                        <th className="px-4 py-3 text-right font-black">Số tiền</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -255,9 +253,7 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: "i
         {isIncome ? <TrendingUp size={12} /> : <ReceiptText size={12} />}
         {label}
       </div>
-      <div className={`mt-2 text-[15px] font-black ${isIncome ? "text-[#059669]" : "text-rose-500"}`}>
-        {formatMoney(Number(value || 0))}
-      </div>
+      <div className={`mt-2 text-[15px] font-black ${isIncome ? "text-[#059669]" : "text-rose-500"}`}>{formatMoney(Number(value || 0))}</div>
     </div>
   );
 }
@@ -267,9 +263,7 @@ function DetailMetric({ label, value, tone }: { label: string; value: number; to
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="text-[10px] font-black uppercase text-muted">{label}</div>
-      <div className={`mt-2 text-[18px] font-black ${isIncome ? "text-[#059669]" : "text-rose-500"}`}>
-        {formatVnd(Number(value || 0))}
-      </div>
+      <div className={`mt-2 text-[18px] font-black ${isIncome ? "text-[#059669]" : "text-rose-500"}`}>{formatVnd(Number(value || 0))}</div>
     </div>
   );
 }

@@ -203,14 +203,14 @@ export class FinanceReportingService {
       where: { tenantId, deletedAt: null },
       include: {
         owner: { select: { id: true, code: true, name: true } },
-        rooms: { where: { deletedAt: null }, select: { id: true, status: true } },
+        rooms: { where: { deletedAt: null }, select: { id: true, code: true, name: true, status: true } },
       },
       orderBy: { displayOrder: 'asc' },
     });
 
     return Promise.all(buildings.map(async (building) => {
       const occupiedRooms = building.rooms.filter((room) => room.status !== 'AVAILABLE').length;
-      const [revenues, journalExpenses, directExpenses, overdueInvoices] = await Promise.all([
+      const [revenues, journalExpenses, directExpenses, overdueInvoices, revenueItems] = await Promise.all([
         this.prisma.journalLine.aggregate({
           where: {
             tenantId,
@@ -249,12 +249,112 @@ export class FinanceReportingService {
             deletedAt: null,
           },
         }),
+        this.prisma.invoiceItem.findMany({
+          where: {
+            tenantId,
+            invoice: {
+              deletedAt: null,
+              createdAt: period,
+              contract: {
+                room: {
+                  buildingId: building.id,
+                },
+              },
+            },
+          },
+          select: {
+            type: true,
+            amount: true,
+            invoice: {
+              select: {
+                contract: {
+                  select: {
+                    room: {
+                      select: {
+                        id: true,
+                        code: true,
+                        name: true,
+                        status: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
       ]);
 
       const revenue = Number(revenues._sum.amount || 0);
       const expense = Math.max(Number(journalExpenses._sum.amount || 0), Number(directExpenses._sum.amount || 0));
       const profit = revenue - expense;
       const expenseRatio = revenue > 0 ? (expense / revenue) * 100 : expense > 0 ? 100 : 0;
+      const rentRevenue = revenueItems
+        .filter((item) => item.type === 'RENT')
+        .reduce((total, item) => total + Number(item.amount || 0), 0);
+      const electricityRevenue = revenueItems
+        .filter((item) => item.type === 'UTILITY_ELECTRICITY')
+        .reduce((total, item) => total + Number(item.amount || 0), 0);
+      const waterServiceRevenue = revenueItems
+        .filter((item) => item.type === 'UTILITY_WATER' || item.type === 'SERVICE')
+        .reduce((total, item) => total + Number(item.amount || 0), 0);
+      const otherRevenue = Math.max(0, revenue - rentRevenue - electricityRevenue - waterServiceRevenue);
+      const roomBreakdownMap = new Map<string, any>();
+
+      for (const room of building.rooms) {
+        roomBreakdownMap.set(room.id, {
+          room: {
+            id: room.id,
+            code: room.code,
+            name: room.name,
+            status: room.status,
+          },
+          revenue: 0,
+          revenueBreakdown: {
+            rent: 0,
+            electricity: 0,
+            waterAndService: 0,
+            other: 0,
+          },
+        });
+      }
+
+      for (const item of revenueItems) {
+        const room = item.invoice?.contract?.room;
+        if (!room) continue;
+        const current = roomBreakdownMap.get(room.id) || {
+          room: {
+            id: room.id,
+            code: room.code,
+            name: room.name,
+            status: room.status,
+          },
+          revenue: 0,
+          revenueBreakdown: {
+            rent: 0,
+            electricity: 0,
+            waterAndService: 0,
+            other: 0,
+          },
+        };
+
+        const amount = Number(item.amount || 0);
+        current.revenue += amount;
+        if (item.type === 'RENT') {
+          current.revenueBreakdown.rent += amount;
+        } else if (item.type === 'UTILITY_ELECTRICITY') {
+          current.revenueBreakdown.electricity += amount;
+        } else if (item.type === 'UTILITY_WATER' || item.type === 'SERVICE') {
+          current.revenueBreakdown.waterAndService += amount;
+        } else {
+          current.revenueBreakdown.other += amount;
+        }
+        roomBreakdownMap.set(room.id, current);
+      }
+
+      const roomBreakdown = Array.from(roomBreakdownMap.values()).sort(
+        (left, right) => Number(right.revenue || 0) - Number(left.revenue || 0),
+      );
 
       return {
         building: {
@@ -267,6 +367,13 @@ export class FinanceReportingService {
         },
         owner: building.owner,
         revenue,
+        revenueBreakdown: {
+          rent: rentRevenue,
+          electricity: electricityRevenue,
+          waterAndService: waterServiceRevenue,
+          other: otherRevenue,
+        },
+        roomBreakdown,
         expense,
         profit,
         margin: revenue > 0 ? Math.round((profit / revenue) * 100) : 0,

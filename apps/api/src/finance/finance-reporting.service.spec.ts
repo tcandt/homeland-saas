@@ -16,9 +16,14 @@ describe('FinanceReportingService', () => {
       },
       invoice: {
         findMany: vi.fn(),
+        count: vi.fn(),
+      },
+      invoiceItem: {
+        findMany: vi.fn().mockResolvedValue([]),
       },
       building: {
         findFirst: vi.fn(),
+        findMany: vi.fn(),
       },
       costCenter: {
         findFirst: vi.fn(),
@@ -295,6 +300,108 @@ describe('FinanceReportingService', () => {
         action: 'UPDATE',
         entity: 'Expense',
         entityId: 'expense-1',
+      }),
+    }));
+  });
+
+  it('returns building revenue breakdown for rent, electricity, and water-service', async () => {
+    const { service, prisma } = createService({
+      building: {
+        findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'building-1',
+            code: 'LK01-31',
+            name: 'LK01-31',
+            owner: { id: 'owner-1', code: 'TINH', name: 'Tinh' },
+            rooms: [
+              { id: 'room-1', status: 'RENTED' },
+              { id: 'room-2', status: 'AVAILABLE' },
+            ],
+          },
+        ]),
+      },
+      journalLine: {
+        aggregate: vi
+          .fn()
+          .mockResolvedValueOnce({ _sum: { amount: 2500000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 600000 } }),
+      },
+      expense: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
+        update: vi.fn(),
+        aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 500000 } }),
+      },
+      invoice: {
+        findMany: vi.fn(),
+        count: vi.fn().mockResolvedValue(2),
+      },
+      invoiceItem: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            type: 'RENT',
+            amount: 1800000,
+            invoice: { contract: { room: { id: 'room-1', code: '31-01', name: '31-01', status: 'RENTED' } } },
+          },
+          {
+            type: 'UTILITY_ELECTRICITY',
+            amount: 350000,
+            invoice: { contract: { room: { id: 'room-1', code: '31-01', name: '31-01', status: 'RENTED' } } },
+          },
+          {
+            type: 'UTILITY_WATER',
+            amount: 150000,
+            invoice: { contract: { room: { id: 'room-1', code: '31-01', name: '31-01', status: 'RENTED' } } },
+          },
+          {
+            type: 'SERVICE',
+            amount: 120000,
+            invoice: { contract: { room: { id: 'room-1', code: '31-01', name: '31-01', status: 'RENTED' } } },
+          },
+          {
+            type: 'OTHER',
+            amount: 80000,
+            invoice: { contract: { room: { id: 'room-1', code: '31-01', name: '31-01', status: 'RENTED' } } },
+          },
+        ]),
+      },
+    });
+
+    const summary = await service.getBuildingProfitSummary('tenant-1', { year: '2026', month: '8' });
+
+    expect(summary).toHaveLength(1);
+    expect(summary[0]).toMatchObject({
+      revenue: 2500000,
+      expense: 600000,
+      profit: 1900000,
+      overdueInvoices: 2,
+      revenueBreakdown: {
+        rent: 1800000,
+        electricity: 350000,
+        waterAndService: 270000,
+        other: 80000,
+      },
+    });
+    expect(summary[0].roomBreakdown).toHaveLength(2);
+    expect(summary[0].roomBreakdown[0]).toMatchObject({
+      room: { id: 'room-1', status: 'RENTED' },
+      revenue: 2500000,
+      revenueBreakdown: {
+        rent: 1800000,
+        electricity: 350000,
+        waterAndService: 270000,
+        other: 80000,
+      },
+    });
+    expect(summary[0].roomBreakdown[1]).toMatchObject({
+      room: { id: 'room-2', status: 'AVAILABLE' },
+      revenue: 0,
+    });
+    expect(prisma.invoiceItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
       }),
     }));
   });

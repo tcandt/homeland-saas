@@ -539,7 +539,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hiển thị lợi nhuận sau hoàn ứng/khấu trừ.
 - [x] Lọc theo tháng/quý/năm.
 - [x] Drill-down từ owner xuống tòa.
-- [ ] Drill-down từ tòa xuống phòng.
+- [x] Drill-down từ tòa xuống phòng.
 - [ ] Drill-down từ phòng xuống hợp đồng/hóa đơn/chi phí.
 - [x] Export Excel.
 - [x] Export PDF.
@@ -549,8 +549,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 - [x] Thay block placeholder Building P&L bằng dữ liệu thật.
 - [x] Doanh thu thuê phòng theo tòa.
-- [ ] Doanh thu điện theo tòa.
-- [ ] Doanh thu nước/dịch vụ theo tòa.
+- [x] Doanh thu điện theo tòa.
+- [x] Doanh thu nước/dịch vụ theo tòa.
 - [x] Chi phí trực tiếp theo tòa.
 - [x] Lợi nhuận theo tòa.
 - [x] Công nợ theo tòa.

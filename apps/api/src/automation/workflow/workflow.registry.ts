@@ -114,6 +114,31 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
     ],
   },
   {
+    name: 'contract.settlement.completed.workflow',
+    description: 'Process a completed contract settlement',
+    triggerEvent: 'contract.settlement.completed',
+    steps: [
+      {
+        name: 'Notify Customer',
+        type: 'CREATE_IN_APP_NOTIFICATION',
+        order: 1,
+        params: {
+          templateCode: 'SYSTEM_ALERT'
+        }
+      },
+      {
+        name: 'Invalidate Dashboard Cache',
+        type: 'INVALIDATE_DASHBOARD_CACHE',
+        order: 2,
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 3,
+      },
+    ],
+  },
+  {
     name: 'contract.settlement.refunded.workflow',
     description: 'Process a refunded contract settlement',
     triggerEvent: 'contract.settlement.refunded',

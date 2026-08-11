@@ -651,14 +651,14 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 ### 12. Thông báo tự động
 
 - [ ] Gửi thông báo tạo cọc.
-- [ ] Gửi thông báo cọc đã thu.
+- [x] Gửi thông báo cọc đã thu.
 - [ ] Gửi hóa đơn mới.
-- [ ] Gửi xác nhận thanh toán thành công.
+- [x] Gửi xác nhận thanh toán thành công.
 - [x] Gửi nhắc quá hạn.
 - [x] Gửi nhắc sắp hết hợp đồng.
 - [ ] Gửi yêu cầu duyệt chi.
 - [ ] Gửi thông báo chi phí phát sinh mới.
-- [ ] Gửi thông báo quyết toán trả phòng.
+- [x] Gửi thông báo quyết toán trả phòng.
 - [ ] Gửi cảnh báo SePay không khớp.
 - [x] Thêm retry nếu gửi thất bại.
 - [x] Log trạng thái gửi Zalo/Telegram.

@@ -289,6 +289,14 @@ describe('ContractsService', () => {
           }),
         }),
       }));
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'contract.settlement.completed',
+        expect.objectContaining({
+          sourceId: 'c1',
+          sourceType: 'CONTRACT',
+          amount: 0,
+        }),
+      );
       expect(result).toEqual(updatedContract);
     });
 
@@ -345,6 +353,14 @@ describe('ContractsService', () => {
         }),
       }));
       expect(prismaService.tx.receipt.create).not.toHaveBeenCalled();
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'contract.settlement.completed',
+        expect.objectContaining({
+          sourceId: 'c1',
+          sourceType: 'CONTRACT',
+          amount: 2850,
+        }),
+      );
       expect(eventPublisher.publish).not.toHaveBeenCalledWith(
         'contract.settlement.refunded',
         expect.anything(),
@@ -390,6 +406,14 @@ describe('ContractsService', () => {
           amount: 500,
           sourceId: 'c1',
           sourceType: 'REFUND',
+        }),
+      );
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'contract.settlement.completed',
+        expect.objectContaining({
+          sourceId: 'c1',
+          sourceType: 'CONTRACT',
+          amount: 0,
         }),
       );
       expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({

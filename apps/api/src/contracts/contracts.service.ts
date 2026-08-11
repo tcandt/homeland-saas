@@ -363,6 +363,30 @@ export class ContractsService extends BaseCrudService<Contract> {
       });
     }
 
+    this.eventPublisher.publish('contract.settlement.completed', {
+      tenantId: contract.tenantId,
+      userId,
+      customerId: contract.customerId,
+      customerName: contract.customer?.fullName,
+      customerPhone: contract.customer?.phone,
+      metadata: {
+        code: contract.code,
+        settlement,
+        roomId: contract.roomId,
+        title: `Quyet toan hop dong ${contract.code}`,
+        message:
+          settlement.totals.netReceivable > 0
+            ? `Hop dong ${contract.code} da quyet toan. Khach can thanh toan them ${settlement.totals.netReceivable.toLocaleString('vi-VN')} VND.`
+            : settlement.totals.refundToCustomer > 0
+              ? `Hop dong ${contract.code} da quyet toan. He thong can hoan lai ${settlement.totals.refundToCustomer.toLocaleString('vi-VN')} VND cho khach.`
+              : `Hop dong ${contract.code} da quyet toan xong va khong con cong no.`,
+      },
+      sourceId: contract.id,
+      sourceType: 'CONTRACT',
+      amount: settlement.totals.netReceivable,
+      occurredAt: new Date(),
+    });
+
     return result.updatedContract;
   }
 

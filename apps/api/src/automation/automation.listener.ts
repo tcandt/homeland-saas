@@ -39,6 +39,11 @@ export class AutomationListener {
     await this.processEvent('contract.settlement.refunded', payload);
   }
 
+  @OnEvent('contract.settlement.completed')
+  async handleContractSettlementCompleted(payload: DomainEventPayload) {
+    await this.processEvent('contract.settlement.completed', payload);
+  }
+
   private async processEvent(eventName: string, payload: DomainEventPayload) {
     this.logger.debug(`Intercepted Domain Event: ${eventName}`);
     
@@ -46,7 +51,7 @@ export class AutomationListener {
     // For this sprint, we statically map them in workflow engine, but we trigger the check here.
     
     // We only process specific events to avoid infinite loops for now
-    const supportedEvents = ['deposit.collected', 'deposit.refunded', 'deposit.deducted', 'invoice.paid', 'contract.created', 'contract.settlement.refunded'];
+    const supportedEvents = ['deposit.collected', 'deposit.refunded', 'deposit.deducted', 'invoice.paid', 'contract.created', 'contract.settlement.refunded', 'contract.settlement.completed'];
     if (supportedEvents.includes(eventName)) {
       // Find workflows that trigger on this event
       const workflows = await this.automationService.getWorkflows();

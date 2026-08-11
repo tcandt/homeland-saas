@@ -334,6 +334,45 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
     setSettlementForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleApplyUtilitySnapshot = () => {
+    if (!settlementPreview?.utilitySnapshot) return;
+    const electricity = settlementPreview.utilitySnapshot.electricity;
+    const water = settlementPreview.utilitySnapshot.water;
+
+    setSettlementForm((prev) => ({
+      ...prev,
+      electricityAmount:
+        electricity && (electricity.calculatedAmountVnd || electricity.monthAmountVnd)
+          ? String(Number(electricity.calculatedAmountVnd || electricity.monthAmountVnd || 0))
+          : prev.electricityAmount,
+      electricityClosingKwh:
+        electricity && electricity.monthKwh !== undefined && electricity.monthKwh !== null
+          ? String(Number(electricity.monthKwh || 0))
+          : prev.electricityClosingKwh,
+      waterAmount:
+        water && water.amount !== undefined && water.amount !== null
+          ? String(Number(water.amount || 0))
+          : prev.waterAmount,
+      waterPreviousReading:
+        water && water.previousReading !== undefined && water.previousReading !== null
+          ? String(Number(water.previousReading || 0))
+          : prev.waterPreviousReading,
+      waterCurrentReading:
+        water && water.currentReading !== undefined && water.currentReading !== null
+          ? String(Number(water.currentReading || 0))
+          : prev.waterCurrentReading,
+      waterUsage:
+        water && water.usage !== undefined && water.usage !== null
+          ? String(Number(water.usage || 0))
+          : prev.waterUsage,
+      waterUnitPrice:
+        water && water.unitPrice !== undefined && water.unitPrice !== null
+          ? String(Number(water.unitPrice || 0))
+          : prev.waterUnitPrice,
+    }));
+    showToast("Đã áp dụng snapshot điện nước vào biểu mẫu quyết toán", "success");
+  };
+
   const handleOpenSettlementModal = () => {
     setIsSettlementModalOpen(true);
   };
@@ -1106,6 +1145,13 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                 Đóng
               </Button>
               <Button
+                variant="outline"
+                onClick={handleApplyUtilitySnapshot}
+                disabled={!settlementPreview?.utilitySnapshot?.electricity && !settlementPreview?.utilitySnapshot?.water}
+              >
+                Áp dụng snapshot
+              </Button>
+              <Button
                 variant="danger"
                 data-testid="btn-confirm-terminate-settlement"
                 onClick={handleConfirmTermination}
@@ -1136,6 +1182,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               <Input placeholder="Tiền thuê quyết toán" value={settlementForm.baseRentAmount} onChange={(event) => updateSettlementField("baseRentAmount", event.target.value)} />
               <Input placeholder="Tiền điện" value={settlementForm.electricityAmount} onChange={(event) => updateSettlementField("electricityAmount", event.target.value)} />
               <Input placeholder="Tiền nước" value={settlementForm.waterAmount} onChange={(event) => updateSettlementField("waterAmount", event.target.value)} />
+              <Input placeholder="Chỉ số điện chốt" value={settlementForm.electricityClosingKwh} onChange={(event) => updateSettlementField("electricityClosingKwh", event.target.value)} />
               <Input placeholder="Chỉ số nước đầu kỳ" value={settlementForm.waterPreviousReading} onChange={(event) => updateSettlementField("waterPreviousReading", event.target.value)} />
               <Input placeholder="Chỉ số nước cuối kỳ" value={settlementForm.waterCurrentReading} onChange={(event) => updateSettlementField("waterCurrentReading", event.target.value)} />
               <Input placeholder="Số khối nước" value={settlementForm.waterUsage} onChange={(event) => updateSettlementField("waterUsage", event.target.value)} />
@@ -1166,17 +1213,17 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <Card className="p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-muted">Charge total</div>
+                <div className="text-xs font-bold uppercase tracking-wide text-muted">Tổng khoản thu</div>
                 <div className="mt-2 text-2xl font-black text-text">{formatCurrency(settlementPreview?.totals?.chargeTotal)}</div>
               </Card>
               <Card className="p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-muted">Credit total</div>
+                <div className="text-xs font-bold uppercase tracking-wide text-muted">Tổng giảm trừ</div>
                 <div className="mt-2 text-2xl font-black text-emerald-600">{formatCurrency(settlementPreview?.totals?.creditTotal)}</div>
               </Card>
             </div>
 
             <Card className="p-4">
-              <div className="text-xs font-bold uppercase tracking-wide text-muted">Room turnover</div>
+              <div className="text-xs font-bold uppercase tracking-wide text-muted">Trạng thái bàn giao</div>
               <div className="mt-2 text-base font-black text-text">
                 {settlementPreview?.roomTurnoverStatus === "MAINTENANCE" ? "Bảo trì trước khi mở bán" : "Vệ sinh trước khi mở bán"}
               </div>
@@ -1208,11 +1255,11 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                     <div className="text-xs text-muted">
                       {settlementPreview.utilitySnapshot.electricity.rateMode
                         ? `${settlementPreview.utilitySnapshot.electricity.rateMode} · ${settlementPreview.utilitySnapshot.electricity.calculationSource || ""}`
-                        : "Hunonic amount"}
+                        : "Theo số tiền Hunonic"}
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Settlement electricity</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Điện quyết toán</div>
                     <div className="mt-1 text-lg font-black text-primary">{formatCurrency(settlementPreview.utilitySnapshot.electricity.calculatedAmountVnd || settlementPreview.utilitySnapshot.electricity.monthAmountVnd)}</div>
                   </div>
                 </div>
@@ -1226,38 +1273,38 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                 <div className="text-sm font-black text-text">Khoản thu</div>
               </div>
               <div className="border-b border-border px-4 py-3">
-                <div className="text-sm font-black text-text">Water settlement</div>
+                <div className="text-sm font-black text-text">Quyết toán nước</div>
               </div>
               {settlementPreview?.utilitySnapshot?.water ? (
                 <div className="grid gap-3 px-4 py-4 sm:grid-cols-2">
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Previous / current</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Đầu kỳ / cuối kỳ</div>
                     <div className="mt-1 text-sm font-black text-text">
                       {Number(settlementPreview.utilitySnapshot.water.previousReading || 0).toLocaleString("vi-VN")} / {Number(settlementPreview.utilitySnapshot.water.currentReading || 0).toLocaleString("vi-VN")}
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Usage</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Sử dụng</div>
                     <div className="mt-1 text-lg font-black text-text">{Number(settlementPreview.utilitySnapshot.water.usage || 0).toLocaleString("vi-VN")}</div>
                   </div>
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Unit price</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Đơn giá</div>
                     <div className="mt-1 text-sm font-black text-text">{formatCurrency(settlementPreview.utilitySnapshot.water.unitPrice || 0)}</div>
                   </div>
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Settlement water</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Nước quyết toán</div>
                     <div className="mt-1 text-lg font-black text-emerald-600">{formatCurrency(settlementPreview.utilitySnapshot.water.amount || 0)}</div>
                     <div className="text-xs text-muted">{settlementPreview.utilitySnapshot.water.source}</div>
                   </div>
                 </div>
               ) : (
-                <div className="px-4 py-6 text-sm text-muted">No water snapshot yet. Enter a direct water amount or provide readings and unit price for automatic calculation.</div>
+                <div className="px-4 py-6 text-sm text-muted">Chưa có snapshot nước. Nhập trực tiếp tiền nước hoặc chỉ số và đơn giá để hệ thống tự tính.</div>
               )}
             </Card>
 
             <Card className="overflow-hidden">
               <div className="border-b border-border px-4 py-3">
-                <div className="text-sm font-black text-text">Khoáº£n thu</div>
+                <div className="text-sm font-black text-text">Khoản thu</div>
               </div>
               <div className="divide-y divide-border/60">
                 {(settlementPreview?.charges || []).length > 0 ? (

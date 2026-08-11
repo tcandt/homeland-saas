@@ -27,8 +27,8 @@ export const test = base.extend<{ admin: AdminFixture }>({
     const authFile = `${authFileBase}-${workerIndex}.json`;
     const finalBaseURL = baseURL || 'http://127.0.0.1:3000';
 
-    // Check if we already have a cached state
-    if (fs.existsSync(authFile)) {
+    // Use a fresh login so the fixture stays aligned with the current auth guard expectations.
+    if (false && fs.existsSync(authFile)) {
       context = await browser.newContext({ storageState: authFile, baseURL: finalBaseURL });
       page = await context.newPage();
       
@@ -89,6 +89,8 @@ export const test = base.extend<{ admin: AdminFixture }>({
           version: 0
         };
         localStorage.setItem('auth-storage', JSON.stringify(state));
+        localStorage.setItem('token', data.accessToken);
+        document.cookie = `token=${data.accessToken}; path=/;`;
       }, authData);
       
       // Save state for future tests

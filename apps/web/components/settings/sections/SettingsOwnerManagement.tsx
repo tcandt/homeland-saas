@@ -88,6 +88,7 @@ function maskAccountNumber(value?: string) {
 }
 
 function OwnerCard({
+  testIdPrefix,
   title,
   name,
   email,
@@ -98,6 +99,7 @@ function OwnerCard({
   onContactEmailChange,
   onPhoneChange,
 }: {
+  testIdPrefix: string;
   title: string;
   name: string;
   email: string;
@@ -123,7 +125,7 @@ function OwnerCard({
       <div className="mt-[14px] grid grid-cols-1 gap-[12px]">
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Tên chủ sở hữu</label>
-          <Input value={name || ""} onChange={(event) => onNameChange(event.target.value)} />
+          <Input data-testid={`${testIdPrefix}-name`} value={name || ""} onChange={(event) => onNameChange(event.target.value)} />
         </div>
         <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2">
           <div className="flex flex-col gap-[6px]">
@@ -176,6 +178,7 @@ export default function SettingsOwnerManagement() {
   const auditRows = audit.data || [];
   const ownerRows = Array.isArray(owners.data) ? owners.data : [];
   const [savingBuildingId, setSavingBuildingId] = React.useState("");
+  const [togglingBankId, setTogglingBankId] = React.useState("");
   const [buildingOwnerDraft, setBuildingOwnerDraft] = React.useState<Record<string, string>>({});
   const [buildingOwnerConfirm, setBuildingOwnerConfirm] = React.useState<BuildingOwnerConfirmState>(null);
 
@@ -245,9 +248,29 @@ export default function SettingsOwnerManagement() {
     }
   };
 
+  const toggleBankStatus = async (bankId: string, isActive: boolean) => {
+    try {
+      setTogglingBankId(bankId);
+      await financeApi.updateBankAccountStatus(bankId, { isActive: !isActive });
+      await owners.mutate();
+      showToast(isActive ? "Đã tắt bank account" : "Đã bật lại bank account", "success");
+    } catch (error: any) {
+      const code = String(error?.message || "");
+      if (code.includes("BANK_ACCOUNT_HAS_PENDING_PAYMENT_REQUESTS")) {
+        showToast("Không thể tắt bank vì còn payment request đang chờ.", "error");
+      } else if (code.includes("BANK_ACCOUNT_IS_DEFAULT_PAYMENT_BANK")) {
+        showToast("Không thể tắt bank mặc định. Hãy đổi bank mặc định trước.", "error");
+      } else {
+        showToast(error?.message || "Không thể cập nhật trạng thái bank", "error");
+      }
+    } finally {
+      setTogglingBankId("");
+    }
+  };
+
   return (
     <>
-      <Card className="p-[20px]">
+      <Card className="p-[20px]" data-testid="settings-owners-root">
         <div className="flex flex-col gap-[18px]">
           <div className="flex flex-col gap-[6px]">
             <div className="text-[12px] font-black uppercase tracking-[0.16em] text-primary">Owner management</div>
@@ -257,8 +280,9 @@ export default function SettingsOwnerManagement() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-2" data-testid="settings-owners-cards">
             <OwnerCard
+              testIdPrefix="settings-owner-a"
               title="Owner A"
               name={draft.ownerAName}
               email={draft.ownerAAccountEmail}
@@ -270,6 +294,7 @@ export default function SettingsOwnerManagement() {
               onPhoneChange={(value) => setDraft((prev) => ({ ...prev, ownerAPhone: value }))}
             />
             <OwnerCard
+              testIdPrefix="settings-owner-b"
               title="Owner B"
               name={draft.ownerBName}
               email={draft.ownerBAccountEmail}
@@ -286,7 +311,7 @@ export default function SettingsOwnerManagement() {
             Mapping hiện tại: LK01-31 và LK08-25 thuộc chủ Tính; LK01-32 và LK08-24 thuộc chủ Thể. Account owner A/B có toàn quyền vận hành, còn account admin thường chỉ vận hành và không chỉnh sửa token cài đặt.
           </div>
 
-          <div className="overflow-hidden rounded-[16px] border border-border bg-background/70">
+          <div className="overflow-hidden rounded-[16px] border border-border bg-background/70" data-testid="settings-owners-building-assignments">
             <div className="flex flex-col gap-[10px] border-b border-border px-[14px] py-[12px] lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <div className="flex items-center gap-[8px] text-[13px] font-black text-text">
@@ -302,7 +327,7 @@ export default function SettingsOwnerManagement() {
             </div>
 
             <div className="overflow-x-auto border-b border-border">
-              <table className="min-w-[720px] w-full text-left">
+              <table className="min-w-[720px] w-full text-left" data-testid="settings-owners-building-table">
                 <thead className="bg-muted/10">
                   <tr>
                     <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Tòa</th>
@@ -316,7 +341,7 @@ export default function SettingsOwnerManagement() {
                     const selectedOwnerId = buildingOwnerDraft[building.id] || building.ownerId;
                     const changed = selectedOwnerId !== building.ownerId;
                     return (
-                      <tr key={building.id} className="border-t border-border">
+                      <tr key={building.id} className="border-t border-border" data-testid={`settings-owner-building-row-${building.id}`}>
                         <td className="px-[14px] py-[12px]">
                           <div className="text-[13px] font-black text-text">{building.code}</div>
                           <div className="text-[11px] font-semibold text-muted">{building.name}</div>
@@ -324,6 +349,7 @@ export default function SettingsOwnerManagement() {
                         <td className="px-[14px] py-[12px] text-[12px] font-bold text-text">{building.ownerName}</td>
                         <td className="px-[14px] py-[12px]">
                           <select
+                            data-testid={`settings-owner-select-${building.id}`}
                             value={selectedOwnerId}
                             onChange={(event) =>
                               setBuildingOwnerDraft((prev) => ({
@@ -342,6 +368,7 @@ export default function SettingsOwnerManagement() {
                         </td>
                         <td className="px-[14px] py-[12px] text-right">
                           <Button
+                            data-testid={`settings-owner-save-${building.id}`}
                             type="button"
                             size="sm"
                             variant={changed ? "primary" : "outline"}
@@ -379,13 +406,13 @@ export default function SettingsOwnerManagement() {
                 <Button type="button" variant="outline" size="sm" onClick={() => owners.mutate()} isLoading={owners.isLoading}>
                   <RefreshCcw size={13} className="mr-2" /> Làm mới
                 </Button>
-                <Button type="button" size="sm" onClick={() => saveBankDefaults(bankDefaultsDraft)} isLoading={isSavingBankDefaults}>
+                <Button data-testid="settings-owner-bank-defaults-save" type="button" size="sm" onClick={() => saveBankDefaults(bankDefaultsDraft)} isLoading={isSavingBankDefaults}>
                   <Star size={13} className="mr-2" /> Lưu bank mặc định
                 </Button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-[12px] p-[14px] xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-[12px] p-[14px] xl:grid-cols-2" data-testid="settings-owner-bank-grid">
               {owners.isLoading && (
                 <div className="col-span-full rounded-[14px] border border-border bg-card px-[14px] py-[20px] text-center text-[13px] font-semibold text-muted">
                   Đang tải danh sách bank...
@@ -400,7 +427,7 @@ export default function SettingsOwnerManagement() {
                 const activeBanks = (owner.bankAccounts || []).filter((bank: any) => bank.isActive);
                 const defaultBankId = bankDefaultsDraft.defaults?.[owner.id] || "";
                 return (
-                  <div key={owner.id} className="rounded-[14px] border border-border bg-card p-[14px]">
+                  <div key={owner.id} className="rounded-[14px] border border-border bg-card p-[14px]" data-testid={`settings-owner-bank-card-${owner.id}`}>
                     <div className="flex items-start justify-between gap-[12px]">
                       <div>
                         <div className="text-[12px] font-black text-text">{owner.name}</div>
@@ -416,6 +443,7 @@ export default function SettingsOwnerManagement() {
                     <label className="mt-[12px] flex flex-col gap-[6px]">
                       <span className="text-[11px] font-black uppercase tracking-wide text-muted">Bank mặc định khi tạo QR</span>
                       <select
+                        data-testid={`settings-owner-bank-default-${owner.id}`}
                         value={defaultBankId}
                         onChange={(event) => setDefaultBank(owner.id, event.target.value)}
                         className="h-[42px] rounded-[12px] border border-border bg-background px-[12px] text-[13px] font-bold text-text outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
@@ -450,6 +478,33 @@ export default function SettingsOwnerManagement() {
                             </span>
                           </div>
                           <div className="mt-[8px] text-[12px] font-black text-text">{maskAccountNumber(bank.accountNumber)}</div>
+                          <div className="mt-[8px] flex flex-wrap gap-[6px]">
+                            <span className="rounded-full bg-slate-100 px-[8px] py-[3px] text-[10px] font-black text-slate-600">
+                              Request: {bank.usage?.requestCount || 0}
+                            </span>
+                            <span className="rounded-full bg-amber-50 px-[8px] py-[3px] text-[10px] font-black text-amber-700">
+                              Chờ: {bank.usage?.pendingCount || 0}
+                            </span>
+                            <span className="rounded-full bg-emerald-50 px-[8px] py-[3px] text-[10px] font-black text-emerald-700">
+                              Đã thu: {bank.usage?.confirmedCount || 0}
+                            </span>
+                          </div>
+                          {bank.usage?.inUse && (
+                            <div className="mt-[8px] rounded-[10px] border border-amber-200 bg-amber-50 px-[10px] py-[8px] text-[11px] font-semibold text-amber-800">
+                              Bank này đã từng gắn với payment request. Trước khi tắt hoặc đổi cấu hình, cần kiểm tra đối soát SePay và QR đang dùng.
+                            </div>
+                          )}
+                          <div className="mt-[10px] flex justify-end">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={bank.isActive ? "outline" : "primary"}
+                              isLoading={togglingBankId === bank.id}
+                              onClick={() => toggleBankStatus(bank.id, bank.isActive)}
+                            >
+                              {bank.isActive ? "Tắt bank" : "Bật lại"}
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -459,7 +514,7 @@ export default function SettingsOwnerManagement() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-[16px] border border-border bg-background/70">
+          <div className="overflow-hidden rounded-[16px] border border-border bg-background/70" data-testid="settings-owner-audit-section">
             <div className="flex flex-col gap-[10px] border-b border-border px-[14px] py-[12px] sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="flex items-center gap-[8px] text-[13px] font-black text-text">
@@ -472,7 +527,7 @@ export default function SettingsOwnerManagement() {
               </Button>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-[760px] w-full text-left">
+              <table className="min-w-[760px] w-full text-left" data-testid="settings-owner-audit-table">
                 <thead className="bg-muted/10">
                   <tr>
                     <th className="px-[14px] py-[10px] text-[10px] font-black uppercase tracking-wide text-muted">Thời điểm</th>
@@ -499,7 +554,7 @@ export default function SettingsOwnerManagement() {
                     </tr>
                   )}
                   {auditRows.map((log) => (
-                    <tr key={log.id} className="border-t border-border">
+                    <tr key={log.id} className="border-t border-border" data-testid={`settings-owner-audit-row-${log.id}`}>
                       <td className="whitespace-nowrap px-[14px] py-[11px] text-[12px] font-semibold text-muted">{formatDateTime(log.createdAt)}</td>
                       <td className="px-[14px] py-[11px]">
                         <div className="text-[12px] font-black text-text">{log.user?.fullName || "Hệ thống"}</div>
@@ -521,7 +576,7 @@ export default function SettingsOwnerManagement() {
           </div>
 
           <div className="flex justify-end">
-            <Button type="button" onClick={() => save(draft)} isLoading={isSaving} className="h-[42px] px-[18px]">
+            <Button data-testid="settings-owner-config-save" type="button" onClick={() => save(draft)} isLoading={isSaving} className="h-[42px] px-[18px]">
               Lưu cấu hình chủ sở hữu
             </Button>
           </div>
@@ -533,12 +588,13 @@ export default function SettingsOwnerManagement() {
         onClose={() => (savingBuildingId ? undefined : setBuildingOwnerConfirm(null))}
         title="Xác nhận đổi chủ sở hữu"
         maxWidth="max-w-[560px]"
+        testId="settings-owner-confirm-modal"
         footer={
           <div className="flex justify-end gap-[10px]">
-            <Button type="button" variant="outline" onClick={() => setBuildingOwnerConfirm(null)} disabled={Boolean(savingBuildingId)}>
+            <Button data-testid="settings-owner-confirm-cancel" type="button" variant="outline" onClick={() => setBuildingOwnerConfirm(null)} disabled={Boolean(savingBuildingId)}>
               Hủy
             </Button>
-            <Button type="button" onClick={saveBuildingOwner} isLoading={Boolean(savingBuildingId)} disabled={!buildingOwnerConfirm}>
+            <Button data-testid="settings-owner-confirm-submit" type="button" onClick={saveBuildingOwner} isLoading={Boolean(savingBuildingId)} disabled={!buildingOwnerConfirm}>
               Xác nhận cập nhật
             </Button>
           </div>

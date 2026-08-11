@@ -341,12 +341,14 @@ export class HunonicService {
       }),
     ]);
 
+    const duplicateCountByKey = countReadingsByRoomPeriod(allForSummary);
     const dedupedReadings = dedupeHistoryReadings(allForSummary);
     const total = dedupedReadings.length;
     const readings = dedupedReadings.slice((page - 1) * limit, page * limit);
-    const monthlyRows = buildMonthlyRows(dedupedReadings, lockedPeriods);
+    const monthlyRows = buildMonthlyRows(dedupedReadings, lockedPeriods, duplicateCountByKey);
     const roomsWithData = countRoomsWithData(monthlyRows);
     const mappings = dedupeMappingsByRoom(rawMappings);
+    const dataQuality = buildDataQualitySummary(monthlyRows);
 
     return {
       filters: {
@@ -368,8 +370,10 @@ export class HunonicService {
         roomsWithData,
         totalEnergyMonthKwh: monthlyRows.reduce((sum, item) => sum + item.energyMonthKwh, 0),
         totalMoneyMonthVnd: monthlyRows.reduce((sum, item) => sum + item.moneyMonthVnd, 0),
+        dataQuality,
       },
       monthlyRows,
+      qualityAlerts: dataQuality.alerts,
       readings: readings.map(mapHistoryReading),
       pagination: {
         page,
@@ -1004,7 +1008,11 @@ function resolveHistoryDateRange(query: HunonicHistoryQuery) {
   };
 }
 
-function buildMonthlyRows(readings: any[], lockedPeriods: HunonicLockedPeriod[] = []) {
+function buildMonthlyRows(
+  readings: any[],
+  lockedPeriods: HunonicLockedPeriod[] = [],
+  duplicateCountByKey: Map<string, number> = new Map(),
+) {
   const lockedKeys = new Set(lockedPeriods.map((item) => lockedPeriodKey(item)));
   const latestByRoomMonth = new Map<string, any>();
   for (const reading of readings) {
@@ -1013,6 +1021,7 @@ function buildMonthlyRows(readings: any[], lockedPeriods: HunonicLockedPeriod[] 
     const date = new Date(reading.readingAt);
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
+    const period = `${year}-${String(month).padStart(2, '0')}`;
     const key = `${mapping.buildingCode}:${mapping.roomCode}:${year}:${month}`;
     if (!latestByRoomMonth.has(key)) {
       latestByRoomMonth.set(key, {
@@ -1022,13 +1031,14 @@ function buildMonthlyRows(readings: any[], lockedPeriods: HunonicLockedPeriod[] 
         deviceName: mapping.deviceName,
         year,
         month,
-        period: `${year}-${String(month).padStart(2, '0')}`,
+        period,
         status: reading.status,
         powerCurrentW: Number(reading.powerCurrentW || 0),
         energyMonthKwh: Number(reading.energyMonthKwh || 0),
         moneyMonthVnd: Number(reading.moneyMonthVnd || 0),
         readingAt: reading.readingAt,
-        isLocked: lockedKeys.has(lockedPeriodKey({ buildingCode: mapping.buildingCode, roomCode: mapping.roomCode, period: `${year}-${String(month).padStart(2, '0')}` })),
+        duplicateReadings: duplicateCountByKey.get(lockedPeriodKey({ buildingCode: mapping.buildingCode, roomCode: mapping.roomCode, period })) || 1,
+        isLocked: lockedKeys.has(lockedPeriodKey({ buildingCode: mapping.buildingCode, roomCode: mapping.roomCode, period })),
       });
     }
   }
@@ -1040,6 +1050,98 @@ function buildMonthlyRows(readings: any[], lockedPeriods: HunonicLockedPeriod[] 
 
 function countRoomsWithData(rows: Array<{ buildingCode: string; roomCode: string }>) {
   return new Set(rows.map((row) => `${row.buildingCode}:${row.roomCode}`)).size;
+}
+
+function countReadingsByRoomPeriod(readings: any[]) {
+  const counts = new Map<string, number>();
+  for (const reading of readings) {
+    const mapping = reading.meterMapping;
+    if (!mapping?.buildingCode || !mapping?.roomCode) continue;
+    const period = normalizeReadingPeriod(reading.currentMonth, new Date(reading.readingAt));
+    const key = lockedPeriodKey({ buildingCode: mapping.buildingCode, roomCode: mapping.roomCode, period });
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+function buildDataQualitySummary(monthlyRows: any[]) {
+  const alerts: Array<Record<string, any>> = [];
+  const grouped = new Map<string, any[]>();
+
+  for (const row of monthlyRows) {
+    const roomKey = `${row.buildingCode}:${row.roomCode}`;
+    const current = grouped.get(roomKey) || [];
+    current.push(row);
+    grouped.set(roomKey, current);
+
+    if (Number(row.duplicateReadings || 1) > 1) {
+      alerts.push({
+        type: "DUPLICATE",
+        period: row.period,
+        buildingCode: row.buildingCode,
+        roomCode: row.roomCode,
+        displayName: row.displayName,
+        duplicateReadings: row.duplicateReadings,
+        message: `${row.buildingCode} / ${row.displayName} có ${row.duplicateReadings} bản ghi trong kỳ ${row.period}.`,
+      });
+    }
+  }
+
+  let missingPeriods = 0;
+  let abnormalPeriods = 0;
+
+  for (const rows of grouped.values()) {
+    const sorted = [...rows].sort((a, b) => a.period.localeCompare(b.period));
+    const periods = new Set(sorted.map((row) => row.period));
+
+    for (let index = 1; index < sorted.length; index += 1) {
+      const previous = sorted[index - 1];
+      const current = sorted[index];
+      const previousEnergy = Number(previous.energyMonthKwh || 0);
+      const currentEnergy = Number(current.energyMonthKwh || 0);
+      const delta = currentEnergy - previousEnergy;
+
+      if (previousEnergy >= 10 && currentEnergy >= previousEnergy * 2.5 && delta >= 30) {
+        abnormalPeriods += 1;
+        alerts.push({
+          type: "ABNORMAL",
+          period: current.period,
+          buildingCode: current.buildingCode,
+          roomCode: current.roomCode,
+          displayName: current.displayName,
+          previousEnergyKwh: previousEnergy,
+          currentEnergyKwh: currentEnergy,
+          message: `${current.buildingCode} / ${current.displayName} tăng từ ${previousEnergy.toLocaleString("vi-VN")} lên ${currentEnergy.toLocaleString("vi-VN")} kWh.`,
+        });
+      }
+    }
+
+    const firstPeriod = sorted[0]?.period;
+    const lastPeriod = sorted[sorted.length - 1]?.period;
+    if (!firstPeriod || !lastPeriod) continue;
+
+    for (const period of enumeratePeriods(firstPeriod, lastPeriod)) {
+      if (periods.has(period)) continue;
+      missingPeriods += 1;
+      alerts.push({
+        type: "MISSING",
+        period,
+        buildingCode: sorted[0].buildingCode,
+        roomCode: sorted[0].roomCode,
+        displayName: sorted[0].displayName,
+        message: `${sorted[0].buildingCode} / ${sorted[0].displayName} thiếu dữ liệu kỳ ${period}.`,
+      });
+    }
+  }
+
+  return {
+    duplicatePeriods: alerts.filter((item) => item.type === "DUPLICATE").length,
+    abnormalPeriods,
+    missingPeriods,
+    alerts: alerts
+      .sort((left, right) => `${right.period}:${right.buildingCode}:${right.roomCode}`.localeCompare(`${left.period}:${left.buildingCode}:${left.roomCode}`))
+      .slice(0, 120),
+  };
 }
 
 function dedupeHistoryReadings(readings: any[]) {
@@ -1068,6 +1170,19 @@ function compareReadingFreshness(left: any, right: any) {
   const rightReadingAt = dateTimeValue(right.readingAt);
   if (leftReadingAt !== rightReadingAt) return leftReadingAt - rightReadingAt;
   return dateTimeValue(left.createdAt) - dateTimeValue(right.createdAt);
+}
+
+function enumeratePeriods(fromPeriod: string, toPeriod: string) {
+  const from = getPeriodStart(fromPeriod);
+  const to = getPeriodStart(toPeriod);
+  if (from.getTime() > to.getTime()) return [];
+  const periods: string[] = [];
+  const cursor = new Date(from);
+  while (cursor.getTime() <= to.getTime()) {
+    periods.push(getReadingPeriod(cursor));
+    cursor.setMonth(cursor.getMonth() + 1, 1);
+  }
+  return periods;
 }
 
 function normalizeReadingPeriod(value: unknown, fallbackDate: Date) {

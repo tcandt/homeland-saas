@@ -128,6 +128,7 @@ export default function SettingsHunonicIntegration() {
 
   const historyData = (history.data || {}) as any;
   const historySummary = historyData.summary || {};
+  const dataQuality = historySummary.dataQuality || { duplicatePeriods: 0, abnormalPeriods: 0, missingPeriods: 0, alerts: [] };
   const historyRooms = useMemo(() => {
     const rooms = ((historyData.filters?.rooms || []) as any[]);
     const seen = new Set<string>();
@@ -139,6 +140,7 @@ export default function SettingsHunonicIntegration() {
     });
   }, [historyData.filters?.rooms]);
   const monthlyRows = (historyData.monthlyRows || []) as any[];
+  const qualityAlerts = (historyData.qualityAlerts || []) as any[];
   const readingRows = (historyData.readings || []) as any[];
   const lockedPeriods = (historyData.filters?.lockedPeriods || []) as any[];
   const roomsWithData =
@@ -779,12 +781,24 @@ export default function SettingsHunonicIntegration() {
                   <div className="text-[10px] font-black uppercase text-muted">kWh</div>
                   <div className="mt-1 text-[18px] font-black text-text">{formatKwh(historySummary.totalEnergyMonthKwh)}</div>
                 </div>
-                <div className="rounded-[12px] border border-border bg-background p-[12px]">
-                  <div className="text-[10px] font-black uppercase text-muted">Tiền</div>
-                  <div className="mt-1 text-[18px] font-black text-[#16a34a]">{formatMoney(historySummary.totalMoneyMonthVnd)}</div>
-                </div>
+              <div className="rounded-[12px] border border-border bg-background p-[12px]">
+                <div className="text-[10px] font-black uppercase text-muted">Tiền</div>
+                <div className="mt-1 text-[18px] font-black text-[#16a34a]">{formatMoney(historySummary.totalMoneyMonthVnd)}</div>
+              </div>
+              <div className="rounded-[12px] border border-border bg-background p-[12px]">
+                <div className="text-[10px] font-black uppercase text-muted">Trùng kỳ</div>
+                <div className="mt-1 text-[18px] font-black text-amber-700">{dataQuality.duplicatePeriods || 0}</div>
+              </div>
+              <div className="rounded-[12px] border border-border bg-background p-[12px]">
+                <div className="text-[10px] font-black uppercase text-muted">Thiếu kỳ</div>
+                <div className="mt-1 text-[18px] font-black text-rose-700">{dataQuality.missingPeriods || 0}</div>
+              </div>
+              <div className="rounded-[12px] border border-border bg-background p-[12px]">
+                <div className="text-[10px] font-black uppercase text-muted">Bất thường</div>
+                <div className="mt-1 text-[18px] font-black text-amber-700">{dataQuality.abnormalPeriods || 0}</div>
               </div>
             </div>
+          </div>
 
             <div className="grid grid-cols-1 gap-[10px] md:grid-cols-[minmax(220px,1.3fr)_repeat(4,minmax(120px,0.7fr))]">
               <div className="relative">
@@ -996,6 +1010,58 @@ export default function SettingsHunonicIntegration() {
                             {row.isLocked ? "Đã khóa" : "Chưa khóa"}
                           </span>
                         </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="border-b border-border p-[16px]">
+            <div className="mb-[10px] flex items-center gap-[8px] text-[12px] font-black uppercase tracking-wide text-muted">
+              <Shield size={14} />
+              Cảnh báo dữ liệu Hunonic
+            </div>
+
+            <div className="overflow-x-auto rounded-[14px] border border-border">
+              <table className="w-full min-w-[980px] table-fixed text-[13px]">
+                <thead>
+                  <tr className="border-b border-border bg-background">
+                    <th className="w-[140px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Loại cảnh báo</th>
+                    <th className="w-[110px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Kỳ</th>
+                    <th className="w-[210px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Phòng</th>
+                    <th className="px-[12px] py-[12px] text-left text-[10px] font-black uppercase tracking-wide text-muted">Mô tả</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {qualityAlerts.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-[14px] py-[28px] text-center font-medium text-muted">
+                        Chưa phát hiện cảnh báo dữ liệu trong bộ lọc hiện tại.
+                      </td>
+                    </tr>
+                  ) : (
+                    qualityAlerts.map((alert: any, index: number) => (
+                      <tr key={`quality-${alert.type}-${rowKey(alert)}-${index}`} className="border-b border-border/60 hover:bg-background/60">
+                        <td className="h-[48px] px-[12px] py-[10px] text-center align-middle">
+                          <span
+                            className={`rounded-full px-2 py-1 text-[11px] font-black ${
+                              alert.type === "MISSING"
+                                ? "bg-rose-500/10 text-rose-600"
+                                : alert.type === "DUPLICATE"
+                                  ? "bg-amber-500/10 text-amber-700"
+                                  : "bg-orange-500/10 text-orange-700"
+                            }`}
+                          >
+                            {alert.type === "MISSING" ? "Thiếu kỳ" : alert.type === "DUPLICATE" ? "Trùng bản ghi" : "Bất thường"}
+                          </span>
+                        </td>
+                        <td className="h-[48px] px-[12px] py-[10px] text-center align-middle font-black text-text">{alert.period || "--"}</td>
+                        <td className="h-[48px] px-[12px] py-[10px] text-center align-middle font-black text-text whitespace-nowrap">
+                          {alert.buildingCode} / {alert.displayName}
+                        </td>
+                        <td className="h-[48px] px-[12px] py-[10px] text-left align-middle font-medium text-muted">{alert.message}</td>
                       </tr>
                     ))
                   )}

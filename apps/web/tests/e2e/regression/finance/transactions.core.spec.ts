@@ -83,12 +83,31 @@ function buildResponse(rows: BankTransactionRow[]) {
 }
 
 async function mockBankTransactions(page: any) {
+  let lastQuery: {
+    year?: string | null;
+    month?: string | null;
+    direction?: string | null;
+    content?: string | null;
+    search?: string | null;
+    bankAccountId?: string | null;
+  } | null = null;
+
   await page.route('**/api/v1/finance/banks/transactions*', async (route: any) => {
     const url = new URL(route.request().url());
+    const year = url.searchParams.get('year');
+    const month = url.searchParams.get('month');
     const direction = url.searchParams.get('direction') || '';
     const content = (url.searchParams.get('content') || '').toLowerCase();
     const search = (url.searchParams.get('search') || '').toLowerCase();
     const bankAccountId = url.searchParams.get('bankAccountId') || '';
+    lastQuery = {
+      year,
+      month,
+      direction: direction || null,
+      content: content || null,
+      search: search || null,
+      bankAccountId: bankAccountId || null,
+    };
 
     let rows = [...baseRows];
 
@@ -120,40 +139,103 @@ async function mockBankTransactions(page: any) {
       }),
     });
   });
+
+  return {
+    getLastQuery: () => lastQuery,
+  };
 }
 
 test.describe('Finance Transactions Regression', () => {
+  test.beforeEach(async ({ admin }, testInfo) => {
+    test.skip(!/Desktop|Laptop/.test(testInfo.project.name), 'Desktop-only regression');
+  });
+
   test('renders populated desktop bank transaction history', async ({ admin }) => {
-    await mockBankTransactions(admin.page);
+    const mock = await mockBankTransactions(admin.page);
 
-    await admin.page.goto('/finance/transactions');
+    await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
 
-    await expect(admin.page.getByTestId('bank-transactions-root')).toBeVisible();
+    await expect
+      .poll(() => mock.getLastQuery(), { timeout: 10000 })
+      .toMatchObject({
+        year: '2026',
+        month: null,
+        direction: null,
+        content: null,
+        search: null,
+        bankAccountId: null,
+      });
+
     await expect(admin.page.getByTestId('bank-transactions-kpis')).toBeVisible();
     await expect(admin.page.getByTestId('bank-transactions-table')).toBeVisible();
     await expect(admin.page.getByTestId('bank-transaction-row-txn-1')).toBeVisible();
     await expect(admin.page.getByTestId('bank-transaction-row-txn-2')).toBeVisible();
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('2');
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('2.500.000');
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('780.000');
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('1.720.000');
   });
 
   test('filters rows by direction on desktop', async ({ admin }) => {
-    await mockBankTransactions(admin.page);
+    const mock = await mockBankTransactions(admin.page);
 
-    await admin.page.goto('/finance/transactions');
+    await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
 
     await admin.page.getByTestId('bank-transactions-direction').selectOption('OUT');
 
+    await expect
+      .poll(() => mock.getLastQuery(), { timeout: 10000 })
+      .toMatchObject({
+        year: '2026',
+        month: null,
+        direction: 'OUT',
+      });
+
     await expect(admin.page.getByTestId('bank-transaction-row-txn-2')).toBeVisible();
     await expect(admin.page.getByTestId('bank-transaction-row-txn-1')).toHaveCount(0);
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('1');
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('780.000');
   });
 
   test('shows empty state when no transactions match search', async ({ admin }) => {
-    await mockBankTransactions(admin.page);
+    const mock = await mockBankTransactions(admin.page);
 
-    await admin.page.goto('/finance/transactions');
+    await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
     await admin.page.getByTestId('bank-transactions-search').fill('NO-MATCH-KEYWORD');
+
+    await expect
+      .poll(() => mock.getLastQuery(), { timeout: 10000 })
+      .toMatchObject({
+        year: '2026',
+        month: null,
+        search: 'no-match-keyword',
+      });
 
     await expect(admin.page.getByTestId('bank-transactions-empty')).toBeVisible();
     await expect(admin.page.getByTestId('bank-transaction-row-txn-1')).toHaveCount(0);
     await expect(admin.page.getByTestId('bank-transaction-row-txn-2')).toHaveCount(0);
+  });
+
+  test('filters by bank account and content together on desktop', async ({ admin }) => {
+    const mock = await mockBankTransactions(admin.page);
+
+    await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+
+    await admin.page.getByTestId('bank-transactions-account').selectOption('bank-1');
+    await admin.page.getByTestId('bank-transactions-content-filter').fill('thu tien phong');
+
+    await expect
+      .poll(() => mock.getLastQuery(), { timeout: 10000 })
+      .toMatchObject({
+        year: '2026',
+        month: null,
+        bankAccountId: 'bank-1',
+        content: 'thu tien phong',
+      });
+
+    await expect(admin.page.getByTestId('bank-transaction-row-txn-1')).toBeVisible();
+    await expect(admin.page.getByTestId('bank-transaction-row-txn-2')).toHaveCount(0);
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('1');
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('2.500.000');
   });
 });

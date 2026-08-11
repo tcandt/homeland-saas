@@ -23,6 +23,7 @@ export class CommunicationService {
   private readonly logger = new Logger(CommunicationService.name);
   private providers = new Map<NotificationChannel, CommunicationProvider>();
   private readonly templateEngine = new TemplateEngine();
+  private readonly maxRetryCount = 3;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -107,20 +108,27 @@ export class CommunicationService {
   async processQueueItem(queueId: string) {
     const item = await this.prisma.notificationQueue.findUnique({ where: { id: queueId }});
     if (!item) return;
+    if (item.status === 'DELIVERED') return;
 
-    await this.prisma.notificationQueue.update({ where: { id: queueId }, data: { status: 'SENDING' }});
+    await this.prisma.notificationQueue.update({
+      where: { id: queueId },
+      data: { status: 'SENDING', error: null }
+    });
     
     const provider = this.providers.get(item.channel as NotificationChannel);
     
     if (!provider) {
-       await this.prisma.notificationQueue.update({ where: { id: queueId }, data: { status: 'FAILED', error: 'No provider registered' }});
+       await this.markQueueFailed(item, 'No provider registered');
        return;
     }
 
     try {
       const response = await provider.send(item.payload);
       
-      await this.prisma.notificationQueue.update({ where: { id: queueId }, data: { status: 'DELIVERED' }});
+      await this.prisma.notificationQueue.update({
+        where: { id: queueId },
+        data: { status: 'DELIVERED', error: null, nextRetryAt: null }
+      });
       await this.prisma.notification.update({ where: { id: item.notificationId }, data: { status: 'DELIVERED' }});
       
       await this.prisma.notificationDelivery.create({
@@ -134,7 +142,7 @@ export class CommunicationService {
 
     } catch (err) {
       this.logger.error(`Failed to send via ${item.channel}`, err.stack);
-      await this.prisma.notificationQueue.update({ where: { id: queueId }, data: { status: 'FAILED', error: err.message }});
+      await this.markQueueFailed(item, err.message);
       await this.prisma.notificationDelivery.create({
         data: {
           notificationId: item.notificationId,
@@ -144,5 +152,25 @@ export class CommunicationService {
         }
       });
     }
+  }
+
+  private async markQueueFailed(item: { id: string; notificationId: string; retryCount?: number }, error: string) {
+    const nextRetryCount = Number(item.retryCount || 0) + 1;
+    const shouldRetry = nextRetryCount < this.maxRetryCount;
+    const nextRetryAt = shouldRetry ? new Date(Date.now() + nextRetryCount * 5 * 60 * 1000) : null;
+
+    await this.prisma.notificationQueue.update({
+      where: { id: item.id },
+      data: {
+        status: 'FAILED',
+        error,
+        retryCount: nextRetryCount,
+        nextRetryAt,
+      }
+    });
+    await this.prisma.notification.update({
+      where: { id: item.notificationId },
+      data: { status: 'FAILED' }
+    });
   }
 }

@@ -660,8 +660,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Gửi thông báo chi phí phát sinh mới.
 - [ ] Gửi thông báo quyết toán trả phòng.
 - [ ] Gửi cảnh báo SePay không khớp.
-- [ ] Thêm retry nếu gửi thất bại.
-- [ ] Log trạng thái gửi Zalo/Telegram.
+- [x] Thêm retry nếu gửi thất bại.
+- [x] Log trạng thái gửi Zalo/Telegram.
 
 ### 13. Owner và Bank Management
 

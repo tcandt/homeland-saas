@@ -100,7 +100,7 @@ export class CommunicationController {
     const tenantId = req.user.tenantId;
     await this.prisma.notificationQueue.update({
       where: { id, tenantId },
-      data: { status: 'QUEUED', retryCount: { increment: 1 } }
+      data: { status: 'QUEUED', error: null, nextRetryAt: null }
     });
     await this.communicationService.processQueueItem(id);
     return { success: true };

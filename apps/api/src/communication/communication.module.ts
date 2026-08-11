@@ -1,5 +1,6 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { CommunicationService } from './communication.service';
+import { CommunicationScheduler } from './communication.scheduler';
 import { CommunicationController } from './communication.controller';
 import {
   InAppProvider,
@@ -18,6 +19,7 @@ import { PrismaService } from '../prisma.service';
   providers: [
     PrismaService,
     CommunicationService,
+    CommunicationScheduler,
     InAppProvider,
     ConsoleProvider,
     EmailProvider,

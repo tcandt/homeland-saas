@@ -9,6 +9,7 @@ describe('CommunicationService', () => {
       id: 'queue-1',
       notificationId: notification.id,
       channel: NotificationChannel.ZALO,
+      retryCount: 0,
       payload: {
         tenantId: 'tenant-1',
         recipient: 'zalo-user-1',
@@ -86,6 +87,39 @@ describe('CommunicationService', () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'tenant-1',
       recipient: 'zalo-user-1',
+    }));
+  });
+
+  it('marks queue failed with retry schedule when provider throws', async () => {
+    const prisma = createPrismaMock();
+    const service = new CommunicationService(prisma as any);
+    const send = vi.fn().mockRejectedValue(new Error('Zalo unavailable'));
+    const provider: CommunicationProvider = {
+      channel: NotificationChannel.ZALO,
+      send,
+    };
+    service.registerProvider(provider);
+
+    await service.processQueueItem('queue-1');
+
+    expect(prisma.notificationQueue.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'queue-1' },
+      data: expect.objectContaining({
+        status: 'FAILED',
+        error: 'Zalo unavailable',
+        retryCount: 1,
+      }),
+    }));
+    expect(prisma.notification.update).toHaveBeenCalledWith({
+      where: { id: 'notif-1' },
+      data: { status: 'FAILED' },
+    });
+    expect(prisma.notificationDelivery.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        notificationId: 'notif-1',
+        channel: NotificationChannel.ZALO,
+        status: 'FAILED',
+      }),
     }));
   });
 });

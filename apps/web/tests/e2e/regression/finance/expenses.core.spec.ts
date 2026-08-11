@@ -70,9 +70,16 @@ async function mockExpensePage(
   onPay?: (expenseId: string) => void,
   onSettlement?: (expenseId: string, payload: any) => void,
   onCancel?: (expenseId: string, payload: any) => void,
+  config?: {
+    buildings?: any[];
+    ownerSummary?: any[];
+  },
 ) {
   let expenses = [...initialExpenses];
   let expenseIndex = expenses.length + 1;
+  let lastExpensesQuery: Record<string, string | null> | null = null;
+  const buildings = config?.buildings || [baseBuilding];
+  const owners = config?.ownerSummary || ownerSummary;
 
   await page.route('**/api/v1/buildings*', async (route: any) => {
     await route.fulfill({
@@ -81,8 +88,8 @@ async function mockExpensePage(
       body: JSON.stringify({
         success: true,
         data: {
-          items: [baseBuilding],
-          total: 1,
+          items: buildings,
+          total: buildings.length,
         },
       }),
     });
@@ -92,7 +99,7 @@ async function mockExpensePage(
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ success: true, data: ownerSummary }),
+      body: JSON.stringify({ success: true, data: owners }),
     });
   });
 
@@ -223,12 +230,26 @@ async function mockExpensePage(
       return;
     }
 
+    const url = new URL(request.url());
+    lastExpensesQuery = {
+      ownerId: url.searchParams.get('ownerId'),
+      buildingId: url.searchParams.get('buildingId'),
+      category: url.searchParams.get('category'),
+      status: url.searchParams.get('status'),
+      startDate: url.searchParams.get('startDate'),
+      endDate: url.searchParams.get('endDate'),
+    };
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ success: true, data: expenses }),
     });
   });
+
+  return {
+    getLastExpensesQuery: () => lastExpensesQuery,
+  };
 }
 
 test.describe('Finance Expenses Regression', () => {
@@ -456,5 +477,89 @@ test.describe('Finance Expenses Regression', () => {
         expenseId: 'expense-cancel-1',
         payload: { reason: 'Hủy từ bảng chi phí' },
       });
+  });
+
+  test('filters expenses by owner and building while showing paid-by-owner details', async ({ admin }) => {
+    const secondBuilding = {
+      ...baseBuilding,
+      id: 'building-2',
+      code: 'LK01-32',
+      name: 'LK01-32',
+      ownerId: 'owner-2',
+    };
+
+    const ownerRows = [
+      {
+        owner: { id: 'owner-1', name: 'Tính', code: 'OWNER_A' },
+        buildings: [{ id: 'building-1', code: 'LK01-31', name: 'LK01-31' }],
+      },
+      {
+        owner: { id: 'owner-2', name: 'Thể', code: 'OWNER_B' },
+        buildings: [{ id: 'building-2', code: 'LK01-32', name: 'LK01-32' }],
+      },
+    ];
+
+    const mock = await mockExpensePage(
+      admin.page,
+      [
+        createExpenseRow({
+          id: 'expense-owner-1',
+          code: 'EXP-OWNER-1',
+          status: 'PAID',
+          building: { id: 'building-1', code: 'LK01-31', name: 'LK01-31' },
+          owner: { id: 'owner-1', name: 'Tính' },
+          paidByOwner: { id: 'owner-1', name: 'Tính' },
+          paidByName: null,
+          settlementStatus: 'DEDUCTED_FROM_PROFIT',
+        }),
+        createExpenseRow({
+          id: 'expense-owner-2',
+          code: 'EXP-OWNER-2',
+          status: 'PAID',
+          building: { id: 'building-2', code: 'LK01-32', name: 'LK01-32' },
+          owner: { id: 'owner-2', name: 'Thể' },
+          paidByOwner: { id: 'owner-2', name: 'Thể' },
+          paidByName: null,
+          settlementStatus: 'REIMBURSED',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        buildings: [baseBuilding, secondBuilding],
+        ownerSummary: ownerRows,
+      },
+    );
+
+    await admin.page.goto('/finance/expenses');
+
+    const filterSelects = admin.page.locator('select');
+    await filterSelects.nth(2).selectOption('owner-2');
+
+    await expect
+      .poll(() => mock.getLastExpensesQuery(), { timeout: 10000 })
+      .toMatchObject({
+        ownerId: 'owner-2',
+      });
+
+    await expect(filterSelects.nth(3)).toContainText('LK01-32');
+    await expect(filterSelects.nth(3)).not.toContainText('LK01-31');
+
+    await filterSelects.nth(3).selectOption('building-2');
+
+    await expect
+      .poll(() => mock.getLastExpensesQuery(), { timeout: 10000 })
+      .toMatchObject({
+        ownerId: 'owner-2',
+        buildingId: 'building-2',
+      });
+
+    const ownerTwoRow = admin.page.locator('tr', { hasText: 'EXP-OWNER-2' }).first();
+    await expect(ownerTwoRow).toBeVisible();
+    await expect(ownerTwoRow).toContainText('Thể');
+    await expect(ownerTwoRow).toContainText('Đã hoàn ứng');
   });
 });

@@ -59,6 +59,7 @@ function createDeposit(overrides: Partial<DepositItem>): DepositItem {
 
 async function mockDeposits(page: any) {
   let cancelPayload: any = null;
+  let completePendingRefundPayload: any = null;
 
   const deposits: DepositItem[] = [
     createDeposit({
@@ -121,6 +122,26 @@ async function mockDeposits(page: any) {
     });
   });
 
+  await page.route("**/api/v1/deposits/*/refund/complete", async (route: any) => {
+    completePendingRefundPayload = route.request().postDataJSON?.() || {};
+    const id = route.request().url().split("/").slice(-3)[0];
+    const current = deposits.find((deposit) => deposit.id === id);
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          success: true,
+          receiptId: current?.refundSummary?.receiptId || "receipt-1",
+          taskId: current?.refundSummary?.taskId || "task-1",
+          amount: current?.refundSummary?.receiptAmount || 0,
+        },
+      }),
+    });
+  });
+
   await page.route("**/api/v1/deposits/*", async (route: any) => {
     const id = route.request().url().split("/").pop();
     const current = deposits.find((deposit) => deposit.id === id);
@@ -137,6 +158,7 @@ async function mockDeposits(page: any) {
 
   return {
     getCancelPayload: () => cancelPayload,
+    getCompletePendingRefundPayload: () => completePendingRefundPayload,
   };
 }
 
@@ -189,6 +211,62 @@ test.describe("Deposits Refund Desktop Regression", () => {
         resolutionAction: "DEDUCT",
         resolutionAmount: 2500000,
         receiptStatus: "PENDING",
+      });
+  });
+
+  test("cancels paid deposit with keep flow payload", async ({ admin }) => {
+    const mock = await mockDeposits(admin.page);
+
+    await admin.page.goto("/deposits", { waitUntil: "domcontentloaded" });
+
+    await admin.page.locator("[data-testid='deposit-card']:visible").filter({ hasText: "DEP-PAID" }).first().click({
+      position: { x: 10, y: 10 },
+    });
+
+    await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
+
+    await admin.page.evaluate(() => {
+      const promptQueue = ["Giu coc theo chinh sach", "KEEP", "4000000"];
+      window.prompt = () => promptQueue.shift() ?? null;
+      window.confirm = () => true;
+      window.alert = () => undefined;
+    });
+
+    await admin.page.getByTestId("deposit-action-cancel").click();
+
+    await expect
+      .poll(() => mock.getCancelPayload(), { timeout: 10000 })
+      .toMatchObject({
+        reason: "Giu coc theo chinh sach",
+        resolutionAction: "KEEP",
+        resolutionAmount: 4000000,
+        receiptStatus: "COMPLETED",
+      });
+  });
+
+  test("completes a pending refund from refund center", async ({ admin }) => {
+    const mock = await mockDeposits(admin.page);
+
+    await admin.page.goto("/deposits", { waitUntil: "domcontentloaded" });
+
+    await admin.page.getByTestId("refund-center-item-dep-cancelled").click();
+
+    await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
+    await expect(admin.page.getByTestId("deposit-action-complete-refund")).toBeVisible();
+
+    await admin.page.evaluate(() => {
+      const promptQueue = ["Da chuyen khoan hoan coc"];
+      window.prompt = () => promptQueue.shift() ?? null;
+      window.confirm = () => true;
+      window.alert = () => undefined;
+    });
+
+    await admin.page.getByTestId("deposit-action-complete-refund").click();
+
+    await expect
+      .poll(() => mock.getCompletePendingRefundPayload(), { timeout: 10000 })
+      .toMatchObject({
+        note: "Da chuyen khoan hoan coc",
       });
   });
 });

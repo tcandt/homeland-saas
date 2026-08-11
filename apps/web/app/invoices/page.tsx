@@ -165,7 +165,7 @@ export default function InvoicesPage() {
     <AppShell>
       <>
         <div data-testid="invoices-root" className="-m-4 h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-[#f6f8fc] md:h-[calc(100dvh-80px)] xl:overflow-hidden">
-        <div className="grid min-h-full w-full max-w-none grid-cols-1 gap-2 p-2 md:p-3 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,70%)_minmax(360px,30%)]">
+        <div className="grid min-h-full w-full max-w-none grid-cols-1 gap-2 p-2 md:p-3 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(280px,15vw)] 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
             <div className="flex min-w-0 flex-col gap-2 xl:min-h-0">
               <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
                 <KpiCard icon={Receipt} label="Tổng phải thu" value={formatVnd(summary.totalAmount)} hint="Tổng giá trị hóa đơn" tone="bg-[#ede9fe] text-[#6d3df8]" />
@@ -333,34 +333,34 @@ export default function InvoicesPage() {
               </section>
             </div>
 
-            <aside className="grid min-h-[640px] grid-rows-4 gap-2 xl:h-full xl:min-h-0">
+            <aside className="grid min-h-[680px] grid-rows-[286px_170px_minmax(260px,1fr)] gap-2 xl:h-full xl:min-h-0">
               <section className="flex min-h-0 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
-                <div className="mb-3 flex items-center justify-between">
+                <div className="mb-2 flex items-center justify-between gap-2">
                   <h2 className="text-[15px] font-black text-text">Tổng quan thu hồi</h2>
                   <FilterButton label="Tháng 5/2026" />
                 </div>
-                <div className="grid flex-1 grid-cols-[112px_1fr] items-center gap-3">
-                  <div className="relative h-[112px]">
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3">
+                  <div className="relative h-[142px] w-[142px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie data={chartData} dataKey="amount" nameKey="label" innerRadius={35} outerRadius={50} paddingAngle={2} stroke="var(--card)" strokeWidth={4}>
+                        <Pie data={chartData} dataKey="amount" nameKey="label" innerRadius={44} outerRadius={64} paddingAngle={3} stroke="var(--card)" strokeWidth={5}>
                           {chartData.map((item) => <Cell key={item.label} fill={item.color} />)}
                         </Pie>
                         <Tooltip content={<InvoiceChartTooltip />} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                      <div className="text-[19px] font-black text-text">{summary.recoveryRate.toFixed(1)}%</div>
-                      <div className="text-[11px] font-bold text-muted">Tỷ lệ thu hồi</div>
+                      <div className="text-[16px] font-black text-text">{summary.recoveryRate.toFixed(1)}%</div>
+                      <div className="text-[10px] font-bold text-muted">Thu hồi</div>
                     </div>
                   </div>
-                  <div className="grid gap-2">
+                  <div className="grid w-full grid-cols-1 gap-2">
                     {chartData.map((item) => (
                       <div key={item.label} className="grid grid-cols-[8px_1fr] gap-2">
                         <span className="mt-1.5 h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
                         <div>
-                          <div className="text-[12px] font-black text-muted">{item.label}</div>
-                          <div className="text-[12px] font-bold text-muted">{formatVnd(item.amount)}</div>
+                          <div className="truncate text-[11px] font-black text-muted">{item.label}</div>
+                          <div className="truncate text-[11px] font-bold text-muted">{formatVnd(item.amount)}</div>
                         </div>
                       </div>
                     ))}

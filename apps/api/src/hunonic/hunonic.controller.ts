@@ -44,6 +44,36 @@ export class HunonicController {
     return this.hunonicService.getHistory(tenantId, query || {});
   }
 
+  @Get('reconciliation')
+  @RequirePermissions('setting.read')
+  @ApiOperation({ summary: 'Compare Hunonic monthly electricity data with issued invoices' })
+  reconciliation(
+    @Query() query: any,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
+    return this.hunonicService.getReconciliation(tenantId, query || {});
+  }
+
+  @Post('history/lock')
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Lock Hunonic monthly periods to prevent sync overwrite' })
+  lockHistory(
+    @Body() body: any,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
+    return this.hunonicService.lockPeriods(tenantId, body || {});
+  }
+
+  @Post('history/unlock')
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Unlock Hunonic monthly periods to allow sync overwrite' })
+  unlockHistory(
+    @Body() body: any,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
+    return this.hunonicService.unlockPeriods(tenantId, body || {});
+  }
+
   @Get('rooms/:roomId/electricity')
   @RequirePermissions('room.read')
   @ApiOperation({ summary: 'Get latest Hunonic electricity data for a room' })

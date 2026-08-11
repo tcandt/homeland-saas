@@ -17,6 +17,16 @@ type HunonicSettings = {
   syncIntervalMinutes?: number;
   retentionYears?: number;
   managedBuildingCodes?: string[];
+  lockedPeriods?: HunonicLockedPeriod[];
+};
+
+type HunonicLockedPeriod = {
+  buildingCode: string;
+  roomCode: string;
+  period: string;
+  lockedAt?: string;
+  note?: string;
+  meterMappingId?: string;
 };
 
 type HunonicHistoryQuery = {
@@ -37,6 +47,15 @@ type HunonicApplyRateInput = {
   customRateVnd?: number;
 };
 
+type HunonicLockPeriodsInput = {
+  rows?: Array<{
+    buildingCode?: string;
+    roomCode?: string;
+    period?: string;
+    note?: string;
+  }>;
+};
+
 const HUNONIC_SETTING_KEY = 'hunonic';
 const MANAGED_BUILDINGS = ['LK01-31', 'LK01-32'];
 
@@ -50,7 +69,9 @@ export class HunonicService {
   }
 
   async getOverview(tenantId: string) {
-    const mappings = await this.prismaAny.hunonicMeterMapping.findMany({
+    const settings = await this.getSettings(tenantId);
+    const lockedPeriods = normalizeLockedPeriods(settings.lockedPeriods);
+    const rawMappings = await this.prismaAny.hunonicMeterMapping.findMany({
       where: { tenantId, buildingCode: { in: MANAGED_BUILDINGS } },
       include: {
         room: { select: { id: true, code: true, name: true, status: true } },
@@ -58,6 +79,7 @@ export class HunonicService {
       },
       orderBy: [{ buildingCode: 'asc' }, { roomCode: 'asc' }],
     });
+    const mappings = dedupeMappingsByRoom(rawMappings);
 
     const latestLog = await this.prismaAny.hunonicSyncLog.findFirst({
       where: { tenantId },
@@ -73,6 +95,7 @@ export class HunonicService {
         totalMoneyMonthVnd: sumDecimal(mappings, 'lastAmountVnd'),
       },
       latestLog,
+      lockedPeriods,
       meters: mappings.map(mapMeterMapping),
     };
   }
@@ -87,10 +110,11 @@ export class HunonicService {
       const rootId = meter.provider_root_id || meter.provider_meter_id;
       if (fixed && rootId) mobileRootByRoom.set(`${fixed.buildingCode}:${fixed.roomCode}`, meter);
     }
-    const mappings = await this.prismaAny.hunonicMeterMapping.findMany({
+    const rawMappings = await this.prismaAny.hunonicMeterMapping.findMany({
       where: { tenantId, buildingCode: { in: MANAGED_BUILDINGS }, enabled: true },
       orderBy: [{ buildingCode: 'asc' }, { roomCode: 'asc' }],
     });
+    const mappings = dedupeMappingsByRoom(rawMappings);
     const rows = [];
 
     for (const mapping of mappings) {
@@ -262,6 +286,8 @@ export class HunonicService {
   }
 
   async getHistory(tenantId: string, query: HunonicHistoryQuery) {
+    const settings = await this.getSettings(tenantId);
+    const lockedPeriods = normalizeLockedPeriods(settings.lockedPeriods);
     const page = clampNumber(Number(query.page || 1), 1, 9999);
     const limit = clampNumber(Number(query.limit || 25), 5, 200);
     const dateRange = resolveHistoryDateRange(query);
@@ -291,7 +317,7 @@ export class HunonicService {
       meterMapping: relationFilter,
     };
 
-    const [allForSummary, mappings] = await Promise.all([
+    const [allForSummary, rawMappings] = await Promise.all([
       this.prismaAny.hunonicMeterReading.findMany({
         where,
         orderBy: [{ readingAt: 'desc' }, { createdAt: 'desc' }],
@@ -318,7 +344,9 @@ export class HunonicService {
     const dedupedReadings = dedupeHistoryReadings(allForSummary);
     const total = dedupedReadings.length;
     const readings = dedupedReadings.slice((page - 1) * limit, page * limit);
-    const monthlyRows = buildMonthlyRows(dedupedReadings);
+    const monthlyRows = buildMonthlyRows(dedupedReadings, lockedPeriods);
+    const roomsWithData = countRoomsWithData(monthlyRows);
+    const mappings = dedupeMappingsByRoom(rawMappings);
 
     return {
       filters: {
@@ -332,10 +360,12 @@ export class HunonicService {
           roomCode: item.roomCode,
           displayName: item.displayName,
         })),
+        lockedPeriods,
       },
       summary: {
         totalReadings: total,
         monthlyRows: monthlyRows.length,
+        roomsWithData,
         totalEnergyMonthKwh: monthlyRows.reduce((sum, item) => sum + item.energyMonthKwh, 0),
         totalMoneyMonthVnd: monthlyRows.reduce((sum, item) => sum + item.moneyMonthVnd, 0),
       },
@@ -350,24 +380,163 @@ export class HunonicService {
     };
   }
 
+  async lockPeriods(tenantId: string, input: HunonicLockPeriodsInput) {
+    const rows = Array.isArray(input?.rows) ? input.rows : [];
+    if (rows.length === 0) {
+      throw new BadRequestException('No Hunonic periods selected for lock.');
+    }
+
+    const settings = await this.getSettings(tenantId);
+    const current = normalizeLockedPeriods(settings.lockedPeriods);
+    const map = new Map(current.map((item) => [lockedPeriodKey(item), item]));
+
+    for (const row of rows) {
+      const locked = normalizeLockedPeriod(row);
+      if (!locked) continue;
+      map.set(lockedPeriodKey(locked), {
+        ...locked,
+        lockedAt: new Date().toISOString(),
+      });
+    }
+
+    const nextSettings: HunonicSettings = {
+      ...settings,
+      lockedPeriods: Array.from(map.values()).sort(compareLockedPeriods),
+    };
+    await this.saveSettings(tenantId, nextSettings);
+    return { lockedPeriods: nextSettings.lockedPeriods || [] };
+  }
+
+  async unlockPeriods(tenantId: string, input: HunonicLockPeriodsInput) {
+    const rows = Array.isArray(input?.rows) ? input.rows : [];
+    if (rows.length === 0) {
+      throw new BadRequestException('No Hunonic periods selected for unlock.');
+    }
+
+    const settings = await this.getSettings(tenantId);
+    const current = normalizeLockedPeriods(settings.lockedPeriods);
+    const removeKeys = new Set(
+      rows
+        .map((row) => normalizeLockedPeriod(row))
+        .filter(Boolean)
+        .map((item) => lockedPeriodKey(item!)),
+    );
+
+    const nextSettings: HunonicSettings = {
+      ...settings,
+      lockedPeriods: current.filter((item) => !removeKeys.has(lockedPeriodKey(item))),
+    };
+    await this.saveSettings(tenantId, nextSettings);
+    return { lockedPeriods: nextSettings.lockedPeriods || [] };
+  }
+
+  async getReconciliation(tenantId: string, query: HunonicHistoryQuery) {
+    const history = await this.getHistory(tenantId, query);
+    const monthlyRows = Array.isArray((history as any).monthlyRows) ? (history as any).monthlyRows : [];
+    if (monthlyRows.length === 0) {
+      return { rows: [], summary: { totalRows: 0, matchedRows: 0, mismatchedRows: 0, missingInvoiceRows: 0 } };
+    }
+
+    const periods = Array.from(new Set(monthlyRows.map((row: any) => String(row.period)))) as string[];
+    const roomKeys = Array.from(new Set(monthlyRows.map((row: any) => `${row.buildingCode}:${row.roomCode}`)));
+
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        dueDate: {
+          gte: getPeriodStart(periods[periods.length - 1]),
+          lte: getPeriodEnd(periods[0]),
+        },
+        items: {
+          some: {
+            type: 'UTILITY_ELECTRICITY' as any,
+          },
+        },
+      },
+      include: {
+        items: {
+          where: { type: 'UTILITY_ELECTRICITY' as any },
+          select: { amount: true, description: true, type: true },
+        },
+        contract: {
+          select: {
+            room: {
+              select: {
+                code: true,
+                building: { select: { code: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const invoiceByRoomPeriod = new Map<string, { invoiceAmount: number; invoiceCount: number }>();
+    for (const invoice of invoices) {
+      const buildingCode = invoice.contract?.room?.building?.code;
+      const roomCode = invoice.contract?.room?.code;
+      if (!buildingCode || !roomCode) continue;
+      const roomPeriodKey = `${buildingCode}:${roomCode}:${getReadingPeriod(new Date(invoice.dueDate))}`;
+      if (!roomKeys.includes(`${buildingCode}:${roomCode}`)) continue;
+      const current = invoiceByRoomPeriod.get(roomPeriodKey) || { invoiceAmount: 0, invoiceCount: 0 };
+      current.invoiceAmount += invoice.items.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+      current.invoiceCount += 1;
+      invoiceByRoomPeriod.set(roomPeriodKey, current);
+    }
+
+    const rows = monthlyRows.map((row: any) => {
+      const key = `${row.buildingCode}:${row.roomCode}:${row.period}`;
+      const invoice = invoiceByRoomPeriod.get(key);
+      const hunonicAmount = Number(row.moneyMonthVnd || 0);
+      const invoiceAmount = Number(invoice?.invoiceAmount || 0);
+      const diffAmount = invoice ? invoiceAmount - hunonicAmount : null;
+      return {
+        ...row,
+        invoiceAmountVnd: invoice ? invoiceAmount : null,
+        invoiceCount: invoice?.invoiceCount || 0,
+        diffAmountVnd: diffAmount,
+        reconciliationStatus: !invoice
+          ? 'MISSING_INVOICE'
+          : Math.abs(diffAmount || 0) <= 1
+            ? 'MATCHED'
+            : 'MISMATCHED',
+      };
+    });
+
+    return {
+      rows,
+      summary: {
+        totalRows: rows.length,
+        matchedRows: rows.filter((row: any) => row.reconciliationStatus === 'MATCHED').length,
+        mismatchedRows: rows.filter((row: any) => row.reconciliationStatus === 'MISMATCHED').length,
+        missingInvoiceRows: rows.filter((row: any) => row.reconciliationStatus === 'MISSING_INVOICE').length,
+      },
+    };
+  }
+
   async syncTenant(tenantId: string, overrideSettings?: HunonicSettings, options: { backfillMonths?: number } = {}) {
     const settings = overrideSettings || await this.getSettings(tenantId);
     if (!settings.enabled && !overrideSettings) {
       return { skipped: true, reason: 'Hunonic integration is disabled.' };
     }
 
+    const preferredMode = this.resolveProviderMode(settings);
     const startedAt = new Date();
     const log = await this.prismaAny.hunonicSyncLog.create({
-      data: { tenantId, status: 'RUNNING', source: settings.mode || 'mobile', startedAt },
+      data: { tenantId, status: 'RUNNING', source: preferredMode, startedAt },
     });
 
     try {
       const backfillMonths = options.backfillMonths || 0;
-      const providerSettings = backfillMonths > 0 && (settings.websiteToken || settings.websiteCookie)
+      const canBackfillFromWebsite = backfillMonths > 0
+        && preferredMode === 'website'
+        && Boolean(settings.websiteToken || settings.websiteCookie);
+      const providerSettings = canBackfillFromWebsite
         ? { ...settings, mode: 'website' as const }
-        : settings;
+        : { ...settings, mode: preferredMode };
       const provider = new HunonicProvider(this.toProviderOptions(providerSettings));
-      const backfill = backfillMonths > 0
+      const backfill = canBackfillFromWebsite
         ? await provider.fetchRecentMonthlyHistory(backfillMonths)
         : null;
       const dashboard = backfill?.dashboard || await provider.fetchDashboardData();
@@ -388,54 +557,24 @@ export class HunonicService {
         const providerMeterId = meter.provider_meter_id || meter.provider_device_id;
         if (!providerMeterId || Number.isNaN(readingAt.getTime())) continue;
 
-        const mapping = await this.prismaAny.hunonicMeterMapping.upsert({
-          where: { tenantId_providerMeterId: { tenantId, providerMeterId } },
-          create: {
-            tenantId,
-            buildingId: roomMatch?.buildingId,
-            roomId: roomMatch?.roomId,
-            buildingCode: fixed.buildingCode,
-            roomCode: fixed.roomCode,
-            displayName: fixed.displayName,
-            providerMeterId,
-            providerDeviceId: meter.provider_device_id,
-            providerRootId: meter.provider_root_id,
-            providerHomeId: meter.provider_home_id,
-            providerRoomId: meter.provider_room_id,
-            homeName: meter.home_name,
-            roomName: meter.room_name,
-            deviceName: meter.name || fixed.displayName,
-            rootType: meter.root_type,
-            lastStatus: meter.status,
-            lastReadingKwh: decimalOrNull(meter.energy_month_kwh),
-            lastAmountVnd: decimalOrNull(meter.money_month_vnd),
-            lastSyncedAt: new Date(dashboard.exported_at),
-            raw: sanitizeRaw(meter),
-          },
-          update: {
-            buildingId: roomMatch?.buildingId,
-            roomId: roomMatch?.roomId,
-            buildingCode: fixed.buildingCode,
-            roomCode: fixed.roomCode,
-            displayName: fixed.displayName,
-            providerDeviceId: meter.provider_device_id,
-            providerRootId: meter.provider_root_id,
-            providerHomeId: meter.provider_home_id,
-            providerRoomId: meter.provider_room_id,
-            homeName: meter.home_name,
-            roomName: meter.room_name,
-            deviceName: meter.name || fixed.displayName,
-            rootType: meter.root_type,
-            lastStatus: meter.status,
-            lastReadingKwh: decimalOrNull(meter.energy_month_kwh),
-            lastAmountVnd: decimalOrNull(meter.money_month_vnd),
-            lastSyncedAt: new Date(dashboard.exported_at),
-            raw: sanitizeRaw(meter),
-          },
-        });
+        const mapping = await this.upsertMeterMappingByRoom(
+          tenantId,
+          providerMeterId,
+          roomMatch,
+          fixed,
+          meter,
+          new Date(dashboard.exported_at),
+        );
         mappingByProviderMeterId.set(providerMeterId, { mapping, roomId: roomMatch?.roomId, meter, fixed });
 
-        const upserted = await this.upsertMonthlyReading(tenantId, mapping.id, roomMatch?.roomId, getReadingPeriod(readingAt), readingAt, meter);
+        const upserted = await this.upsertMonthlyReading(
+          tenantId,
+          mapping,
+          roomMatch?.roomId,
+          getReadingPeriod(readingAt),
+          readingAt,
+          meter,
+        );
         if (upserted) readingsSaved += 1;
       }
 
@@ -445,7 +584,14 @@ export class HunonicService {
         if (!match) continue;
         const readingAt = getPeriodReadingAt(point.period);
         const meter = monthlyPointToMeter(match.meter, point);
-        const upserted = await this.upsertMonthlyReading(tenantId, match.mapping.id, match.roomId, point.period, readingAt, meter);
+        const upserted = await this.upsertMonthlyReading(
+          tenantId,
+          match.mapping,
+          match.roomId,
+          point.period,
+          readingAt,
+          meter,
+        );
         if (upserted) readingsSaved += 1;
       }
 
@@ -456,13 +602,19 @@ export class HunonicService {
           finishedAt: new Date(),
           metersFound: dashboard.electric_meters.length,
           readingsSaved,
-          message: backfillMonths > 0
+          message: backfill
             ? `Backfilled ${backfillMonths} months and updated ${readingsSaved} Hunonic monthly readings.`
             : `Updated ${readingsSaved} Hunonic current-month readings.`,
         },
       });
 
-      return { skipped: false, metersFound: dashboard.electric_meters.length, readingsSaved, backfillMonths };
+      return {
+        skipped: false,
+        source: dashboard.source,
+        metersFound: dashboard.electric_meters.length,
+        readingsSaved,
+        backfillMonths: backfill ? backfillMonths : 0,
+      };
     } catch (error: any) {
       await this.prismaAny.hunonicSyncLog.update({
         where: { id: log.id },
@@ -524,10 +676,32 @@ export class HunonicService {
     return ((record?.value || {}) as HunonicSettings);
   }
 
+  private async saveSettings(tenantId: string, settings: HunonicSettings) {
+    await this.prisma.appSetting.upsert({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: tenantId,
+          key: HUNONIC_SETTING_KEY,
+        },
+      },
+      update: {
+        value: settings as any,
+      },
+      create: {
+        tenantId,
+        scope: SettingScope.TENANT,
+        ownerId: tenantId,
+        key: HUNONIC_SETTING_KEY,
+        value: settings as any,
+      },
+    });
+  }
+
   private toProviderOptions(settings: HunonicSettings): HunonicProviderOptions {
-    const inferredMode = settings.mode || (settings.websiteToken || settings.websiteCookie ? 'website' : 'mobile');
     return {
-      mode: inferredMode,
+      mode: this.resolveProviderMode(settings),
       username: settings.username,
       password: settings.password,
       baseUrl: settings.baseUrl,
@@ -538,18 +712,90 @@ export class HunonicService {
     };
   }
 
+  private resolveProviderMode(settings: HunonicSettings): 'mobile' | 'website' {
+    return settings.mode || (settings.websiteToken || settings.websiteCookie ? 'website' : 'mobile');
+  }
+
+  private async upsertMeterMappingByRoom(
+    tenantId: string,
+    providerMeterId: string,
+    roomMatch: { buildingId: string; roomId: string } | undefined,
+    fixed: { buildingCode: string; roomCode: string; displayName: string },
+    meter: HunonicElectricMeter,
+    exportedAt: Date,
+  ) {
+    const data = {
+      buildingId: roomMatch?.buildingId,
+      roomId: roomMatch?.roomId,
+      buildingCode: fixed.buildingCode,
+      roomCode: fixed.roomCode,
+      displayName: fixed.displayName,
+      providerMeterId,
+      providerDeviceId: meter.provider_device_id,
+      providerRootId: meter.provider_root_id,
+      providerHomeId: meter.provider_home_id,
+      providerRoomId: meter.provider_room_id,
+      homeName: meter.home_name,
+      roomName: meter.room_name,
+      deviceName: meter.name || fixed.displayName,
+      rootType: meter.root_type,
+      enabled: true,
+      lastStatus: meter.status,
+      lastReadingKwh: decimalOrNull(meter.energy_month_kwh),
+      lastAmountVnd: decimalOrNull(meter.money_month_vnd),
+      lastSyncedAt: exportedAt,
+      raw: sanitizeRaw(meter),
+    };
+
+    const existingByProvider = await this.prismaAny.hunonicMeterMapping.findUnique({
+      where: { tenantId_providerMeterId: { tenantId, providerMeterId } },
+    });
+    if (existingByProvider) {
+      return this.prismaAny.hunonicMeterMapping.update({
+        where: { id: existingByProvider.id },
+        data,
+      });
+    }
+
+    const existingByRoom = await this.prismaAny.hunonicMeterMapping.findFirst({
+      where: {
+        tenantId,
+        buildingCode: fixed.buildingCode,
+        roomCode: fixed.roomCode,
+      },
+      orderBy: [{ enabled: 'desc' }, { lastSyncedAt: 'desc' }, { updatedAt: 'desc' }],
+    });
+    if (existingByRoom) {
+      return this.prismaAny.hunonicMeterMapping.update({
+        where: { id: existingByRoom.id },
+        data,
+      });
+    }
+
+    return this.prismaAny.hunonicMeterMapping.create({
+      data: {
+        tenantId,
+        ...data,
+      },
+    });
+  }
+
   private async upsertMonthlyReading(
     tenantId: string,
-    meterMappingId: string,
+    meterMapping: { id: string; buildingCode: string; roomCode: string },
     roomId: string | undefined,
     period: string,
     readingAt: Date,
     meter: HunonicElectricMeter,
   ) {
+    if (this.isLockedPeriod(await this.getSettings(tenantId), meterMapping.buildingCode, meterMapping.roomCode, period)) {
+      return false;
+    }
+
     const existing = await this.prismaAny.hunonicMeterReading.findFirst({
       where: {
         tenantId,
-        meterMappingId,
+        meterMappingId: meterMapping.id,
         currentMonth: period,
       },
       orderBy: { readingAt: 'desc' },
@@ -557,7 +803,7 @@ export class HunonicService {
 
     const data = {
           tenantId,
-          meterMappingId,
+          meterMappingId: meterMapping.id,
           roomId,
           readingAt,
           status: meter.status,
@@ -580,6 +826,11 @@ export class HunonicService {
 
     await this.prismaAny.hunonicMeterReading.create({ data });
     return true;
+  }
+
+  private isLockedPeriod(settings: HunonicSettings, buildingCode: string, roomCode: string, period: string) {
+    const lockedPeriods = normalizeLockedPeriods(settings.lockedPeriods);
+    return lockedPeriods.some((item) => item.period === period && item.buildingCode === buildingCode && item.roomCode === roomCode);
   }
 }
 
@@ -626,6 +877,32 @@ function sumDecimal(items: any[], key: string) {
 function sanitizeRaw(meter: HunonicElectricMeter) {
   const { raw, ...safe } = meter;
   return (raw || safe) as Prisma.InputJsonValue;
+}
+
+function dedupeMappingsByRoom<T extends Record<string, any>>(mappings: T[]): T[] {
+  const bestByRoom = new Map<string, T>();
+  for (const mapping of mappings) {
+    const key = `${mapping.buildingCode}:${mapping.roomCode}`;
+    const current = bestByRoom.get(key);
+    if (!current || compareMappingFreshness(mapping, current) > 0) {
+      bestByRoom.set(key, mapping);
+    }
+  }
+  return mappings.filter((mapping) => bestByRoom.get(`${mapping.buildingCode}:${mapping.roomCode}`) === mapping);
+}
+
+function compareMappingFreshness(left: { enabled?: boolean; lastSyncedAt?: Date | string | null; updatedAt?: Date | string | null }, right: { enabled?: boolean; lastSyncedAt?: Date | string | null; updatedAt?: Date | string | null }) {
+  if (Boolean(left.enabled) !== Boolean(right.enabled)) return left.enabled ? 1 : -1;
+  const leftSynced = dateTimeValue(left.lastSyncedAt);
+  const rightSynced = dateTimeValue(right.lastSyncedAt);
+  if (leftSynced !== rightSynced) return leftSynced - rightSynced;
+  return dateTimeValue(left.updatedAt) - dateTimeValue(right.updatedAt);
+}
+
+function dateTimeValue(value: Date | string | null | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 function mapMeterMapping(mapping: any) {
@@ -727,7 +1004,8 @@ function resolveHistoryDateRange(query: HunonicHistoryQuery) {
   };
 }
 
-function buildMonthlyRows(readings: any[]) {
+function buildMonthlyRows(readings: any[], lockedPeriods: HunonicLockedPeriod[] = []) {
+  const lockedKeys = new Set(lockedPeriods.map((item) => lockedPeriodKey(item)));
   const latestByRoomMonth = new Map<string, any>();
   for (const reading of readings) {
     const mapping = reading.meterMapping;
@@ -750,6 +1028,7 @@ function buildMonthlyRows(readings: any[]) {
         energyMonthKwh: Number(reading.energyMonthKwh || 0),
         moneyMonthVnd: Number(reading.moneyMonthVnd || 0),
         readingAt: reading.readingAt,
+        isLocked: lockedKeys.has(lockedPeriodKey({ buildingCode: mapping.buildingCode, roomCode: mapping.roomCode, period: `${year}-${String(month).padStart(2, '0')}` })),
       });
     }
   }
@@ -759,21 +1038,36 @@ function buildMonthlyRows(readings: any[]) {
   });
 }
 
+function countRoomsWithData(rows: Array<{ buildingCode: string; roomCode: string }>) {
+  return new Set(rows.map((row) => `${row.buildingCode}:${row.roomCode}`)).size;
+}
+
 function dedupeHistoryReadings(readings: any[]) {
-  const latestByMeterPeriod = new Map<string, any>();
+  const latestByRoomPeriod = new Map<string, any>();
   for (const reading of readings) {
-    const mappingId = reading.meterMapping?.id || reading.meterMappingId;
+    const mapping = reading.meterMapping;
+    if (!mapping?.buildingCode || !mapping?.roomCode) continue;
     const date = new Date(reading.readingAt);
     const period = normalizeReadingPeriod(reading.currentMonth, date);
-    const key = `${mappingId}:${period}`;
-    if (!latestByMeterPeriod.has(key)) latestByMeterPeriod.set(key, reading);
+    const key = `${mapping.buildingCode}:${mapping.roomCode}:${period}`;
+    const current = latestByRoomPeriod.get(key);
+    if (!current || compareReadingFreshness(reading, current) > 0) {
+      latestByRoomPeriod.set(key, reading);
+    }
   }
-  return Array.from(latestByMeterPeriod.values()).sort((a, b) => {
+  return Array.from(latestByRoomPeriod.values()).sort((a, b) => {
     const left = new Date(a.readingAt).getTime();
     const right = new Date(b.readingAt).getTime();
     if (left !== right) return right - left;
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
+}
+
+function compareReadingFreshness(left: any, right: any) {
+  const leftReadingAt = dateTimeValue(left.readingAt);
+  const rightReadingAt = dateTimeValue(right.readingAt);
+  if (leftReadingAt !== rightReadingAt) return leftReadingAt - rightReadingAt;
+  return dateTimeValue(left.createdAt) - dateTimeValue(right.createdAt);
 }
 
 function normalizeReadingPeriod(value: unknown, fallbackDate: Date) {
@@ -826,4 +1120,51 @@ function mergeSavedHunonicSecrets(saved: HunonicSettings, incoming: HunonicSetti
     websiteToken: Object.prototype.hasOwnProperty.call(incoming, 'websiteToken') ? incoming.websiteToken : saved.websiteToken,
     websiteCookie: Object.prototype.hasOwnProperty.call(incoming, 'websiteCookie') ? incoming.websiteCookie : saved.websiteCookie,
   };
+}
+
+function normalizeLockedPeriods(value: unknown): HunonicLockedPeriod[] {
+  if (!Array.isArray(value)) return [];
+  const rows = value
+    .map((item) => normalizeLockedPeriod(item))
+    .filter((item): item is HunonicLockedPeriod => Boolean(item));
+  const unique = new Map<string, HunonicLockedPeriod>();
+  for (const row of rows) unique.set(lockedPeriodKey(row), row);
+  return Array.from(unique.values()).sort(compareLockedPeriods);
+}
+
+function normalizeLockedPeriod(value: any): HunonicLockedPeriod | null {
+  const buildingCode = String(value?.buildingCode || '').trim();
+  const roomCode = String(value?.roomCode || '').trim();
+  const period = String(value?.period || '').trim();
+  if (!buildingCode || !roomCode || !/^\d{4}-\d{2}$/.test(period)) return null;
+  const lockedAt = value?.lockedAt ? new Date(value.lockedAt).toISOString() : undefined;
+  const note = String(value?.note || '').trim() || undefined;
+  return {
+    buildingCode,
+    roomCode,
+    period,
+    lockedAt: lockedAt && lockedAt !== 'Invalid Date' ? lockedAt : undefined,
+    note,
+  };
+}
+
+function lockedPeriodKey(value: { buildingCode: string; roomCode: string; period: string }) {
+  return `${value.buildingCode}:${value.roomCode}:${value.period}`;
+}
+
+function compareLockedPeriods(left: HunonicLockedPeriod, right: HunonicLockedPeriod) {
+  if (left.period !== right.period) return left.period < right.period ? 1 : -1;
+  return lockedPeriodKey(left).localeCompare(lockedPeriodKey(right));
+}
+
+function getPeriodStart(period: string) {
+  const [yearValue, monthValue] = String(period || '').split('-').map(Number);
+  if (!Number.isFinite(yearValue) || !Number.isFinite(monthValue)) return new Date(0);
+  return new Date(yearValue, monthValue - 1, 1, 0, 0, 0, 0);
+}
+
+function getPeriodEnd(period: string) {
+  const [yearValue, monthValue] = String(period || '').split('-').map(Number);
+  if (!Number.isFinite(yearValue) || !Number.isFinite(monthValue)) return new Date();
+  return new Date(yearValue, monthValue, 0, 23, 59, 59, 999);
 }

@@ -30,11 +30,21 @@ export type HunonicRateApplyPayload = {
   customRateVnd?: number;
 };
 
+export type HunonicLockedPeriodRow = {
+  buildingCode: string;
+  roomCode: string;
+  period: string;
+  note?: string;
+};
+
 export const hunonicApi = {
   overview: () => apiClient.get('/hunonic/overview'),
   rates: () => apiClient.get('/hunonic/rates'),
   applyRates: (payload: HunonicRateApplyPayload) => apiClient.post('/hunonic/rates/apply', payload),
   history: (params?: HunonicHistoryParams) => apiClient.get('/hunonic/history', { params }),
+  reconciliation: (params?: HunonicHistoryParams) => apiClient.get('/hunonic/reconciliation', { params }),
+  lockPeriods: (rows: HunonicLockedPeriodRow[]) => apiClient.post('/hunonic/history/lock', { rows }),
+  unlockPeriods: (rows: HunonicLockedPeriodRow[]) => apiClient.post('/hunonic/history/unlock', { rows }),
   roomElectricity: (roomId: string) => apiClient.get(`/hunonic/rooms/${roomId}/electricity`),
   sync: () => apiClient.post('/hunonic/sync'),
   test: (settings: HunonicSettingsPayload) => apiClient.post('/hunonic/test', settings),

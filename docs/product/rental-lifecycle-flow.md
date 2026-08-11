@@ -638,13 +638,13 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 11. Hunonic và điện nước
 
-- [ ] Khóa kỳ điện đã chốt để sync không ghi đè.
+- [x] Khóa kỳ điện đã chốt để sync không ghi đè.
 - [ ] Chốt điện sớm khi trả phòng.
 - [ ] Lưu snapshot chỉ số tại thời điểm quyết toán.
 - [ ] Tính điện theo giá EVN.
 - [ ] Tính điện theo giá custom.
 - [ ] Gắn doanh thu điện về đúng owner/building/room.
-- [ ] Đối chiếu dữ liệu Hunonic với hóa đơn đã phát hành.
+- [x] Đối chiếu dữ liệu Hunonic với hóa đơn đã phát hành.
 - [ ] Cảnh báo chỉ số thiếu/trùng/bất thường.
 - [ ] Export lịch sử điện theo phòng/tháng/năm.
 

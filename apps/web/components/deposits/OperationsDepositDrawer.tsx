@@ -233,6 +233,7 @@ export default function OperationsDepositDrawer({
               detailDeposit.status === "PENDING" ||
               isPaid) && (
               <Button
+                data-testid="deposit-action-cancel"
                 onClick={handleCancel}
                 disabled={cancelMutation.isPending}
                 variant="ghost"
@@ -250,6 +251,7 @@ export default function OperationsDepositDrawer({
             )}
             {(isConverted || isPaid) && (
               <Button
+                data-testid="deposit-action-refund"
                 onClick={handleRefundFlow}
                 disabled={refundMutation.isPending}
                 className="bg-rose-500/10 text-rose-500 hover:bg-rose-500/20"
@@ -264,6 +266,7 @@ export default function OperationsDepositDrawer({
             )}
             {refundPending && (
               <Button
+                data-testid="deposit-action-complete-refund"
                 onClick={handleCompletePendingRefund}
                 disabled={completePendingRefundMutation.isPending}
                 className="bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
@@ -278,6 +281,7 @@ export default function OperationsDepositDrawer({
             )}
             {(detailDeposit.status === "PENDING" || detailDeposit.status === "DRAFT") && (
               <Button
+                data-testid="deposit-action-collect"
                 onClick={handleCollect}
                 disabled={collectMutation.isPending}
                 className="bg-[#8b5cf6] text-white hover:bg-[#6366f1]"
@@ -292,6 +296,7 @@ export default function OperationsDepositDrawer({
             )}
             {isPaid && (
               <Button
+                data-testid="deposit-action-convert"
                 onClick={handleConvert}
                 disabled={convertMutation.isPending}
                 variant="primary"

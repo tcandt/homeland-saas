@@ -16,6 +16,7 @@ export interface UI_Deposit {
   customerPhone: string;
   roomCode: string;
   buildingName: string;
+  refundSummary?: DepositResponse["refundSummary"];
 }
 
 export const depositAdapter = {
@@ -35,6 +36,7 @@ export const depositAdapter = {
       customerPhone: apiDeposit.customer?.phone || 'N/A',
       roomCode: apiDeposit.room?.code || 'N/A',
       buildingName: apiDeposit.room?.building?.name || 'N/A',
+      refundSummary: apiDeposit.refundSummary || null,
     };
   }
 };

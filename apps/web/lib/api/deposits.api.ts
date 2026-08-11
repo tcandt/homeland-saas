@@ -24,6 +24,18 @@ export interface DepositResponse {
       name: string;
     };
   };
+  refundSummary?: {
+    receiptId: string | null;
+    receiptCode: string | null;
+    receiptStatus: string | null;
+    receiptAmount: number;
+    receiptDescription: string | null;
+    taskId: string | null;
+    taskTitle: string | null;
+    taskStatus: string | null;
+    pending: boolean;
+    completed: boolean;
+  } | null;
 }
 
 export interface DepositListResponse {
@@ -56,8 +68,12 @@ export const depositsApi = {
     return apiClient.post<any>(`/deposits/${id}/collect`, { note });
   },
 
-  refund: (id: string, reason: string) => {
-    return apiClient.post<any>(`/deposits/${id}/refund`, { reason });
+  refund: (id: string, payload: { reason: string; receiptStatus?: "PENDING" | "COMPLETED"; attachmentUrls?: string[] }) => {
+    return apiClient.post<any>(`/deposits/${id}/refund`, payload);
+  },
+
+  completePendingRefund: (id: string, note?: string) => {
+    return apiClient.post<any>(`/deposits/${id}/refund/complete`, note ? { note } : {});
   },
 
   cancel: (id: string, reason: string) => {

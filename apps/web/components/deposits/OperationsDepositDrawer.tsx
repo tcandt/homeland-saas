@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   X,
   CheckCircle2,
@@ -16,6 +16,7 @@ import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
 import {
   useCollectDepositMutation,
   useRefundDepositMutation,
+  useCompletePendingDepositRefundMutation,
   useConvertContractMutation,
   useCancelDepositMutation,
 } from "../../lib/mutations/deposits.mutations";
@@ -48,8 +49,10 @@ export default function OperationsDepositDrawer({
 
   const collectMutation = useCollectDepositMutation();
   const refundMutation = useRefundDepositMutation();
+  const completePendingRefundMutation = useCompletePendingDepositRefundMutation();
   const convertMutation = useConvertContractMutation();
   const cancelMutation = useCancelDepositMutation();
+  const [refundAttachmentInput, setRefundAttachmentInput] = useState("");
 
   if (!detailDeposit) return null;
 
@@ -60,6 +63,27 @@ export default function OperationsDepositDrawer({
   const handleRefund = () => {
     const reason = window.prompt("Lý do hoàn tiền?");
     if (reason) refundMutation.mutate({ id: detailDeposit.id, reason });
+  };
+
+  const handleRefundFlow = () => {
+    const reason = window.prompt("Ly do hoan tien / hoan coc?");
+    if (!reason) return;
+    const completeNow = window.confirm("Da chuyen tien ngay cho khach? Chon OK neu da hoan tat, Cancel neu chi tao phieu chi cho xu ly sau.");
+    const attachmentUrls = refundAttachmentInput
+      .split(/\r?\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    refundMutation.mutate({
+      id: detailDeposit.id,
+      reason,
+      receiptStatus: completeNow ? "COMPLETED" : "PENDING",
+      attachmentUrls,
+    });
+  };
+
+  const handleCompletePendingRefund = () => {
+    const note = window.prompt("Ghi chu xac nhan hoan tien / ma giao dich?");
+    completePendingRefundMutation.mutate({ id: detailDeposit.id, note: note || undefined });
   };
 
   const handleCancel = () => {
@@ -85,6 +109,8 @@ export default function OperationsDepositDrawer({
   const isConverted = detailDeposit.status === "CONVERTED_TO_CONTRACT";
   const isRefunded = detailDeposit.status === "REFUNDED";
   const isCancelled = detailDeposit.status === "CANCELLED";
+  const refundSummary = detailDeposit.refundSummary;
+  const refundPending = !!refundSummary?.pending;
 
   return (
     <Drawer
@@ -126,7 +152,7 @@ export default function OperationsDepositDrawer({
             )}
             {(isConverted || isPaid) && (
               <Button
-                onClick={handleRefund}
+                onClick={handleRefundFlow}
                 disabled={refundMutation.isPending}
                 className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-500"
               >
@@ -136,6 +162,20 @@ export default function OperationsDepositDrawer({
                   <RefreshCcw size={16} className="mr-2" />
                 )}
                 Hoàn tiền
+              </Button>
+            )}
+            {refundPending && (
+              <Button
+                onClick={handleCompletePendingRefund}
+                disabled={completePendingRefundMutation.isPending}
+                className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600"
+              >
+                {completePendingRefundMutation.isPending ? (
+                  <Loader2 size={16} className="animate-spin mr-2" />
+                ) : (
+                  <CheckCircle2 size={16} className="mr-2" />
+                )}
+                Xác nhận đã hoàn
               </Button>
             )}
             {(detailDeposit.status === "PENDING" || detailDeposit.status === "DRAFT") && (
@@ -237,6 +277,33 @@ export default function OperationsDepositDrawer({
                 <span className="text-[13px] font-bold text-muted">Trạng thái hiện tại</span>
                 <span className="text-[13px] font-black text-text">{detailDeposit.status}</span>
               </div>
+              <div className="flex flex-col gap-[8px] p-[12px] bg-black/5 dark:bg-white/5 rounded-[10px]">
+                <span className="text-[13px] font-bold text-muted">Chá»©ng tá»« hoÃ n tiá»n</span>
+                <textarea
+                  value={refundAttachmentInput}
+                  onChange={(event) => setRefundAttachmentInput(event.target.value)}
+                  placeholder="URL chung tu, ngan cach bang dau phay hoac xuong dong"
+                  className="min-h-[84px] rounded-[10px] border border-border bg-card px-3 py-2 text-[13px] text-text outline-none"
+                />
+                <span className="text-[11px] font-medium text-muted">Duoc gui kem khi tao phieu chi hoan coc.</span>
+              </div>
+              {refundSummary ? (
+                <div className="flex flex-col gap-[8px] rounded-[10px] border border-amber-500/20 bg-amber-500/10 p-[12px]">
+                  <span className="text-[13px] font-bold text-amber-700">Theo dõi phiếu hoàn cọc</span>
+                  <div className="flex items-center justify-between gap-[12px] text-[13px]">
+                    <span className="text-muted">Mã phiếu</span>
+                    <span className="font-black text-text">{refundSummary.receiptCode || "Chưa có"}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-[12px] text-[13px]">
+                    <span className="text-muted">Trạng thái</span>
+                    <span className="font-black text-text">{refundSummary.taskStatus || refundSummary.receiptStatus || "-"}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-[12px] text-[13px]">
+                    <span className="text-muted">Số tiền</span>
+                    <span className="font-black text-text">{new Intl.NumberFormat("vi-VN").format(Number(refundSummary.receiptAmount || 0))}đ</span>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </Card>
 

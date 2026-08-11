@@ -46,7 +46,19 @@ export const useCollectDepositMutation = () => {
 export const useRefundDepositMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) => depositsApi.refund(id, reason),
+    mutationFn: ({ id, reason, receiptStatus, attachmentUrls }: { id: string; reason: string; receiptStatus?: "PENDING" | "COMPLETED"; attachmentUrls?: string[] }) =>
+      depositsApi.refund(id, { reason, receiptStatus, attachmentUrls }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
+    },
+  });
+};
+
+export const useCompletePendingDepositRefundMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string }) => depositsApi.completePendingRefund(id, note),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });

@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { AuditAction, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { CommunicationService } from '../communication/communication.service';
 
@@ -532,7 +533,7 @@ export class FinanceReportingService {
   }
 
   async getOwners(tenantId: string) {
-    return this.prisma.owner.findMany({
+    const owners = await this.prisma.owner.findMany({
       where: { tenantId, isActive: true },
       include: {
         buildings: {
@@ -546,6 +547,138 @@ export class FinanceReportingService {
       },
       orderBy: { code: 'asc' },
     });
+
+    const bankAccounts = owners.flatMap((owner) => owner.bankAccounts || []);
+    if (bankAccounts.length === 0) {
+      return owners;
+    }
+
+    const paymentRequests = await this.prisma.paymentRequest.findMany({
+      where: {
+        tenantId,
+        bankAccountId: { in: bankAccounts.map((bank) => bank.id) },
+      },
+      select: {
+        bankAccountId: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+
+    const usageByBankId = new Map<string, {
+      requestCount: number;
+      pendingCount: number;
+      confirmedCount: number;
+      latestRequestAt: Date | null;
+      inUse: boolean;
+    }>();
+
+    for (const request of paymentRequests) {
+      if (!request.bankAccountId) continue;
+      const current = usageByBankId.get(request.bankAccountId) || {
+        requestCount: 0,
+        pendingCount: 0,
+        confirmedCount: 0,
+        latestRequestAt: null,
+        inUse: false,
+      };
+      current.requestCount += 1;
+      current.pendingCount += request.status === 'PENDING' ? 1 : 0;
+      current.confirmedCount += request.status === 'CONFIRMED' ? 1 : 0;
+      current.latestRequestAt =
+        !current.latestRequestAt || Number(request.createdAt) > Number(current.latestRequestAt)
+          ? request.createdAt
+          : current.latestRequestAt;
+      current.inUse = current.pendingCount > 0 || current.confirmedCount > 0;
+      usageByBankId.set(request.bankAccountId, current);
+    }
+
+    return owners.map((owner) => ({
+      ...owner,
+      bankAccounts: (owner.bankAccounts || []).map((bank) => ({
+        ...bank,
+        usage: usageByBankId.get(bank.id) || {
+          requestCount: 0,
+          pendingCount: 0,
+          confirmedCount: 0,
+          latestRequestAt: null,
+          inUse: false,
+        },
+      })),
+    }));
+  }
+
+  async updateBankAccountStatus(tenantId: string, userId: string | undefined, bankAccountId: string, isActive: boolean) {
+    const bankAccount = await this.prisma.bankAccount.findFirst({
+      where: { tenantId, id: bankAccountId },
+    });
+    if (!bankAccount) {
+      throw new BadRequestException('BANK_ACCOUNT_NOT_FOUND');
+    }
+
+    if (bankAccount.isActive === isActive) {
+      return bankAccount;
+    }
+
+    if (!isActive) {
+      const [pendingCount, defaultSettings] = await Promise.all([
+        this.prisma.paymentRequest.count({
+          where: {
+            tenantId,
+            bankAccountId,
+            status: 'PENDING' as any,
+          },
+        }),
+        this.prisma.appSetting.findUnique({
+          where: {
+            tenantId_scope_ownerId_key: {
+              tenantId,
+              scope: SettingScope.TENANT,
+              ownerId: tenantId,
+              key: 'owner-bank-defaults',
+            },
+          },
+        }),
+      ]);
+
+      if (pendingCount > 0) {
+        throw new BadRequestException('BANK_ACCOUNT_HAS_PENDING_PAYMENT_REQUESTS');
+      }
+
+      const defaults = ((defaultSettings?.value as any)?.defaults || {}) as Record<string, string>;
+      const isDefaultBank = Object.values(defaults).some((value) => value === bankAccountId);
+      if (isDefaultBank) {
+        throw new BadRequestException('BANK_ACCOUNT_IS_DEFAULT_PAYMENT_BANK');
+      }
+    }
+
+    const updated = await this.prisma.bankAccount.update({
+      where: { id: bankAccountId },
+      data: { isActive },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        userId,
+        module: 'Finance',
+        entity: 'BankAccount',
+        entityId: bankAccountId,
+        action: AuditAction.UPDATE,
+        before: {
+          isActive: bankAccount.isActive,
+          bankName: bankAccount.bankName,
+          accountNumber: bankAccount.accountNumber,
+        },
+        after: {
+          isActive: updated.isActive,
+          bankName: updated.bankName,
+          accountNumber: updated.accountNumber,
+        },
+      },
+    });
+
+    return updated;
   }
 
   async getBankCashFlow(tenantId: string, options: { year?: string; month?: string; ownerId?: string } = {}) {
@@ -637,6 +770,157 @@ export class FinanceReportingService {
         pendingAmount: rows.reduce((total, row) => total + row.pendingAmount, 0),
       },
       rows,
+    };
+  }
+
+  async getBankTransactions(
+    tenantId: string,
+    options: { year?: string; month?: string; bankAccountId?: string; direction?: string; search?: string; limit?: string } = {},
+  ) {
+    const period = this.buildPeriodRange(options.year, options.month);
+    const bankAccounts = await this.prisma.bankAccount.findMany({
+      where: {
+        tenantId,
+        ...(options.bankAccountId ? { id: options.bankAccountId } : {}),
+      },
+      include: {
+        owner: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: [{ bankName: 'asc' }, { accountNumber: 'asc' }],
+    });
+    const accountNumbers = bankAccounts.map((bank) => bank.accountNumber).filter(Boolean);
+    const bankByAccountNumber = new Map(bankAccounts.map((bank) => [bank.accountNumber, bank]));
+    const requestedLimit = Number(options.limit || 200);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(1000, Math.max(20, Math.round(requestedLimit))) : 200;
+    const search = String(options.search || '').trim().toLowerCase();
+    const requestedDirection = String(options.direction || '').toUpperCase();
+
+    if (bankAccounts.length === 0) {
+      return {
+        period: {
+          year: Number(options.year || new Date().getFullYear()),
+          month: options.month ? Number(options.month) : null,
+          startDate: period.gte,
+          endDate: period.lte,
+        },
+        filters: { bankAccounts: [] },
+        summary: { total: 0, inflow: 0, outflow: 0, net: 0, bankCount: 0 },
+        rows: [],
+      };
+    }
+
+    const logs = await this.prisma.paymentWebhookLog.findMany({
+      where: {
+        provider: 'SEPAY' as any,
+        createdAt: period,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 1500,
+    });
+
+    const paymentCodes = Array.from(new Set(
+      logs
+        .map((log) => this.resolveWebhookPaymentCode(log.payload as any))
+        .filter(Boolean),
+    ));
+    const requests = paymentCodes.length ? await this.prisma.paymentRequest.findMany({
+      where: {
+        tenantId,
+        paymentCode: { in: paymentCodes },
+      },
+      include: {
+        owner: { select: { id: true, code: true, name: true } },
+        bankAccount: { select: { id: true, bankName: true, accountNumber: true, accountName: true } },
+      },
+    }) : [];
+    const requestByCode = new Map(requests.map((request) => [request.paymentCode, request]));
+
+    const rows = logs
+      .map((log) => {
+        const payload = log.payload as any;
+        const paymentCode = this.resolveWebhookPaymentCode(payload);
+        const accountNumber = String(payload?.accountNumber || payload?.account_number || payload?.bank_account_xid || '').trim();
+        const request = paymentCode ? requestByCode.get(paymentCode) : null;
+        const bankAccount = bankByAccountNumber.get(accountNumber) || request?.bankAccount || null;
+        if (!bankAccount || !accountNumbers.includes(bankAccount.accountNumber)) return null;
+
+        const direction = this.resolveWebhookDirection(payload);
+        const amount = this.resolveWebhookAmount(payload);
+        const content = String(payload?.content || payload?.description || payload?.memo || '').trim();
+        const reference = String(payload?.referenceCode || payload?.reference_code || payload?.transactionDate || '').trim();
+
+        return {
+          id: log.id,
+          provider: log.provider,
+          providerTransactionId: log.providerTransactionId,
+          createdAt: log.createdAt,
+          processedAt: log.processedAt,
+          direction,
+          amount,
+          content,
+          reference,
+          paymentCode,
+          transferType: String(payload?.transferType || payload?.transfer_type || '').trim(),
+          bankAccount: {
+            id: bankAccount.id,
+            bankName: bankAccount.bankName,
+            accountNumber: bankAccount.accountNumber,
+            accountName: bankAccount.accountName,
+          },
+          owner: request?.owner || (bankAccounts.find((bank) => bank.id === bankAccount.id) as any)?.owner || null,
+          match: request ? {
+            sourceType: request.sourceType,
+            sourceId: request.sourceId,
+            status: request.status,
+            expectedAmount: Number(request.amount || 0),
+          } : null,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .filter((row) => !requestedDirection || row.direction === requestedDirection)
+      .filter((row) => {
+        if (!search) return true;
+        const haystack = [
+          row.providerTransactionId,
+          row.paymentCode,
+          row.content,
+          row.bankAccount.bankName,
+          row.bankAccount.accountNumber,
+          row.bankAccount.accountName,
+          row.owner?.name,
+          row.owner?.code,
+        ].join(' ').toLowerCase();
+        return haystack.includes(search);
+      });
+
+    const limitedRows = rows.slice(0, limit);
+    const inflow = rows.filter((row) => row.direction === 'IN').reduce((total, row) => total + row.amount, 0);
+    const outflow = rows.filter((row) => row.direction === 'OUT').reduce((total, row) => total + row.amount, 0);
+
+    return {
+      period: {
+        year: Number(options.year || new Date().getFullYear()),
+        month: options.month ? Number(options.month) : null,
+        startDate: period.gte,
+        endDate: period.lte,
+      },
+      filters: {
+        bankAccounts: bankAccounts.map((bank) => ({
+          id: bank.id,
+          bankName: bank.bankName,
+          accountNumber: bank.accountNumber,
+          accountName: bank.accountName,
+          owner: bank.owner,
+        })),
+      },
+      summary: {
+        total: rows.length,
+        inflow,
+        outflow,
+        net: inflow - outflow,
+        bankCount: bankAccounts.length,
+      },
+      rows: limitedRows,
     };
   }
 
@@ -1186,6 +1470,31 @@ export class FinanceReportingService {
     return match?.[0] || '';
   }
 
+  private resolveWebhookDirection(payload: any): 'IN' | 'OUT' {
+    const transferType = String(payload?.transferType || payload?.transfer_type || payload?.type || '').toLowerCase();
+    if (['debit', 'out', 'withdraw', 'withdrawal', 'expense'].includes(transferType)) return 'OUT';
+    if (Number(payload?.outAmount || payload?.debitAmount || payload?.debit || 0) > 0) return 'OUT';
+    return 'IN';
+  }
+
+  private resolveWebhookAmount(payload: any) {
+    const candidates = [
+      payload?.transferAmount,
+      payload?.amount,
+      payload?.inAmount,
+      payload?.creditAmount,
+      payload?.credit,
+      payload?.outAmount,
+      payload?.debitAmount,
+      payload?.debit,
+    ];
+    for (const candidate of candidates) {
+      const value = Number(candidate);
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+    return 0;
+  }
+
   private async postExpenseJournal(tenantId: string, expense: any) {
     const existing = await this.prisma.journalEntry.findFirst({
       where: { tenantId, sourceType: 'EXPENSE' as any, sourceId: expense.id, status: 'POSTED' },
@@ -1339,4 +1648,9 @@ export class FinanceReportingService {
       });
     }
   }
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.round(value)));
 }

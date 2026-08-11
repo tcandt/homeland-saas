@@ -2,6 +2,26 @@ import { WorkflowDefinition } from '../automation.types';
 
 export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
   {
+    name: 'deposit.created.workflow',
+    description: 'Process a newly created deposit',
+    triggerEvent: 'deposit.created',
+    steps: [
+      {
+        name: 'Notify Customer',
+        type: 'CREATE_IN_APP_NOTIFICATION',
+        order: 1,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
+        name: 'Invalidate Dashboard Cache',
+        type: 'INVALIDATE_DASHBOARD_CACHE',
+        order: 2,
+      },
+    ],
+  },
+  {
     name: 'deposit.collected.workflow',
     description: 'Process a collected deposit',
     triggerEvent: 'deposit.collected',
@@ -45,6 +65,26 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
     ]
   },
   {
+    name: 'invoice.issued.workflow',
+    description: 'Process a newly issued invoice',
+    triggerEvent: 'invoice.issued',
+    steps: [
+      {
+        name: 'Notify Customer',
+        type: 'CREATE_IN_APP_NOTIFICATION',
+        order: 1,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 2,
+      },
+    ],
+  },
+  {
     name: 'invoice.paid.workflow',
     description: 'Process a paid invoice',
     triggerEvent: 'invoice.paid',
@@ -68,6 +108,31 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         order: 3,
       }
     ]
+  },
+  {
+    name: 'deposit.refund_requested.workflow',
+    description: 'Process a pending deposit refund request',
+    triggerEvent: 'deposit.refund_requested',
+    steps: [
+      {
+        name: 'Notify Customer',
+        type: 'CREATE_IN_APP_NOTIFICATION',
+        order: 1,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
+        name: 'Invalidate Dashboard Cache',
+        type: 'INVALIDATE_DASHBOARD_CACHE',
+        order: 2,
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 3,
+      },
+    ],
   },
   {
     name: 'deposit.refunded.workflow',

@@ -615,11 +615,11 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Hoàn cọc một phần.
 - [ ] Giữ cọc theo chính sách.
 - [ ] Khấu trừ phí từ cọc.
-- [ ] Tạo phiếu chi hoàn cọc.
-- [ ] Phê duyệt hoàn cọc.
-- [ ] Lưu lý do hủy/hoàn/giữ cọc.
-- [ ] Lưu chứng từ hoàn tiền.
-- [ ] Gửi thông báo cho khách và nội bộ.
+- [x] Tạo phiếu chi hoàn cọc.
+- [x] Phê duyệt hoàn cọc.
+- [x] Lưu lý do hủy/hoàn/giữ cọc.
+- [x] Lưu chứng từ hoàn tiền.
+- [x] Gửi thông báo cho khách và nội bộ.
 - [x] Không cho `cancel` cọc đã paid nếu chưa chọn rõ hoàn/giữ/khấu trừ.
 
 ### 10. Hóa đơn và công nợ
@@ -641,8 +641,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Khóa kỳ điện đã chốt để sync không ghi đè.
 - [x] Chốt điện sớm khi trả phòng.
 - [x] Lưu snapshot chỉ số tại thời điểm quyết toán.
-- [ ] Tính điện theo giá EVN.
-- [ ] Tính điện theo giá custom.
+- [x] Tính điện theo giá EVN.
+- [x] Tính điện theo giá custom.
 - [x] Gắn doanh thu điện về đúng owner/building/room.
 - [x] Đối chiếu dữ liệu Hunonic với hóa đơn đã phát hành.
 - [x] Cảnh báo chỉ số thiếu/trùng/bất thường.
@@ -650,16 +650,16 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 12. Thông báo tự động
 
-- [ ] Gửi thông báo tạo cọc.
+- [x] Gửi thông báo tạo cọc.
 - [x] Gửi thông báo cọc đã thu.
-- [ ] Gửi hóa đơn mới.
+- [x] Gửi hóa đơn mới.
 - [x] Gửi xác nhận thanh toán thành công.
 - [x] Gửi nhắc quá hạn.
 - [x] Gửi nhắc sắp hết hợp đồng.
 - [x] Gửi yêu cầu duyệt chi.
 - [x] Gửi thông báo chi phí phát sinh mới.
 - [x] Gửi thông báo quyết toán trả phòng.
-- [ ] Gửi cảnh báo SePay không khớp.
+- [x] Gửi cảnh báo SePay không khớp.
 - [x] Thêm retry nếu gửi thất bại.
 - [x] Log trạng thái gửi Zalo/Telegram.
 
@@ -673,7 +673,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Đổi owner của tòa có audit log.
 - [x] Thêm màn tra cứu bank theo owner trong Settings.
 - [x] Chọn bank mặc định cho owner trong Settings và dùng khi tạo QR SePay.
-- [ ] Kiểm tra bank đang dùng bởi payment request trước khi tắt/xóa.
+- [x] Kiểm tra bank đang dùng bởi payment request trước khi tắt/xóa.
 - [x] Báo cáo dòng tiền theo bank trên Finance page.
 
 ### 14. Bảo mật và phân quyền
@@ -697,10 +697,10 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Audit log cho tạo, duyệt, hủy, hoàn ứng/khấu trừ chi phí phát sinh.
 - [x] Audit log cho gán tay giao dịch SePay.
 - [x] Audit log cho xử lý tiền thừa SePay.
-- [ ] Audit log cho các thao tác tiền ngoài expense còn thiếu.
+- [x] Audit log cho các thao tác tiền ngoài expense còn thiếu.
 - [x] Audit log cho login, thay đổi cài đặt và sửa token.
 - [x] Audit log cho đổi owner.
-- [ ] Audit log cho các thao tác tài chính ngoài expense còn thiếu.
+- [x] Audit log cho các thao tác tài chính ngoài expense còn thiếu.
 - [x] Cảnh báo thao tác nhạy cảm bằng popup xác nhận.
 
 ### 15. UI/UX cleanup

@@ -7,16 +7,40 @@ describe('DepositsService', () => {
   function createService() {
     const repository = {
       findById: vi.fn(),
+      create: vi.fn(),
       update: vi.fn(),
       paginate: vi.fn(),
+    };
+    const prisma = {
+      receipt: {
+        findFirst: vi.fn(),
+      },
+      task: {
+        findFirst: vi.fn(),
+      },
+      tx: {
+        deposit: {
+          update: vi.fn(),
+        },
+        receipt: {
+          create: vi.fn(),
+          update: vi.fn(),
+        },
+        task: {
+          create: vi.fn(),
+          update: vi.fn(),
+        },
+        $transaction: vi.fn((callback) => callback(prisma.tx)),
+      },
     };
     const auditService = { log: vi.fn() };
     const eventPublisher = { publish: vi.fn() };
     return {
+      prisma,
       repository,
       auditService,
       eventPublisher,
-      service: new DepositsService(repository as any, auditService as any, eventPublisher as any),
+      service: new DepositsService(repository as any, auditService as any, eventPublisher as any, prisma as any),
     };
   }
 
@@ -30,6 +54,63 @@ describe('DepositsService', () => {
 
     await expect(service.cancel('deposit-1', 'Khach huy', 'user-1')).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  it('publishes a deposit.created event when creating a deposit', async () => {
+    const { service, repository, auditService, eventPublisher } = createService();
+    repository.create.mockResolvedValue({ id: 'deposit-1' });
+    repository.findById.mockResolvedValue({
+      id: 'deposit-1',
+      tenantId: 'tenant-1',
+      customerId: 'customer-1',
+      code: 'DEP-001',
+      amount: 1500000,
+      customer: {
+        fullName: 'Nguyen Van A',
+        phone: '0909000001',
+      },
+      room: {
+        code: '31-01',
+        building: {
+          name: 'LK01-31',
+        },
+      },
+    });
+
+    const payload = {
+      tenant: { connect: { id: 'tenant-1' } },
+      customer: { connect: { id: 'customer-1' } },
+      amount: 1500000,
+    };
+
+    const result = await service.create(payload, 'user-1', 'Deposits');
+
+    expect(result).toMatchObject({ id: 'deposit-1' });
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'CREATE',
+        entity: 'Deposit',
+        entityId: 'deposit-1',
+      }),
+    );
+    expect(eventPublisher.publish).toHaveBeenCalledWith(
+      'deposit.created',
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+        customerId: 'customer-1',
+        customerName: 'Nguyen Van A',
+        customerPhone: '0909000001',
+        sourceId: 'deposit-1',
+        sourceType: 'DEPOSIT',
+        amount: 1500000,
+        metadata: expect.objectContaining({
+          code: 'DEP-001',
+          roomCode: '31-01',
+          buildingName: 'LK01-31',
+        }),
+      }),
+    );
   });
 
   it('allows cancelling paid deposits when refund keep or deduct resolution is provided', async () => {
@@ -60,8 +141,8 @@ describe('DepositsService', () => {
     );
   });
 
-  it('publishes a deposit.refunded event when refunding a paid deposit', async () => {
-    const { service, repository, auditService, eventPublisher } = createService();
+  it('publishes a deposit.refunded event when refunding a paid deposit immediately', async () => {
+    const { service, repository, auditService, eventPublisher, prisma } = createService();
     const deposit = {
       id: 'deposit-1',
       tenantId: 'tenant-1',
@@ -77,10 +158,17 @@ describe('DepositsService', () => {
     };
 
     repository.findById.mockResolvedValue(deposit);
-    repository.update.mockResolvedValue({
+    prisma.tx.deposit.update.mockResolvedValue({
       ...deposit,
       status: DepositStatus.REFUNDED,
       note: 'Tra coc',
+    });
+    prisma.tx.receipt.create.mockResolvedValue({
+      id: 'receipt-1',
+      code: 'RCT-DEP-001-REFUND-1',
+      amount: 1500000,
+      status: 'COMPLETED',
+      description: 'Deposit refund for DEP-001 - Tra coc',
     });
 
     await expect(service.refund('deposit-1', 'Tra coc', 'user-1')).resolves.toMatchObject({
@@ -111,6 +199,142 @@ describe('DepositsService', () => {
           code: 'DEP-001',
           note: 'Tra coc',
           refundSourceType: 'DEPOSIT',
+        }),
+      }),
+    );
+  });
+
+  it('creates a pending receipt and follow-up task when deposit refund is not completed yet', async () => {
+    const { service, repository, eventPublisher, prisma } = createService();
+    const deposit = {
+      id: 'deposit-2',
+      tenantId: 'tenant-1',
+      customerId: 'customer-2',
+      code: 'DEP-002',
+      amount: 2300000,
+      status: DepositStatus.PAID,
+      note: null,
+      customer: {
+        fullName: 'Tran Thi B',
+        phone: '0909000002',
+      },
+    };
+
+    repository.findById.mockResolvedValue(deposit);
+    prisma.tx.deposit.update.mockResolvedValue({
+      ...deposit,
+      status: DepositStatus.REFUNDED,
+      note: 'Hoan coc theo yeu cau',
+    });
+    prisma.tx.receipt.create.mockResolvedValue({
+      id: 'receipt-2',
+      code: 'RCT-DEP-002-REFUND-1',
+      amount: 2300000,
+      status: 'PENDING',
+      description: 'Deposit refund for DEP-002 - Hoan coc theo yeu cau',
+    });
+    prisma.tx.task.create.mockResolvedValue({
+      id: 'task-2',
+      title: 'Xu ly hoan coc DEP-002',
+      status: 'TODO',
+    });
+
+    await expect(
+      service.refund('deposit-2', 'Hoan coc theo yeu cau', 'user-1', 'PENDING', ['https://example.test/deposit-proof.pdf']),
+    ).resolves.toMatchObject({
+      status: DepositStatus.REFUNDED,
+    });
+
+    expect(prisma.tx.receipt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PENDING',
+        }),
+      }),
+    );
+    expect(prisma.tx.task.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'TODO',
+          priority: 'HIGH',
+        }),
+      }),
+    );
+    expect(eventPublisher.publish).toHaveBeenCalledWith(
+      'deposit.refund_requested',
+      expect.objectContaining({
+        sourceId: 'deposit-2',
+        metadata: expect.objectContaining({
+          code: 'DEP-002',
+          receiptCode: 'RCT-DEP-002-REFUND-1',
+          attachmentUrls: ['https://example.test/deposit-proof.pdf'],
+        }),
+      }),
+    );
+    expect(eventPublisher.publish).not.toHaveBeenCalledWith('deposit.refunded', expect.anything());
+  });
+
+  it('completes a pending deposit refund and publishes deposit.refunded', async () => {
+    const { service, repository, eventPublisher, prisma } = createService();
+    const deposit = {
+      id: 'deposit-3',
+      tenantId: 'tenant-1',
+      customerId: 'customer-3',
+      code: 'DEP-003',
+      amount: 1800000,
+      status: DepositStatus.REFUNDED,
+      note: 'Dang cho xu ly',
+      customer: {
+        fullName: 'Le Van C',
+        phone: '0909000003',
+      },
+    };
+
+    repository.findById.mockResolvedValue(deposit);
+    prisma.receipt.findFirst.mockResolvedValue({
+      id: 'receipt-3',
+      code: 'RCT-DEP-003-REFUND-1',
+      amount: 1800000,
+      status: 'PENDING',
+      description: 'Deposit refund for DEP-003',
+    });
+    prisma.task.findFirst.mockResolvedValue({
+      id: 'task-3',
+      title: 'Xu ly hoan coc DEP-003',
+      status: 'TODO',
+      description: 'Can hoan tien',
+    });
+    prisma.tx.receipt.update.mockResolvedValue({
+      id: 'receipt-3',
+      code: 'RCT-DEP-003-REFUND-1',
+      amount: 1800000,
+      status: 'COMPLETED',
+      description: 'Deposit refund for DEP-003\nCompleted note: Da chuyen khoan',
+    });
+    prisma.tx.task.update.mockResolvedValue({
+      id: 'task-3',
+      title: 'Xu ly hoan coc DEP-003',
+      status: 'DONE',
+      description: 'Can hoan tien\nHoan tat: Da chuyen khoan',
+    });
+
+    await expect(service.completePendingRefund('deposit-3', 'user-1', 'Da chuyen khoan')).resolves.toEqual(
+      expect.objectContaining({
+        success: true,
+        receiptId: 'receipt-3',
+        taskId: 'task-3',
+        amount: 1800000,
+      }),
+    );
+
+    expect(eventPublisher.publish).toHaveBeenCalledWith(
+      'deposit.refunded',
+      expect.objectContaining({
+        sourceId: 'deposit-3',
+        metadata: expect.objectContaining({
+          code: 'DEP-003',
+          completedFromPending: true,
+          refundCompletionNote: 'Da chuyen khoan',
         }),
       }),
     );

@@ -72,7 +72,14 @@ export class DepositsController {
   @ApiOperation({ summary: 'Refund deposit' })
   refund(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
     const input = RefundDepositSchema.parse(body);
-    return this.depositsService.refund(id, input.reason, userId);
+    return this.depositsService.refund(id, input.reason, userId, input.receiptStatus, input.attachmentUrls);
+  }
+
+  @Post(':id/refund/complete')
+  @RequirePermissions('deposit.refund')
+  @ApiOperation({ summary: 'Complete a pending deposit refund' })
+  completePendingRefund(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+    return this.depositsService.completePendingRefund(id, userId, body?.note);
   }
 
   @Post(':id/cancel')

@@ -81,7 +81,7 @@ export default function BuildingProfitSummary() {
   ];
 
   return (
-    <section className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
+    <section data-testid="building-profit-summary" className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
       <div className="border-b border-border p-[16px] md:p-[20px]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -94,8 +94,8 @@ export default function BuildingProfitSummary() {
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 lg:w-[300px]">
-            <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
-            <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
+            <Select data-testid="building-profit-year" value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
+            <Select data-testid="building-profit-month" value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
           </div>
         </div>
       </div>
@@ -129,9 +129,10 @@ export default function BuildingProfitSummary() {
 
                 return (
                   <Fragment key={row.building.id}>
-                    <tr className="border-t border-border hover:bg-black/5 dark:hover:bg-white/5">
+                    <tr data-testid={`building-profit-row-${row.building.id}`} className="border-t border-border hover:bg-black/5 dark:hover:bg-white/5">
                       <td className="px-4 py-3 text-center">
                         <button
+                          data-testid={`building-profit-toggle-${row.building.id}`}
                           type="button"
                           onClick={() => {
                             setExpandedBuildingId((current) => (current === row.building.id ? null : row.building.id));
@@ -196,7 +197,7 @@ export default function BuildingProfitSummary() {
                               </div>
                             </div>
                             <div className="overflow-x-auto">
-                              <table className="w-full min-w-[960px] text-left text-sm">
+                              <table data-testid={`building-profit-room-table-${row.building.id}`} className="w-full min-w-[960px] text-left text-sm">
                                 <thead className="bg-surface text-[11px] uppercase text-muted">
                                   <tr>
                                     <th className="w-[52px] px-4 py-3 text-center font-black">Mở</th>
@@ -217,9 +218,10 @@ export default function BuildingProfitSummary() {
 
                                     return (
                                       <Fragment key={roomKey}>
-                                        <tr className="border-t border-border">
+                                        <tr data-testid={`building-profit-room-row-${row.building.id}-${roomRow.room.id}`} className="border-t border-border">
                                           <td className="px-4 py-3 text-center">
                                             <button
+                                              data-testid={`building-profit-room-toggle-${row.building.id}-${roomRow.room.id}`}
                                               type="button"
                                               onClick={() => setExpandedRoomKey((current) => (current === roomKey ? null : roomKey))}
                                               className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-white text-text transition hover:bg-surface"
@@ -249,7 +251,7 @@ export default function BuildingProfitSummary() {
                                           <tr className="border-t border-border bg-white">
                                             <td colSpan={9} className="px-4 py-4">
                                               <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                                                <section className="rounded-[14px] border border-border bg-surface/60">
+                                                <section data-testid={`building-profit-contracts-${row.building.id}-${roomRow.room.id}`} className="rounded-[14px] border border-border bg-surface/60">
                                                   <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                                                     <ScrollText size={14} className="text-[#8b5cf6]" />
                                                     <h4 className="text-[12px] font-black uppercase text-text">Hợp đồng</h4>
@@ -275,7 +277,7 @@ export default function BuildingProfitSummary() {
                                                   </div>
                                                 </section>
 
-                                                <section className="rounded-[14px] border border-border bg-surface/60">
+                                                <section data-testid={`building-profit-invoices-${row.building.id}-${roomRow.room.id}`} className="rounded-[14px] border border-border bg-surface/60">
                                                   <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                                                     <FileText size={14} className="text-sky-600" />
                                                     <h4 className="text-[12px] font-black uppercase text-text">Hóa đơn trong kỳ</h4>
@@ -310,7 +312,7 @@ export default function BuildingProfitSummary() {
                                                   </div>
                                                 </section>
 
-                                                <section className="rounded-[14px] border border-border bg-surface/60">
+                                                <section data-testid={`building-profit-expenses-${row.building.id}-${roomRow.room.id}`} className="rounded-[14px] border border-border bg-surface/60">
                                                   <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                                                     <Wrench size={14} className="text-amber-600" />
                                                     <h4 className="text-[12px] font-black uppercase text-text">Chi phí phòng trong kỳ</h4>

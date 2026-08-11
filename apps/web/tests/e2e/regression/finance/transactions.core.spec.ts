@@ -37,6 +37,19 @@ const bankAccounts = [
 
 const baseRows: BankTransactionRow[] = [
   {
+    id: 'txn-0',
+    createdAt: '2026-07-15T09:00:00.000Z',
+    direction: 'IN',
+    amount: 900000,
+    content: 'Thu coc giu phong LK08-24',
+    paymentCode: 'DEP-LK0824-001',
+    providerTransactionId: 'MB-0000',
+    reference: 'REF-000',
+    owner: { id: 'owner-1', name: 'TÃ­nh' },
+    bankAccount: bankAccounts[0],
+    match: { status: 'MATCHED_DEPOSIT' },
+  },
+  {
     id: 'txn-1',
     createdAt: '2026-08-11T08:15:00.000Z',
     direction: 'IN',
@@ -110,6 +123,12 @@ async function mockBankTransactions(page: any) {
     };
 
     let rows = [...baseRows];
+    rows = rows.filter((row) => {
+      const rowDate = new Date(row.createdAt);
+      const yearMatches = !year || String(rowDate.getUTCFullYear()) === year;
+      const monthMatches = !month || String(rowDate.getUTCMonth() + 1) === month;
+      return yearMatches && monthMatches;
+    });
 
     if (direction) {
       rows = rows.filter((row) => row.direction === direction);
@@ -168,12 +187,13 @@ test.describe('Finance Transactions Regression', () => {
 
     await expect(admin.page.getByTestId('bank-transactions-kpis')).toBeVisible();
     await expect(admin.page.getByTestId('bank-transactions-table')).toBeVisible();
+    await expect(admin.page.getByTestId('bank-transaction-row-txn-0')).toBeVisible();
     await expect(admin.page.getByTestId('bank-transaction-row-txn-1')).toBeVisible();
     await expect(admin.page.getByTestId('bank-transaction-row-txn-2')).toBeVisible();
-    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('2');
-    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('2.500.000');
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('3');
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('3.400.000');
     await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('780.000');
-    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('1.720.000');
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('2.620.000');
   });
 
   test('filters rows by direction on desktop', async ({ admin }) => {
@@ -237,5 +257,28 @@ test.describe('Finance Transactions Regression', () => {
     await expect(admin.page.getByTestId('bank-transaction-row-txn-2')).toHaveCount(0);
     await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('1');
     await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('2.500.000');
+  });
+
+  test('filters rows by month and search term together on desktop', async ({ admin }) => {
+    const mock = await mockBankTransactions(admin.page);
+
+    await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+
+    await admin.page.getByTestId('bank-transactions-month').selectOption('7');
+    await admin.page.getByTestId('bank-transactions-search').fill('mb bank');
+
+    await expect
+      .poll(() => mock.getLastQuery(), { timeout: 10000 })
+      .toMatchObject({
+        year: '2026',
+        month: '7',
+        search: 'mb bank',
+      });
+
+    await expect(admin.page.getByTestId('bank-transaction-row-txn-0')).toBeVisible();
+    await expect(admin.page.getByTestId('bank-transaction-row-txn-1')).toHaveCount(0);
+    await expect(admin.page.getByTestId('bank-transaction-row-txn-2')).toHaveCount(0);
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('1');
+    await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('900.000');
   });
 });

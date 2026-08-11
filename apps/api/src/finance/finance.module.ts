@@ -5,8 +5,10 @@ import { FinanceLedgerService } from './ledger.service';
 import { JournalEntryService } from './journal-entry.service';
 import { PrismaService } from '../prisma.service';
 import { FinanceListener } from './finance.listener';
+import { CommunicationModule } from '../communication/communication.module';
 
 @Module({
+  imports: [CommunicationModule],
   controllers: [FinanceController],
   providers: [FinanceReportingService, FinanceLedgerService, JournalEntryService, PrismaService, FinanceListener],
   exports: [FinanceReportingService, FinanceLedgerService, JournalEntryService],

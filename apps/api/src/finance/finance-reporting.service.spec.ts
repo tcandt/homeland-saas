@@ -36,6 +36,11 @@ describe('FinanceReportingService', () => {
         findFirst: vi.fn(),
         findMany: vi.fn().mockResolvedValue([]),
       },
+      user: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'admin-1', email: 'adminA@homeland.local', fullName: 'Admin A' },
+        ]),
+      },
       costCenter: {
         findFirst: vi.fn(),
         findUnique: vi.fn(),
@@ -47,10 +52,14 @@ describe('FinanceReportingService', () => {
       },
       ...prismaOverrides,
     };
+    const communicationService = {
+      dispatch: vi.fn().mockResolvedValue(undefined),
+    };
 
     return {
       prisma,
-      service: new FinanceReportingService(prisma as any),
+      communicationService,
+      service: new FinanceReportingService(prisma as any, communicationService as any),
     };
   }
 
@@ -64,7 +73,7 @@ describe('FinanceReportingService', () => {
       status: 'PENDING',
       attachmentUrls: ['https://example.test/proof.jpg'],
     };
-    const { service, prisma } = createService({
+    const { service, prisma, communicationService } = createService({
       expense: {
         findFirst: vi.fn(),
         count: vi.fn().mockResolvedValue(0),
@@ -111,6 +120,22 @@ describe('FinanceReportingService', () => {
         action: 'CREATE',
         entity: 'Expense',
         entityId: 'expense-1',
+      }),
+    }));
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-1',
+      userId: 'admin-1',
+      templateCode: 'SYSTEM_ALERT',
+      context: expect.objectContaining({
+        expenseCode: 'EXP-' + currentYear + '-0001',
+      }),
+    }));
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-1',
+      userId: 'admin-1',
+      templateCode: 'SYSTEM_ALERT',
+      context: expect.objectContaining({
+        title: expect.stringContaining('Yeu cau duyet chi'),
       }),
     }));
   });
@@ -207,7 +232,7 @@ describe('FinanceReportingService', () => {
       approvedBy: 'user-1',
       approvedAt: new Date('2026-08-09T00:00:00.000Z'),
     };
-    const { service, prisma } = createService({
+    const { service, prisma, communicationService } = createService({
       expense: {
         findFirst: vi.fn().mockResolvedValue(pendingExpense),
         create: vi.fn(),
@@ -232,6 +257,14 @@ describe('FinanceReportingService', () => {
       data: expect.objectContaining({
         action: 'UPDATE',
         entityId: 'expense-1',
+      }),
+    }));
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-1',
+      userId: 'admin-1',
+      templateCode: 'SYSTEM_ALERT',
+      context: expect.objectContaining({
+        title: expect.stringContaining('Chi phi da duoc duyet'),
       }),
     }));
   });

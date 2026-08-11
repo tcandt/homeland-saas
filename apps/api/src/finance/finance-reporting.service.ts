@@ -1,9 +1,13 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { CommunicationService } from '../communication/communication.service';
 
 @Injectable()
 export class FinanceReportingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly communicationService: CommunicationService,
+  ) {}
 
   async getLedger(tenantId: string, options: { accountId?: string, costCenterId?: string, startDate?: string, endDate?: string } = {}) {
     const where: any = { tenantId };
@@ -817,6 +821,7 @@ export class FinanceReportingService {
     }
 
     await this.logExpenseAudit(tenantId, userId, expense.id, 'CREATE', null, expense);
+    await this.notifyExpenseCreated(tenantId, { ...expense, code: expense.code || code });
     return expense;
   }
 
@@ -887,6 +892,9 @@ export class FinanceReportingService {
     }
 
     await this.logExpenseAudit(tenantId, userId, id, 'UPDATE', expense, updated);
+    if (!markPaid && updated.status === 'APPROVED') {
+      await this.notifyExpenseApproved(tenantId, updated);
+    }
     return updated;
   }
 
@@ -1283,6 +1291,80 @@ export class FinanceReportingService {
       });
     } catch (error) {
       console.error('Expense audit log failed:', error);
+    }
+  }
+
+  private async getAdminUsers(tenantId: string) {
+    return this.prisma.user.findMany({
+      where: {
+        tenantId,
+        status: 'ACTIVE' as any,
+        deletedAt: null,
+        roles: {
+          some: {
+            role: {
+              code: 'ADMIN' as any,
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+      },
+    });
+  }
+
+  private async notifyExpenseCreated(tenantId: string, expense: any) {
+    const adminUsers = await this.getAdminUsers(tenantId);
+    const expenseCode = expense.code || expense.id;
+    const title = `Chi phi moi ${expenseCode}`;
+    const message = `Phat sinh chi phi ${expenseCode} so tien ${Number(expense.amount || 0).toLocaleString('vi-VN')} VND. Trang thai hien tai: ${expense.status}.`;
+
+    for (const adminUser of adminUsers) {
+      await this.communicationService.dispatch({
+        tenantId,
+        userId: adminUser.id,
+        templateCode: 'SYSTEM_ALERT',
+        context: { title, message, expenseId: expense.id, expenseCode },
+      });
+    }
+
+    if (expense.status === 'PENDING') {
+      await this.notifyExpenseApprovalRequested(tenantId, expense, adminUsers);
+    }
+  }
+
+  private async notifyExpenseApprovalRequested(tenantId: string, expense: any, adminUsers?: Array<{ id: string }>) {
+    const recipients = adminUsers || await this.getAdminUsers(tenantId);
+    const expenseCode = expense.code || expense.id;
+    const title = `Yeu cau duyet chi ${expenseCode}`;
+    const message = `Can duyet khoan chi ${expenseCode} so tien ${Number(expense.amount || 0).toLocaleString('vi-VN')} VND truoc khi thanh toan.`;
+
+    for (const adminUser of recipients) {
+      await this.communicationService.dispatch({
+        tenantId,
+        userId: adminUser.id,
+        templateCode: 'SYSTEM_ALERT',
+        context: { title, message, expenseId: expense.id, expenseCode },
+      });
+    }
+  }
+
+  private async notifyExpenseApproved(tenantId: string, expense: any) {
+    const adminUsers = await this.getAdminUsers(tenantId);
+    const expenseCode = expense.code || expense.id;
+    const title = `Chi phi da duoc duyet ${expenseCode}`;
+    const message = `Khoan chi ${expenseCode} da duoc duyet${expense.status === 'PAID' ? ' va danh dau da chi' : ''}.`;
+
+    for (const adminUser of adminUsers) {
+      await this.communicationService.dispatch({
+        tenantId,
+        userId: adminUser.id,
+        templateCode: 'SYSTEM_ALERT',
+        context: { title, message, expenseId: expense.id, expenseCode },
+      });
     }
   }
 }

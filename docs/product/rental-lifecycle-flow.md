@@ -656,8 +656,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Gửi xác nhận thanh toán thành công.
 - [x] Gửi nhắc quá hạn.
 - [x] Gửi nhắc sắp hết hợp đồng.
-- [ ] Gửi yêu cầu duyệt chi.
-- [ ] Gửi thông báo chi phí phát sinh mới.
+- [x] Gửi yêu cầu duyệt chi.
+- [x] Gửi thông báo chi phí phát sinh mới.
 - [x] Gửi thông báo quyết toán trả phòng.
 - [ ] Gửi cảnh báo SePay không khớp.
 - [x] Thêm retry nếu gửi thất bại.

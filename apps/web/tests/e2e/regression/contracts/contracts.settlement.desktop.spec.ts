@@ -93,6 +93,7 @@ async function mockContracts(page: any) {
   let lastPreviewPayload: any = null;
   let lastTerminatePayload: any = null;
   let lastCompleteRefundPayload: any = null;
+  let lastRoomUpdatePayload: any = null;
 
   const activeContract = createContract();
   const terminatedContract = createContract({
@@ -195,10 +196,55 @@ async function mockContracts(page: any) {
     });
   });
 
+  await page.route("**/api/v1/rooms/*", async (route: any) => {
+    const requestUrl = new URL(route.request().url());
+    const pathname = requestUrl.pathname;
+    const method = route.request().method();
+
+    if (method === "PATCH") {
+      lastRoomUpdatePayload = route.request().postDataJSON?.() || {};
+      const roomId = pathname.split("/").pop();
+      const currentContract = contracts.find((item) => item.room?.id === roomId);
+      const nextStatus = String(lastRoomUpdatePayload?.status || "AVAILABLE");
+      if (currentContract?.room) {
+        currentContract.room = {
+          ...currentContract.room,
+          status: nextStatus,
+        };
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            id: roomId,
+            number: currentContract?.room?.number || "P101",
+            status: nextStatus,
+            type: "STUDIO",
+            price: 5000000,
+            area: 25,
+            capacity: 2,
+            images: [],
+            rentalType: "whole",
+            buildingId: currentContract?.room?.building?.id || "building-1",
+            floorId: "floor-1",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-08-11T08:00:00.000Z",
+          },
+        }),
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
   return {
     getLastPreviewPayload: () => lastPreviewPayload,
     getLastTerminatePayload: () => lastTerminatePayload,
     getLastCompleteRefundPayload: () => lastCompleteRefundPayload,
+    getLastRoomUpdatePayload: () => lastRoomUpdatePayload,
   };
 }
 
@@ -268,6 +314,27 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       .poll(() => mock.getLastCompleteRefundPayload(), { timeout: 10000 })
       .toMatchObject({
         note: "Da chuyen khoan settlement",
+      });
+  });
+
+  test("marks terminated room back to available after cleaning completion", async ({ admin }) => {
+    const mock = await mockContracts(admin.page);
+
+    await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
+
+    await admin.page
+      .locator("[data-testid='contract-card']:visible")
+      .filter({ hasText: "C-TERM-001" })
+      .first()
+      .dispatchEvent("click");
+
+    await expect(admin.page.getByTestId("btn-room-ready")).toBeVisible();
+    await admin.page.getByTestId("btn-room-ready").click();
+
+    await expect
+      .poll(() => mock.getLastRoomUpdatePayload(), { timeout: 10000 })
+      .toMatchObject({
+        status: "AVAILABLE",
       });
   });
 });

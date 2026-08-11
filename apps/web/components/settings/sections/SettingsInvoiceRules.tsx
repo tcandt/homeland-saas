@@ -43,23 +43,28 @@ export default function SettingsInvoiceRules() {
       }}
     >
       <Card className="p-[20px] flex flex-col gap-[16px]">
-        <h3 className="font-black text-[15px] text-text border-b border-border pb-[12px]">Invoice Rules</h3>
+        <h3 className="border-b border-border pb-[12px] text-[15px] font-black text-text">Quy tắc hóa đơn</h3>
+
         <div className="grid grid-cols-2 gap-[14px]">
           {[
             { label: "Ngày chốt điện nước", key: "meterCutoffDay" },
             { label: "Ngày tạo hóa đơn", key: "invoiceIssueDay" },
             { label: "Hạn thanh toán", key: "paymentDueDays" },
-            { label: "Grace Period", key: "gracePeriodDays" },
+            { label: "Thời gian gia hạn", key: "gracePeriodDays" },
             { label: "Lãi suất trễ hạn", key: "lateInterestRate" },
             { label: "Giảm giá mặc định", key: "defaultDiscount" },
           ].map((field) => (
             <div key={field.key} className="flex flex-col gap-[6px]">
-              <label className="text-[12px] font-bold text-muted uppercase tracking-wide">{field.label}</label>
-              <Input value={draft[field.key as keyof InvoiceRulesSettings]} onChange={(event) => setDraft((prev) => ({ ...prev, [field.key]: event.target.value }))} />
+              <label className="text-[12px] font-bold uppercase tracking-wide text-muted">{field.label}</label>
+              <Input
+                value={draft[field.key as keyof InvoiceRulesSettings]}
+                onChange={(event) => setDraft((prev) => ({ ...prev, [field.key]: event.target.value }))}
+              />
             </div>
           ))}
+
           <div className="flex flex-col gap-[6px]">
-            <label className="text-[12px] font-bold text-muted uppercase tracking-wide">VAT</label>
+            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">VAT</label>
             <Select
               value={draft.vatRate}
               onChange={(event) => setDraft((prev) => ({ ...prev, vatRate: event.target.value }))}
@@ -72,8 +77,9 @@ export default function SettingsInvoiceRules() {
               ]}
             />
           </div>
+
           <div className="flex flex-col gap-[6px]">
-            <label className="text-[12px] font-bold text-muted uppercase tracking-wide">Làm tròn tiền</label>
+            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Làm tròn tiền</label>
             <Select
               value={draft.roundingMode}
               onChange={(event) => setDraft((prev) => ({ ...prev, roundingMode: event.target.value }))}
@@ -85,8 +91,9 @@ export default function SettingsInvoiceRules() {
               ]}
             />
           </div>
+
           <div className="flex flex-col gap-[6px]">
-            <label className="text-[12px] font-bold text-muted uppercase tracking-wide">Hóa đơn định kỳ</label>
+            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Chu kỳ hóa đơn</label>
             <Select
               value={draft.billingCycle}
               onChange={(event) => setDraft((prev) => ({ ...prev, billingCycle: event.target.value }))}
@@ -100,6 +107,7 @@ export default function SettingsInvoiceRules() {
             />
           </div>
         </div>
+
         <div className="flex justify-end border-t border-border pt-[16px]">
           <Button type="submit" variant="primary" isLoading={isSaving}>
             Lưu quy tắc hóa đơn

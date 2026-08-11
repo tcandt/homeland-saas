@@ -625,8 +625,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 ### 10. Hóa đơn và công nợ
 
 - [x] Hỗ trợ thanh toán một phần.
-- [ ] Hỗ trợ dư tiền khách.
-- [ ] Cấn trừ dư tiền vào kỳ sau.
+- [x] Hỗ trợ dư tiền khách.
+- [x] Cấn trừ dư tiền vào kỳ sau.
 - [ ] Hoàn dư tiền nếu cần.
 - [x] Tự động chuyển hóa đơn sang quá hạn.
 - [ ] Nhắc nợ trước hạn.

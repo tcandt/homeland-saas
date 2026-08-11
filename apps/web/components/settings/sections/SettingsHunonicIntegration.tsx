@@ -74,6 +74,11 @@ function rowKey(row: { buildingCode: string; roomCode: string; period?: string }
   return `${row.buildingCode}:${row.roomCode}:${row.period || ""}`;
 }
 
+function csvEscape(value: unknown) {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
 export default function SettingsHunonicIntegration() {
   const user = useAuthStore((state) => state.user);
   const { draft, setDraft, isSaving, save } = useSettingsSection<Required<HunonicSettingsPayload>>(
@@ -281,6 +286,55 @@ export default function SettingsHunonicIntegration() {
     } finally {
       setIsLockingHistory(false);
     }
+  };
+
+  const exportHistoryCsv = () => {
+    if (monthlyRows.length === 0) {
+      toast.error("Chưa có dữ liệu để export");
+      return;
+    }
+
+    const header = [
+      "Ky",
+      "Toa",
+      "Phong",
+      "Cong to",
+      "Cong suat W",
+      "kWh thang",
+      "Tien dien VND",
+      "Khoa ky",
+      "So ban ghi trung",
+      "Moc doc",
+    ];
+
+    const lines = [
+      header.join(","),
+      ...monthlyRows.map((row: any) =>
+        [
+          csvEscape(row.period),
+          csvEscape(row.buildingCode),
+          csvEscape(row.displayName),
+          csvEscape(row.deviceName),
+          csvEscape(Number(row.powerCurrentW || 0)),
+          csvEscape(Number(row.energyMonthKwh || 0)),
+          csvEscape(Number(row.moneyMonthVnd || 0)),
+          csvEscape(row.isLocked ? "locked" : "open"),
+          csvEscape(Number(row.duplicateReadings || 1)),
+          csvEscape(formatDate(row.readingAt)),
+        ].join(","),
+      ),
+    ];
+
+    const blob = new Blob([`\ufeff${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `hunonic-history-${historyFilters.buildingCode}-${historyFilters.roomCode}-${historyFilters.year}-${historyFilters.month}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toast.success("Đã export lịch sử điện");
   };
 
   return (
@@ -846,6 +900,9 @@ export default function SettingsHunonicIntegration() {
                 Tổng hợp theo tháng/năm
               </div>
               <div className="flex flex-wrap gap-[8px]">
+                <Button type="button" variant="outline" onClick={exportHistoryCsv} className="h-[38px]">
+                  Export CSV
+                </Button>
                 <Button type="button" variant="outline" onClick={toggleAllMonthlyRows} className="h-[38px]">
                   {allMonthlySelected ? "Bỏ chọn kỳ điện" : "Chọn tất cả kỳ điện"}
                 </Button>

@@ -646,7 +646,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Gắn doanh thu điện về đúng owner/building/room.
 - [x] Đối chiếu dữ liệu Hunonic với hóa đơn đã phát hành.
 - [x] Cảnh báo chỉ số thiếu/trùng/bất thường.
-- [ ] Export lịch sử điện theo phòng/tháng/năm.
+- [x] Export lịch sử điện theo phòng/tháng/năm.
 
 ### 12. Thông báo tự động
 

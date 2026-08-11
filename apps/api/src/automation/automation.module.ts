@@ -4,6 +4,7 @@ import { AutomationService } from './automation.service';
 import { AutomationListener } from './automation.listener';
 import { WorkflowEngine } from './workflow/workflow.engine';
 import { RuleEngine } from './rules/rule.engine';
+import { RuleScheduler } from './rules/rule.scheduler';
 import { PrismaService } from '../prisma.service';
 import { JobDispatcher } from './jobs/job.dispatcher';
 import { AnalyticsCacheService } from '../analytics/analytics-cache.service';
@@ -21,6 +22,7 @@ import { DocumentsModule } from '../documents/documents.module';
     AutomationListener,
     WorkflowEngine,
     RuleEngine,
+    RuleScheduler,
     PrismaService,
     JobDispatcher,
     AnalyticsCacheService

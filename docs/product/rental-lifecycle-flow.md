@@ -629,8 +629,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Cấn trừ dư tiền vào kỳ sau.
 - [ ] Hoàn dư tiền nếu cần.
 - [x] Tự động chuyển hóa đơn sang quá hạn.
-- [ ] Nhắc nợ trước hạn.
-- [ ] Nhắc nợ sau hạn.
+- [x] Nhắc nợ trước hạn.
+- [x] Nhắc nợ sau hạn.
 - [x] Báo cáo công nợ theo khách.
 - [x] Báo cáo công nợ theo phòng.
 - [x] Báo cáo công nợ theo tòa.
@@ -654,8 +654,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Gửi thông báo cọc đã thu.
 - [ ] Gửi hóa đơn mới.
 - [ ] Gửi xác nhận thanh toán thành công.
-- [ ] Gửi nhắc quá hạn.
-- [ ] Gửi nhắc sắp hết hợp đồng.
+- [x] Gửi nhắc quá hạn.
+- [x] Gửi nhắc sắp hết hợp đồng.
 - [ ] Gửi yêu cầu duyệt chi.
 - [ ] Gửi thông báo chi phí phát sinh mới.
 - [ ] Gửi thông báo quyết toán trả phòng.

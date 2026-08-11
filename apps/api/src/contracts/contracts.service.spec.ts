@@ -7,23 +7,34 @@ import { AuditService } from '../shared/audit/audit.service';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { ContractStatus, RoomStatus } from '@prisma/client';
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { HunonicService } from '../hunonic/hunonic.service';
 
 describe('ContractsService', () => {
   let service: ContractsService;
   let prismaService: any;
   let auditService: any;
   let eventPublisher: any;
+  let hunonicService: any;
 
   beforeEach(async () => {
     prismaService = {
       hunonicMeterMapping: {
         findFirst: vi.fn().mockResolvedValue(null),
       },
+      receipt: {
+        findFirst: vi.fn(),
+      },
+      task: {
+        findFirst: vi.fn(),
+      },
       tx: { invoice: { create: vi.fn() },
         contract: {
           update: vi.fn(),
         },
         receipt: {
+          create: vi.fn(),
+        },
+        task: {
           create: vi.fn(),
         },
         room: {
@@ -43,6 +54,10 @@ describe('ContractsService', () => {
 
     eventPublisher = {
       publish: vi.fn(),
+    };
+
+    hunonicService = {
+      getRoomElectricityPricing: vi.fn().mockResolvedValue(null),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -65,6 +80,10 @@ describe('ContractsService', () => {
         {
           provide: DomainEventPublisher,
           useValue: eventPublisher,
+        },
+        {
+          provide: HunonicService,
+          useValue: hunonicService,
         },
       ],
     }).compile();
@@ -99,6 +118,44 @@ describe('ContractsService', () => {
       vi.spyOn(service, 'getDetail').mockResolvedValue({ id: 'c1', status: ContractStatus.ACTIVE } as any);
 
       await expect(service.submitContract('c1', 'user1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getDetail', () => {
+    it('should enrich detail with settlement refund summary', async () => {
+      const repository = (service as any).repository;
+      repository.findById.mockResolvedValue({
+        id: 'c1',
+        code: 'C-DETAIL-1',
+        tenantId: 't1',
+        coRepresentativeIds: [],
+      });
+      prismaService.receipt.findFirst.mockResolvedValue({
+        id: 'rcpt-1',
+        code: 'RCT-C-DETAIL-1-123',
+        status: 'PENDING',
+        amount: 150000,
+        description: 'Contract settlement refund for C-DETAIL-1',
+      });
+      prismaService.task.findFirst.mockResolvedValue({
+        id: 'task-1',
+        title: 'Xu ly hoan tien quyet toan C-DETAIL-1',
+        status: 'TODO',
+      });
+
+      await expect(service.getDetail('c1')).resolves.toEqual(
+        expect.objectContaining({
+          id: 'c1',
+          settlementRefund: expect.objectContaining({
+            receiptId: 'rcpt-1',
+            receiptStatus: 'PENDING',
+            taskId: 'task-1',
+            taskStatus: 'TODO',
+            pending: true,
+            completed: false,
+          }),
+        }),
+      );
     });
   });
 
@@ -309,6 +366,7 @@ describe('ContractsService', () => {
         tenantId: 't1',
         customerId: 'cu1',
         monthlyRent: 9000,
+        depositMoney: 500,
       };
       const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
 
@@ -377,6 +435,7 @@ describe('ContractsService', () => {
         customerId: 'cu1',
         customer: { fullName: 'Khach A', phone: '0901' },
         monthlyRent: 9000,
+        depositMoney: 800,
       };
       const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
 
@@ -421,6 +480,69 @@ describe('ContractsService', () => {
         entity: 'Receipt',
         entityId: 'rcpt-1',
       }));
+    });
+
+    it('should create a pending refund receipt and follow-up task when refund is not confirmed yet', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-REFUND-PENDING',
+        status: ContractStatus.ACTIVE,
+        roomId: 'r1',
+        tenantId: 't1',
+        customerId: 'cu1',
+        customer: { fullName: 'Khach A', phone: '0901' },
+        monthlyRent: 9000,
+        depositMoney: 800,
+      };
+      const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.contract.update.mockResolvedValue(updatedContract);
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
+      prismaService.tx.invoice.create = vi.fn().mockResolvedValue({ id: 'inv4' });
+      prismaService.tx.receipt.create.mockResolvedValue({ id: 'rcpt-2', code: 'RCT-C-REFUND-PENDING-1', amount: 500, status: 'PENDING' });
+      prismaService.tx.task.create.mockResolvedValue({ id: 'task-1', title: 'Xu ly hoan tien quyet toan C-REFUND-PENDING', status: 'TODO' });
+
+      await service.terminateContract('c1', 'user1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 1,
+        depositToRefund: 800,
+        refundReceiptStatus: 'PENDING',
+        refundReason: 'Chờ chuyển khoản',
+        refundAttachmentUrls: ['https://example.test/refund-proof.pdf'],
+      });
+
+      expect(prismaService.tx.receipt.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PENDING',
+          description: 'Contract settlement refund for C-REFUND-PENDING - Chờ chuyển khoản',
+        }),
+      }));
+      expect(prismaService.tx.task.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 't1',
+          status: 'TODO',
+          priority: 'HIGH',
+        }),
+      }));
+      expect(eventPublisher.publish).not.toHaveBeenCalledWith(
+        'contract.settlement.refunded',
+        expect.anything(),
+      );
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'contract.settlement.completed',
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            settlement: expect.objectContaining({
+              refund: expect.objectContaining({
+                receiptStatus: 'PENDING',
+                reason: 'Chờ chuyển khoản',
+                attachmentUrls: ['https://example.test/refund-proof.pdf'],
+              }),
+            }),
+          }),
+        }),
+      );
     });
 
     it('should move room to maintenance when settlement indicates maintenance turnover', async () => {
@@ -468,6 +590,7 @@ describe('ContractsService', () => {
         roomId: 'r1',
         customerId: 'cu1',
         monthlyRent: 12000,
+        depositMoney: 1000,
       };
 
       vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
@@ -490,7 +613,117 @@ describe('ContractsService', () => {
       expect(result.totals.netReceivable).toBe(1100);
       expect(result.totals.refundToCustomer).toBe(0);
       expect(result.invoiceItems).toHaveLength(4);
-      expect(result.utilitySnapshot).toEqual({ electricity: null });
+      expect(result.utilitySnapshot).toEqual({
+        electricity: null,
+        water: expect.objectContaining({
+          amount: 120,
+          source: 'MANUAL_AMOUNT',
+        }),
+      });
+    });
+
+    it('should calculate water from readings and unit price for settlement preview', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-WATER',
+        status: ContractStatus.ACTIVE,
+        tenantId: 't1',
+        roomId: 'r1',
+        customerId: 'cu1',
+        monthlyRent: 12000,
+        depositMoney: 1000,
+      };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+
+      const result = await service.previewSettlement('c1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 0,
+        waterPreviousReading: 120,
+        waterCurrentReading: 128,
+        waterUnitPrice: 25000,
+      });
+
+      expect(result.utilitySnapshot.water).toEqual(
+        expect.objectContaining({
+          previousReading: 120,
+          currentReading: 128,
+          usage: 8,
+          unitPrice: 25000,
+          amount: 200000,
+          source: 'MANUAL_READING',
+        }),
+      );
+      expect(result.invoiceItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'UTILITY_WATER',
+            amount: 200000,
+          }),
+        ]),
+      );
+    });
+
+    it('should treat deposit deduction as a credit instead of an extra charge', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-DEDUCT',
+        status: ContractStatus.ACTIVE,
+        tenantId: 't1',
+        roomId: 'r1',
+        customerId: 'cu1',
+        monthlyRent: 12000,
+        depositMoney: 1000,
+      };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+
+      const result = await service.previewSettlement('c1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 1,
+        depositToDeduct: 300,
+      });
+
+      expect(result.totals.chargeTotal).toBe(400);
+      expect(result.totals.creditTotal).toBe(300);
+      expect(result.totals.netReceivable).toBe(100);
+      expect(result.credits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            key: 'depositToDeduct',
+            amount: 300,
+          }),
+        ]),
+      );
+      expect(result.invoiceItems).toEqual(
+        expect.not.arrayContaining([
+          expect.objectContaining({
+            description: 'Deposit deduction against debt',
+          }),
+        ]),
+      );
+    });
+
+    it('should reject settlement when deposit refund and deduction exceed deposit balance', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-DEPOSIT-LIMIT',
+        status: ContractStatus.ACTIVE,
+        tenantId: 't1',
+        roomId: 'r1',
+        customerId: 'cu1',
+        monthlyRent: 12000,
+        depositMoney: 500,
+      };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+
+      await expect(service.previewSettlement('c1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 0,
+        depositToRefund: 300,
+        depositToDeduct: 300,
+      })).rejects.toThrow('SETTLEMENT_DEPOSIT_EXCEEDS_BALANCE');
     });
 
     it('should use Hunonic snapshot electricity amount when operator leaves electricity blank', async () => {
@@ -523,6 +756,11 @@ describe('ContractsService', () => {
           },
         ],
       });
+      hunonicService.getRoomElectricityPricing.mockResolvedValue({
+        currentMode: 'custom',
+        customRateVnd: 3500,
+        residentialSteps: [],
+      });
       vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
 
       const result = await service.previewSettlement('c1', {
@@ -534,6 +772,9 @@ describe('ContractsService', () => {
         expect.objectContaining({
           displayName: '31-04',
           monthAmountVnd: 147000,
+          calculatedAmountVnd: 147000,
+          rateMode: 'custom',
+          customRateVnd: 3500,
           currentMonth: '2026-08',
         }),
       );
@@ -542,6 +783,8 @@ describe('ContractsService', () => {
           electricity: expect.objectContaining({
             monthAmountVnd: 147000,
             monthKwh: 42,
+            calculatedAmountVnd: 147000,
+            rateMode: 'custom',
             currentMonth: '2026-08',
           }),
         }),
@@ -551,6 +794,70 @@ describe('ContractsService', () => {
           expect.objectContaining({
             type: 'UTILITY_ELECTRICITY',
             amount: 147000,
+          }),
+        ]),
+      );
+    });
+
+    it('should calculate settlement electricity by residential steps when Hunonic meter is in EVN mode', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-005',
+        status: ContractStatus.ACTIVE,
+        tenantId: 't1',
+        roomId: 'r1',
+        customerId: 'cu1',
+        monthlyRent: 12000,
+      };
+
+      prismaService.hunonicMeterMapping.findFirst.mockResolvedValue({
+        id: 'meter-1',
+        providerMeterId: 'provider-1',
+        displayName: '32-01',
+        deviceName: 'DIEN 32.01',
+        lastStatus: 'on',
+        lastReadingKwh: 80,
+        lastAmountVnd: 999999,
+        lastSyncedAt: new Date('2026-08-09T09:00:00.000Z'),
+        readings: [
+          {
+            energyMonthKwh: 80,
+            moneyMonthVnd: 999999,
+            powerCurrentW: 50,
+            currentMonth: '2026-08',
+            readingAt: new Date('2026-08-09T09:00:00.000Z'),
+          },
+        ],
+      });
+      hunonicService.getRoomElectricityPricing.mockResolvedValue({
+        currentMode: 'residential',
+        customRateVnd: null,
+        residentialSteps: [
+          { minRate: 0, maxRate: 50, price: 1800 },
+          { minRate: 50, maxRate: 100, price: 2200 },
+        ],
+      });
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+
+      const result = await service.previewSettlement('c1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 0,
+      });
+
+      expect(result.utilitySnapshot.electricity).toEqual(
+        expect.objectContaining({
+          monthKwh: 80,
+          monthAmountVnd: 999999,
+          calculatedAmountVnd: 156000,
+          rateMode: 'residential',
+          calculationSource: 'RESIDENTIAL_STEPS',
+        }),
+      );
+      expect(result.invoiceItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'UTILITY_ELECTRICITY',
+            amount: 156000,
           }),
         ]),
       );
@@ -580,6 +887,97 @@ describe('ContractsService', () => {
     it('should throw BadRequestException if contract is already EXPIRED', async () => {
       vi.spyOn(service, 'getDetail').mockResolvedValue({ id: 'c1', status: ContractStatus.EXPIRED } as any);
       await expect(service.expireContract('c1', 'user1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('completePendingSettlementRefund', () => {
+    it('should complete a pending settlement refund and close its follow-up task', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-REFUND-PENDING',
+        status: ContractStatus.TERMINATED,
+        tenantId: 't1',
+        customerId: 'cu1',
+        customer: { fullName: 'Khach A', phone: '0901' },
+      };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.receipt.findFirst.mockResolvedValue({
+        id: 'rcpt-1',
+        tenantId: 't1',
+        code: 'RCT-C-REFUND-PENDING-123',
+        amount: 500,
+        status: 'PENDING',
+        description: 'Contract settlement refund for C-REFUND-PENDING',
+        createdAt: new Date('2026-08-10T00:00:00.000Z'),
+      });
+      prismaService.task.findFirst.mockResolvedValue({
+        id: 'task-1',
+        tenantId: 't1',
+        title: 'Xu ly hoan tien quyet toan C-REFUND-PENDING',
+        description: 'Can hoan tien',
+        status: 'TODO',
+        createdAt: new Date('2026-08-10T00:00:00.000Z'),
+      });
+      prismaService.tx.receipt.update = vi.fn().mockResolvedValue({
+        id: 'rcpt-1',
+        status: 'COMPLETED',
+        amount: 500,
+        description: 'Contract settlement refund for C-REFUND-PENDING\nCompleted note: Da chuyen khoan',
+      });
+      prismaService.tx.task.update = vi.fn().mockResolvedValue({
+        id: 'task-1',
+        status: 'DONE',
+        description: 'Can hoan tien\nHoan tat: Da chuyen khoan',
+      });
+
+      await expect(service.completePendingSettlementRefund('c1', 'user1', 'Da chuyen khoan')).resolves.toEqual(
+        expect.objectContaining({
+          success: true,
+          receiptId: 'rcpt-1',
+          taskId: 'task-1',
+          amount: 500,
+        }),
+      );
+
+      expect(prismaService.tx.receipt.update).toHaveBeenCalledWith({
+        where: { id: 'rcpt-1' },
+        data: expect.objectContaining({
+          status: 'COMPLETED',
+        }),
+      });
+      expect(prismaService.tx.task.update).toHaveBeenCalledWith({
+        where: { id: 'task-1' },
+        data: expect.objectContaining({
+          status: 'DONE',
+        }),
+      });
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'contract.settlement.refunded',
+        expect.objectContaining({
+          sourceId: 'c1',
+          amount: 500,
+          metadata: expect.objectContaining({
+            completedFromPending: true,
+            refundCompletionNote: 'Da chuyen khoan',
+          }),
+        }),
+      );
+    });
+
+    it('should throw when no pending settlement refund exists', async () => {
+      vi.spyOn(service, 'getDetail').mockResolvedValue({
+        id: 'c1',
+        code: 'C-NO-PENDING',
+        status: ContractStatus.TERMINATED,
+        tenantId: 't1',
+        customerId: 'cu1',
+      } as any);
+      prismaService.receipt.findFirst.mockResolvedValue(null);
+
+      await expect(service.completePendingSettlementRefund('c1', 'user1')).rejects.toThrow(
+        'SETTLEMENT_REFUND_PENDING_NOT_FOUND',
+      );
     });
   });
 });

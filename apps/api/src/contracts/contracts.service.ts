@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { BaseCrudService } from '../shared/services/base-crud.service';
+import { HunonicService } from '../hunonic/hunonic.service';
 import { mapStatusFilter } from './contracts.adapter';
 import { ContractsRepository } from './contracts.repository';
 
@@ -15,20 +16,22 @@ export class ContractsService extends BaseCrudService<Contract> {
     auditService: AuditService,
     private readonly prisma: PrismaService,
     private readonly eventPublisher: DomainEventPublisher,
+    private readonly hunonicService: HunonicService,
   ) {
     super(repository, auditService, 'Contract');
   }
 
   async getDetail(id: string, include?: any): Promise<any> {
     const record = await super.getDetail(id, include);
+    const settlementRefund = await this.getSettlementRefundSummary(record);
     if (record.coRepresentativeIds && record.coRepresentativeIds.length > 0) {
       const coReps = await this.prisma.tx.customer.findMany({
         where: { id: { in: record.coRepresentativeIds } },
         select: { id: true, fullName: true, phone: true, identityNo: true, idImages: true },
       });
-      return { ...record, coRepresentatives: coReps };
+      return { ...record, coRepresentatives: coReps, settlementRefund };
     }
-    return record;
+    return { ...record, settlementRefund };
   }
 
   async listContracts(
@@ -236,6 +239,110 @@ export class ContractsService extends BaseCrudService<Contract> {
     return this.finalizeContract(id, userId, ContractStatus.TERMINATED, input);
   }
 
+  async completePendingSettlementRefund(id: string, userId: string, note?: string) {
+    const contract = await this.getDetail(id);
+    if (contract.status !== ContractStatus.TERMINATED && contract.status !== ContractStatus.EXPIRED) {
+      throw new BadRequestException(`Cannot complete settlement refund in ${contract.status} status.`);
+    }
+
+    const refundReceiptPrefix = this.buildRefundReceiptPrefix(contract.code);
+    const refundReceipt = await this.prisma.receipt.findFirst({
+      where: {
+        tenantId: contract.tenantId,
+        status: ReceiptStatus.PENDING,
+        code: { startsWith: refundReceiptPrefix },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!refundReceipt) {
+      throw new BadRequestException('SETTLEMENT_REFUND_PENDING_NOT_FOUND');
+    }
+
+    const refundTaskTitle = `Xu ly hoan tien quyet toan ${contract.code}`;
+    const pendingTask = await this.prisma.task.findFirst({
+      where: {
+        tenantId: contract.tenantId,
+        status: 'TODO' as any,
+        title: refundTaskTitle,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const result = await this.prisma.tx.$transaction(async (tx) => {
+      const updatedReceipt = await tx.receipt.update({
+        where: { id: refundReceipt.id },
+        data: {
+          status: ReceiptStatus.COMPLETED,
+          description: note
+            ? `${refundReceipt.description || `Contract settlement refund for ${contract.code}`}\nCompleted note: ${note}`.trim()
+            : refundReceipt.description,
+        },
+      });
+
+      const updatedTask = pendingTask
+        ? await tx.task.update({
+            where: { id: pendingTask.id },
+            data: {
+              status: 'DONE' as any,
+              description: note
+                ? `${pendingTask.description || ''}\nHoan tat: ${note}`.trim()
+                : pendingTask.description,
+            },
+          })
+        : null;
+
+      return { updatedReceipt, updatedTask };
+    });
+
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: 'Receipt',
+      entityId: result.updatedReceipt.id,
+      module: 'Contracts',
+      before: refundReceipt,
+      after: result.updatedReceipt,
+      userId,
+    });
+
+    if (pendingTask && result.updatedTask) {
+      await this.auditService.log({
+        action: 'UPDATE',
+        entity: 'Task',
+        entityId: result.updatedTask.id,
+        module: 'Contracts',
+        before: pendingTask,
+        after: result.updatedTask,
+        userId,
+      });
+    }
+
+    this.eventPublisher.publish('contract.settlement.refunded', {
+      tenantId: contract.tenantId,
+      userId,
+      customerId: contract.customerId,
+      customerName: contract.customer?.fullName,
+      customerPhone: contract.customer?.phone,
+      metadata: {
+        code: contract.code,
+        refundSourceType: 'CONTRACT_SETTLEMENT',
+        refundCompletionNote: note || null,
+        completedFromPending: true,
+      },
+      sourceId: contract.id,
+      sourceType: 'REFUND',
+      amount: Number(result.updatedReceipt.amount || 0),
+      paymentProvider: 'MANUAL',
+      occurredAt: new Date(),
+    });
+
+    return {
+      success: true,
+      receiptId: result.updatedReceipt.id,
+      taskId: result.updatedTask?.id || null,
+      amount: Number(result.updatedReceipt.amount || 0),
+    };
+  }
+
   private async finalizeContract(
     id: string,
     userId: string,
@@ -299,14 +406,36 @@ export class ContractsService extends BaseCrudService<Contract> {
               tenantId: contract.tenantId,
               code: this.buildRefundReceiptCode(contract.code),
               amount: settlement.totals.refundToCustomer,
-              status: ReceiptStatus.COMPLETED,
-              description: `Contract settlement refund for ${contract.code}`,
+              status: settlement.refund.receiptStatus,
+              description: settlement.refund.reason
+                ? `Contract settlement refund for ${contract.code} - ${settlement.refund.reason}`
+                : `Contract settlement refund for ${contract.code}`,
               date: settlement.actualMoveOutDate,
             },
           })
         : null;
 
-      return { updatedContract, updatedRoom, invoice, refundReceipt };
+      const refundTask =
+        settlement.totals.refundToCustomer > 0 && settlement.refund.receiptStatus !== ReceiptStatus.COMPLETED
+          ? await tx.task.create({
+              data: {
+                tenantId: contract.tenantId,
+                title: `Xu ly hoan tien quyet toan ${contract.code}`,
+                description: [
+                  `Can hoan ${settlement.totals.refundToCustomer.toLocaleString('vi-VN')} VND cho khach.`,
+                  settlement.refund.reason ? `Ly do: ${settlement.refund.reason}` : null,
+                  Array.isArray(settlement.refund.attachmentUrls) && settlement.refund.attachmentUrls.length > 0
+                    ? `Chung tu: ${settlement.refund.attachmentUrls.join(', ')}`
+                    : null,
+                ].filter(Boolean).join('\n'),
+                status: 'TODO' as any,
+                priority: 'HIGH' as any,
+                dueDate: settlement.actualMoveOutDate,
+              },
+            })
+          : null;
+
+      return { updatedContract, updatedRoom, invoice, refundReceipt, refundTask };
     });
 
     await this.auditService.log({
@@ -326,6 +455,13 @@ export class ContractsService extends BaseCrudService<Contract> {
               status: result.refundReceipt.status,
             }
           : null,
+        refundTask: result.refundTask
+          ? {
+              id: result.refundTask.id,
+              title: result.refundTask.title,
+              status: result.refundTask.status,
+            }
+          : null,
       },
       userId,
     });
@@ -342,7 +478,19 @@ export class ContractsService extends BaseCrudService<Contract> {
       });
     }
 
-    if (settlement.totals.refundToCustomer > 0) {
+    if (result.refundTask) {
+      await this.auditService.log({
+        action: 'CREATE',
+        entity: 'Task',
+        entityId: result.refundTask.id,
+        module: 'Contracts',
+        before: null,
+        after: result.refundTask,
+        userId,
+      });
+    }
+
+    if (settlement.totals.refundToCustomer > 0 && settlement.refund.receiptStatus === ReceiptStatus.COMPLETED) {
       this.eventPublisher.publish('contract.settlement.refunded', {
         tenantId: contract.tenantId,
         userId,
@@ -354,6 +502,8 @@ export class ContractsService extends BaseCrudService<Contract> {
           refundSourceType: 'CONTRACT_SETTLEMENT',
           actualMoveOutDate: settlement.actualMoveOutDate,
           settlement,
+          refundReason: settlement.refund.reason,
+          refundAttachmentUrls: settlement.refund.attachmentUrls,
         },
         sourceId: contract.id,
         sourceType: 'REFUND',
@@ -378,7 +528,9 @@ export class ContractsService extends BaseCrudService<Contract> {
           settlement.totals.netReceivable > 0
             ? `Hop dong ${contract.code} da quyet toan. Khach can thanh toan them ${settlement.totals.netReceivable.toLocaleString('vi-VN')} VND.`
             : settlement.totals.refundToCustomer > 0
-              ? `Hop dong ${contract.code} da quyet toan. He thong can hoan lai ${settlement.totals.refundToCustomer.toLocaleString('vi-VN')} VND cho khach.`
+              ? settlement.refund.receiptStatus === ReceiptStatus.COMPLETED
+                ? `Hop dong ${contract.code} da quyet toan. He thong da hoan ${settlement.totals.refundToCustomer.toLocaleString('vi-VN')} VND cho khach.`
+                : `Hop dong ${contract.code} da quyet toan. He thong dang cho xu ly hoan ${settlement.totals.refundToCustomer.toLocaleString('vi-VN')} VND cho khach.`
               : `Hop dong ${contract.code} da quyet toan xong va khong con cong no.`,
       },
       sourceId: contract.id,
@@ -401,7 +553,11 @@ export class ContractsService extends BaseCrudService<Contract> {
     const rentDaysCharged = input.rentDaysCharged ?? 0;
     const rentChargeAmount = this.roundMoney(input.baseRentAmount ?? dailyRent * rentDaysCharged);
     const electricityAmount = this.roundMoney(input.electricityAmount ?? 0);
-    const waterAmount = this.roundMoney(input.waterAmount ?? 0);
+    const waterUsage = this.resolveWaterUsage(input);
+    const waterUnitPrice = this.roundMoney(input.waterUnitPrice ?? 0);
+    const waterAmount = this.roundMoney(
+      input.waterAmount ?? ((waterUsage !== null && waterUnitPrice > 0) ? waterUsage * waterUnitPrice : 0),
+    );
     const serviceAmount = this.roundMoney(input.serviceAmount ?? 0);
     const damageFee = this.roundMoney(input.damageFee ?? 0);
     const penaltyFee = this.roundMoney(input.penaltyFee ?? 0);
@@ -411,6 +567,14 @@ export class ContractsService extends BaseCrudService<Contract> {
     const otherCreditAmount = this.roundMoney(input.otherCreditAmount ?? 0);
     const depositToRefund = this.roundMoney(input.depositToRefund ?? 0);
     const depositToDeduct = this.roundMoney(input.depositToDeduct ?? 0);
+    const depositBalance = this.roundMoney(Number(contract.depositMoney || 0));
+    const refundReceiptStatus = input.refundReceiptStatus === 'PENDING' ? ReceiptStatus.PENDING : ReceiptStatus.COMPLETED;
+    const refundReason = String(input.refundReason || '').trim() || null;
+    const refundAttachmentUrls = Array.isArray(input.refundAttachmentUrls) ? input.refundAttachmentUrls.filter(Boolean) : [];
+
+    if (depositToRefund + depositToDeduct > depositBalance) {
+      throw new BadRequestException('SETTLEMENT_DEPOSIT_EXCEEDS_BALANCE');
+    }
 
     const chargeLines = [
       { key: 'rentChargeAmount', type: 'RENT' as InvoiceItemType, description: `Final rent settlement (${rentDaysCharged} days)`, amount: rentChargeAmount },
@@ -420,13 +584,13 @@ export class ContractsService extends BaseCrudService<Contract> {
       { key: 'damageFee', type: 'PENALTY' as InvoiceItemType, description: 'Damage compensation', amount: damageFee },
       { key: 'penaltyFee', type: 'PENALTY' as InvoiceItemType, description: 'Early termination penalty', amount: penaltyFee },
       { key: 'otherChargeAmount', type: 'OTHER' as InvoiceItemType, description: 'Other final charge', amount: otherChargeAmount },
-      { key: 'depositToDeduct', type: 'OTHER' as InvoiceItemType, description: 'Deposit deduction against debt', amount: depositToDeduct },
     ].filter((line) => line.amount > 0);
 
     const creditLines = [
       { key: 'roomRefundAmount', description: 'Room refund', amount: roomRefundAmount },
       { key: 'waterSupportAmount', description: 'Water support', amount: waterSupportAmount },
       { key: 'otherCreditAmount', description: 'Other credit', amount: otherCreditAmount },
+      { key: 'depositToDeduct', description: 'Deposit applied to outstanding debt', amount: depositToDeduct },
       { key: 'depositToRefund', description: 'Deposit refund', amount: depositToRefund },
     ].filter((line) => line.amount > 0);
 
@@ -451,7 +615,13 @@ export class ContractsService extends BaseCrudService<Contract> {
         monthlyRent,
         dailyRent: this.roundMoney(dailyRent),
         rentDaysCharged,
+        depositBalance,
         note: input.note || null,
+      },
+      refund: {
+        receiptStatus: refundReceiptStatus,
+        reason: refundReason,
+        attachmentUrls: refundAttachmentUrls,
       },
       charges: chargeLines,
       credits: creditLines,
@@ -465,6 +635,52 @@ export class ContractsService extends BaseCrudService<Contract> {
     };
   }
 
+  private async getSettlementRefundSummary(contract: any) {
+    if (!contract?.id || !contract?.code) {
+      return null;
+    }
+
+    const refundReceiptPrefix = this.buildRefundReceiptPrefix(contract.code);
+    const [receipt, task] = await Promise.all([
+      this.prisma.receipt.findFirst({
+        where: {
+          tenantId: contract.tenantId,
+          code: { startsWith: refundReceiptPrefix },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.task.findFirst({
+        where: {
+          tenantId: contract.tenantId,
+          title: `Xu ly hoan tien quyet toan ${contract.code}`,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    if (!receipt && !task) {
+      return null;
+    }
+
+    const receiptStatus = String(receipt?.status || '');
+    const taskStatus = String(task?.status || '');
+    const isPending = receiptStatus === ReceiptStatus.PENDING || taskStatus === 'TODO' || taskStatus === 'IN_PROGRESS';
+    const isCompleted = receiptStatus === ReceiptStatus.COMPLETED && (!task || taskStatus === 'DONE');
+
+    return {
+      receiptId: receipt?.id || null,
+      receiptCode: receipt?.code || null,
+      receiptStatus: receipt?.status || null,
+      receiptAmount: Number(receipt?.amount || 0),
+      receiptDescription: receipt?.description || null,
+      taskId: task?.id || null,
+      taskTitle: task?.title || null,
+      taskStatus: task?.status || null,
+      pending: isPending,
+      completed: isCompleted,
+    };
+  }
+
   private roundMoney(value: number) {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
   }
@@ -472,11 +688,35 @@ export class ContractsService extends BaseCrudService<Contract> {
   private async composeSettlementPreview(contract: any, input: ContractSettlementInput) {
     const actualMoveOutDate = this.resolveMoveOutDate(input.actualMoveOutDate);
     const utilitySnapshot = await this.getUtilitySnapshot(contract.tenantId, contract.roomId, actualMoveOutDate);
+    const waterUsage = this.resolveWaterUsage(input);
+    const waterUnitPrice = this.roundMoney(Number(input.waterUnitPrice || 0));
+    const derivedWaterAmount =
+      waterUsage !== null && waterUnitPrice > 0
+        ? this.roundMoney(waterUsage * waterUnitPrice)
+        : 0;
+    const waterAmount = input.waterAmount ?? derivedWaterAmount;
+    utilitySnapshot.water =
+      waterUsage !== null || waterAmount > 0
+        ? {
+            previousReading: Number(input.waterPreviousReading || 0),
+            currentReading: Number(input.waterCurrentReading || 0),
+            usage: Number(waterUsage || 0),
+            unitPrice: waterUnitPrice,
+            amount: this.roundMoney(Number(waterAmount || 0)),
+            source:
+              input.waterAmount !== undefined && input.waterAmount !== null
+                ? 'MANUAL_AMOUNT'
+                : waterUsage !== null && waterUnitPrice > 0
+                  ? 'MANUAL_READING'
+                  : 'MANUAL_AMOUNT',
+          }
+        : null;
     const preview = this.buildSettlementPreview(contract, {
       ...input,
       actualMoveOutDate,
       electricityAmount:
-        input.electricityAmount ?? utilitySnapshot.electricity?.monthAmountVnd ?? 0,
+        input.electricityAmount ?? utilitySnapshot.electricity?.calculatedAmountVnd ?? utilitySnapshot.electricity?.monthAmountVnd ?? 0,
+      waterAmount,
     });
     return {
       ...preview,
@@ -495,7 +735,7 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   private async getUtilitySnapshot(tenantId: string, roomId: string, moveOutDate: Date) {
     if (!tenantId || !roomId) {
-      return { electricity: null };
+      return { electricity: null, water: null };
     }
 
     const mapping = await (this.prisma as any).hunonicMeterMapping.findFirst({
@@ -519,11 +759,21 @@ export class ContractsService extends BaseCrudService<Contract> {
     });
 
     if (!mapping) {
-      return { electricity: null };
+      return { electricity: null, water: null };
     }
 
     const latestReading = Array.isArray(mapping.readings) ? mapping.readings[0] : null;
     const period = latestReading?.currentMonth || this.getSettlementPeriod(moveOutDate);
+    let pricing: Awaited<ReturnType<HunonicService['getRoomElectricityPricing']>> = null;
+    try {
+      pricing = await this.hunonicService.getRoomElectricityPricing(tenantId, roomId);
+    } catch {
+      pricing = null;
+    }
+
+    const monthKwh = Number(latestReading?.energyMonthKwh ?? mapping.lastReadingKwh ?? 0);
+    const monthAmountVnd = Number(latestReading?.moneyMonthVnd ?? mapping.lastAmountVnd ?? 0);
+    const calculatedAmountVnd = this.calculateElectricityAmount(monthKwh, pricing) ?? monthAmountVnd;
     return {
       electricity: {
         meterId: mapping.id,
@@ -531,27 +781,97 @@ export class ContractsService extends BaseCrudService<Contract> {
         displayName: mapping.displayName,
         deviceName: mapping.deviceName,
         status: mapping.lastStatus,
-        monthKwh: Number(latestReading?.energyMonthKwh ?? mapping.lastReadingKwh ?? 0),
-        monthAmountVnd: Number(latestReading?.moneyMonthVnd ?? mapping.lastAmountVnd ?? 0),
+        monthKwh,
+        monthAmountVnd,
+        calculatedAmountVnd,
+        rateMode: pricing?.currentMode || null,
+        customRateVnd: pricing?.customRateVnd ?? null,
+        residentialSteps: pricing?.residentialSteps || [],
         powerCurrentW: Number(latestReading?.powerCurrentW ?? 0),
         readingAt: latestReading?.readingAt ?? mapping.lastSyncedAt ?? null,
         currentMonth: period,
         source: latestReading ? 'HUNONIC_READING' : 'HUNONIC_MAPPING',
+        calculationSource: pricing?.currentMode === 'custom'
+          ? 'CUSTOM_RATE'
+          : pricing?.currentMode === 'residential'
+            ? 'RESIDENTIAL_STEPS'
+            : 'HUNONIC_AMOUNT',
       },
+      water: null,
     };
   }
 
-  private buildSettlementSnapshot(utilitySnapshot: { electricity: any | null }) {
-    if (!utilitySnapshot?.electricity) {
+  private resolveWaterUsage(input: Partial<ContractSettlementInput>) {
+    if (input.waterUsage !== undefined && input.waterUsage !== null) {
+      return Number(input.waterUsage || 0);
+    }
+    if (input.waterCurrentReading !== undefined && input.waterPreviousReading !== undefined) {
+      const usage = Number(input.waterCurrentReading || 0) - Number(input.waterPreviousReading || 0);
+      if (usage < 0) {
+        throw new BadRequestException('SETTLEMENT_WATER_READING_INVALID');
+      }
+      return usage;
+    }
+    return null;
+  }
+
+  private calculateElectricityAmount(
+    monthKwh: number,
+    pricing: Awaited<ReturnType<HunonicService['getRoomElectricityPricing']>> | null,
+  ) {
+    if (!pricing || !Number.isFinite(monthKwh) || monthKwh <= 0) return null;
+
+    if (pricing.currentMode === 'custom') {
+      const customRateVnd = Number(pricing.customRateVnd || 0);
+      if (!Number.isFinite(customRateVnd) || customRateVnd <= 0) return null;
+      return Math.round(monthKwh * customRateVnd);
+    }
+
+    if (pricing.currentMode !== 'residential' || !Array.isArray(pricing.residentialSteps) || pricing.residentialSteps.length === 0) {
+      return null;
+    }
+
+    let remaining = monthKwh;
+    let total = 0;
+    const steps = pricing.residentialSteps
+      .map((step) => ({
+        minRate: Number(step.minRate ?? 0),
+        maxRate: step.maxRate === null || step.maxRate === undefined ? null : Number(step.maxRate),
+        price: Number(step.price ?? 0),
+      }))
+      .filter((step) => Number.isFinite(step.price) && step.price > 0)
+      .sort((a, b) => a.minRate - b.minRate);
+
+    for (const step of steps) {
+      if (remaining <= 0) break;
+      const lowerBound = Math.max(0, step.minRate);
+      const upperBound = step.maxRate === null || !Number.isFinite(step.maxRate) ? Number.POSITIVE_INFINITY : Math.max(lowerBound, step.maxRate);
+      const capacity = upperBound === Number.POSITIVE_INFINITY ? remaining : Math.max(0, upperBound - lowerBound);
+      if (capacity <= 0) continue;
+      const usage = Math.min(remaining, capacity);
+      total += usage * step.price;
+      remaining -= usage;
+    }
+
+    if (remaining > 0 && steps.length > 0) {
+      total += remaining * steps[steps.length - 1].price;
+    }
+
+    return Math.round(total);
+  }
+
+  private buildSettlementSnapshot(utilitySnapshot: { electricity: any | null; water?: any | null }) {
+    if (!utilitySnapshot?.electricity && !utilitySnapshot?.water) {
       return {
         capturedAt: new Date().toISOString(),
         electricity: null,
+        water: null,
       };
     }
 
     return {
       capturedAt: new Date().toISOString(),
-      electricity: {
+      electricity: utilitySnapshot.electricity ? {
         meterId: utilitySnapshot.electricity.meterId,
         providerMeterId: utilitySnapshot.electricity.providerMeterId,
         displayName: utilitySnapshot.electricity.displayName,
@@ -559,10 +879,23 @@ export class ContractsService extends BaseCrudService<Contract> {
         currentMonth: utilitySnapshot.electricity.currentMonth,
         monthKwh: Number(utilitySnapshot.electricity.monthKwh || 0),
         monthAmountVnd: Number(utilitySnapshot.electricity.monthAmountVnd || 0),
+        calculatedAmountVnd: Number(utilitySnapshot.electricity.calculatedAmountVnd || 0),
+        rateMode: utilitySnapshot.electricity.rateMode,
+        customRateVnd: utilitySnapshot.electricity.customRateVnd,
+        residentialSteps: utilitySnapshot.electricity.residentialSteps || [],
         powerCurrentW: Number(utilitySnapshot.electricity.powerCurrentW || 0),
         readingAt: utilitySnapshot.electricity.readingAt,
         source: utilitySnapshot.electricity.source,
-      },
+        calculationSource: utilitySnapshot.electricity.calculationSource,
+      } : null,
+      water: utilitySnapshot.water ? {
+        previousReading: Number(utilitySnapshot.water.previousReading || 0),
+        currentReading: Number(utilitySnapshot.water.currentReading || 0),
+        usage: Number(utilitySnapshot.water.usage || 0),
+        unitPrice: Number(utilitySnapshot.water.unitPrice || 0),
+        amount: Number(utilitySnapshot.water.amount || 0),
+        source: utilitySnapshot.water.source,
+      } : null,
     };
   }
 
@@ -571,7 +904,11 @@ export class ContractsService extends BaseCrudService<Contract> {
   }
 
   private buildRefundReceiptCode(contractCode: string) {
+    return `${this.buildRefundReceiptPrefix(contractCode)}${Date.now()}`;
+  }
+
+  private buildRefundReceiptPrefix(contractCode: string) {
     const normalizedCode = String(contractCode || 'CONTRACT').replace(/[^A-Z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toUpperCase();
-    return `RCT-${normalizedCode}-${Date.now()}`;
+    return `RCT-${normalizedCode}-`;
   }
 }

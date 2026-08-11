@@ -22,6 +22,7 @@ import {
   useTerminateContractMutation,
   useContractDetailQuery,
   useSettlementPreviewMutation,
+  useCompletePendingSettlementRefundMutation,
 } from "../../lib/queries/contracts.queries";
 import { useDeleteContractMutation } from "../../lib/mutations/contracts.mutations";
 import { useUpdateRoomMutation } from "../../lib/mutations/rooms.mutations";
@@ -163,9 +164,11 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
   const { hasPermission } = usePermissions();
   
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
+  const [isRefundCompletionModalOpen, setIsRefundCompletionModalOpen] = useState(false);
   const [showTerminateConfirm, setShowTerminateConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [documentDeleteConfirm, setDocumentDeleteConfirm] = useState<{type: 'contract' | 'cccd', index: number} | null>(null);
+  const [refundCompletionNote, setRefundCompletionNote] = useState("");
   
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<'image' | 'pdf' | 'doc' | null>(null);
@@ -190,7 +193,12 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
     rentDaysCharged: "0",
     baseRentAmount: "",
     electricityAmount: "",
+    electricityClosingKwh: "",
     waterAmount: "",
+    waterPreviousReading: "",
+    waterCurrentReading: "",
+    waterUsage: "",
+    waterUnitPrice: "",
     serviceAmount: "",
     damageFee: "",
     penaltyFee: "",
@@ -200,6 +208,9 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
     otherCreditAmount: "",
     depositToRefund: "",
     depositToDeduct: "",
+    refundReceiptStatus: "COMPLETED",
+    refundReason: "",
+    refundAttachmentUrls: "",
     note: "",
   });
   const [settlementPreview, setSettlementPreview] = useState<any | null>(null);
@@ -209,8 +220,12 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
   const activateMutation = useActivateContractMutation();
   const terminateMutation = useTerminateContractMutation();
   const settlementPreviewMutation = useSettlementPreviewMutation();
+  const completePendingRefundMutation = useCompletePendingSettlementRefundMutation();
   const deleteMutation = useDeleteContractMutation();
   const updateRoomMutation = useUpdateRoomMutation();
+  const settlementRefund = detailContract?.settlementRefund;
+  const hasPendingSettlementRefund =
+    !!settlementRefund?.pending && (detailContract?.status === "TERMINATED" || detailContract?.status === "EXPIRED");
 
   const buildSettlementPayload = React.useCallback((): ContractSettlementPayload => {
     const parseOptionalNumber = (value: string) => {
@@ -226,7 +241,12 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
       rentDaysCharged: settlementForm.rentDaysCharged.trim() ? Number(settlementForm.rentDaysCharged) : 0,
       baseRentAmount: parseOptionalNumber(settlementForm.baseRentAmount),
       electricityAmount: parseOptionalNumber(settlementForm.electricityAmount),
+      electricityClosingKwh: parseOptionalNumber(settlementForm.electricityClosingKwh),
       waterAmount: parseOptionalNumber(settlementForm.waterAmount),
+      waterPreviousReading: parseOptionalNumber(settlementForm.waterPreviousReading),
+      waterCurrentReading: parseOptionalNumber(settlementForm.waterCurrentReading),
+      waterUsage: parseOptionalNumber(settlementForm.waterUsage),
+      waterUnitPrice: parseOptionalNumber(settlementForm.waterUnitPrice),
       serviceAmount: parseOptionalNumber(settlementForm.serviceAmount),
       damageFee: parseOptionalNumber(settlementForm.damageFee),
       penaltyFee: parseOptionalNumber(settlementForm.penaltyFee),
@@ -236,6 +256,12 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
       otherCreditAmount: parseOptionalNumber(settlementForm.otherCreditAmount),
       depositToRefund: parseOptionalNumber(settlementForm.depositToRefund),
       depositToDeduct: parseOptionalNumber(settlementForm.depositToDeduct),
+      refundReceiptStatus: settlementForm.refundReceiptStatus as "PENDING" | "COMPLETED",
+      refundReason: settlementForm.refundReason.trim() || undefined,
+      refundAttachmentUrls: settlementForm.refundAttachmentUrls
+        .split(/\r?\n|,/)
+        .map((value) => value.trim())
+        .filter(Boolean),
       note: settlementForm.note.trim() || undefined,
     };
   }, [settlementForm]);
@@ -244,6 +270,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
     showToast(message, "success");
     queryClient.invalidateQueries({ queryKey: ["contracts"] });
     if (detailContract?.id) {
+      queryClient.invalidateQueries({ queryKey: ["contracts", "detail", detailContract.id] });
       queryClient.invalidateQueries({ queryKey: ["contractDetail", detailContract.id] });
     }
     onClose();
@@ -261,7 +288,12 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
       rentDaysCharged: "0",
       baseRentAmount: "",
       electricityAmount: "",
+      electricityClosingKwh: "",
       waterAmount: "",
+      waterPreviousReading: "",
+      waterCurrentReading: "",
+      waterUsage: "",
+      waterUnitPrice: "",
       serviceAmount: "",
       damageFee: "",
       penaltyFee: "",
@@ -271,6 +303,9 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
       otherCreditAmount: "",
       depositToRefund: detailContract.depositMoney ? String(detailContract.depositMoney) : "",
       depositToDeduct: "",
+      refundReceiptStatus: "COMPLETED",
+      refundReason: "",
+      refundAttachmentUrls: "",
       note: "",
     });
     setSettlementPreview(null);
@@ -331,6 +366,27 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ["contractDetail", detailContract.id] });
           showToast("Đã chuyển phòng về trạng thái sẵn sàng khai thác", "success");
+        },
+        onError: handleError,
+      }
+    );
+  };
+
+  const handleCompletePendingRefund = () => {
+    if (!detailContract?.id) return;
+    completePendingRefundMutation.mutate(
+      {
+        id: detailContract.id,
+        note: refundCompletionNote.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          setIsRefundCompletionModalOpen(false);
+          setRefundCompletionNote("");
+          showToast("Da hoan tat phieu hoan tien quyet toan", "success");
+          queryClient.invalidateQueries({ queryKey: ["contracts"] });
+          queryClient.invalidateQueries({ queryKey: ["contracts", "detail", detailContract.id] });
+          queryClient.invalidateQueries({ queryKey: ["contractDetail", detailContract.id] });
         },
         onError: handleError,
       }
@@ -790,6 +846,42 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               </div>
             </Card>
 
+            {hasPendingSettlementRefund ? (
+              <Card className="p-4 flex flex-col gap-4 border border-amber-500/30 bg-amber-500/5">
+                <div className="flex flex-col gap-1">
+                  <h4 className="font-black text-[14px] text-text">Hoan tien quyet toan dang cho xu ly</h4>
+                  <p className="text-sm text-muted">
+                    Receipt hoan tien da tao nhung chua xac nhan hoan tat. Sau khi chuyen khoan cho khach, xac nhan tai day de dong receipt va task theo doi.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="rounded-[10px] border border-border/70 bg-card/70 p-3">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted">Phieu chi</div>
+                    <div className="mt-1 text-sm font-black text-text">{settlementRefund?.receiptCode || "Chua tao"}</div>
+                  </div>
+                  <div className="rounded-[10px] border border-border/70 bg-card/70 p-3">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted">So tien</div>
+                    <div className="mt-1 text-sm font-black text-amber-600">{formatCurrency(settlementRefund?.receiptAmount || 0)}</div>
+                  </div>
+                  <div className="rounded-[10px] border border-border/70 bg-card/70 p-3">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted">Trang thai</div>
+                    <div className="mt-1 text-sm font-black text-text">{settlementRefund?.taskStatus || settlementRefund?.receiptStatus || "PENDING"}</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    onClick={() => setIsRefundCompletionModalOpen(true)}
+                    isLoading={completePendingRefundMutation.isPending}
+                  >
+                    Xac nhan da hoan tien
+                  </Button>
+                  <span className="text-xs text-muted">
+                    {settlementRefund?.taskTitle || "Dang cho xu ly thu cong"}
+                  </span>
+                </div>
+              </Card>
+            ) : null}
+
             <Card className="p-4 flex flex-col gap-3">
               <div className="flex items-center justify-between border-b border-border/50 pb-2">
                 <h4 className="font-black text-[14px] text-text flex items-center gap-2">
@@ -1044,6 +1136,10 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               <Input placeholder="Tiền thuê quyết toán" value={settlementForm.baseRentAmount} onChange={(event) => updateSettlementField("baseRentAmount", event.target.value)} />
               <Input placeholder="Tiền điện" value={settlementForm.electricityAmount} onChange={(event) => updateSettlementField("electricityAmount", event.target.value)} />
               <Input placeholder="Tiền nước" value={settlementForm.waterAmount} onChange={(event) => updateSettlementField("waterAmount", event.target.value)} />
+              <Input placeholder="Chỉ số nước đầu kỳ" value={settlementForm.waterPreviousReading} onChange={(event) => updateSettlementField("waterPreviousReading", event.target.value)} />
+              <Input placeholder="Chỉ số nước cuối kỳ" value={settlementForm.waterCurrentReading} onChange={(event) => updateSettlementField("waterCurrentReading", event.target.value)} />
+              <Input placeholder="Số khối nước" value={settlementForm.waterUsage} onChange={(event) => updateSettlementField("waterUsage", event.target.value)} />
+              <Input placeholder="Đơn giá nước" value={settlementForm.waterUnitPrice} onChange={(event) => updateSettlementField("waterUnitPrice", event.target.value)} />
               <Input placeholder="Phí dịch vụ" value={settlementForm.serviceAmount} onChange={(event) => updateSettlementField("serviceAmount", event.target.value)} />
               <Input placeholder="Phí hư hỏng" value={settlementForm.damageFee} onChange={(event) => updateSettlementField("damageFee", event.target.value)} />
               <Input placeholder="Phí phạt" value={settlementForm.penaltyFee} onChange={(event) => updateSettlementField("penaltyFee", event.target.value)} />
@@ -1053,7 +1149,17 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               <Input placeholder="Hỗ trợ tiền nước" value={settlementForm.waterSupportAmount} onChange={(event) => updateSettlementField("waterSupportAmount", event.target.value)} />
               <Input placeholder="Giảm trừ khác" value={settlementForm.otherCreditAmount} onChange={(event) => updateSettlementField("otherCreditAmount", event.target.value)} />
               <Input placeholder="Hoàn cọc" value={settlementForm.depositToRefund} onChange={(event) => updateSettlementField("depositToRefund", event.target.value)} />
+              <Select
+                value={settlementForm.refundReceiptStatus}
+                onChange={(event) => updateSettlementField("refundReceiptStatus", event.target.value)}
+                options={[
+                  { label: "Hoàn tiền ngay", value: "COMPLETED" },
+                  { label: "Chờ xử lý hoàn tiền", value: "PENDING" },
+                ]}
+              />
             </div>
+            <Textarea placeholder="Lý do hoàn tiền / ghi chú xử lý" value={settlementForm.refundReason} onChange={(event) => updateSettlementField("refundReason", event.target.value)} />
+            <Textarea placeholder="URL chứng từ hoàn tiền, ngăn cách bằng dấu phẩy hoặc xuống dòng" value={settlementForm.refundAttachmentUrls} onChange={(event) => updateSettlementField("refundAttachmentUrls", event.target.value)} />
             <Textarea placeholder="Ghi chú quyết toán" value={settlementForm.note} onChange={(event) => updateSettlementField("note", event.target.value)} />
           </div>
 
@@ -1099,6 +1205,15 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wide text-muted">Tiền điện tháng hiện tại</div>
                     <div className="mt-1 text-lg font-black text-emerald-600">{formatCurrency(settlementPreview.utilitySnapshot.electricity.monthAmountVnd)}</div>
+                    <div className="text-xs text-muted">
+                      {settlementPreview.utilitySnapshot.electricity.rateMode
+                        ? `${settlementPreview.utilitySnapshot.electricity.rateMode} · ${settlementPreview.utilitySnapshot.electricity.calculationSource || ""}`
+                        : "Hunonic amount"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Settlement electricity</div>
+                    <div className="mt-1 text-lg font-black text-primary">{formatCurrency(settlementPreview.utilitySnapshot.electricity.calculatedAmountVnd || settlementPreview.utilitySnapshot.electricity.monthAmountVnd)}</div>
                   </div>
                 </div>
               ) : (
@@ -1109,6 +1224,40 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
             <Card className="overflow-hidden">
               <div className="border-b border-border px-4 py-3">
                 <div className="text-sm font-black text-text">Khoản thu</div>
+              </div>
+              <div className="border-b border-border px-4 py-3">
+                <div className="text-sm font-black text-text">Water settlement</div>
+              </div>
+              {settlementPreview?.utilitySnapshot?.water ? (
+                <div className="grid gap-3 px-4 py-4 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Previous / current</div>
+                    <div className="mt-1 text-sm font-black text-text">
+                      {Number(settlementPreview.utilitySnapshot.water.previousReading || 0).toLocaleString("vi-VN")} / {Number(settlementPreview.utilitySnapshot.water.currentReading || 0).toLocaleString("vi-VN")}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Usage</div>
+                    <div className="mt-1 text-lg font-black text-text">{Number(settlementPreview.utilitySnapshot.water.usage || 0).toLocaleString("vi-VN")}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Unit price</div>
+                    <div className="mt-1 text-sm font-black text-text">{formatCurrency(settlementPreview.utilitySnapshot.water.unitPrice || 0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-muted">Settlement water</div>
+                    <div className="mt-1 text-lg font-black text-emerald-600">{formatCurrency(settlementPreview.utilitySnapshot.water.amount || 0)}</div>
+                    <div className="text-xs text-muted">{settlementPreview.utilitySnapshot.water.source}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="px-4 py-6 text-sm text-muted">No water snapshot yet. Enter a direct water amount or provide readings and unit price for automatic calculation.</div>
+              )}
+            </Card>
+
+            <Card className="overflow-hidden">
+              <div className="border-b border-border px-4 py-3">
+                <div className="text-sm font-black text-text">Khoáº£n thu</div>
               </div>
               <div className="divide-y divide-border/60">
                 {(settlementPreview?.charges || []).length > 0 ? (
@@ -1142,6 +1291,49 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               </div>
             </Card>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isRefundCompletionModalOpen}
+        onClose={() => {
+          if (completePendingRefundMutation.isPending) return;
+          setIsRefundCompletionModalOpen(false);
+        }}
+        title="Xac nhan hoan tien quyet toan"
+        maxWidth="max-w-lg"
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => setIsRefundCompletionModalOpen(false)}
+              disabled={completePendingRefundMutation.isPending}
+            >
+              Dong
+            </Button>
+            <Button onClick={handleCompletePendingRefund} isLoading={completePendingRefundMutation.isPending}>
+              Xac nhan hoan tat
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="rounded-2xl border border-border/70 bg-surface p-4">
+            <div className="text-sm font-semibold text-text">
+              Xac nhan nay se chuyen receipt hoan tien sang COMPLETED va dong task theo doi.
+            </div>
+            <div className="mt-2 text-sm text-muted">
+              So tien: <span className="font-black text-text">{formatCurrency(settlementRefund?.receiptAmount || 0)}</span>
+            </div>
+            <div className="mt-1 text-sm text-muted">
+              Ma phieu: <span className="font-black text-text">{settlementRefund?.receiptCode || "Chua co"}</span>
+            </div>
+          </div>
+          <Textarea
+            placeholder="Ghi chu xac nhan chuyen khoan, ma giao dich, nguoi thuc hien..."
+            value={refundCompletionNote}
+            onChange={(event) => setRefundCompletionNote(event.target.value)}
+          />
         </div>
       </Modal>
 

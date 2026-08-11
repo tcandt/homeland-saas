@@ -76,3 +76,10 @@ export const useSettlementPreviewMutation = () => {
       contractsApi.previewSettlement(id, payload),
   });
 };
+
+export const useCompletePendingSettlementRefundMutation = () => {
+  return useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string }) =>
+      contractsApi.completePendingSettlementRefund(id, note ? { note } : undefined),
+  });
+};

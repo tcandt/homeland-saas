@@ -129,7 +129,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
     return updated;
   }
 
-  async refund(id: string, reason: string, userId: string, receiptStatus?: 'PENDING' | 'COMPLETED', attachmentUrls?: string[]) {
+  async refund(id: string, reason: string, userId: string, receiptStatus?: 'PENDING' | 'COMPLETED', attachmentUrls?: string[], refundAmountInput?: number) {
     const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.PAID) {
@@ -139,7 +139,19 @@ export class DepositsService extends BaseCrudService<Deposit> {
     const normalizedReason = String(reason || '').trim();
     const receiptMode = receiptStatus === 'PENDING' ? ReceiptStatus.PENDING : ReceiptStatus.COMPLETED;
     const proofUrls = Array.isArray(attachmentUrls) ? attachmentUrls.filter(Boolean) : [];
-    const refundNote = [normalizedReason, proofUrls.length > 0 ? `Chung tu: ${proofUrls.join(', ')}` : null].filter(Boolean).join('\n');
+    const originalAmount = Number(deposit.amount || 0);
+    const requestedRefundAmount = refundAmountInput === undefined ? originalAmount : Number(refundAmountInput);
+    const refundAmount = Number.isFinite(requestedRefundAmount) ? requestedRefundAmount : 0;
+    if (refundAmount <= 0 || refundAmount > originalAmount) {
+      throw new BadRequestException('DEPOSIT_REFUND_AMOUNT_INVALID');
+    }
+    const retainedAmount = Math.max(originalAmount - refundAmount, 0);
+    const refundNote = [
+      normalizedReason,
+      refundAmount < originalAmount ? `Hoan ${refundAmount.toLocaleString('vi-VN')} / goc ${originalAmount.toLocaleString('vi-VN')} VND` : null,
+      retainedAmount > 0 ? `Giu lai ${retainedAmount.toLocaleString('vi-VN')} VND` : null,
+      proofUrls.length > 0 ? `Chung tu: ${proofUrls.join(', ')}` : null,
+    ].filter(Boolean).join('\n');
     const result = await this.prisma.tx.$transaction(async (tx) => {
       const updatedDeposit = await tx.deposit.update({
         where: { id },
@@ -153,10 +165,10 @@ export class DepositsService extends BaseCrudService<Deposit> {
         data: {
           tenantId: deposit.tenantId,
           code: this.buildRefundReceiptCode(deposit.code),
-          amount: Number(deposit.amount || 0),
+          amount: refundAmount,
           status: receiptMode,
           description: normalizedReason
-            ? `Deposit refund for ${deposit.code} - ${normalizedReason}`
+            ? `Deposit refund for ${deposit.code} - ${normalizedReason}${retainedAmount > 0 ? ` (retain ${retainedAmount.toLocaleString('vi-VN')} VND)` : ''}`
             : `Deposit refund for ${deposit.code}`,
           date: new Date(),
         },
@@ -169,7 +181,8 @@ export class DepositsService extends BaseCrudService<Deposit> {
                 tenantId: deposit.tenantId,
                 title: `Xu ly hoan coc ${deposit.code}`,
                 description: [
-                  `Can hoan ${Number(deposit.amount || 0).toLocaleString('vi-VN')} VND cho khach.`,
+                  `Can hoan ${refundAmount.toLocaleString('vi-VN')} VND cho khach.`,
+                  retainedAmount > 0 ? `Giu lai ${retainedAmount.toLocaleString('vi-VN')} VND.` : null,
                   normalizedReason ? `Ly do: ${normalizedReason}` : null,
                   proofUrls.length > 0 ? `Chung tu: ${proofUrls.join(', ')}` : null,
                 ].filter(Boolean).join('\n'),
@@ -234,10 +247,13 @@ export class DepositsService extends BaseCrudService<Deposit> {
           note: normalizedReason,
           refundSourceType: 'DEPOSIT',
           attachmentUrls: proofUrls,
+          originalAmount,
+          refundAmount,
+          retainedAmount,
         },
         sourceId: deposit.id,
         sourceType: 'REFUND',
-        amount: Number(deposit.amount),
+        amount: refundAmount,
         paymentProvider: 'MANUAL',
         occurredAt: new Date(),
       });
@@ -253,6 +269,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
           note: normalizedReason,
           refundSourceType: 'DEPOSIT',
           attachmentUrls: proofUrls,
+          originalAmount,
+          refundAmount,
+          retainedAmount,
           receiptId: result.receipt.id,
           receiptCode: result.receipt.code,
           taskId: result.task?.id || null,
@@ -260,7 +279,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
         },
         sourceId: deposit.id,
         sourceType: 'REFUND',
-        amount: Number(deposit.amount),
+        amount: refundAmount,
         paymentProvider: 'MANUAL',
         occurredAt: new Date(),
       });

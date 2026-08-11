@@ -611,8 +611,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 9. Đặt cọc nâng cao
 
-- [ ] Hoàn cọc toàn phần.
-- [ ] Hoàn cọc một phần.
+- [x] Hoàn cọc toàn phần.
+- [x] Hoàn cọc một phần.
 - [ ] Giữ cọc theo chính sách.
 - [ ] Khấu trừ phí từ cọc.
 - [x] Tạo phiếu chi hoàn cọc.

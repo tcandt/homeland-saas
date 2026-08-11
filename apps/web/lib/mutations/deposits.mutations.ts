@@ -46,8 +46,8 @@ export const useCollectDepositMutation = () => {
 export const useRefundDepositMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, reason, receiptStatus, attachmentUrls }: { id: string; reason: string; receiptStatus?: "PENDING" | "COMPLETED"; attachmentUrls?: string[] }) =>
-      depositsApi.refund(id, { reason, receiptStatus, attachmentUrls }),
+    mutationFn: ({ id, reason, receiptStatus, attachmentUrls, refundAmount }: { id: string; reason: string; receiptStatus?: "PENDING" | "COMPLETED"; attachmentUrls?: string[]; refundAmount?: number }) =>
+      depositsApi.refund(id, { reason, receiptStatus, attachmentUrls, refundAmount }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });

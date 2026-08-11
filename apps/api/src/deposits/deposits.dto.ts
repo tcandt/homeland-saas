@@ -26,6 +26,7 @@ export const RefundDepositSchema = z.object({
   reason: z.string().min(1, 'Reason is required for refund'),
   receiptStatus: z.enum(['PENDING', 'COMPLETED']).optional(),
   attachmentUrls: z.array(z.string()).optional(),
+  refundAmount: z.number().positive().optional(),
 });
 
 export const CancelDepositSchema = z.object({

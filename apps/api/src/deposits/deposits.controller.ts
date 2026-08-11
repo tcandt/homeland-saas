@@ -72,7 +72,7 @@ export class DepositsController {
   @ApiOperation({ summary: 'Refund deposit' })
   refund(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
     const input = RefundDepositSchema.parse(body);
-    return this.depositsService.refund(id, input.reason, userId, input.receiptStatus, input.attachmentUrls);
+    return this.depositsService.refund(id, input.reason, userId, input.receiptStatus, input.attachmentUrls, input.refundAmount);
   }
 
   @Post(':id/refund/complete')

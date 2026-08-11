@@ -274,6 +274,78 @@ describe('DepositsService', () => {
     expect(eventPublisher.publish).not.toHaveBeenCalledWith('deposit.refunded', expect.anything());
   });
 
+  it('supports partial deposit refund and records retained amount in metadata', async () => {
+    const { service, repository, eventPublisher, prisma } = createService();
+    const deposit = {
+      id: 'deposit-2b',
+      tenantId: 'tenant-1',
+      customerId: 'customer-2',
+      code: 'DEP-002B',
+      amount: 2300000,
+      status: DepositStatus.PAID,
+      note: null,
+      customer: {
+        fullName: 'Tran Thi B',
+        phone: '0909000002',
+      },
+    };
+
+    repository.findById.mockResolvedValue(deposit);
+    prisma.tx.deposit.update.mockResolvedValue({
+      ...deposit,
+      status: DepositStatus.REFUNDED,
+      note: 'Hoan mot phan',
+    });
+    prisma.tx.receipt.create.mockResolvedValue({
+      id: 'receipt-2b',
+      code: 'RCT-DEP-002B-REFUND-1',
+      amount: 1800000,
+      status: 'COMPLETED',
+      description: 'Deposit refund for DEP-002B - Hoan mot phan (retain 500,000 VND)',
+    });
+
+    await expect(
+      service.refund('deposit-2b', 'Hoan mot phan', 'user-1', 'COMPLETED', [], 1800000),
+    ).resolves.toMatchObject({
+      status: DepositStatus.REFUNDED,
+    });
+
+    expect(prisma.tx.receipt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          amount: 1800000,
+        }),
+      }),
+    );
+    expect(eventPublisher.publish).toHaveBeenCalledWith(
+      'deposit.refunded',
+      expect.objectContaining({
+        amount: 1800000,
+        metadata: expect.objectContaining({
+          originalAmount: 2300000,
+          refundAmount: 1800000,
+          retainedAmount: 500000,
+        }),
+      }),
+    );
+  });
+
+  it('rejects refund amount greater than deposit amount', async () => {
+    const { service, repository } = createService();
+    repository.findById.mockResolvedValue({
+      id: 'deposit-over',
+      tenantId: 'tenant-1',
+      customerId: 'customer-2',
+      code: 'DEP-OVER',
+      amount: 1000000,
+      status: DepositStatus.PAID,
+    });
+
+    await expect(service.refund('deposit-over', 'Vuot muc', 'user-1', 'COMPLETED', [], 1200000)).rejects.toThrow(
+      'DEPOSIT_REFUND_AMOUNT_INVALID',
+    );
+  });
+
   it('completes a pending deposit refund and publishes deposit.refunded', async () => {
     const { service, repository, eventPublisher, prisma } = createService();
     const deposit = {

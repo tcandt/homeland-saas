@@ -68,6 +68,9 @@ export default function OperationsDepositDrawer({
   const handleRefundFlow = () => {
     const reason = window.prompt("Ly do hoan tien / hoan coc?");
     if (!reason) return;
+    const amountInput = window.prompt("So tien hoan lai cho khach? De trong hoac 0 de hoan toan bo.", String(detailDeposit.amount || ""));
+    const parsedAmount = Number(String(amountInput || "").trim() || detailDeposit.amount || 0);
+    const refundAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : Number(detailDeposit.amount || 0);
     const completeNow = window.confirm("Da chuyen tien ngay cho khach? Chon OK neu da hoan tat, Cancel neu chi tao phieu chi cho xu ly sau.");
     const attachmentUrls = refundAttachmentInput
       .split(/\r?\n|,/)
@@ -78,6 +81,7 @@ export default function OperationsDepositDrawer({
       reason,
       receiptStatus: completeNow ? "COMPLETED" : "PENDING",
       attachmentUrls,
+      refundAmount,
     });
   };
 

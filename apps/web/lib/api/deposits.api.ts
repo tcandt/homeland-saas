@@ -68,7 +68,7 @@ export const depositsApi = {
     return apiClient.post<any>(`/deposits/${id}/collect`, { note });
   },
 
-  refund: (id: string, payload: { reason: string; receiptStatus?: "PENDING" | "COMPLETED"; attachmentUrls?: string[] }) => {
+  refund: (id: string, payload: { reason: string; receiptStatus?: "PENDING" | "COMPLETED"; attachmentUrls?: string[]; refundAmount?: number }) => {
     return apiClient.post<any>(`/deposits/${id}/refund`, payload);
   },
 

@@ -886,7 +886,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
             </Card>
 
             {hasPendingSettlementRefund ? (
-              <Card className="p-4 flex flex-col gap-4 border border-amber-500/30 bg-amber-500/5">
+              <Card data-testid="contract-pending-settlement-refund" className="p-4 flex flex-col gap-4 border border-amber-500/30 bg-amber-500/5">
                 <div className="flex flex-col gap-1">
                   <h4 className="font-black text-[14px] text-text">Hoan tien quyet toan dang cho xu ly</h4>
                   <p className="text-sm text-muted">
@@ -909,6 +909,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <Button
+                    data-testid="contract-complete-settlement-refund-open"
                     onClick={() => setIsRefundCompletionModalOpen(true)}
                     isLoading={completePendingRefundMutation.isPending}
                   >
@@ -1127,6 +1128,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
         onClose={() => setIsSettlementModalOpen(false)}
         title="Quyết toán trả phòng"
         maxWidth="max-w-[1200px]"
+        testId="contract-settlement-modal"
         footer={
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-muted">
@@ -1167,7 +1169,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
         <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-5">
             <div className="grid gap-4 md:grid-cols-2">
-              <Input type="date" value={settlementForm.actualMoveOutDate} onChange={(event) => updateSettlementField("actualMoveOutDate", event.target.value)} />
+              <Input data-testid="contract-settlement-actual-move-out-date" type="date" value={settlementForm.actualMoveOutDate} onChange={(event) => updateSettlementField("actualMoveOutDate", event.target.value)} />
               <Select
                 value={settlementForm.roomTurnoverStatus}
                 onChange={(event) => updateSettlementField("roomTurnoverStatus", event.target.value)}
@@ -1191,12 +1193,13 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               <Input placeholder="Phí hư hỏng" value={settlementForm.damageFee} onChange={(event) => updateSettlementField("damageFee", event.target.value)} />
               <Input placeholder="Phí phạt" value={settlementForm.penaltyFee} onChange={(event) => updateSettlementField("penaltyFee", event.target.value)} />
               <Input placeholder="Khoản thu khác" value={settlementForm.otherChargeAmount} onChange={(event) => updateSettlementField("otherChargeAmount", event.target.value)} />
-              <Input placeholder="Khấu trừ cọc vào công nợ" value={settlementForm.depositToDeduct} onChange={(event) => updateSettlementField("depositToDeduct", event.target.value)} />
+              <Input data-testid="contract-settlement-deposit-deduct" placeholder="Khấu trừ cọc vào công nợ" value={settlementForm.depositToDeduct} onChange={(event) => updateSettlementField("depositToDeduct", event.target.value)} />
               <Input placeholder="Hoàn tiền phòng" value={settlementForm.roomRefundAmount} onChange={(event) => updateSettlementField("roomRefundAmount", event.target.value)} />
               <Input placeholder="Hỗ trợ tiền nước" value={settlementForm.waterSupportAmount} onChange={(event) => updateSettlementField("waterSupportAmount", event.target.value)} />
               <Input placeholder="Giảm trừ khác" value={settlementForm.otherCreditAmount} onChange={(event) => updateSettlementField("otherCreditAmount", event.target.value)} />
-              <Input placeholder="Hoàn cọc" value={settlementForm.depositToRefund} onChange={(event) => updateSettlementField("depositToRefund", event.target.value)} />
+              <Input data-testid="contract-settlement-deposit-refund" placeholder="Hoàn cọc" value={settlementForm.depositToRefund} onChange={(event) => updateSettlementField("depositToRefund", event.target.value)} />
               <Select
+                data-testid="contract-settlement-refund-status"
                 value={settlementForm.refundReceiptStatus}
                 onChange={(event) => updateSettlementField("refundReceiptStatus", event.target.value)}
                 options={[
@@ -1205,7 +1208,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                 ]}
               />
             </div>
-            <Textarea placeholder="Lý do hoàn tiền / ghi chú xử lý" value={settlementForm.refundReason} onChange={(event) => updateSettlementField("refundReason", event.target.value)} />
+            <Textarea data-testid="contract-settlement-refund-reason" placeholder="Lý do hoàn tiền / ghi chú xử lý" value={settlementForm.refundReason} onChange={(event) => updateSettlementField("refundReason", event.target.value)} />
             <Textarea placeholder="URL chứng từ hoàn tiền, ngăn cách bằng dấu phẩy hoặc xuống dòng" value={settlementForm.refundAttachmentUrls} onChange={(event) => updateSettlementField("refundAttachmentUrls", event.target.value)} />
             <Textarea placeholder="Ghi chú quyết toán" value={settlementForm.note} onChange={(event) => updateSettlementField("note", event.target.value)} />
           </div>
@@ -1349,6 +1352,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
         }}
         title="Xac nhan hoan tien quyet toan"
         maxWidth="max-w-lg"
+        testId="contract-settlement-refund-complete-modal"
         footer={
           <div className="flex items-center justify-end gap-3">
             <Button
@@ -1358,7 +1362,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
             >
               Dong
             </Button>
-            <Button onClick={handleCompletePendingRefund} isLoading={completePendingRefundMutation.isPending}>
+            <Button data-testid="contract-settlement-refund-complete-submit" onClick={handleCompletePendingRefund} isLoading={completePendingRefundMutation.isPending}>
               Xac nhan hoan tat
             </Button>
           </div>
@@ -1377,6 +1381,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
             </div>
           </div>
           <Textarea
+            data-testid="contract-settlement-refund-complete-note"
             placeholder="Ghi chu xac nhan chuyen khoan, ma giao dich, nguoi thuc hien..."
             value={refundCompletionNote}
             onChange={(event) => setRefundCompletionNote(event.target.value)}

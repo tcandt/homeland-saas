@@ -176,7 +176,10 @@ export default function SePayReconciliationSummary() {
 
   return (
     <>
-      <section className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
+      <section
+        data-testid="sepay-reconciliation-summary"
+        className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm"
+      >
         <div className="flex flex-col gap-4 border-b border-border p-[16px] md:flex-row md:items-start md:justify-between md:p-[20px]">
           <div>
             <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#8b5cf6]">
@@ -189,9 +192,24 @@ export default function SePayReconciliationSummary() {
             </p>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:min-w-[470px] sm:grid-cols-3">
-            <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
-            <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
-            <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} />
+            <Select
+              data-testid="sepay-reconciliation-year"
+              value={year}
+              onChange={(event) => setYear(event.target.value)}
+              options={yearOptions}
+            />
+            <Select
+              data-testid="sepay-reconciliation-month"
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+              options={monthOptions}
+            />
+            <Select
+              data-testid="sepay-reconciliation-status"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+              options={statusOptions}
+            />
           </div>
         </div>
 
@@ -246,7 +264,7 @@ export default function SePayReconciliationSummary() {
                             ? "Chờ hoàn dư"
                             : null;
                   return (
-                    <tr key={row.id} className="border-t border-border">
+                    <tr key={row.id} data-testid={`sepay-row-${row.id}`} className="border-t border-border">
                       <td className="px-4 py-3 text-[12px] font-semibold text-muted">{formatDateTime(row.createdAt)}</td>
                       <td className="px-4 py-3">
                         <span
@@ -279,19 +297,34 @@ export default function SePayReconciliationSummary() {
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
                           {isRefundPending && (
-                            <Button variant="outline" size="sm" onClick={() => openRefundCompletionModal(row)}>
+                            <Button
+                              data-testid={`sepay-refund-complete-open-${row.id}`}
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openRefundCompletionModal(row)}
+                            >
                               <CheckCircle2 size={14} className="mr-1.5" />
                               Xác nhận hoàn
                             </Button>
                           )}
                           {canResolveOverpayment && (
-                            <Button variant="outline" size="sm" onClick={() => openResolveModal(row)}>
+                            <Button
+                              data-testid={`sepay-resolve-open-${row.id}`}
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openResolveModal(row)}
+                            >
                               <RotateCcw size={14} className="mr-1.5" />
                               Xử lý thừa
                             </Button>
                           )}
                           {canManualAssign ? (
-                            <Button variant="outline" size="sm" onClick={() => openAssignModal(row)}>
+                            <Button
+                              data-testid={`sepay-manual-assign-open-${row.id}`}
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openAssignModal(row)}
+                            >
                               <Link2 size={14} className="mr-1.5" />
                               Gán tay
                             </Button>
@@ -314,12 +347,13 @@ export default function SePayReconciliationSummary() {
         onClose={closeAssignModal}
         title="Gán giao dịch SePay"
         maxWidth="max-w-xl"
+        testId="sepay-manual-assign-modal"
         footer={
           <div className="flex items-center justify-end gap-3">
             <Button variant="outline" onClick={closeAssignModal}>
               Hủy
             </Button>
-            <Button onClick={handleManualAssign} disabled={isSubmitting}>
+            <Button data-testid="sepay-manual-assign-submit" onClick={handleManualAssign} disabled={isSubmitting}>
               {isSubmitting ? "Đang gán..." : "Xác nhận gán"}
             </Button>
           </div>
@@ -345,13 +379,19 @@ export default function SePayReconciliationSummary() {
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">Loại nguồn</div>
-                <Select value={sourceType} onChange={(event) => setSourceType(event.target.value as "INVOICE" | "DEPOSIT")} options={sourceTypeOptions} />
+                <Select
+                  data-testid="sepay-manual-assign-source-type"
+                  value={sourceType}
+                  onChange={(event) => setSourceType(event.target.value as "INVOICE" | "DEPOSIT")}
+                  options={sourceTypeOptions}
+                />
               </div>
               <div>
                 <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">
                   {sourceType === "INVOICE" ? "Mã hóa đơn" : "Mã phiếu cọc"}
                 </div>
                 <Input
+                  data-testid="sepay-manual-assign-source-code"
                   value={sourceCode}
                   onChange={(event) => setSourceCode(event.target.value)}
                   placeholder={sourceType === "INVOICE" ? "VD: INV-001" : "VD: DEP-001"}
@@ -367,12 +407,13 @@ export default function SePayReconciliationSummary() {
         onClose={closeResolveModal}
         title="Xử lý tiền thừa SePay"
         maxWidth="max-w-xl"
+        testId="sepay-resolve-modal"
         footer={
           <div className="flex items-center justify-end gap-3">
             <Button variant="outline" onClick={closeResolveModal}>
               Hủy
             </Button>
-            <Button onClick={handleResolveOverpayment} disabled={isSubmitting}>
+            <Button data-testid="sepay-resolve-submit" onClick={handleResolveOverpayment} disabled={isSubmitting}>
               {isSubmitting ? "Đang xử lý..." : "Xác nhận xử lý"}
             </Button>
           </div>
@@ -402,6 +443,7 @@ export default function SePayReconciliationSummary() {
             <div>
               <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">Hướng xử lý</div>
               <Select
+                data-testid="sepay-resolve-select"
                 value={overpaymentResolution}
                 onChange={(event) =>
                   setOverpaymentResolution(
@@ -420,12 +462,17 @@ export default function SePayReconciliationSummary() {
         onClose={closeRefundCompletionModal}
         title="Hoàn tất hoàn dư SePay"
         maxWidth="max-w-xl"
+        testId="sepay-refund-complete-modal"
         footer={
           <div className="flex items-center justify-end gap-3">
             <Button variant="outline" onClick={closeRefundCompletionModal}>
               Hủy
             </Button>
-            <Button onClick={handleCompleteOverpaymentRefund} disabled={isSubmitting}>
+            <Button
+              data-testid="sepay-refund-complete-submit"
+              onClick={handleCompleteOverpaymentRefund}
+              disabled={isSubmitting}
+            >
               {isSubmitting ? "Đang cập nhật..." : "Xác nhận đã hoàn"}
             </Button>
           </div>
@@ -467,6 +514,7 @@ export default function SePayReconciliationSummary() {
                 Ghi chú hoàn tất
               </div>
               <Input
+                data-testid="sepay-refund-complete-note"
                 value={refundCompletionNote}
                 onChange={(event) => setRefundCompletionNote(event.target.value)}
                 placeholder="Mã giao dịch hoàn tiền, người thực hiện hoặc ghi chú nội bộ"

@@ -82,7 +82,8 @@ function createOwnerDetail(month: string | null) {
         amount: isAugust ? 600000 : 900000,
         building: { code: 'LK01-31' },
         room: { code: '31-01' },
-        paidByName: 'Admin A',
+        paidByOwner: { id: 'owner-1', name: 'Tính' },
+        paidByName: null,
       },
     ],
     trend: Array.from({ length: 12 }, (_, index) => ({
@@ -274,5 +275,20 @@ test.describe('Finance Owner Profit Desktop Regression', () => {
     await expect(admin.page.getByTestId('owner-profit-room-breakdown-building-1')).toBeVisible();
     await expect(admin.page.getByTestId('owner-profit-room-breakdown-building-1').getByText('31-01').first()).toBeVisible();
     await expect(admin.page.getByTestId('owner-profit-room-breakdown-building-1').getByText('Văn phòng')).toBeVisible();
+  });
+
+  test('shows paid-by-owner expense details inside owner detail modal', async ({ admin }) => {
+    await mockFinanceOwnerProfit(admin.page);
+
+    await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('owner-profit-open-owner-1').click();
+
+    await expect(admin.page.getByTestId('owner-profit-detail-modal')).toBeVisible();
+    await admin.page.getByTestId('owner-profit-detail-month').selectOption('8');
+
+    await expect(admin.page.getByText('EXP-OWNER-08')).toBeVisible();
+    await expect(admin.page.getByText('LK01-31')).toBeVisible();
+    await expect(admin.page.getByText('31-01')).toBeVisible();
+    await expect(admin.page.getByText('Tính')).toBeVisible();
   });
 });

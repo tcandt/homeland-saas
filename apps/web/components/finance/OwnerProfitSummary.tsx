@@ -33,7 +33,7 @@ export default function OwnerProfitSummary() {
 
   return (
     <>
-      <section className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
+      <section data-testid="owner-profit-summary" className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
         <div className="flex items-start justify-between gap-4 border-b border-border p-[16px] md:p-[20px]">
           <div>
             <h2 className="text-[16px] font-black text-text md:text-[18px]">Chia lợi nhuận theo chủ</h2>
@@ -56,7 +56,7 @@ export default function OwnerProfitSummary() {
           )}
 
           {rows.map((row: any) => (
-            <article key={row.owner.id} className="border-b border-border p-[16px] md:p-[20px] xl:odd:border-r">
+            <article key={row.owner.id} data-testid={`owner-profit-card-${row.owner.id}`} className="border-b border-border p-[16px] md:p-[20px] xl:odd:border-r">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -73,7 +73,7 @@ export default function OwnerProfitSummary() {
                     <div className="text-[10px] font-black uppercase text-[#059669]">Còn lại</div>
                     <div className="text-[16px] font-black text-[#059669]">{formatMoney(Number(row.profitAfterAdvance || 0))}</div>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => setSelectedOwnerId(row.owner.id)}>
+                  <Button data-testid={`owner-profit-open-${row.owner.id}`} size="sm" variant="outline" onClick={() => setSelectedOwnerId(row.owner.id)}>
                     Chi tiết
                   </Button>
                 </div>
@@ -126,6 +126,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
       title={data?.owner?.name ? `Chi tiết ${data.owner.name}` : "Chi tiết chủ sở hữu"}
       maxWidth="max-w-6xl"
       zIndex={10050}
+      testId="owner-profit-detail-modal"
     >
       <div className="flex flex-col gap-5">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_150px_150px]">
@@ -135,8 +136,8 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
               Lọc theo tháng/năm để xem doanh thu, chi phí, khoản hoàn ứng và lợi nhuận còn lại của từng chủ.
             </p>
           </div>
-          <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
-          <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
+          <Select data-testid="owner-profit-detail-year" value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
+          <Select data-testid="owner-profit-detail-month" value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
         </div>
 
         {isLoading && (
@@ -160,7 +161,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
               <DetailMetric label="Còn lại" value={data.summary?.profitAfterAdvance} tone="income" />
             </div>
 
-            <section className="overflow-hidden rounded-2xl border border-border">
+            <section data-testid="owner-profit-building-breakdown" className="overflow-hidden rounded-2xl border border-border">
               <div className="border-b border-border bg-surface px-4 py-3">
                 <h3 className="text-[13px] font-black uppercase text-text">Tòa thuộc chủ</h3>
               </div>
@@ -186,9 +187,10 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
 
                       return (
                         <Fragment key={row.building.id}>
-                          <tr className="border-t border-border">
+                          <tr data-testid={`owner-profit-building-row-${row.building.id}`} className="border-t border-border">
                             <td className="px-4 py-3 text-center">
                               <button
+                                data-testid={`owner-profit-building-toggle-${row.building.id}`}
                                 type="button"
                                 onClick={() => setExpandedBuildingId((current) => (current === row.building.id ? null : row.building.id))}
                                 className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-white text-text transition hover:bg-surface"
@@ -219,7 +221,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                                     </div>
                                   </div>
                                   <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[920px] text-left text-sm">
+                                    <table data-testid={`owner-profit-room-breakdown-${row.building.id}`} className="w-full min-w-[920px] text-left text-sm">
                                       <thead className="bg-surface text-[11px] uppercase text-muted">
                                         <tr>
                                           <th className="px-4 py-3 font-black">Phòng</th>

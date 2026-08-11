@@ -1,13 +1,11 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { Filter, FileText, Plus } from "lucide-react";
+import React, { useMemo } from "react";
+import { Filter, FileText } from "lucide-react";
 import toast from "react-hot-toast";
 import AppShell from "@/components/layout/AppShell";
 import BankCashFlowSummary from "@/components/finance/BankCashFlowSummary";
 import BuildingProfitSummary from "@/components/finance/BuildingProfitSummary";
-import ExpenseCreateModal from "@/components/finance/ExpenseCreateModal";
-import ExpenseTable from "@/components/finance/ExpenseTable";
 import FinanceMobileFlow from "@/components/finance/FinanceMobileFlow";
 import FinancialCommandDrawer from "@/components/finance/FinancialCommandDrawer";
 import FinancialCommandKpi from "@/components/finance/FinancialCommandKpi";
@@ -56,7 +54,6 @@ export default function FinancePage() {
   const permissions = usePermissions();
   const selectedJournalId = useFinanceStore((state) => state.selectedJournalId);
   const { data: ledgerRows } = useLedgerQuery();
-  const [isExpenseModalOpen, setExpenseModalOpen] = useState(false);
 
   const reconciliation = useMemo(() => {
     const rows = ledgerRows || [];
@@ -94,57 +91,49 @@ export default function FinancePage() {
       </div>
 
       <div data-testid="finance-root" className="hidden min-h-full w-full flex-col gap-[16px] md:flex md:gap-[24px]">
-        <div className="flex flex-col justify-between gap-4 border-b border-border/50 pb-4 md:flex-row md:items-center">
-          <div>
-            <h1 className="text-[20px] font-black tracking-tight text-text md:text-[28px]">Trung tâm tài chính</h1>
-            <p className="mt-1 text-[12px] font-medium text-muted md:text-[13px]">Phân tích dòng tiền, kiểm soát công nợ và sổ cái kế toán.</p>
+        <div className="sticky top-[80px] z-40 -mx-[16px] -mt-[16px] flex flex-col gap-4 border-b border-border/70 bg-background/95 px-[16px] pb-4 pt-[16px] shadow-[0_12px_30px_rgba(15,23,42,0.06)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+            <div>
+              <h1 className="text-[20px] font-black tracking-tight text-text md:text-[28px]">Trung tâm tài chính</h1>
+              <p className="mt-1 text-[12px] font-medium text-muted md:text-[13px]">Phân tích dòng tiền, kiểm soát công nợ và sổ cái kế toán.</p>
+            </div>
+            <div className="hide-scrollbar flex items-center gap-[8px] overflow-x-auto pb-2 md:gap-[12px] md:pb-0">
+              <Button variant="outline" className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]">
+                <Filter size={14} className="mr-1.5 text-muted" />
+                Bộ lọc
+              </Button>
+              {permissions.canExportFinance && (
+                <Button
+                  data-testid="finance-export-excel-button"
+                  variant="outline"
+                  onClick={handleExportExcel}
+                  className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]"
+                >
+                  <FileText size={14} className="mr-1.5 text-muted" />
+                  Xuất Excel
+                </Button>
+              )}
+              {permissions.canExportFinance && (
+                <Button
+                  data-testid="finance-export-pdf-button"
+                  variant="outline"
+                  onClick={handleExportPdf}
+                  className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]"
+                >
+                  <FileText size={14} className="mr-1.5 text-muted" />
+                  Xuất PDF
+                </Button>
+              )}
+            </div>
           </div>
-          <div className="hide-scrollbar flex items-center gap-[8px] overflow-x-auto pb-2 md:gap-[12px] md:pb-0">
-            <Button variant="outline" className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]">
-              <Filter size={14} className="mr-1.5 text-muted" />
-              Bộ lọc
-            </Button>
-            {permissions.canExportFinance && (
-              <Button
-                data-testid="finance-export-excel-button"
-                variant="outline"
-                onClick={handleExportExcel}
-                className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]"
-              >
-                <FileText size={14} className="mr-1.5 text-muted" />
-                Xuất Excel
-              </Button>
-            )}
-            {permissions.canExportFinance && (
-              <Button
-                data-testid="finance-export-pdf-button"
-                variant="outline"
-                onClick={handleExportPdf}
-                className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]"
-              >
-                <FileText size={14} className="mr-1.5 text-muted" />
-                Xuất PDF
-              </Button>
-            )}
-            {permissions.canCreateExpense && (
-              <Button
-                onClick={() => setExpenseModalOpen(true)}
-                className="h-[32px] shrink-0 bg-[#8b5cf6] px-[12px] text-white shadow-[#8b5cf6]/20 hover:bg-[#6366f1] md:h-[36px] md:px-[16px]"
-              >
-                <Plus size={16} className="mr-1.5" />
-                Thêm chi phí
-              </Button>
-            )}
-          </div>
-        </div>
 
-        <FinancialCommandKpi />
+          <FinancialCommandKpi />
+        </div>
 
         {permissions.canReadOwnerProfit && <OwnerProfitSummary />}
 
         <BankCashFlowSummary />
         <SePayReconciliationSummary />
-        <ExpenseTable />
 
         <div className="grid grid-cols-1 gap-[16px] md:gap-[24px]">
           <div
@@ -186,7 +175,6 @@ export default function FinancePage() {
       </div>
 
       {selectedJournalId && <FinancialCommandDrawer />}
-      <ExpenseCreateModal isOpen={isExpenseModalOpen} onClose={() => setExpenseModalOpen(false)} />
     </AppShell>
   );
 }

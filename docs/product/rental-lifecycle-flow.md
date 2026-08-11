@@ -595,8 +595,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Chọn hợp đồng cần trả phòng.
 - [x] Chọn ngày trả phòng thực tế.
 - [x] Tính tiền thuê theo ngày.
-- [ ] Chốt điện tại ngày trả phòng.
-- [ ] Chốt nước tại ngày trả phòng.
+- [x] Chốt điện tại ngày trả phòng.
+- [x] Chốt nước tại ngày trả phòng.
 - [x] Tính phí dịch vụ còn lại.
 - [x] Tính phí phát sinh/hư hỏng.
 - [x] Tính hỗ trợ nước nếu có.

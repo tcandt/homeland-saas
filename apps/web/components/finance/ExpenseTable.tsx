@@ -303,21 +303,21 @@ export default function ExpenseTable() {
   const renderActions = (expense: any) => (
     <div className="flex flex-wrap justify-end gap-2">
       {permissions.canApproveExpense && expense.status === "PENDING" && (
-        <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("approve", expense)}>
+        <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("approve", expense)} data-testid={`expense-approve-${expense.id}`}>
           <CheckCircle2 size={14} className="mr-1" /> Duyệt
         </Button>
       )}
       {permissions.canPayExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
-        <Button size="sm" variant="primary" isLoading={busyId === expense.id} onClick={() => openAction("pay", expense)}>
+        <Button size="sm" variant="primary" isLoading={busyId === expense.id} onClick={() => openAction("pay", expense)} data-testid={`expense-pay-${expense.id}`}>
           <CircleDollarSign size={14} className="mr-1" /> Đã chi
         </Button>
       )}
       {permissions.canSettleExpense && expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
         <>
-          <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("reimburse", expense)}>
+          <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("reimburse", expense)} data-testid={`expense-reimburse-${expense.id}`}>
             <RotateCcw size={14} className="mr-1" /> Hoàn ứng
           </Button>
-          <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("deduct", expense)}>
+          <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("deduct", expense)} data-testid={`expense-deduct-${expense.id}`}>
             <Split size={14} className="mr-1" /> Khấu trừ
           </Button>
         </>
@@ -329,6 +329,7 @@ export default function ExpenseTable() {
           isLoading={busyId === expense.id}
           onClick={() => openAction("cancel", expense)}
           className="text-rose-600 hover:text-rose-700"
+          data-testid={`expense-cancel-${expense.id}`}
         >
           <XCircle size={14} className="mr-1" /> Hủy
         </Button>
@@ -338,25 +339,25 @@ export default function ExpenseTable() {
 
   return (
     <>
-      <section className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-border p-[16px] md:p-[20px]">
+      <section data-testid="expense-table-root" className="overflow-hidden rounded-[14px] border border-border bg-card shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-border bg-card p-[14px] md:p-[18px]">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="flex items-center gap-2">
                 <ReceiptText size={18} className="text-[#8b5cf6]" />
                 <h2 className="text-[16px] font-black text-text md:text-[18px]">Chi phí phát sinh</h2>
               </div>
-              <p className="mt-1 text-[12px] text-muted md:text-[13px]">
+              <p className="mt-1 max-w-[760px] text-[12px] leading-5 text-muted md:text-[13px]">
                 Theo dõi vật tư, sửa chữa, hoàn tiền và các khoản người khác ứng hộ để khấu trừ khi chia lợi nhuận.
               </p>
             </div>
-            <div className="rounded-xl border border-border bg-muted/20 px-3 py-2 text-right">
+            <div className="rounded-[12px] border border-border bg-surface px-3 py-2 text-right">
               <div className="text-[10px] font-black uppercase text-muted">Bản ghi</div>
               <div className="text-[18px] font-black text-text">{filtered.length}</div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_150px_150px_120px_130px_150px_160px_auto]">
+          <div className="grid grid-cols-1 gap-3 rounded-[12px] border border-border/70 bg-surface/60 p-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_150px_150px_120px_130px_150px_160px_auto]">
             <div className="relative md:col-span-2 xl:col-span-1">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
               <Input
@@ -379,7 +380,7 @@ export default function ExpenseTable() {
             <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
             <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} />
             <Select value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} />
-            <Button variant="outline" onClick={resetFilters} className="h-10 px-3">
+            <Button variant="outline" onClick={resetFilters} className="h-10 px-3" aria-label="Xóa bộ lọc" data-testid="expense-table-reset-filters">
               <FilterX size={15} />
             </Button>
           </div>
@@ -404,7 +405,7 @@ export default function ExpenseTable() {
           <>
             <div className="grid grid-cols-1 gap-3 xl:hidden p-4">
               {visibleRows.map((expense: any) => (
-                <article key={`${expense.id}-card`} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                <article key={`${expense.id}-card`} data-testid={`expense-row-${expense.id}`} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-[14px] font-black text-text">{expense.code}</div>
@@ -449,9 +450,9 @@ export default function ExpenseTable() {
               ))}
             </div>
 
-            <div className="hidden xl:block overflow-x-auto">
-              <table className="w-full min-w-[1120px] text-left text-sm">
-                <thead className="border-b border-border bg-surface text-[11px] uppercase text-muted">
+            <div className="hidden max-h-[calc(100dvh-420px)] min-h-[260px] overflow-auto xl:block">
+              <table data-testid="expense-table-desktop" className="w-full min-w-[1120px] text-left text-sm">
+                <thead className="sticky top-0 z-10 border-b border-border bg-surface text-[11px] uppercase text-muted shadow-[0_1px_0_var(--border)]">
                   <tr>
                     <th className="px-4 py-3 font-black">Ngày</th>
                     <th className="px-4 py-3 font-black">Chi phí</th>
@@ -554,12 +555,13 @@ export default function ExpenseTable() {
         }
         maxWidth="max-w-lg"
         zIndex={10060}
+        testId="expense-confirm-modal"
         footer={
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <Button variant="outline" onClick={() => setPendingAction(null)} disabled={!!busyId}>
+            <Button variant="outline" onClick={() => setPendingAction(null)} disabled={!!busyId} data-testid="expense-confirm-cancel">
               Hủy
             </Button>
-            <Button variant={pendingAction?.variant === "danger" ? "danger" : "primary"} onClick={executeAction} isLoading={!!busyId}>
+            <Button variant={pendingAction?.variant === "danger" ? "danger" : "primary"} onClick={executeAction} isLoading={!!busyId} data-testid="expense-confirm-submit">
               {pendingAction?.confirmLabel || "Xác nhận"}
             </Button>
           </div>

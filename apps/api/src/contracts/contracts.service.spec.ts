@@ -862,6 +862,78 @@ describe('ContractsService', () => {
         ]),
       );
     });
+
+    it('should use manual move-out electricity closing kwh for settlement snapshot and calculation', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-006',
+        status: ContractStatus.ACTIVE,
+        tenantId: 't1',
+        roomId: 'r1',
+        customerId: 'cu1',
+        monthlyRent: 12000,
+      };
+
+      prismaService.hunonicMeterMapping.findFirst.mockResolvedValue({
+        id: 'meter-1',
+        providerMeterId: 'provider-1',
+        displayName: '32-01',
+        deviceName: 'DIEN 32.01',
+        lastStatus: 'on',
+        lastReadingKwh: 80,
+        lastAmountVnd: 999999,
+        lastSyncedAt: new Date('2026-08-09T09:00:00.000Z'),
+        readings: [
+          {
+            energyMonthKwh: 80,
+            moneyMonthVnd: 999999,
+            powerCurrentW: 50,
+            currentMonth: '2026-08',
+            readingAt: new Date('2026-08-09T09:00:00.000Z'),
+          },
+        ],
+      });
+      hunonicService.getRoomElectricityPricing.mockResolvedValue({
+        currentMode: 'custom',
+        customRateVnd: 3500,
+        residentialSteps: [],
+      });
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+
+      const result = await service.previewSettlement('c1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 0,
+        electricityClosingKwh: 35,
+      });
+
+      expect(result.utilitySnapshot.electricity).toEqual(
+        expect.objectContaining({
+          monthKwh: 35,
+          closingKwh: 35,
+          calculatedAmountVnd: 122500,
+          source: 'MANUAL_MOVE_OUT_READING',
+        }),
+      );
+      expect(result.settlementSnapshot).toEqual(
+        expect.objectContaining({
+          capturedAt: '2026-08-10T00:00:00.000Z',
+          electricity: expect.objectContaining({
+            monthKwh: 35,
+            closingKwh: 35,
+            calculatedAmountVnd: 122500,
+            source: 'MANUAL_MOVE_OUT_READING',
+          }),
+        }),
+      );
+      expect(result.invoiceItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'UTILITY_ELECTRICITY',
+            amount: 122500,
+          }),
+        ]),
+      );
+    });
   });
 
   describe('expireContract', () => {

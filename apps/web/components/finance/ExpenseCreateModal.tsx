@@ -178,6 +178,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
       title="Thêm chi phí phát sinh"
       maxWidth="max-w-3xl"
       zIndex={10040}
+      testId="expense-create-modal"
       headerActions={
         <div className="hidden md:flex h-9 w-9 items-center justify-center rounded-xl bg-[#8b5cf6]/10 text-[#8b5cf6]">
           <ReceiptText size={17} />
@@ -194,9 +195,9 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         </div>
       }
     >
-      <form id="expense-create-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <form id="expense-create-form" onSubmit={handleSubmit} data-testid="expense-create-form" className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Tòa nhà">
-          <Select value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} />
+          <Select value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} data-testid="expense-create-building" />
         </Field>
 
         <Field label="Chủ sở hữu">
@@ -204,15 +205,15 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         </Field>
 
         <Field label="Loại chi phí">
-          <Select value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} />
+          <Select value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} data-testid="expense-create-category" />
         </Field>
 
         <Field label="Trạng thái">
-          <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} />
+          <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} data-testid="expense-create-status" />
         </Field>
 
         <Field label="Số tiền">
-          <Input inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="VD: 350000" />
+          <Input inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="VD: 350000" data-testid="expense-create-amount" />
         </Field>
 
         <Field label="Người chi / ứng tiền">
@@ -233,7 +234,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
               className="hidden"
               onChange={(event) => handleFiles(event.target.files)}
             />
-            <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} isLoading={isUploading} className="justify-start">
+            <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} isLoading={isUploading} className="justify-start" data-testid="expense-create-upload-trigger">
               <UploadCloud size={15} className="mr-2" /> Tải ảnh chứng từ
             </Button>
             <div className="text-[11px] font-semibold text-muted">Hỗ trợ JPG, PNG, WEBP. Mỗi file tối đa 2MB.</div>

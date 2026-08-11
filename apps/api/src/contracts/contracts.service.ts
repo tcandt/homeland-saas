@@ -688,6 +688,16 @@ export class ContractsService extends BaseCrudService<Contract> {
   private async composeSettlementPreview(contract: any, input: ContractSettlementInput) {
     const actualMoveOutDate = this.resolveMoveOutDate(input.actualMoveOutDate);
     const utilitySnapshot = await this.getUtilitySnapshot(contract.tenantId, contract.roomId, actualMoveOutDate);
+    const electricityClosingKwh =
+      input.electricityClosingKwh !== undefined && input.electricityClosingKwh !== null
+        ? Number(input.electricityClosingKwh || 0)
+        : null;
+    if (utilitySnapshot.electricity && electricityClosingKwh !== null) {
+      utilitySnapshot.electricity = this.applyManualElectricityClosingKwh(
+        utilitySnapshot.electricity,
+        electricityClosingKwh,
+      );
+    }
     const waterUsage = this.resolveWaterUsage(input);
     const waterUnitPrice = this.roundMoney(Number(input.waterUnitPrice || 0));
     const derivedWaterAmount =
@@ -721,7 +731,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     return {
       ...preview,
       utilitySnapshot,
-      settlementSnapshot: this.buildSettlementSnapshot(utilitySnapshot),
+      settlementSnapshot: this.buildSettlementSnapshot(utilitySnapshot, actualMoveOutDate),
     };
   }
 
@@ -860,23 +870,55 @@ export class ContractsService extends BaseCrudService<Contract> {
     return Math.round(total);
   }
 
-  private buildSettlementSnapshot(utilitySnapshot: { electricity: any | null; water?: any | null }) {
+  private applyManualElectricityClosingKwh(electricitySnapshot: any, closingKwh: number) {
+    const normalizedClosingKwh = this.roundMoney(Number(closingKwh || 0));
+    const calculatedAmountVnd = this.calculateElectricityAmount(
+      normalizedClosingKwh,
+      {
+        currentMode:
+          electricitySnapshot?.rateMode === 'custom'
+            ? 'custom'
+            : electricitySnapshot?.rateMode === 'residential'
+              ? 'residential'
+              : null,
+        customRateVnd: electricitySnapshot?.customRateVnd ?? null,
+        residentialSteps: electricitySnapshot?.residentialSteps || [],
+      } as Awaited<ReturnType<HunonicService['getRoomElectricityPricing']>>,
+    );
+
+    return {
+      ...electricitySnapshot,
+      closingKwh: normalizedClosingKwh,
+      monthKwh: normalizedClosingKwh,
+      calculatedAmountVnd:
+        calculatedAmountVnd !== null && calculatedAmountVnd !== undefined
+          ? calculatedAmountVnd
+          : Number(electricitySnapshot?.calculatedAmountVnd || electricitySnapshot?.monthAmountVnd || 0),
+      source: 'MANUAL_MOVE_OUT_READING',
+      readingAt: electricitySnapshot?.readingAt || new Date(),
+    };
+  }
+
+  private buildSettlementSnapshot(utilitySnapshot: { electricity: any | null; water?: any | null }, actualMoveOutDate?: Date) {
     if (!utilitySnapshot?.electricity && !utilitySnapshot?.water) {
       return {
-        capturedAt: new Date().toISOString(),
+        capturedAt: (actualMoveOutDate || new Date()).toISOString(),
         electricity: null,
         water: null,
       };
     }
 
     return {
-      capturedAt: new Date().toISOString(),
+      capturedAt: (actualMoveOutDate || new Date()).toISOString(),
       electricity: utilitySnapshot.electricity ? {
         meterId: utilitySnapshot.electricity.meterId,
         providerMeterId: utilitySnapshot.electricity.providerMeterId,
         displayName: utilitySnapshot.electricity.displayName,
         deviceName: utilitySnapshot.electricity.deviceName,
         currentMonth: utilitySnapshot.electricity.currentMonth,
+        closingKwh: Number(
+          utilitySnapshot.electricity.closingKwh ?? (utilitySnapshot.electricity.monthKwh || 0),
+        ),
         monthKwh: Number(utilitySnapshot.electricity.monthKwh || 0),
         monthAmountVnd: Number(utilitySnapshot.electricity.monthAmountVnd || 0),
         calculatedAmountVnd: Number(utilitySnapshot.electricity.calculatedAmountVnd || 0),

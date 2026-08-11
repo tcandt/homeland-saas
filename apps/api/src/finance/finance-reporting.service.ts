@@ -1039,49 +1039,21 @@ export class FinanceReportingService {
       }),
     ]);
 
-    const buildingBreakdown = await Promise.all(owner.buildings.map(async (building) => {
-      const [buildingRevenue, buildingJournalExpense, buildingDirectExpense] = await Promise.all([
-        this.prisma.journalLine.aggregate({
-          where: {
-            tenantId,
-            costCenter: { buildingId: building.id },
-            account: { type: 'REVENUE' },
-            type: 'CREDIT',
-            createdAt: period,
-          },
-          _sum: { amount: true },
-        }),
-        this.prisma.journalLine.aggregate({
-          where: {
-            tenantId,
-            costCenter: { buildingId: building.id },
-            account: { type: 'EXPENSE' },
-            type: 'DEBIT',
-            createdAt: period,
-          },
-          _sum: { amount: true },
-        }),
-        this.prisma.expense.aggregate({
-          where: {
-            tenantId,
-            buildingId: building.id,
-            deletedAt: null,
-            status: { in: ['APPROVED', 'PAID'] as any },
-            date: period,
-          },
-          _sum: { amount: true },
-        }),
-      ]);
-
-      const revenue = Number(buildingRevenue._sum.amount || 0);
-      const expense = Math.max(Number(buildingJournalExpense._sum.amount || 0), Number(buildingDirectExpense._sum.amount || 0));
-      return {
-        building,
-        revenue,
-        expense,
-        profit: revenue - expense,
-      };
-    }));
+    const ownerBuildingIds = new Set(owner.buildings.map((building) => building.id));
+    const buildingBreakdown = (await this.getBuildingProfitSummary(tenantId, options))
+      .filter((row) => ownerBuildingIds.has(row.building.id))
+      .map((row) => ({
+        building: row.building,
+        owner: row.owner,
+        revenue: row.revenue,
+        revenueBreakdown: row.revenueBreakdown,
+        roomBreakdown: row.roomBreakdown,
+        expense: row.expense,
+        profit: row.profit,
+        margin: row.margin,
+        overdueInvoices: row.overdueInvoices,
+        alerts: row.alerts,
+      }));
 
     const expenseRows = await this.getExpenses(tenantId, {
       ownerId: owner.id,

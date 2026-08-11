@@ -643,7 +643,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Lưu snapshot chỉ số tại thời điểm quyết toán.
 - [ ] Tính điện theo giá EVN.
 - [ ] Tính điện theo giá custom.
-- [ ] Gắn doanh thu điện về đúng owner/building/room.
+- [x] Gắn doanh thu điện về đúng owner/building/room.
 - [x] Đối chiếu dữ liệu Hunonic với hóa đơn đã phát hành.
 - [x] Cảnh báo chỉ số thiếu/trùng/bất thường.
 - [x] Export lịch sử điện theo phòng/tháng/năm.

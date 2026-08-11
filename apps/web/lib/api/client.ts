@@ -1,4 +1,7 @@
+import { useAuthStore } from '@/lib/auth/auth-store';
+
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001/api/v1';
+let refreshPromise: Promise<string | null> | null = null;
 
 export class ApiError extends Error {
   status: number;
@@ -78,18 +81,25 @@ export const apiClient = {
       }
     }
 
-    const response = await fetch(url, config);
+    let response = await fetch(url, config);
 
     if (response.status === 401) {
-      console.error('FETCH CLIENT 401 ERROR URL:', url);
-      // Clear token and redirect to login if 401 Unauthorized
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('auth-storage');
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login';
-        }
+      const refreshedToken = endpoint !== '/auth/refresh' ? await refreshAccessToken() : null;
+      if (refreshedToken) {
+        response = await fetch(url, {
+          ...config,
+          headers: {
+            ...(config.headers as Record<string, string>),
+            Authorization: `Bearer ${refreshedToken}`,
+          },
+        });
       }
-      throw new ApiError(401, 'UNAUTHORIZED', 'Phiên đăng nhập đã hết hạn');
+
+      if (response.status === 401) {
+        console.error('FETCH CLIENT 401 ERROR URL:', url);
+        clearAuthAndRedirect();
+        throw new ApiError(401, 'UNAUTHORIZED', 'Phiên đăng nhập đã hết hạn');
+      }
     }
 
     let data;
@@ -146,3 +156,59 @@ export const apiClient = {
     return this.fetch<T>(endpoint, { ...options, method: 'DELETE' });
   },
 };
+
+async function refreshAccessToken() {
+  if (typeof window === 'undefined') return null;
+  if (!refreshPromise) {
+    refreshPromise = runRefreshToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+async function runRefreshToken() {
+  const refreshToken = useAuthStore.getState().refreshToken || readStoredRefreshToken();
+  if (!refreshToken) return null;
+
+  try {
+    const response = await fetch(`${BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!response.ok) return null;
+
+    const payload = await response.json();
+    const tokens = payload?.data || payload;
+    if (!tokens?.accessToken || !tokens?.refreshToken) return null;
+
+    useAuthStore.getState().updateTokens({
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    });
+    return tokens.accessToken as string;
+  } catch {
+    return null;
+  }
+}
+
+function readStoredRefreshToken() {
+  try {
+    const authStore = localStorage.getItem('auth-storage');
+    if (!authStore) return '';
+    const parsed = JSON.parse(authStore);
+    return parsed?.state?.refreshToken || '';
+  } catch {
+    return '';
+  }
+}
+
+function clearAuthAndRedirect() {
+  if (typeof window === 'undefined') return;
+  useAuthStore.getState().clearSession();
+  localStorage.removeItem('auth-storage');
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+}

@@ -1,15 +1,15 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { Building2, HandCoins, ReceiptText, TrendingUp } from "lucide-react";
+import React, { Fragment, useMemo, useState } from "react";
+import { Building2, ChevronDown, ChevronUp, HandCoins, ReceiptText, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { useOwnerProfitDetailQuery, useOwnerProfitSummaryQuery } from "@/lib/queries/finance.queries";
 
 const formatMoney = (value: number) => {
-  if (Math.abs(value) >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
-  if (Math.abs(value) >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   return value.toLocaleString("vi-VN");
 };
 
@@ -99,6 +99,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(String(currentYear));
   const [month, setMonth] = useState("");
+  const [expandedBuildingId, setExpandedBuildingId] = useState<string | null>(null);
   const params = useMemo(() => ({ year, ...(month ? { month } : {}) }), [month, year]);
   const { data, isLoading, isError } = useOwnerProfitDetailQuery(ownerId, params);
 
@@ -138,8 +139,16 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
           <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
         </div>
 
-        {isLoading && <div className="rounded-2xl border border-border bg-surface p-8 text-center text-[13px] font-semibold text-muted">Đang tải chi tiết...</div>}
-        {isError && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-center text-[13px] font-semibold text-rose-600">Không tải được báo cáo owner.</div>}
+        {isLoading && (
+          <div className="rounded-2xl border border-border bg-surface p-8 text-center text-[13px] font-semibold text-muted">
+            Đang tải chi tiết...
+          </div>
+        )}
+        {isError && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-center text-[13px] font-semibold text-rose-600">
+            Không tải được báo cáo owner.
+          </div>
+        )}
 
         {!isLoading && !isError && data && (
           <>
@@ -156,24 +165,101 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                 <h3 className="text-[13px] font-black uppercase text-text">Tòa thuộc chủ</h3>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-left text-sm">
+                <table className="w-full min-w-[1180px] text-left text-sm">
                   <thead className="bg-surface text-[11px] uppercase text-muted">
                     <tr>
+                      <th className="w-[52px] px-4 py-3 text-center font-black">Mở</th>
                       <th className="px-4 py-3 font-black">Tòa</th>
+                      <th className="px-4 py-3 text-right font-black">Thuê phòng</th>
+                      <th className="px-4 py-3 text-right font-black">Điện</th>
+                      <th className="px-4 py-3 text-right font-black">Nước / DV</th>
+                      <th className="px-4 py-3 text-right font-black">Khác</th>
                       <th className="px-4 py-3 text-right font-black">Doanh thu</th>
                       <th className="px-4 py-3 text-right font-black">Chi phí</th>
                       <th className="px-4 py-3 text-right font-black">Lợi nhuận</th>
+                      <th className="px-4 py-3 text-right font-black">HĐ quá hạn</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(data.buildingBreakdown || []).map((row: any) => (
-                      <tr key={row.building.id} className="border-t border-border">
-                        <td className="px-4 py-3 font-black text-text">{row.building.code || row.building.name}</td>
-                        <td className="px-4 py-3 text-right font-bold text-[#059669]">{formatVnd(row.revenue)}</td>
-                        <td className="px-4 py-3 text-right font-bold text-rose-500">{formatVnd(row.expense)}</td>
-                        <td className="px-4 py-3 text-right font-black text-text">{formatVnd(row.profit)}</td>
-                      </tr>
-                    ))}
+                    {(data.buildingBreakdown || []).map((row: any) => {
+                      const isExpanded = expandedBuildingId === row.building.id;
+
+                      return (
+                        <Fragment key={row.building.id}>
+                          <tr className="border-t border-border">
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedBuildingId((current) => (current === row.building.id ? null : row.building.id))}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-white text-text transition hover:bg-surface"
+                                aria-label={isExpanded ? "Thu gọn chi tiết tòa" : "Mở chi tiết tòa"}
+                              >
+                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 font-black text-text">{row.building.code || row.building.name}</td>
+                            <td className="px-4 py-3 text-right font-bold text-text">{formatVnd(row.revenueBreakdown?.rent || 0)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-amber-600">{formatVnd(row.revenueBreakdown?.electricity || 0)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-sky-600">{formatVnd(row.revenueBreakdown?.waterAndService || 0)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-violet-600">{formatVnd(row.revenueBreakdown?.other || 0)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-[#059669]">{formatVnd(row.revenue)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-rose-500">{formatVnd(row.expense)}</td>
+                            <td className="px-4 py-3 text-right font-black text-text">{formatVnd(row.profit)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-text">{row.overdueInvoices || 0}</td>
+                          </tr>
+
+                          {isExpanded && (
+                            <tr className="border-t border-border bg-surface/50">
+                              <td colSpan={10} className="px-4 py-4">
+                                <div className="overflow-hidden rounded-2xl border border-border bg-white">
+                                  <div className="border-b border-border px-4 py-3">
+                                    <div className="text-[12px] font-black uppercase text-muted">Doanh thu theo phòng</div>
+                                    <div className="mt-1 text-[13px] text-muted">
+                                      Tách riêng doanh thu thuê phòng, điện, nước / dịch vụ và khoản khác trong tòa {row.building.code || row.building.name}.
+                                    </div>
+                                  </div>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[920px] text-left text-sm">
+                                      <thead className="bg-surface text-[11px] uppercase text-muted">
+                                        <tr>
+                                          <th className="px-4 py-3 font-black">Phòng</th>
+                                          <th className="px-4 py-3 text-right font-black">Thuê phòng</th>
+                                          <th className="px-4 py-3 text-right font-black">Điện</th>
+                                          <th className="px-4 py-3 text-right font-black">Nước / DV</th>
+                                          <th className="px-4 py-3 text-right font-black">Khác</th>
+                                          <th className="px-4 py-3 text-right font-black">Tổng thu</th>
+                                          <th className="px-4 py-3 text-right font-black">HĐ</th>
+                                          <th className="px-4 py-3 text-right font-black">Hóa đơn</th>
+                                          <th className="px-4 py-3 text-right font-black">Chi phí</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(row.roomBreakdown || []).map((roomRow: any) => (
+                                          <tr key={`${row.building.id}:${roomRow.room.id}`} className="border-t border-border">
+                                            <td className="px-4 py-3">
+                                              <div className="font-black text-text">{roomRow.room.code || roomRow.room.name}</div>
+                                              <div className="text-[12px] text-muted">{roomRow.room.name || "Không có tên phòng"}</div>
+                                            </td>
+                                            <td className="px-4 py-3 text-right font-bold text-text">{formatVnd(roomRow.revenueBreakdown?.rent || 0)}</td>
+                                            <td className="px-4 py-3 text-right font-bold text-amber-600">{formatVnd(roomRow.revenueBreakdown?.electricity || 0)}</td>
+                                            <td className="px-4 py-3 text-right font-bold text-sky-600">{formatVnd(roomRow.revenueBreakdown?.waterAndService || 0)}</td>
+                                            <td className="px-4 py-3 text-right font-bold text-violet-600">{formatVnd(roomRow.revenueBreakdown?.other || 0)}</td>
+                                            <td className="px-4 py-3 text-right font-black text-[#059669]">{formatVnd(roomRow.revenue || 0)}</td>
+                                            <td className="px-4 py-3 text-right font-semibold text-muted">{roomRow.contracts?.length || 0}</td>
+                                            <td className="px-4 py-3 text-right font-semibold text-muted">{roomRow.invoices?.length || 0}</td>
+                                            <td className="px-4 py-3 text-right font-semibold text-muted">{roomRow.expenses?.length || 0}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { Loader2 } from "lucide-react";
@@ -10,6 +10,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() || "/";
   const [mounted, setMounted] = useState(false);
+  const idleTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Wait for Zustand persist to hydrate before checking auth state
@@ -35,6 +36,41 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       router.replace("/");
     }
   }, [isAuthenticated, pathname, mounted, router]);
+
+  useEffect(() => {
+    if (!mounted || !isAuthenticated) return;
+
+    const publicPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
+    if (publicPaths.includes(pathname)) return;
+
+    const logoutForIdle = () => {
+      const token = useAuthStore.getState().accessToken;
+      if (token) {
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api/v1"}/auth/logout`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          keepalive: true,
+        }).catch(() => undefined);
+      }
+      useAuthStore.getState().clearSession();
+      router.replace("/login");
+    };
+
+    const resetIdleTimer = () => {
+      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = window.setTimeout(logoutForIdle, 5 * 60 * 1000);
+    };
+
+    const events: Array<keyof WindowEventMap> = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "focus"];
+    events.forEach((eventName) => window.addEventListener(eventName, resetIdleTimer, { passive: true }));
+    resetIdleTimer();
+
+    return () => {
+      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+      events.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer));
+    };
+  }, [mounted, isAuthenticated, pathname, router]);
 
   // Prevent hydration mismatch and hide content until auth state is known
   if (!mounted) {

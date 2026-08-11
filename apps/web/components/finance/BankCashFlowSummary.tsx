@@ -41,7 +41,7 @@ export default function BankCashFlowSummary() {
   ];
 
   return (
-    <section className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
+    <section data-testid="bank-cashflow-summary" className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
       <div className="flex flex-col gap-4 border-b border-border p-[16px] md:flex-row md:items-start md:justify-between md:p-[20px]">
         <div>
           <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#16a34a]">
@@ -53,45 +53,53 @@ export default function BankCashFlowSummary() {
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:min-w-[310px]">
-          <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
-          <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
+          <Select data-testid="bank-cashflow-year" value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
+          <Select data-testid="bank-cashflow-month" value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 border-b border-border p-[16px] md:grid-cols-4 md:p-[20px]">
+      <div data-testid="bank-cashflow-kpis" className="grid grid-cols-2 gap-3 border-b border-border p-[16px] md:grid-cols-4 md:p-[20px]">
         <Metric icon={<WalletCards size={15} />} label="Tài khoản ngân hàng" value={data?.summary?.bankCount || 0} />
         <Metric icon={<QrCode size={15} />} label="QR đã tạo" value={data?.summary?.requestCount || 0} />
         <Metric label="Đã xác nhận" value={formatVnd(data?.summary?.confirmedAmount || 0)} tone="income" />
         <Metric label="Đang chờ" value={formatVnd(data?.summary?.pendingAmount || 0)} tone="warning" />
       </div>
 
-      {isLoading && <div className="p-8 text-center text-[13px] font-semibold text-muted">Đang tải dòng tiền theo ngân hàng...</div>}
-      {isError && <div className="p-8 text-center text-[13px] font-semibold text-rose-500">Không tải được báo cáo ngân hàng.</div>}
+      {isLoading && (
+        <div data-testid="bank-cashflow-loading" className="p-8 text-center text-[13px] font-semibold text-muted">
+          Đang tải dòng tiền theo ngân hàng...
+        </div>
+      )}
+      {isError && (
+        <div data-testid="bank-cashflow-error" className="p-8 text-center text-[13px] font-semibold text-rose-500">
+          Không tải được báo cáo ngân hàng.
+        </div>
+      )}
 
       {!isLoading && !isError && (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-sm">
+        <div data-testid="bank-cashflow-table-wrap" className="overflow-x-auto">
+          <table data-testid="bank-cashflow-table" className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-surface text-[11px] uppercase text-muted">
               <tr>
                 <th className="px-4 py-3 font-black">Ngân hàng</th>
                 <th className="px-4 py-3 font-black">Owner</th>
-                <th className="px-4 py-3 font-black text-center">QR</th>
-                <th className="px-4 py-3 font-black text-right">Đã xác nhận</th>
-                <th className="px-4 py-3 font-black text-right">Đang chờ</th>
-                <th className="px-4 py-3 font-black text-center">Trạng thái</th>
+                <th className="px-4 py-3 text-center font-black">QR</th>
+                <th className="px-4 py-3 text-right font-black">Đã xác nhận</th>
+                <th className="px-4 py-3 text-right font-black">Đang chờ</th>
+                <th className="px-4 py-3 text-center font-black">Trạng thái</th>
                 <th className="px-4 py-3 font-black">Lần trả gần nhất</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-[13px] font-semibold text-muted">
+                  <td data-testid="bank-cashflow-empty" colSpan={7} className="px-4 py-8 text-center text-[13px] font-semibold text-muted">
                     Chưa có tài khoản ngân hàng hoặc payment request trong kỳ.
                   </td>
                 </tr>
               )}
               {rows.map((row: any) => (
-                <tr key={row.bankAccount.id} className="border-t border-border">
+                <tr key={row.bankAccount.id} data-testid={`bank-cashflow-row-${row.bankAccount.id}`} className="border-t border-border">
                   <td className="px-4 py-3">
                     <div className="font-black text-text">{row.bankAccount.bankName}</div>
                     <div className="mt-1 text-[12px] font-semibold text-muted">
@@ -111,7 +119,11 @@ export default function BankCashFlowSummary() {
                   <td className="px-4 py-3 text-right font-black text-[#059669]">{formatVnd(row.confirmedAmount)}</td>
                   <td className="px-4 py-3 text-right font-black text-[#f97316]">{formatVnd(row.pendingAmount)}</td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`rounded-full px-2 py-1 text-[11px] font-black ${row.bankAccount.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[11px] font-black ${
+                        row.bankAccount.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
                       {row.bankAccount.isActive ? "Đang bật" : "Đã tắt"}
                     </span>
                   </td>
@@ -126,7 +138,17 @@ export default function BankCashFlowSummary() {
   );
 }
 
-function Metric({ icon, label, value, tone }: { icon?: React.ReactNode; label: string; value: React.ReactNode; tone?: "income" | "warning" }) {
+function Metric({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+  tone?: "income" | "warning";
+}) {
   const valueClass = tone === "income" ? "text-[#059669]" : tone === "warning" ? "text-[#f97316]" : "text-text";
   return (
     <div className="rounded-[14px] border border-border bg-surface p-3">

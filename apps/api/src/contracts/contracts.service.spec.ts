@@ -464,6 +464,7 @@ describe('ContractsService', () => {
         id: 'c1',
         code: 'C-003',
         status: ContractStatus.ACTIVE,
+        tenantId: 't1',
         roomId: 'r1',
         customerId: 'cu1',
         monthlyRent: 12000,
@@ -490,6 +491,69 @@ describe('ContractsService', () => {
       expect(result.totals.refundToCustomer).toBe(0);
       expect(result.invoiceItems).toHaveLength(4);
       expect(result.utilitySnapshot).toEqual({ electricity: null });
+    });
+
+    it('should use Hunonic snapshot electricity amount when operator leaves electricity blank', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-004',
+        status: ContractStatus.ACTIVE,
+        tenantId: 't1',
+        roomId: 'r1',
+        customerId: 'cu1',
+        monthlyRent: 12000,
+      };
+
+      prismaService.hunonicMeterMapping.findFirst.mockResolvedValue({
+        id: 'meter-1',
+        providerMeterId: 'provider-1',
+        displayName: '31-04',
+        deviceName: 'ĐIỆN 31.04',
+        lastStatus: 'on',
+        lastReadingKwh: 42,
+        lastAmountVnd: 147000,
+        lastSyncedAt: new Date('2026-08-09T09:00:00.000Z'),
+        readings: [
+          {
+            energyMonthKwh: 42,
+            moneyMonthVnd: 147000,
+            powerCurrentW: 61,
+            currentMonth: '2026-08',
+            readingAt: new Date('2026-08-09T09:00:00.000Z'),
+          },
+        ],
+      });
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+
+      const result = await service.previewSettlement('c1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 0,
+      });
+
+      expect(result.utilitySnapshot.electricity).toEqual(
+        expect.objectContaining({
+          displayName: '31-04',
+          monthAmountVnd: 147000,
+          currentMonth: '2026-08',
+        }),
+      );
+      expect(result.settlementSnapshot).toEqual(
+        expect.objectContaining({
+          electricity: expect.objectContaining({
+            monthAmountVnd: 147000,
+            monthKwh: 42,
+            currentMonth: '2026-08',
+          }),
+        }),
+      );
+      expect(result.invoiceItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'UTILITY_ELECTRICITY',
+            amount: 147000,
+          }),
+        ]),
+      );
     });
   });
 

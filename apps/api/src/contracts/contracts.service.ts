@@ -470,12 +470,27 @@ export class ContractsService extends BaseCrudService<Contract> {
   }
 
   private async composeSettlementPreview(contract: any, input: ContractSettlementInput) {
-    const preview = this.buildSettlementPreview(contract, input);
-    const utilitySnapshot = await this.getUtilitySnapshot(contract.tenantId, contract.roomId, preview.actualMoveOutDate);
+    const actualMoveOutDate = this.resolveMoveOutDate(input.actualMoveOutDate);
+    const utilitySnapshot = await this.getUtilitySnapshot(contract.tenantId, contract.roomId, actualMoveOutDate);
+    const preview = this.buildSettlementPreview(contract, {
+      ...input,
+      actualMoveOutDate,
+      electricityAmount:
+        input.electricityAmount ?? utilitySnapshot.electricity?.monthAmountVnd ?? 0,
+    });
     return {
       ...preview,
       utilitySnapshot,
+      settlementSnapshot: this.buildSettlementSnapshot(utilitySnapshot),
     };
+  }
+
+  private resolveMoveOutDate(value: string | Date) {
+    const actualMoveOutDate = new Date(value);
+    if (Number.isNaN(actualMoveOutDate.getTime())) {
+      throw new BadRequestException('SETTLEMENT_MOVE_OUT_DATE_INVALID');
+    }
+    return actualMoveOutDate;
   }
 
   private async getUtilitySnapshot(tenantId: string, roomId: string, moveOutDate: Date) {
@@ -508,6 +523,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
 
     const latestReading = Array.isArray(mapping.readings) ? mapping.readings[0] : null;
+    const period = latestReading?.currentMonth || this.getSettlementPeriod(moveOutDate);
     return {
       electricity: {
         meterId: mapping.id,
@@ -519,9 +535,39 @@ export class ContractsService extends BaseCrudService<Contract> {
         monthAmountVnd: Number(latestReading?.moneyMonthVnd ?? mapping.lastAmountVnd ?? 0),
         powerCurrentW: Number(latestReading?.powerCurrentW ?? 0),
         readingAt: latestReading?.readingAt ?? mapping.lastSyncedAt ?? null,
+        currentMonth: period,
         source: latestReading ? 'HUNONIC_READING' : 'HUNONIC_MAPPING',
       },
     };
+  }
+
+  private buildSettlementSnapshot(utilitySnapshot: { electricity: any | null }) {
+    if (!utilitySnapshot?.electricity) {
+      return {
+        capturedAt: new Date().toISOString(),
+        electricity: null,
+      };
+    }
+
+    return {
+      capturedAt: new Date().toISOString(),
+      electricity: {
+        meterId: utilitySnapshot.electricity.meterId,
+        providerMeterId: utilitySnapshot.electricity.providerMeterId,
+        displayName: utilitySnapshot.electricity.displayName,
+        deviceName: utilitySnapshot.electricity.deviceName,
+        currentMonth: utilitySnapshot.electricity.currentMonth,
+        monthKwh: Number(utilitySnapshot.electricity.monthKwh || 0),
+        monthAmountVnd: Number(utilitySnapshot.electricity.monthAmountVnd || 0),
+        powerCurrentW: Number(utilitySnapshot.electricity.powerCurrentW || 0),
+        readingAt: utilitySnapshot.electricity.readingAt,
+        source: utilitySnapshot.electricity.source,
+      },
+    };
+  }
+
+  private getSettlementPeriod(moveOutDate: Date) {
+    return `${moveOutDate.getFullYear()}-${String(moveOutDate.getMonth() + 1).padStart(2, '0')}`;
   }
 
   private buildRefundReceiptCode(contractCode: string) {

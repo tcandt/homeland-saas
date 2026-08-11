@@ -291,8 +291,8 @@ export class DepositsService extends BaseCrudService<Deposit> {
   async completePendingRefund(id: string, userId: string, note?: string) {
     const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
-    if (deposit.status !== DepositStatus.REFUNDED) {
-      throw new BadRequestException('Can only complete pending refund for REFUNDED deposits');
+    if (deposit.status !== DepositStatus.REFUNDED && deposit.status !== DepositStatus.CANCELLED) {
+      throw new BadRequestException('Can only complete pending refund for REFUNDED or CANCELLED deposits');
     }
 
     const receipt = await this.prisma.receipt.findFirst({
@@ -390,7 +390,15 @@ export class DepositsService extends BaseCrudService<Deposit> {
     };
   }
 
-  async cancel(id: string, reason: string, userId: string, resolutionAction?: 'REFUND' | 'KEEP' | 'DEDUCT') {
+  async cancel(
+    id: string,
+    reason: string,
+    userId: string,
+    resolutionAction?: 'REFUND' | 'KEEP' | 'DEDUCT',
+    resolutionAmountInput?: number,
+    receiptStatus?: 'PENDING' | 'COMPLETED',
+    attachmentUrls?: string[],
+  ) {
     const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING && deposit.status !== DepositStatus.PAID) {
@@ -398,6 +406,194 @@ export class DepositsService extends BaseCrudService<Deposit> {
     }
     if (deposit.status === DepositStatus.PAID && !resolutionAction) {
       throw new BadRequestException('Paid deposits require REFUND, KEEP, or DEDUCT resolution before cancel');
+    }
+
+    if (deposit.status === DepositStatus.PAID) {
+      const originalAmount = Number(deposit.amount || 0);
+      const requestedAmount = resolutionAmountInput === undefined ? originalAmount : Number(resolutionAmountInput);
+      const resolvedAmount = Number.isFinite(requestedAmount) ? requestedAmount : 0;
+      if (resolvedAmount <= 0 || resolvedAmount > originalAmount) {
+        throw new BadRequestException('DEPOSIT_RESOLUTION_AMOUNT_INVALID');
+      }
+
+      const normalizedReason = String(reason || '').trim();
+      const proofUrls = Array.isArray(attachmentUrls) ? attachmentUrls.filter(Boolean) : [];
+      const receiptMode = receiptStatus === 'COMPLETED' ? ReceiptStatus.COMPLETED : ReceiptStatus.PENDING;
+
+      const refundableAmount = resolutionAction === 'KEEP' || resolutionAction === 'DEDUCT'
+        ? Math.max(originalAmount - resolvedAmount, 0)
+        : resolvedAmount;
+      const retainedAmount = resolutionAction === 'KEEP'
+        ? resolvedAmount
+        : resolutionAction === 'REFUND'
+          ? Math.max(originalAmount - resolvedAmount, 0)
+          : 0;
+      const deductedAmount = resolutionAction === 'DEDUCT' ? resolvedAmount : 0;
+
+      const noteLines = [
+        `[${resolutionAction}] ${normalizedReason}`,
+        resolutionAction === 'KEEP' ? `Giữ lại ${retainedAmount.toLocaleString('vi-VN')} VND` : null,
+        resolutionAction === 'DEDUCT' ? `Khấu trừ ${deductedAmount.toLocaleString('vi-VN')} VND` : null,
+        refundableAmount > 0 ? `Hoàn lại ${refundableAmount.toLocaleString('vi-VN')} VND` : null,
+        proofUrls.length > 0 ? `Chung tu: ${proofUrls.join(', ')}` : null,
+      ].filter(Boolean);
+
+      const result = await this.prisma.tx.$transaction(async (tx) => {
+        const updatedDeposit = await tx.deposit.update({
+          where: { id },
+          data: {
+            status: DepositStatus.CANCELLED,
+            note: noteLines.join('\n'),
+          },
+        });
+
+        const refundReceipt = refundableAmount > 0
+          ? await tx.receipt.create({
+              data: {
+                tenantId: deposit.tenantId,
+                code: this.buildRefundReceiptCode(deposit.code),
+                amount: refundableAmount,
+                status: receiptMode,
+                description: `Deposit cancellation refund for ${deposit.code} - ${normalizedReason}`,
+                date: new Date(),
+              },
+            })
+          : null;
+
+        const refundTask =
+          refundableAmount > 0 && receiptMode !== ReceiptStatus.COMPLETED
+            ? await tx.task.create({
+                data: {
+                  tenantId: deposit.tenantId,
+                  title: `Xu ly hoan coc ${deposit.code}`,
+                  description: [
+                    `Can hoan ${refundableAmount.toLocaleString('vi-VN')} VND cho khach.`,
+                    resolutionAction === 'KEEP' ? `Giu lai ${retainedAmount.toLocaleString('vi-VN')} VND.` : null,
+                    resolutionAction === 'DEDUCT' ? `Khau tru ${deductedAmount.toLocaleString('vi-VN')} VND.` : null,
+                    normalizedReason ? `Ly do: ${normalizedReason}` : null,
+                    proofUrls.length > 0 ? `Chung tu: ${proofUrls.join(', ')}` : null,
+                  ].filter(Boolean).join('\n'),
+                  status: 'TODO' as any,
+                  priority: 'HIGH' as any,
+                  dueDate: new Date(),
+                },
+              })
+            : null;
+
+        return { updatedDeposit, refundReceipt, refundTask };
+      });
+
+      await this.auditService.log({
+        tenantId: deposit.tenantId,
+        userId,
+        module: 'Deposits',
+        entity: 'Deposit',
+        entityId: id,
+        action: 'CANCEL',
+        before: deposit,
+        after: {
+          ...result.updatedDeposit,
+          resolutionAction,
+          retainedAmount,
+          deductedAmount,
+          refundableAmount,
+          refundReceipt: result.refundReceipt ? { id: result.refundReceipt.id, code: result.refundReceipt.code, status: result.refundReceipt.status } : null,
+          refundTask: result.refundTask ? { id: result.refundTask.id, title: result.refundTask.title, status: result.refundTask.status } : null,
+        },
+      });
+
+      if (result.refundReceipt) {
+        await this.auditService.log({
+          tenantId: deposit.tenantId,
+          userId,
+          module: 'Deposits',
+          entity: 'Receipt',
+          entityId: result.refundReceipt.id,
+          action: 'CREATE',
+          before: null,
+          after: result.refundReceipt,
+        });
+      }
+
+      if (result.refundTask) {
+        await this.auditService.log({
+          tenantId: deposit.tenantId,
+          userId,
+          module: 'Deposits',
+          entity: 'Task',
+          entityId: result.refundTask.id,
+          action: 'CREATE',
+          before: null,
+          after: result.refundTask,
+        });
+      }
+
+      if (resolutionAction === 'KEEP' || resolutionAction === 'DEDUCT') {
+        const adjustmentAmount = resolutionAction === 'KEEP' ? retainedAmount : deductedAmount;
+        if (adjustmentAmount > 0) {
+          this.eventPublisher.publish('deposit.deducted', {
+            tenantId: deposit.tenantId,
+            userId,
+            customerId: deposit.customerId,
+            customerName: deposit.customer?.fullName,
+            customerPhone: deposit.customer?.phone,
+            metadata: {
+              code: deposit.code,
+              note: normalizedReason,
+              adjustmentType: resolutionAction === 'KEEP' ? 'DEPOSIT_RETAINED' : 'DEPOSIT_DEDUCTION',
+              resolutionAction,
+              originalAmount,
+              retainedAmount,
+              deductedAmount,
+              refundableAmount,
+              attachmentUrls: proofUrls,
+            },
+            sourceId: deposit.id,
+            sourceType: 'ADJUSTMENT',
+            amount: adjustmentAmount,
+            paymentProvider: 'MANUAL',
+            occurredAt: new Date(),
+          });
+        }
+      }
+
+      if (result.refundReceipt) {
+        const refundPayload = {
+          tenantId: deposit.tenantId,
+          userId,
+          customerId: deposit.customerId,
+          customerName: deposit.customer?.fullName,
+          customerPhone: deposit.customer?.phone,
+          metadata: {
+            code: deposit.code,
+            note: normalizedReason,
+            refundSourceType: 'DEPOSIT',
+            resolutionAction,
+            originalAmount,
+            refundAmount: refundableAmount,
+            retainedAmount,
+            deductedAmount,
+            attachmentUrls: proofUrls,
+            receiptId: result.refundReceipt.id,
+            receiptCode: result.refundReceipt.code,
+            taskId: result.refundTask?.id || null,
+            taskTitle: result.refundTask?.title || null,
+          },
+          sourceId: deposit.id,
+          sourceType: 'REFUND',
+          amount: refundableAmount,
+          paymentProvider: 'MANUAL',
+          occurredAt: new Date(),
+        };
+
+        if (receiptMode === ReceiptStatus.COMPLETED) {
+          this.eventPublisher.publish('deposit.refunded', refundPayload);
+        } else {
+          this.eventPublisher.publish('deposit.refund_requested', refundPayload);
+        }
+      }
+
+      return result.updatedDeposit;
     }
 
     const updateData = {

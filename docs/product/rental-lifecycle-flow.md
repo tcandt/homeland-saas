@@ -613,8 +613,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 - [x] Hoàn cọc toàn phần.
 - [x] Hoàn cọc một phần.
-- [ ] Giữ cọc theo chính sách.
-- [ ] Khấu trừ phí từ cọc.
+- [x] Giữ cọc theo chính sách.
+- [x] Khấu trừ phí từ cọc.
 - [x] Tạo phiếu chi hoàn cọc.
 - [x] Phê duyệt hoàn cọc.
 - [x] Lưu lý do hủy/hoàn/giữ cọc.

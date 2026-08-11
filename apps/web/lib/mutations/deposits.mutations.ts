@@ -69,7 +69,28 @@ export const useCompletePendingDepositRefundMutation = () => {
 export const useCancelDepositMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) => depositsApi.cancel(id, reason),
+    mutationFn: ({
+      id,
+      reason,
+      resolutionAction,
+      resolutionAmount,
+      receiptStatus,
+      attachmentUrls,
+    }: {
+      id: string;
+      reason: string;
+      resolutionAction?: "REFUND" | "KEEP" | "DEDUCT";
+      resolutionAmount?: number;
+      receiptStatus?: "PENDING" | "COMPLETED";
+      attachmentUrls?: string[];
+    }) =>
+      depositsApi.cancel(id, {
+        reason,
+        resolutionAction,
+        resolutionAmount,
+        receiptStatus,
+        attachmentUrls,
+      }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });

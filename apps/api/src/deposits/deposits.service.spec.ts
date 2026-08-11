@@ -114,24 +114,38 @@ describe('DepositsService', () => {
   });
 
   it('allows cancelling paid deposits when refund keep or deduct resolution is provided', async () => {
-    const { service, repository, auditService } = createService();
+    const { service, repository, auditService, prisma } = createService();
     const deposit = {
       id: 'deposit-1',
       tenantId: 'tenant-1',
+      code: 'DEP-CANCEL-001',
+      amount: 1000000,
       status: DepositStatus.PAID,
+      customer: {
+        fullName: 'Nguyen Van A',
+        phone: '0909000001',
+      },
     };
     repository.findById.mockResolvedValue(deposit);
-    repository.update.mockResolvedValue({ ...deposit, status: DepositStatus.CANCELLED, note: '[REFUND] Khach huy' });
+    prisma.tx.deposit.update.mockResolvedValue({ ...deposit, status: DepositStatus.CANCELLED, note: '[REFUND] Khach huy\nHoàn lại 1,000,000 VND' });
+    prisma.tx.receipt.create.mockResolvedValue({
+      id: 'receipt-cancel-1',
+      code: 'RCT-DEP-CANCEL-001-REFUND-1',
+      amount: 1000000,
+      status: 'PENDING',
+      description: 'Deposit cancellation refund for DEP-CANCEL-001 - Khach huy',
+    });
+    prisma.tx.task.create.mockResolvedValue({
+      id: 'task-cancel-1',
+      title: 'Xu ly hoan coc DEP-CANCEL-001',
+      status: 'TODO',
+    });
 
     await expect(service.cancel('deposit-1', 'Khach huy', 'user-1', 'REFUND')).resolves.toMatchObject({
       status: DepositStatus.CANCELLED,
-      note: '[REFUND] Khach huy',
+      note: expect.stringContaining('[REFUND] Khach huy'),
     });
 
-    expect(repository.update).toHaveBeenCalledWith('deposit-1', {
-      status: DepositStatus.CANCELLED,
-      note: '[REFUND] Khach huy',
-    });
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'CANCEL',
@@ -413,7 +427,7 @@ describe('DepositsService', () => {
   });
 
   it('publishes a deposit.deducted event when deducting a paid deposit on cancel', async () => {
-    const { service, repository, auditService, eventPublisher } = createService();
+    const { service, repository, auditService, eventPublisher, prisma } = createService();
     const deposit = {
       id: 'deposit-1',
       tenantId: 'tenant-1',
@@ -429,7 +443,7 @@ describe('DepositsService', () => {
     };
 
     repository.findById.mockResolvedValue(deposit);
-    repository.update.mockResolvedValue({
+    prisma.tx.deposit.update.mockResolvedValue({
       ...deposit,
       status: DepositStatus.CANCELLED,
       note: '[DEDUCT] Giu lai tien coc',
@@ -464,6 +478,131 @@ describe('DepositsService', () => {
           note: 'Giu lai tien coc',
           adjustmentType: 'DEPOSIT_DEDUCTION',
           resolutionAction: 'DEDUCT',
+        }),
+      }),
+    );
+  });
+
+  it('keeps part of a paid deposit and creates a pending refund for the remainder on cancel', async () => {
+    const { service, repository, prisma, eventPublisher } = createService();
+    const deposit = {
+      id: 'deposit-keep-1',
+      tenantId: 'tenant-1',
+      customerId: 'customer-1',
+      code: 'DEP-KEEP-001',
+      amount: 2000000,
+      status: DepositStatus.PAID,
+      note: null,
+      customer: {
+        fullName: 'Nguyen Van A',
+        phone: '0909000001',
+      },
+    };
+
+    repository.findById.mockResolvedValue(deposit);
+    prisma.tx.deposit.update.mockResolvedValue({
+      ...deposit,
+      status: DepositStatus.CANCELLED,
+      note: '[KEEP] Giu coc theo chinh sach',
+    });
+    prisma.tx.receipt.create.mockResolvedValue({
+      id: 'receipt-keep-1',
+      code: 'RCT-DEP-KEEP-001-REFUND-1',
+      amount: 500000,
+      status: 'PENDING',
+      description: 'Deposit cancellation refund for DEP-KEEP-001 - Giu coc theo chinh sach',
+    });
+    prisma.tx.task.create.mockResolvedValue({
+      id: 'task-keep-1',
+      title: 'Xu ly hoan coc DEP-KEEP-001',
+      status: 'TODO',
+    });
+
+    await expect(
+      service.cancel('deposit-keep-1', 'Giu coc theo chinh sach', 'user-1', 'KEEP', 1500000, 'PENDING', ['https://example.test/keep-proof.pdf']),
+    ).resolves.toMatchObject({
+      status: DepositStatus.CANCELLED,
+    });
+
+    expect(eventPublisher.publish).toHaveBeenCalledWith(
+      'deposit.deducted',
+      expect.objectContaining({
+        amount: 1500000,
+        metadata: expect.objectContaining({
+          adjustmentType: 'DEPOSIT_RETAINED',
+          retainedAmount: 1500000,
+          refundableAmount: 500000,
+        }),
+      }),
+    );
+    expect(eventPublisher.publish).toHaveBeenCalledWith(
+      'deposit.refund_requested',
+      expect.objectContaining({
+        amount: 500000,
+        metadata: expect.objectContaining({
+          resolutionAction: 'KEEP',
+          refundAmount: 500000,
+          retainedAmount: 1500000,
+        }),
+      }),
+    );
+  });
+
+  it('deducts part of a paid deposit and immediately refunds the remainder on cancel', async () => {
+    const { service, repository, prisma, eventPublisher } = createService();
+    const deposit = {
+      id: 'deposit-deduct-1',
+      tenantId: 'tenant-1',
+      customerId: 'customer-1',
+      code: 'DEP-DEDUCT-001',
+      amount: 2000000,
+      status: DepositStatus.PAID,
+      note: null,
+      customer: {
+        fullName: 'Nguyen Van A',
+        phone: '0909000001',
+      },
+    };
+
+    repository.findById.mockResolvedValue(deposit);
+    prisma.tx.deposit.update.mockResolvedValue({
+      ...deposit,
+      status: DepositStatus.CANCELLED,
+      note: '[DEDUCT] Khau tru phi vi pham',
+    });
+    prisma.tx.receipt.create.mockResolvedValue({
+      id: 'receipt-deduct-1',
+      code: 'RCT-DEP-DEDUCT-001-REFUND-1',
+      amount: 1200000,
+      status: 'COMPLETED',
+      description: 'Deposit cancellation refund for DEP-DEDUCT-001 - Khau tru phi vi pham',
+    });
+
+    await expect(
+      service.cancel('deposit-deduct-1', 'Khau tru phi vi pham', 'user-1', 'DEDUCT', 800000, 'COMPLETED'),
+    ).resolves.toMatchObject({
+      status: DepositStatus.CANCELLED,
+    });
+
+    expect(eventPublisher.publish).toHaveBeenCalledWith(
+      'deposit.deducted',
+      expect.objectContaining({
+        amount: 800000,
+        metadata: expect.objectContaining({
+          adjustmentType: 'DEPOSIT_DEDUCTION',
+          deductedAmount: 800000,
+          refundableAmount: 1200000,
+        }),
+      }),
+    );
+    expect(eventPublisher.publish).toHaveBeenCalledWith(
+      'deposit.refunded',
+      expect.objectContaining({
+        amount: 1200000,
+        metadata: expect.objectContaining({
+          resolutionAction: 'DEDUCT',
+          refundAmount: 1200000,
+          deductedAmount: 800000,
         }),
       }),
     );

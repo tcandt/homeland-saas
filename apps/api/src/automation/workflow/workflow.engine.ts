@@ -171,7 +171,9 @@ export class WorkflowEngine {
     const refundSourceType = payload.metadata?.refundSourceType;
     const isDepositRefund = payload.sourceType === 'REFUND' && refundSourceType === 'DEPOSIT';
     const isContractSettlementRefund = payload.sourceType === 'REFUND' && refundSourceType === 'CONTRACT_SETTLEMENT';
-    const isDepositDeduction = payload.sourceType === 'ADJUSTMENT' && payload.metadata?.adjustmentType === 'DEPOSIT_DEDUCTION';
+    const isDepositDeduction =
+      payload.sourceType === 'ADJUSTMENT' &&
+      ['DEPOSIT_DEDUCTION', 'DEPOSIT_RETAINED'].includes(String(payload.metadata?.adjustmentType || ''));
 
     if (isDepositDeduction) {
       const depositLiability = await this.resolveChartOfAccount(payload.tenantId, '1300');
@@ -191,8 +193,10 @@ export class WorkflowEngine {
         sourceType: payload.sourceType || 'UNKNOWN',
         sourceId: payload.id || payload.sourceId,
         description: payload.metadata?.code
-          ? `Khau tru coc ${payload.metadata.code}`
-          : 'Khau tru coc',
+          ? `${payload.metadata?.adjustmentType === 'DEPOSIT_RETAINED' ? 'Giu coc' : 'Khau tru coc'} ${payload.metadata.code}`
+          : payload.metadata?.adjustmentType === 'DEPOSIT_RETAINED'
+            ? 'Giu coc'
+            : 'Khau tru coc',
         entryDate: new Date(),
         status: 'POSTED',
         lines: [

@@ -76,8 +76,17 @@ export const depositsApi = {
     return apiClient.post<any>(`/deposits/${id}/refund/complete`, note ? { note } : {});
   },
 
-  cancel: (id: string, reason: string) => {
-    return apiClient.post<any>(`/deposits/${id}/cancel`, { reason });
+  cancel: (
+    id: string,
+    payload: {
+      reason: string;
+      resolutionAction?: "REFUND" | "KEEP" | "DEDUCT";
+      resolutionAmount?: number;
+      receiptStatus?: "PENDING" | "COMPLETED";
+      attachmentUrls?: string[];
+    },
+  ) => {
+    return apiClient.post<any>(`/deposits/${id}/cancel`, payload);
   },
 
   convertToContract: (id: string) => {

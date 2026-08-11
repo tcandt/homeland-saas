@@ -67,6 +67,9 @@ async function mockExpensePage(
   initialExpenses: ExpenseRow[],
   onCreate?: (payload: any) => void,
   onApprove?: (expenseId: string, payload: any) => void,
+  onPay?: (expenseId: string) => void,
+  onSettlement?: (expenseId: string, payload: any) => void,
+  onCancel?: (expenseId: string, payload: any) => void,
 ) {
   let expenses = [...initialExpenses];
   let expenseIndex = expenses.length + 1;
@@ -112,6 +115,75 @@ async function mockExpensePage(
         ? {
             ...expense,
             status: payload?.markPaid ? 'PAID' : 'APPROVED',
+          }
+        : expense,
+    );
+
+    const expense = expenses.find((item) => item.id === expenseId);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, data: expense }),
+    });
+  });
+
+  await page.route('**/api/v1/finance/expenses/*/pay', async (route: any) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const expenseId = url.pathname.split('/').slice(-2)[0];
+    onPay?.(expenseId);
+    expenses = expenses.map((expense) =>
+      expense.id === expenseId
+        ? {
+            ...expense,
+            status: 'PAID',
+          }
+        : expense,
+    );
+
+    const expense = expenses.find((item) => item.id === expenseId);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, data: expense }),
+    });
+  });
+
+  await page.route('**/api/v1/finance/expenses/*/settlement', async (route: any) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const expenseId = url.pathname.split('/').slice(-2)[0];
+    const payload = request.postDataJSON?.() || {};
+    onSettlement?.(expenseId, payload);
+    expenses = expenses.map((expense) =>
+      expense.id === expenseId
+        ? {
+            ...expense,
+            settlementStatus: payload?.settlementStatus || expense.settlementStatus,
+          }
+        : expense,
+    );
+
+    const expense = expenses.find((item) => item.id === expenseId);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, data: expense }),
+    });
+  });
+
+  await page.route('**/api/v1/finance/expenses/*/cancel', async (route: any) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const expenseId = url.pathname.split('/').slice(-2)[0];
+    const payload = request.postDataJSON?.() || {};
+    onCancel?.(expenseId, payload);
+    expenses = expenses.map((expense) =>
+      expense.id === expenseId
+        ? {
+            ...expense,
+            status: 'CANCELLED',
+            settlementStatus: 'NONE',
           }
         : expense,
     );
@@ -247,5 +319,142 @@ test.describe('Finance Expenses Regression', () => {
 
     await expect(admin.page.getByTestId('expense-confirm-modal')).not.toBeVisible();
     await expect(admin.page.locator('tr', { hasText: 'EXP-APPROVE-1' }).first()).toBeVisible();
+  });
+
+  test('marks an approved expense as paid through confirmation modal', async ({ admin }) => {
+    let paidExpenseId = '';
+
+    await mockExpensePage(
+      admin.page,
+      [createExpenseRow({ id: 'expense-pay-1', code: 'EXP-PAY-1', status: 'APPROVED' })],
+      undefined,
+      undefined,
+      (expenseId) => {
+        paidExpenseId = expenseId;
+      },
+    );
+
+    await admin.page.goto('/finance/expenses');
+    const approvedRow = admin.page.locator('tr', { hasText: 'EXP-PAY-1' }).first();
+    await expect(approvedRow).toBeVisible();
+    await approvedRow.getByRole('button', { name: /mở thao tác/i }).click();
+    await approvedRow.getByTestId('expense-pay-expense-pay-1').click();
+
+    await expect(admin.page.getByTestId('expense-confirm-modal')).toBeVisible();
+    await admin.page.getByTestId('expense-confirm-submit').click();
+
+    await expect.poll(() => paidExpenseId, { timeout: 10000 }).toBe('expense-pay-1');
+    await expect(admin.page.getByTestId('expense-confirm-modal')).not.toBeVisible();
+    await expect(admin.page.locator('tr', { hasText: 'EXP-PAY-1' }).first()).toBeVisible();
+  });
+
+  test('marks reimbursement as completed from expense table', async ({ admin }) => {
+    let settlementChange: any = null;
+
+    await mockExpensePage(
+      admin.page,
+      [
+        createExpenseRow({
+          id: 'expense-reimburse-1',
+          code: 'EXP-REIMBURSE-1',
+          status: 'PAID',
+          settlementStatus: 'PENDING_REIMBURSEMENT',
+          paidByName: 'Admin B',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      (expenseId, payload) => {
+        settlementChange = { expenseId, payload };
+      },
+    );
+
+    await admin.page.goto('/finance/expenses');
+    const paidRow = admin.page.locator('tr', { hasText: 'EXP-REIMBURSE-1' }).first();
+    await expect(paidRow).toBeVisible();
+    await paidRow.getByRole('button', { name: /mở thao tác/i }).click();
+    await paidRow.getByTestId('expense-reimburse-expense-reimburse-1').click();
+
+    await expect(admin.page.getByTestId('expense-confirm-modal')).toBeVisible();
+    await admin.page.getByTestId('expense-confirm-submit').click();
+
+    await expect
+      .poll(() => settlementChange, { timeout: 10000 })
+      .toMatchObject({
+        expenseId: 'expense-reimburse-1',
+        payload: { settlementStatus: 'REIMBURSED' },
+      });
+  });
+
+  test('marks expense for owner-profit deduction from expense table', async ({ admin }) => {
+    let settlementChange: any = null;
+
+    await mockExpensePage(
+      admin.page,
+      [
+        createExpenseRow({
+          id: 'expense-deduct-1',
+          code: 'EXP-DEDUCT-1',
+          status: 'PAID',
+          settlementStatus: 'PENDING_REIMBURSEMENT',
+          paidByName: 'Admin B',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      (expenseId, payload) => {
+        settlementChange = { expenseId, payload };
+      },
+    );
+
+    await admin.page.goto('/finance/expenses');
+    const paidRow = admin.page.locator('tr', { hasText: 'EXP-DEDUCT-1' }).first();
+    await expect(paidRow).toBeVisible();
+    await paidRow.getByRole('button', { name: /mở thao tác/i }).click();
+    await paidRow.getByTestId('expense-deduct-expense-deduct-1').click();
+
+    await expect(admin.page.getByTestId('expense-confirm-modal')).toBeVisible();
+    await admin.page.getByTestId('expense-confirm-submit').click();
+
+    await expect
+      .poll(() => settlementChange, { timeout: 10000 })
+      .toMatchObject({
+        expenseId: 'expense-deduct-1',
+        payload: { settlementStatus: 'DEDUCTED_FROM_PROFIT' },
+      });
+  });
+
+  test('cancels an expense from expense table', async ({ admin }) => {
+    let cancelChange: any = null;
+
+    await mockExpensePage(
+      admin.page,
+      [createExpenseRow({ id: 'expense-cancel-1', code: 'EXP-CANCEL-1', status: 'APPROVED' })],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (expenseId, payload) => {
+        cancelChange = { expenseId, payload };
+      },
+    );
+
+    await admin.page.goto('/finance/expenses');
+    const approvedRow = admin.page.locator('tr', { hasText: 'EXP-CANCEL-1' }).first();
+    await expect(approvedRow).toBeVisible();
+    await approvedRow.getByRole('button', { name: /mở thao tác/i }).click();
+    await approvedRow.getByTestId('expense-cancel-expense-cancel-1').click();
+
+    await expect(admin.page.getByTestId('expense-confirm-modal')).toBeVisible();
+    await admin.page.getByTestId('expense-confirm-submit').click();
+
+    await expect
+      .poll(() => cancelChange, { timeout: 10000 })
+      .toMatchObject({
+        expenseId: 'expense-cancel-1',
+        payload: { reason: 'Hủy từ bảng chi phí' },
+      });
   });
 });

@@ -45,7 +45,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
   const { data: buildings = [] } = useBuildingsQuery({ limit: 100 });
   const { data: ownerSummary = [] } = useOwnerProfitSummaryQuery();
 
-  const [buildingId, setBuildingId] = useState("");
+  const [buildingIds, setBuildingIds] = useState<string[]>([]);
   const [category, setCategory] = useState("SUPPLIES");
   const [status, setStatus] = useState("PENDING");
   const [amount, setAmount] = useState("");
@@ -56,29 +56,28 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
   const [isSubmitting, setSubmitting] = useState(false);
   const [isUploading, setUploading] = useState(false);
 
-  const selectedBuilding = useMemo(
-    () => (buildings as any[]).find((building) => building.id === buildingId),
-    [buildings, buildingId],
+  const selectedBuildings = useMemo(
+    () => (buildings as any[]).filter((building) => buildingIds.includes(building.id)),
+    [buildings, buildingIds],
   );
 
   const ownerName = useMemo(() => {
+    if (buildingIds.length > 1) return `${buildingIds.length} tòa đã chọn`;
     const summaries = Array.isArray(ownerSummary) ? ownerSummary : [];
     const matched = summaries.find((row: any) =>
-      (row.buildings || []).some((building: any) => building.id === buildingId),
+      (row.buildings || []).some((building: any) => building.id === buildingIds[0]),
     );
     return matched?.owner?.name || "Tự suy từ tòa nhà";
-  }, [ownerSummary, buildingId]);
+  }, [ownerSummary, buildingIds]);
 
-  const buildingOptions = useMemo(() => [
-    { value: "", label: "Chọn tòa nhà" },
-    ...(buildings as any[]).map((building) => ({
-      value: building.id,
-      label: building.code || building.name,
-    })),
-  ], [buildings]);
+  const toggleBuilding = (buildingId: string) => {
+    setBuildingIds((current) =>
+      current.includes(buildingId) ? current.filter((id) => id !== buildingId) : [...current, buildingId],
+    );
+  };
 
   const reset = () => {
-    setBuildingId("");
+    setBuildingIds([]);
     setCategory("SUPPLIES");
     setStatus("PENDING");
     setAmount("");
@@ -134,8 +133,8 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
     event.preventDefault();
     const numericAmount = Number(String(amount).replace(/[^\d.]/g, ""));
 
-    if (!buildingId) {
-      toast.error("Cần chọn tòa nhà");
+    if (buildingIds.length === 0) {
+      toast.error("Cần chọn ít nhất một tòa nhà");
       return;
     }
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -145,22 +144,39 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
 
     setSubmitting(true);
     try {
-      await financeApi.createExpense({
-        buildingId,
-        category,
-        status,
-        amount: numericAmount,
-        paidByName: paidByName.trim() || null,
-        vendor: vendor.trim() || null,
-        attachmentUrls,
-        description: description.trim() || `${categoryOptions.find((item) => item.value === category)?.label || "Chi phí"} - ${selectedBuilding?.code || selectedBuilding?.name || ""}`,
-      });
+      const selectedCodes = selectedBuildings.map((building: any) => building.code || building.name).filter(Boolean);
+      const baseAmount = Math.floor(numericAmount / buildingIds.length);
+      const remainder = numericAmount - baseAmount * buildingIds.length;
+      const fallbackName = categoryOptions.find((item) => item.value === category)?.label || "Chi phí";
+      const baseDescription = description.trim() || `${fallbackName} - ${selectedCodes.join(", ")}`;
 
-      toast.success("Đã tạo chi phí phát sinh");
+      await Promise.all(
+        buildingIds.map((targetBuildingId, index) => {
+          const targetBuilding = selectedBuildings.find((building: any) => building.id === targetBuildingId);
+          const targetAmount = index === buildingIds.length - 1 ? baseAmount + remainder : baseAmount;
+          const multiBuildingNote =
+            buildingIds.length > 1
+              ? `Nhóm tòa: ${selectedCodes.join(", ")}. Tổng chi phí gốc: ${numericAmount.toLocaleString("vi-VN")} đ. Phân bổ cho ${targetBuilding?.code || targetBuilding?.name || "tòa"}: ${targetAmount.toLocaleString("vi-VN")} đ.`
+              : "";
+
+          return financeApi.createExpense({
+            buildingId: targetBuildingId,
+            category,
+            status,
+            amount: targetAmount,
+            paidByName: paidByName.trim() || null,
+            vendor: vendor.trim() || null,
+            attachmentUrls,
+            description: multiBuildingNote ? `${baseDescription}\n${multiBuildingNote}` : baseDescription,
+          });
+        }),
+      );
+
+      toast.success(buildingIds.length > 1 ? `Đã tạo ${buildingIds.length} khoản chi theo từng tòa` : "Đã tạo chi phí phát sinh");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: financeKeys.ownerProfitSummary() }),
-        queryClient.invalidateQueries({ queryKey: financeKeys.expenses(undefined) }),
-        queryClient.invalidateQueries({ queryKey: financeKeys.ledger(undefined) }),
+        queryClient.invalidateQueries({ queryKey: financeKeys.expensesRoot() }),
+        queryClient.invalidateQueries({ queryKey: financeKeys.ledgerRoot() }),
       ]);
       reset();
       onClose();
@@ -197,7 +213,28 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
     >
       <form id="expense-create-form" onSubmit={handleSubmit} data-testid="expense-create-form" className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Tòa nhà">
-          <Select value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} data-testid="expense-create-building" />
+          <div className="max-h-[176px] overflow-auto rounded-2xl border border-border bg-surface/50 p-2" data-testid="expense-create-building">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {(buildings as any[]).map((building) => {
+                const active = buildingIds.includes(building.id);
+                return (
+                  <button
+                    key={building.id}
+                    type="button"
+                    onClick={() => toggleBuilding(building.id)}
+                    className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-[12px] font-black transition-colors ${
+                      active
+                        ? "border-[#8b5cf6]/40 bg-[#8b5cf6]/10 text-[#6d3df8]"
+                        : "border-border bg-card text-text hover:border-[#8b5cf6]/30"
+                    }`}
+                  >
+                    <span className="truncate">{building.code || building.name}</span>
+                    <span className={`h-4 w-4 shrink-0 rounded border ${active ? "border-[#6d3df8] bg-[#6d3df8]" : "border-border bg-card"}`} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </Field>
 
         <Field label="Chủ sở hữu">

@@ -727,9 +727,9 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Test SePay webhook thừa tiền.
 - [x] Test SePay webhook sai nội dung.
 - [x] Test settlement trả phòng.
-- [ ] E2E Finance page.
-- [ ] E2E tạo chi phí phát sinh.
-- [ ] E2E duyệt chi phí.
+- [x] E2E Finance page.
+- [x] E2E tạo chi phí phát sinh.
+- [x] E2E duyệt chi phí.
 
 ### Thứ tự ưu tiên khuyến nghị
 

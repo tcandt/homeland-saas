@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+﻿import { expect } from '@playwright/test';
 import { test } from '../../fixtures/admin.fixture';
 
 type ExpenseRow = {
@@ -35,7 +35,7 @@ const baseBuilding = {
 
 const ownerSummary = [
   {
-    owner: { id: 'owner-1', name: 'Tính', code: 'OWNER_A' },
+    owner: { id: 'owner-1', name: 'TÃ­nh', code: 'OWNER_A' },
     buildings: [{ id: 'building-1', code: 'LK01-31', name: 'LK01-31' }],
   },
 ];
@@ -47,14 +47,14 @@ function createExpenseRow(overrides: Partial<ExpenseRow> = {}): ExpenseRow {
     status: overrides.status || 'PENDING',
     category: overrides.category || 'SUPPLIES',
     amount: overrides.amount ?? 350000,
-    description: overrides.description || 'Mua vật tư vệ sinh',
+    description: overrides.description || 'Mua váº­t tÆ° vá»‡ sinh',
     createdAt: overrides.createdAt || '2026-08-10T08:00:00.000Z',
     date: overrides.date || '2026-08-10T08:00:00.000Z',
     settlementStatus: overrides.settlementStatus || 'NONE',
     paidByName: overrides.paidByName ?? 'Admin A',
-    vendor: overrides.vendor ?? 'Cửa hàng vật tư',
+    vendor: overrides.vendor ?? 'Cá»­a hÃ ng váº­t tÆ°',
     attachmentUrls: overrides.attachmentUrls || [],
-    owner: overrides.owner || { id: 'owner-1', name: 'Tính' },
+    owner: overrides.owner || { id: 'owner-1', name: 'TÃ­nh' },
     building: overrides.building || { id: 'building-1', code: 'LK01-31', name: 'LK01-31' },
     room: overrides.room ?? null,
     costCenter: overrides.costCenter ?? null,
@@ -124,7 +124,7 @@ async function mockExpensePage(
     });
   });
 
-  await page.route('**/api/v1/finance/expenses', async (route: any) => {
+  await page.route('**/api/v1/finance/expenses*', async (route: any) => {
     const request = route.request();
     if (request.method() === 'POST') {
       const payload = request.postDataJSON?.() || {};
@@ -136,7 +136,7 @@ async function mockExpensePage(
         status: payload.status || 'PENDING',
         category: payload.category || 'SUPPLIES',
         amount: Number(payload.amount || 0),
-        description: payload.description || 'Chi phí mới',
+        description: payload.description || 'Chi phÃ­ má»›i',
         paidByName: payload.paidByName || null,
         vendor: payload.vendor || null,
       });
@@ -169,11 +169,11 @@ test.describe('Finance Expenses Regression', () => {
     await admin.page.goto('/finance/expenses');
 
     await expect(admin.page.getByTestId('finance-expenses-root')).toBeVisible();
-    await expect(admin.page.getByTestId('expense-open-create-modal')).toBeVisible();
+    await expect(admin.page.getByTestId('expense-table-create-button')).toBeVisible();
     await expect(admin.page.getByTestId('expense-table-root')).toBeVisible();
     await expect(admin.page.getByTestId('expense-table-desktop')).toBeVisible();
-    await expect(admin.page.getByTestId('expense-row-expense-1')).toBeVisible();
-    await expect(admin.page.getByTestId('expense-row-expense-2')).toBeVisible();
+    await expect(admin.page.locator('tr', { hasText: 'EXP-001' }).first()).toBeVisible();
+    await expect(admin.page.locator('tr', { hasText: 'EXP-002' }).first()).toBeVisible();
   });
 
   test('creates a new expense from modal', async ({ admin }) => {
@@ -187,16 +187,17 @@ test.describe('Finance Expenses Regression', () => {
     );
 
     await admin.page.goto('/finance/expenses');
-    await admin.page.getByTestId('expense-open-create-modal').click();
+    await admin.page.getByTestId('expense-table-create-button').click();
 
     await expect(admin.page.getByTestId('expense-create-modal')).toBeVisible();
-    await admin.page.getByTestId('expense-create-building').selectOption('building-1');
-    await admin.page.getByTestId('expense-create-category').selectOption('REPAIR');
-    await admin.page.getByTestId('expense-create-status').selectOption('PENDING');
+    const createForm = admin.page.getByTestId('expense-create-form');
+    await admin.page.getByTestId('expense-create-building').getByText('LK01-31').click();
+    await createForm.locator('select').nth(0).selectOption('REPAIR');
+    await createForm.locator('select').nth(1).selectOption('PENDING');
     await admin.page.getByTestId('expense-create-amount').fill('450000');
-    await admin.page.locator('#expense-create-form input').nth(2).fill('Admin B');
-    await admin.page.locator('#expense-create-form input').nth(3).fill('Nhà cung cấp A');
-    await admin.page.locator('#expense-create-form textarea').fill('Sửa khóa cửa phòng 32-01');
+    await createForm.getByPlaceholder(/admin/i).fill('Admin B');
+    await createForm.getByPlaceholder(/Cửa hàng vật tư/i).fill('Nhà cung cấp A');
+    await createForm.locator('textarea').fill('Sửa khóa cửa phòng 32-01');
     await admin.page.getByRole('button', { name: /lưu chi phí/i }).click();
 
     await expect
@@ -211,7 +212,7 @@ test.describe('Finance Expenses Regression', () => {
         description: 'Sửa khóa cửa phòng 32-01',
       });
 
-    await expect(admin.page.getByTestId('expense-row-expense-2')).toBeVisible();
+    await expect(admin.page.locator('tr', { hasText: 'EXP-NEW-2' }).first()).toBeVisible();
   });
 
   test('approves a pending expense through confirmation modal', async ({ admin }) => {
@@ -229,7 +230,10 @@ test.describe('Finance Expenses Regression', () => {
     );
 
     await admin.page.goto('/finance/expenses');
-    await admin.page.getByTestId('expense-approve-expense-approve-1').click();
+    const pendingRow = admin.page.locator('tr', { hasText: 'EXP-APPROVE-1' }).first();
+    await expect(pendingRow).toBeVisible();
+    await pendingRow.getByRole('button', { name: /mở thao tác/i }).click();
+    await pendingRow.getByTestId('expense-approve-expense-approve-1').click();
 
     await expect(admin.page.getByTestId('expense-confirm-modal')).toBeVisible();
     await admin.page.getByTestId('expense-confirm-submit').click();
@@ -242,6 +246,6 @@ test.describe('Finance Expenses Regression', () => {
       });
 
     await expect(admin.page.getByTestId('expense-confirm-modal')).not.toBeVisible();
-    await expect(admin.page.getByTestId('expense-row-expense-approve-1')).toBeVisible();
+    await expect(admin.page.locator('tr', { hasText: 'EXP-APPROVE-1' }).first()).toBeVisible();
   });
 });

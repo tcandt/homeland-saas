@@ -3,6 +3,7 @@ import { financeAdapter } from '../adapters/finance.adapter';
 
 export const financeKeys = {
   all: ['finance'] as const,
+  ledgerRoot: () => [...financeKeys.all, 'ledger'] as const,
   ledger: (params: any) => [...financeKeys.all, 'ledger', params] as const,
   cashFlow: (params: any) => [...financeKeys.all, 'cashFlow', params] as const,
   profitLoss: (params: any) => [...financeKeys.all, 'profitLoss', params] as const,
@@ -11,7 +12,9 @@ export const financeKeys = {
   ownerProfitSummary: () => [...financeKeys.all, 'ownerProfitSummary'] as const,
   ownerProfitDetail: (id: string, params: any) => [...financeKeys.all, 'ownerProfitDetail', id, params] as const,
   bankCashFlow: (params: any) => [...financeKeys.all, 'bankCashFlow', params] as const,
+  bankTransactions: (params: any) => [...financeKeys.all, 'bankTransactions', params] as const,
   sePayReconciliation: (params: any) => [...financeKeys.all, 'sePayReconciliation', params] as const,
+  expensesRoot: () => [...financeKeys.all, 'expenses'] as const,
   expenses: (params: any) => [...financeKeys.all, 'expenses', params] as const,
 };
 
@@ -70,6 +73,13 @@ export function useBankCashFlowQuery(params?: Record<string, any>) {
   return useQuery({
     queryKey: financeKeys.bankCashFlow(params),
     queryFn: () => financeAdapter.getBankCashFlow(params),
+  });
+}
+
+export function useBankTransactionsQuery(params?: Record<string, any>) {
+  return useQuery({
+    queryKey: financeKeys.bankTransactions(params),
+    queryFn: () => financeAdapter.getBankTransactions(params),
   });
 }
 

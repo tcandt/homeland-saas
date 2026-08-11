@@ -39,8 +39,8 @@ function createContract(overrides: Record<string, any> = {}) {
 function createSettlementPreview(payload: any) {
   const depositToRefund = Number(payload?.depositToRefund || 0);
   const depositToDeduct = Number(payload?.depositToDeduct || 0);
-  const chargeTotal = 2100000 + depositToDeduct;
-  const creditTotal = 1200000 + depositToRefund;
+  const chargeTotal = 2100000;
+  const creditTotal = 1200000 + depositToRefund + depositToDeduct;
   const refundToCustomer = Math.max(creditTotal - chargeTotal, 0);
   const netReceivable = Math.max(chargeTotal - creditTotal, 0);
 
@@ -52,11 +52,11 @@ function createSettlementPreview(payload: any) {
       { key: "electricityAmount", description: "Electricity settlement", amount: 500000 },
       { key: "waterAmount", description: "Water settlement", amount: 200000 },
       { key: "serviceAmount", description: "Service fee", amount: 200000 },
-      ...(depositToDeduct > 0 ? [{ key: "depositToDeduct", description: "Deposit applied to outstanding debt", amount: depositToDeduct }] : []),
     ],
     credits: [
       { key: "roomRefundAmount", description: "Room refund", amount: 700000 },
       { key: "waterSupportAmount", description: "Water support", amount: 500000 },
+      ...(depositToDeduct > 0 ? [{ key: "depositToDeduct", description: "Deposit applied to outstanding debt", amount: depositToDeduct }] : []),
       ...(depositToRefund > 0 ? [{ key: "depositToRefund", description: "Deposit refund", amount: depositToRefund }] : []),
     ],
     totals: {
@@ -335,6 +335,73 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       .poll(() => mock.getLastRoomUpdatePayload(), { timeout: 10000 })
       .toMatchObject({
         status: "AVAILABLE",
+      });
+  });
+
+  test("shows deposit deduction as settlement credit instead of extra charge", async ({ admin }) => {
+    const mock = await mockContracts(admin.page);
+
+    await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
+
+    await admin.page
+      .locator("[data-testid='contract-card']:visible")
+      .filter({ hasText: "C-ACTIVE-001" })
+      .first()
+      .dispatchEvent("click");
+
+    await admin.page.getByTestId("btn-open-settlement").click();
+    await expect(admin.page.getByTestId("contract-settlement-modal")).toBeVisible();
+
+    await admin.page.getByTestId("contract-settlement-deposit-refund").fill("");
+    await admin.page.getByTestId("contract-settlement-deposit-deduct").fill("500000");
+
+    await expect
+      .poll(() => mock.getLastPreviewPayload(), { timeout: 10000 })
+      .toMatchObject({
+        depositToDeduct: 500000,
+      });
+
+    await expect(admin.page.getByText("Deposit applied to outstanding debt")).toBeVisible();
+    await expect(admin.page.getByText("500.000đ")).toHaveCount(1);
+    await expect(admin.page.getByText("Thu thêm:").locator("..")).toContainText("400.000đ");
+  });
+
+  test("terminates contract with maintenance turnover and completed refund surplus", async ({ admin }) => {
+    const mock = await mockContracts(admin.page);
+
+    await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
+
+    await admin.page
+      .locator("[data-testid='contract-card']:visible")
+      .filter({ hasText: "C-ACTIVE-001" })
+      .first()
+      .dispatchEvent("click");
+
+    await admin.page.getByTestId("btn-open-settlement").click();
+    await expect(admin.page.getByTestId("contract-settlement-modal")).toBeVisible();
+
+    await admin.page.getByTestId("contract-settlement-room-turnover-status").selectOption("MAINTENANCE");
+    await admin.page.getByTestId("contract-settlement-deposit-refund").fill("2000000");
+    await admin.page.getByTestId("contract-settlement-deposit-deduct").fill("");
+
+    await expect
+      .poll(() => mock.getLastPreviewPayload(), { timeout: 10000 })
+      .toMatchObject({
+        roomTurnoverStatus: "MAINTENANCE",
+        depositToRefund: 2000000,
+      });
+
+    await expect(admin.page.getByText("Bảo trì trước khi mở bán")).toBeVisible();
+    await expect(admin.page.getByText("Hoàn khách:").locator("..")).toContainText("1.100.000đ");
+
+    await admin.page.getByTestId("btn-confirm-terminate-settlement").click();
+
+    await expect
+      .poll(() => mock.getLastTerminatePayload(), { timeout: 10000 })
+      .toMatchObject({
+        roomTurnoverStatus: "MAINTENANCE",
+        depositToRefund: 2000000,
+        refundReceiptStatus: "COMPLETED",
       });
   });
 });

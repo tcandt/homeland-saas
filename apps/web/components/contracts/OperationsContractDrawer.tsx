@@ -1171,6 +1171,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
             <div className="grid gap-4 md:grid-cols-2">
               <Input data-testid="contract-settlement-actual-move-out-date" type="date" value={settlementForm.actualMoveOutDate} onChange={(event) => updateSettlementField("actualMoveOutDate", event.target.value)} />
               <Select
+                data-testid="contract-settlement-room-turnover-status"
                 value={settlementForm.roomTurnoverStatus}
                 onChange={(event) => updateSettlementField("roomTurnoverStatus", event.target.value)}
                 options={[

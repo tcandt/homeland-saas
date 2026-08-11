@@ -775,7 +775,7 @@ export class FinanceReportingService {
 
   async getBankTransactions(
     tenantId: string,
-    options: { year?: string; month?: string; bankAccountId?: string; direction?: string; search?: string; limit?: string } = {},
+    options: { year?: string; month?: string; bankAccountId?: string; direction?: string; content?: string; search?: string; limit?: string } = {},
   ) {
     const period = this.buildPeriodRange(options.year, options.month);
     const bankAccounts = await this.prisma.bankAccount.findMany({
@@ -792,6 +792,7 @@ export class FinanceReportingService {
     const bankByAccountNumber = new Map(bankAccounts.map((bank) => [bank.accountNumber, bank]));
     const requestedLimit = Number(options.limit || 200);
     const limit = Number.isFinite(requestedLimit) ? Math.min(1000, Math.max(20, Math.round(requestedLimit))) : 200;
+    const content = String(options.content || '').trim().toLowerCase();
     const search = String(options.search || '').trim().toLowerCase();
     const requestedDirection = String(options.direction || '').toUpperCase();
 
@@ -878,6 +879,7 @@ export class FinanceReportingService {
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row))
       .filter((row) => !requestedDirection || row.direction === requestedDirection)
+      .filter((row) => !content || row.content.toLowerCase().includes(content))
       .filter((row) => {
         if (!search) return true;
         const haystack = [
@@ -960,6 +962,7 @@ export class FinanceReportingService {
       const accountNumber = String(payload?.accountNumber || payload?.account_number || payload?.bank_account_xid || '').trim();
       const transferType = String(payload?.transferType || payload?.transfer_type || '').toLowerCase();
       const request = paymentCode ? requestByCode.get(paymentCode) : null;
+      const requestMetadata = (request?.metadata as any) || {};
       const expectedAmount = request ? Number(request.amount || 0) : 0;
       const amountDiff = request ? amount - expectedAmount : amount;
       const directionInvalid = transferType === 'debit' || transferType === 'out';
@@ -989,6 +992,20 @@ export class FinanceReportingService {
         requestStatus: request?.status || null,
         owner: request?.owner || null,
         bankAccount: request?.bankAccount || null,
+        overpaymentResolution: requestMetadata.overpaymentResolution || payload?.overpaymentResolution || null,
+        overpaymentAmount: Number(
+          requestMetadata.overpaymentAmount ??
+            payload?.overpaymentAmount ??
+            Math.max(amountDiff, 0),
+        ),
+        overpaymentResolvedAt:
+          requestMetadata.overpaymentResolvedAt || payload?.overpaymentResolvedAt || null,
+        overpaymentRefundCompletedAt:
+          requestMetadata.overpaymentRefundCompletedAt || payload?.overpaymentRefundCompletedAt || null,
+        overpaymentRefundCompletionNote:
+          requestMetadata.overpaymentRefundCompletionNote || payload?.overpaymentRefundCompletionNote || null,
+        overpaymentTaskId: requestMetadata.overpaymentTaskId || payload?.overpaymentTaskId || null,
+        overpaymentTaskTitle: requestMetadata.overpaymentTaskTitle || payload?.overpaymentTaskTitle || null,
       };
     });
 

@@ -28,6 +28,12 @@ export const financeApi = {
   getBankCashFlow: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/banks/cashflow', { params });
   },
+  getBankTransactions: async (params?: Record<string, any>) => {
+    return await apiClient.get<any>('/finance/banks/transactions', { params });
+  },
+  updateBankAccountStatus: async (id: string, payload: { isActive: boolean }) => {
+    return await apiClient.patch<any>(`/finance/banks/${id}/status`, payload);
+  },
   getSePayReconciliation: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/sepay/reconciliation', { params });
   },
@@ -36,6 +42,9 @@ export const financeApi = {
   },
   resolveSePayOverpayment: async (payload: { logId: string; resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD' | 'REFUND_PENDING' }) => {
     return await apiClient.post<any>('/payments/sepay/resolve-overpayment', payload);
+  },
+  completeSePayOverpaymentRefund: async (payload: { logId: string; note?: string }) => {
+    return await apiClient.post<any>('/payments/sepay/complete-overpayment-refund', payload);
   },
   getExpenses: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/expenses', { params });

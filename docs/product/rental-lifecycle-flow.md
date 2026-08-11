@@ -627,7 +627,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Hỗ trợ thanh toán một phần.
 - [x] Hỗ trợ dư tiền khách.
 - [x] Cấn trừ dư tiền vào kỳ sau.
-- [ ] Hoàn dư tiền nếu cần.
+- [x] Hoàn dư tiền nếu cần.
 - [x] Tự động chuyển hóa đơn sang quá hạn.
 - [x] Nhắc nợ trước hạn.
 - [x] Nhắc nợ sau hạn.

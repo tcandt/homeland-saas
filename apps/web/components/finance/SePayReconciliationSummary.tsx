@@ -61,6 +61,8 @@ export default function SePayReconciliationSummary() {
   const [status, setStatus] = useState("");
   const [activeRow, setActiveRow] = useState<any | null>(null);
   const [resolutionRow, setResolutionRow] = useState<any | null>(null);
+  const [refundCompletionRow, setRefundCompletionRow] = useState<any | null>(null);
+  const [refundCompletionNote, setRefundCompletionNote] = useState("");
   const [sourceType, setSourceType] = useState<"INVOICE" | "DEPOSIT">("INVOICE");
   const [sourceCode, setSourceCode] = useState("");
   const [overpaymentResolution, setOverpaymentResolution] = useState<"CREDIT_BALANCE" | "CARRY_FORWARD" | "REFUND_PENDING">("CREDIT_BALANCE");
@@ -105,6 +107,17 @@ export default function SePayReconciliationSummary() {
     setIsSubmitting(false);
   };
 
+  const openRefundCompletionModal = (row: any) => {
+    setRefundCompletionRow(row);
+    setRefundCompletionNote("");
+  };
+
+  const closeRefundCompletionModal = () => {
+    setRefundCompletionRow(null);
+    setRefundCompletionNote("");
+    setIsSubmitting(false);
+  };
+
   const handleManualAssign = async () => {
     if (!activeRow || !sourceCode.trim()) {
       toast.error("Cần nhập mã hóa đơn hoặc mã cọc.");
@@ -140,6 +153,23 @@ export default function SePayReconciliationSummary() {
       closeResolveModal();
     } catch (error: any) {
       toast.error(error?.message || "Không thể xử lý tiền thừa.");
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCompleteOverpaymentRefund = async () => {
+    if (!refundCompletionRow) return;
+    setIsSubmitting(true);
+    try {
+      await financeApi.completeSePayOverpaymentRefund({
+        logId: refundCompletionRow.id,
+        note: refundCompletionNote.trim() || undefined,
+      });
+      await queryClient.invalidateQueries({ queryKey: financeKeys.all });
+      toast.success("Đã xác nhận hoàn tất hoàn dư.");
+      closeRefundCompletionModal();
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể xác nhận hoàn tất hoàn dư.");
       setIsSubmitting(false);
     }
   };
@@ -202,7 +232,19 @@ export default function SePayReconciliationSummary() {
                 )}
                 {rows.map((row: any) => {
                   const canManualAssign = row.status !== "MATCHED" && row.status !== "IGNORED_OUTGOING";
-                  const canResolveOverpayment = row.status === "OVER_AMOUNT";
+                  const isRefundPending =
+                    row.overpaymentResolution === "REFUND_PENDING" && !row.overpaymentRefundCompletedAt;
+                  const canResolveOverpayment = row.status === "OVER_AMOUNT" && !row.overpaymentResolution;
+                  const resolutionLabel =
+                    row.overpaymentResolution === "CREDIT_BALANCE"
+                      ? "Đã chuyển dư có"
+                      : row.overpaymentResolution === "CARRY_FORWARD"
+                        ? "Đã cấn trừ kỳ sau"
+                        : row.overpaymentResolution === "REFUND_PENDING" && row.overpaymentRefundCompletedAt
+                          ? "Đã hoàn dư"
+                          : row.overpaymentResolution === "REFUND_PENDING"
+                            ? "Chờ hoàn dư"
+                            : null;
                   return (
                     <tr key={row.id} className="border-t border-border">
                       <td className="px-4 py-3 text-[12px] font-semibold text-muted">{formatDateTime(row.createdAt)}</td>
@@ -219,7 +261,14 @@ export default function SePayReconciliationSummary() {
                       <td className="px-4 py-3 font-black text-text">{row.paymentCode || "-"}</td>
                       <td className="px-4 py-3">
                         <div className="font-bold text-text">{row.sourceType || "-"}</div>
-                        <div className="text-[11px] text-muted">{row.requestStatus || row.providerTransactionId || "-"}</div>
+                        <div className="text-[11px] text-muted">
+                          {row.requestStatus || row.providerTransactionId || "-"}
+                        </div>
+                        {resolutionLabel ? (
+                          <div className="mt-1 text-[11px] font-semibold text-[#2563eb]">
+                            {resolutionLabel}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-right font-black text-[#059669]">{formatVnd(row.amount)}</td>
                       <td className="px-4 py-3 text-right font-black text-text">{formatVnd(row.expectedAmount)}</td>
@@ -229,6 +278,12 @@ export default function SePayReconciliationSummary() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {isRefundPending && (
+                            <Button variant="outline" size="sm" onClick={() => openRefundCompletionModal(row)}>
+                              <CheckCircle2 size={14} className="mr-1.5" />
+                              Xác nhận hoàn
+                            </Button>
+                          )}
                           {canResolveOverpayment && (
                             <Button variant="outline" size="sm" onClick={() => openResolveModal(row)}>
                               <RotateCcw size={14} className="mr-1.5" />
@@ -240,7 +295,7 @@ export default function SePayReconciliationSummary() {
                               <Link2 size={14} className="mr-1.5" />
                               Gán tay
                             </Button>
-                          ) : !canResolveOverpayment ? (
+                          ) : !canResolveOverpayment && !isRefundPending ? (
                             <span className="text-[12px] font-semibold text-muted">-</span>
                           ) : null}
                         </div>
@@ -354,6 +409,67 @@ export default function SePayReconciliationSummary() {
                   )
                 }
                 options={overpaymentResolutionOptions}
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={!!refundCompletionRow}
+        onClose={closeRefundCompletionModal}
+        title="Hoàn tất hoàn dư SePay"
+        maxWidth="max-w-xl"
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <Button variant="outline" onClick={closeRefundCompletionModal}>
+              Hủy
+            </Button>
+            <Button onClick={handleCompleteOverpaymentRefund} disabled={isSubmitting}>
+              {isSubmitting ? "Đang cập nhật..." : "Xác nhận đã hoàn"}
+            </Button>
+          </div>
+        }
+      >
+        {refundCompletionRow && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-[14px] border border-border bg-surface p-3">
+                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Payment code</div>
+                <div className="mt-2 text-[13px] font-black text-text">{refundCompletionRow.paymentCode || "-"}</div>
+              </div>
+              <div className="rounded-[14px] border border-border bg-surface p-3">
+                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Tiền thừa</div>
+                <div className="mt-2 text-[13px] font-black text-blue-600">
+                  {formatVnd(
+                    refundCompletionRow.overpaymentAmount ||
+                      Math.max(
+                        0,
+                        Number(refundCompletionRow.amount || 0) - Number(refundCompletionRow.expectedAmount || 0),
+                      ),
+                  )}
+                </div>
+              </div>
+              <div className="rounded-[14px] border border-border bg-surface p-3">
+                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Tác vụ</div>
+                <div className="mt-2 text-[13px] font-black text-text">
+                  {refundCompletionRow.overpaymentTaskTitle || "Đang chờ hoàn"}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[14px] border border-amber-200 bg-amber-50 p-3 text-[12px] leading-5 text-amber-900">
+              Xác nhận này sẽ đóng tác vụ hoàn dư và ghi dấu vết vào payment request để đối soát sau.
+            </div>
+
+            <div>
+              <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">
+                Ghi chú hoàn tất
+              </div>
+              <Input
+                value={refundCompletionNote}
+                onChange={(event) => setRefundCompletionNote(event.target.value)}
+                placeholder="Mã giao dịch hoàn tiền, người thực hiện hoặc ghi chú nội bộ"
               />
             </div>
           </div>

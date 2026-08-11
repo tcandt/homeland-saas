@@ -63,6 +63,64 @@ export class PaymentsService {
     private readonly auditService: AuditService,
   ) {}
 
+  private async notifySePayMismatch(
+    tenantId: string,
+    context: {
+      title: string;
+      message: string;
+      paymentCode?: string | null;
+      transactionId?: string | null;
+      expectedAmount?: number | null;
+      actualAmount?: number | null;
+      expectedBankAccount?: string | null;
+      actualBankAccount?: string | null;
+    },
+  ) {
+    const users = await this.prisma.user.findMany({
+      where: { tenantId },
+      select: { id: true, email: true },
+    });
+
+    const adminUsers = users.filter((user: any) => {
+      const email = String(user.email || '').toLowerCase();
+      return email === 'admina@homeland.local' || email === 'adminb@homeland.local';
+    });
+    const recipients = adminUsers.length > 0 ? adminUsers : [{ id: null }];
+
+    await Promise.all(
+      recipients.map((user: any) =>
+        this.communicationService.dispatch({
+          tenantId,
+          userId: user.id || null,
+          channel: NotificationChannel.IN_APP,
+          templateCode: 'SYSTEM_ALERT',
+          moduleType: 'PAYMENTS',
+          context,
+        }),
+      ),
+    );
+  }
+
+  private async logPaymentAudit(
+    tenantId: string,
+    entity: string,
+    entityId: string,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    userId?: string,
+  ) {
+    await this.auditService.log({
+      action: AuditAction.UPDATE,
+      module: 'Payments',
+      entity,
+      entityId,
+      tenantId,
+      userId,
+      before,
+      after,
+    });
+  }
+
   private async createOverpaymentJournalEntry(
     tenantId: string,
     creditNoteId: string,
@@ -215,6 +273,7 @@ export class PaymentsService {
     sourceId: string,
     amount: number,
     memoPrefix: string,
+    userId?: string,
     metadata?: Prisma.InputJsonValue,
     allocation?: { ownerId?: string | null; buildingId?: string | null; roomId?: string | null },
   ): Promise<PaymentRequestResponse> {
@@ -252,6 +311,26 @@ export class PaymentsService {
       },
     });
 
+    await this.auditService.log({
+      action: AuditAction.CREATE,
+      module: 'Payments',
+      entity: 'PaymentRequest',
+      entityId: request.id,
+      tenantId,
+      userId,
+      after: {
+        sourceType: request.sourceType,
+        sourceId: request.sourceId,
+        paymentCode: request.paymentCode,
+        amount: Number(request.amount || 0),
+        ownerId: request.ownerId,
+        buildingId: request.buildingId,
+        roomId: request.roomId,
+        bankAccountId: request.bankAccountId,
+        bankAccountNumber: request.bankAccountNumber,
+      },
+    });
+
     return {
       id: request.id,
       sourceType: request.sourceType,
@@ -283,6 +362,7 @@ export class PaymentsService {
       invoice.id,
       remaining,
       'INV',
+      userId,
       { invoiceCode: invoice.code, customerId: invoice.customerId, createdBy: userId },
       {
         ownerId: invoice.contract?.room?.building?.ownerId,
@@ -317,6 +397,25 @@ export class PaymentsService {
       },
     });
 
+    await this.logPaymentAudit(
+      invoice.tenantId,
+      'PaymentRequestDispatch',
+      request.id,
+      {
+        sourceType: request.sourceType,
+        sourceId: request.sourceId,
+        channel: null,
+      },
+      {
+        sourceType: request.sourceType,
+        sourceId: request.sourceId,
+        channel: NotificationChannel.ZALO,
+        recipient: customerPhone,
+        paymentCode: request.paymentCode,
+      },
+      userId,
+    );
+
     return request;
   }
 
@@ -333,6 +432,7 @@ export class PaymentsService {
       deposit.id,
       Number(deposit.amount),
       'DEP',
+      userId,
       { depositCode: deposit.code, customerId: deposit.customerId, createdBy: userId },
       {
         ownerId: deposit.room?.building?.ownerId,
@@ -365,6 +465,25 @@ export class PaymentsService {
         sentAt: new Date(),
       },
     });
+
+    await this.logPaymentAudit(
+      deposit.tenantId,
+      'PaymentRequestDispatch',
+      request.id,
+      {
+        sourceType: request.sourceType,
+        sourceId: request.sourceId,
+        channel: null,
+      },
+      {
+        sourceType: request.sourceType,
+        sourceId: request.sourceId,
+        channel: NotificationChannel.ZALO,
+        recipient: customerPhone,
+        paymentCode: request.paymentCode,
+      },
+      userId,
+    );
 
     return request;
   }
@@ -704,13 +823,14 @@ export class PaymentsService {
       overpaymentLogId: payload.logId,
     };
 
+    let pendingRefundTask: { id: string; title: string } | null = null;
     if (payload.resolution === 'REFUND_PENDING') {
       const title =
         request.sourceType === PaymentSourceType.INVOICE
           ? `Hoàn lại tiền thừa SePay cho hóa đơn ${request.sourceId}`
           : `Hoàn lại tiền thừa SePay cho phiếu cọc ${request.sourceId}`;
 
-      await this.prisma.task.create({
+      pendingRefundTask = await this.prisma.task.create({
         data: {
           tenantId,
           title,
@@ -719,6 +839,8 @@ export class PaymentsService {
           priority: 'HIGH' as any,
         },
       });
+      (metadata as any).overpaymentTaskId = pendingRefundTask.id;
+      (metadata as any).overpaymentTaskTitle = pendingRefundTask.title;
     } else {
       let customerId = '';
       let sourceInvoiceId: string | null = null;
@@ -790,6 +912,8 @@ export class PaymentsService {
           overpaymentAmount: overpaidAmount,
           overpaymentResolvedBy: userId,
           overpaymentResolvedAt: new Date().toISOString(),
+          overpaymentTaskId: pendingRefundTask?.id || null,
+          overpaymentTaskTitle: pendingRefundTask?.title || null,
         } as any,
       },
     });
@@ -821,6 +945,133 @@ export class PaymentsService {
       paymentCode,
       resolution: payload.resolution,
       overpaidAmount,
+    };
+  }
+
+  async completeSePayOverpaymentRefund(
+    tenantId: string,
+    userId: string,
+    payload: { logId: string; note?: string },
+  ) {
+    const log = await this.prisma.paymentWebhookLog.findFirst({
+      where: { id: payload.logId, tenantId },
+    });
+    if (!log) {
+      throw new BadRequestException('Không tìm thấy log SePay cần hoàn tất.');
+    }
+
+    const rawPayload = (log.payload as any) || {};
+    const paymentCode = this.resolveWebhookPaymentCode(rawPayload);
+    if (!paymentCode) {
+      throw new BadRequestException('Log SePay không có payment code hợp lệ.');
+    }
+
+    const request = await this.prisma.paymentRequest.findFirst({
+      where: {
+        tenantId,
+        provider: PaymentProvider.SEPAY,
+        paymentCode,
+      },
+    });
+    if (!request) {
+      throw new BadRequestException('Không tìm thấy payment request tương ứng.');
+    }
+
+    const requestMetadata = (request.metadata as any) || {};
+    if (requestMetadata.overpaymentResolution !== 'REFUND_PENDING') {
+      throw new BadRequestException('Giao dịch này không ở trạng thái chờ hoàn tiền thừa.');
+    }
+    if (requestMetadata.overpaymentRefundCompletedAt) {
+      throw new BadRequestException('Khoản hoàn tiền thừa này đã được xác nhận hoàn tất.');
+    }
+
+    const taskTitle =
+      requestMetadata.overpaymentTaskTitle ||
+      (request.sourceType === PaymentSourceType.INVOICE
+        ? `Hoàn lại tiền thừa SePay cho hóa đơn ${request.sourceId}`
+        : `Hoàn lại tiền thừa SePay cho phiếu cọc ${request.sourceId}`);
+
+    const task = await this.prisma.task.findFirst({
+      where: {
+        tenantId,
+        ...(requestMetadata.overpaymentTaskId ? { id: requestMetadata.overpaymentTaskId } : { title: taskTitle }),
+        deletedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!task) {
+      throw new BadRequestException('Không tìm thấy tác vụ hoàn tiền thừa cần hoàn tất.');
+    }
+
+    const completionNote = String(payload.note || '').trim();
+    const completedAtIso = new Date().toISOString();
+    const nextMetadata = {
+      ...requestMetadata,
+      overpaymentRefundCompletedAt: completedAtIso,
+      overpaymentRefundCompletedBy: userId,
+      overpaymentRefundCompletionNote: completionNote || null,
+    };
+
+    const updatedTask = await this.prisma.task.update({
+      where: { id: task.id },
+      data: {
+        status: 'DONE' as any,
+        description: completionNote
+          ? `${task.description || ''}\nHoàn tất hoàn dư: ${completionNote}`.trim()
+          : task.description,
+      },
+    });
+
+    await this.prisma.paymentRequest.update({
+      where: { id: request.id },
+      data: {
+        metadata: nextMetadata as any,
+      },
+    });
+
+    await this.prisma.paymentWebhookLog.update({
+      where: { id: log.id },
+      data: {
+        payload: {
+          ...rawPayload,
+          overpaymentResolution: 'REFUND_PENDING',
+          overpaymentRefundCompletedAt: completedAtIso,
+          overpaymentRefundCompletedBy: userId,
+          overpaymentRefundCompletionNote: completionNote || null,
+          overpaymentTaskId: task.id,
+          overpaymentTaskTitle: task.title,
+        } as any,
+      },
+    });
+
+    await this.auditService.log({
+      action: AuditAction.UPDATE,
+      module: 'Payments',
+      entity: 'SePayOverpaymentRefundCompletion',
+      entityId: request.id,
+      tenantId,
+      userId,
+      before: {
+        requestId: request.id,
+        paymentCode,
+        resolution: requestMetadata.overpaymentResolution,
+        refundCompletedAt: requestMetadata.overpaymentRefundCompletedAt || null,
+      },
+      after: {
+        requestId: request.id,
+        paymentCode,
+        resolution: requestMetadata.overpaymentResolution,
+        refundCompletedAt: completedAtIso,
+        taskId: updatedTask.id,
+      },
+    });
+
+    return {
+      success: true,
+      paymentCode,
+      taskId: updatedTask.id,
+      overpaymentAmount: Number(requestMetadata.overpaymentAmount || 0),
+      completedAt: completedAtIso,
     };
   }
 
@@ -909,6 +1160,52 @@ export class PaymentsService {
         ...(accountNumber ? { bankAccountNumber: accountNumber } : {}),
       },
     });
+    const requestByCode =
+      request ||
+      (await this.prisma.paymentRequest.findFirst({
+        where: {
+          provider: PaymentProvider.SEPAY,
+          paymentCode,
+        },
+      }));
+
+    if (
+      !request &&
+      requestByCode &&
+      requestByCode.status === PaymentRequestStatus.PENDING &&
+      accountNumber &&
+      requestByCode.bankAccountNumber &&
+      requestByCode.bankAccountNumber !== accountNumber
+    ) {
+      await this.logPaymentAudit(
+        requestByCode.tenantId,
+        'SePayWebhookMismatch',
+        log.id,
+        {
+          paymentRequestId: requestByCode.id,
+          paymentCode,
+          bankAccountNumber: requestByCode.bankAccountNumber,
+          amount: Number(requestByCode.amount || 0),
+          status: requestByCode.status,
+        },
+        {
+          transactionId,
+          actualBankAccount: accountNumber,
+          actualAmount: providerAmount,
+          mismatchType: 'BANK_ACCOUNT',
+        },
+      );
+      await this.notifySePayMismatch(requestByCode.tenantId, {
+        title: `SePay sai tài khoản cho mã ${paymentCode}`,
+        message: `Webhook SePay nhận vào tài khoản ${accountNumber}, nhưng payment request ${paymentCode} đang chờ trên tài khoản ${requestByCode.bankAccountNumber}.`,
+        paymentCode,
+        transactionId,
+        expectedAmount: Number(requestByCode.amount || 0),
+        actualAmount: providerAmount,
+        expectedBankAccount: requestByCode.bankAccountNumber,
+        actualBankAccount: accountNumber,
+      });
+    }
 
     if (!request || request.status !== PaymentRequestStatus.PENDING) {
       await this.prisma.paymentWebhookLog.update({
@@ -919,11 +1216,70 @@ export class PaymentsService {
     }
 
     if (providerAmount < Number(request.amount)) {
+      await this.logPaymentAudit(
+        request.tenantId,
+        'SePayWebhookMismatch',
+        log.id,
+        {
+          paymentRequestId: request.id,
+          paymentCode,
+          bankAccountNumber: request.bankAccountNumber,
+          amount: Number(request.amount || 0),
+          status: request.status,
+        },
+        {
+          transactionId,
+          actualBankAccount: accountNumber || request.bankAccountNumber,
+          actualAmount: providerAmount,
+          mismatchType: 'SHORT_AMOUNT',
+        },
+      );
+      await this.notifySePayMismatch(request.tenantId, {
+        title: `SePay thiếu tiền cho mã ${paymentCode}`,
+        message: `Webhook SePay nhận ${providerAmount.toLocaleString('vi-VN')} VND, thấp hơn số tiền yêu cầu ${Number(request.amount || 0).toLocaleString('vi-VN')} VND.`,
+        paymentCode,
+        transactionId,
+        expectedAmount: Number(request.amount || 0),
+        actualAmount: providerAmount,
+        expectedBankAccount: request.bankAccountNumber,
+        actualBankAccount: accountNumber || request.bankAccountNumber,
+      });
       await this.prisma.paymentWebhookLog.update({
         where: { id: log.id },
         data: { processedAt: new Date() },
       });
       return { success: true };
+    }
+
+    if (providerAmount > Number(request.amount)) {
+      await this.logPaymentAudit(
+        request.tenantId,
+        'SePayWebhookMismatch',
+        log.id,
+        {
+          paymentRequestId: request.id,
+          paymentCode,
+          bankAccountNumber: request.bankAccountNumber,
+          amount: Number(request.amount || 0),
+          status: request.status,
+        },
+        {
+          transactionId,
+          actualBankAccount: accountNumber || request.bankAccountNumber,
+          actualAmount: providerAmount,
+          mismatchType: 'OVERPAYMENT',
+        },
+      );
+      await this.notifySePayMismatch(request.tenantId, {
+        title: `SePay thừa tiền cho mã ${paymentCode}`,
+        message: `Webhook SePay nhận ${providerAmount.toLocaleString('vi-VN')} VND, cao hơn số tiền yêu cầu ${Number(request.amount || 0).toLocaleString('vi-VN')} VND. Hệ thống sẽ chỉ cấn theo số yêu cầu và chờ xử lý phần thừa.`,
+        paymentCode,
+        transactionId,
+        expectedAmount: Number(request.amount || 0),
+        actualAmount: providerAmount,
+        expectedBankAccount: request.bankAccountNumber,
+        actualBankAccount: accountNumber || request.bankAccountNumber,
+      });
     }
 
     if (request.sourceType === PaymentSourceType.INVOICE) {
@@ -940,6 +1296,26 @@ export class PaymentsService {
         paidAt: new Date(),
       },
     });
+
+    await this.logPaymentAudit(
+      request.tenantId,
+      'PaymentRequest',
+      request.id,
+      {
+        status: request.status,
+        paymentCode,
+        amount: Number(request.amount || 0),
+        providerTransactionId: request.providerTransactionId || null,
+      },
+      {
+        status: PaymentRequestStatus.CONFIRMED,
+        paymentCode,
+        amount: Number(request.amount || 0),
+        providerTransactionId: transactionId,
+        paidAt: new Date().toISOString(),
+      },
+      'SEPAY_WEBHOOK',
+    );
 
     await this.prisma.paymentWebhookLog.update({
       where: { id: log.id },

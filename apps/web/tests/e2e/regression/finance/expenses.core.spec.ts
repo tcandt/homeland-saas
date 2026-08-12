@@ -35,7 +35,7 @@ const baseBuilding = {
 
 const ownerSummary = [
   {
-    owner: { id: 'owner-1', name: 'TÃ­nh', code: 'OWNER_A' },
+    owner: { id: 'owner-1', name: 'Tính', code: 'OWNER_A' },
     buildings: [{ id: 'building-1', code: 'LK01-31', name: 'LK01-31' }],
   },
 ];
@@ -47,14 +47,14 @@ function createExpenseRow(overrides: Partial<ExpenseRow> = {}): ExpenseRow {
     status: overrides.status || 'PENDING',
     category: overrides.category || 'SUPPLIES',
     amount: overrides.amount ?? 350000,
-    description: overrides.description || 'Mua váº­t tÆ° vá»‡ sinh',
+    description: overrides.description || 'Mua vật tư vệ sinh',
     createdAt: overrides.createdAt || '2026-08-10T08:00:00.000Z',
     date: overrides.date || '2026-08-10T08:00:00.000Z',
     settlementStatus: overrides.settlementStatus || 'NONE',
     paidByName: overrides.paidByName ?? 'Admin A',
-    vendor: overrides.vendor ?? 'Cá»­a hÃ ng váº­t tÆ°',
+    vendor: overrides.vendor ?? 'Cửa hàng vật tư',
     attachmentUrls: overrides.attachmentUrls || [],
-    owner: overrides.owner || { id: 'owner-1', name: 'TÃ­nh' },
+    owner: overrides.owner || { id: 'owner-1', name: 'Tính' },
     building: overrides.building || { id: 'building-1', code: 'LK01-31', name: 'LK01-31' },
     room: overrides.room ?? null,
     costCenter: overrides.costCenter ?? null,
@@ -215,7 +215,7 @@ async function mockExpensePage(
         status: payload.status || 'PENDING',
         category: payload.category || 'SUPPLIES',
         amount: Number(payload.amount || 0),
-        description: payload.description || 'Chi phÃ­ má»›i',
+        description: payload.description || 'Chi phí mới',
         paidByName: payload.paidByName || null,
         vendor: payload.vendor || null,
       });

@@ -14,12 +14,32 @@ const ignoreFiles = new Set(["report.json", "report_permission.json", "performan
 
 const markers = [
   String.fromCharCode(0xfffd),
-  "\u00C3",
-  "\u00C2",
-  "\u00C4",
-  "\u00C6",
-  "\u00D0",
-  "\u00E1\u00BB",
+  "\u00c3\u00a1",
+  "\u00c3\u00a0",
+  "\u00c3\u00a2",
+  "\u00c3\u00a3",
+  "\u00c3\u00a8",
+  "\u00c3\u00a9",
+  "\u00c3\u00aa",
+  "\u00c3\u00ac",
+  "\u00c3\u00ad",
+  "\u00c3\u00b2",
+  "\u00c3\u00b3",
+  "\u00c3\u00b4",
+  "\u00c3\u00b5",
+  "\u00c3\u00b9",
+  "\u00c3\u00ba",
+  "\u00c3\u00bd",
+  "\u00c4\u2018",
+  "\u00c4\u0090",
+  "\u00c6\u00a1",
+  "\u00c6\u00b0",
+  "\u00e1\u00ba",
+  "\u00e1\u00bb",
+  "\u00c2\u00b7",
+  "\u00c2\u00a0",
+  "\u00e2\u20ac",
+  "\u00ef\u00bf\u00bd",
   "\u0010",
   "\u0011",
   "\u0018",
@@ -73,5 +93,3 @@ if (findings.length > 0) {
 }
 
 console.log("No mojibake detected.");
-
-

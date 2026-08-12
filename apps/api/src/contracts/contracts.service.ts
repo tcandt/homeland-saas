@@ -387,31 +387,33 @@ export class ContractsService extends BaseCrudService<Contract> {
         data: { status: settlement.roomTurnoverStatus },
       });
 
-      const invoice = await tx.invoice.create({
-        data: {
-          tenantId: contract.tenantId,
-          code: `FIN-${Date.now()}`,
-          contractId: contract.id,
-          customerId: contract.customerId,
-          status: InvoiceStatus.DRAFT,
-          dueDate: settlement.actualMoveOutDate,
-          subtotal: settlement.totals.chargeTotal,
-          discount: 0,
-          total: settlement.totals.chargeTotal,
-          paidAmount: 0,
-          creditAmount: Math.min(settlement.totals.creditTotal, settlement.totals.chargeTotal),
-          items: {
-            create: settlement.invoiceItems.map((item) => ({
+      const invoice = settlement.totals.netReceivable > 0
+        ? await tx.invoice.create({
+            data: {
               tenantId: contract.tenantId,
-              type: item.type,
-              description: item.description,
-              quantity: 1,
-              unitPrice: item.amount,
-              amount: item.amount,
-            })),
-          },
-        },
-      });
+              code: `FIN-${Date.now()}`,
+              contractId: contract.id,
+              customerId: contract.customerId,
+              status: InvoiceStatus.ISSUED,
+              dueDate: settlement.actualMoveOutDate,
+              subtotal: settlement.totals.chargeTotal,
+              discount: 0,
+              total: settlement.totals.chargeTotal,
+              paidAmount: 0,
+              creditAmount: Math.min(settlement.totals.creditTotal, settlement.totals.chargeTotal),
+              items: {
+                create: settlement.invoiceItems.map((item) => ({
+                  tenantId: contract.tenantId,
+                  type: item.type,
+                  description: item.description,
+                  quantity: 1,
+                  unitPrice: item.amount,
+                  amount: item.amount,
+                })),
+              },
+            },
+          })
+        : null;
 
       const refundReceipt = settlement.totals.refundToCustomer > 0
         ? await tx.receipt.create({
@@ -540,7 +542,7 @@ export class ContractsService extends BaseCrudService<Contract> {
           adjustmentType: 'DEPOSIT_SETTLEMENT_APPLICATION',
           resolutionAction: 'DEDUCT',
           contractId: contract.id,
-          invoiceId: result.invoice.id,
+          invoiceId: result.invoice?.id || null,
           actualMoveOutDate: settlement.actualMoveOutDate,
         },
         sourceId: contract.id,

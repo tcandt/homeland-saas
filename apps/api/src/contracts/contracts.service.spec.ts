@@ -305,7 +305,7 @@ describe('ContractsService', () => {
   });
 
   describe('terminateContract', () => {
-    it('should terminate an ACTIVE contract, update room to CLEANING, and create zero-settlement draft invoice by default', async () => {
+    it('should terminate an ACTIVE contract without creating a zero-value settlement invoice', async () => {
       const mockContract = { id: 'c1', code: 'C-001', status: ContractStatus.ACTIVE, roomId: 'r1', tenantId: 't1', customerId: 'cu1', monthlyRent: 9000 };
       const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
       
@@ -313,7 +313,7 @@ describe('ContractsService', () => {
       
       prismaService.tx.contract.update.mockResolvedValue(updatedContract);
       prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
-      prismaService.tx.invoice.create = vi.fn().mockResolvedValue({ id: 'inv1' });
+      prismaService.tx.invoice.create = vi.fn();
 
       const result = await service.terminateContract('c1', 'user1');
 
@@ -327,14 +327,7 @@ describe('ContractsService', () => {
         where: { id: 'r1' },
         data: { status: RoomStatus.CLEANING },
       });
-      expect(prismaService.tx.invoice.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({
-          contractId: 'c1',
-          status: 'DRAFT',
-          subtotal: 0,
-          creditAmount: 0,
-        })
-      }));
+      expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
       
       expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
         action: 'UPDATE',
@@ -390,7 +383,7 @@ describe('ContractsService', () => {
       expect(prismaService.tx.invoice.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({
           contractId: 'c1',
-          status: 'DRAFT',
+          status: 'ISSUED',
           subtotal: 3350,
           total: 3350,
           creditAmount: 500,
@@ -428,6 +421,39 @@ describe('ContractsService', () => {
       );
     });
 
+    it('should not create an invoice when settlement charges are fully covered by credits', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-FULL-CREDIT',
+        status: ContractStatus.ACTIVE,
+        roomId: 'r1',
+        tenantId: 't1',
+        customerId: 'cu1',
+        monthlyRent: 9000,
+        depositMoney: 1000,
+      };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.contract.update.mockResolvedValue({ ...mockContract, status: ContractStatus.TERMINATED });
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
+      prismaService.tx.invoice.create = vi.fn();
+
+      await service.terminateContract('c1', 'user1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 1,
+        depositToDeduct: 300,
+      });
+
+      expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'deposit.deducted',
+        expect.objectContaining({
+          amount: 300,
+          metadata: expect.objectContaining({ invoiceId: null }),
+        }),
+      );
+    });
+
     it('should publish an accounting adjustment when deposit is applied to settlement debt', async () => {
       const mockContract = {
         id: 'c1',
@@ -448,7 +474,7 @@ describe('ContractsService', () => {
 
       await service.terminateContract('c1', 'user1', {
         actualMoveOutDate: '2026-08-10T00:00:00.000Z',
-        rentDaysCharged: 1,
+        rentDaysCharged: 2,
         depositToDeduct: 300,
       });
 

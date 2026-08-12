@@ -6,12 +6,14 @@ import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { ContractStatus, RoomStatus, DepositStatus } from '@prisma/client';
+import { HunonicService } from '../hunonic/hunonic.service';
 
 describe('Contracts Workflow Verification', () => {
   let service: ContractsService;
   let prismaService: any;
   let auditService: any;
   let eventPublisher: any;
+  let hunonicService: any;
 
   // In-memory state for the full workflow
   let currentContract: any;
@@ -92,6 +94,10 @@ describe('Contracts Workflow Verification', () => {
       publish: vi.fn(),
     };
 
+    hunonicService = {
+      getRoomElectricityPricing: vi.fn().mockResolvedValue(null),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ContractsService,
@@ -112,6 +118,10 @@ describe('Contracts Workflow Verification', () => {
         {
           provide: DomainEventPublisher,
           useValue: eventPublisher,
+        },
+        {
+          provide: HunonicService,
+          useValue: hunonicService,
         },
       ],
     }).compile();
@@ -155,7 +165,7 @@ describe('Contracts Workflow Verification', () => {
     await service.terminateContract('c1', 'u1');
     expect(currentContract.status).toBe(ContractStatus.TERMINATED);
     expect(currentRoom.status).toBe(RoomStatus.CLEANING);
-    expect(currentInvoice.status).toBe('DRAFT'); // Final invoice
+    expect(currentInvoice.status).toBe('ISSUED'); // Zero-value settlement does not replace the issued invoice.
     expect(auditService.log).toHaveBeenCalled();
   });
 

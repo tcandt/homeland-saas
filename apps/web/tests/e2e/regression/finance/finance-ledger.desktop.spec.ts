@@ -24,7 +24,7 @@ const dashboardData = {
   insights: [],
 };
 
-const ledgerApiRows = [
+const settlementLedgerApiRows = [
   {
     id: 'line-1',
     journalEntry: {
@@ -89,9 +89,75 @@ const ledgerApiRows = [
     type: 'CREDIT',
     amount: 780000,
   },
+  {
+    id: 'line-5',
+    journalEntry: {
+      id: 'journal-3',
+      code: 'JE-ADJUSTMENT-KEEP-001',
+      description: 'Giữ cọc DEP-KEEP-001',
+      sourceType: 'ADJUSTMENT',
+      status: 'POSTED',
+    },
+    createdAt: '2026-08-12T08:30:00.000Z',
+    description: 'Giảm nghĩa vụ phải trả cọc',
+    account: { code: '1300', name: 'Tiền cọc khách thuê' },
+    costCenter: { name: 'LK01-31' },
+    type: 'DEBIT',
+    amount: 4000000,
+  },
+  {
+    id: 'line-6',
+    journalEntry: {
+      id: 'journal-3',
+      code: 'JE-ADJUSTMENT-KEEP-001',
+      description: 'Giữ cọc DEP-KEEP-001',
+      sourceType: 'ADJUSTMENT',
+      status: 'POSTED',
+    },
+    createdAt: '2026-08-12T08:30:00.000Z',
+    description: 'Ghi nhận doanh thu giữ cọc',
+    account: { code: '4300', name: 'Doanh thu giữ cọc' },
+    costCenter: { name: 'LK01-31' },
+    type: 'CREDIT',
+    amount: 4000000,
+  },
+  {
+    id: 'line-7',
+    journalEntry: {
+      id: 'journal-4',
+      code: 'JE-REFUND-SETTLEMENT-001',
+      description: 'Hoàn tiền quyết toán C-TERM-001',
+      sourceType: 'REFUND',
+      status: 'POSTED',
+    },
+    createdAt: '2026-08-12T09:00:00.000Z',
+    description: 'Giảm doanh thu do hoàn tiền quyết toán',
+    account: { code: '4015', name: 'Giảm trừ doanh thu hoàn phòng' },
+    costCenter: { name: 'LK01-31' },
+    type: 'DEBIT',
+    amount: 1800000,
+  },
+  {
+    id: 'line-8',
+    journalEntry: {
+      id: 'journal-4',
+      code: 'JE-REFUND-SETTLEMENT-001',
+      description: 'Hoàn tiền quyết toán C-TERM-001',
+      sourceType: 'REFUND',
+      status: 'POSTED',
+    },
+    createdAt: '2026-08-12T09:00:00.000Z',
+    description: 'Chi tiền hoàn quyết toán hợp đồng',
+    account: { code: '1100', name: 'Tiền gửi ngân hàng' },
+    costCenter: { name: 'LK01-31' },
+    type: 'CREDIT',
+    amount: 1800000,
+  },
 ];
 
-async function mockFinanceLedgerDesktop(page: any) {
+const ledgerApiRows = settlementLedgerApiRows.slice(0, 4);
+
+async function mockFinanceLedgerDesktop(page: any, rows = ledgerApiRows) {
   await page.route('**/api/v1/dashboard', async (route: any) => {
     await route.fulfill({
       status: 200,
@@ -162,7 +228,7 @@ async function mockFinanceLedgerDesktop(page: any) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ success: true, data: ledgerApiRows }),
+      body: JSON.stringify({ success: true, data: rows }),
     });
   });
 }
@@ -221,5 +287,32 @@ test.describe('Finance Ledger Desktop Regression', () => {
     await expect(admin.page.getByText('642 - Chi phí quản lý')).toBeVisible();
     await expect(admin.page.getByText('331 - Phải trả nhà cung cấp')).toBeVisible();
     await expect(admin.page.getByText('780,000').first()).toBeVisible();
+  });
+
+  test('shows balanced retained-deposit and settlement-refund journals', async ({ admin }) => {
+    await mockFinanceLedgerDesktop(admin.page, settlementLedgerApiRows);
+
+    await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+
+    await admin.page.getByTestId('finance-ledger-row-line-5').click();
+    const drawer = admin.page.getByTestId('finance-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByText('Bút toán: JE-ADJUSTMENT-KEEP-001')).toBeVisible();
+    await expect(drawer.getByText('ADJUSTMENT')).toBeVisible();
+    await expect(drawer.getByText('1300 - Tiền cọc khách thuê')).toBeVisible();
+    await expect(drawer.getByText('4300 - Doanh thu giữ cọc')).toBeVisible();
+    await expect(drawer.getByText('4,000,000').first()).toBeVisible();
+    await expect(drawer.getByText('Bút toán đã cân bằng và ghi sổ.')).toBeVisible();
+
+    await admin.page.getByTestId('finance-drawer-close').click();
+    await admin.page.getByTestId('finance-ledger-row-line-7').click();
+
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByText('Bút toán: JE-REFUND-SETTLEMENT-001')).toBeVisible();
+    await expect(drawer.getByText('REFUND')).toBeVisible();
+    await expect(drawer.getByText('4015 - Giảm trừ doanh thu hoàn phòng')).toBeVisible();
+    await expect(drawer.getByText('1100 - Tiền gửi ngân hàng')).toBeVisible();
+    await expect(drawer.getByText('1,800,000').first()).toBeVisible();
+    await expect(drawer.getByText('Bút toán đã cân bằng và ghi sổ.')).toBeVisible();
   });
 });

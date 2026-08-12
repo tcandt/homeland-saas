@@ -137,6 +137,14 @@ async function mockContracts(page: any) {
 
     if (pathname.endsWith("/settlement-refund/complete") && method === "POST") {
       lastCompleteRefundPayload = route.request().postDataJSON?.() || {};
+      terminatedContract.settlementRefund = {
+        ...terminatedContract.settlementRefund,
+        receiptStatus: "COMPLETED",
+        taskStatus: "DONE",
+        pending: false,
+        completed: true,
+      };
+      terminatedContract.updatedAt = "2026-08-12T09:00:00.000Z";
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -315,6 +323,9 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       .toMatchObject({
         note: "Da chuyen khoan settlement",
       });
+
+    await expect(admin.page.getByTestId("contract-settlement-refund-complete-modal")).not.toBeVisible();
+    await expect(admin.page.getByTestId("contract-pending-settlement-refund")).not.toBeVisible();
   });
 
   test("marks terminated room back to available after cleaning completion", async ({ admin }) => {

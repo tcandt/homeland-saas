@@ -128,6 +128,13 @@ async function mockOwnerManagement(page: any) {
       const body = route.request().postDataJSON?.() || {};
       ownerSettingsPatchPayload = body;
       ownerSettings = { ...ownerSettings, ...(body?.value || {}) };
+      owners = owners.map((owner) =>
+        owner.id === "owner-a"
+          ? { ...owner, name: ownerSettings.ownerAName }
+          : owner.id === "owner-b"
+            ? { ...owner, name: ownerSettings.ownerBName }
+            : owner,
+      );
     }
 
     await route.fulfill({
@@ -305,5 +312,6 @@ test.describe("Settings Owners Desktop Regression", () => {
           ownerAName: "Tinh Updated",
         },
       });
+    await expect(admin.page.getByTestId("settings-owners-building-table")).toContainText("Tinh Updated");
   });
 });

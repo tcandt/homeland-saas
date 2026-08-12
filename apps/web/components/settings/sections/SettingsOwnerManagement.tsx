@@ -268,6 +268,11 @@ export default function SettingsOwnerManagement() {
     }
   };
 
+  const saveOwnerSettings = async () => {
+    await save(draft);
+    await Promise.all([owners.mutate(), audit.mutate()]);
+  };
+
   return (
     <>
       <Card className="p-[20px]" data-testid="settings-owners-root">
@@ -576,7 +581,7 @@ export default function SettingsOwnerManagement() {
           </div>
 
           <div className="flex justify-end">
-            <Button data-testid="settings-owner-config-save" type="button" onClick={() => save(draft)} isLoading={isSaving} className="h-[42px] px-[18px]">
+            <Button data-testid="settings-owner-config-save" type="button" onClick={saveOwnerSettings} isLoading={isSaving} className="h-[42px] px-[18px]">
               Lưu cấu hình chủ sở hữu
             </Button>
           </div>

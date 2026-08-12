@@ -460,17 +460,18 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Test API `GET /api/v1/finance/owners/profit-summary` trả `200`.
 - [x] Test API `POST /api/v1/finance/expenses` tạo chi phí thành công.
 
-### Dữ liệu test cần quyết định
+### Dữ liệu test đã quyết định
 
-- [ ] Quyết định có giữ hoặc xóa khoản test tạo bằng API hay không.
-- [ ] Khoản test hiện tại:
+- [x] Giữ nguyên khoản test tạo bằng API để bảo toàn dữ liệu và lịch sử kiểm thử; không xóa hoặc hủy bản ghi.
+- [x] Khoản test đã được nhận diện và ghi chú:
   - Expense ID: `cmslbshz700044pujl79iqkv3`
   - Tòa: `LK01.31`
   - Số tiền: `1.000`
   - Người chi: `Codex TEST`
   - Trạng thái: `PENDING`
   - Mô tả: `TEST expense creation flow - safe small amount`
-- [ ] Nếu xóa, ưu tiên soft-delete hoặc thao tác có backup, không xóa cứng.
+- [x] Khoản test ở trạng thái `PENDING`, không được tính vào lợi nhuận và chưa tạo bút toán kế toán; không cần thao tác dữ liệu.
+- [x] Nếu cần loại khỏi hệ thống trong tương lai, chỉ thực hiện bằng soft-delete sau khi có backup và phê duyệt riêng; không xóa cứng.
 
 ## Todo phát triển tiếp theo
 
@@ -735,6 +736,9 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Regression desktop chi phí ứng hộ và khấu trừ lợi nhuận giữa hai chủ.
 - [x] Unit test hạch toán cấn cọc vào quyết toán và tách hoàn cọc/giảm trừ doanh thu.
 - [x] Đồng bộ `creditAmount` vào công nợ Dashboard, Reports, QR SePay và giao diện hóa đơn desktop.
+- [x] Không tạo hóa đơn quyết toán rỗng khi số phải thu bằng `0`; hóa đơn còn phải thu được phát hành ở trạng thái `ISSUED`.
+- [x] Đồng bộ `creditAmount` vào KPI công nợ và tỷ lệ thu hồi trên desktop, vẫn tách riêng tiền mặt thực thu.
+- [x] Bổ sung unit test tổng hợp tiền mặt, credit và số dư còn phải thu trên nhiều hóa đơn.
 
 ### Thứ tự ưu tiên khuyến nghị
 

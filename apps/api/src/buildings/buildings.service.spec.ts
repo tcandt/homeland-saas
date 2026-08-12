@@ -41,8 +41,14 @@ describe('BuildingsService', () => {
               return this;
             },
             building: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
+            owner: { findFirst: vi.fn() },
+            costCenter: { updateMany: vi.fn() },
             room: { updateMany: vi.fn() },
             floor: { updateMany: vi.fn() },
+            $transaction: vi.fn(async (callback) => callback({
+              building: (prismaService as any).building,
+              costCenter: (prismaService as any).costCenter,
+            })),
           },
         },
       ],
@@ -116,18 +122,32 @@ describe('BuildingsService', () => {
     it('should audit owner changes when reassigning a building', async () => {
       vi.spyOn(repository, 'findById').mockResolvedValue({
         id: 'b1',
+        tenantId: 'tenant-1',
         name: 'LK01-31',
         ownerId: 'owner-a',
       } as any);
-      vi.spyOn(repository, 'update').mockResolvedValue({
+      vi.spyOn(prismaService.owner, 'findFirst').mockResolvedValue({ id: 'owner-b' } as any);
+      vi.spyOn(prismaService.building, 'update').mockResolvedValue({
         id: 'b1',
+        tenantId: 'tenant-1',
         name: 'LK01-31',
         ownerId: 'owner-b',
       } as any);
 
       await service.update('b1', { ownerId: 'owner-b' }, 'u1');
 
-      expect(repository.update).toHaveBeenCalledWith('b1', { ownerId: 'owner-b' });
+      expect(prismaService.owner.findFirst).toHaveBeenCalledWith({
+        where: { id: 'owner-b', tenantId: 'tenant-1', isActive: true },
+        select: { id: true },
+      });
+      expect(prismaService.building.update).toHaveBeenCalledWith({
+        where: { id: 'b1', tenantId: 'tenant-1' },
+        data: { ownerId: 'owner-b' },
+      });
+      expect(prismaService.costCenter.updateMany).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-1', buildingId: 'b1' },
+        data: { ownerId: 'owner-b' },
+      });
       expect(auditService.log).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'UPDATE',
@@ -138,6 +158,19 @@ describe('BuildingsService', () => {
           after: expect.objectContaining({ ownerId: 'owner-b' }),
         }),
       );
+    });
+
+    it('should reject owner assignments outside the building tenant', async () => {
+      vi.spyOn(repository, 'findById').mockResolvedValue({
+        id: 'b1',
+        tenantId: 'tenant-1',
+        ownerId: 'owner-a',
+      } as any);
+      vi.spyOn(prismaService.owner, 'findFirst').mockResolvedValue(null);
+
+      await expect(service.update('b1', { ownerId: 'owner-other-tenant' }, 'u1')).rejects.toThrow('OWNER_NOT_FOUND');
+      expect(prismaService.building.update).not.toHaveBeenCalled();
+      expect(prismaService.costCenter.updateMany).not.toHaveBeenCalled();
     });
   });
 

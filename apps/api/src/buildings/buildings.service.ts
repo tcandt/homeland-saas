@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { BaseCrudService } from '../shared/services/base-crud.service';
 import { Building } from '@prisma/client';
 import { BuildingsRepository } from './buildings.repository';
@@ -31,6 +31,47 @@ export class BuildingsService extends BaseCrudService<Building> {
     }
 
     return super.create(data, userId, moduleName);
+  }
+
+  async update(id: string, data: any, userId?: string, moduleName?: string): Promise<Building> {
+    if (!Object.prototype.hasOwnProperty.call(data, 'ownerId')) {
+      return super.update(id, data, userId, moduleName);
+    }
+
+    const before = await this.getDetail(id) as any;
+    if (data.ownerId) {
+      const owner = await this.prisma.owner.findFirst({
+        where: { id: data.ownerId, tenantId: before.tenantId, isActive: true },
+        select: { id: true },
+      });
+      if (!owner) throw new BadRequestException('OWNER_NOT_FOUND');
+    }
+
+    const record = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.building.update({
+        where: { id, tenantId: before.tenantId },
+        data,
+      });
+
+      await tx.costCenter.updateMany({
+        where: { tenantId: before.tenantId, buildingId: id },
+        data: { ownerId: data.ownerId || null },
+      });
+
+      return updated;
+    });
+
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: this.entityName,
+      entityId: id,
+      module: moduleName || this.entityName,
+      before,
+      after: record,
+      userId,
+    });
+
+    return record;
   }
 
   async listBuildings(

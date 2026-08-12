@@ -135,6 +135,33 @@ async function mockDeposits(page: any) {
     const id = route.request().url().split("/").slice(-2)[0];
     const current = deposits.find((deposit) => deposit.id === id);
 
+    if (current) {
+      const resolutionAmount = Number(cancelPayload.resolutionAmount || 0);
+      const refundableAmount =
+        cancelPayload.resolutionAction === "REFUND"
+          ? resolutionAmount
+          : Math.max(Number(current.amount || 0) - resolutionAmount, 0);
+
+      current.status = "CANCELLED";
+      current.note = cancelPayload.reason || current.note;
+      current.updatedAt = "2026-08-12T08:00:00.000Z";
+      current.refundSummary =
+        refundableAmount > 0
+          ? {
+              receiptId: `receipt-${id}`,
+              receiptCode: `RC-${current.code}`,
+              receiptStatus: cancelPayload.receiptStatus || "PENDING",
+              receiptAmount: refundableAmount,
+              receiptDescription: `Hoàn phần dư cọc ${current.code}`,
+              taskId: `task-${id}`,
+              taskTitle: `Hoàn cọc ${current.code}`,
+              taskStatus: cancelPayload.receiptStatus === "COMPLETED" ? "DONE" : "IN_PROGRESS",
+              pending: cancelPayload.receiptStatus !== "COMPLETED",
+              completed: cancelPayload.receiptStatus === "COMPLETED",
+            }
+          : null;
+    }
+
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -152,6 +179,17 @@ async function mockDeposits(page: any) {
     completePendingRefundPayload = route.request().postDataJSON?.() || {};
     const id = route.request().url().split("/").slice(-3)[0];
     const current = deposits.find((deposit) => deposit.id === id);
+
+    if (current?.refundSummary) {
+      current.refundSummary = {
+        ...current.refundSummary,
+        receiptStatus: "COMPLETED",
+        taskStatus: "DONE",
+        pending: false,
+        completed: true,
+      };
+      current.updatedAt = "2026-08-12T09:00:00.000Z";
+    }
 
     await route.fulfill({
       status: 200,
@@ -269,6 +307,54 @@ test.describe("Deposits Refund Desktop Regression", () => {
         resolutionAmount: 4000000,
         receiptStatus: "COMPLETED",
       });
+  });
+
+  test("tracks the pending refund remainder after keeping part of a paid deposit", async ({ admin }) => {
+    const mock = await mockDeposits(admin.page);
+
+    await admin.page.goto("/deposits", { waitUntil: "domcontentloaded" });
+    await admin.page.locator("[data-testid='deposit-card']:visible").filter({ hasText: "DEP-PAID" }).first().click({
+      position: { x: 10, y: 10 },
+    });
+
+    await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
+
+    await admin.page.evaluate(() => {
+      const promptQueue = ["Giữ một phần theo chính sách", "KEEP", "4000000"];
+      window.prompt = () => promptQueue.shift() ?? null;
+      window.confirm = () => false;
+      window.alert = () => undefined;
+    });
+
+    await admin.page.getByTestId("deposit-action-cancel").click();
+
+    await expect
+      .poll(() => mock.getCancelPayload(), { timeout: 10000 })
+      .toMatchObject({
+        reason: "Giữ một phần theo chính sách",
+        resolutionAction: "KEEP",
+        resolutionAmount: 4000000,
+        receiptStatus: "PENDING",
+      });
+
+    await expect(admin.page.getByTestId("refund-center-item-dep-paid")).toBeVisible();
+    await admin.page.getByTestId("refund-center-item-dep-paid").click();
+
+    const drawer = admin.page.getByTestId("deposit-detail-drawer");
+    await expect(drawer.getByText("RC-DEP-PAID")).toBeVisible();
+    await expect(drawer.getByText("6.000.000đ")).toBeVisible();
+    await expect(drawer.getByTestId("deposit-action-complete-refund")).toBeVisible();
+
+    await admin.page.evaluate(() => {
+      window.prompt = () => "Đã chuyển khoản hoàn dư cọc";
+      window.confirm = () => true;
+    });
+    await drawer.getByTestId("deposit-action-complete-refund").click();
+
+    await expect
+      .poll(() => mock.getCompletePendingRefundPayload(), { timeout: 10000 })
+      .toMatchObject({ note: "Đã chuyển khoản hoàn dư cọc" });
+    await expect(drawer.getByTestId("deposit-action-complete-refund")).not.toBeVisible();
   });
 
   test("completes a pending refund from refund center", async ({ admin }) => {

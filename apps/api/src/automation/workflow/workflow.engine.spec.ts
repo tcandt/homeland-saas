@@ -168,6 +168,34 @@ describe('WorkflowEngine', () => {
     );
   });
 
+  it('posts retained deposits to deposit liability and forfeiture revenue accounts', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'deposit-liability', code: '1300' })
+      .mockResolvedValueOnce({ id: 'forfeiture-revenue', code: '4300' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1',
+      sourceType: 'ADJUSTMENT',
+      sourceId: 'deposit-keep-1',
+      amount: 4000000,
+      metadata: { code: 'DEP-KEEP-001', adjustmentType: 'DEPOSIT_RETAINED' },
+    });
+
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        sourceType: 'ADJUSTMENT',
+        sourceId: 'deposit-keep-1',
+        description: 'Giu coc DEP-KEEP-001',
+        lines: [
+          expect.objectContaining({ accountId: 'deposit-liability', type: 'DEBIT', amount: 4000000 }),
+          expect.objectContaining({ accountId: 'forfeiture-revenue', type: 'CREDIT', amount: 4000000 }),
+        ],
+      }),
+    );
+  });
+
   it('posts contract settlement refunds to contra revenue and bank accounts', async () => {
     const { engine, prisma, journalEntryService } = createEngine();
     prisma.chartOfAccount.findFirst

@@ -63,28 +63,37 @@ export class SettingsService {
       },
     });
     const nextValue = mergePreservedSecrets(key, previous?.value, value);
-    const record = await this.prisma.appSetting.upsert({
-      where: {
-        tenantId_scope_ownerId_key: {
+    const transactionResult = await this.prisma.$transaction(async (tx) => {
+      const saved = await tx.appSetting.upsert({
+        where: {
+          tenantId_scope_ownerId_key: {
+            tenantId,
+            scope,
+            ownerId,
+            key,
+          },
+        },
+        create: {
           tenantId,
           scope,
           ownerId,
           key,
+          value: nextValue,
+          updatedBy,
         },
-      },
-      create: {
-        tenantId,
-        scope,
-        ownerId,
-        key,
-        value: nextValue,
-        updatedBy,
-      },
-      update: {
-        value: nextValue,
-        updatedBy,
-      },
+        update: {
+          value: nextValue,
+          updatedBy,
+        },
+      });
+
+      const ownerChanges = key === 'owners' && scope === SettingScope.TENANT
+        ? await syncOwnerDirectory(tx, tenantId, nextValue)
+        : [];
+
+      return { saved, ownerChanges };
     });
+    const record = transactionResult.saved;
 
     await this.audit.log({
       action: 'UPDATE',
@@ -96,6 +105,19 @@ export class SettingsService {
       before: sanitizeSettingsAuditValue(key, previous?.value),
       after: sanitizeSettingsAuditValue(key, nextValue),
     });
+
+    for (const change of transactionResult.ownerChanges) {
+      await this.audit.log({
+        action: 'UPDATE',
+        entity: 'Owner',
+        entityId: change.after.id,
+        module: 'Settings',
+        tenantId,
+        userId,
+        before: change.before,
+        after: change.after,
+      });
+    }
 
     return {
       key: record.key,
@@ -128,6 +150,56 @@ export class SettingsService {
 
     throw new BadRequestException('Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu Hunonic.');
   }
+}
+
+async function syncOwnerDirectory(tx: Prisma.TransactionClient, tenantId: string, value: Prisma.InputJsonValue) {
+  if (!isRecord(value)) return [];
+  const settings = value as unknown as Record<string, unknown>;
+
+  const ownerUpdates = [
+    {
+      code: 'OWNER-A',
+      name: settings.ownerAName,
+      email: settings.ownerAContactEmail,
+      phone: settings.ownerAPhone,
+    },
+    {
+      code: 'OWNER-B',
+      name: settings.ownerBName,
+      email: settings.ownerBContactEmail,
+      phone: settings.ownerBPhone,
+    },
+  ];
+
+  const changes = [];
+  for (const owner of ownerUpdates) {
+    const name = normalizeOptionalText(owner.name);
+    if (!name) throw new BadRequestException('OWNER_NAME_REQUIRED');
+
+    const before = await tx.owner.findFirst({
+      where: { tenantId, code: owner.code, isActive: true },
+      select: { id: true, code: true, name: true, email: true, phone: true },
+    });
+    if (!before) throw new BadRequestException('OWNER_DIRECTORY_INCOMPLETE');
+
+    const after = await tx.owner.update({
+      where: { id: before.id },
+      data: {
+        name,
+        email: normalizeOptionalText(owner.email),
+        phone: normalizeOptionalText(owner.phone),
+      },
+      select: { id: true, code: true, name: true, email: true, phone: true },
+    });
+    changes.push({ before, after });
+  }
+
+  return changes;
+}
+
+function normalizeOptionalText(value: unknown) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized || null;
 }
 
 function mergePreservedSecrets(key: string, previous: Prisma.JsonValue | undefined, next: Prisma.InputJsonValue) {

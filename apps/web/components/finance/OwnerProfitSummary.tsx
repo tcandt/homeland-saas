@@ -153,12 +153,18 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
 
         {!isLoading && !isError && data && (
           <>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
               <DetailMetric label="Tổng thu" value={data.summary?.revenue} tone="income" />
               <DetailMetric label="Tổng chi" value={data.summary?.expense} tone="expense" />
               <DetailMetric label="Trước hoàn ứng" value={data.summary?.profitBeforeAdvance} tone="income" />
               <DetailMetric label="Cần thu hoàn ứng" value={data.summary?.advanceReceivable} tone="income" />
-              <DetailMetric label="Còn lại" value={data.summary?.profitAfterAdvance} tone="income" />
+              <DetailMetric
+                testId="owner-profit-detail-advance-payable"
+                label="Cần khấu trừ"
+                value={data.summary?.advancePayable}
+                tone="expense"
+              />
+              <DetailMetric testId="owner-profit-detail-after-advance" label="Còn lại" value={data.summary?.profitAfterAdvance} tone="income" />
             </div>
 
             <section data-testid="owner-profit-building-breakdown" className="overflow-hidden rounded-2xl border border-border">
@@ -346,10 +352,10 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: "i
   );
 }
 
-function DetailMetric({ label, value, tone }: { label: string; value: number; tone: "income" | "expense" }) {
+function DetailMetric({ testId, label, value, tone }: { testId?: string; label: string; value: number; tone: "income" | "expense" }) {
   const isIncome = tone === "income";
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4">
+    <div data-testid={testId} className="rounded-2xl border border-border bg-surface p-4">
       <div className="text-[10px] font-black uppercase text-muted">{label}</div>
       <div className={`mt-2 text-[18px] font-black ${isIncome ? "text-[#059669]" : "text-rose-500"}`}>{formatVnd(Number(value || 0))}</div>
     </div>

@@ -15,14 +15,67 @@ const ownerSummaryRows = [
     owner: { id: 'owner-2', code: 'OWNER_B', name: 'Thể' },
     buildings: [{ id: 'building-2', code: 'LK01-32', name: 'LK01-32' }],
     revenue: 1800000,
-    expense: 400000,
+    expense: 700000,
     advanceReceivable: 0,
-    advancePayable: 0,
-    profitAfterAdvance: 1400000,
+    advancePayable: 700000,
+    profitAfterAdvance: 400000,
   },
 ];
 
-function createOwnerDetail(month: string | null) {
+function createOwnerDetail(ownerId: string, month: string | null) {
+  if (ownerId === 'owner-2') {
+    return {
+      owner: { id: 'owner-2', code: 'OWNER_B', name: 'Thể' },
+      period: {
+        year: 2026,
+        month: month ? Number(month) : null,
+        startDate: '2026-01-01T00:00:00.000Z',
+        endDate: '2026-12-31T23:59:59.999Z',
+      },
+      buildings: [{ id: 'building-2', code: 'LK01-32', name: 'LK01-32' }],
+      summary: {
+        revenue: 1800000,
+        expense: 700000,
+        profitBeforeAdvance: 1100000,
+        advanceReceivable: 0,
+        advancePayable: 700000,
+        profitAfterAdvance: 400000,
+      },
+      buildingBreakdown: [
+        {
+          building: { id: 'building-2', code: 'LK01-32', name: 'LK01-32' },
+          owner: { id: 'owner-2', name: 'Thể' },
+          revenue: 1800000,
+          revenueBreakdown: { rent: 1400000, electricity: 250000, waterAndService: 150000, other: 0 },
+          roomBreakdown: [],
+          expense: 700000,
+          profit: 1100000,
+          margin: 61,
+          overdueInvoices: 0,
+          alerts: [],
+        },
+      ],
+      expenses: [
+        {
+          id: 'expense-cross-owner',
+          code: 'EXP-CROSS-OWNER',
+          category: 'REPAIR',
+          amount: 700000,
+          building: { code: 'LK01-32' },
+          room: { code: '32-01' },
+          paidByOwner: { id: 'owner-1', name: 'Tính' },
+          paidByName: null,
+        },
+      ],
+      trend: Array.from({ length: 12 }, (_, index) => ({
+        month: index + 1,
+        revenue: index === 7 ? 1800000 : 0,
+        expense: index === 7 ? 700000 : 0,
+        profit: index === 7 ? 1100000 : 0,
+      })),
+    };
+  }
+
   const isAugust = month === '8';
   return {
     owner: { id: 'owner-1', code: 'OWNER_A', name: 'Tính' },
@@ -157,6 +210,7 @@ async function mockFinanceOwnerProfit(page: any) {
 
   await page.route('**/api/v1/finance/owners/*/profit-detail*', async (route: any) => {
     const url = new URL(route.request().url());
+    const ownerId = url.pathname.split('/').slice(-2)[0];
     const year = url.searchParams.get('year');
     const month = url.searchParams.get('month');
     lastDetailQuery = { year, month };
@@ -166,7 +220,7 @@ async function mockFinanceOwnerProfit(page: any) {
       contentType: 'application/json',
       body: JSON.stringify({
         success: true,
-        data: createOwnerDetail(month),
+        data: createOwnerDetail(ownerId, month),
       }),
     });
   });
@@ -290,5 +344,22 @@ test.describe('Finance Owner Profit Desktop Regression', () => {
     await expect(admin.page.getByText('LK01-31')).toBeVisible();
     await expect(admin.page.getByText('31-01')).toBeVisible();
     await expect(admin.page.getByText('Tính')).toBeVisible();
+  });
+
+  test('shows owner payable deduction when another owner paid the building expense', async ({ admin }) => {
+    await mockFinanceOwnerProfit(admin.page);
+
+    await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('owner-profit-open-owner-2').click();
+
+    const modal = admin.page.getByTestId('owner-profit-detail-modal');
+    await expect(modal).toBeVisible();
+    await expect(modal.getByText('Chi tiết Thể')).toBeVisible();
+    await expect(modal.getByTestId('owner-profit-detail-advance-payable')).toContainText('700.000 đ');
+    await expect(modal.getByTestId('owner-profit-detail-after-advance')).toContainText('400.000 đ');
+    await expect(modal.getByText('EXP-CROSS-OWNER')).toBeVisible();
+    await expect(modal.getByText('LK01-32')).toBeVisible();
+    await expect(modal.getByText('32-01')).toBeVisible();
+    await expect(modal.getByText('Tính')).toBeVisible();
   });
 });

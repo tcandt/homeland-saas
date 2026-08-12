@@ -131,14 +131,30 @@ const settlementLedgerApiRows = [
       status: 'POSTED',
     },
     createdAt: '2026-08-12T09:00:00.000Z',
+    description: 'Hoàn nghĩa vụ tiền cọc',
+    account: { code: '1300', name: 'Tiền cọc khách thuê' },
+    costCenter: { name: 'LK01-31' },
+    type: 'DEBIT',
+    amount: 1100000,
+  },
+  {
+    id: 'line-8',
+    journalEntry: {
+      id: 'journal-4',
+      code: 'JE-REFUND-SETTLEMENT-001',
+      description: 'Hoàn tiền quyết toán C-TERM-001',
+      sourceType: 'REFUND',
+      status: 'POSTED',
+    },
+    createdAt: '2026-08-12T09:00:00.000Z',
     description: 'Giảm doanh thu do hoàn tiền quyết toán',
     account: { code: '4015', name: 'Giảm trừ doanh thu hoàn phòng' },
     costCenter: { name: 'LK01-31' },
     type: 'DEBIT',
-    amount: 1800000,
+    amount: 700000,
   },
   {
-    id: 'line-8',
+    id: 'line-9',
     journalEntry: {
       id: 'journal-4',
       code: 'JE-REFUND-SETTLEMENT-001',
@@ -310,6 +326,7 @@ test.describe('Finance Ledger Desktop Regression', () => {
     await expect(drawer).toBeVisible();
     await expect(drawer.getByText('Bút toán: JE-REFUND-SETTLEMENT-001')).toBeVisible();
     await expect(drawer.getByText('REFUND')).toBeVisible();
+    await expect(drawer.getByText('1300 - Tiền cọc khách thuê')).toBeVisible();
     await expect(drawer.getByText('4015 - Giảm trừ doanh thu hoàn phòng')).toBeVisible();
     await expect(drawer.getByText('1100 - Tiền gửi ngân hàng')).toBeVisible();
     await expect(drawer.getByText('1,800,000').first()).toBeVisible();

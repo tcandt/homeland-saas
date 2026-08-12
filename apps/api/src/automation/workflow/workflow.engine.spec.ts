@@ -196,6 +196,34 @@ describe('WorkflowEngine', () => {
     );
   });
 
+  it('applies settlement deposit credit to liability and rental revenue accounts', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'deposit-liability', code: '1300' })
+      .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1',
+      sourceType: 'ADJUSTMENT',
+      sourceId: 'contract-1',
+      amount: 300000,
+      metadata: { code: 'C-001', adjustmentType: 'DEPOSIT_SETTLEMENT_APPLICATION' },
+    });
+
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        sourceType: 'ADJUSTMENT',
+        sourceId: 'contract-1',
+        description: 'Can coc quyet toan C-001',
+        lines: [
+          expect.objectContaining({ accountId: 'deposit-liability', type: 'DEBIT', amount: 300000 }),
+          expect.objectContaining({ accountId: 'rental-revenue', type: 'CREDIT', amount: 300000 }),
+        ],
+      }),
+    );
+  });
+
   it('posts contract settlement refunds to contra revenue and bank accounts', async () => {
     const { engine, prisma, journalEntryService } = createEngine();
     prisma.chartOfAccount.findFirst
@@ -224,6 +252,42 @@ describe('WorkflowEngine', () => {
         lines: [
           expect.objectContaining({ accountId: 'settlement-contra-revenue', type: 'DEBIT', amount: 350000 }),
           expect.objectContaining({ accountId: 'bank-account', type: 'CREDIT', amount: 350000 }),
+        ],
+      }),
+    );
+  });
+
+  it('splits contract settlement refunds between deposit liability and contra revenue', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'deposit-liability', code: '1300' })
+      .mockResolvedValueOnce({ id: 'settlement-contra-revenue', code: '4015' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1',
+      sourceType: 'REFUND',
+      sourceId: 'contract-2',
+      amount: 700000,
+      metadata: {
+        code: 'C-002',
+        refundSourceType: 'CONTRACT_SETTLEMENT',
+        accountingBreakdown: {
+          depositRefundAmount: 500000,
+          revenueRefundAmount: 200000,
+        },
+      },
+    });
+
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        sourceType: 'REFUND',
+        sourceId: 'contract-2',
+        lines: [
+          expect.objectContaining({ accountId: 'deposit-liability', type: 'DEBIT', amount: 500000 }),
+          expect.objectContaining({ accountId: 'settlement-contra-revenue', type: 'DEBIT', amount: 200000 }),
+          expect.objectContaining({ accountId: 'bank-account', type: 'CREDIT', amount: 700000 }),
         ],
       }),
     );

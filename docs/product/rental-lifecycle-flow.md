@@ -730,6 +730,10 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] E2E Finance page.
 - [x] E2E tạo chi phí phát sinh.
 - [x] E2E duyệt chi phí.
+- [x] Regression desktop giữ một phần cọc, tạo phiếu hoàn phần dư và xác nhận đã hoàn.
+- [x] Regression desktop quyết toán hợp đồng, hoàn tiền chờ xử lý và cập nhật trạng thái phòng.
+- [x] Regression desktop chi phí ứng hộ và khấu trừ lợi nhuận giữa hai chủ.
+- [x] Unit test hạch toán cấn cọc vào quyết toán và tách hoàn cọc/giảm trừ doanh thu.
 
 ### Thứ tự ưu tiên khuyến nghị
 

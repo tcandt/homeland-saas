@@ -116,6 +116,25 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       userId,
     });
 
+    this.eventPublisher.publish('invoice.issued', {
+      tenantId: invoice.tenantId,
+      userId,
+      customerId: invoice.customerId,
+      customerName: invoice.customer?.fullName,
+      customerPhone: invoice.customer?.phone,
+      metadata: {
+        code: invoice.code,
+        roomCode: invoice.contract?.room?.code,
+        buildingName: invoice.contract?.room?.building?.name,
+        title: `Phát hành hóa đơn ${invoice.code}`,
+        message: `Hóa đơn ${invoice.code} đã được phát hành với số tiền ${total.toLocaleString('vi-VN')} VND.`,
+      },
+      sourceId: invoice.id,
+      sourceType: 'INVOICE',
+      amount: Number(total),
+      occurredAt: new Date(),
+    });
+
     return updated;
   }
 
@@ -146,13 +165,14 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       throw new BadRequestException(`Cannot receive payment for invoice in ${invoice.status} status.`);
     }
 
-    const remaining = Number(invoice.total) - Number(invoice.paidAmount);
+    const creditAmount = Math.max(0, Number(invoice.creditAmount || 0));
+    const remaining = Math.max(0, Number(invoice.total) - Number(invoice.paidAmount) - creditAmount);
     if (amount <= 0 || amount > remaining) {
       throw new BadRequestException(`Payment amount must be strictly positive and cannot exceed the remaining balance of ${remaining}.`);
     }
 
     const newPaidAmount = Number(invoice.paidAmount) + amount;
-    const newStatus = newPaidAmount >= Number(invoice.total) ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID;
+    const newStatus = newPaidAmount + creditAmount >= Number(invoice.total) ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID;
 
     const result = await this.prisma.tx.$transaction(async (tx) => {
       const payment = await tx.payment.create({
@@ -204,10 +224,14 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         customerId: invoice.customerId,
         customerName: invoice.customer?.fullName,
         customerPhone: invoice.customer?.phone,
-        metadata: { code: invoice.code },
+        metadata: {
+          code: invoice.code,
+          grossTotal: Number(result.total),
+          creditAmount,
+        },
         sourceId: invoice.id,
         sourceType: 'INVOICE',
-        amount: Number(result.total),
+        amount: Number(result.paidAmount ?? newPaidAmount),
         paymentProvider: provider,
         paymentRef: providerRef,
         occurredAt: new Date(),

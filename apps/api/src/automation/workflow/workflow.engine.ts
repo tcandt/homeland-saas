@@ -174,17 +174,20 @@ export class WorkflowEngine {
     const isDepositDeduction =
       payload.sourceType === 'ADJUSTMENT' &&
       ['DEPOSIT_DEDUCTION', 'DEPOSIT_RETAINED'].includes(String(payload.metadata?.adjustmentType || ''));
+    const isDepositSettlementApplication =
+      payload.sourceType === 'ADJUSTMENT' &&
+      payload.metadata?.adjustmentType === 'DEPOSIT_SETTLEMENT_APPLICATION';
 
-    if (isDepositDeduction) {
+    if (isDepositDeduction || isDepositSettlementApplication) {
       const depositLiability = await this.resolveChartOfAccount(payload.tenantId, '1300');
-      const deductionRevenue = await this.resolveChartOfAccount(
+      const offsetAccount = await this.resolveChartOfAccount(
         payload.tenantId,
-        '4300',
-        'Deposit Forfeiture Revenue',
+        isDepositSettlementApplication ? '4000' : '4300',
+        isDepositSettlementApplication ? 'Rental Revenue' : 'Deposit Forfeiture Revenue',
         AccountType.REVENUE,
       );
 
-      if (!depositLiability || !deductionRevenue) {
+      if (!depositLiability || !offsetAccount) {
         throw new Error('Required Chart of Accounts not found');
       }
 
@@ -193,10 +196,12 @@ export class WorkflowEngine {
         sourceType: payload.sourceType || 'UNKNOWN',
         sourceId: payload.id || payload.sourceId,
         description: payload.metadata?.code
-          ? `${payload.metadata?.adjustmentType === 'DEPOSIT_RETAINED' ? 'Giu coc' : 'Khau tru coc'} ${payload.metadata.code}`
-          : payload.metadata?.adjustmentType === 'DEPOSIT_RETAINED'
-            ? 'Giu coc'
-            : 'Khau tru coc',
+          ? `${isDepositSettlementApplication ? 'Can coc quyet toan' : payload.metadata?.adjustmentType === 'DEPOSIT_RETAINED' ? 'Giu coc' : 'Khau tru coc'} ${payload.metadata.code}`
+          : isDepositSettlementApplication
+            ? 'Can coc quyet toan'
+            : payload.metadata?.adjustmentType === 'DEPOSIT_RETAINED'
+              ? 'Giu coc'
+              : 'Khau tru coc',
         entryDate: new Date(),
         status: 'POSTED',
         lines: [
@@ -207,10 +212,12 @@ export class WorkflowEngine {
             description: 'Giam nghia vu phai tra coc',
           },
           {
-            accountId: deductionRevenue.id,
+            accountId: offsetAccount.id,
             type: 'CREDIT',
             amount: payload.amount,
-            description: 'Ghi nhan doanh thu giu coc',
+            description: isDepositSettlementApplication
+              ? 'Ghi nhan doanh thu duoc thanh toan bang tien coc'
+              : 'Ghi nhan doanh thu giu coc',
           },
         ],
       });
@@ -218,17 +225,52 @@ export class WorkflowEngine {
     }
 
     if (isContractSettlementRefund) {
+      const refundAmount = Number(payload.amount || 0);
+      const rawDepositRefundAmount = Number(payload.metadata?.accountingBreakdown?.depositRefundAmount);
+      const rawRevenueRefundAmount = Number(payload.metadata?.accountingBreakdown?.revenueRefundAmount);
+      const hasValidBreakdown =
+        Number.isFinite(rawDepositRefundAmount) &&
+        rawDepositRefundAmount >= 0 &&
+        Number.isFinite(rawRevenueRefundAmount) &&
+        rawRevenueRefundAmount >= 0 &&
+        Math.abs(rawDepositRefundAmount + rawRevenueRefundAmount - refundAmount) < 0.01;
+      const depositRefundAmount = hasValidBreakdown ? rawDepositRefundAmount : 0;
+      const revenueRefundAmount = hasValidBreakdown ? rawRevenueRefundAmount : refundAmount;
       const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100');
-      const contraRevenue = await this.resolveChartOfAccount(
-        payload.tenantId,
-        '4015',
-        'Rental Refund Contra Revenue',
-        AccountType.REVENUE,
-      );
+      const depositLiability = depositRefundAmount > 0
+        ? await this.resolveChartOfAccount(payload.tenantId, '1300')
+        : null;
+      const contraRevenue = revenueRefundAmount > 0
+        ? await this.resolveChartOfAccount(
+            payload.tenantId,
+            '4015',
+            'Rental Refund Contra Revenue',
+            AccountType.REVENUE,
+          )
+        : null;
 
-      if (!bankAccount || !contraRevenue) {
+      if (!bankAccount || (depositRefundAmount > 0 && !depositLiability) || (revenueRefundAmount > 0 && !contraRevenue)) {
         throw new Error('Required Chart of Accounts not found');
       }
+
+      const debitLines = [
+        ...(depositRefundAmount > 0
+          ? [{
+              accountId: depositLiability!.id,
+              type: 'DEBIT',
+              amount: depositRefundAmount,
+              description: 'Release deposit liability for settlement refund',
+            }]
+          : []),
+        ...(revenueRefundAmount > 0
+          ? [{
+              accountId: contraRevenue!.id,
+              type: 'DEBIT',
+              amount: revenueRefundAmount,
+              description: 'Contract settlement refund to tenant',
+            }]
+          : []),
+      ];
 
       await this.journalEntryService.createJournalEntry(payload.tenantId, {
         code: `JE-${payload.sourceType || 'SYS'}-${Date.now()}`,
@@ -240,16 +282,11 @@ export class WorkflowEngine {
         entryDate: new Date(),
         status: 'POSTED',
         lines: [
-          {
-            accountId: contraRevenue.id,
-            type: 'DEBIT',
-            amount: payload.amount,
-            description: 'Contract settlement refund to tenant',
-          },
+          ...debitLines,
           {
             accountId: bankAccount.id,
             type: 'CREDIT',
-            amount: payload.amount,
+            amount: refundAmount,
             description: 'Cash out for contract settlement refund',
           },
         ],

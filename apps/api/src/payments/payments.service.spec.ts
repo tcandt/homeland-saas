@@ -190,6 +190,7 @@ describe('PaymentsService', () => {
       code: 'INV-001',
       total: 500000,
       paidAmount: 100000,
+      creditAmount: 50000,
       customerId: 'customer-1',
       contract: {
         roomId: 'room-1',
@@ -215,14 +216,14 @@ describe('PaymentsService', () => {
         bankAccountId: 'bank-owner-a',
         sourceType: PaymentSourceType.INVOICE,
         sourceId: 'invoice-1',
-        amount: 400000,
+        amount: 350000,
         bankName: 'ACB',
         bankAccountNumber: '123456789',
       }),
     });
     expect(request).toMatchObject({
       id: 'request-1',
-      amount: 400000,
+      amount: 350000,
       bankAccountNumber: '123456789',
     });
   });

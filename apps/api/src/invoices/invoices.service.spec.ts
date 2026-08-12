@@ -40,10 +40,20 @@ describe('InvoicesService', () => {
     it('should change status to ISSUED', async () => {
       prisma.tx.invoice.findUniqueOrThrow.mockResolvedValue({
         id: 'inv-1',
+        tenantId: 'tenant-1',
+        customerId: 'customer-1',
+        code: 'INV-001',
         status: InvoiceStatus.DRAFT,
         items: [{ amount: 100 }],
         discount: 10,
         total: 0,
+        customer: { fullName: 'Khach A', phone: '0909000001' },
+        contract: {
+          room: {
+            code: '31-01',
+            building: { name: 'LK01-31' },
+          },
+        },
       });
 
       prisma.tx.invoice.update.mockResolvedValue({ id: 'inv-1', status: InvoiceStatus.ISSUED, total: 90 });
@@ -55,6 +65,24 @@ describe('InvoicesService', () => {
         data: { status: InvoiceStatus.ISSUED, subtotal: 100, total: 90 },
       });
       expect(auditService.log).toHaveBeenCalled();
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'invoice.issued',
+        expect.objectContaining({
+          tenantId: 'tenant-1',
+          userId: 'user-1',
+          customerId: 'customer-1',
+          customerName: 'Khach A',
+          customerPhone: '0909000001',
+          sourceId: 'inv-1',
+          sourceType: 'INVOICE',
+          amount: 90,
+          metadata: expect.objectContaining({
+            code: 'INV-001',
+            roomCode: '31-01',
+            buildingName: 'LK01-31',
+          }),
+        }),
+      );
     });
 
     it('should throw if total <= 0', async () => {
@@ -120,6 +148,41 @@ describe('InvoicesService', () => {
       });
       expect(result.status).toBe(InvoiceStatus.PAID);
       expect(eventPublisher.publish).toHaveBeenCalledWith('invoice.paid', expect.any(Object));
+    });
+
+    it('should use invoice credit when calculating the remaining payment and journal amount', async () => {
+      prisma.tx.invoice.findUniqueOrThrow.mockResolvedValue({
+        id: 'inv-credit-1',
+        code: 'INV-CREDIT-1',
+        status: InvoiceStatus.ISSUED,
+        total: 100,
+        paidAmount: 0,
+        creditAmount: 30,
+        tenantId: 'tenant-1',
+        customerId: 'customer-1',
+      });
+      prisma.tx.payment.create.mockResolvedValue({ id: 'pay-credit-1' });
+      prisma.tx.paymentAllocation.create.mockResolvedValue({ id: 'alloc-credit-1' });
+      prisma.tx.invoice.update.mockResolvedValue({
+        status: InvoiceStatus.PAID,
+        total: 100,
+        paidAmount: 70,
+        creditAmount: 30,
+      });
+
+      await service.pay('inv-credit-1', 70, 'MANUAL', 'PAY-CREDIT-1', 'user-1');
+
+      expect(prisma.tx.invoice.update).toHaveBeenCalledWith({
+        where: { id: 'inv-credit-1' },
+        data: { paidAmount: 70, status: InvoiceStatus.PAID },
+      });
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'invoice.paid',
+        expect.objectContaining({
+          amount: 70,
+          metadata: expect.objectContaining({ grossTotal: 100, creditAmount: 30 }),
+        }),
+      );
     });
 
     it('should throw if paying more than remaining', async () => {

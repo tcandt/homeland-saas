@@ -316,6 +316,18 @@ export class ContractsService extends BaseCrudService<Contract> {
       });
     }
 
+    const settlementAudit = await this.prisma.auditLog.findFirst({
+      where: {
+        tenantId: contract.tenantId,
+        entity: this.entityName,
+        entityId: contract.id,
+        module: 'Contracts',
+        action: 'UPDATE',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const accountingBreakdown = (settlementAudit?.after as any)?.settlement?.accountingBreakdown || null;
+
     this.eventPublisher.publish('contract.settlement.refunded', {
       tenantId: contract.tenantId,
       userId,
@@ -327,6 +339,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         refundSourceType: 'CONTRACT_SETTLEMENT',
         refundCompletionNote: note || null,
         completedFromPending: true,
+        ...(accountingBreakdown ? { accountingBreakdown } : {}),
       },
       sourceId: contract.id,
       sourceType: 'REFUND',
@@ -502,12 +515,37 @@ export class ContractsService extends BaseCrudService<Contract> {
           refundSourceType: 'CONTRACT_SETTLEMENT',
           actualMoveOutDate: settlement.actualMoveOutDate,
           settlement,
+          accountingBreakdown: settlement.accountingBreakdown,
           refundReason: settlement.refund.reason,
           refundAttachmentUrls: settlement.refund.attachmentUrls,
         },
         sourceId: contract.id,
         sourceType: 'REFUND',
         amount: settlement.totals.refundToCustomer,
+        paymentProvider: 'MANUAL',
+        occurredAt: new Date(),
+      });
+    }
+
+    const depositAppliedAmount = Number(settlement.accountingBreakdown.depositAppliedAmount || 0);
+    if (depositAppliedAmount > 0) {
+      this.eventPublisher.publish('deposit.deducted', {
+        tenantId: contract.tenantId,
+        userId,
+        customerId: contract.customerId,
+        customerName: contract.customer?.fullName,
+        customerPhone: contract.customer?.phone,
+        metadata: {
+          code: contract.code,
+          adjustmentType: 'DEPOSIT_SETTLEMENT_APPLICATION',
+          resolutionAction: 'DEDUCT',
+          contractId: contract.id,
+          invoiceId: result.invoice.id,
+          actualMoveOutDate: settlement.actualMoveOutDate,
+        },
+        sourceId: contract.id,
+        sourceType: 'ADJUSTMENT',
+        amount: depositAppliedAmount,
         paymentProvider: 'MANUAL',
         occurredAt: new Date(),
       });
@@ -598,6 +636,13 @@ export class ContractsService extends BaseCrudService<Contract> {
     const creditTotal = this.roundMoney(creditLines.reduce((sum, line) => sum + line.amount, 0));
     const netReceivable = this.roundMoney(Math.max(chargeTotal - creditTotal, 0));
     const refundToCustomer = this.roundMoney(Math.max(creditTotal - chargeTotal, 0));
+    const operationalCreditTotal = this.roundMoney(roomRefundAmount + waterSupportAmount + otherCreditAmount);
+    const depositCreditTotal = this.roundMoney(depositToRefund + depositToDeduct);
+    const depositAppliedAmount = this.roundMoney(
+      Math.min(depositCreditTotal, Math.max(chargeTotal - operationalCreditTotal, 0)),
+    );
+    const depositRefundAmount = this.roundMoney(Math.max(depositCreditTotal - depositAppliedAmount, 0));
+    const revenueRefundAmount = this.roundMoney(Math.max(operationalCreditTotal - chargeTotal, 0));
 
     return {
       contract: {
@@ -625,6 +670,13 @@ export class ContractsService extends BaseCrudService<Contract> {
       },
       charges: chargeLines,
       credits: creditLines,
+      accountingBreakdown: {
+        operationalCreditTotal,
+        depositCreditTotal,
+        depositAppliedAmount,
+        depositRefundAmount,
+        revenueRefundAmount,
+      },
       invoiceItems: chargeLines.map(({ key, ...line }) => line),
       totals: {
         chargeTotal,

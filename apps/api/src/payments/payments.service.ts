@@ -350,7 +350,10 @@ export class PaymentsService {
 
   async createInvoiceRequest(invoiceId: string, userId: string) {
     const invoice = await this.invoicesService.getDetail(invoiceId);
-    const remaining = Number(invoice.total) - Number(invoice.paidAmount || 0);
+    const remaining = Math.max(
+      0,
+      Number(invoice.total) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0),
+    );
 
     if (remaining <= 0) {
       throw new BadRequestException('Hóa đơn này không còn số tiền cần thanh toán.');

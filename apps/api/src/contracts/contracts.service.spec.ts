@@ -27,6 +27,9 @@ describe('ContractsService', () => {
       task: {
         findFirst: vi.fn(),
       },
+      auditLog: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
       tx: { invoice: { create: vi.fn() },
         contract: {
           update: vi.fn(),
@@ -425,6 +428,45 @@ describe('ContractsService', () => {
       );
     });
 
+    it('should publish an accounting adjustment when deposit is applied to settlement debt', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-DEPOSIT-APPLIED',
+        status: ContractStatus.ACTIVE,
+        roomId: 'r1',
+        tenantId: 't1',
+        customerId: 'cu1',
+        monthlyRent: 9000,
+        depositMoney: 1000,
+        customer: { fullName: 'Khach A', phone: '0909000001' },
+      };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.contract.update.mockResolvedValue({ ...mockContract, status: ContractStatus.TERMINATED });
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
+      prismaService.tx.invoice.create.mockResolvedValue({ id: 'inv-settlement-1' });
+
+      await service.terminateContract('c1', 'user1', {
+        actualMoveOutDate: '2026-08-10T00:00:00.000Z',
+        rentDaysCharged: 1,
+        depositToDeduct: 300,
+      });
+
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        'deposit.deducted',
+        expect.objectContaining({
+          sourceId: 'c1',
+          sourceType: 'ADJUSTMENT',
+          amount: 300,
+          metadata: expect.objectContaining({
+            adjustmentType: 'DEPOSIT_SETTLEMENT_APPLICATION',
+            contractId: 'c1',
+            invoiceId: 'inv-settlement-1',
+          }),
+        }),
+      );
+    });
+
     it('should create a completed refund receipt when settlement credits exceed charges', async () => {
       const mockContract = {
         id: 'c1',
@@ -465,6 +507,12 @@ describe('ContractsService', () => {
           amount: 500,
           sourceId: 'c1',
           sourceType: 'REFUND',
+          metadata: expect.objectContaining({
+            accountingBreakdown: expect.objectContaining({
+              depositRefundAmount: 500,
+              revenueRefundAmount: 0,
+            }),
+          }),
         }),
       );
       expect(eventPublisher.publish).toHaveBeenCalledWith(
@@ -612,6 +660,13 @@ describe('ContractsService', () => {
       expect(result.totals.creditTotal).toBe(1400);
       expect(result.totals.netReceivable).toBe(1100);
       expect(result.totals.refundToCustomer).toBe(0);
+      expect(result.accountingBreakdown).toEqual({
+        operationalCreditTotal: 400,
+        depositCreditTotal: 1000,
+        depositAppliedAmount: 1000,
+        depositRefundAmount: 0,
+        revenueRefundAmount: 0,
+      });
       expect(result.invoiceItems).toHaveLength(4);
       expect(result.utilitySnapshot).toEqual({
         electricity: null,
@@ -1002,6 +1057,16 @@ describe('ContractsService', () => {
         status: 'DONE',
         description: 'Can hoan tien\nHoan tat: Da chuyen khoan',
       });
+      prismaService.auditLog.findFirst.mockResolvedValue({
+        after: {
+          settlement: {
+            accountingBreakdown: {
+              depositRefundAmount: 300,
+              revenueRefundAmount: 200,
+            },
+          },
+        },
+      });
 
       await expect(service.completePendingSettlementRefund('c1', 'user1', 'Da chuyen khoan')).resolves.toEqual(
         expect.objectContaining({
@@ -1032,6 +1097,10 @@ describe('ContractsService', () => {
           metadata: expect.objectContaining({
             completedFromPending: true,
             refundCompletionNote: 'Da chuyen khoan',
+            accountingBreakdown: {
+              depositRefundAmount: 300,
+              revenueRefundAmount: 200,
+            },
           }),
         }),
       );

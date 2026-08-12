@@ -36,6 +36,38 @@ describe('InvoicesService', () => {
     service = new InvoicesService(repository, auditService, eventPublisher, prisma);
   });
 
+  describe('listInvoices', () => {
+    it('excludes legacy zero-value invoices while keeping drafts available for editing', async () => {
+      repository.paginate.mockResolvedValue({ data: [], meta: { page: 1, limit: 20, total: 0 } });
+
+      await service.listInvoices(1, 20, 'INV-001', InvoiceStatus.OVERDUE);
+
+      expect(repository.paginate).toHaveBeenCalledWith(
+        {
+          AND: [
+            {
+              OR: [
+                { total: { gt: 0 } },
+                { status: InvoiceStatus.DRAFT },
+              ],
+            },
+            {
+              OR: [
+                { code: { contains: 'INV-001', mode: 'insensitive' } },
+                { customer: { fullName: { contains: 'INV-001', mode: 'insensitive' } } },
+              ],
+            },
+          ],
+          status: InvoiceStatus.OVERDUE,
+        },
+        1,
+        20,
+        { createdAt: 'desc' },
+        expect.any(Object),
+      );
+    });
+  });
+
   describe('issue', () => {
     it('should change status to ISSUED', async () => {
       prisma.tx.invoice.findUniqueOrThrow.mockResolvedValue({
@@ -208,6 +240,7 @@ describe('InvoicesService', () => {
           tenantId: 'tenant-1',
           deletedAt: null,
           status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID] },
+          total: { gt: 0 },
           dueDate: { lt: expect.any(Date) },
         },
         data: { status: InvoiceStatus.OVERDUE },

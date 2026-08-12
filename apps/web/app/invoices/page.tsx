@@ -368,7 +368,7 @@ export default function InvoicesPage() {
                         <Pie data={chartData} dataKey="amount" nameKey="label" innerRadius={44} outerRadius={64} paddingAngle={3} stroke="var(--card)" strokeWidth={5}>
                           {chartData.map((item) => <Cell key={item.label} fill={item.color} />)}
                         </Pie>
-                        <Tooltip content={<InvoiceChartTooltip />} />
+                        <Tooltip content={<InvoiceChartTooltip empty={recoveryData.length === 0} />} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
@@ -383,7 +383,7 @@ export default function InvoicesPage() {
                           <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
                           <span className="truncate text-[11px] font-black text-muted">{item.label}</span>
                         </div>
-                        <span className="shrink-0 text-[11px] font-black text-text">{formatVnd(item.amount)}</span>
+                        <span className="shrink-0 text-[11px] font-black text-text">{formatVnd(recoveryData.length === 0 ? 0 : item.amount)}</span>
                       </div>
                     ))}
                   </div>
@@ -561,13 +561,13 @@ function ActionMetric({ label, value, tone }: { label: string; value: string; to
   );
 }
 
-function InvoiceChartTooltip({ active, payload }: any) {
+function InvoiceChartTooltip({ active, payload, empty }: any) {
   if (!active || !Array.isArray(payload) || payload.length === 0) return null;
   const item = payload[0];
   return (
     <div className="rounded-[10px] border border-border bg-card px-3 py-2 text-[12px] shadow-[0_14px_35px_rgba(15,23,42,0.16)]">
       <div className="font-black text-text">{item?.name || item?.payload?.label}</div>
-      <div className="mt-1 font-bold text-muted">{formatVnd(Number(item?.value || 0))}</div>
+      <div className="mt-1 font-bold text-muted">{formatVnd(empty ? 0 : Number(item?.value || 0))}</div>
     </div>
   );
 }

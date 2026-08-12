@@ -31,12 +31,23 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     sort?: string,
     order?: string
   ): Promise<PaginatedResult<Invoice>> {
-    const where: any = {};
+    const where: any = {
+      AND: [
+        {
+          OR: [
+            { total: { gt: 0 } },
+            { status: InvoiceStatus.DRAFT },
+          ],
+        },
+      ],
+    };
     if (search) {
-      where.OR = [
-        { code: { contains: search, mode: 'insensitive' } },
-        { customer: { fullName: { contains: search, mode: 'insensitive' } } },
-      ];
+      where.AND.push({
+        OR: [
+          { code: { contains: search, mode: 'insensitive' } },
+          { customer: { fullName: { contains: search, mode: 'insensitive' } } },
+        ],
+      });
     }
     if (status) where.status = status;
     if (customerId) where.customerId = customerId;
@@ -145,6 +156,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         tenantId,
         deletedAt: null,
         status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID] },
+        total: { gt: 0 },
         dueDate: { lt: now },
       },
       data: {

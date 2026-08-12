@@ -44,6 +44,14 @@ const fallback: Required<HunonicSettingsPayload> = {
   retentionYears: 3,
 };
 
+function canonicalBuildingCode(value: unknown) {
+  return String(value || "").trim().replace(/\./g, "-");
+}
+
+function roomIdentity(buildingCode: unknown, roomCode: unknown) {
+  return `${canonicalBuildingCode(buildingCode)}::${String(roomCode || "").trim()}`;
+}
+
 function formatMoney(value: unknown) {
   const number = Number(value || 0);
   return `${new Intl.NumberFormat("vi-VN").format(number)} đ`;
@@ -138,19 +146,23 @@ export default function SettingsHunonicIntegration() {
     const rooms = ((historyData.filters?.rooms || []) as any[]);
     const seen = new Set<string>();
     return rooms.filter((room) => {
-      const key = `${room.buildingCode}-${room.roomCode}`;
+      const key = roomIdentity(room.buildingCode, room.roomCode);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
   }, [historyData.filters?.rooms]);
+  const buildingOptions = useMemo(
+    () => Array.from(new Set(historyRooms.map((room: any) => room.buildingCode).filter(Boolean))).sort(),
+    [historyRooms],
+  );
   const monthlyRows = (historyData.monthlyRows || []) as any[];
   const qualityAlerts = (historyData.qualityAlerts || []) as any[];
   const readingRows = (historyData.readings || []) as any[];
   const lockedPeriods = (historyData.filters?.lockedPeriods || []) as any[];
   const roomsWithData =
     historySummary.roomsWithData ??
-    new Set(monthlyRows.map((row: any) => `${row.buildingCode}-${row.roomCode}`)).size;
+    new Set(monthlyRows.map((row: any) => roomIdentity(row.buildingCode, row.roomCode))).size;
   const pagination = historyData.pagination || { page: 1, limit: 25, total: 0, totalPages: 1 };
 
   const reconciliationData = (reconciliation.data || {}) as any;
@@ -195,6 +207,8 @@ export default function SettingsHunonicIntegration() {
   const runSync = async () => {
     setIsSyncing(true);
     try {
+      await save(buildHunonicPayload(draft, secretTouched) as Required<HunonicSettingsPayload>);
+      setSecretTouched({ password: false, websiteToken: false, websiteCookie: false });
       await hunonicApi.sync();
       await mutateHistoryPanels();
       toast.success("Đã đồng bộ Hunonic");
@@ -345,15 +359,15 @@ export default function SettingsHunonicIntegration() {
             <div className="max-w-[860px]">
               <div className="flex items-center gap-[8px] text-[12px] font-black uppercase tracking-[0.16em] text-[#16a34a]">
                 <PlugZap size={14} />
-                Hunonic electricity
+                Điện Hunonic
               </div>
-              <h3 className="mt-[8px] text-[20px] font-black text-text">Đồng bộ công tơ điện LK01-31 và LK01-32</h3>
+              <h3 className="mt-[8px] text-[20px] font-black text-text">Đồng bộ công tơ điện theo các tòa đang quản lý</h3>
               <p className="mt-[6px] text-[13px] leading-6 text-muted">
-                Dữ liệu được map cố định theo tên công tơ Hunonic: ĐIỆN 31.xx, ĐIỆN 32.xx và Văn phòng. Job đồng bộ chạy mỗi 1 giờ khi tích hợp được bật.
+                Dữ liệu được ghép theo mã phòng trong tên công tơ Hunonic, ví dụ ĐIỆN 31.xx hoặc ĐIỆN 32.xx. Phòng chưa có dữ liệu sẽ được bỏ qua và cập nhật ở lần đồng bộ sau.
               </p>
             </div>
             <div className="flex w-fit items-center gap-[10px] rounded-full border border-border bg-background px-[12px] py-[8px]">
-              <span className="text-[12px] font-bold text-muted">Bật đồng bộ</span>
+              <span className="text-[12px] font-bold text-muted">Đồng bộ</span>
               <Switch checked={draft.enabled} onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))} />
             </div>
           </div>
@@ -369,7 +383,7 @@ export default function SettingsHunonicIntegration() {
             <div className="rounded-[14px] border border-border bg-background p-[14px]">
               <div className="flex items-center gap-[8px] text-[12px] font-bold text-muted">
                 <Wifi size={14} />
-                Đang ON
+                Đang bật
               </div>
               <div className="mt-[6px] text-[22px] font-black text-text">{summary.online || 0}</div>
             </div>
@@ -405,9 +419,8 @@ export default function SettingsHunonicIntegration() {
                     key={mode}
                     type="button"
                     onClick={() => setDraft((prev) => ({ ...prev, mode }))}
-                    className={`flex h-[42px] items-center justify-center gap-[8px] rounded-[12px] border text-[13px] font-black ${
-                      draft.mode === mode ? "border-primary bg-primary text-white" : "border-border bg-background text-text"
-                    }`}
+                    className={`flex h-[42px] items-center justify-center gap-[8px] rounded-[12px] border text-[13px] font-black ${draft.mode === mode ? "border-primary bg-primary text-white" : "border-border bg-background text-text"
+                      }`}
                   >
                     {mode === "website" ? <Wifi size={14} /> : <Smartphone size={14} />}
                     {mode === "website" ? "Website" : "Mobile"}
@@ -418,11 +431,11 @@ export default function SettingsHunonicIntegration() {
 
             <div className="grid grid-cols-2 gap-[12px]">
               <div className="flex flex-col gap-[6px]">
-                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Sync</label>
+                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Chu kỳ đồng bộ</label>
                 <Input value={String(draft.syncIntervalMinutes ?? 60)} disabled />
               </div>
               <div className="flex flex-col gap-[6px]">
-                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Timeout ms</label>
+                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Thời gian chờ (ms)</label>
                 <Input
                   value={String(draft.timeoutMs ?? 15000)}
                   onChange={(event) => setDraft((prev) => ({ ...prev, timeoutMs: Number(event.target.value) || 15000 }))}
@@ -434,11 +447,11 @@ export default function SettingsHunonicIntegration() {
           {draft.mode === "website" ? (
             <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-2">
               <div className="flex flex-col gap-[6px]">
-                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Website base URL</label>
+                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">URL nền tảng web</label>
                 <Input value={draft.websiteBaseUrl ?? ""} onChange={(event) => setDraft((prev) => ({ ...prev, websiteBaseUrl: event.target.value }))} />
               </div>
               <div className="flex flex-col gap-[6px]">
-                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Bearer token</label>
+                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Token xác thực</label>
                 <Input
                   type="password"
                   value={draft.websiteToken ?? ""}
@@ -451,7 +464,7 @@ export default function SettingsHunonicIntegration() {
                 />
               </div>
               <div className="xl:col-span-2 flex flex-col gap-[6px]">
-                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Cookie header</label>
+                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Cookie xác thực</label>
                 <Input
                   type="password"
                   value={draft.websiteCookie ?? ""}
@@ -467,7 +480,7 @@ export default function SettingsHunonicIntegration() {
           ) : (
             <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-3">
               <div className="flex flex-col gap-[6px]">
-                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Mobile base URL</label>
+                <label className="text-[12px] font-bold uppercase tracking-wide text-muted">URL ứng dụng mobile</label>
                 <Input value={draft.baseUrl ?? ""} onChange={(event) => setDraft((prev) => ({ ...prev, baseUrl: event.target.value }))} />
                 <p className="text-[11px] font-semibold text-muted">Có thể nhập domain gốc, backend sẽ tự dùng /v2 cho api.hunonicpro.com.</p>
               </div>
@@ -500,7 +513,7 @@ export default function SettingsHunonicIntegration() {
           <div className="flex flex-col justify-between gap-[12px] sm:flex-row sm:items-center">
             <div className="flex items-center gap-[8px] text-[12px] font-bold text-muted">
               <Clock size={14} />
-              Lần sync gần nhất: {formatDate(latestLog?.finishedAt || latestLog?.startedAt)}
+              Lần đồng bộ gần nhất: {formatDate(latestLog?.finishedAt || latestLog?.startedAt)}
             </div>
             <div className="flex flex-col gap-[10px] sm:flex-row">
               <Button type="button" variant="outline" onClick={testConnection} isLoading={isTesting} className="h-[42px]">
@@ -508,10 +521,10 @@ export default function SettingsHunonicIntegration() {
               </Button>
               <Button type="button" variant="outline" onClick={runSync} isLoading={isSyncing} className="h-[42px]">
                 <RefreshCcw size={14} className="mr-2" />
-                Sync ngay
+                Đồng bộ ngay
               </Button>
               <Button type="button" onClick={saveHunonic} isLoading={isSaving} className="h-[42px] bg-primary text-white">
-                Lưu Hunonic
+                Lưu cấu hình
               </Button>
             </div>
           </div>
@@ -521,9 +534,9 @@ export default function SettingsHunonicIntegration() {
       <Card className="border-border/70 bg-card/95 p-[18px]">
         <div className="flex flex-col gap-[16px]">
           <div>
-            <h3 className="text-[15px] font-black text-text">Kiểm tra sync data 3 năm</h3>
+            <h3 className="text-[15px] font-black text-text">Kiểm tra dữ liệu đồng bộ 3 năm</h3>
             <p className="mt-[3px] max-w-[760px] text-[12px] text-muted">
-              Bảng lịch sử được đặt trong popup để trang cài đặt gọn hơn. Có thể lọc theo phòng, tòa, tháng/năm và khóa kỳ điện đã chốt để sync không ghi đè.
+              Bảng lịch sử được đặt trong popup để trang cài đặt gọn hơn. Có thể lọc theo phòng, tòa, tháng/năm và khóa kỳ điện đã chốt để đồng bộ không ghi đè.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-[10px] min-[1120px]:grid-cols-5">
@@ -550,7 +563,7 @@ export default function SettingsHunonicIntegration() {
           </div>
           <div className="flex justify-end border-t border-border/70 pt-[14px]">
             <Button type="button" onClick={() => setIsHistoryOpen(true)} className="h-[42px] min-w-[180px] bg-primary text-white">
-              Mở bảng kiểm tra
+              Mở lịch sử
             </Button>
           </div>
         </div>
@@ -559,10 +572,10 @@ export default function SettingsHunonicIntegration() {
       <Card className="border-border/70 bg-card/95 p-[18px]">
         <div className="flex flex-col gap-[16px]">
           <div>
-            <div className="text-[11px] font-black uppercase tracking-[0.14em] text-[#16a34a]">Electricity rate control</div>
-            <h3 className="mt-[4px] text-[16px] font-black text-text">Thiết lập giá điện theo công tơ</h3>
+            <div className="text-[11px] font-black uppercase tracking-[0.14em] text-[#16a34a]">Cấu hình giá điện</div>
+            <h3 className="mt-[4px] text-[16px] font-black text-text">Thiết lập giá theo công tơ</h3>
             <p className="mt-[4px] max-w-[780px] text-[12px] text-muted">
-              Chọn một hoặc nhiều công tơ để áp dụng mức sinh hoạt EVN hoặc giá tùy chỉnh. Bảng chi tiết được đặt trong popup để giao diện gọn hơn.
+              Chọn một hoặc nhiều công tơ để áp dụng giá sinh hoạt EVN hoặc giá tùy chỉnh. Bảng chi tiết được đặt trong popup để trang gọn hơn.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-[10px]">
@@ -587,14 +600,14 @@ export default function SettingsHunonicIntegration() {
         </div>
       </Card>
 
-      <Modal isOpen={isRateOpen} onClose={() => setIsRateOpen(false)} title="Thiết lập giá điện Hunonic" maxWidth="max-w-[min(1180px,92vw)]">
+      <Modal isOpen={isRateOpen} onClose={() => setIsRateOpen(false)} title="Giá điện Hunonic" maxWidth="max-w-[min(1180px,92vw)]">
         <div className="-m-5 mx-auto flex max-h-[calc(86vh-40px)] max-w-full flex-col overflow-hidden rounded-[16px] border border-border bg-card">
           <div className="flex flex-col gap-[14px] border-b border-border p-[16px] xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <div className="text-[11px] font-black uppercase tracking-[0.14em] text-[#16a34a]">Hunonic electricity rate</div>
+              <div className="text-[11px] font-black uppercase tracking-[0.14em] text-[#16a34a]">Giá điện Hunonic</div>
               <h3 className="mt-[4px] text-[16px] font-black text-text">Chọn công tơ và mức giá cần áp dụng</h3>
               <p className="mt-[4px] max-w-[820px] text-[12px] text-muted">
-                Dữ liệu bảng giá được đọc trực tiếp từ Hunonic. Hệ thống sẽ yêu cầu xác nhận trước khi cập nhật lên Hunonic.
+                Dữ liệu giá được đọc trực tiếp từ Hunonic. Hệ thống sẽ yêu cầu xác nhận trước khi cập nhật.
               </p>
             </div>
             <div className="grid min-w-0 grid-cols-3 gap-[8px] xl:min-w-[360px]">
@@ -618,20 +631,18 @@ export default function SettingsHunonicIntegration() {
               <button
                 type="button"
                 onClick={() => setRateMode("residential")}
-                className={`h-[42px] rounded-[12px] border text-[13px] font-black ${
-                  rateMode === "residential" ? "border-primary bg-primary text-white" : "border-border bg-card text-text"
-                }`}
+                className={`h-[42px] rounded-[12px] border text-[13px] font-black ${rateMode === "residential" ? "border-primary bg-primary text-white" : "border-border bg-card text-text"
+                  }`}
               >
-                Mức sinh hoạt EVN
+                Sinh hoạt EVN
               </button>
               <button
                 type="button"
                 onClick={() => setRateMode("custom")}
-                className={`h-[42px] rounded-[12px] border text-[13px] font-black ${
-                  rateMode === "custom" ? "border-primary bg-primary text-white" : "border-border bg-card text-text"
-                }`}
+                className={`h-[42px] rounded-[12px] border text-[13px] font-black ${rateMode === "custom" ? "border-primary bg-primary text-white" : "border-border bg-card text-text"
+                  }`}
               >
-                Tự thiết lập
+                Giá tùy chỉnh
               </button>
             </div>
             <Input
@@ -640,7 +651,7 @@ export default function SettingsHunonicIntegration() {
               value={customRate}
               onChange={(event) => setCustomRate(event.target.value)}
               disabled={rateMode !== "custom"}
-              placeholder="Giá đ/kWh"
+              placeholder="Giá / kWh"
               className="h-[42px]"
             />
             <Button type="button" variant="outline" onClick={toggleAllRateRows} className="h-[42px]">
@@ -688,9 +699,8 @@ export default function SettingsHunonicIntegration() {
                       <tr
                         key={row.id}
                         onClick={() => toggleRateRow(row.id)}
-                        className={`cursor-pointer border-b border-border/60 transition-colors hover:bg-background/70 ${
-                          isSelected ? "bg-primary/5" : ""
-                        }`}
+                        className={`cursor-pointer border-b border-border/60 transition-colors hover:bg-background/70 ${isSelected ? "bg-primary/5" : ""
+                          }`}
                       >
                         <td className="h-[54px] text-center align-middle">
                           <input
@@ -709,13 +719,12 @@ export default function SettingsHunonicIntegration() {
                         </td>
                         <td className="h-[54px] px-[10px] py-[10px] text-center align-middle">
                           <span
-                            className={`rounded-full px-2 py-1 text-[11px] font-black ${
-                              previewMode === "custom"
-                                ? "bg-amber-500/10 text-amber-700"
-                                : previewMode === "residential"
-                                  ? "bg-emerald-500/10 text-emerald-700"
-                                  : "bg-rose-500/10 text-rose-600"
-                            }`}
+                            className={`rounded-full px-2 py-1 text-[11px] font-black ${previewMode === "custom"
+                              ? "bg-amber-500/10 text-amber-700"
+                              : previewMode === "residential"
+                                ? "bg-emerald-500/10 text-emerald-700"
+                                : "bg-rose-500/10 text-rose-600"
+                              }`}
                           >
                             {previewMode === "custom" ? "Tự thiết lập" : previewMode === "residential" ? "Sinh hoạt EVN" : "Lỗi đọc"}
                           </span>
@@ -808,51 +817,53 @@ export default function SettingsHunonicIntegration() {
         </div>
       </Modal>
 
-      <Modal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} title="Kiểm tra sync data 3 năm" maxWidth="max-w-[min(1520px,96vw)]">
+      <Modal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} title="Kiểm tra dữ liệu đồng bộ 3 năm" maxWidth="max-w-[min(1520px,96vw)]">
         <div className="-m-5 overflow-hidden rounded-[16px] border border-border bg-card">
           <div className="flex flex-col gap-[14px] border-b border-border p-[16px]">
             <div className="flex flex-col gap-[12px] xl:flex-row xl:items-center xl:justify-between">
               <div>
-                <h3 className="text-[15px] font-black text-text">Kiểm tra sync data 3 năm</h3>
+                <h3 className="text-[15px] font-black text-text">Kiểm tra dữ liệu đồng bộ 3 năm</h3>
                 <p className="mt-[3px] text-[12px] text-muted">
-                  Lọc chỉ số kWh và tiền điện theo phòng, tháng, năm. Tổng hợp tháng dùng bản ghi mới nhất của từng phòng để tránh cộng lặp các lần sync theo giờ.
+                  Lọc chỉ số kWh và tiền điện theo phòng, tháng, năm. Tổng hợp tháng dùng bản ghi mới nhất của từng phòng để tránh cộng lặp các lần đồng bộ theo giờ.
                 </p>
               </div>
-              <div className="grid min-w-0 grid-cols-2 gap-[10px] md:grid-cols-5 xl:min-w-[760px]">
+              <div className="grid min-w-0 grid-cols-2 gap-[10px] md:grid-cols-4 xl:min-w-[760px]">
                 <div className="rounded-[12px] border border-border bg-background p-[12px]">
-                  <div className="text-[10px] font-black uppercase text-muted">Bản ghi</div>
+                  <div className="text-[10px] font-black uppercase text-muted">Dòng phòng-tháng</div>
                   <div className="mt-1 text-[18px] font-black text-text">{historySummary.totalReadings || 0}</div>
+                  <div className="mt-[2px] text-[10px] font-semibold text-muted">1 phòng / 1 tháng</div>
                 </div>
                 <div className="rounded-[12px] border border-border bg-background p-[12px]">
                   <div className="text-[10px] font-black uppercase text-muted">Phòng có dữ liệu</div>
                   <div className="mt-1 text-[18px] font-black text-text">{roomsWithData}</div>
+                  <div className="mt-[2px] text-[10px] font-semibold text-muted">Phòng thật</div>
                 </div>
                 <div className="rounded-[12px] border border-border bg-background p-[12px]">
                   <div className="text-[10px] font-black uppercase text-muted">Kỳ đã khóa</div>
                   <div className="mt-1 text-[18px] font-black text-text">{lockedPeriods.length}</div>
                 </div>
                 <div className="rounded-[12px] border border-border bg-background p-[12px]">
-                  <div className="text-[10px] font-black uppercase text-muted">kWh</div>
+                  <div className="text-[10px] font-black uppercase text-muted">Tổng kWh</div>
                   <div className="mt-1 text-[18px] font-black text-text">{formatKwh(historySummary.totalEnergyMonthKwh)}</div>
                 </div>
-              <div className="rounded-[12px] border border-border bg-background p-[12px]">
-                <div className="text-[10px] font-black uppercase text-muted">Tiền</div>
-                <div className="mt-1 text-[18px] font-black text-[#16a34a]">{formatMoney(historySummary.totalMoneyMonthVnd)}</div>
-              </div>
-              <div className="rounded-[12px] border border-border bg-background p-[12px]">
-                <div className="text-[10px] font-black uppercase text-muted">Trùng kỳ</div>
-                <div className="mt-1 text-[18px] font-black text-amber-700">{dataQuality.duplicatePeriods || 0}</div>
-              </div>
-              <div className="rounded-[12px] border border-border bg-background p-[12px]">
-                <div className="text-[10px] font-black uppercase text-muted">Thiếu kỳ</div>
-                <div className="mt-1 text-[18px] font-black text-rose-700">{dataQuality.missingPeriods || 0}</div>
-              </div>
-              <div className="rounded-[12px] border border-border bg-background p-[12px]">
-                <div className="text-[10px] font-black uppercase text-muted">Bất thường</div>
-                <div className="mt-1 text-[18px] font-black text-amber-700">{dataQuality.abnormalPeriods || 0}</div>
+                <div className="rounded-[12px] border border-border bg-background p-[12px]">
+                  <div className="text-[10px] font-black uppercase text-muted">Tổng tiền điện</div>
+                  <div className="mt-1 text-[18px] font-black text-[#16a34a]">{formatMoney(historySummary.totalMoneyMonthVnd)}</div>
+                </div>
+                <div className="rounded-[12px] border border-border bg-background p-[12px]">
+                  <div className="text-[10px] font-black uppercase text-muted">Trùng dữ liệu</div>
+                  <div className="mt-1 text-[18px] font-black text-amber-700">{dataQuality.duplicatePeriods || 0}</div>
+                </div>
+                <div className="rounded-[12px] border border-border bg-background p-[12px]">
+                  <div className="text-[10px] font-black uppercase text-muted">Thiếu kỳ</div>
+                  <div className="mt-1 text-[18px] font-black text-rose-700">{dataQuality.missingPeriods || 0}</div>
+                </div>
+                <div className="rounded-[12px] border border-border bg-background p-[12px]">
+                  <div className="text-[10px] font-black uppercase text-muted">Bất thường</div>
+                  <div className="mt-1 text-[18px] font-black text-amber-700">{dataQuality.abnormalPeriods || 0}</div>
+                </div>
               </div>
             </div>
-          </div>
 
             <div className="grid grid-cols-1 gap-[10px] md:grid-cols-[minmax(220px,1.3fr)_repeat(4,minmax(120px,0.7fr))]">
               <div className="relative">
@@ -861,15 +872,18 @@ export default function SettingsHunonicIntegration() {
               </div>
               <select value={historyFilters.buildingCode} onChange={(event) => patchHistoryFilter({ buildingCode: event.target.value, roomCode: "all" })} className="h-[42px] rounded-[12px] border border-border bg-background px-[12px] text-[13px] font-bold text-text outline-none">
                 <option value="all">Tất cả tòa</option>
-                <option value="LK01-31">LK01-31</option>
-                <option value="LK01-32">LK01-32</option>
+                {buildingOptions.map((buildingCode) => (
+                  <option key={buildingCode} value={buildingCode}>
+                    {buildingCode}
+                  </option>
+                ))}
               </select>
               <select value={historyFilters.roomCode} onChange={(event) => patchHistoryFilter({ roomCode: event.target.value })} className="h-[42px] rounded-[12px] border border-border bg-background px-[12px] text-[13px] font-bold text-text outline-none">
                 <option value="all">Tất cả phòng</option>
                 {historyRooms
                   .filter((room) => historyFilters.buildingCode === "all" || room.buildingCode === historyFilters.buildingCode)
                   .map((room) => (
-                    <option key={`${room.buildingCode}-${room.roomCode}`} value={room.roomCode}>
+                    <option key={roomIdentity(room.buildingCode, room.roomCode)} value={room.roomCode}>
                       {room.buildingCode} / {room.displayName}
                     </option>
                   ))}
@@ -895,13 +909,18 @@ export default function SettingsHunonicIntegration() {
 
           <div className="border-b border-border p-[16px]">
             <div className="mb-[10px] flex flex-col gap-[10px] xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex items-center gap-[8px] text-[12px] font-black uppercase tracking-wide text-muted">
-                <CalendarDays size={14} />
-                Tổng hợp theo tháng/năm
+              <div className="min-w-0">
+                <div className="flex items-center gap-[8px] text-[12px] font-black uppercase tracking-wide text-muted">
+                  <CalendarDays size={14} />
+                  Điện theo phòng và tháng
+                </div>
+                <p className="mt-[4px] text-[12px] font-medium text-muted">
+                  Mỗi dòng là dữ liệu mới nhất của một phòng trong một tháng, không phải số lượng phòng.
+                </p>
               </div>
               <div className="flex flex-wrap gap-[8px]">
                 <Button type="button" variant="outline" onClick={exportHistoryCsv} className="h-[38px]">
-                  Export CSV
+                  Xuất CSV
                 </Button>
                 <Button type="button" variant="outline" onClick={toggleAllMonthlyRows} className="h-[38px]">
                   {allMonthlySelected ? "Bỏ chọn kỳ điện" : "Chọn tất cả kỳ điện"}
@@ -923,7 +942,7 @@ export default function SettingsHunonicIntegration() {
                   disabled={selectedMonthlyRows.length === 0}
                   className="h-[38px] bg-primary text-white"
                 >
-                  Khóa kỳ đã chốt {selectedMonthlyRows.length ? `(${selectedMonthlyRows.length})` : ""}
+                  Khóa kỳ đã chọn {selectedMonthlyRows.length ? `(${selectedMonthlyRows.length})` : ""}
                 </Button>
               </div>
             </div>
@@ -933,14 +952,14 @@ export default function SettingsHunonicIntegration() {
                 <thead>
                   <tr className="border-b border-border bg-background">
                     <th className="w-[64px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Chọn</th>
-                    <th className="w-[110px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Kỳ</th>
+                    <th className="w-[110px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Tháng</th>
                     <th className="w-[190px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Phòng</th>
-                    <th className="w-[160px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Công tơ</th>
-                    <th className="w-[130px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Công suất</th>
-                    <th className="w-[140px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">kWh tháng</th>
-                    <th className="w-[150px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Tiền điện</th>
-                    <th className="w-[120px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Khóa kỳ</th>
-                    <th className="w-[170px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Mốc đọc</th>
+                    <th className="w-[160px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Tên công tơ</th>
+                    <th className="w-[130px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Đang dùng</th>
+                    <th className="w-[140px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Điện tháng</th>
+                    <th className="w-[150px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Tiền tháng</th>
+                    <th className="w-[120px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Trạng thái</th>
+                    <th className="w-[170px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Lần đọc</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -993,9 +1012,14 @@ export default function SettingsHunonicIntegration() {
 
           <div className="border-b border-border p-[16px]">
             <div className="mb-[10px] flex flex-col gap-[10px] xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex items-center gap-[8px] text-[12px] font-black uppercase tracking-wide text-muted">
-                <CheckCircle2 size={14} />
-                Đối chiếu Hunonic và hóa đơn điện
+              <div className="min-w-0">
+                <div className="flex items-center gap-[8px] text-[12px] font-black uppercase tracking-wide text-muted">
+                  <CheckCircle2 size={14} />
+                  Đối chiếu Hunonic với hóa đơn
+                </div>
+                <p className="mt-[4px] text-[12px] font-medium text-muted">
+                  So tiền điện Hunonic đã đồng bộ với hóa đơn điện đã phát hành trong cùng phòng và cùng tháng.
+                </p>
               </div>
               <div className="grid grid-cols-1 gap-[8px] sm:grid-cols-3">
                 <div className="rounded-[12px] border border-border bg-background px-[12px] py-[10px] text-center">
@@ -1003,11 +1027,11 @@ export default function SettingsHunonicIntegration() {
                   <div className="text-[16px] font-black text-emerald-700">{reconciliationSummary.matchedRows || 0}</div>
                 </div>
                 <div className="rounded-[12px] border border-border bg-background px-[12px] py-[10px] text-center">
-                  <div className="text-[10px] font-black uppercase text-muted">Lệch</div>
+                  <div className="text-[10px] font-black uppercase text-muted">Lệch tiền</div>
                   <div className="text-[16px] font-black text-amber-700">{reconciliationSummary.mismatchedRows || 0}</div>
                 </div>
                 <div className="rounded-[12px] border border-border bg-background px-[12px] py-[10px] text-center">
-                  <div className="text-[10px] font-black uppercase text-muted">Thiếu hóa đơn</div>
+                  <div className="text-[10px] font-black uppercase text-muted">Chưa có hóa đơn</div>
                   <div className="text-[16px] font-black text-rose-700">{reconciliationSummary.missingInvoiceRows || 0}</div>
                 </div>
               </div>
@@ -1017,12 +1041,12 @@ export default function SettingsHunonicIntegration() {
               <table className="w-full min-w-[1080px] table-fixed text-[13px]">
                 <thead>
                   <tr className="border-b border-border bg-background">
-                    <th className="w-[110px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Kỳ</th>
+                    <th className="w-[110px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Tháng</th>
                     <th className="w-[190px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Phòng</th>
-                    <th className="w-[140px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Hunonic</th>
-                    <th className="w-[140px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Hóa đơn</th>
+                    <th className="w-[140px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Tiền Hunonic</th>
+                    <th className="w-[140px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Tiền hóa đơn</th>
                     <th className="w-[140px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Chênh lệch</th>
-                    <th className="w-[120px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Số HĐ</th>
+                    <th className="w-[120px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Số hóa đơn</th>
                     <th className="w-[150px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Trạng thái</th>
                     <th className="w-[120px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Khóa kỳ</th>
                   </tr>
@@ -1031,7 +1055,7 @@ export default function SettingsHunonicIntegration() {
                   {reconciliationRows.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-[14px] py-[28px] text-center font-medium text-muted">
-                        Chưa có dữ liệu đối soát theo bộ lọc hiện tại.
+                        Chưa có dữ liệu đối chiếu phù hợp bộ lọc.
                       </td>
                     </tr>
                   ) : (
@@ -1047,13 +1071,12 @@ export default function SettingsHunonicIntegration() {
                         <td className="h-[48px] px-[12px] text-center align-middle font-bold text-text">{row.invoiceCount || 0}</td>
                         <td className="h-[48px] px-[12px] text-center align-middle">
                           <span
-                            className={`rounded-full px-2 py-1 text-[11px] font-black ${
-                              row.reconciliationStatus === "MATCHED"
-                                ? "bg-emerald-500/10 text-emerald-700"
-                                : row.reconciliationStatus === "MISSING_INVOICE"
-                                  ? "bg-rose-500/10 text-rose-600"
-                                  : "bg-amber-500/10 text-amber-700"
-                            }`}
+                            className={`rounded-full px-2 py-1 text-[11px] font-black ${row.reconciliationStatus === "MATCHED"
+                              ? "bg-emerald-500/10 text-emerald-700"
+                              : row.reconciliationStatus === "MISSING_INVOICE"
+                                ? "bg-rose-500/10 text-rose-600"
+                                : "bg-amber-500/10 text-amber-700"
+                              }`}
                           >
                             {row.reconciliationStatus === "MATCHED"
                               ? "Khớp"
@@ -1086,7 +1109,7 @@ export default function SettingsHunonicIntegration() {
                 <thead>
                   <tr className="border-b border-border bg-background">
                     <th className="w-[140px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Loại cảnh báo</th>
-                    <th className="w-[110px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Kỳ</th>
+                    <th className="w-[110px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Tháng</th>
                     <th className="w-[210px] px-[12px] py-[12px] text-center text-[10px] font-black uppercase tracking-wide text-muted">Phòng</th>
                     <th className="px-[12px] py-[12px] text-left text-[10px] font-black uppercase tracking-wide text-muted">Mô tả</th>
                   </tr>
@@ -1095,7 +1118,7 @@ export default function SettingsHunonicIntegration() {
                   {qualityAlerts.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="px-[14px] py-[28px] text-center font-medium text-muted">
-                        Chưa phát hiện cảnh báo dữ liệu trong bộ lọc hiện tại.
+                        Không phát hiện cảnh báo chất lượng dữ liệu theo bộ lọc hiện tại.
                       </td>
                     </tr>
                   ) : (
@@ -1103,13 +1126,12 @@ export default function SettingsHunonicIntegration() {
                       <tr key={`quality-${alert.type}-${rowKey(alert)}-${index}`} className="border-b border-border/60 hover:bg-background/60">
                         <td className="h-[48px] px-[12px] py-[10px] text-center align-middle">
                           <span
-                            className={`rounded-full px-2 py-1 text-[11px] font-black ${
-                              alert.type === "MISSING"
-                                ? "bg-rose-500/10 text-rose-600"
-                                : alert.type === "DUPLICATE"
-                                  ? "bg-amber-500/10 text-amber-700"
-                                  : "bg-orange-500/10 text-orange-700"
-                            }`}
+                            className={`rounded-full px-2 py-1 text-[11px] font-black ${alert.type === "MISSING"
+                              ? "bg-rose-500/10 text-rose-600"
+                              : alert.type === "DUPLICATE"
+                                ? "bg-amber-500/10 text-amber-700"
+                                : "bg-orange-500/10 text-orange-700"
+                              }`}
                           >
                             {alert.type === "MISSING" ? "Thiếu kỳ" : alert.type === "DUPLICATE" ? "Trùng bản ghi" : "Bất thường"}
                           </span>
@@ -1131,7 +1153,7 @@ export default function SettingsHunonicIntegration() {
             <div className="mb-[10px] flex items-center justify-between gap-[12px]">
               <div className="flex items-center gap-[8px] text-[12px] font-black uppercase tracking-wide text-muted">
                 <Database size={14} />
-                Log sync chi tiết
+                Log dữ liệu đã sync
               </div>
               <div className="text-[12px] font-bold text-muted">
                 Trang {pagination.page} / {pagination.totalPages}
@@ -1156,7 +1178,7 @@ export default function SettingsHunonicIntegration() {
                   {readingRows.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-[14px] py-[28px] text-center font-medium text-muted">
-                        Chưa có log sync phù hợp bộ lọc.
+                        Chưa có nhật ký đồng bộ phù hợp bộ lọc.
                       </td>
                     </tr>
                   ) : (

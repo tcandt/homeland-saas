@@ -13,3 +13,26 @@ export function getInvoiceFinancials(invoice: any) {
     settledPercent: total > 0 ? Math.min(100, Math.round((settled / total) * 100)) : 0,
   };
 }
+
+export function getInvoicesFinancialSummary(invoices: any[] = []) {
+  return invoices.reduce(
+    (summary, invoice) => {
+      const financials = getInvoiceFinancials(invoice);
+
+      summary.total += financials.total;
+      summary.paid += financials.paid;
+      summary.credit += financials.credit;
+      summary.settled += financials.settled;
+      summary.remaining += financials.remaining;
+
+      return summary;
+    },
+    {
+      total: 0,
+      paid: 0,
+      credit: 0,
+      settled: 0,
+      remaining: 0,
+    },
+  );
+}

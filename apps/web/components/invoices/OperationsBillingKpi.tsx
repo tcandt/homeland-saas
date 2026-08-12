@@ -2,6 +2,7 @@ import React from "react";
 import { Receipt, AlertTriangle, CheckCircle2, TrendingUp, Clock, FileText } from "lucide-react";
 import { Card } from "../ui/Card";
 import { Skeleton } from "../ui/Skeleton";
+import { getInvoicesFinancialSummary } from "@/lib/invoices/invoice-financials";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 
 export default function OperationsBillingKpi() {
@@ -32,10 +33,9 @@ export default function OperationsBillingKpi() {
   const paidCount = invoices.filter((inv: any) => inv.status === "PAID").length;
   const partialCount = invoices.filter((inv: any) => inv.status === "PARTIALLY_PAID").length;
 
-  const totalInvoiced = invoices.reduce((sum: number, inv: any) => sum + (Number(inv.total) || 0), 0);
-  const totalPaid = invoices.reduce((sum: number, inv: any) => sum + (Number(inv.paidAmount) || 0), 0);
-  const totalReceivable = Math.max(0, totalInvoiced - totalPaid);
-  const recoveryRate = totalInvoiced > 0 ? Math.round((totalPaid / totalInvoiced) * 100) : 0;
+  const invoiceSummary = getInvoicesFinancialSummary(invoices);
+  const totalReceivable = invoiceSummary.remaining;
+  const recoveryRate = invoiceSummary.total > 0 ? Math.round((invoiceSummary.settled / invoiceSummary.total) * 100) : 0;
 
   const formatMillions = (val: number) => {
     if (val >= 1000000) {

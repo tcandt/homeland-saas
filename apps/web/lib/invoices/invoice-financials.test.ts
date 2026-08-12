@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getInvoiceFinancials } from './invoice-financials';
+import { getInvoiceFinancials, getInvoicesFinancialSummary } from './invoice-financials';
 
 describe('getInvoiceFinancials', () => {
   it('subtracts both cash payments and credits from the remaining balance', () => {
@@ -18,6 +18,21 @@ describe('getInvoiceFinancials', () => {
       settled: 500_000,
       remaining: 0,
       settledPercent: 100,
+    });
+  });
+
+  it('aggregates cash, credits, and remaining balances across invoices', () => {
+    expect(
+      getInvoicesFinancialSummary([
+        { total: 1_000_000, paidAmount: 300_000, creditAmount: 200_000 },
+        { total: 500_000, paidAmount: 500_000, creditAmount: 100_000 },
+      ]),
+    ).toEqual({
+      total: 1_500_000,
+      paid: 800_000,
+      credit: 300_000,
+      settled: 1_000_000,
+      remaining: 500_000,
     });
   });
 });

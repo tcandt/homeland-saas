@@ -2,6 +2,7 @@ import React from "react";
 import { TrendingUp, TrendingDown, DollarSign, Wallet, Minus, FileWarning, AlertTriangle, PieChart } from "lucide-react";
 import { useProfitLossQuery } from "@/lib/queries/finance.queries";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
+import { getInvoicesFinancialSummary } from "@/lib/invoices/invoice-financials";
 
 export default function OperationsFinanceKpi() {
   const { data: profitLoss } = useProfitLossQuery();
@@ -13,9 +14,7 @@ export default function OperationsFinanceKpi() {
   const profitMargin = profitLoss?.margin || 0;
   
   const invoices = (invoicesData as any)?.data || [];
-  const totalInvoiced = invoices.reduce((sum: number, inv: any) => sum + (Number(inv.total) || 0), 0);
-  const totalPaid = invoices.reduce((sum: number, inv: any) => sum + (Number(inv.paidAmount) || 0), 0);
-  const totalReceivable = Math.max(0, totalInvoiced - totalPaid);
+  const invoiceSummary = getInvoicesFinancialSummary(invoices);
 
   const formatMillions = (val: number) => {
     if (val >= 1000000) {
@@ -29,8 +28,8 @@ export default function OperationsFinanceKpi() {
     { label: "Tổng chi", value: formatMillions(expense), unit: "VNĐ", icon: Wallet, color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20", trend: "", trendUp: false },
     { label: "Lợi nhuận ròng", value: formatMillions(netProfit), unit: "VNĐ", icon: TrendingUp, color: "text-[#6366f1]", bg: "bg-[#6366f1]/10", border: "border-[#6366f1]/20", trend: "", trendUp: netProfit >= 0 },
     { label: "Biên lợi nhuận", value: `${profitMargin}%`, unit: "", icon: PieChart, color: "text-[#0ea5e9]", bg: "bg-[#0ea5e9]/10", border: "border-[#0ea5e9]/20", trend: "", trendUp: true },
-    { label: "Công nợ thu", value: formatMillions(totalReceivable), unit: "VNĐ", icon: Minus, color: "text-[#f97316]", bg: "bg-[#f97316]/10", border: "border-[#f97316]/20", trend: "", trendUp: false },
-    { label: "Tiền đã thu", value: formatMillions(totalPaid), unit: "VNĐ", icon: DollarSign, color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10", border: "border-[#8b5cf6]/20", trend: "", trendUp: true },
+    { label: "Công nợ thu", value: formatMillions(invoiceSummary.remaining), unit: "VNĐ", icon: Minus, color: "text-[#f97316]", bg: "bg-[#f97316]/10", border: "border-[#f97316]/20", trend: "", trendUp: false },
+    { label: "Tiền đã thu", value: formatMillions(invoiceSummary.paid), unit: "VNĐ", icon: DollarSign, color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10", border: "border-[#8b5cf6]/20", trend: "", trendUp: true },
     { label: "Chưa đối soát", value: "0", unit: "GD", icon: FileWarning, color: "text-[#a855f7]", bg: "bg-[#a855f7]/10", border: "border-[#a855f7]/20", trend: "", trendUp: true },
     { label: "Chi bất thường", value: "0", unit: "GD", icon: AlertTriangle, color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20", trend: "", trendUp: false },
   ];

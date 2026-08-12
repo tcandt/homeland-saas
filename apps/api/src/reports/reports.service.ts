@@ -9,7 +9,7 @@ export class ReportsService {
     const inflow = await this.prisma.journalLine.aggregate({
       where: {
         journalEntry: { tenantId, status: 'POSTED' },
-        account: { code: { in: ['111', '112'] } },
+        account: { code: { in: ['1000', '1100'] } },
         type: 'DEBIT'
       },
       _sum: { amount: true }
@@ -18,7 +18,7 @@ export class ReportsService {
     const outflow = await this.prisma.journalLine.aggregate({
       where: {
         journalEntry: { tenantId, status: 'POSTED' },
-        account: { code: { in: ['111', '112'] } },
+        account: { code: { in: ['1000', '1100'] } },
         type: 'CREDIT'
       },
       _sum: { amount: true }
@@ -39,14 +39,14 @@ export class ReportsService {
     const revenueLines = await this.prisma.journalLine.findMany({
       where: {
         journalEntry: { tenantId, status: 'POSTED' },
-        account: { code: { startsWith: '5' } }
+        account: { type: 'REVENUE' },
       }
     });
 
     const expenseLines = await this.prisma.journalLine.findMany({
       where: {
         journalEntry: { tenantId, status: 'POSTED' },
-        account: { code: { startsWith: '6' } } 
+        account: { type: 'EXPENSE' },
       }
     });
 
@@ -92,15 +92,18 @@ export class ReportsService {
 
   async getReceivableAging(tenantId: string) {
     const invoices = await this.prisma.invoice.findMany({
-      where: { tenantId, status: { in: ['DRAFT', 'OVERDUE'] } }, // Note: Adjusted to actual enum, e.g. DRAFT, OVERDUE, ISSUED
+      where: { tenantId, status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] } },
       include: { customer: true }
     });
 
     return invoices.map((inv: any) => {
-      const remaining = Number(inv.total) - Number(inv.paidAmount);
+      const remaining = Math.max(
+        0,
+        Number(inv.total) - Number(inv.paidAmount || 0) - Number(inv.creditAmount || 0),
+      );
       const daysOverdue = Math.max(0, Math.floor((new Date().getTime() - inv.dueDate.getTime()) / (1000 * 3600 * 24)));
       return {
-        invoiceCode: inv.id, // using id as fallback
+        invoiceCode: inv.code || inv.id,
         customer: inv.customer?.fullName || 'Unknown',
         dueDate: inv.dueDate,
         totalAmount: Number(inv.total),

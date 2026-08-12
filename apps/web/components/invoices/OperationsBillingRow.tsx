@@ -2,6 +2,7 @@
 
 import React from "react";
 import { ChevronRight, FileText, Send, Receipt, Wallet, Bell } from "lucide-react";
+import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { Card } from "../ui/Card";
 
 export type BillingStatus = "Created" | "Sent" | "Partially Paid" | "Paid" | "Overdue";
@@ -20,10 +21,11 @@ export default function OperationsBillingRow({ invoice, onClick }: { invoice: an
   };
 
   const status = invoice.status || 'Created';
-  const totalAmount = invoice.totalAmount || 0;
-  const paidAmount = invoice.paidAmount || 0;
-  const debtAmount = Math.max(0, totalAmount - paidAmount);
-  const paidPercent = totalAmount > 0 ? Math.round((paidAmount / totalAmount) * 100) : 0;
+  const financials = getInvoiceFinancials(invoice);
+  const totalAmount = financials.total;
+  const paidAmount = financials.paid;
+  const debtAmount = financials.remaining;
+  const paidPercent = financials.settledPercent;
 
   const getProgressColor = () => {
     if (status === "Overdue") return "bg-rose-500";

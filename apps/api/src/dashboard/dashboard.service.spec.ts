@@ -18,8 +18,19 @@ describe('DashboardService', () => {
           .mockResolvedValueOnce(0),
         findMany: vi.fn().mockResolvedValue([]),
       },
-      invoice: { findMany: vi.fn().mockResolvedValue([]) },
-      deposit: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 } }) },
+      invoice: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'invoice-1',
+            status: 'ISSUED',
+            dueDate: new Date('2099-01-01'),
+            total: 1_000_000,
+            paidAmount: 300_000,
+            creditAmount: 200_000,
+          },
+        ]),
+      },
+      deposit: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 5_000_000 } }) },
       building: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -39,7 +50,12 @@ describe('DashboardService', () => {
         ]),
       },
       payment: { findMany: vi.fn().mockResolvedValue([]) },
-      journalLine: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 } }) },
+      journalLine: {
+        aggregate: vi.fn()
+          .mockResolvedValueOnce({ _sum: { amount: 1_500_000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 4_000_000 } })
+          .mockResolvedValue({ _sum: { amount: 0 } }),
+      },
     };
     const finance: any = {
       getProfitLoss: vi.fn().mockResolvedValue({ revenue: 0, expense: 0, profit: 0, margin: 0 }),
@@ -59,6 +75,8 @@ describe('DashboardService', () => {
       totalRevenue: 6_000_000,
       netProfit: 6_000_000,
       netCashFlow: 6_000_000,
+      totalDebt: 500_000,
+      depositHeld: 2_500_000,
     });
     expect(dashboard.buildingHealth[0]).toMatchObject({
       rooms: 2,

@@ -4,6 +4,7 @@ import React from "react";
 import { Sparkles, AlertTriangle, Users, MessageSquare, TrendingDown, Building2 } from "lucide-react";
 import { Card } from "../ui/Card";
 import { Skeleton } from "../ui/Skeleton";
+import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 
 export default function OperationsBillingInsights() {
@@ -36,7 +37,7 @@ export default function OperationsBillingInsights() {
   const pending = invoices.filter((inv: any) => inv.status === "DRAFT" || inv.status === "ISSUED").length;
   const partial = invoices.filter((inv: any) => inv.status === "PARTIALLY_PAID").length;
   const paid = invoices.filter((inv: any) => inv.status === "PAID").length;
-  const receivable = invoices.reduce((sum: number, inv: any) => sum + Math.max(0, (Number(inv.total) || 0) - (Number(inv.paidAmount) || 0)), 0);
+  const receivable = invoices.reduce((sum: number, invoice: any) => sum + getInvoiceFinancials(invoice).remaining, 0);
 
   const insights = [
     { text: `${overdue} hóa đơn quá hạn cần xử lý`, icon: AlertTriangle, color: "text-rose-500" },

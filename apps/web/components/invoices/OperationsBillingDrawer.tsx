@@ -7,6 +7,7 @@ import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { useIssueInvoiceMutation, usePayInvoiceMutation, useCancelInvoiceMutation, useWriteoffInvoiceMutation } from "@/lib/queries/invoices.queries";
 import { useDeleteInvoiceMutation } from "@/lib/mutations/invoices.mutations";
+import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import toast from "react-hot-toast";
 
 export default function OperationsBillingDrawer({ invoice, onClose }: { invoice: any | null, onClose: () => void }) {
@@ -18,6 +19,7 @@ export default function OperationsBillingDrawer({ invoice, onClose }: { invoice:
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
 
   if (!invoice) return null;
+  const financials = getInvoiceFinancials(invoice);
 
   return (
     <Drawer 
@@ -82,7 +84,7 @@ export default function OperationsBillingDrawer({ invoice, onClose }: { invoice:
             </div>
             <div className="flex flex-col gap-[4px]">
               <span className="text-[11px] font-bold text-muted uppercase">Còn nợ</span>
-              <span className={`text-[16px] font-black ${invoice.status === 'Overdue' ? 'text-rose-500' : 'text-text'}`}>{invoice.debtAmount || 0}đ</span>
+              <span className={`text-[16px] font-black ${invoice.status === 'Overdue' ? 'text-rose-500' : 'text-text'}`}>{financials.remaining.toLocaleString()}đ</span>
             </div>
           </div>
         </Card>
@@ -281,7 +283,7 @@ export default function OperationsBillingDrawer({ invoice, onClose }: { invoice:
               data-testid="btn-pay-invoice"
               className="h-[40px] px-[20px] bg-[#8b5cf6] hover:bg-[#6366f1] text-white rounded-[12px] font-bold text-[14px] shadow-sm transition-all shadow-[#8b5cf6]/20 flex items-center gap-[8px]"
               onClick={() => {
-                const remaining = Number(invoice.total) - Number(invoice.paidAmount);
+                const remaining = financials.remaining;
                 const amount = prompt(`Nhập số tiền thanh toán (Tối đa: ${remaining}):`, remaining.toString());
                 if (amount && !isNaN(Number(amount))) {
                   payMutation.mutate({ id: invoice.id, amount: Number(amount) }, {

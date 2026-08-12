@@ -3,7 +3,6 @@
 import React, { useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import {
-  Bell,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -13,7 +12,6 @@ import {
   Eye,
   FileText,
   Filter,
-  Mail,
   MoreHorizontal,
   Plus,
   Receipt,
@@ -26,6 +24,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import AppShell from "@/components/layout/AppShell";
 import OperationsBillingDrawer from "@/components/invoices/OperationsBillingDrawer";
 import { Button } from "@/components/ui/Button";
+import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
@@ -37,10 +36,21 @@ const formatDate = (value?: string) => {
   return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 };
 
+// Helper: Formats concise 6-character invoice code (e.g. HD8201, HD4920)
+function formatInvoiceCode(invoice: any) {
+  if (!invoice) return "HD0000";
+  const raw = String(invoice.code || invoice.id || "");
+  // If already concise like HD8201 or INV-1234, keep or format
+  if (/^HD\d{4}$/.test(raw)) return raw;
+  const hashNum = raw.split("").reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+  const numSuffix = String((Math.abs(hashNum * 17 + (Number(invoice.amount || invoice.total) || 0)) % 8999) + 1000);
+  return `HD${numSuffix}`;
+}
+
 const statusMeta: Record<string, { label: string; tone: string; dot: string }> = {
   DRAFT: { label: "Chờ thanh toán", tone: "bg-orange-50 text-orange-600", dot: "bg-orange-500" },
   ISSUED: { label: "Chờ thanh toán", tone: "bg-orange-50 text-orange-600", dot: "bg-orange-500" },
-  PARTIALLY_PAID: { label: "Thanh toán một phần", tone: "bg-blue-50 text-blue-600", dot: "bg-blue-500" },
+  PARTIALLY_PAID: { label: "Thanh toán 1 phần", tone: "bg-blue-50 text-blue-600", dot: "bg-blue-500" },
   OVERDUE: { label: "Quá hạn", tone: "bg-rose-50 text-rose-600", dot: "bg-rose-500" },
   PAID: { label: "Đã thu", tone: "bg-emerald-50 text-emerald-600", dot: "bg-emerald-500" },
   CANCELLED: { label: "Đã hủy", tone: "bg-slate-100 text-slate-500", dot: "bg-slate-400" },
@@ -55,11 +65,15 @@ const tabs = [
 ];
 
 function invoiceAmount(invoice: any) {
-  return Number(invoice.total ?? invoice.totalAmount ?? invoice.amount ?? 0) || 0;
+  return getInvoiceFinancials(invoice).total;
 }
 
 function invoicePaid(invoice: any) {
-  return Number(invoice.paidAmount ?? invoice.paid ?? 0) || 0;
+  return getInvoiceFinancials(invoice).paid;
+}
+
+function invoiceRemaining(invoice: any) {
+  return getInvoiceFinancials(invoice).remaining;
 }
 
 function invoiceRoom(invoice: any) {
@@ -95,7 +109,8 @@ export default function InvoicesPage() {
         else if (status !== "ISSUED" && invoice.status !== status) return false;
       }
       if (!needle) return true;
-      return [invoice.code, invoiceCustomer(invoice), invoiceRoom(invoice), invoicePeriod(invoice)]
+      const code = formatInvoiceCode(invoice);
+      return [code, invoice.code, invoiceCustomer(invoice), invoiceRoom(invoice), invoicePeriod(invoice)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -110,9 +125,10 @@ export default function InvoicesPage() {
     const paid = invoices.filter((invoice: any) => invoice.status === "PAID");
     const totalAmount = invoices.reduce((sum: number, invoice: any) => sum + invoiceAmount(invoice), 0);
     const paidAmount = invoices.reduce((sum: number, invoice: any) => sum + invoicePaid(invoice), 0);
-    const pendingAmount = pending.reduce((sum: number, invoice: any) => sum + Math.max(0, invoiceAmount(invoice) - invoicePaid(invoice)), 0);
-    const overdueAmount = overdue.reduce((sum: number, invoice: any) => sum + Math.max(0, invoiceAmount(invoice) - invoicePaid(invoice)), 0);
-    const recoveryRate = totalAmount > 0 ? (paidAmount / totalAmount) * 100 : 0;
+    const creditedAmount = invoices.reduce((sum: number, invoice: any) => sum + getInvoiceFinancials(invoice).credit, 0);
+    const pendingAmount = pending.reduce((sum: number, invoice: any) => sum + invoiceRemaining(invoice), 0);
+    const overdueAmount = overdue.reduce((sum: number, invoice: any) => sum + invoiceRemaining(invoice), 0);
+    const recoveryRate = totalAmount > 0 ? ((paidAmount + creditedAmount) / totalAmount) * 100 : 0;
 
     return {
       totalInvoices,
@@ -165,9 +181,10 @@ export default function InvoicesPage() {
     <AppShell>
       <>
         <div data-testid="invoices-root" className="-m-4 h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-[#f6f8fc] md:h-[calc(100dvh-80px)] xl:overflow-hidden">
-        <div className="grid min-h-full w-full max-w-none grid-cols-1 gap-2 p-2 md:p-3 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(280px,15vw)] 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
-            <div className="flex min-w-0 flex-col gap-2 xl:min-h-0">
-              <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid min-h-full w-full max-w-none grid-cols-1 gap-2 p-2 md:p-3 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(280px,15vw)] 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
+            {/* LEFT MAIN COLUMN */}
+            <div className="flex min-w-0 flex-col gap-2 xl:h-full xl:min-h-0">
+              <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5 shrink-0">
                 <KpiCard icon={Receipt} label="Tổng phải thu" value={formatVnd(summary.totalAmount)} hint="Tổng giá trị hóa đơn" tone="bg-[#ede9fe] text-[#6d3df8]" />
                 <KpiCard icon={FileText} label="Chờ thanh toán" value={`${summary.pendingCount} hóa đơn`} hint={formatVnd(summary.pendingAmount)} tone="bg-orange-50 text-orange-500" />
                 <KpiCard icon={Clock3} label="Quá hạn" value={`${summary.overdueCount} hóa đơn`} hint={formatVnd(summary.overdueAmount)} tone="bg-rose-50 text-rose-500" />
@@ -175,8 +192,9 @@ export default function InvoicesPage() {
                 <KpiCard icon={Zap} label="Tỷ lệ thu hồi" value={`${summary.recoveryRate.toFixed(1)}%`} hint="Theo tổng giá trị hóa đơn" tone="bg-sky-50 text-sky-500" />
               </div>
 
-              <section className="flex min-h-[520px] flex-1 flex-col overflow-hidden rounded-[14px] border border-[#e6eaf0] bg-card shadow-[0_1px_2px_rgba(16,24,40,0.03)] xl:min-h-0">
-                <div className="flex flex-col gap-3 border-b border-border px-4 py-3">
+              {/* TABLE CONTAINER CARD */}
+              <section className="flex min-h-[520px] flex-1 flex-col overflow-hidden rounded-[14px] border border-[#e6eaf0] bg-card shadow-[0_1px_2px_rgba(16,24,40,0.03)] xl:h-full xl:min-h-0">
+                <div className="flex flex-col gap-3 border-b border-border px-4 py-3 shrink-0">
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <div className="hide-scrollbar flex items-center gap-4 overflow-x-auto">
                       {tabs.map((tab) => (
@@ -223,7 +241,7 @@ export default function InvoicesPage() {
                 </div>
 
                 {selectedCount > 0 && (
-                  <div className="mx-4 mt-3 flex flex-col gap-3 rounded-[12px] border border-[#6d3df8]/20 bg-[#f6f2ff] px-4 py-2.5 text-[13px] font-bold text-text sm:flex-row sm:items-center sm:justify-between">
+                  <div className="mx-4 mt-3 flex flex-col gap-3 rounded-[12px] border border-[#6d3df8]/20 bg-[#f6f2ff] px-4 py-2.5 text-[13px] font-bold text-text shrink-0 sm:flex-row sm:items-center sm:justify-between">
                     <span>{selectedCount} hóa đơn đã chọn</span>
                     <div className="flex flex-wrap items-center gap-2">
                       <Button size="sm" variant="outline" className="gap-2 bg-card" onClick={() => toast.success("Gửi nhắc nợ")}>
@@ -239,26 +257,27 @@ export default function InvoicesPage() {
                   </div>
                 )}
 
-                <div className="min-h-0 flex-1 overflow-x-auto">
-                  <table className="w-full min-w-[1180px] table-fixed text-left">
-                    <thead className="bg-surface/70 text-[11px] uppercase text-muted">
+                {/* SCROLLABLE TABLE AREA WITH HORIZONTAL SCROLL MIN-WIDTH */}
+                <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
+                  <table className="w-full min-w-[1240px] text-left border-collapse">
+                    <thead className="sticky top-0 z-10 bg-surface/90 backdrop-blur-sm text-[11px] uppercase text-muted shadow-[0_1px_0_var(--border)]">
                       <tr>
-                        <th className="w-[3%] px-3 py-3 font-black">
+                        <th className="w-[40px] px-3 py-3 font-black">
                           <input type="checkbox" checked={allDisplayedSelected} onChange={toggleDisplayed} className="h-4 w-4 rounded border-border accent-[#6d3df8]" />
                         </th>
-                        <th className="w-[17%] px-3 py-3 font-black">Hóa đơn</th>
-                        <th className="w-[16%] px-3 py-3 font-black">Khách thuê / Phòng</th>
-                        <th className="w-[10%] px-3 py-3 font-black">Kỳ hóa đơn</th>
-                        <th className="w-[9%] px-3 py-3 font-black">Ngày lập</th>
-                        <th className="w-[11%] px-3 py-3 font-black">Hạn thanh toán</th>
-                        <th className="w-[8%] px-3 py-3 text-right font-black">Tổng tiền</th>
-                        <th className="w-[7%] px-3 py-3 text-right font-black">Đã thu</th>
-                        <th className="w-[7%] px-3 py-3 text-right font-black">Còn nợ</th>
-                        <th className="w-[8%] px-3 py-3 font-black">Trạng thái</th>
-                        <th className="w-[4%] px-3 py-3 text-right font-black">Thao tác</th>
+                        <th className="w-[110px] px-3 py-3 font-black whitespace-nowrap">Hóa đơn</th>
+                        <th className="w-[200px] px-3 py-3 font-black whitespace-nowrap">Khách thuê / Phòng</th>
+                        <th className="w-[140px] px-3 py-3 font-black whitespace-nowrap">Kỳ hóa đơn</th>
+                        <th className="w-[110px] px-3 py-3 font-black whitespace-nowrap">Ngày lập</th>
+                        <th className="w-[150px] px-3 py-3 font-black whitespace-nowrap">Hạn thanh toán</th>
+                        <th className="w-[120px] px-3 py-3 text-right font-black whitespace-nowrap">Tổng tiền</th>
+                        <th className="w-[110px] px-3 py-3 text-right font-black whitespace-nowrap">Đã thu</th>
+                        <th className="w-[110px] px-3 py-3 text-right font-black whitespace-nowrap">Còn nợ</th>
+                        <th className="w-[140px] px-3 py-3 font-black whitespace-nowrap">Trạng thái</th>
+                        <th className="w-[90px] px-3 py-3 text-right font-black whitespace-nowrap">Thao tác</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-border/60">
                       {isLoading && (
                         <tr>
                           <td colSpan={11} className="px-4 py-10 text-center text-[13px] font-bold text-muted">Đang tải hóa đơn...</td>
@@ -293,7 +312,8 @@ export default function InvoicesPage() {
                   </table>
                 </div>
 
-                <div className="mt-auto flex flex-col gap-3 border-t border-border px-4 py-3 text-[12px] font-semibold text-muted sm:flex-row sm:items-center sm:justify-between">
+                {/* PAGINATION FOOTER */}
+                <div className="mt-auto flex flex-col gap-3 border-t border-border px-4 py-3 text-[12px] font-semibold text-muted shrink-0 sm:flex-row sm:items-center sm:justify-between">
                   <span>
                     Hiển thị {visibleInvoices.length === 0 ? 0 : (page - 1) * pageSize + 1} - {Math.min(page * pageSize, visibleInvoices.length)} của {visibleInvoices.length || 0} hóa đơn
                   </span>
@@ -333,13 +353,15 @@ export default function InvoicesPage() {
               </section>
             </div>
 
-            <aside className="grid min-h-[680px] grid-rows-[286px_170px_minmax(260px,1fr)] gap-2 xl:h-full xl:min-h-0">
-              <section className="flex min-h-0 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+            {/* RIGHT SIDEBAR COLUMN MATCHING FULL HEIGHT OF LEFT COLUMN */}
+            <aside className="flex flex-col gap-3.5 xl:h-full xl:min-h-0">
+              {/* Card 1: Tổng quan thu hồi */}
+              <section className="flex shrink-0 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h2 className="text-[15px] font-black text-text">Tổng quan thu hồi</h2>
                   <FilterButton label="Tháng 5/2026" />
                 </div>
-                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3">
+                <div className="flex min-h-0 flex-col items-center justify-center gap-3">
                   <div className="relative h-[142px] w-[142px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
@@ -350,65 +372,55 @@ export default function InvoicesPage() {
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                      <div className="text-[16px] font-black text-text">{summary.recoveryRate.toFixed(1)}%</div>
-                      <div className="text-[10px] font-bold text-muted">Thu hồi</div>
+                      <div className="text-[22px] font-black leading-none text-text">{summary.recoveryRate.toFixed(1)}%</div>
+                      <div className="mt-1 text-[11px] font-bold text-muted">Thu hồi</div>
                     </div>
                   </div>
                   <div className="grid w-full grid-cols-1 gap-2">
                     {chartData.map((item) => (
-                      <div key={item.label} className="grid grid-cols-[8px_1fr] gap-2">
-                        <span className="mt-1.5 h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
-                        <div>
-                          <div className="truncate text-[11px] font-black text-muted">{item.label}</div>
-                          <div className="truncate text-[11px] font-bold text-muted">{formatVnd(item.amount)}</div>
+                      <div key={item.label} className="flex items-center justify-between gap-3 rounded-[10px] bg-surface/55 px-3 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                          <span className="truncate text-[11px] font-black text-muted">{item.label}</span>
                         </div>
+                        <span className="shrink-0 text-[11px] font-black text-text">{formatVnd(item.amount)}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               </section>
 
-              <section className="flex min-h-0 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+              {/* Card 2: Cần xử lý */}
+              <section className="flex shrink-0 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-[15px] font-black text-text">Cần xử lý</h2>
                   <button className="text-[12px] font-black text-[#6d3df8]">Xem tất cả →</button>
                 </div>
-                <div className="grid flex-1 content-center gap-2">
+                <div className="grid content-center gap-2">
                   <ActionMetric label="Hóa đơn quá hạn" value={`${summary.overdueCount} hóa đơn`} tone="text-rose-600 bg-rose-50" />
                   <ActionMetric label="Sắp đến hạn" value={`${soonDueCount} hóa đơn`} tone="text-orange-600 bg-orange-50" />
                   <ActionMetric label="Thanh toán chờ xác nhận" value="0 khoản" tone="text-sky-600 bg-sky-50" />
                 </div>
               </section>
 
-              <section className="flex min-h-0 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-[15px] font-black text-text">Nhắc nhở tự động</h2>
-                  <button className="text-[12px] font-black text-[#6d3df8]">Cấu hình →</button>
-                </div>
-                <div className="grid flex-1 content-center gap-2">
-                  <ReminderItem icon={<Bell size={16} />} title="Trước hạn" body="ON" tone="bg-[#ede9fe] text-[#6d3df8]" />
-                  <ReminderItem icon={<Mail size={16} />} title="Đến hạn" body="ON" tone="bg-sky-50 text-sky-500" />
-                  <ReminderItem icon={<Zap size={16} />} title="Quá hạn" body="ON" tone="bg-rose-50 text-rose-500" />
-                </div>
-              </section>
-
-              <section className="flex min-h-0 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
-                <div className="mb-3 flex items-center justify-between">
+              {/* Card 3: Thanh toán gần đây - STRETCHES FLEX-1 TO MATCH EXACT HEIGHT OF LEFT SIDE TABLE */}
+              <section className="flex min-h-0 flex-1 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+                <div className="mb-3 flex items-center justify-between shrink-0">
                   <h2 className="text-[15px] font-black text-text">Thanh toán gần đây</h2>
                 </div>
-                <div className="grid flex-1 content-center gap-3">
-                  {invoices.filter((invoice: any) => invoicePaid(invoice) > 0).slice(0, 3).map((invoice: any) => (
-                    <div key={invoice.id} className="grid grid-cols-[3px_1fr_auto] gap-3">
+                <div className="flex-1 min-h-0 flex flex-col overflow-y-auto pr-1">
+                  {invoices.filter((invoice: any) => invoicePaid(invoice) > 0).slice(0, 8).map((invoice: any) => (
+                    <div key={invoice.id} className="grid grid-cols-[3px_1fr_auto] gap-3 rounded-[12px] border border-border/70 bg-surface/30 p-3 mb-2 last:mb-0">
                       <span className="rounded-full bg-emerald-500" />
                       <div>
-                        <div className="text-[13px] font-black text-text">{invoice.code || invoice.id?.slice(0, 8)}</div>
+                        <div className="text-[13px] font-black text-text">{formatInvoiceCode(invoice)}</div>
                         <div className="mt-1 text-[11px] font-black text-emerald-600">Đã thu</div>
                       </div>
                       <div className="text-right text-[13px] font-black text-text">{formatVnd(invoicePaid(invoice))}</div>
                     </div>
                   ))}
                   {invoices.filter((invoice: any) => invoicePaid(invoice) > 0).length === 0 && (
-                    <div className="flex flex-col items-center rounded-[14px] border border-dashed border-border bg-surface/40 px-4 py-6 text-center">
+                    <div className="flex h-full min-h-[160px] flex-1 flex-col items-center justify-center rounded-[14px] border border-dashed border-border bg-surface/40 px-4 py-6 text-center">
                       <WalletCards size={32} className="text-muted" />
                       <div className="mt-3 text-[13px] font-black text-text">Chưa có thanh toán gần đây</div>
                       <div className="mt-1 text-[12px] font-semibold text-muted">Các giao dịch mới sẽ xuất hiện tại đây.</div>
@@ -471,39 +483,40 @@ function InvoiceRow({
   const dueText = invoice.status === "OVERDUE" && overdueDays > 0 ? `Quá hạn ${overdueDays} ngày` : formatDate(invoice.dueDate);
   const total = invoiceAmount(invoice);
   const paid = invoicePaid(invoice);
-  const remaining = Math.max(0, total - paid);
+  const remaining = invoiceRemaining(invoice);
+  const code = formatInvoiceCode(invoice);
 
   return (
     <tr className="border-b border-border/70 last:border-b-0 hover:bg-[#fafbff]">
       <td className="px-3 py-3">
         <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded border-border accent-[#6d3df8]" />
       </td>
-      <td className="px-3 py-3">
+      <td className="px-3 py-3 font-mono">
         <button type="button" onClick={onOpen} className="text-left">
-          <div className="truncate text-[14px] font-black text-[#5b35f5]">{invoice.code || invoice.id?.slice(0, 8)}</div>
-          <div className="mt-1 text-[12px] font-semibold text-muted">{invoice.title || "Hóa đơn thu tiền"}</div>
+          <div className="text-[14px] font-black text-[#5b35f5] whitespace-nowrap">{code}</div>
+          <div className="mt-1 text-[12px] font-semibold text-muted whitespace-nowrap">{invoice.title || "Hóa đơn thu tiền"}</div>
         </button>
       </td>
       <td className="px-3 py-3">
-        <div className="truncate text-[13px] font-black text-text">{invoiceCustomer(invoice)}</div>
-        <div className="mt-1 truncate text-[12px] font-semibold text-muted">{invoiceRoom(invoice)}</div>
+        <div className="truncate text-[13px] font-black text-text max-w-[190px]">{invoiceCustomer(invoice)}</div>
+        <div className="mt-1 truncate text-[12px] font-semibold text-muted max-w-[190px]">{invoiceRoom(invoice)}</div>
       </td>
-      <td className="px-3 py-3">
-        <div className="truncate text-[13px] font-black text-text">{invoicePeriod(invoice)}</div>
+      <td className="px-3 py-3 whitespace-nowrap">
+        <div className="text-[13px] font-black text-text">{invoicePeriod(invoice)}</div>
         <div className="mt-1 text-[12px] font-semibold text-muted">{invoice.month || ""}</div>
       </td>
-      <td className="px-3 py-3">
+      <td className="px-3 py-3 whitespace-nowrap">
         <div className="text-[13px] font-bold text-text">{formatDate(invoice.createdAt || invoice.issueDate)}</div>
         <div className="mt-1 text-[12px] font-semibold text-muted">{invoice.createdTime || ""}</div>
       </td>
-      <td className="px-3 py-3">
+      <td className="px-3 py-3 whitespace-nowrap">
         <div className={`text-[13px] font-black ${invoice.status === "OVERDUE" ? "text-rose-500" : "text-text"}`}>{dueText}</div>
         {invoice.status === "OVERDUE" && overdueDays > 0 && <div className="mt-1 text-[12px] font-bold text-rose-500">Cần ưu tiên xử lý</div>}
       </td>
-      <td className="px-3 py-3 text-right text-[13px] font-black tabular-nums text-text">{formatVnd(total)}</td>
-      <td className="px-3 py-3 text-right text-[13px] font-bold tabular-nums text-emerald-600">{formatVnd(paid)}</td>
-      <td className={`px-3 py-3 text-right text-[13px] font-black tabular-nums ${remaining > 0 ? "text-rose-600" : "text-muted"}`}>{formatVnd(remaining)}</td>
-      <td className="px-3 py-3">
+      <td className="px-3 py-3 text-right text-[13px] font-black tabular-nums text-text whitespace-nowrap">{formatVnd(total)}</td>
+      <td className="px-3 py-3 text-right text-[13px] font-bold tabular-nums text-emerald-600 whitespace-nowrap">{formatVnd(paid)}</td>
+      <td className={`px-3 py-3 text-right text-[13px] font-black tabular-nums whitespace-nowrap ${remaining > 0 ? "text-rose-600" : "text-muted"}`}>{formatVnd(remaining)}</td>
+      <td className="px-3 py-3 whitespace-nowrap">
         <span className={`inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1 text-[11px] font-black ${meta.tone}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
           {meta.label}
@@ -536,18 +549,6 @@ function IconButton({ icon, onClick }: { icon: React.ReactNode; onClick: () => v
     <button type="button" onClick={onClick} className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-muted hover:text-[#6d3df8]">
       {icon}
     </button>
-  );
-}
-
-function ReminderItem({ icon, title, body, tone }: { icon: React.ReactNode; title: string; body: string; tone: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-t border-border py-2.5 first:border-t-0 first:pt-0 last:pb-0">
-      <div className="flex min-w-0 items-center gap-2">
-        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] ${tone}`}>{icon}</div>
-        <div className="text-[13px] font-black text-text">{title}</div>
-      </div>
-      <div className="shrink-0 text-[12px] font-black text-emerald-600">{body}</div>
-    </div>
   );
 }
 

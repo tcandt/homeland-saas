@@ -734,6 +734,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Regression desktop quyết toán hợp đồng, hoàn tiền chờ xử lý và cập nhật trạng thái phòng.
 - [x] Regression desktop chi phí ứng hộ và khấu trừ lợi nhuận giữa hai chủ.
 - [x] Unit test hạch toán cấn cọc vào quyết toán và tách hoàn cọc/giảm trừ doanh thu.
+- [x] Đồng bộ `creditAmount` vào công nợ Dashboard, Reports, QR SePay và giao diện hóa đơn desktop.
 
 ### Thứ tự ưu tiên khuyến nghị
 

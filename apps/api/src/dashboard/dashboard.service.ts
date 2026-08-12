@@ -25,6 +25,8 @@ export class DashboardService {
       expiringContracts,
       openInvoices,
       depositHeld,
+      depositLiabilityDebit,
+      depositLiabilityCredit,
       buildings,
       recentPayments,
       recentContracts,
@@ -47,12 +49,20 @@ export class DashboardService {
       }),
       this.prisma.invoice.findMany({
         where: { tenantId, deletedAt: null, status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] } },
-        select: { id: true, code: true, status: true, dueDate: true, total: true, paidAmount: true, updatedAt: true },
+        select: { id: true, code: true, status: true, dueDate: true, total: true, paidAmount: true, creditAmount: true, updatedAt: true },
         orderBy: { dueDate: 'asc' },
         take: 100,
       }),
       this.prisma.deposit.aggregate({
         where: { tenantId, deletedAt: null, status: { in: ['PAID', 'CONVERTED_TO_CONTRACT'] } },
+        _sum: { amount: true },
+      }),
+      this.prisma.journalLine.aggregate({
+        where: { tenantId, account: { code: '1300' }, type: 'DEBIT', journalEntry: { status: 'POSTED' } },
+        _sum: { amount: true },
+      }),
+      this.prisma.journalLine.aggregate({
+        where: { tenantId, account: { code: '1300' }, type: 'CREDIT', journalEntry: { status: 'POSTED' } },
         _sum: { amount: true },
       }),
       this.prisma.building.findMany({
@@ -96,9 +106,21 @@ export class DashboardService {
     );
     const syncedOccupiedRooms = activeRoomIds.size || occupiedRooms;
     const occupancyRate = totalRooms > 0 ? (syncedOccupiedRooms / totalRooms) * 100 : 0;
-    const totalDebt = openInvoices.reduce((sum, invoice) => sum + Math.max(0, Number(invoice.total) - Number(invoice.paidAmount || 0)), 0);
+    const invoiceDebt = (invoice: any) => Math.max(
+      0,
+      Number(invoice.total) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0),
+    );
+    const totalDebt = openInvoices.reduce((sum, invoice) => sum + invoiceDebt(invoice), 0);
     const overdueInvoices = openInvoices.filter((invoice) => invoice.status === 'OVERDUE' || invoice.dueDate < now);
-    const overdueAmount = overdueInvoices.reduce((sum, invoice) => sum + Math.max(0, Number(invoice.total) - Number(invoice.paidAmount || 0)), 0);
+    const overdueAmount = overdueInvoices.reduce((sum, invoice) => sum + invoiceDebt(invoice), 0);
+    const journalDepositBalance = Math.max(
+      0,
+      Number(depositLiabilityCredit._sum.amount || 0) - Number(depositLiabilityDebit._sum.amount || 0),
+    );
+    const depositHeldAmount =
+      Number(depositLiabilityCredit._sum.amount || 0) > 0 || Number(depositLiabilityDebit._sum.amount || 0) > 0
+        ? journalDepositBalance
+        : Number(depositHeld._sum.amount || 0);
     const contractMonthlyRevenue = roomsFromBuildings.reduce((sum, room) => {
       return sum + room.contracts.reduce((roomSum, contract) => roomSum + Number(contract.monthlyRent || 0), 0);
     }, 0);
@@ -167,7 +189,7 @@ export class DashboardService {
         netProfit: syncedProfit,
         netCashFlow: syncedCashFlow,
         totalDebt,
-        depositHeld: Number(depositHeld._sum.amount || 0),
+        depositHeld: depositHeldAmount,
       },
       occupancy: {
         totalRooms,

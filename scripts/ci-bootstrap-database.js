@@ -10,13 +10,13 @@ const prismaCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const generatedSchemaSql = path.join(root, '.tmp-ci-bootstrap-schema.sql');
 
 const reviewedMigrations = [
-  ['20260706150701_auth_foundation', 'de6f66324ab7c6caa449ceeb86b1cbf5bbcd96f69b95840ae19bd7a371683d1e'],
-  ['20260708000000_remove_legacy_ended_status', '61d1658b84113de9a4709b102f6eafbb1eda9e734de0a456b3037ef67573e759'],
-  ['20260708042302_expand_contract_status', '4f9a58f6e09dca855127be278fe182b7915e1009ff4946f056de64c2eca396fb'],
-  ['20260708065702_migrate_legacy_contract_statuses', '62bea64fae79dde0f483fcaf8297ff2ca6b5da61cc04c743a96748450e2e46cc'],
-  ['20260809000000_add_hunonic_meter_sync', '44e4cdbc0085fdfcfea64c1f1ed8e3fe4bd8bc372791eef8e59865b603917b97'],
-  ['20260809020000_add_owner_expense_allocation', 'c6f8205e5e52061868461cac99b25926dda5eb464c747f04c433754c875834fc'],
-  ['20260813050000_add_forced_password_change', 'baf6e36dde03d858f8e7f5933f50eea84dff99d96b19571fce0cfbe452d84eca'],
+  ['20260706150701_auth_foundation', 'de6f66324ab7c6caa449ceeb86b1cbf5bbcd96f69b95840ae19bd7a371683d1e'], // gitleaks:allow - reviewed migration checksum
+  ['20260708000000_remove_legacy_ended_status', '61d1658b84113de9a4709b102f6eafbb1eda9e734de0a456b3037ef67573e759'], // gitleaks:allow - reviewed migration checksum
+  ['20260708042302_expand_contract_status', '4f9a58f6e09dca855127be278fe182b7915e1009ff4946f056de64c2eca396fb'], // gitleaks:allow - reviewed migration checksum
+  ['20260708065702_migrate_legacy_contract_statuses', '62bea64fae79dde0f483fcaf8297ff2ca6b5da61cc04c743a96748450e2e46cc'], // gitleaks:allow - reviewed migration checksum
+  ['20260809000000_add_hunonic_meter_sync', '44e4cdbc0085fdfcfea64c1f1ed8e3fe4bd8bc372791eef8e59865b603917b97'], // gitleaks:allow - reviewed migration checksum
+  ['20260809020000_add_owner_expense_allocation', 'c6f8205e5e52061868461cac99b25926dda5eb464c747f04c433754c875834fc'], // gitleaks:allow - reviewed migration checksum
+  ['20260813050000_add_forced_password_change', 'baf6e36dde03d858f8e7f5933f50eea84dff99d96b19571fce0cfbe452d84eca'], // gitleaks:allow - reviewed migration checksum
 ];
 
 function assertDisposableCiDatabase() {

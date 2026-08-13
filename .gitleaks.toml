@@ -1,0 +1,8 @@
+title = "HomeLand Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated trace output"
+paths = ['''(?:^|/)trace_out/''']

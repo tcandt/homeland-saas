@@ -2,8 +2,6 @@ import { createHash } from 'crypto';
 
 const DEFAULT_BASE_URL = 'https://api.hunonicpro.com/v2';
 const DEFAULT_WEBSITE_BASE_URL = 'https://web.hunonic.com/api/api/hun-api';
-const HU_ACCESS_KEY = 'accessKey98ccdcbbe7b5528bec0ca31bbe8d93b4e76590dd';
-const HU_SECRET_KEY = 'HUNONICBIGBUG94d3c445e72ae7805fca3489edac9608c893e66b';
 
 export type HunonicApiMode = 'mobile' | 'website';
 
@@ -16,6 +14,8 @@ export interface HunonicProviderOptions {
   websiteBaseUrl?: string;
   websiteToken?: string;
   websiteCookie?: string;
+  mobileAccessKey?: string;
+  mobileSecretKey?: string;
   lang?: string;
   timeoutMs?: number;
 }
@@ -100,6 +100,8 @@ export class HunonicProvider {
   private readonly websiteBaseUrl: string;
   private readonly websiteToken?: string;
   private readonly websiteCookie?: string;
+  private readonly mobileAccessKey?: string;
+  private readonly mobileSecretKey?: string;
   private readonly lang: string;
   private readonly timeoutMs: number;
 
@@ -114,6 +116,8 @@ export class HunonicProvider {
     );
     this.websiteToken = options.websiteToken || process.env.HUNONIC_WEB_TOKEN || process.env.HUNONIC_TOKEN;
     this.websiteCookie = options.websiteCookie || process.env.HUNONIC_WEB_COOKIE || process.env.HUNONIC_COOKIE;
+    this.mobileAccessKey = options.mobileAccessKey || process.env.HUNONIC_MOBILE_ACCESS_KEY;
+    this.mobileSecretKey = options.mobileSecretKey || process.env.HUNONIC_MOBILE_SECRET_KEY;
     this.lang = options.lang || process.env.HUNONIC_LANG || 'vi';
     this.timeoutMs = Number(options.timeoutMs || process.env.HUNONIC_TIMEOUT_MS || 15000);
   }
@@ -285,7 +289,13 @@ export class HunonicProvider {
   }
 
   private sign(body: Record<string, unknown>) {
-    return { ...body, signature: hunonicEncodeSign(body) };
+    if (!this.mobileAccessKey || !this.mobileSecretKey) {
+      throw new HunonicApiError('Missing Hunonic mobile signing keys.');
+    }
+    return {
+      ...body,
+      signature: hunonicEncodeSign(body, this.mobileAccessKey, this.mobileSecretKey),
+    };
   }
 
   private async postForm(apiPath: string, body: Record<string, unknown>) {
@@ -468,13 +478,13 @@ function normalizeText(value: unknown) {
     .toLowerCase();
 }
 
-function hunonicEncodeSign(payload: Record<string, unknown>) {
+function hunonicEncodeSign(payload: Record<string, unknown>, accessKey: string, secretKey: string) {
   let total = 0;
   for (const [key, value] of Object.entries(payload)) {
     if (key === 'signature') continue;
     total += scoreEntry(key, value);
   }
-  return md5(`sha256fakeaccessKey=${HU_ACCESS_KEY}${md5(String(total))}${HU_SECRET_KEY}`);
+  return md5(`sha256fakeaccessKey=${accessKey}${md5(String(total))}${secretKey}`);
 }
 
 function scoreEntry(key: string, value: unknown) {

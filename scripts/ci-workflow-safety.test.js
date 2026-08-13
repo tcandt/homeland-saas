@@ -140,3 +140,19 @@ test('CI blocks packaging when runtime audit contains high or critical findings'
   assert.match(workflow, /counts\.critical/);
   assert.match(workflow, /counts\.high/);
 });
+
+test('Hunonic mobile signing secrets stay outside source control', () => {
+  const provider = read('apps/api/src/hunonic/hunonic.provider.ts');
+  const exampleEnv = read('.env.example');
+  const gitleaks = read('.gitleaks.toml');
+  assert.match(provider, /process\.env\.HUNONIC_MOBILE_ACCESS_KEY/);
+  assert.match(provider, /process\.env\.HUNONIC_MOBILE_SECRET_KEY/);
+  assert.match(provider, /Missing Hunonic mobile signing keys/);
+  assert.doesNotMatch(provider, /accessKey[0-9a-f]{20,}|HUNONICBIGBUG/i);
+  assert.match(exampleEnv, /HUNONIC_MOBILE_ACCESS_KEY=replace-/);
+  assert.match(exampleEnv, /HUNONIC_MOBILE_SECRET_KEY=replace-/);
+  const bootstrap = read('scripts/ci-bootstrap-database.js');
+  assert.equal((bootstrap.match(/gitleaks:allow - reviewed migration checksum/g) || []).length, 7);
+  assert.match(gitleaks, /trace_out/);
+  assert.doesNotMatch(gitleaks, /hunonic\.provider|apps\/api/);
+});

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HunonicProvider } from './hunonic.provider';
 
+const mobileSigning = {
+  mobileAccessKey: 'test-access-key',
+  mobileSecretKey: 'test-secret-key',
+};
+
 function jsonResponse(data: unknown) {
   return new Response(JSON.stringify(data), {
     status: 200,
@@ -32,7 +37,7 @@ describe('HunonicProvider electricity rates', () => {
       .mockResolvedValueOnce(jsonResponse({ status: true }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const provider = new HunonicProvider({ username: '0900000000', password: 'secret' });
+    const provider = new HunonicProvider({ username: '0900000000', password: 'secret', ...mobileSigning });
     await expect(provider.applyElectricityRate('root-1', 'custom', 3500)).resolves.toEqual({ status: true });
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -75,7 +80,7 @@ describe('HunonicProvider electricity rates', () => {
       .mockResolvedValueOnce(jsonResponse({ status: true }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const provider = new HunonicProvider({ username: '0900000000', password: 'secret' });
+    const provider = new HunonicProvider({ username: '0900000000', password: 'secret', ...mobileSigning });
     await provider.applyElectricityRate('root-2', 'residential');
 
     const payload = formBody(fetchMock.mock.calls[2]);
@@ -94,7 +99,7 @@ describe('HunonicProvider electricity rates', () => {
       .mockResolvedValueOnce(jsonResponse({ status: true, data: [] }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const provider = new HunonicProvider({ username: '0900000000', password: 'secret' });
+    const provider = new HunonicProvider({ username: '0900000000', password: 'secret', ...mobileSigning });
     await expect(provider.applyElectricityRate('root-3', 'residential')).rejects.toThrow(
       'Hunonic residential electricity rate group was not found.',
     );
@@ -110,7 +115,7 @@ describe('HunonicProvider electricity rates', () => {
       }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const provider = new HunonicProvider({ username: '0900000000', password: 'secret' });
+    const provider = new HunonicProvider({ username: '0900000000', password: 'secret', ...mobileSigning });
     await expect(provider.applyElectricityRate('root-4', 'residential')).rejects.toThrow(
       'Hunonic residential electricity rates are empty.',
     );

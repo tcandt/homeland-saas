@@ -26,6 +26,8 @@ export const test = base.extend<{ admin: AdminFixture }>({
     const workerIndex = process.env.TEST_WORKER_INDEX || '0';
     const authFile = `${authFileBase}-${workerIndex}.json`;
     const finalBaseURL = baseURL || 'http://127.0.0.1:3000';
+    const adminPassword = process.env.E2E_ADMIN_PASSWORD;
+    if (!adminPassword) throw new Error('E2E_ADMIN_PASSWORD is required for authenticated E2E tests');
 
     // Use a fresh login so the fixture stays aligned with the current auth guard expectations.
     if (false && fs.existsSync(authFile)) {
@@ -53,7 +55,7 @@ export const test = base.extend<{ admin: AdminFixture }>({
       const response = await request.post(`${finalBaseURL}/api/v1/auth/login`, {
         data: {
           emailOrPhone: 'admin@homeland.local',
-          password: 'Homeland@123456'
+          password: adminPassword
         }
       });
       

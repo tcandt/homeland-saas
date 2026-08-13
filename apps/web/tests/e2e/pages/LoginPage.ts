@@ -6,7 +6,7 @@ export class LoginPage extends BasePage {
     super(page, '/login');
   }
 
-  async login(email: string, password: string = 'Homeland@123456') {
+  async login(email: string, password: string) {
     await this.goto();
     
     // Fill credentials

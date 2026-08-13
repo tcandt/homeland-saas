@@ -120,8 +120,8 @@ async function main() {
   const ownerATemporaryPassword = process.env.SEED_OWNER_A_TEMPORARY_PASSWORD;
   const ownerBTemporaryPassword = process.env.SEED_OWNER_B_TEMPORARY_PASSWORD;
   const productionMode = process.env.SEED_MODE === 'production' || process.env.NODE_ENV === 'production';
-  if (productionMode && (!ownerATemporaryPassword || !ownerBTemporaryPassword)) {
-    throw new Error('SEED_OWNER_A_TEMPORARY_PASSWORD and SEED_OWNER_B_TEMPORARY_PASSWORD are required in production mode.');
+  if (productionMode && (!process.env.SEED_DEFAULT_PASSWORD || !ownerATemporaryPassword || !ownerBTemporaryPassword)) {
+    throw new Error('SEED_DEFAULT_PASSWORD, SEED_OWNER_A_TEMPORARY_PASSWORD and SEED_OWNER_B_TEMPORARY_PASSWORD are required in production mode.');
   }
   const passwordHash = await bcrypt.hash(developmentPassword, 12);
   const ownerAPasswordHash = await bcrypt.hash(ownerATemporaryPassword || developmentPassword, 12);

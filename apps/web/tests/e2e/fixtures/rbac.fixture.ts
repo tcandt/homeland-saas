@@ -26,6 +26,9 @@ const createRoleFixture = (email: string, roleName: string, passwordEnv?: string
     let user = null;
     const authFile = getAuthFilePath(roleName);
     const finalBaseURL = baseURL || 'http://127.0.0.1:3000';
+    const passwordKey = passwordEnv || 'E2E_DEFAULT_PASSWORD';
+    const password = process.env[passwordKey];
+    if (!password) throw new Error(`${passwordKey} is required for the ${roleName} E2E fixture`);
 
     if (false) {
       context = await browser.newContext({ storageState: authFile, baseURL: finalBaseURL });
@@ -49,7 +52,7 @@ const createRoleFixture = (email: string, roleName: string, passwordEnv?: string
       const response = await request.post(`${finalBaseURL}/api/v1/auth/login`, {
         data: {
           emailOrPhone: email,
-          password: (passwordEnv && process.env[passwordEnv]) || process.env.E2E_DEFAULT_PASSWORD || 'Homeland@123456'
+          password
         }
       });
       
@@ -125,10 +128,10 @@ export const test = base.extend<{
   sales: RoleFixture;
   finance: RoleFixture;
 }>({
-  admin: createRoleFixture('admin@homeland.local', 'admin'),
+  admin: createRoleFixture('admin@homeland.local', 'admin', 'E2E_ADMIN_PASSWORD'),
   ownerAdminA: createRoleFixture('adminA@homeland.local', 'owner-admin-a', 'E2E_OWNER_A_PASSWORD'),
   ownerAdminB: createRoleFixture('adminB@homeland.local', 'owner-admin-b', 'E2E_OWNER_B_PASSWORD'),
-  manager: createRoleFixture('manager@homeland.local', 'manager'),
-  sales: createRoleFixture('sales@homeland.local', 'sales'),
-  finance: createRoleFixture('finance@homeland.local', 'finance'),
+  manager: createRoleFixture('manager@homeland.local', 'manager', 'E2E_MANAGER_PASSWORD'),
+  sales: createRoleFixture('sales@homeland.local', 'sales', 'E2E_SALES_PASSWORD'),
+  finance: createRoleFixture('finance@homeland.local', 'finance', 'E2E_FINANCE_PASSWORD'),
 });

@@ -10,7 +10,8 @@ const fs = require('fs');
   await page.goto('http://localhost:3000/login', { timeout: 60000 });
   await page.waitForSelector('input[type="text"]', { timeout: 60000 });
   await page.fill('input[type="text"]', 'admin@homeland.local');
-  await page.fill('input[type="password"]', 'Homeland@123456');
+  if (!process.env.E2E_ADMIN_PASSWORD) throw new Error('E2E_ADMIN_PASSWORD is required');
+  await page.fill('input[type="password"]', process.env.E2E_ADMIN_PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForTimeout(5000); // Wait for login and redirect
 

@@ -22,6 +22,8 @@
     "db:seed": "prisma db seed --schema=packages/database/prisma/schema.prisma",
     "db:reset:prod": "cross-env SEED_MODE=production prisma db push --schema=packages/database/prisma/schema.prisma --force-reset && cross-env SEED_MODE=production prisma db seed --schema=packages/database/prisma/schema.prisma",
     "db:check-seed": "tsx packages/database/scripts/check-seed.ts",
+    "preflight:prod": "node scripts/production-preflight.js",
+    "test:preflight:prod": "node --test scripts/production-preflight.test.js",
     "api:dev": "npm run dev --workspace=api",
     "web:dev": "npm run dev --workspace=web",
     "phase2:verify": "npm run db:generate && npm run db:push && npm run db:seed && npm run db:check-seed",

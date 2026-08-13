@@ -99,6 +99,7 @@ try {
     Assert-PortAvailable -Port $webPort
 
     Invoke-Checked 'Encoding' { node scripts/check-mojibake.js }
+    Invoke-Checked 'Production configuration preflight tests' { npm.cmd run test:preflight:prod }
     Invoke-Checked 'Prisma validate' { & .\node_modules\.bin\prisma.cmd validate --schema=packages/database/prisma/schema.prisma }
     Invoke-Checked 'Prisma migration status (read-only)' { & .\node_modules\.bin\prisma.cmd migrate status --schema=packages/database/prisma/schema.prisma }
     Invoke-Checked 'API typecheck' { npm.cmd run typecheck --workspace=api }

@@ -752,6 +752,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Xác nhận light/dark trên 28 route giao diện và RBAC cho `admin`, `adminA`, `adminB`, `manager`.
 - [x] Chạy hành trình stateful trên một hồ sơ: thu/chuyển cọc, submit/duyệt/kích hoạt hợp đồng, phát hành/thanh toán hóa đơn, snapshot điện nước, khấu trừ/hoàn cọc, chấm dứt hợp đồng và đưa phòng từ vệ sinh về trống.
 - [x] Chạy lặp riêng `6/6` regression quyết toán và chặn race preview theo nguyên tắc request mới nhất thắng.
+- [x] Bổ sung production configuration preflight chỉ đọc, unit test chống cấu hình dev nguy hiểm và chống lộ secret trong báo cáo.
 - [x] Xác nhận public registration fail-closed ở cả API (`403`) và UI production.
 - [x] Giới hạn Turbopack trace của learning-store vào thư mục dữ liệu, loại warning trace toàn workspace.
 

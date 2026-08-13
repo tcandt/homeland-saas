@@ -21,14 +21,16 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 - [x] Prisma dùng một provider global duy nhất; API không còn tạo connection pool lặp theo feature module.
 - [x] Attachment chi phí dùng storage root ổn định ở dev/production, chặn path traversal và trả 404 khi file không tồn tại.
 - [x] SSE thông báo dùng Bearer header; backend từ chối JWT trong query string để token không đi vào URL/log.
+- [x] Production preflight chỉ đọc kiểm tra cấu trúc URL, CORS, JWT, public registration, Swagger và scheduler mà không in secret hoặc truy cập database.
 
 ### Bằng chứng release candidate desktop gần nhất
 
-Lần chạy: `2026-08-13 16:00` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+Lần chạy: `2026-08-13 16:12` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
 
 | Cổng kiểm tra | Kết quả |
 |---|---|
 | Mojibake/encoding | PASS |
+| Production preflight unit | PASS, `6/6`; không in secret và không tuyên bố LIVE thay cho nghiệm thu thủ công |
 | Prisma schema | Hợp lệ |
 | Migration hiện tại | `7/7`, up to date |
 | API typecheck + unit | PASS, `181/181` |
@@ -124,6 +126,14 @@ ENABLE_SWAGGER=false
 
 Các secret SePay/Zalo/Telegram/SMTP/Hunonic cấu hình trong Integration Center bằng account owner được phép. Không commit giá trị thật.
 
+Trước khi deploy, nạp biến môi trường production trong secret manager hoặc một file nằm ngoài Git rồi chạy preflight chỉ đọc:
+
+```powershell
+npm.cmd run preflight:prod -- --env-file C:\secure\homeland.production.env
+```
+
+Preflight kiểm tra cấu trúc PostgreSQL/Redis URL, HTTPS, CORS allowlist, JWT, khóa public registration/Swagger và trạng thái scheduler. Lệnh không kết nối database, không sửa dữ liệu và không in giá trị secret. `Configuration: PASS` vẫn chưa có nghĩa là LIVE; các nghiệm thu bank-owner, SePay, Hunonic, notification, backup, monitoring và bàn giao account vẫn phải có bằng chứng riêng.
+
 ## 5. Backup, migration và rollback
 
 ### Trước deploy
@@ -178,3 +188,5 @@ Không đặt cờ này khi trỏ tới database vận hành.
 - [ ] Monitoring, cảnh báo và người trực đã hoạt động.
 
 Trong 24 giờ đầu, theo dõi health, lỗi 5xx, queue thông báo, webhook chưa match, sync Hunonic, chênh lệch bank và audit login. Nếu có sai lệch tiền, dừng tự động đối soát/ghi nhận liên quan trước khi sửa dữ liệu.
+
+Runbook chi tiết: [Deployment](./DEPLOYMENT.md), [Backup](./BACKUP.md), [Monitoring](./MONITORING.md).

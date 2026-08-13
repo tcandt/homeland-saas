@@ -73,6 +73,7 @@ jobs:
             ${{ runner.os }}-turbo-
       - run: npm ci
       - run: npm run check:encoding
+      - run: npm run test:preflight:prod
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
       - run: npm run test
 

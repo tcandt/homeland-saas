@@ -18,6 +18,34 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 - [x] Bộ regression production dùng API read-only hoặc mock cho các write flow.
 - [x] Audit 10 trang desktop ở light/dark kiểm tra lỗi console, overflow, màu nền/chữ và lưu ảnh bằng chứng.
 - [x] Prisma có đủ 7 migration trên database hiện tại.
+- [x] Prisma dùng một provider global duy nhất; API không còn tạo connection pool lặp theo feature module.
+- [x] Attachment chi phí dùng storage root ổn định ở dev/production, chặn path traversal và trả 404 khi file không tồn tại.
+- [x] SSE thông báo dùng Bearer header; backend từ chối JWT trong query string để token không đi vào URL/log.
+
+### Bằng chứng release candidate desktop gần nhất
+
+Lần chạy: `2026-08-13 14:24` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+
+| Cổng kiểm tra | Kết quả |
+|---|---|
+| Mojibake/encoding | PASS |
+| Prisma schema | Hợp lệ |
+| Migration hiện tại | `7/7`, up to date |
+| API typecheck + unit | PASS, `181/181` |
+| Web typecheck + unit | PASS, `47/47` |
+| API + Next production build | PASS |
+| Health/readiness | PASS |
+| Production Playwright desktop | PASS, `38/38` |
+| Light/dark | PASS trên 10 trang/mỗi theme; không overflow, page error, console error hoặc HTTP 5xx ngoài SSE 503 cố ý của fixture |
+| Persona | PASS đăng nhập/RBAC cho `admin`, `adminA`, `adminB`, `manager` |
+| Vòng đời | PASS regression cọc, giữ/khấu trừ/hoàn cọc, quyết toán, hoàn tiền, trạng thái phòng, chi phí, SePay và credit hóa đơn |
+
+Phạm vi bằng chứng:
+
+- Auth, RBAC, các trang đọc và health chạy với API/database hiện tại.
+- Các nhánh write nghiệp vụ chạy bằng mock trên production bundle để không tạo/sửa/xóa dữ liệu vận hành.
+- Test destructive chỉ được chạy trên database dùng một lần khi có `RUN_DESTRUCTIVE_E2E=true`.
+- Kết quả này xác nhận **release candidate local**, chưa thay thế staging, credential production và nghiệm thu giao dịch thật.
 
 ### Chưa thể tự động hoàn tất bằng code
 
@@ -133,8 +161,9 @@ Không đặt cờ này khi trỏ tới database vận hành.
 
 ## 7. Go-live và 24 giờ đầu
 
-- [ ] Bốn persona đăng nhập và đổi mật khẩu thành công.
-- [ ] Light/dark desktop đạt 10/10 trang, không overflow và không console error.
+- [x] Bốn persona đăng nhập thành công trong production gate local.
+- [ ] Bốn persona nhận credential bàn giao và tự đổi mật khẩu lần đầu trên staging/production.
+- [x] Light/dark desktop đạt 10/10 trang trên production bundle local, không overflow và không console error.
 - [ ] Public registration trả 403 và trang `/register` báo đang đóng.
 - [ ] QR/SePay về đúng bank và owner; webhook không ghi trùng.
 - [ ] Hunonic sync được, không trùng dữ liệu và không ghi đè kỳ khóa.

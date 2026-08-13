@@ -8,7 +8,6 @@ import {
 import { MetricsService } from './metrics.service';
 import { MetricsInterceptor } from './metrics.interceptor';
 import { MetricsSchedulerService } from './metrics.scheduler';
-import { PrismaService } from '../prisma.service';
 import { MetricsController } from './metrics.controller';
 
 @Module({
@@ -66,7 +65,6 @@ import { MetricsController } from './metrics.controller';
     MetricsService,
     MetricsInterceptor,
     MetricsSchedulerService,
-    PrismaService,
   ],
   exports: [MetricsService, MetricsInterceptor],
 })

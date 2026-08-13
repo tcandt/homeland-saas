@@ -12,12 +12,9 @@ import {
   PushProvider
 } from './providers/communication.providers';
 
-import { PrismaService } from '../prisma.service';
-
 @Module({
   controllers: [CommunicationController],
   providers: [
-    PrismaService,
     CommunicationService,
     CommunicationScheduler,
     InAppProvider,

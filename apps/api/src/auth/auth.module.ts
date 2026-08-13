@@ -5,7 +5,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { PrismaService } from '../prisma.service';
 import { TokenService } from './services/token.service';
 import { PasswordService } from './services/password.service';
 import { MailProvider, DbSmtpMailProvider } from './services/mail.service';
@@ -28,7 +27,6 @@ import { MailProvider, DbSmtpMailProvider } from './services/mail.service';
   providers: [
     AuthService, 
     JwtStrategy, 
-    PrismaService, 
     TokenService, 
     PasswordService,
     { provide: MailProvider, useClass: DbSmtpMailProvider }

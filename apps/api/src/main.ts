@@ -15,6 +15,7 @@ import { GlobalExceptionFilter } from './shared/exceptions/global-exception.filt
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
+  app.enableShutdownHooks();
 
   // 1. Logger
   app.useLogger(app.get(Logger));

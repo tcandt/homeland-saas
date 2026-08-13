@@ -8,7 +8,7 @@ import appConfig from './shared/config/app.config';
 import authConfig from './shared/config/auth.config';
 
 import { HealthController } from './health.controller';
-import { PrismaService } from './prisma.service';
+import { PrismaModule } from './prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { AuditModule } from './shared/audit/audit.module';
 import { APP_GUARD } from '@nestjs/core';
@@ -52,6 +52,7 @@ import { schedulesEnabled, validateEnvironment } from './shared/config/environme
       load: [appConfig, authConfig],
       validate: validateEnvironment,
     }),
+    PrismaModule,
     ClockModule,
     RepositoriesModule,
     LoggerModule.forRootAsync({
@@ -157,7 +158,6 @@ import { schedulesEnabled, validateEnvironment } from './shared/config/environme
   ],
   controllers: [HealthController],
   providers: [
-    PrismaService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },

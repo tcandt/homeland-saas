@@ -745,6 +745,11 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Audit 10 trang desktop ở cả light/dark, kiểm tra overflow, console error và theme token.
 - [x] Loại mật khẩu dùng chung khỏi blueprint và các request HTTP mẫu.
 - [x] Viết checklist vận hành và go-live tại `docs/operations/PRODUCTION_READINESS.md`.
+- [x] Chuẩn hóa Prisma thành một global provider, loại connection pool lặp và xác nhận các endpoint production không còn lỗi cạn kết nối.
+- [x] Ổn định storage chứng từ chi phí giữa repo root và `apps/web`; file thiếu trả 404 và đường dẫn traversal bị chặn.
+- [x] Chuyển notification SSE sang Bearer header và loại JWT khỏi query string.
+- [x] Chạy production gate local cuối: migration `7/7`, API `181/181`, web `47/47`, Playwright desktop `38/38`.
+- [x] Xác nhận light/dark trên 10 trang và RBAC cho `admin`, `adminA`, `adminB`, `manager`.
 
 ### 17. Điều kiện bên ngoài còn phải hoàn tất trước LIVE
 
@@ -759,13 +764,12 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### Thứ tự ưu tiên khuyến nghị
 
-1. Hoàn thiện bảng chi phí phát sinh.
-2. Thêm duyệt chi, đánh dấu đã chi, hoàn ứng và khấu trừ lợi nhuận.
-3. Làm báo cáo owner chi tiết theo tháng.
-4. Làm báo cáo tòa nhà bằng dữ liệu thật.
-5. Làm đối soát SePay.
-6. Làm hạch toán tự động đầy đủ.
-7. Làm Settlement Engine cho trả phòng.
-8. Hoàn thiện đặt cọc nâng cao.
-9. Hoàn thiện thông báo Zalo/Telegram.
-10. Cleanup UI, tiếng Việt và mobile.
+1. Cấp domain HTTPS và toàn bộ secret production ngoài Git.
+2. Deploy staging từ commit release candidate đã chốt.
+3. Chạy lại `npm.cmd run verify:prod` trên staging.
+4. Nghiệm thu SePay giá trị nhỏ cho cả hai bank/owner.
+5. Nghiệm thu Hunonic, Zalo, Telegram và SMTP bằng credential production.
+6. Chạy backup ngoài máy chủ và restore drill có biên bản.
+7. Bật monitoring/alerting, chốt người trực và quy trình xử lý sai lệch tiền.
+8. Bàn giao credential riêng, đổi mật khẩu lần đầu và ký biên bản go-live.
+9. Cleanup UI, tiếng Việt và mobile.

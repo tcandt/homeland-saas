@@ -7,6 +7,7 @@ import { useTheme } from "next-themes";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { useCurrentUserQuery } from "@/lib/queries/auth.queries";
 import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
+import { consumeServerSentEvents } from "@/lib/server-sent-events";
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -110,12 +111,9 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
     fetchInitialCount();
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
-    const sse = new EventSource(`${apiUrl}/notifications/stream?token=${encodeURIComponent(accessToken)}`);
-
-    sse.onmessage = (event) => {
+    const handleSseData = (rawData: string) => {
       try {
-        const data = JSON.parse(event.data);
+        const data = JSON.parse(rawData);
         if (data && data.count !== undefined) {
           setUnreadCount(data.count);
         }
@@ -124,14 +122,28 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       }
     };
 
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+    const streamController = new AbortController();
+    void fetch(`${apiUrl}/notifications/stream`, {
+      headers: {
+        Accept: "text/event-stream",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      signal: streamController.signal,
+    }).then(async (response) => {
+      if (response.ok) {
+        await consumeServerSentEvents(response, handleSseData);
+      }
+    }).catch((error) => {
+      if (error instanceof Error && error.name !== "AbortError") {
+        console.error("[Header] Notification stream failed:", error);
+      }
+    });
+
     const pollingFallback = window.setInterval(fetchInitialCount, 30000);
 
-    sse.onerror = () => {
-      sse.close();
-    };
-
     return () => {
-      sse.close();
+      streamController.abort();
       window.clearInterval(pollingFallback);
     };
   }, [accessToken]);

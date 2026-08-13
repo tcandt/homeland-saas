@@ -3,14 +3,13 @@ import { FinanceController } from './finance.controller';
 import { FinanceReportingService } from './finance-reporting.service';
 import { FinanceLedgerService } from './ledger.service';
 import { JournalEntryService } from './journal-entry.service';
-import { PrismaService } from '../prisma.service';
 import { FinanceListener } from './finance.listener';
 import { CommunicationModule } from '../communication/communication.module';
 
 @Module({
   imports: [CommunicationModule],
   controllers: [FinanceController],
-  providers: [FinanceReportingService, FinanceLedgerService, JournalEntryService, PrismaService, FinanceListener],
+  providers: [FinanceReportingService, FinanceLedgerService, JournalEntryService, FinanceListener],
   exports: [FinanceReportingService, FinanceLedgerService, JournalEntryService],
 })
 export class FinanceModule {}

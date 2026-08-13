@@ -98,6 +98,7 @@ const createRoleFixture = (email: string, roleName: string, passwordEnv?: string
     }
 
     const api = await pwRequest.newContext({
+      baseURL: process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3001',
       extraHTTPHeaders: {
         'Authorization': `Bearer ${token}`
       }

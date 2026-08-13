@@ -20,6 +20,10 @@ const ignoredConsoleError = (message: string) => (
   || message.includes('status of 503')
 );
 
+const ignoredResponseError = (status: number, url: URL) => (
+  status === 503 && url.pathname.endsWith('/api/v1/notifications/stream')
+);
+
 test.describe('Production desktop theme audit', () => {
   test.beforeEach(async ({}, testInfo) => {
     test.skip(testInfo.project.name !== 'Desktop 1920', 'Desktop production audit');
@@ -29,14 +33,23 @@ test.describe('Production desktop theme audit', () => {
     test(`renders ten operational routes in ${theme} mode`, async ({ admin }, testInfo) => {
       const consoleErrors: string[] = [];
       const pageErrors: string[] = [];
+      const responseErrors: string[] = [];
+      let activeRoute = '/';
       admin.page.on('console', (message) => {
         if (message.type() === 'error' && !ignoredConsoleError(message.text())) {
           consoleErrors.push(message.text());
         }
       });
       admin.page.on('pageerror', (error) => pageErrors.push(error.message));
+      admin.page.on('response', (response) => {
+        const url = new URL(response.url());
+        if (response.status() >= 500 && !ignoredResponseError(response.status(), url)) {
+          responseErrors.push(`${activeRoute}: ${response.status()} ${url.origin}${url.pathname}`);
+        }
+      });
 
       for (const route of routes) {
+        activeRoute = route;
         await admin.page.evaluate((nextTheme) => localStorage.setItem('theme', nextTheme), theme);
         await admin.page.goto(route, { waitUntil: 'domcontentloaded' });
         await expect(admin.page.locator('html')).toHaveClass(new RegExp(`(^|\\s)${theme}(\\s|$)`));
@@ -64,6 +77,7 @@ test.describe('Production desktop theme audit', () => {
 
       expect(consoleErrors, `Unexpected console errors in ${theme} mode`).toEqual([]);
       expect(pageErrors, `Unexpected page errors in ${theme} mode`).toEqual([]);
+      expect(responseErrors, `Unexpected HTTP 5xx responses in ${theme} mode`).toEqual([]);
     });
   }
 });

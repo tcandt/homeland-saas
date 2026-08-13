@@ -5,7 +5,6 @@ import { SignatureRequestsController } from './signature-requests.controller';
 import { LocalStorageProvider } from './providers/storage/local-storage.provider';
 import { PuppeteerPdfProvider } from './providers/pdf/puppeteer-pdf.provider';
 import { InternalSignatureProvider } from './providers/signature/internal-signature.provider';
-import { PrismaService } from '../prisma.service';
 
 @Module({
   imports: [],
@@ -15,7 +14,6 @@ import { PrismaService } from '../prisma.service';
     LocalStorageProvider,
     PuppeteerPdfProvider,
     InternalSignatureProvider,
-    PrismaService,
   ],
   exports: [DocumentsService],
 })

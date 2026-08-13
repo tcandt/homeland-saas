@@ -104,6 +104,7 @@ export const test = base.extend<{ admin: AdminFixture }>({
 
     // Set up API context with token
     const api = await pwRequest.newContext({
+      baseURL: process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3001',
       extraHTTPHeaders: {
         'Authorization': `Bearer ${token}`
       }

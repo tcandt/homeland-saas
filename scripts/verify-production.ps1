@@ -106,14 +106,15 @@ try {
     Invoke-Checked 'API unit tests' { npm.cmd run test --workspace=api }
     Invoke-Checked 'Web unit tests' { npm.cmd run test --workspace=web }
 
+    $env:NEXT_BUILD_DIR = $webOutName
+    $env:NEXT_PUBLIC_API_URL = "$apiOrigin/api/v1"
+    $env:INTERNAL_API_ORIGIN = $apiOrigin
+    $env:NEXT_PUBLIC_ALLOW_REGISTRATION = 'false'
+
     if (-not $SkipBuild) {
         Invoke-Checked 'Shared typecheck' { & .\node_modules\.bin\tsc.cmd -p packages/shared/tsconfig.json --noEmit }
         Invoke-Checked 'API isolated build' { & .\apps\api\node_modules\.bin\tsc.cmd -p apps/api/tsconfig.verify-production.json }
 
-        $env:NEXT_BUILD_DIR = $webOutName
-        $env:NEXT_PUBLIC_API_URL = "$apiOrigin/api/v1"
-        $env:INTERNAL_API_ORIGIN = $apiOrigin
-        $env:NEXT_PUBLIC_ALLOW_REGISTRATION = 'false'
         $webTsConfigSnapshot = Get-Content -LiteralPath $webTsConfigPath -Raw
         $webNextEnvSnapshot = Get-Content -LiteralPath $webNextEnvPath -Raw
         Invoke-Checked 'Web isolated production build' { npm.cmd run build --workspace=web }
@@ -141,6 +142,10 @@ try {
         $env:CORS_ORIGINS = $webOrigin
         $env:DISABLE_SCHEDULED_JOBS = 'true'
         $env:ENABLE_SWAGGER = 'false'
+        $env:NODE_PATH = @(
+            (Join-Path $workspace 'apps/api/node_modules'),
+            (Join-Path $workspace 'node_modules')
+        ) -join [System.IO.Path]::PathSeparator
         if (-not $env:JWT_SECRET -or $env:JWT_SECRET.Length -lt 32 -or $env:JWT_SECRET -eq 'homeland_super_secret_key_change_in_production') {
             $env:JWT_SECRET = 'verification-only-loopback-secret-2026-not-for-deployment'
         }

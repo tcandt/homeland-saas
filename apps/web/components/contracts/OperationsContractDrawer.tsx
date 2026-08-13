@@ -21,7 +21,6 @@ import {
   useActivateContractMutation, 
   useTerminateContractMutation,
   useContractDetailQuery,
-  useSettlementPreviewMutation,
   useCompletePendingSettlementRefundMutation,
 } from "../../lib/queries/contracts.queries";
 import { useDeleteContractMutation } from "../../lib/mutations/contracts.mutations";
@@ -214,12 +213,13 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
     note: "",
   });
   const [settlementPreview, setSettlementPreview] = useState<any | null>(null);
+  const [isSettlementPreviewPending, setIsSettlementPreviewPending] = useState(false);
+  const settlementPreviewRequestRef = useRef(0);
 
   const submitMutation = useSubmitContractMutation();
   const approveMutation = useApproveContractMutation();
   const activateMutation = useActivateContractMutation();
   const terminateMutation = useTerminateContractMutation();
-  const settlementPreviewMutation = useSettlementPreviewMutation();
   const completePendingRefundMutation = useCompletePendingSettlementRefundMutation();
   const deleteMutation = useDeleteContractMutation();
   const updateRoomMutation = useUpdateRoomMutation();
@@ -265,6 +265,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
       note: settlementForm.note.trim() || undefined,
     };
   }, [settlementForm]);
+  const settlementPreviewPayloadKey = JSON.stringify(buildSettlementPayload());
 
   const handleSuccess = (message: string) => {
     showToast(message, "success");
@@ -313,22 +314,34 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
   }, [detailContract?.id, detailContract?.depositMoney]);
 
   useEffect(() => {
-    if (!isSettlementModalOpen || !detailContract?.id) return;
+    const requestId = ++settlementPreviewRequestRef.current;
+    if (!isSettlementModalOpen || !detailContract?.id) {
+      setIsSettlementPreviewPending(false);
+      return;
+    }
+
+    setIsSettlementPreviewPending(true);
 
     const timer = window.setTimeout(async () => {
       try {
-        const preview = await settlementPreviewMutation.mutateAsync({
-          id: detailContract.id,
-          payload: buildSettlementPayload(),
-        });
-        setSettlementPreview(preview);
+        const payload = JSON.parse(settlementPreviewPayloadKey) as ContractSettlementPayload;
+        const preview = await contractsApi.previewSettlement(detailContract.id, payload);
+        if (requestId === settlementPreviewRequestRef.current) {
+          setSettlementPreview(preview);
+        }
       } catch {
-        setSettlementPreview(null);
+        if (requestId === settlementPreviewRequestRef.current) {
+          setSettlementPreview(null);
+        }
+      } finally {
+        if (requestId === settlementPreviewRequestRef.current) {
+          setIsSettlementPreviewPending(false);
+        }
       }
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [isSettlementModalOpen, detailContract?.id, buildSettlementPayload, settlementPreviewMutation]);
+  }, [isSettlementModalOpen, detailContract?.id, settlementPreviewPayloadKey]);
 
   const updateSettlementField = (field: keyof typeof settlementForm, value: string) => {
     setSettlementForm((prev) => ({ ...prev, [field]: value }));
@@ -1158,7 +1171,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                 data-testid="btn-confirm-terminate-settlement"
                 onClick={handleConfirmTermination}
                 isLoading={terminateMutation.isPending}
-                disabled={!settlementPreview || settlementPreviewMutation.isPending}
+                disabled={!settlementPreview || isSettlementPreviewPending}
               >
                 Xác nhận chấm dứt
               </Button>

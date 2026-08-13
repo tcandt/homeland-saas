@@ -742,14 +742,16 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Thêm cổng production không phá dữ liệu, build/port cô lập và tắt cron khi kiểm chứng.
 - [x] Khóa E2E CRUD thật sau cờ `RUN_DESTRUCTIVE_E2E=true` dành riêng cho database dùng một lần.
 - [x] Tách kiểm thử persona manager, owner A, owner B và admin toàn quyền.
-- [x] Audit 10 trang desktop ở cả light/dark, kiểm tra overflow, console error và theme token.
+- [x] Audit toàn bộ 28 route giao diện desktop ở cả light/dark (`56` lượt render), kiểm tra overflow, redirect, console/page error, HTTP 5xx và theme token.
 - [x] Loại mật khẩu dùng chung khỏi blueprint và các request HTTP mẫu.
 - [x] Viết checklist vận hành và go-live tại `docs/operations/PRODUCTION_READINESS.md`.
 - [x] Chuẩn hóa Prisma thành một global provider, loại connection pool lặp và xác nhận các endpoint production không còn lỗi cạn kết nối.
 - [x] Ổn định storage chứng từ chi phí giữa repo root và `apps/web`; file thiếu trả 404 và đường dẫn traversal bị chặn.
 - [x] Chuyển notification SSE sang Bearer header và loại JWT khỏi query string.
-- [x] Chạy production gate local cuối: migration `7/7`, API `181/181`, web `49/49`, Playwright desktop `39/39`.
-- [x] Xác nhận light/dark trên 10 trang và RBAC cho `admin`, `adminA`, `adminB`, `manager`.
+- [x] Chạy production gate local cuối: migration `7/7`, API `181/181`, web `49/49`, Playwright desktop `45/45`.
+- [x] Xác nhận light/dark trên 28 route giao diện và RBAC cho `admin`, `adminA`, `adminB`, `manager`.
+- [x] Chạy hành trình stateful trên một hồ sơ: thu/chuyển cọc, submit/duyệt/kích hoạt hợp đồng, phát hành/thanh toán hóa đơn, snapshot điện nước, khấu trừ/hoàn cọc, chấm dứt hợp đồng và đưa phòng từ vệ sinh về trống.
+- [x] Chạy lặp riêng `6/6` regression quyết toán và chặn race preview theo nguyên tắc request mới nhất thắng.
 - [x] Xác nhận public registration fail-closed ở cả API (`403`) và UI production.
 - [x] Giới hạn Turbopack trace của learning-store vào thư mục dữ liệu, loại warning trace toàn workspace.
 

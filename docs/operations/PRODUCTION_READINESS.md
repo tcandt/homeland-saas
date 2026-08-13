@@ -24,7 +24,7 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 
 ### Bằng chứng release candidate desktop gần nhất
 
-Lần chạy: `2026-08-13 15:20` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+Lần chạy: `2026-08-13 16:00` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
 
 | Cổng kiểm tra | Kết quả |
 |---|---|
@@ -35,16 +35,19 @@ Lần chạy: `2026-08-13 15:20` (Asia/Bangkok), local production bundle cô l�
 | Web typecheck + unit | PASS, `49/49` |
 | API + Next production build | PASS |
 | Health/readiness | PASS |
-| Production Playwright desktop | PASS, `44/44` |
+| Production Playwright desktop | PASS, `45/45` |
 | Light/dark | PASS trên toàn bộ `28/28` route giao diện ở mỗi theme (`56` lượt render); không redirect sai, overflow, page error, console error hoặc HTTP 5xx ngoài SSE 503 cố ý của fixture |
 | Persona | PASS đăng nhập/RBAC cho `admin`, `adminA`, `adminB`, `manager`; admin vận hành có đủ 5 trường integration secret ở trạng thái chỉ đọc |
 | Public registration | PASS: API `403`, UI hiển thị đăng ký đóng và không có nút tạo account |
-| Vòng đời | PASS regression cọc, giữ/khấu trừ/hoàn cọc, quyết toán, hoàn tiền, trạng thái phòng, chi phí, SePay và credit hóa đơn |
+| Vòng đời | PASS regression cọc, giữ/khấu trừ/hoàn cọc, quyết toán, hoàn tiền, trạng thái phòng, chi phí, SePay và credit hóa đơn; một hồ sơ stateful đi xuyên suốt từ thu cọc tới trả phòng |
 
 Phạm vi bằng chứng:
 
 - Auth, RBAC, các trang đọc và health chạy với API/database hiện tại.
 - Các nhánh write nghiệp vụ chạy bằng mock trên production bundle để không tạo/sửa/xóa dữ liệu vận hành.
+- Hành trình stateful đã xác nhận các chuyển trạng thái: cọc `PENDING -> PAID -> CONVERTED_TO_CONTRACT`; hợp đồng `DRAFT -> PENDING_APPROVAL -> APPROVED -> ACTIVE -> TERMINATED`; hóa đơn `DRAFT -> ISSUED -> PAID`; phòng `AVAILABLE -> RESERVED -> OCCUPIED -> CLEANING -> AVAILABLE`.
+- Quyết toán trong hành trình trên lấy snapshot điện Hunonic và nước, khấu trừ `500.000` đồng từ cọc, hoàn `4.500.000` đồng và khóa đúng trạng thái hợp đồng/phòng.
+- Chạy lặp riêng cụm quyết toán đạt `6/6`; cơ chế preview dùng request mới nhất để tránh phản hồi cũ ghi đè số tiền vừa nhập. Log runtime không có HTTP 500, tranh chấp cổng hoặc token trong URL.
 - Test destructive chỉ được chạy trên database dùng một lần khi có `RUN_DESTRUCTIVE_E2E=true`.
 - Kết quả này xác nhận **release candidate local**, chưa thay thế staging, credential production và nghiệm thu giao dịch thật.
 - Build không còn cảnh báo Gemini/NFT trace rộng hoặc deprecation về convention `middleware.ts`; Next proxy đã được kiểm tra tạo và giữ nguyên `x-correlation-id`.

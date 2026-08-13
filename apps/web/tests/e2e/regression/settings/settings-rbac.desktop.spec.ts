@@ -37,7 +37,7 @@ test.describe('Settings RBAC Desktop Regression', () => {
     await verifyOwnerAdmin(ownerAdminB);
   });
 
-  test('shows the real account directory to the full-access account', async ({ admin }) => {
+  test('shows the account directory while keeping integration secrets read-only for the operational admin', async ({ admin }) => {
     const response = await admin.api.get(`${apiBaseUrl}/api/v1/auth/team`);
     expect(response.ok()).toBeTruthy();
     const body = await response.json();
@@ -61,5 +61,12 @@ test.describe('Settings RBAC Desktop Regression', () => {
     await expect(directory).toContainText('admin@homeland.local');
     await expect(directory).not.toContainText('Permission Matrix');
     await expect(directory.getByRole('button', { name: /Thêm thành viên|Lưu phân quyền/ })).toHaveCount(0);
+
+    await admin.page.goto('/settings?section=integrations', { waitUntil: 'domcontentloaded' });
+    const secretFields = admin.page.getByTestId('integration-secret-field');
+    await expect(secretFields).toHaveCount(5);
+    for (let index = 0; index < 5; index += 1) {
+      await expect(secretFields.nth(index)).toBeDisabled();
+    }
   });
 });

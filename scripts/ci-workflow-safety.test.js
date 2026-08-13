@@ -113,6 +113,18 @@ test('API integration tests compile shared workspace before Vitest resolves it',
   assert.doesNotMatch(bootstrap, /db\s+push|db\s+seed|force-reset|accept-data-loss/i);
 });
 
+test('web build compiles shared workspace before Next resolves runtime schemas', () => {
+  const workflow = read('.github/workflows/ci-cd-pipeline.yml');
+  const webBuildBlock = workflow.slice(
+    workflow.indexOf('  build-web:'),
+    workflow.indexOf('  security-scan:'),
+  );
+  const sharedBuild = webBuildBlock.indexOf('npm run build -w @homeland/shared');
+  const nextBuild = webBuildBlock.indexOf('npm run build --workspace=web');
+  assert.ok(sharedBuild >= 0, 'Web build must compile @homeland/shared');
+  assert.ok(nextBuild > sharedBuild, 'Shared workspace must compile before Next build');
+});
+
 test('release version is propagated through every deploy job dependency', () => {
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
   assert.match(workflow, /release_version: \$\{\{ needs\.semantic-release\.outputs\.new_release_version \}\}/);

@@ -156,6 +156,7 @@ jobs:
       - run: npm ci
       - run: npm run check:encoding
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
+      - run: npm run build -w @homeland/shared
       - uses: actions/cache@v4
         with:
           path: |

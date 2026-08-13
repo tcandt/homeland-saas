@@ -847,7 +847,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-4 pt-3 border-t border-border/50">
+          <div className="grid grid-cols-4 gap-4 pt-3 border-t border-slate-200/60 dark:border-white/[0.06]">
             <div className="flex flex-col gap-[4px]">
               <span className="text-[11px] font-bold text-muted uppercase">Ngày bắt đầu</span>
               <span className="text-[14px] font-bold text-text">{formatDate(detailContract.startDate)}</span>
@@ -873,23 +873,23 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="flex-1 flex flex-col gap-4 min-w-0">
             <Card className="p-4 flex flex-col gap-3">
-              <h4 className="font-black text-[14px] text-text flex items-center gap-2 border-b border-border/50 pb-2">
+              <h4 className="font-black text-[14px] text-text flex items-center gap-2 border-b border-slate-200/60 dark:border-white/[0.06] pb-2">
                 <FileText size={16} className="text-[#6366f1]" /> Thông tin tài chính
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="flex flex-col justify-center p-3 bg-black/5 dark:bg-white/5 rounded-[10px]">
+                <div className="flex flex-col justify-center p-3 bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800/60 rounded-[10px]">
                   <span className="text-[12px] font-bold text-muted">Giá thuê / tháng</span>
                   <span className="text-[14px] font-black text-text">
                     {Number(detailContract.monthlyRent || 0).toLocaleString("vi-VN")}đ
                   </span>
                 </div>
-                <div className="flex flex-col justify-center p-3 bg-black/5 dark:bg-white/5 rounded-[10px]">
+                <div className="flex flex-col justify-center p-3 bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800/60 rounded-[10px]">
                   <span className="text-[12px] font-bold text-muted">Tiền cọc</span>
                   <span className="text-[14px] font-black text-text">
                     {Number(detailContract.depositMoney || 0).toLocaleString("vi-VN")}đ
                   </span>
                 </div>
-                <div className="flex flex-col justify-center p-3 bg-rose-500/10 border border-rose-500/20 rounded-[10px]">
+                <div className="flex flex-col justify-center p-3 bg-rose-500/10 dark:bg-rose-500/15 border border-rose-500/20 dark:border-rose-500/30 rounded-[10px]">
                   <span className="text-[12px] font-bold text-rose-500">Công nợ hiện tại</span>
                   <span className="text-[14px] font-black text-rose-500">
                     {Number(detailContract.debt || 0).toLocaleString("vi-VN")}đ
@@ -936,7 +936,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
             ) : null}
 
             <Card className="p-4 flex flex-col gap-3">
-              <div className="flex items-center justify-between border-b border-border/50 pb-2">
+              <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-white/[0.06] pb-2">
                 <h4 className="font-black text-[14px] text-text flex items-center gap-2">
                   <ShieldCheck size={16} className="text-[#8b5cf6]" /> Hồ sơ & Chữ ký
                 </h4>
@@ -956,7 +956,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                   
                   {detailContract.attachments && detailContract.attachments.length > 0 ? (
                     detailContract.attachments.map((url: string, index: number) => (
-                      <div key={index} className="flex items-center justify-between p-[12px] border border-border rounded-[10px] hover:border-[#6366f1]/50 transition-colors group">
+                      <div key={index} className="flex items-center justify-between p-[12px] border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 rounded-[10px] hover:border-[#6366f1]/50 transition-colors group">
                         <div className="flex items-center gap-[12px] min-w-0">
                           <div className="w-[36px] h-[36px] rounded-[8px] bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
                             <FileText size={16} />
@@ -976,7 +976,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                       </div>
                     ))
                   ) : contractPdfUrl ? (
-                    <div className="flex items-center justify-between p-[12px] border border-border rounded-[10px] hover:border-[#6366f1]/50 transition-colors group">
+                    <div className="flex items-center justify-between p-[12px] border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 rounded-[10px] hover:border-[#6366f1]/50 transition-colors group">
                       <div className="flex items-center gap-[12px] min-w-0">
                         <div className="w-[36px] h-[36px] rounded-[8px] bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
                           <FileText size={16} />
@@ -995,7 +995,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                       </div>
                     </div>
                   ) : (
-                    <div className="p-4 rounded-xl border border-dashed border-border/60 bg-black/5 dark:bg-white/5 flex flex-col items-center justify-center text-center gap-2">
+                    <div className="p-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-700/60 bg-slate-50/60 dark:bg-slate-900/40 flex flex-col items-center justify-center text-center gap-2">
                       <FileText size={24} className="text-muted" />
                       <span className="text-sm font-semibold text-text">Chưa có hợp đồng</span>
                       <span className="text-xs text-muted">Vui lòng tải lên file hợp đồng đã ký</span>
@@ -1018,7 +1018,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                   {detailContract.customer?.idImages && detailContract.customer.idImages.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                       {detailContract.customer.idImages.map((url: string, index: number) => (
-                        <div key={index} className="relative group rounded-lg overflow-hidden border border-border w-[100px] h-[66px] shrink-0 bg-black/5 dark:bg-white/5">
+                        <div key={index} className="relative group rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 w-[100px] h-[66px] shrink-0 bg-slate-100 dark:bg-slate-800/40">
                           <img src={getFileUrl(url)} alt={`CCCD ${index + 1}`} className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                             <button onClick={() => handlePreview(url)} className="w-[32px] h-[32px] rounded-full bg-white/20 hover:bg-white/40 flex items-center justify-center text-white backdrop-blur-sm transition-colors">
@@ -1032,7 +1032,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                       ))}
                     </div>
                   ) : (
-                    <div className="p-3 rounded-lg border border-dashed border-border/60 bg-black/5 dark:bg-white/5 flex flex-col items-center justify-center text-center gap-1 h-[80px]">
+                    <div className="p-3 rounded-lg border border-dashed border-slate-300 dark:border-slate-700/60 bg-slate-50/60 dark:bg-slate-900/40 flex flex-col items-center justify-center text-center gap-1 h-[80px]">
                       <User size={24} className="text-muted" />
                       <span className="text-sm font-semibold text-text">Chưa có ảnh CCCD</span>
                       <span className="text-xs text-muted">Vui lòng tải lên ít nhất 2 ảnh CCCD</span>
@@ -1045,9 +1045,9 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
 
           <div className="w-full lg:w-[280px] flex flex-col gap-4 shrink-0">
             <Card className="p-4 flex flex-col gap-4 flex-1">
-              <h4 className="font-black text-[14px] text-text flex items-center gap-2 border-b border-border/50 pb-2"><History size={16} className="text-[#f97316]" /> Lifecycle Timeline</h4>
+              <h4 className="font-black text-[14px] text-text flex items-center gap-2 border-b border-slate-200/60 dark:border-white/[0.06] pb-2"><History size={16} className="text-[#f97316]" /> Lifecycle Timeline</h4>
               
-              <div className="flex flex-col gap-[12px] border-b border-border/50 pb-3">
+              <div className="flex flex-col gap-[12px] border-b border-slate-200/60 dark:border-white/[0.06] pb-3">
                 {representatives.map((rep: any, idx: number) => (
                   <div key={`${rep.id || "representative"}-${idx}`} className="flex items-center gap-2">
                     <div className="w-[36px] h-[36px] rounded-[10px] bg-[#6366f1]/10 text-[#6366f1] flex items-center justify-center font-bold text-sm">

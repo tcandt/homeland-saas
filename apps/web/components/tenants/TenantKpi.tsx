@@ -47,7 +47,7 @@ export default function TenantKpi() {
   }, [customersData, contractsData]);
 
   return (
-    <div data-testid="tenants-kpi-grid" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-[12px] md:gap-[16px]">
+    <div data-testid="tenants-kpi-grid" className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
       <KpiCard
         icon={<Users size={16} className="text-[#4f46e5]" />}
         iconBg="bg-[#4f46e5]/10"
@@ -96,8 +96,7 @@ export default function TenantKpi() {
 
 function KpiCard({ icon, iconBg, value, label, subValue, subColor, blobColor }: any) {
   return (
-    <Card className="p-4 h-[86px] flex items-center gap-3 hover:-translate-y-0.5 transition-transform duration-200 cursor-pointer relative overflow-hidden z-0">
-      {blobColor && <div className={`hidden md:block absolute top-0 right-0 w-[60px] h-[60px] ${blobColor} rounded-full blur-[20px] -z-10`} />}
+    <Card className="relative z-0 flex h-[76px] cursor-pointer items-center gap-3 overflow-hidden rounded-[14px] border-border/40 p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)] transition-transform duration-200 hover:-translate-y-0.5">
       <div className={`w-[36px] h-[36px] rounded-[10px] flex items-center justify-center shrink-0 ${iconBg}`}>{icon}</div>
       <div className="flex flex-col min-w-0">
         <span className="font-black text-[18px] text-text leading-none">{value}</span>

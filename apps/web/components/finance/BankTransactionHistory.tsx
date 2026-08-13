@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useMemo, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, History, Search } from "lucide-react";
@@ -42,13 +42,22 @@ export default function BankTransactionHistory() {
   const bankAccounts = Array.isArray(data?.filters?.bankAccounts) ? data.filters.bankAccounts : [];
 
   const yearOptions = useMemo(
-    () => Array.from({ length: 5 }, (_, index) => ({ value: String(currentYear - index), label: String(currentYear - index) })),
+    () =>
+      Array.from({ length: 5 }, (_, index) => ({
+        value: String(currentYear - index),
+        label: String(currentYear - index),
+      })),
     [currentYear],
   );
+
   const monthOptions = [
     { value: "", label: "Cả năm" },
-    ...Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1), label: `Tháng ${index + 1}` })),
+    ...Array.from({ length: 12 }, (_, index) => ({
+      value: String(index + 1),
+      label: `Tháng ${index + 1}`,
+    })),
   ];
+
   const bankOptions = [
     { value: "", label: "Tất cả tài khoản" },
     ...bankAccounts.map((bank: any) => ({
@@ -56,6 +65,7 @@ export default function BankTransactionHistory() {
       label: `${bank.bankName} - ${maskAccountNumber(bank.accountNumber)}`,
     })),
   ];
+
   const directionOptions = [
     { value: "", label: "Tiền vào/ra" },
     { value: "IN", label: "Tiền vào" },
@@ -63,10 +73,13 @@ export default function BankTransactionHistory() {
   ];
 
   return (
-    <section data-testid="bank-transactions-root" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
+    <section
+      data-testid="bank-transactions-root"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-border bg-card shadow-sm"
+    >
       <div className="shrink-0 border-b border-border bg-card p-[16px] md:p-[20px]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
+          <div>
             <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#0f766e]">
               <History size={14} />
               Dòng tiền ngân hàng
@@ -76,32 +89,79 @@ export default function BankTransactionHistory() {
               Theo dõi giao dịch vào/ra, mã đối soát và trạng thái match theo từng tài khoản.
             </p>
           </div>
+
           <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[960px] xl:grid-cols-[minmax(170px,1.2fr)_minmax(170px,1.2fr)_90px_120px_160px_120px] 2xl:min-w-[1180px] 2xl:grid-cols-[minmax(220px,1.2fr)_minmax(220px,1.2fr)_100px_140px_190px_140px]">
             <div className="relative">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-              <Input data-testid="bank-transactions-content-filter" value={content} onChange={(event) => setContent(event.target.value)} placeholder="Lọc theo nội dung..." className="pl-9" />
+              <Input
+                data-testid="bank-transactions-content-filter"
+                value={content}
+                onChange={(event) => setContent(event.target.value)}
+                placeholder="Lọc theo nội dung..."
+                className="pl-9"
+              />
             </div>
+
             <div className="relative">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-              <Input data-testid="bank-transactions-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm mã giao dịch, tài khoản..." className="pl-9" />
+              <Input
+                data-testid="bank-transactions-search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Tìm mã giao dịch, tài khoản..."
+                className="pl-9"
+              />
             </div>
+
             <Select data-testid="bank-transactions-year" value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
             <Select data-testid="bank-transactions-month" value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
-            <Select data-testid="bank-transactions-account" value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)} options={bankOptions} />
-            <Select data-testid="bank-transactions-direction" value={direction} onChange={(event) => setDirection(event.target.value)} options={directionOptions} />
+            <Select
+              data-testid="bank-transactions-account"
+              value={bankAccountId}
+              onChange={(event) => setBankAccountId(event.target.value)}
+              options={bankOptions}
+            />
+            <Select
+              data-testid="bank-transactions-direction"
+              value={direction}
+              onChange={(event) => setDirection(event.target.value)}
+              options={directionOptions}
+            />
           </div>
         </div>
       </div>
 
-      <div data-testid="bank-transactions-kpis" className="grid shrink-0 grid-cols-2 gap-3 border-b border-border bg-card p-[16px] md:grid-cols-4 md:p-[20px]">
+      <div
+        data-testid="bank-transactions-kpis"
+        className="grid shrink-0 grid-cols-2 gap-3 border-b border-border bg-card p-[16px] md:grid-cols-4 md:p-[20px]"
+      >
         <Metric label="Giao dịch" value={data?.summary?.total || 0} />
         <Metric label="Tiền vào" value={formatVnd(data?.summary?.inflow || 0)} tone="income" />
         <Metric label="Tiền ra" value={formatVnd(data?.summary?.outflow || 0)} tone="expense" />
-        <Metric label="Chênh lệch" value={formatVnd(data?.summary?.net || 0)} tone={Number(data?.summary?.net || 0) >= 0 ? "income" : "expense"} />
+        <Metric
+          label="Chênh lệch"
+          value={formatVnd(data?.summary?.net || 0)}
+          tone={Number(data?.summary?.net || 0) >= 0 ? "income" : "expense"}
+        />
       </div>
 
-      {isLoading && <div data-testid="bank-transactions-loading" className="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-[13px] font-semibold text-muted">Đang tải lịch sử giao dịch...</div>}
-      {isError && <div data-testid="bank-transactions-error" className="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-[13px] font-semibold text-rose-500">Không tải được lịch sử giao dịch ngân hàng.</div>}
+      {isLoading && (
+        <div
+          data-testid="bank-transactions-loading"
+          className="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-[13px] font-semibold text-muted"
+        >
+          Đang tải lịch sử giao dịch...
+        </div>
+      )}
+
+      {isError && (
+        <div
+          data-testid="bank-transactions-error"
+          className="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-[13px] font-semibold text-rose-500"
+        >
+          Không tải được lịch sử giao dịch ngân hàng.
+        </div>
+      )}
 
       {!isLoading && !isError && (
         <div data-testid="bank-transactions-table-wrap" className="min-h-0 flex-1 overflow-auto">
@@ -125,13 +185,18 @@ export default function BankTransactionHistory() {
                   </td>
                 </tr>
               )}
+
               {rows.map((row: any) => {
                 const isInflow = row.direction === "IN";
                 return (
-                  <tr key={row.id} data-testid={`bank-transaction-row-${row.id}`} className="border-t border-border">
+                  <tr key={row.id} data-testid={`bank-transaction-row-${row.id}`} className="border-t border-border align-top">
                     <td className="px-4 py-3 text-[12px] font-semibold text-muted">{formatDateTime(row.createdAt)}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-black ${isInflow ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-black ${
+                          isInflow ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                        }`}
+                      >
                         {isInflow ? <ArrowDownLeft size={12} /> : <ArrowUpRight size={12} />}
                         {isInflow ? "Tiền vào" : "Tiền ra"}
                       </span>
@@ -151,10 +216,15 @@ export default function BankTransactionHistory() {
                       <div className="mt-1 text-[11px] text-muted">{row.providerTransactionId || row.reference || "-"}</div>
                     </td>
                     <td className={`px-4 py-3 text-right font-black ${isInflow ? "text-[#059669]" : "text-[#dc2626]"}`}>
-                      {isInflow ? "+" : "-"}{formatVnd(row.amount)}
+                      {isInflow ? "+" : "-"}
+                      {formatVnd(row.amount)}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-1 text-[11px] font-black ${row.match ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                      <span
+                        className={`rounded-full px-2 py-1 text-[11px] font-black ${
+                          row.match ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
                         {row.match ? row.match.status : "Chưa match"}
                       </span>
                     </td>
@@ -171,6 +241,7 @@ export default function BankTransactionHistory() {
 
 function Metric({ label, value, tone }: { label: string; value: React.ReactNode; tone?: "income" | "expense" }) {
   const valueClass = tone === "income" ? "text-[#059669]" : tone === "expense" ? "text-[#dc2626]" : "text-text";
+
   return (
     <div className="rounded-[14px] border border-border bg-surface p-3">
       <div className="text-[10px] font-black uppercase tracking-wide text-muted">{label}</div>

@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import { Phone, Building, CalendarClock, CreditCard, ChevronRight, ShieldAlert, ShieldCheck, Shield, Edit, Trash2 } from "lucide-react";
-import { Drawer } from "../ui/Drawer";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
@@ -32,13 +31,11 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
 
   return (
     <>
-      <Drawer 
+      <Modal
         testId="tenant-detail-drawer"
-        closeTestId="tenant-detail-close"
         isOpen={!!tenant} 
         onClose={onClose} 
-        size="lg"
-        className="p-4 md:p-6 flex flex-col gap-6 md:gap-8"
+        maxWidth="max-w-4xl"
         title={
           <div className="flex items-center gap-4">
             <span>Hồ sơ khách thuê</span>
@@ -48,6 +45,7 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
           </div>
         }
       >
+        <div className="flex flex-col gap-6 md:gap-8">
         {/* Profile Hero */}
             <Card className="flex flex-col md:flex-row md:items-center gap-6 p-6 relative">
               <div className="absolute top-4 right-4 flex items-center gap-2">
@@ -92,7 +90,8 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
 
             {/* Bottom Padding */}
             <div className="h-[40px]" />
-      </Drawer>
+        </div>
+      </Modal>
 
       <TenantFormModal 
         isOpen={isEditFormOpen} 

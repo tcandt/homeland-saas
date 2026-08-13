@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Filter, FileText } from "lucide-react";
+import { Download, FileSpreadsheet, FileText } from "lucide-react";
 import toast from "react-hot-toast";
 import AppShell from "@/components/layout/AppShell";
 import BankCashFlowSummary from "@/components/finance/BankCashFlowSummary";
@@ -12,7 +12,6 @@ import FinancialCommandKpi from "@/components/finance/FinancialCommandKpi";
 import FinancialCommandLedger from "@/components/finance/FinancialCommandLedger";
 import OwnerProfitSummary from "@/components/finance/OwnerProfitSummary";
 import SePayReconciliationSummary from "@/components/finance/SePayReconciliationSummary";
-import { Button } from "@/components/ui/Button";
 import { financeApi } from "@/lib/api/finance.api";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { useLedgerQuery } from "@/lib/queries/finance.queries";
@@ -28,25 +27,18 @@ async function downloadFinanceFile(
     const response: any = await request();
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement("a");
-    link.href = url;
-
     const contentDisposition = response.headers["content-disposition"];
-    let filename = fallbackName;
-    if (contentDisposition) {
-      const filenameMatch = contentDisposition.match(/filename=\"?([^\"]+)\"?/);
-      if (filenameMatch && filenameMatch.length === 2) {
-        filename = filenameMatch[1];
-      }
-    }
+    const filenameMatch = contentDisposition?.match(/filename="?([^\"]+)"?/);
 
-    link.setAttribute("download", filename);
+    link.href = url;
+    link.download = filenameMatch?.[1] || fallbackName;
     document.body.appendChild(link);
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
     toast.success(successMessage);
   } catch {
-    toast.error(errorMessage, { icon: "!" });
+    toast.error(errorMessage);
   }
 }
 
@@ -65,22 +57,6 @@ export default function FinancePage() {
     };
   }, [ledgerRows]);
 
-  const handleExportExcel = () =>
-    downloadFinanceFile(
-      () => financeApi.exportExcelReport(),
-      "finance_report.xlsx",
-      "Xuất báo cáo Excel thành công.",
-      "Có lỗi xảy ra khi xuất Excel.",
-    );
-
-  const handleExportPdf = () =>
-    downloadFinanceFile(
-      () => financeApi.exportPdfReport(),
-      "finance_report.pdf",
-      "Xuất báo cáo PDF thành công.",
-      "Có lỗi xảy ra khi xuất PDF.",
-    );
-
   return (
     <AppShell>
       <div className="block md:hidden">
@@ -92,41 +68,33 @@ export default function FinancePage() {
 
       <div data-testid="finance-root" className="hidden min-h-full w-full flex-col gap-[16px] md:flex md:gap-[24px]">
         <div className="sticky top-[80px] z-40 -mx-[16px] -mt-[16px] flex flex-col gap-4 border-b border-border/70 bg-background/95 px-[16px] pb-4 pt-[16px] shadow-[0_12px_30px_rgba(15,23,42,0.06)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-            <div>
-              <h1 className="text-[20px] font-black tracking-tight text-text md:text-[28px]">Trung tâm tài chính</h1>
-              <p className="mt-1 text-[12px] font-medium text-muted md:text-[13px]">Phân tích dòng tiền, kiểm soát công nợ và sổ cái kế toán.</p>
+          {permissions.canExportFinance && (
+            <div className="flex justify-end">
+              <details className="group relative">
+                <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-xl border border-border bg-card px-3 text-[12px] font-black text-text transition hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                  <Download size={14} /> Xuất báo cáo
+                </summary>
+                <div className="absolute right-0 top-11 z-50 w-48 rounded-xl border border-border bg-card p-1.5 shadow-xl">
+                  <button
+                    type="button"
+                    data-testid="finance-export-excel-button"
+                    onClick={() => downloadFinanceFile(() => financeApi.exportExcelReport(), "finance_report.xlsx", "Đã xuất báo cáo Excel.", "Không thể xuất báo cáo Excel.")}
+                    className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[12px] font-bold text-text hover:bg-surface"
+                  >
+                    <FileSpreadsheet size={15} className="text-emerald-500" /> Excel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="finance-export-pdf-button"
+                    onClick={() => downloadFinanceFile(() => financeApi.exportPdfReport(), "finance_report.pdf", "Đã xuất báo cáo PDF.", "Không thể xuất báo cáo PDF.")}
+                    className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[12px] font-bold text-text hover:bg-surface"
+                  >
+                    <FileText size={15} className="text-rose-500" /> PDF
+                  </button>
+                </div>
+              </details>
             </div>
-            <div className="hide-scrollbar flex items-center gap-[8px] overflow-x-auto pb-2 md:gap-[12px] md:pb-0">
-              <Button variant="outline" className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]">
-                <Filter size={14} className="mr-1.5 text-muted" />
-                Bộ lọc
-              </Button>
-              {permissions.canExportFinance && (
-                <Button
-                  data-testid="finance-export-excel-button"
-                  variant="outline"
-                  onClick={handleExportExcel}
-                  className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]"
-                >
-                  <FileText size={14} className="mr-1.5 text-muted" />
-                  Xuất Excel
-                </Button>
-              )}
-              {permissions.canExportFinance && (
-                <Button
-                  data-testid="finance-export-pdf-button"
-                  variant="outline"
-                  onClick={handleExportPdf}
-                  className="h-[32px] shrink-0 px-[12px] md:h-[36px] md:px-[16px]"
-                >
-                  <FileText size={14} className="mr-1.5 text-muted" />
-                  Xuất PDF
-                </Button>
-              )}
-            </div>
-          </div>
-
+          )}
           <FinancialCommandKpi />
         </div>
 

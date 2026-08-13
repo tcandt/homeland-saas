@@ -266,7 +266,7 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
     >
       <div data-testid="tenant-form-drawer">
       <form onSubmit={handleSubmit(onSubmit)} className="mt-2 flex flex-col gap-4" data-testid="tenant-form">
-        <div className="flex items-start justify-between gap-3 rounded-2xl border border-border/60 bg-surface px-4 py-3">
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200/80 dark:border-white/[0.06] bg-slate-50/60 dark:bg-slate-900/40 px-4 py-3">
           <div>
             <p className="text-[13px] font-extrabold uppercase tracking-[0.2em] text-muted">Thông tin khách hàng</p>
             <p className="mt-1 text-sm text-muted">Có thể quét QR CCCD để tự điền nhanh dữ liệu.</p>
@@ -277,7 +277,7 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
               type="button"
               variant="ghost"
               size="sm"
-              className="h-10 rounded-xl border border-border/70 bg-card px-3"
+              className="h-10 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-card px-3"
               onClick={() => setIsQrMenuOpen((value) => !value)}
               data-testid="tenant-qr-button"
             >
@@ -287,7 +287,7 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
             </Button>
 
             {isQrMenuOpen && (
-              <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+              <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-card shadow-xl">
                 <button
                   type="button"
                   onClick={openQrCamera}
@@ -428,7 +428,7 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
 
       {isQrOverlayOpen && (
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm">
-          <div className="w-full max-w-[420px] overflow-hidden rounded-[28px] border border-white/10 bg-[#0b1020] text-white shadow-2xl">
+          <div className="w-full max-w-[420px] overflow-hidden rounded-[28px] border border-border bg-card text-text shadow-2xl">
             <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
               <div>
                 <h3 className="text-[18px] font-black">Quét QR CCCD</h3>

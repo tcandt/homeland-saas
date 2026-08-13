@@ -1,49 +1,51 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { CalendarClock, ShieldCheck, Shield, ShieldAlert } from "lucide-react";
-import { Table, Column } from "../ui/Table";
-import { Badge } from "../ui/Badge";
-import { Card } from "../ui/Card";
-import TenantDetailDrawer from "./TenantDetailDrawer";
-import { useCustomersQuery } from "@/lib/queries/customers.queries";
-import { useContractsQuery } from "@/lib/queries/contracts.queries";
+import { Eye } from "lucide-react";
 import { useTenantsStore } from "@/lib/hooks/useTenantsStore";
-import { LoadingState } from "../ui/LoadingState";
-import { ErrorState } from "../ui/ErrorState";
+import { useContractsQuery } from "@/lib/queries/contracts.queries";
+import { useCustomersQuery } from "@/lib/queries/customers.queries";
+import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/EmptyState";
-
-type RiskLevel = "low" | "medium" | "high";
+import { ErrorState } from "../ui/ErrorState";
+import { LoadingState } from "../ui/LoadingState";
+import TenantDetailDrawer from "./TenantDetailDrawer";
 
 type TenantRow = {
   id: string;
+  source: any;
   fullName: string;
   avatar: string;
+  type: string;
   roomLabel: string;
   buildingName: string;
   phone: string;
   email: string;
-  contractDays: number;
+  startDate?: string;
+  endDate?: string;
   debt: number;
-  risk: RiskLevel;
   status: string;
-  tempResidence: string;
-  createdAt: string;
-  code: string;
 };
 
-function getRiskLevel(debt: number): RiskLevel {
-  if (debt > 5000000) return "high";
-  if (debt > 0) return "medium";
-  return "low";
+function formatDate(value?: string) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return date.toLocaleDateString("vi-VN");
 }
 
 function formatMoney(value: number) {
-  return `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(value || 0)}đ`;
+  return `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(value || 0)} đ`;
+}
+
+function contractDays(endDate?: string) {
+  if (!endDate) return 0;
+  return Math.max(0, Math.ceil((new Date(endDate).getTime() - Date.now()) / 86400000));
 }
 
 export default function TenantGrid() {
   const [selectedTenant, setSelectedTenant] = useState<any | null>(null);
+  const [page, setPage] = useState(1);
   const { search, status } = useTenantsStore();
   const { data: customersData, isLoading: customersLoading, isError: customersError } = useCustomersQuery({
     search: search || undefined,
@@ -57,137 +59,29 @@ export default function TenantGrid() {
 
   const rows: TenantRow[] = useMemo(() => {
     return customers.map((customer: any) => {
-      const relatedContract = contracts.find(
-        (contract: any) => contract.customerId === customer.id || contract.customer?.id === customer.id
-      );
-
+      const relatedContract = contracts.find((contract: any) => contract.customerId === customer.id || contract.customer?.id === customer.id);
       const debt = Number(customer.kpis?.totalDebt || relatedContract?.debt || 0);
-      const endDate = relatedContract?.endDate;
-      const contractDays = endDate
-        ? Math.max(0, Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-        : 0;
-
       return {
         id: customer.id,
+        source: customer,
         fullName: customer.fullName || customer.name || "Khách thuê",
         avatar: customer.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(customer.fullName || customer.name || "Khách")}`,
+        type: customer.type || customer.customerType || "Cá nhân",
         roomLabel: customer.rooms?.[0]?.name || relatedContract?.room?.number || relatedContract?.room?.code || "N/A",
         buildingName: customer.rooms?.[0]?.building?.name || relatedContract?.room?.building?.name || "Chưa có tòa",
         phone: customer.phone || "N/A",
         email: customer.email || "N/A",
-        contractDays,
+        startDate: relatedContract?.startDate,
+        endDate: relatedContract?.endDate,
         debt,
-        risk: getRiskLevel(debt),
         status: customer.status || relatedContract?.status || "ACTIVE",
-        tempResidence: customer.tempResidence || customer.residenceStatus || "Chưa khai báo",
-        createdAt: customer.createdAt || "",
-        code: customer.code || customer.id?.slice(0, 8) || "N/A",
       };
     });
   }, [customers, contracts]);
 
-  const columns = useMemo<Column<TenantRow>[]>(() => [
-    {
-      header: "Khách thuê",
-      accessor: (row) => (
-        <div className="flex items-center gap-3 min-w-0">
-          <img
-            src={row.avatar}
-            alt=""
-            className="w-10 h-10 rounded-full object-cover border border-border shrink-0"
-          />
-          <div className="min-w-0 flex flex-col">
-            <span className="text-[14px] font-black text-text truncate">{row.fullName}</span>
-            <span className="text-[12px] font-semibold text-muted truncate">{row.code}</span>
-          </div>
-        </div>
-      ),
-      className: "min-w-[240px]",
-    },
-    {
-      header: "Phòng / Tòa",
-      accessor: (row) => (
-        <div className="flex flex-col min-w-0">
-          <span className="text-[13px] font-bold text-text truncate">{row.roomLabel}</span>
-          <span className="text-[12px] font-medium text-muted truncate">{row.buildingName}</span>
-        </div>
-      ),
-      className: "min-w-[180px]",
-    },
-    {
-      header: "Liên hệ",
-      accessor: (row) => (
-        <div className="flex flex-col min-w-0">
-          <span className="text-[13px] font-bold text-text truncate">{row.phone}</span>
-          <span className="text-[12px] font-medium text-muted truncate">{row.email}</span>
-        </div>
-      ),
-      className: "min-w-[160px]",
-    },
-    {
-      header: "Hợp đồng",
-      accessor: (row) => (
-        <div className="flex items-center gap-2">
-          <CalendarClock size={14} className={row.contractDays <= 30 ? "text-[#f97316]" : "text-muted"} />
-          <span className={`text-[13px] font-bold ${row.contractDays <= 30 ? "text-[#f97316]" : "text-text"}`}>
-            Còn {row.contractDays} ngày
-          </span>
-        </div>
-      ),
-      className: "min-w-[120px]",
-    },
-    {
-      header: "Công nợ",
-      accessor: (row) => (
-        <span className={`text-[13px] font-black ${row.debt > 0 ? "text-[#ef4444]" : "text-[#22c55e]"}`}>
-          {row.debt > 0 ? formatMoney(row.debt) : "0đ"}
-        </span>
-      ),
-      className: "min-w-[120px] text-right",
-    },
-    {
-      header: "Rủi ro",
-      accessor: (row) => (
-        <Badge variant={row.risk === "low" ? "success" : row.risk === "medium" ? "warning" : "error"}>
-          {row.risk === "low" ? (
-            <>
-              <ShieldCheck size={12} className="mr-1" /> Thấp
-            </>
-          ) : row.risk === "medium" ? (
-            <>
-              <Shield size={12} className="mr-1" /> Trung bình
-            </>
-          ) : (
-            <>
-              <ShieldAlert size={12} className="mr-1" /> Cao
-            </>
-          )}
-        </Badge>
-      ),
-      className: "min-w-[110px]",
-    },
-    {
-      header: "Trạng thái",
-      accessor: (row) => (
-        <Badge variant={row.status === "ACTIVE" ? "success" : "neutral"}>
-          {row.status === "ACTIVE" ? "Đang thuê" : row.status}
-        </Badge>
-      ),
-      className: "min-w-[110px]",
-    },
-  ], []);
-
-  const summary = useMemo(() => {
-    const totalCustomers = rows.length;
-    const newCustomers = customers.filter((customer: any) => {
-      if (!customer.createdAt) return false;
-      const createdAt = new Date(customer.createdAt).getTime();
-      return (Date.now() - createdAt) / (1000 * 60 * 60 * 24) <= 30;
-    }).length;
-    const totalDebt = rows.reduce((sum, tenant) => sum + tenant.debt, 0);
-    const expiring = rows.filter((tenant) => tenant.contractDays > 0 && tenant.contractDays <= 30).length;
-    return { totalCustomers, newCustomers, totalDebt, expiring };
-  }, [customers, rows]);
+  React.useEffect(() => {
+    setPage(1);
+  }, [search, status]);
 
   if (customersLoading || contractsLoading) {
     return <LoadingState message="Đang tải danh sách khách thuê..." />;
@@ -201,49 +95,122 @@ export default function TenantGrid() {
     );
   }
 
-  if (rows.length === 0) {
-    return (
-      <div data-testid="empty-tenants-state">
-        <EmptyState title="Không có dữ liệu" message="Không tìm thấy khách hàng nào phù hợp với bộ lọc." />
-      </div>
-    );
-  }
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const displayedRows = rows.slice((page - 1) * pageSize, page * pageSize);
 
   return (
-    <>
-      <div className="flex items-center justify-between px-[8px]">
-        <h3 className="font-black text-[18px] text-text">Danh sách khách thuê</h3>
-        <span className="text-[13px] font-bold text-muted bg-black/5 dark:bg-white/5 px-[12px] py-[4px] rounded-[8px]">
-          Hiển thị {rows.length} / {summary.totalCustomers}
+    <div data-testid="tenants-list" className="flex min-h-[520px] flex-1 flex-col overflow-hidden rounded-[16px] border border-border/40 bg-card shadow-[0_1px_2px_rgba(16,24,40,0.03)] xl:min-h-0">
+      <div className="flex flex-col gap-[12px] border-b border-border px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-[10px]">
+          <h3 className="text-[18px] font-black text-text">Danh sách khách thuê</h3>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-x-auto">
+        <div className="grid min-w-[1060px] grid-cols-[minmax(220px,1.2fr)_minmax(160px,0.8fr)_minmax(190px,1fr)_minmax(160px,0.8fr)_120px_120px_86px] gap-3 border-b border-border bg-surface/70 px-4 py-3 text-[11px] font-black uppercase text-muted">
+          <span>Khách thuê</span>
+          <span>Phòng / Tòa</span>
+          <span>Liên hệ</span>
+          <span>Hợp đồng</span>
+          <span>Công nợ</span>
+          <span>Trạng thái</span>
+          <span className="text-right">Thao tác</span>
+        </div>
+
+        <div className="flex min-w-[1060px] flex-col">
+          {rows.length === 0 ? (
+            <div data-testid="empty-tenants-state" className="p-6">
+              <EmptyState title="Không có dữ liệu" message="Không tìm thấy khách hàng nào phù hợp với bộ lọc." />
+            </div>
+          ) : (
+            displayedRows.map((row) => (
+              <TenantTableRow
+                key={row.id}
+                row={row}
+                onOpen={() => setSelectedTenant(row.source)}
+              />
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="mt-auto flex flex-col gap-3 border-t border-border px-4 py-3 text-[12px] font-semibold text-muted sm:flex-row sm:items-center sm:justify-between">
+        <span>
+          Hiển thị {rows.length === 0 ? 0 : (page - 1) * pageSize + 1} - {Math.min(page * pageSize, rows.length)} của {rows.length} khách thuê
         </span>
+        <div className="flex items-center gap-2">
+          <button type="button" className="h-8 rounded-xl border border-border bg-card px-3 text-[12px] font-black text-text">10 / trang</button>
+          <PageButton disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>‹</PageButton>
+          {Array.from({ length: Math.min(totalPages, 5) }, (_, index) => index + 1).map((pageNumber) => (
+            <button
+              key={pageNumber}
+              type="button"
+              onClick={() => setPage(pageNumber)}
+              className={`flex h-8 w-8 items-center justify-center rounded-xl text-[12px] font-black ${
+                page === pageNumber ? "bg-[#6d3df8] text-white" : "text-text hover:bg-surface"
+              }`}
+            >
+              {pageNumber}
+            </button>
+          ))}
+          {totalPages > 5 && <span className="px-1">...</span>}
+          <PageButton disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>›</PageButton>
+        </div>
       </div>
-
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 px-[8px]">
-        <StatMini title="Tổng khách" value={summary.totalCustomers.toString()} />
-        <StatMini title="Mới / tháng" value={summary.newCustomers.toString()} />
-        <StatMini title="Tổng nợ" value={formatMoney(summary.totalDebt)} />
-        <StatMini title="Sắp hết HĐ" value={summary.expiring.toString()} />
-      </div>
-
-      <Table
-        data-testid="tenants-list"
-        columns={columns}
-        data={rows}
-        onRowClick={(row) => setSelectedTenant(customers.find((customer) => customer.id === row.id) || null)}
-        emptyMessage="Không tìm thấy khách hàng nào phù hợp với bộ lọc."
-        rowTestId={(row) => `tenant-row-${row.id}`}
-      />
 
       <TenantDetailDrawer tenant={selectedTenant} onClose={() => setSelectedTenant(null)} />
-    </>
+    </div>
   );
 }
 
-function StatMini({ title, value }: { title: string; value: string }) {
+function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void }) {
+  const days = contractDays(row.endDate);
+  const statusLabel = row.status === "ACTIVE" ? "Đang thuê" : row.status === "EXPIRING" ? "Sắp hết HĐ" : row.status;
+  const statusVariant = row.status === "ACTIVE" ? "success" : row.status === "EXPIRING" ? "warning" : row.debt > 0 ? "error" : "neutral";
+
   return (
-    <Card className="p-3 flex flex-col gap-1">
-      <span className="text-[10px] font-bold text-muted uppercase tracking-wider">{title}</span>
-      <span className="text-[16px] font-black text-text">{value}</span>
-    </Card>
+    <div onClick={onOpen} className="relative grid min-w-[1060px] cursor-pointer grid-cols-[minmax(220px,1.2fr)_minmax(160px,0.8fr)_minmax(190px,1fr)_minmax(160px,0.8fr)_120px_120px_86px] items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-surface/70">
+      <div className="flex min-w-0 items-center gap-3 self-center">
+        <img src={row.avatar} alt="" className="h-10 w-10 shrink-0 rounded-full border border-border object-cover" />
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-black text-text">{row.fullName}</div>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-[13px] font-black text-text">{row.roomLabel}</div>
+        <div className="mt-1 truncate text-[12px] font-semibold text-muted">{row.buildingName}</div>
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-[13px] font-bold text-text">{row.phone}</div>
+        <div className="mt-1 truncate text-[12px] font-semibold text-muted">{row.email}</div>
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-[12px] font-black text-text">{formatDate(row.startDate)} - {formatDate(row.endDate)}</div>
+      </div>
+      <div className={`text-[13px] font-black ${row.debt > 0 ? "text-rose-600" : "text-emerald-600"}`}>{formatMoney(row.debt)}</div>
+      <Badge variant={statusVariant as any}>{statusLabel}</Badge>
+      <div className="relative flex justify-end">
+        <button
+          type="button"
+          aria-label="Xem hồ sơ khách thuê"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-muted hover:border-[#6d3df8]/30 hover:bg-[#f6f2ff] hover:text-[#6d3df8]"
+        >
+          <Eye size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PageButton({ children, disabled, onClick }: { children: React.ReactNode; disabled: boolean; onClick: () => void }) {
+  return (
+    <button type="button" disabled={disabled} onClick={onClick} className="flex h-8 w-8 items-center justify-center rounded-xl border border-border text-muted disabled:opacity-40">
+      {children}
+    </button>
   );
 }

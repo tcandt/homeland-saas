@@ -8,7 +8,7 @@ export default function BuildingCodePage() {
   return (
     <AppShell>
       <MobilePageShell>
-        <div className="relative flex min-h-full w-full flex-col overflow-hidden md:h-full md:min-h-0">
+        <div className="relative flex min-h-full w-full flex-col">
           <MasterDetailBuildings />
         </div>
       </MobilePageShell>

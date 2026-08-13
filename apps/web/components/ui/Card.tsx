@@ -2,7 +2,7 @@ import React from "react";
 
 export const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ children, className = "", ...props }) => {
   return (
-    <div className={`bg-card rounded-2xl shadow-card border border-border p-4 ${className}`} {...props}>
+    <div className={`bg-card rounded-2xl shadow-card border border-slate-200/80 dark:border-white/[0.06] p-4 ${className}`} {...props}>
       {children}
     </div>
   );

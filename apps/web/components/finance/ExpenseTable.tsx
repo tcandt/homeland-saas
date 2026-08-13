@@ -3,7 +3,23 @@
 import React, { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { AlertTriangle, CheckCircle2, CircleDollarSign, FilterX, Paperclip, ReceiptText, RotateCcw, Search, Split, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleDollarSign,
+  Edit3,
+  Eye,
+  FilterX,
+  Image as ImageIcon,
+  MoreHorizontal,
+  Plus,
+  RotateCcw,
+  Search,
+  Split,
+  Trash2,
+  Upload,
+  XCircle,
+} from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -26,9 +42,8 @@ type PendingAction = {
   tone?: "success" | "warning" | "danger";
 };
 
-const statusOptions = [
-  { value: "", label: "Tất cả trạng thái" },
-  { value: "DRAFT", label: "Nháp" },
+const statusTabs = [
+  { value: "", label: "Tất cả" },
   { value: "PENDING", label: "Chờ duyệt" },
   { value: "APPROVED", label: "Đã duyệt" },
   { value: "PAID", label: "Đã chi" },
@@ -78,7 +93,17 @@ const formatDate = (value?: string) => {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("vi-VN");
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+};
+
+const getExpenseName = (expense: any) => expense.description || expense.vendor || categoryLabels[expense.category] || expense.code || "Chi phí";
+
+const getExpenseLocation = (expense: any) => {
+  const parts = [expense.building?.code || expense.costCenter?.code, expense.room?.code].filter(Boolean);
+  return parts.join(" / ") || "-";
 };
 
 const buildMonthRange = (year: string, month: string) => {
@@ -101,13 +126,18 @@ const buildMonthRange = (year: string, month: string) => {
   };
 };
 
-export default function ExpenseTable() {
+type ExpenseTableProps = {
+  defaultYear?: string;
+  onCreateExpense?: () => void;
+};
+
+export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTableProps = {}) {
   const queryClient = useQueryClient();
   const permissions = usePermissions();
   const { data: buildings = [] } = useBuildingsQuery({ limit: 100 });
   const { data: ownerSummary = [] } = useOwnerProfitSummaryQuery();
 
-  const currentYear = String(new Date().getFullYear());
+  const currentYear = defaultYear || String(new Date().getFullYear());
   const [ownerId, setOwnerId] = useState("");
   const [buildingId, setBuildingId] = useState("");
   const [status, setStatus] = useState("");
@@ -116,6 +146,9 @@ export default function ExpenseTable() {
   const [month, setMonth] = useState("");
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [uploadBusyId, setUploadBusyId] = useState<string | null>(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+  const [previewBillUrl, setPreviewBillUrl] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -247,6 +280,47 @@ export default function ExpenseTable() {
     }
   };
 
+  const uploadBill = async (expense: any, file?: File) => {
+    if (!file) return;
+    setUploadBusyId(expense.id);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/expense-bills", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) throw new Error("UPLOAD_FAILED");
+      const payload = await response.json();
+      const attachmentUrls = [...(Array.isArray(expense.attachmentUrls) ? expense.attachmentUrls : []), payload.url];
+      await financeApi.updateExpense(expense.id, { attachmentUrls });
+      toast.success("Đã tải bill lên");
+      await invalidate();
+    } catch (error: any) {
+      toast.error(error?.message || "Không tải được bill");
+    } finally {
+      setUploadBusyId(null);
+    }
+  };
+
+  const deleteBill = async (expense: any, url: string) => {
+    setBusyId(expense.id);
+    try {
+      const attachmentUrls = (Array.isArray(expense.attachmentUrls) ? expense.attachmentUrls : []).filter((item: string) => item !== url);
+      await financeApi.updateExpense(expense.id, { attachmentUrls });
+      if (url.startsWith("/api/expense-bills/")) {
+        await fetch(url, { method: "DELETE" }).catch(() => undefined);
+      }
+      toast.success("Đã xóa bill");
+      await invalidate();
+    } catch (error: any) {
+      toast.error(error?.message || "Không xóa được bill");
+    } finally {
+      setBusyId(null);
+      setOpenActionMenuId(null);
+    }
+  };
+
   const openAction = (type: ExpenseActionType, expense: any) => {
     const code = expense.code || "chi phí";
     const configs: Record<ExpenseActionType, Omit<PendingAction, "type" | "expense">> = {
@@ -282,6 +356,7 @@ export default function ExpenseTable() {
         tone: "warning",
       },
     };
+    setOpenActionMenuId(null);
     setPendingAction({ type, expense, ...configs[type] });
   };
 
@@ -300,73 +375,105 @@ export default function ExpenseTable() {
     setPage(1);
   }, [queryParams, search]);
 
-  const renderActions = (expense: any) => (
-    <div className="flex flex-wrap justify-end gap-2">
-      {permissions.canApproveExpense && expense.status === "PENDING" && (
-        <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("approve", expense)} data-testid={`expense-approve-${expense.id}`}>
-          <CheckCircle2 size={14} className="mr-1" /> Duyệt
-        </Button>
-      )}
-      {permissions.canPayExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
-        <Button size="sm" variant="primary" isLoading={busyId === expense.id} onClick={() => openAction("pay", expense)} data-testid={`expense-pay-${expense.id}`}>
-          <CircleDollarSign size={14} className="mr-1" /> Đã chi
-        </Button>
-      )}
-      {permissions.canSettleExpense && expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
-        <>
-          <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("reimburse", expense)} data-testid={`expense-reimburse-${expense.id}`}>
-            <RotateCcw size={14} className="mr-1" /> Hoàn ứng
-          </Button>
-          <Button size="sm" variant="outline" isLoading={busyId === expense.id} onClick={() => openAction("deduct", expense)} data-testid={`expense-deduct-${expense.id}`}>
-            <Split size={14} className="mr-1" /> Khấu trừ
-          </Button>
-        </>
-      )}
-      {permissions.canApproveExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
-        <Button
-          size="sm"
-          variant="outline"
-          isLoading={busyId === expense.id}
-          onClick={() => openAction("cancel", expense)}
-          className="text-rose-600 hover:text-rose-700"
-          data-testid={`expense-cancel-${expense.id}`}
-        >
-          <XCircle size={14} className="mr-1" /> Hủy
-        </Button>
+  React.useEffect(() => {
+    if (defaultYear) {
+      setYear(defaultYear);
+    }
+  }, [defaultYear]);
+
+  const renderActions = (expense: any) => {
+    const firstBill = Array.isArray(expense.attachmentUrls) ? expense.attachmentUrls[0] : "";
+
+    return (
+    <div className="relative flex justify-end">
+      <Button
+        size="icon"
+        variant="outline"
+        aria-label="Mở thao tác"
+        className="h-8 w-8 rounded-[10px]"
+        onClick={() => setOpenActionMenuId((current) => (current === expense.id ? null : expense.id))}
+      >
+        <MoreHorizontal size={14} />
+      </Button>
+
+      {openActionMenuId === expense.id && (
+        <div className="absolute right-0 top-10 z-50 w-[190px] overflow-hidden rounded-[12px] border border-border bg-card p-1.5 text-[12px] font-bold shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
+          <ActionMenuButton icon={<Eye size={14} />} label="Xem chi phí" onClick={() => setOpenActionMenuId(null)} />
+          <ActionMenuButton icon={<Edit3 size={14} />} label="Sửa chi phí" onClick={() => setOpenActionMenuId(null)} />
+          {permissions.canApproveExpense && expense.status === "PENDING" && (
+            <ActionMenuButton icon={<CheckCircle2 size={14} />} label="Duyệt" onClick={() => openAction("approve", expense)} dataTestId={`expense-approve-${expense.id}`} />
+          )}
+          {permissions.canPayExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
+            <ActionMenuButton icon={<CircleDollarSign size={14} />} label="Đã chi" onClick={() => openAction("pay", expense)} dataTestId={`expense-pay-${expense.id}`} highlight />
+          )}
+          {permissions.canSettleExpense && expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
+            <>
+              <ActionMenuButton icon={<RotateCcw size={14} />} label="Hoàn ứng" onClick={() => openAction("reimburse", expense)} dataTestId={`expense-reimburse-${expense.id}`} />
+              <ActionMenuButton icon={<Split size={14} />} label="Khấu trừ" onClick={() => openAction("deduct", expense)} dataTestId={`expense-deduct-${expense.id}`} />
+            </>
+          )}
+          {firstBill && (
+            <ActionMenuButton icon={<Trash2 size={14} />} label="Xóa bill" onClick={() => deleteBill(expense, firstBill)} danger />
+          )}
+          {permissions.canApproveExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
+            <ActionMenuButton icon={<XCircle size={14} />} label="Hủy chi phí" onClick={() => openAction("cancel", expense)} dataTestId={`expense-cancel-${expense.id}`} danger />
+          )}
+        </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <>
-      <section data-testid="expense-table-root" className="overflow-hidden rounded-[14px] border border-border bg-card shadow-sm">
+      <section data-testid="expense-table-root" className="overflow-visible rounded-[16px] border border-border bg-card shadow-sm">
         <div className="flex flex-col gap-4 border-b border-border bg-card p-[14px] md:p-[18px]">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <ReceiptText size={18} className="text-[#8b5cf6]" />
-                <h2 className="text-[16px] font-black text-text md:text-[18px]">Chi phí phát sinh</h2>
-              </div>
-              <p className="mt-1 max-w-[760px] text-[12px] leading-5 text-muted md:text-[13px]">
-                Theo dõi vật tư, sửa chữa, hoàn tiền và các khoản người khác ứng hộ để khấu trừ khi chia lợi nhuận.
-              </p>
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="hide-scrollbar flex items-center gap-2 overflow-x-auto">
+              {statusTabs.map((tab) => (
+                <button
+                  key={tab.value || "all"}
+                  type="button"
+                  onClick={() => setStatus(tab.value)}
+                  className={`h-10 shrink-0 rounded-[12px] px-4 text-[12px] font-black transition-all ${
+                    status === tab.value
+                      ? "border border-[#8b5cf6]/30 bg-[#8b5cf6]/10 text-[#6d3df8] shadow-[0_8px_20px_rgba(109,61,248,0.14)]"
+                      : "border border-transparent text-muted hover:bg-surface hover:text-text"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
-            <div className="rounded-[12px] border border-border bg-surface px-3 py-2 text-right">
-              <div className="text-[10px] font-black uppercase text-muted">Bản ghi</div>
-              <div className="text-[18px] font-black text-text">{filtered.length}</div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(260px,1fr)_120px_130px_auto_auto] xl:min-w-[860px]">
+              <div className="relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Tìm chi phí, phòng, người chi, nhà cung cấp..."
+                  className="pl-9"
+                />
+              </div>
+              <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
+              <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
+              <Button variant="outline" onClick={resetFilters} className="h-10 gap-2 px-3" aria-label="Bộ lọc" data-testid="expense-table-reset-filters">
+                <FilterX size={15} /> Bộ lọc
+              </Button>
+              {onCreateExpense && permissions.canCreateExpense && (
+                <Button
+                  onClick={onCreateExpense}
+                  className="h-10 shrink-0 gap-2 bg-[#6d3df8] px-4 text-white shadow-[#6d3df8]/20 hover:bg-[#5b35f5]"
+                  data-testid="expense-table-create-button"
+                >
+                  <Plus size={15} /> Thêm chi phí
+                </Button>
+              )}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 rounded-[12px] border border-border/70 bg-surface/60 p-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_150px_150px_120px_130px_150px_160px_auto]">
-            <div className="relative md:col-span-2 xl:col-span-1">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Tìm mã chi phí, phòng, người chi, nhà cung cấp..."
-                className="pl-9"
-              />
-            </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <Select
               aria-label="Lọc chi phí theo chủ sở hữu"
               value={ownerId}
@@ -377,13 +484,7 @@ export default function ExpenseTable() {
               options={ownerOptions}
             />
             <Select aria-label="Lọc chi phí theo tòa nhà" value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} />
-            <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
-            <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
-            <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} />
             <Select aria-label="Lọc chi phí theo loại chi" value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} />
-            <Button variant="outline" onClick={resetFilters} className="h-10 px-3" aria-label="Xóa bộ lọc" data-testid="expense-table-reset-filters">
-              <FilterX size={15} />
-            </Button>
           </div>
         </div>
 
@@ -430,90 +531,75 @@ export default function ExpenseTable() {
                     <InfoCell label="Số tiền" value={formatMoney(Number(expense.amount))} valueClassName="text-[14px] text-text" />
                   </div>
 
-                  {permissions.canReadExpenseAttachment && Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {expense.attachmentUrls.slice(0, 3).map((url: string, index: number) => (
-                        <a
-                          key={`${expense.id}-attachment-card-${index}`}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px] font-bold text-muted hover:text-[#8b5cf6]"
-                        >
-                          <Paperclip size={11} /> Chứng từ {index + 1}
-                        </a>
-                      ))}
+                  <div className="mt-3 flex items-center justify-between rounded-2xl border border-border bg-card p-3">
+                    <div>
+                      <div className="text-[10px] font-black uppercase text-muted">Bill</div>
+                      <div className="mt-1 text-[12px] font-bold text-text">
+                        {Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 ? `${expense.attachmentUrls.length} hình đã tải` : "Chưa có bill"}
+                      </div>
                     </div>
-                  )}
+                    <BillCell expense={expense} uploadBusyId={uploadBusyId} onUpload={uploadBill} onPreview={setPreviewBillUrl} />
+                  </div>
 
                   <div className="mt-4 border-t border-border pt-3">{renderActions(expense)}</div>
                 </article>
               ))}
             </div>
 
-            <div className="hidden max-h-[calc(100dvh-420px)] min-h-[260px] overflow-auto xl:block">
-              <table data-testid="expense-table-desktop" className="w-full min-w-[1120px] text-left text-sm">
+            <div className="hidden max-h-[calc(100dvh-500px)] min-h-[280px] overflow-auto xl:block">
+              <table data-testid="expense-table-desktop" className="w-full min-w-[1180px] text-left text-sm">
                 <thead className="sticky top-0 z-10 border-b border-border bg-surface text-[11px] uppercase text-muted shadow-[0_1px_0_var(--border)]">
                   <tr>
-                    <th className="px-4 py-3 font-black">Ngày</th>
-                    <th className="px-4 py-3 font-black">Chi phí</th>
-                    <th className="px-4 py-3 font-black">Chủ / tòa</th>
-                    <th className="px-4 py-3 font-black">Phòng</th>
-                    <th className="px-4 py-3 font-black">Người chi</th>
-                    <th className="px-4 py-3 text-right font-black">Số tiền</th>
-                    <th className="px-4 py-3 font-black">Trạng thái</th>
-                    <th className="px-4 py-3 text-right font-black">Thao tác</th>
+                    <th className="w-[130px] px-5 py-3 font-black">Ngày</th>
+                    <th className="px-5 py-3 font-black">Tên chi phí</th>
+                    <th className="w-[150px] px-5 py-3 font-black">Loại chi phí</th>
+                    <th className="w-[110px] px-5 py-3 font-black">Bill</th>
+                    <th className="px-5 py-3 font-black">Chủ / tòa</th>
+                    <th className="px-5 py-3 font-black">Người chi</th>
+                    <th className="px-5 py-3 text-right font-black">Số tiền</th>
+                    <th className="px-5 py-3 font-black">Trạng thái</th>
+                    <th className="px-5 py-3 text-right font-black">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleRows.map((expense: any) => (
-                    <tr key={expense.id} className="border-b border-border/70 hover:bg-black/5 dark:hover:bg-white/5">
-                      <td className="px-4 py-3 text-[13px] font-semibold text-muted">{formatDate(expense.date || expense.createdAt)}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-black text-text">{expense.code}</div>
-                        <div className="line-clamp-1 text-[12px] text-muted">{expense.description || "-"}</div>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          <Badge variant="neutral">{categoryLabels[expense.category] || expense.category || "Khác"}</Badge>
-                          {expense.vendor && <Badge variant="neutral">{expense.vendor}</Badge>}
-                        </div>
-                        {permissions.canReadExpenseAttachment && Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {expense.attachmentUrls.slice(0, 2).map((url: string, index: number) => (
-                              <a
-                                key={`${expense.id}-attachment-${index}`}
-                                href={url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px] font-bold text-muted hover:text-[#8b5cf6]"
-                              >
-                                <Paperclip size={11} /> Chứng từ {index + 1}
-                              </a>
-                            ))}
-                            {expense.attachmentUrls.length > 2 && (
-                              <span className="rounded-full bg-surface px-2 py-1 text-[11px] font-bold text-muted">+{expense.attachmentUrls.length - 2}</span>
-                            )}
-                          </div>
-                        )}
+                  {visibleRows.map((expense: any) => {
+                    return (
+                    <tr key={expense.id} className="border-b border-border/70 hover:bg-black/[0.025] dark:hover:bg-white/5">
+                      <td className="px-5 py-4 align-middle">
+                        <div className="text-[13px] font-black text-text">{formatDate(expense.date || expense.createdAt)}</div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4 align-middle">
+                        <div className="min-w-0">
+                          <div className="line-clamp-1 font-black text-text">{getExpenseName(expense)}</div>
+                          <div className="mt-1 text-[12px] font-semibold text-muted">{expense.code}</div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {expense.vendor && <Badge variant="neutral">{expense.vendor}</Badge>}
+                            {expense.room?.code && <Badge variant="neutral">{expense.room.code}</Badge>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 align-middle">
+                        <Badge variant="neutral">{categoryLabels[expense.category] || expense.category || "Khác"}</Badge>
+                      </td>
+                      <td className="px-5 py-4 align-middle">
+                        <BillCell expense={expense} uploadBusyId={uploadBusyId} onUpload={uploadBill} onPreview={setPreviewBillUrl} />
+                      </td>
+                      <td className="px-5 py-4 align-middle">
                         <div className="font-bold text-text">{expense.owner?.name || "Chưa gắn chủ"}</div>
                         <div className="text-[12px] text-muted">{expense.building?.code || expense.costCenter?.code || "-"}</div>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-text">{expense.room?.code || "-"}</div>
-                        <div className="text-[12px] text-muted">{expense.room?.name || "Chi phí theo tòa"}</div>
-                      </td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4 align-middle">
                         <div className="font-bold text-text">{expense.paidByOwner?.name || expense.paidByName || "-"}</div>
                         <div className="text-[12px] text-muted">{settlementLabels[expense.settlementStatus] || expense.settlementStatus || "Không hoàn ứng"}</div>
                       </td>
-                      <td className="px-4 py-3 text-right font-black text-text">{formatMoney(Number(expense.amount))}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4 text-right align-middle font-black text-text">{formatMoney(Number(expense.amount))}</td>
+                      <td className="px-5 py-4 align-middle">
                         <Badge variant={statusVariant[expense.status] || "neutral"}>{statusLabels[expense.status] || expense.status}</Badge>
                       </td>
-                      <td className="px-4 py-3">{renderActions(expense)}</td>
+                      <td className="px-5 py-4 align-middle">{renderActions(expense)}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -554,7 +640,7 @@ export default function ExpenseTable() {
             <span>{pendingAction?.title || "Xác nhận"}</span>
           </span>
         }
-        maxWidth="max-w-lg"
+        maxWidth="max-w-2xl"
         zIndex={10060}
         testId="expense-confirm-modal"
         footer={
@@ -571,23 +657,31 @@ export default function ExpenseTable() {
         <div className="rounded-2xl border border-border bg-gradient-to-b from-surface to-card p-4 shadow-sm">
           <div className="text-[13px] leading-6 text-muted">{pendingAction?.description}</div>
           {pendingAction?.expense && (
-            <div className="mt-4 grid grid-cols-1 gap-3 text-[12px] sm:grid-cols-2">
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="font-black uppercase text-muted">Mã chi phí</div>
-                <div className="mt-1 font-black text-text">{pendingAction.expense.code}</div>
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr]">
+              <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                {Array.isArray(pendingAction.expense.attachmentUrls) && pendingAction.expense.attachmentUrls[0] ? (
+                  <a href={pendingAction.expense.attachmentUrls[0]} target="_blank" rel="noreferrer" className="block">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={pendingAction.expense.attachmentUrls[0]} alt="Bill chi phí" className="h-[220px] w-full object-contain bg-surface" />
+                  </a>
+                ) : (
+                  <div className="flex h-[220px] flex-col items-center justify-center gap-2 bg-surface text-muted">
+                    <ImageIcon size={24} />
+                    <span className="text-[12px] font-bold">Chưa có bill</span>
+                  </div>
+                )}
               </div>
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="font-black uppercase text-muted">Số tiền</div>
-                <div className="mt-1 font-black text-text">{formatMoney(Number(pendingAction.expense.amount))}</div>
-              </div>
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="font-black uppercase text-muted">Chủ / tòa</div>
-                <div className="mt-1 font-black text-text">{pendingAction.expense.owner?.name || "Chưa gắn chủ"}</div>
-                <div className="mt-0.5 text-[11px] font-semibold text-muted">{pendingAction.expense.building?.code || pendingAction.expense.costCenter?.code || "-"}</div>
-              </div>
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="font-black uppercase text-muted">Trạng thái hiện tại</div>
-                <div className="mt-1 font-black text-text">{statusLabels[pendingAction.expense.status] || pendingAction.expense.status}</div>
+
+              <div className="grid grid-cols-1 gap-3 text-[12px] sm:grid-cols-2">
+                <DetailCell label="Tên chi phí" value={getExpenseName(pendingAction.expense)} className="sm:col-span-2" />
+                <DetailCell label="Ngày chi phí" value={formatDate(pendingAction.expense.date || pendingAction.expense.createdAt)} />
+                <DetailCell label="Mã chi phí" value={pendingAction.expense.code || "-"} />
+                <DetailCell label="Số tiền chi phí" value={formatMoney(Number(pendingAction.expense.amount))} valueClassName="text-[#6d3df8]" />
+                <DetailCell label="Tòa chi phí" value={getExpenseLocation(pendingAction.expense)} />
+                <DetailCell label="Chủ sở hữu" value={pendingAction.expense.owner?.name || "Chưa gắn chủ"} />
+                <DetailCell label="Người chi" value={pendingAction.expense.paidByOwner?.name || pendingAction.expense.paidByName || "-"} />
+                <DetailCell label="Loại chi phí" value={categoryLabels[pendingAction.expense.category] || pendingAction.expense.category || "Khác"} />
+                <DetailCell label="Trạng thái hiện tại" value={statusLabels[pendingAction.expense.status] || pendingAction.expense.status} />
               </div>
             </div>
           )}
@@ -604,6 +698,24 @@ export default function ExpenseTable() {
           </div>
         </div>
       </Modal>
+
+      <Modal
+        isOpen={!!previewBillUrl}
+        onClose={() => setPreviewBillUrl(null)}
+        title="Xem bill"
+        maxWidth="max-w-3xl"
+        zIndex={10080}
+        testId="expense-bill-preview-modal"
+      >
+        <div className="rounded-2xl border border-border bg-surface p-3">
+          {previewBillUrl && (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={previewBillUrl} alt="Bill chi phí" className="max-h-[70vh] w-full rounded-xl object-contain" />
+            </>
+          )}
+        </div>
+      </Modal>
     </>
   );
 }
@@ -614,5 +726,125 @@ function InfoCell({ label, value, valueClassName }: { label: string; value: stri
       <div className="text-[10px] font-black uppercase text-muted">{label}</div>
       <div className={`mt-1 truncate font-bold text-text ${valueClassName || ""}`}>{value}</div>
     </div>
+  );
+}
+
+function DetailCell({
+  label,
+  value,
+  className,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  className?: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className={`rounded-xl border border-border bg-card p-3 ${className || ""}`}>
+      <div className="font-black uppercase text-muted">{label}</div>
+      <div className={`mt-1 break-words font-black text-text ${valueClassName || ""}`}>{value}</div>
+    </div>
+  );
+}
+
+function BillCell({
+  expense,
+  uploadBusyId,
+  onUpload,
+  onPreview,
+}: {
+  expense: any;
+  uploadBusyId: string | null;
+  onUpload: (expense: any, file?: File) => void;
+  onPreview: (url: string) => void;
+}) {
+  const bills = Array.isArray(expense.attachmentUrls) ? expense.attachmentUrls : [];
+  const firstBill = bills[0];
+  const inputId = `expense-bill-upload-${expense.id}`;
+
+  return (
+    <div className="relative inline-flex">
+      <input
+        id={inputId}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          onUpload(expense, file);
+          event.currentTarget.value = "";
+        }}
+      />
+
+      {firstBill ? (
+        <div className="group relative">
+          <button
+            type="button"
+            onClick={() => onPreview(firstBill)}
+            className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[12px] border border-[#8b5cf6]/20 bg-[#8b5cf6]/10 text-[#6d3df8]"
+            aria-label="Xem bill"
+            title="Xem bill"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={firstBill} alt="Bill" className="h-full w-full object-cover" />
+          </button>
+          {bills.length > 1 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#6d3df8] px-1 text-[10px] font-black text-white">
+              {bills.length}
+            </span>
+          )}
+          <div className="pointer-events-none invisible absolute left-1/2 top-12 z-40 w-[220px] -translate-x-1/2 rounded-[14px] border border-border bg-card p-2 opacity-0 shadow-[0_22px_55px_rgba(15,23,42,0.22)] transition-all group-hover:visible group-hover:opacity-100">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={firstBill} alt="Bill preview" className="max-h-[260px] w-full rounded-[10px] object-contain" />
+            <div className="mt-2 text-center text-[11px] font-bold text-muted">Rê chuột để xem nhanh · bấm để phóng to</div>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => document.getElementById(inputId)?.click()}
+          disabled={uploadBusyId === expense.id}
+          className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-dashed border-border bg-surface text-muted transition-colors hover:border-[#8b5cf6]/40 hover:bg-[#8b5cf6]/10 hover:text-[#6d3df8] disabled:opacity-50"
+          aria-label="Tải bill"
+        >
+          {uploadBusyId === expense.id ? <ImageIcon size={15} className="animate-pulse" /> : <Upload size={15} />}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ActionMenuButton({
+  icon,
+  label,
+  onClick,
+  dataTestId,
+  danger,
+  highlight,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  dataTestId?: string;
+  danger?: boolean;
+  highlight?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={dataTestId}
+      className={`flex w-full items-center gap-2 rounded-[9px] px-3 py-2 text-left transition-colors ${
+        danger
+          ? "text-rose-600 hover:bg-rose-500/10"
+          : highlight
+            ? "bg-[#6d3df8] text-white hover:bg-[#5b35f5]"
+            : "text-text hover:bg-surface"
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   );
 }

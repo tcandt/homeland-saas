@@ -303,8 +303,8 @@ function BuildingModelViewer({
         )}
       </header>
 
-      <div className="relative min-h-[clamp(430px,58vh,560px)] flex-1 overflow-hidden border-y border-border/20 dark:border-white/5 bg-[radial-gradient(circle_at_50%_30%,#ffffff_0%,#f8fafc_62%,#eef2f7_100%)] min-[1536px]:min-h-[clamp(500px,62vh,640px)] select-none">
-        <div className="pointer-events-none absolute inset-y-0 left-2 z-20 w-[88px] min-[1366px]:left-2.5">
+      <div className="relative min-h-[clamp(430px,58vh,560px)] flex-1 overflow-hidden border-y border-border/20 dark:border-white/5 bg-surface/50 dark:bg-card/60 min-[1536px]:min-h-[clamp(500px,62vh,640px)] select-none">
+        <div className="pointer-events-none absolute inset-y-0 left-2 z-20 hidden w-[88px] min-[1536px]:block">
           {orderedFloors.map((item, index) => (
             <button
               key={item.id}
@@ -328,7 +328,7 @@ function BuildingModelViewer({
           ))}
         </div>
 
-        <div className="absolute inset-2 left-[60px] flex items-center justify-center min-[1536px]:left-[58px]">
+        <div className="absolute inset-2 flex items-center justify-center min-[1536px]:left-[58px]">
           <div
             className="relative h-[94%] max-w-full origin-center min-[1536px]:h-[96%]"
             style={{ aspectRatio: `${building.overviewImage.width} / ${building.overviewImage.height}` }}
@@ -834,7 +834,7 @@ export default function UnifiedBuildingCockpit({
       {building.layoutStatus === "pending" || !floor ? (
         <PendingLayout building={building} onEditBuilding={onEditBuilding} />
       ) : (
-        <div className="grid min-w-0 items-stretch gap-3 lg:grid-cols-2 min-[1536px]:grid-cols-[minmax(310px,0.82fr)_minmax(600px,1.7fr)_minmax(380px,0.78fr)]">
+        <div className="grid min-w-0 items-stretch gap-3 lg:grid-cols-2 min-[1536px]:grid-cols-[minmax(260px,0.75fr)_minmax(420px,1.6fr)_minmax(260px,330px)]">
           <BuildingModelViewer building={building} floor={floor} activeRoomId={room?.id} debugMode={debugMode} onSelectFloor={onSelectFloor} onEditBuilding={onEditBuilding} />
           <FloorPlanPanel
             building={building}
@@ -853,9 +853,9 @@ export default function UnifiedBuildingCockpit({
                 type="button"
                 aria-label="Đóng lớp phủ thông tin phòng"
                 onClick={closeRoomInspector}
-                className={inspectorOpen ? "fixed inset-0 z-[10001] hidden cursor-default bg-black/45 backdrop-blur-[1px] md:block min-[1536px]:hidden" : "hidden"}
+                className={inspectorOpen ? "fixed inset-0 z-[10001] hidden cursor-default bg-black/45 backdrop-blur-[1px] md:block xl:hidden" : "hidden"}
               />
-              <div className={inspectorOpen ? "contents" : "hidden min-[1536px]:contents"}>
+              <div className={inspectorOpen ? "contents" : "hidden xl:contents"}>
                 <RoomInspectorDrawer
                   floor={floor}
                   room={room}

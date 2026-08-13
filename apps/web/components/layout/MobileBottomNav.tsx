@@ -20,7 +20,7 @@ export default function MobileBottomNav() {
 
   const isDashboard = pathname === "/";
   const isProperties = pathname === "/buildings" || pathname === "/tenants";
-  const isFinance = pathname === "/finance" || pathname === "/invoices";
+  const isFinance = pathname.startsWith("/finance") || pathname === "/invoices";
   const isContracts = pathname === "/contracts";
   const isMore = pathname === "/menu";
 

@@ -664,7 +664,7 @@ export default function SettingsPage() {
   const user = useAuthStore((state) => state.user);
   const [activeSection, setActiveSection] = useState<SettingsSection | null>(resolveSectionParam(searchParams.get("section")));
   const [isPending, startTransition] = useTransition();
-  const canReadSettings = (user?.email || "").toLowerCase() === "admin@homeland.local" || Boolean(user?.permissions?.includes("setting.read"));
+  const canReadSettings = Boolean(user?.roles?.includes("ADMIN") || user?.permissions?.includes("setting.read"));
 
   useEffect(() => {
     setActiveSection(resolveSectionParam(searchParams.get("section")));

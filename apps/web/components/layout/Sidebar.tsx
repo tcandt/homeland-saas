@@ -11,6 +11,7 @@ import {
   ClipboardList,
   FileBarChart,
   FileText,
+  History,
   Home,
   LogOut,
   Receipt,
@@ -43,7 +44,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
     setMounted(true);
   }, []);
 
-  const hasSettingsAccess = mounted && (user?.permissions?.includes("setting.read") || user?.roles?.includes("ADMIN"));
+  const hasSettingsAccess = mounted && (user?.roles?.includes("ADMIN") || user?.permissions?.includes("setting.read"));
 
   const handleLogout = () => {
     clearSession();
@@ -53,7 +54,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
   return (
     <aside
       data-testid="app-sidebar"
-      className="h-full border-r border-border/40 dark:border-transparent bg-card dark:bg-[#0f172a] text-text shadow-[12px_0_36px_rgba(0,0,0,0.03)] dark:shadow-none p-[24px_0] flex flex-col overflow-y-auto hide-scrollbar transition-colors"
+      className="h-full border-r border-border/40 dark:border-border/30 bg-card text-text shadow-[12px_0_36px_rgba(0,0,0,0.03)] dark:shadow-none p-[24px_0] flex flex-col overflow-y-auto hide-scrollbar transition-colors"
     >
       <div className={`flex items-center gap-3 px-[20px] mb-8 ${collapsed ? "justify-center" : ""}`}>
         <div className="w-[42px] h-[42px] rounded-[12px] bg-gradient-to-br from-[#6956ff] to-[#7c3aed] text-white flex items-center justify-center text-xl shrink-0 shadow-[0_14px_28px_rgba(105,86,255,0.32)]">
@@ -79,11 +80,12 @@ export default function Sidebar({ collapsed }: SidebarProps) {
         <NavItem href="/invoices" icon={<Receipt size={20} />} label="Hóa đơn" collapsed={collapsed} active={pathname === "/invoices"} />
 
         <SectionLabel collapsed={collapsed}>TÀI CHÍNH</SectionLabel>
-        <NavItem href="/finance?tab=revenue" icon={<CircleDollarSign size={20} />} label="Doanh thu" collapsed={collapsed} active={pathname === "/finance"} dataTestId="sidebar-nav-finance" />
-        <NavItem href="/finance?tab=expense" icon={<Wallet size={20} />} label="Chi phí" collapsed={collapsed} />
+        <NavItem href="/finance" icon={<CircleDollarSign size={20} />} label="Doanh thu" collapsed={collapsed} active={pathname === "/finance"} dataTestId="sidebar-nav-finance" />
+        <NavItem href="/finance/expenses" icon={<Wallet size={20} />} label="Chi phí" collapsed={collapsed} active={pathname === "/finance/expenses"} />
+        <NavItem href="/finance/transactions" icon={<History size={20} />} label="Lịch sử giao dịch" collapsed={collapsed} active={pathname === "/finance/transactions"} />
 
         <SectionLabel collapsed={collapsed}>HỆ THỐNG</SectionLabel>
-        <NavItem href="/settings?section=reports" icon={<FileBarChart size={20} />} label="Báo cáo" collapsed={collapsed} />
+        <NavItem href="/reports" icon={<FileBarChart size={20} />} label="Báo cáo" collapsed={collapsed} active={pathname === "/reports"} />
         {hasSettingsAccess && (
           <NavItem href="/settings" icon={<Settings size={20} />} label="Cài đặt" collapsed={collapsed} active={pathname === "/settings"} dataTestId="sidebar-nav-settings" />
         )}
@@ -91,26 +93,6 @@ export default function Sidebar({ collapsed }: SidebarProps) {
       </nav>
 
       <div className={`mt-4 px-[10px] pt-[14px] ${collapsed ? "flex flex-col items-center" : ""}`}>
-        {!collapsed && (
-          <div className="mb-5 rounded-[16px] border border-primary/10 dark:border-white/5 bg-primary/[0.03] dark:bg-white/5 p-4 transition-colors">
-            <div className="flex items-start gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-primary/10 text-primary dark:bg-white/10 dark:text-white">
-                <Rocket size={24} aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <h3 className="text-[13px] font-black text-text dark:text-white">Nâng cấp trải nghiệm</h3>
-                <p className="mt-1 text-[12px] font-semibold leading-5 text-muted-foreground dark:text-white/70">Khám phá các tính năng nâng cao cho quản lý bất động sản</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="mt-4 flex min-h-10 w-full items-center justify-center gap-2 rounded-[10px] border border-primary/20 dark:border-white/20 bg-primary text-white hover:bg-primary/95 dark:bg-white/10 dark:hover:bg-white/15 px-3 text-[12px] font-black transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              Nâng cấp ngay <ChevronRight size={15} aria-hidden />
-            </button>
-          </div>
-        )}
-
         <div className="mb-4 h-px bg-border/60 dark:bg-white/10" />
         <div className={`flex items-center gap-3 px-[14px] ${collapsed ? "justify-center px-0 flex-col" : ""}`}>
           <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#7c4dff] to-[#4f46e5] text-[13px] font-black text-white ring-1 ring-white/20">
@@ -149,11 +131,10 @@ function NavItem({ href, icon, label, collapsed, active, dataTestId }: NavItemPr
       prefetch={false}
       data-testid={dataTestId}
       aria-label={label}
-      className={`flex items-center gap-[12px] px-[14px] py-[10px] rounded-[10px] font-semibold mb-1 transition-all ${
-        active
-          ? "bg-primary text-white shadow-[0_10px_24px_rgba(91,53,245,0.22)]"
-          : "text-muted-foreground hover:bg-black/5 hover:text-text dark:text-white/70 dark:hover:bg-white/5 dark:hover:text-white"
-      }`}
+      className={`flex items-center gap-[12px] px-[14px] py-[10px] rounded-[10px] font-semibold mb-1 transition-all ${active
+        ? "bg-primary text-white shadow-[0_10px_24px_rgba(91,53,245,0.22)]"
+        : "text-muted-foreground hover:bg-black/5 hover:text-text dark:text-white/70 dark:hover:bg-white/5 dark:hover:text-white"
+        }`}
     >
       <span className={`shrink-0 ${active ? "text-white" : ""}`}>
         {icon}

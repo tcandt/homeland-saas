@@ -92,34 +92,34 @@ export default function BuildingOperationalSidebar({
             {/* THÔNG TIN PHÒNG */}
             <div>
               <h4 className="text-[9px] font-black uppercase text-muted tracking-widest mb-2">Thông tin phòng</h4>
-              <div className="flex flex-col gap-1.5 leading-relaxed">
-                <div className="flex justify-between border-b border-border/10 pb-1.5">
-                  <span className="text-muted">Loại phòng:</span>
-                  <span>{activeRoom.type === "2PN" ? "Căn hộ Suite lớn" : "Căn hộ đơn (Single)"}</span>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="flex flex-col min-w-0 bg-black/5 dark:bg-white/5 p-2 rounded-lg border border-border/20">
+                  <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Loại phòng</span>
+                  <span className="font-bold text-text truncate mt-0.5" title={activeRoom.type === "2PN" ? "Căn hộ Suite lớn" : "Căn hộ đơn (Single)"}>
+                    {activeRoom.type === "2PN" ? "Suite lớn" : "Đơn (Single)"}
+                  </span>
                 </div>
-                <div className="flex justify-between border-b border-border/10 pb-1.5">
-                  <span className="text-muted">Ký hiệu phòng:</span>
-                  <span>{getRoomDisplayName(activeRoom)}</span>
+                <div className="flex flex-col min-w-0 bg-black/5 dark:bg-white/5 p-2 rounded-lg border border-border/20">
+                  <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Ký hiệu phòng</span>
+                  <span className="font-bold text-text truncate mt-0.5">{getRoomDisplayName(activeRoom)}</span>
                 </div>
-                <div className="flex justify-between border-b border-border/10 pb-1.5">
-                  <span className="text-muted">Vị trí:</span>
-                  <span>{getFloorDisplayName(activeFloor?.number || 1, building.code)}</span>
+                <div className="flex flex-col min-w-0 bg-black/5 dark:bg-white/5 p-2 rounded-lg border border-border/20">
+                  <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Vị trí</span>
+                  <span className="font-bold text-text truncate mt-0.5">{getFloorDisplayName(activeFloor?.number || 1, building.code)}</span>
                 </div>
-                <div className="flex justify-between border-b border-border/10 pb-1.5">
-                  <span className="text-muted">Diện tích ước tính:</span>
-                  <span>{activeRoom.type === "2PN" ? "~50.0 m²" : "~25.0 m²"}</span>
+                <div className="flex flex-col min-w-0 bg-black/5 dark:bg-white/5 p-2 rounded-lg border border-border/20">
+                  <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Diện tích</span>
+                  <span className="font-bold text-text truncate mt-0.5">{activeRoom.type === "2PN" ? "~50.0 m²" : "~25.0 m²"}</span>
                 </div>
-                <div className="flex justify-between border-b border-border/10 pb-1.5">
-                  <span className="text-muted">Tình trạng:</span>
-                  <span>{activeRoom.status === "occupied" || activeRoom.status === "expiring_soon" ? "Đang thuê" : "Đang trống"}</span>
+                <div className="flex flex-col min-w-0 bg-black/5 dark:bg-white/5 p-2 rounded-lg border border-border/20">
+                  <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Tình trạng</span>
+                  <span className={`font-bold truncate mt-0.5 ${activeRoom.status === "occupied" || activeRoom.status === "expiring_soon" ? "text-emerald-500" : "text-rose-500"}`}>
+                    {activeRoom.status === "occupied" || activeRoom.status === "expiring_soon" ? "Đang thuê" : "Đang trống"}
+                  </span>
                 </div>
-                <div className="flex justify-between border-b border-border/10 pb-1.5">
-                  <span className="text-muted">Cửa ra vào:</span>
-                  <span>1 cửa (từ sảnh chung)</span>
-                </div>
-                <div className="flex justify-between border-b border-border/10 pb-1.5">
-                  <span className="text-muted">Cửa sổ:</span>
-                  <span>{activeRoom.type === "2PN" ? "2 cửa sổ (mặt trước & bên)" : "1 cửa sổ (mặt sau)"}</span>
+                <div className="flex flex-col min-w-0 bg-black/5 dark:bg-white/5 p-2 rounded-lg border border-border/20">
+                  <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Cửa ra vào</span>
+                  <span className="font-bold text-text truncate mt-0.5">1 cửa</span>
                 </div>
               </div>
             </div>

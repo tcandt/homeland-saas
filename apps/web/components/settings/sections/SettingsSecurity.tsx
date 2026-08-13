@@ -66,20 +66,6 @@ export default function SettingsSecurity() {
 
   return (
     <div className="flex flex-col gap-[20px]">
-      <div className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm">
-        <div className="flex items-start gap-[14px]">
-          <div className="flex h-[42px] w-[42px] items-center justify-center rounded-[12px] bg-primary/10 text-primary">
-            <Shield size={18} />
-          </div>
-          <div>
-            <div className="text-[18px] font-black text-text">Security</div>
-            <div className="mt-[4px] text-[13px] font-medium text-muted">
-              Không hiển thị security score, thiết bị, IP hoặc API key giả. Các chỉ số này sẽ đồng bộ khi có endpoint bảo mật thật.
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-[20px]">
         <Section title="Đổi mật khẩu">
           <form className="flex h-full flex-col gap-[14px]" onSubmit={changePassword}>

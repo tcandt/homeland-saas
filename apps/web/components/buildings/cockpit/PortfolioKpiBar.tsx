@@ -26,13 +26,31 @@ interface KpiItem {
   tone: KpiTone;
 }
 
-const toneClasses: Record<KpiTone, string> = {
-  primary: "bg-primary/10 text-primary ring-primary/15",
-  success: "bg-success/10 text-success ring-success/15",
-  slate: "bg-surface text-muted ring-border",
-  warning: "bg-warning/10 text-warning ring-warning/15",
-  danger: "bg-danger/10 text-danger ring-danger/15",
-  info: "bg-info/10 text-info ring-info/15",
+const toneStyles: Record<KpiTone, { iconBg: string; text: string }> = {
+  primary: {
+    iconBg: "bg-gradient-to-br from-primary/20 to-primary/5 text-primary border border-primary/20 shadow-sm",
+    text: "text-primary",
+  },
+  success: {
+    iconBg: "bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-sm",
+    text: "text-emerald-600 dark:text-emerald-400",
+  },
+  slate: {
+    iconBg: "bg-gradient-to-br from-slate-500/20 to-slate-500/5 text-slate-700 dark:text-slate-300 border border-slate-500/20 shadow-sm",
+    text: "text-slate-700 dark:text-slate-300",
+  },
+  warning: {
+    iconBg: "bg-gradient-to-br from-amber-500/20 to-amber-500/5 text-amber-600 dark:text-amber-400 border border-amber-500/20 shadow-sm",
+    text: "text-amber-600 dark:text-amber-400",
+  },
+  danger: {
+    iconBg: "bg-gradient-to-br from-rose-500/20 to-rose-500/5 text-rose-600 dark:text-rose-400 border border-rose-500/20 shadow-sm",
+    text: "text-rose-600 dark:text-rose-400",
+  },
+  info: {
+    iconBg: "bg-gradient-to-br from-sky-500/20 to-sky-500/5 text-sky-600 dark:text-sky-400 border border-sky-500/20 shadow-sm",
+    text: "text-sky-600 dark:text-sky-400",
+  },
 };
 
 function cx(...values: Array<string | false | null | undefined>) {
@@ -136,36 +154,35 @@ export default function PortfolioKpiBar({
 
   return (
     <section aria-label="KPI toàn danh mục tòa nhà" className={cx("min-w-0", className)}>
-      <div className="overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="grid min-w-[1050px] grid-cols-6 gap-3">
-          {items.map((item) => {
-            const Icon = item.icon;
-            const unavailable = item.value === emptyValue;
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2.5">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const unavailable = item.value === emptyValue;
+          const style = toneStyles[item.tone];
 
-            return (
-              <article
-                key={item.label}
-                title={unavailable ? emptyHint : undefined}
-                className="flex h-[86px] min-w-0 items-start gap-3 rounded-xl border border-border/80 dark:border-white/5 bg-card p-3 shadow-[0_12px_30px_rgb(var(--shadow-color)/0.055)] transition-[border-color,box-shadow] duration-200 hover:border-primary/25 hover:shadow-[0_16px_34px_rgb(var(--shadow-color)/0.085)] motion-reduce:transition-none"
-              >
-                <span className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] ring-1", toneClasses[item.tone])}>
-                  <Icon size={17} aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h2 className="truncate text-[12px] font-bold leading-4 text-muted" title={item.label}>
-                    {item.label}
-                  </h2>
-                  <strong className="mt-1 block truncate whitespace-nowrap text-[20px] font-black leading-6 tracking-tight tabular-nums text-text" title={item.value}>
-                    {item.value}
-                  </strong>
-                  <p className="truncate text-[12px] font-semibold leading-4 text-muted/90" title={item.hint}>
-                    {item.hint}
-                  </p>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+          return (
+            <article
+              key={item.label}
+              title={unavailable ? emptyHint : undefined}
+              className="group flex h-[76px] min-w-0 items-center gap-2.5 rounded-2xl border border-border/30 dark:border-white/5 bg-card/90 backdrop-blur-sm px-3 py-2.5 shadow-sm transition-all duration-300 hover:border-primary/30 hover:bg-card hover:shadow-md select-none"
+            >
+              <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-300 group-hover:scale-105", style.iconBg)}>
+                <Icon size={16} aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-[10px] font-extrabold uppercase tracking-wider text-muted" title={item.label}>
+                  {item.label}
+                </h2>
+                <strong className="block truncate whitespace-nowrap text-[16px] font-black tracking-tight tabular-nums text-text mt-0.5" title={item.value}>
+                  {item.value}
+                </strong>
+                <p className="truncate text-[10px] font-semibold text-muted-foreground" title={item.hint}>
+                  {item.hint}
+                </p>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );

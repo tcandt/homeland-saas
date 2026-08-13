@@ -748,8 +748,11 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Chuẩn hóa Prisma thành một global provider, loại connection pool lặp và xác nhận các endpoint production không còn lỗi cạn kết nối.
 - [x] Ổn định storage chứng từ chi phí giữa repo root và `apps/web`; file thiếu trả 404 và đường dẫn traversal bị chặn.
 - [x] Chuyển notification SSE sang Bearer header và loại JWT khỏi query string.
-- [x] Chạy production gate local cuối: migration `7/7`, API `183/183`, web `49/49`, Playwright desktop `45/45`.
+- [x] Chạy production gate local cuối: migration `7/7`, API `195/195`, web `49/49`, Playwright desktop `47/47`.
 - [x] Xác nhận light/dark trên 28 route giao diện và RBAC cho `admin`, `adminA`, `adminB`, `manager`.
+- [x] Audit responsive production cho Buildings, Contracts, Tenants, Expenses, Invoices, Reports ở `1280x720`, `1440x900`, `1920x1080`, `2560x1440` trong cả light/dark (`48` lượt render/đo layout).
+- [x] Bỏ action/control giả ở desktop shell, Contracts, Tenants, Invoices và Reports; chỉ giữ route, form hoặc mutation nghiệp vụ thật.
+- [x] Ẩn sidebar phân tích Contracts/Tenants/Invoices dưới `1536px` để ưu tiên bảng nghiệp vụ; 3D/2.5D Buildings giữ toàn chiều rộng ở biên desktop nhỏ.
 - [x] Chạy hành trình stateful trên một hồ sơ: thu/chuyển cọc, submit/duyệt/kích hoạt hợp đồng, phát hành/thanh toán hóa đơn, snapshot điện nước, khấu trừ/hoàn cọc, chấm dứt hợp đồng và đưa phòng từ vệ sinh về trống.
 - [x] Chạy lặp riêng `6/6` regression quyết toán và chặn race preview theo nguyên tắc request mới nhất thắng.
 - [x] Bổ sung production configuration preflight chỉ đọc, unit test chống cấu hình dev nguy hiểm và chống lộ secret trong báo cáo.

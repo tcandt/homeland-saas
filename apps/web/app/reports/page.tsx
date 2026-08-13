@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import {
   CartesianGrid,
   Cell,
@@ -14,24 +14,18 @@ import {
   YAxis,
 } from "recharts";
 import {
-  ArrowRight,
   Building2,
-  CalendarDays,
-  ChevronDown,
   ClipboardList,
   FileBarChart,
   FileText,
-  Filter,
   Home,
   Percent,
-  Plus,
   Receipt,
   RefreshCw,
   Users,
   WalletCards,
 } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/Button";
 import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
@@ -53,11 +47,9 @@ function buildingLabel(item: any) {
   return item?.room?.building?.code || item?.room?.building?.name || item?.building?.code || item?.building?.name || "Chưa rõ";
 }
 
-const tabs = ["Tổng quan", "Doanh thu", "Hợp đồng", "Khách thuê", "Phòng & Tòa nhà", "Công nợ", "Dòng tiền", "Hiệu suất"];
 const reportableInvoiceStatuses = new Set(["ISSUED", "PARTIALLY_PAID", "OVERDUE", "PAID"]);
 
 export default function ReportsPage() {
-  const [activeTab, setActiveTab] = useState("Tổng quan");
   const invoicesQuery = useInvoicesQuery({ limit: 100 });
   const contractsQuery = useContractsQuery({ limit: 100 });
   const roomsQuery = useRoomsQuery({ limit: 100 });
@@ -154,7 +146,7 @@ export default function ReportsPage() {
 
   return (
     <AppShell>
-      <div data-testid="reports-root" className="-m-4 h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-[#f6f8fc] md:h-[calc(100dvh-80px)]">
+      <div data-testid="reports-root" className="-m-4 h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background md:h-[calc(100dvh-80px)]">
         <div className="flex min-h-full w-full flex-col gap-3 p-3">
           {isError && (
             <div className="rounded-[12px] border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] font-bold text-rose-700">
@@ -170,39 +162,16 @@ export default function ReportsPage() {
             <KpiCard icon={<Percent size={18} />} label="Phòng lấp đầy" value={isLoading ? "--" : `${summary.occupancyRate.toFixed(1)}%`} change={`${rooms.length} phòng đang theo dõi`} tone="bg-pink-50 text-pink-500" />
           </div>
 
-          <div className="flex shrink-0 flex-col gap-2 rounded-[16px] border border-[#e6eaf0] bg-card px-3 shadow-[0_1px_2px_rgba(16,24,40,0.03)] 2xl:flex-row 2xl:items-center 2xl:justify-between">
-            <div className="hide-scrollbar flex min-w-0 flex-1 items-center overflow-x-auto">
-              {tabs.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`h-12 shrink-0 border-b-2 px-5 text-[13px] font-black transition-colors ${
-                  activeTab === tab ? "border-[#6d3df8] text-[#6d3df8]" : "border-transparent text-muted hover:text-text"
-                }`}
-              >
-                {tab}
-              </button>
-              ))}
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[#e6eaf0] py-2 2xl:border-l 2xl:border-t-0 2xl:pl-3">
-              <div className="flex h-10 min-w-[192px] items-center justify-center gap-2 rounded-xl border border-border bg-surface/70 px-3 text-[12px] font-black text-text">
-                <CalendarDays size={15} className="text-muted" />
-                Toàn bộ dữ liệu hiện có
-                <ChevronDown size={14} className="text-muted" />
-              </div>
-              <Button variant="outline" className="h-10 gap-2 bg-card px-3">
-                <Filter size={15} /> Bộ lọc
-              </Button>
-              <Button className="h-10 gap-2 bg-[#6d3df8] px-4 text-white hover:bg-[#5b35f5]">
-                <Plus size={15} /> Tùy chỉnh báo cáo
-              </Button>
+          <div className="flex shrink-0 items-center justify-between rounded-[16px] border border-border bg-card px-4 py-3 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+            <div>
+              <h1 className="text-[16px] font-black text-text">Tổng quan báo cáo</h1>
+              <p className="mt-1 text-[12px] font-semibold text-muted">Toàn bộ dữ liệu hiện có từ hóa đơn, hợp đồng và phòng.</p>
             </div>
           </div>
 
           <div className="grid min-h-[680px] flex-1 grid-cols-1 gap-3 xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_330px]">
             <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-2">
-              <section className="rounded-[16px] border border-[#e6eaf0] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+              <section className="rounded-[16px] border border-border/70 dark:border-white/[0.06] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
                 <SectionHeader title="Doanh thu theo thời gian" action="Theo tháng" />
                 <div className="mt-4 h-[260px]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -218,7 +187,7 @@ export default function ReportsPage() {
                 </div>
               </section>
 
-              <section className="rounded-[16px] border border-[#e6eaf0] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+              <section className="rounded-[16px] border border-border/70 dark:border-white/[0.06] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
                 <SectionHeader title="Cơ cấu doanh thu" action="Theo nguồn thu" />
                 <div className="mt-4 grid min-h-[260px] grid-cols-1 items-center gap-4 lg:grid-cols-[220px_1fr]">
                   <div className="relative mx-auto h-[220px] w-[220px]">
@@ -252,7 +221,7 @@ export default function ReportsPage() {
                 </div>
               </section>
 
-              <section className="rounded-[16px] border border-[#e6eaf0] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+              <section className="rounded-[16px] border border-border/70 dark:border-white/[0.06] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
                 <SectionHeader title="Doanh thu theo tòa nhà" action="Xem chi tiết" />
                 <div className="mt-4 overflow-hidden rounded-[12px] border border-border">
                   <ReportTableHeader cols={["Tòa nhà", "Doanh thu", "Đã thu", "Công nợ", "Tỷ lệ thu hồi"]} />
@@ -275,7 +244,7 @@ export default function ReportsPage() {
                 </div>
               </section>
 
-              <section className="rounded-[16px] border border-[#e6eaf0] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+              <section className="rounded-[16px] border border-border/70 dark:border-white/[0.06] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
                 <SectionHeader title="Top khách thuê nợ nhiều nhất" action="Xem tất cả" />
                 <div className="mt-4 overflow-hidden rounded-[12px] border border-border">
                   <ReportTableHeader cols={["Khách thuê / Phòng", "Công nợ", "Hạn quá hạn"]} />
@@ -310,7 +279,7 @@ export default function ReportsPage() {
 
 function KpiCard({ icon, label, value, change, tone, negative }: { icon: React.ReactNode; label: string; value: string; change: string; tone: string; negative?: boolean }) {
   return (
-    <div className="flex h-[104px] items-center gap-4 rounded-[16px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+    <div className="flex h-[104px] items-center gap-4 rounded-[16px] border border-border/70 dark:border-white/[0.06] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
       <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] ${tone}`}>{icon}</div>
       <div className="min-w-0">
         <div className="text-[11px] font-black uppercase text-muted">{label}</div>
@@ -325,10 +294,7 @@ function SectionHeader({ title, action }: { title: string; action: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <h2 className="text-[16px] font-black text-text">{title}</h2>
-      <button type="button" className="flex h-9 items-center gap-2 rounded-xl border border-border bg-card px-3 text-[12px] font-black text-text">
-        {action}
-        <ChevronDown size={14} className="text-muted" />
-      </button>
+      <span className="rounded-xl border border-border bg-surface/60 px-3 py-2 text-[12px] font-black text-muted">{action}</span>
     </div>
   );
 }
@@ -373,21 +339,19 @@ function ReportQuickLinks() {
     { icon: <Users size={18} />, title: "Báo cáo khách thuê", body: "Thống kê khách thuê và hoạt động", tone: "bg-fuchsia-50 text-fuchsia-500" },
   ];
   return (
-    <section className="rounded-[16px] border border-[#e6eaf0] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+    <section className="rounded-[16px] border border-border/70 dark:border-white/[0.06] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
       <h2 className="text-[16px] font-black text-text">Báo cáo nhanh</h2>
       <div className="mt-4 grid gap-3">
         {links.map((link) => (
-          <button key={link.title} type="button" className="flex items-center gap-3 rounded-[12px] p-2 text-left hover:bg-surface">
+          <div key={link.title} className="flex items-center gap-3 rounded-[12px] p-2">
             <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] ${link.tone}`}>{link.icon}</span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-black text-text">{link.title}</span>
               <span className="mt-1 block truncate text-[12px] font-semibold text-muted">{link.body}</span>
             </span>
-            <ArrowRight size={16} className="text-muted" />
-          </button>
+          </div>
         ))}
       </div>
-      <button type="button" className="mt-4 w-full text-center text-[13px] font-black text-[#6d3df8]">Xem tất cả báo cáo →</button>
     </section>
   );
 }
@@ -396,7 +360,7 @@ function ContractStats({ activeContracts, contracts }: { activeContracts: number
   const expiring = contracts.filter((contract) => contract.status === "EXPIRING").length;
   const ended = contracts.filter((contract) => ["TERMINATED", "EXPIRED"].includes(contract.status)).length;
   return (
-    <section className="flex min-h-0 flex-1 flex-col rounded-[16px] border border-[#e6eaf0] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+    <section className="flex min-h-0 flex-1 flex-col rounded-[16px] border border-border/70 dark:border-white/[0.06] bg-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
       <h2 className="text-[16px] font-black text-text">Thống kê hợp đồng</h2>
       <div className="mt-5 grid gap-4 text-[13px]">
         <StatLine label="Tổng hợp đồng" value={contracts.length} />
@@ -405,7 +369,6 @@ function ContractStats({ activeContracts, contracts }: { activeContracts: number
         <StatLine label="Hết hạn" value={ended} tone="text-rose-500" />
         <StatLine label="Đã hủy" value={contracts.filter((contract) => contract.status === "CANCELLED").length} />
       </div>
-      <button type="button" className="mt-auto pt-6 text-center text-[13px] font-black text-[#6d3df8]">Xem chi tiết →</button>
     </section>
   );
 }

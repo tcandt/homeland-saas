@@ -19,7 +19,8 @@ export default function TenantInsights() {
     return (Date.now() - createdAt) / (1000 * 60 * 60 * 24) <= 30;
   }).length;
 
-  const activeContracts = contracts.filter((contract: any) => contract.status === "ACTIVE").length;
+  const activeContractRows = contracts.filter((contract: any) => contract.status === "ACTIVE");
+  const activeContracts = activeContractRows.length;
   const expiringContracts = contracts.filter((contract: any) => {
     if (contract.status === "EXPIRING") return true;
     if (!contract.endDate) return false;
@@ -27,25 +28,21 @@ export default function TenantInsights() {
     return daysLeft >= 0 && daysLeft <= 30;
   }).length;
 
-  const customersWithoutContract = Math.max(0, customers.length - activeContracts);
+  const activeCustomerIds = new Set(activeContractRows.map((contract: any) => contract.customerId || contract.customer?.id).filter(Boolean));
+  const customersWithoutContract = customers.filter((customer: any) => !activeCustomerIds.has(customer.id)).length;
 
   return (
-    <Card className="p-4 md:p-5 relative overflow-hidden flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
-      <div className="absolute top-0 right-0 w-[150px] md:w-[300px] h-full bg-gradient-to-l from-[#6366f1]/5 to-transparent pointer-events-none" />
-
-      <div className="flex items-center gap-[10px] md:w-[220px] shrink-0">
-        <div className="w-[36px] h-[36px] md:w-[44px] md:h-[44px] rounded-[10px] md:rounded-[12px] bg-[#6366f1]/10 flex items-center justify-center shrink-0">
-          <Sparkles size={20} className="text-[#6366f1]" />
+    <Card className="hide-scrollbar flex shrink-0 items-center gap-4 overflow-x-auto rounded-[16px] border-border/40 p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+      <div className="flex shrink-0 items-center gap-[10px] border-r border-border/60 pr-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-[#ede9fe]">
+          <Sparkles size={18} className="text-[#6d3df8]" />
         </div>
         <div className="flex flex-col">
-          <span className="text-[10px] md:text-[11px] font-bold text-muted uppercase tracking-wider">AI HomeLand</span>
-          <span className="font-black text-[15px] md:text-[16px] text-text leading-tight">Tenant Insights</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted">AI HomeLand</span>
+          <span className="text-[14px] font-black leading-tight text-text">Tenant Insights</span>
         </div>
       </div>
-
-      <div className="hidden md:block w-[1px] h-[40px] bg-border/50 shrink-0" />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-x-[20px] gap-y-[10px] md:gap-y-[12px] w-full">
+      <div className="flex min-w-0 items-center gap-5">
         <InsightLink icon={<Users size={14} />} text={`${customers.length} khách thuê`} color="text-[#f97316]" />
         <InsightLink icon={<UserPlus size={14} />} text={`${newCustomers} khách mới 30 ngày`} color="text-indigo-500" />
         <InsightLink icon={<FileSignature size={14} />} text={`${activeContracts} hợp đồng đang hiệu lực`} color="text-[#6366f1]" />

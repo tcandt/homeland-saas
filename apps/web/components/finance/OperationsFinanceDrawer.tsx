@@ -62,7 +62,7 @@ export default function OperationsFinanceDrawer({ txn, onClose }: { txn: TxnData
         </div>
 
         {/* Content Scrollable */}
-        <div className="flex-1 overflow-y-auto bg-[#f8fafc] dark:bg-[#0f172a] p-[24px] flex flex-col gap-[24px]">
+        <div className="flex-1 overflow-y-auto bg-background p-[24px] flex flex-col gap-[24px]">
           
           {/* Section 1: Overview */}
           <div className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm">

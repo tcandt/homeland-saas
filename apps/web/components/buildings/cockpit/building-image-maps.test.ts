@@ -107,31 +107,31 @@ describe("LK01-31 image maps", () => {
   });
 
   it("matches the first-floor LK01-03 room boundary from the overview redline", () => {
-    expect(overviewRoomHotspots["1"]!.right).toBe("721,769 940,748 1030,1026 778,1047");
+    expect(overviewRoomHotspots["1"]!.right).toBe("721,769 949,748 1030,1026 778,1047");
   });
 
   it("matches the overview redlines for every floor and room boundary", () => {
     expect(overviewFloorHotspots).toMatchObject({
-      "3": "136,34 934,9 1023,300 222,360",
-      "2": "233,432 944,380 1023,659 241,718",
+      "3": "129,35 934,9 1023,300 222,360",
+      "2": "243,433 944,380 1034,663 232,723",
       "1": "233,800 944,748 1023,1027 241,1086",
-      ground: "242,1137 983,1080 1021,1363 247,1417",
+      ground: "242,1137 983,1080 1045,1362 247,1417",
     });
     expect(overviewRoomHotspots).toMatchObject({
       "3": {
-        left: "125,38 499,29 580,341 216,364",
-        right: "699,17 931,11 1015,304 766,324",
+        left: "125,38 499,29 583,336 216,364",
+        right: "712,19 931,11 1016,292 773,323",
       },
       "2": {
-        left: "244,431 525,411 588,691 225,716",
-        right: "721,401 940,380 1030,658 778,679",
+        left: "244,431 518,412 592,699 238,725",
+        right: "721,401 940,380 1023,667 778,679",
       },
       "1": {
-        left: "244,799 525,779 588,1059 225,1084",
-        right: "721,769 940,748 1030,1026 778,1047",
+        left: "244,799 520,786 594,1054 238,1083",
+        right: "721,769 949,748 1030,1026 778,1047",
       },
       ground: {
-        right: "702,1104 986,1081 1020,1362 760,1388",
+        right: "702,1104 986,1081 1039,1353 757,1373",
       },
     });
   });
@@ -183,10 +183,10 @@ describe("LK08 image maps", () => {
     expect(roomHotspots["1"]?.middle).toBe("187,770 391,764 432,1054 187,1072");
     expect(roomHotspots["1"]?.right).toBe("742,740 937,725 1011,1013 805,1028");
     expect(roomHotspots.ground?.right).toBe("668,1095 959,1074 1002,1340 720,1361");
-    expect(getOverviewFloorHotspots("LK01_STANDARD")["3"]).toBe("136,34 934,9 1023,300 222,360");
+    expect(getOverviewFloorHotspots("LK01_STANDARD")["3"]).toBe("129,35 934,9 1023,300 222,360");
     expect(getOverviewFloorHotspots("LK01_STANDARD")["1"]).toBe("233,800 944,748 1023,1027 241,1086");
-    expect(getOverviewFloorHotspots("LK01_STANDARD")["2"]).toBe("233,432 944,380 1023,659 241,718");
-    expect(getOverviewFloorHotspots("LK01_STANDARD").ground).toBe("242,1137 983,1080 1021,1363 247,1417");
+    expect(getOverviewFloorHotspots("LK01_STANDARD")["2"]).toBe("243,433 944,380 1034,663 232,723");
+    expect(getOverviewFloorHotspots("LK01_STANDARD").ground).toBe("242,1137 983,1080 1045,1362 247,1417");
 
     expect(containsPoint(floorHotspots["3"], 720, 190)).toBe(true);
     expect(containsPoint(floorHotspots["3"], 968, 292)).toBe(true);

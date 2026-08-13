@@ -36,7 +36,7 @@ export const lk08BuildingOverviewImage = {
 
 export const floorImageMaps: Record<CockpitFloorId, FloorImageMap> = {
   ground: {
-    src: "/buildings/lk01-31/floors/ground-floor.webp",
+    src: "/buildings/lk01-31/floors/ground-floor-trans.webp",
     width: 1600,
     height: 680,
     viewBox: "0 0 1600 680",
@@ -46,40 +46,76 @@ export const floorImageMaps: Record<CockpitFloorId, FloorImageMap> = {
         floorId: "ground",
         label: "31-01",
         paths: [
-          "M 1018 42 L 1542 42 L 1580 606 L 1092 606 L 1092 474 L 1056 474 L 1056 366 L 1018 366 Z",
+          "M 1005 40 L 1542 42 L 1593 575 L 1156 573 L 1062 573 L 1065 373 L 1018 379 L 1018 366 Z",
         ],
         labelPosition: { x: 1300, y: 320 },
       },
     ],
   },
   "1": {
-    src: "/buildings/lk01-31/floors/floor-1.webp",
+    src: "/buildings/lk01-31/floors/floor-1-trans.webp",
     width: 1536,
     height: 710,
     viewBox: "0 0 1536 710",
     rooms: [
-      upperFloorRoom("PN-31-02", "1", "left"),
-      upperFloorRoom("PN-31-03", "1", "right"),
+      {
+        roomId: "PN-31-02",
+        floorId: "1",
+        label: "31-02",
+        paths: ["M 42 42 L 763 42 L 763 664 L 22 660 Z"],
+        labelPosition: { x: 390, y: 340 },
+      },
+      {
+        roomId: "PN-31-03",
+        floorId: "1",
+        label: "31-03",
+        paths: ["M 1068 42 L 1500 42 L 1516 666 L 1074 660 Z"],
+        labelPosition: { x: 1290, y: 340 },
+      },
     ],
   },
   "2": {
-    src: "/buildings/lk01-31/floors/floor-2.webp",
+    src: "/buildings/lk01-31/floors/floor-2-trans.webp",
     width: 1536,
     height: 710,
     viewBox: "0 0 1536 710",
     rooms: [
-      upperFloorRoom("PN-31-04", "2", "left"),
-      upperFloorRoom("PN-31-05", "2", "right"),
+      {
+        roomId: "PN-31-04",
+        floorId: "2",
+        label: "31-04",
+        paths: ["M 51 44 L 758 38 L 761 664 L 21 656 Z"],
+        labelPosition: { x: 390, y: 340 },
+      },
+      {
+        roomId: "PN-31-05",
+        floorId: "2",
+        label: "31-05",
+        paths: ["M 1068 42 L 1486 44 L 1515 648 L 1079 650 Z"],
+        labelPosition: { x: 1290, y: 340 },
+      },
     ],
   },
   "3": {
-    src: "/buildings/lk01-31/floors/floor-3.webp",
+    src: "/buildings/lk01-31/floors/floor-3-trans.webp",
     width: 1536,
     height: 710,
     viewBox: "0 0 1536 710",
     rooms: [
-      upperFloorRoom("PN-31-06", "3", "left"),
-      upperFloorRoom("PN-31-07", "3", "right"),
+      {
+        roomId: "PN-31-06",
+        floorId: "3",
+        label: "31-06",
+        paths: ["M 42 42 L 763 44 L 765 654 L 22 656 Z"],
+        labelPosition: { x: 390, y: 340 },
+      },
+      {
+        roomId: "PN-31-07",
+        floorId: "3",
+        label: "31-07",
+        paths: ["M 1068 42 L 1487 40 L 1517 656 L 1072 660 Z"],
+        labelPosition: { x: 1290, y: 340 },
+      },
     ],
   },
 };
@@ -144,10 +180,10 @@ export function getFloorImageMap(templateId: BuildingTemplateId, floorId: Cockpi
 }
 
 export const overviewFloorHotspots: Record<CockpitFloorId, string> = {
-  "3": "136,34 934,9 1023,300 222,360",
-  "2": "233,432 944,380 1023,659 241,718",
+  "3": "129,35 934,9 1023,300 222,360",
+  "2": "243,433 944,380 1034,663 232,723",
   "1": "233,800 944,748 1023,1027 241,1086",
-  ground: "242,1137 983,1080 1021,1363 247,1417",
+  ground: "242,1137 983,1080 1045,1362 247,1417",
 };
 
 export const lk08OverviewFloorHotspots: Record<CockpitFloorId, string> = {
@@ -160,19 +196,19 @@ export const lk08OverviewFloorHotspots: Record<CockpitFloorId, string> = {
 
 export const overviewRoomHotspots: Partial<Record<CockpitFloorId, Partial<Record<OverviewRoomHotspotSide, string>>>> = {
   "3": {
-    left: "125,38 499,29 580,341 216,364",
-    right: "699,17 931,11 1015,304 766,324",
+    left: "125,38 499,29 583,336 216,364",
+    right: "712,19 931,11 1016,292 773,323",
   },
   "2": {
-    left: "244,431 525,411 588,691 225,716",
-    right: "721,401 940,380 1030,658 778,679",
+    left: "244,431 518,412 592,699 238,725",
+    right: "721,401 940,380 1023,667 778,679",
   },
   "1": {
-    left: "244,799 525,779 588,1059 225,1084",
-    right: "721,769 940,748 1030,1026 778,1047",
+    left: "244,799 520,786 594,1054 238,1083",
+    right: "721,769 949,748 1030,1026 778,1047",
   },
   ground: {
-    right: "702,1104 986,1081 1020,1362 760,1388",
+    right: "702,1104 986,1081 1039,1353 757,1373",
   },
 };
 

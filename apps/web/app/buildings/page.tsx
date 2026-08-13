@@ -8,8 +8,8 @@ export default function BuildingsPage() {
   return (
     <AppShell>
       <MobilePageShell>
-        <div className="relative flex min-h-full w-full flex-col overflow-hidden md:h-full md:min-h-0">
-        <MasterDetailBuildings />
+        <div className="relative flex min-h-full w-full flex-col">
+          <MasterDetailBuildings />
         </div>
       </MobilePageShell>
     </AppShell>

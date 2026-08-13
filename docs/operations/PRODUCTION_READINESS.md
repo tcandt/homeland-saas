@@ -22,10 +22,12 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 - [x] Attachment chi phí dùng storage root ổn định ở dev/production, chặn path traversal và trả 404 khi file không tồn tại.
 - [x] SSE thông báo dùng Bearer header; backend từ chối JWT trong query string để token không đi vào URL/log.
 - [x] Production preflight chỉ đọc kiểm tra cấu trúc URL, CORS, JWT, public registration, Swagger và scheduler mà không in secret hoặc truy cập database.
+- [x] Desktop shell và các màn Buildings, Contracts, Tenants, Finance, Invoices, Reports đã bỏ control báo thành công giả; thao tác chỉ hiển thị khi có route/mutation thật.
+- [x] Responsive production audit cố định ở `1280x720`, `1440x900`, `1920x1080`, `2560x1440` cho sáu workspace chính ở cả light/dark; sidebar phân tích chỉ mở từ `1536px` để ưu tiên bảng và sơ đồ ở laptop.
 
 ### Bằng chứng release candidate desktop gần nhất
 
-Lần chạy: `2026-08-13 16:47` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+Lần chạy: `2026-08-13 18:30` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
 
 | Cổng kiểm tra | Kết quả |
 |---|---|
@@ -33,15 +35,16 @@ Lần chạy: `2026-08-13 16:47` (Asia/Bangkok), local production bundle cô l�
 | Production/supply-chain safety unit | PASS, `15/15`; không in secret, kiểm tra Docker/deploy workflow và không tuyên bố LIVE thay cho nghiệm thu thủ công |
 | Prisma schema | Hợp lệ |
 | Migration hiện tại | `7/7`, up to date |
-| API typecheck + unit | PASS, `183/183` |
+| API typecheck + unit | PASS, `195/195` |
 | Web typecheck + unit | PASS, `49/49` |
 | API + Next production build | PASS |
 | Health/readiness | PASS |
-| Production Playwright desktop | PASS, `45/45` |
+| Production Playwright desktop | PASS, `47/47` |
 | Docker artifact | PASS build local cho API và Web; web context giảm từ gần `2 GB` xuống `56 MB`; image không được push hoặc chạy trong lần kiểm chứng |
 | Runtime dependency audit | BLOCKED: `13 high`, `17 moderate`, `0 critical`; chưa tự nâng dependency vì cần phê duyệt phiên bản và regression riêng |
 | Runtime engine | BLOCKED: image/CI đang dùng Node 20, trong khi Puppeteer 25 yêu cầu Node `>=22.12` và `@zxing/library` yêu cầu Node `>=24` |
 | Light/dark | PASS trên toàn bộ `28/28` route giao diện ở mỗi theme (`56` lượt render); không redirect sai, overflow, page error, console error hoặc HTTP 5xx ngoài SSE 503 cố ý của fixture |
+| Responsive desktop | PASS `6` workspace x `4` viewport x `2` theme (`48` lượt render/đo layout); không document overflow, root lệch viewport hoặc console/page error |
 | Persona | PASS đăng nhập/RBAC cho `admin`, `adminA`, `adminB`, `manager`; admin vận hành có đủ 5 trường integration secret ở trạng thái chỉ đọc |
 | Public registration | PASS: API `403`, UI hiển thị đăng ký đóng và không có nút tạo account |
 | Vòng đời | PASS regression cọc, giữ/khấu trừ/hoàn cọc, quyết toán, hoàn tiền, trạng thái phòng, chi phí, SePay và credit hóa đơn; một hồ sơ stateful đi xuyên suốt từ thu cọc tới trả phòng |

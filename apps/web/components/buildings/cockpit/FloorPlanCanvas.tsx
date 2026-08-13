@@ -237,7 +237,7 @@ function FloorPlanCanvas({
         ref={viewportRef}
         id="floor-plan-viewport"
         data-testid="floor-plan-canvas"
-        className="relative flex min-h-[260px] w-full flex-1 items-center justify-center overflow-hidden rounded-[14px] border border-border/30 dark:border-white/5 bg-white p-2 shadow-inner sm:p-3 fullscreen:min-h-screen fullscreen:rounded-none fullscreen:border-0 fullscreen:p-8"
+        className="relative flex min-h-[260px] w-full flex-1 items-center justify-center overflow-hidden rounded-[14px] border border-border/30 dark:border-white/5 bg-transparent p-2 sm:p-3 fullscreen:min-h-screen fullscreen:rounded-none fullscreen:border-0 fullscreen:p-8"
         style={{ cursor: "default", touchAction: "manipulation" }}
         onPointerMove={onPointerMove}
         onPointerUp={stopDragging}

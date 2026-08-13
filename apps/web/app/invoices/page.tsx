@@ -1,29 +1,19 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import toast from "react-hot-toast";
 import {
-  CalendarDays,
-  CheckCircle2,
-  ChevronDown,
   ChevronRight,
   Clock3,
-  Download,
   Eye,
   FileText,
-  Filter,
-  MoreHorizontal,
-  Plus,
   Receipt,
   Search,
-  Send,
   WalletCards,
   Zap,
 } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import AppShell from "@/components/layout/AppShell";
 import OperationsBillingDrawer from "@/components/invoices/OperationsBillingDrawer";
-import { Button } from "@/components/ui/Button";
 import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 
@@ -36,19 +26,13 @@ const formatDate = (value?: string) => {
   return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 };
 
-// Helper: Formats concise 6-character invoice code (e.g. HD8201, HD4920)
 function formatInvoiceCode(invoice: any) {
-  if (!invoice) return "HD0000";
-  const raw = String(invoice.code || invoice.id || "");
-  // If already concise like HD8201 or INV-1234, keep or format
-  if (/^HD\d{4}$/.test(raw)) return raw;
-  const hashNum = raw.split("").reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-  const numSuffix = String((Math.abs(hashNum * 17 + (Number(invoice.amount || invoice.total) || 0)) % 8999) + 1000);
-  return `HD${numSuffix}`;
+  const raw = String(invoice?.code || invoice?.id || "").trim();
+  return raw || "Chưa có mã";
 }
 
 const statusMeta: Record<string, { label: string; tone: string; dot: string }> = {
-  DRAFT: { label: "Chờ thanh toán", tone: "bg-orange-50 text-orange-600", dot: "bg-orange-500" },
+  DRAFT: { label: "Bản nháp", tone: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300", dot: "bg-slate-500" },
   ISSUED: { label: "Chờ thanh toán", tone: "bg-orange-50 text-orange-600", dot: "bg-orange-500" },
   PARTIALLY_PAID: { label: "Thanh toán 1 phần", tone: "bg-blue-50 text-blue-600", dot: "bg-blue-500" },
   OVERDUE: { label: "Quá hạn", tone: "bg-rose-50 text-rose-600", dot: "bg-rose-500" },
@@ -89,14 +73,13 @@ function invoiceCustomer(invoice: any) {
 }
 
 function invoicePeriod(invoice: any) {
-  return invoice.period || invoice.billingPeriod || "Tháng hiện tại";
+  return invoice.period || invoice.billingPeriod || "--";
 }
 
 export default function InvoicesPage() {
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
   const { data, isLoading, isError } = useInvoicesQuery({ limit: 100 });
   const invoices = (data as any)?.data || [];
@@ -153,25 +136,12 @@ export default function InvoicesPage() {
   const pageSize = 5;
   const totalPages = Math.max(1, Math.ceil(visibleInvoices.length / pageSize));
   const displayedInvoices = visibleInvoices.slice((page - 1) * pageSize, page * pageSize);
-  const selectedCount = selectedIds.length;
-  const allDisplayedSelected = displayedInvoices.length > 0 && displayedInvoices.every((invoice: any) => selectedIds.includes(invoice.id));
   const soonDueCount = invoices.filter((invoice: any) => {
     if (!["DRAFT", "ISSUED", "PARTIALLY_PAID"].includes(invoice.status) || !invoice.dueDate) return false;
     const dueTime = new Date(invoice.dueDate).getTime();
     const diffDays = Math.ceil((dueTime - Date.now()) / 86400000);
     return diffDays >= 0 && diffDays <= 3;
   }).length;
-
-  const toggleInvoice = (id: string) => {
-    setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-  };
-
-  const toggleDisplayed = () => {
-    const displayedIds = displayedInvoices.map((invoice: any) => invoice.id);
-    setSelectedIds((current) =>
-      allDisplayedSelected ? current.filter((id) => !displayedIds.includes(id)) : Array.from(new Set([...current, ...displayedIds])),
-    );
-  };
 
   React.useEffect(() => {
     setPage(1);
@@ -180,11 +150,11 @@ export default function InvoicesPage() {
   return (
     <AppShell>
       <>
-        <div data-testid="invoices-root" className="-m-4 h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-[#f6f8fc] md:h-[calc(100dvh-80px)] xl:overflow-hidden">
-          <div className="grid min-h-full w-full max-w-none grid-cols-1 gap-2 p-2 md:p-3 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(280px,15vw)] 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
+        <div data-testid="invoices-root" className="-m-4 h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background md:h-[calc(100dvh-80px)] xl:overflow-hidden">
+          <div className="grid min-h-full w-full max-w-none grid-cols-1 gap-2 p-2 md:p-3 2xl:h-full 2xl:min-h-0 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
             {/* LEFT MAIN COLUMN */}
-            <div className="flex min-w-0 flex-col gap-2 xl:h-full xl:min-h-0">
-              <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5 shrink-0">
+            <div className="flex min-w-0 flex-col gap-2 2xl:h-full 2xl:min-h-0">
+              <div data-testid="invoices-kpi-grid" className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5 shrink-0">
                 <KpiCard icon={Receipt} label="Tổng phải thu" value={formatVnd(summary.totalAmount)} hint="Tổng giá trị hóa đơn" tone="bg-[#ede9fe] text-[#6d3df8]" />
                 <KpiCard icon={FileText} label="Chờ thanh toán" value={`${summary.pendingCount} hóa đơn`} hint={formatVnd(summary.pendingAmount)} tone="bg-orange-50 text-orange-500" />
                 <KpiCard icon={Clock3} label="Quá hạn" value={`${summary.overdueCount} hóa đơn`} hint={formatVnd(summary.overdueAmount)} tone="bg-rose-50 text-rose-500" />
@@ -193,7 +163,7 @@ export default function InvoicesPage() {
               </div>
 
               {/* TABLE CONTAINER CARD */}
-              <section className="flex min-h-[520px] flex-1 flex-col overflow-hidden rounded-[14px] border border-[#e6eaf0] bg-card shadow-[0_1px_2px_rgba(16,24,40,0.03)] xl:h-full xl:min-h-0">
+              <section data-testid="invoices-list" className="flex min-h-[520px] flex-1 flex-col overflow-hidden rounded-[14px] border border-border/70 dark:border-white/[0.06] bg-card shadow-[0_1px_2px_rgba(16,24,40,0.03)] xl:h-full xl:min-h-0">
                 <div className="flex flex-col gap-3 border-b border-border px-4 py-3 shrink-0">
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <div className="hide-scrollbar flex items-center gap-4 overflow-x-auto">
@@ -210,17 +180,9 @@ export default function InvoicesPage() {
                         </button>
                       ))}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" className="h-9 gap-2 bg-card px-3">
-                        <Download size={15} /> Xuất Excel
-                      </Button>
-                      <Button onClick={() => toast.success("Tạo hóa đơn")} className="h-9 gap-2 bg-[#6d3df8] px-3 text-white hover:bg-[#5b35f5]">
-                        <Plus size={16} /> Tạo hóa đơn
-                      </Button>
-                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(280px,1fr)_160px_132px_146px_108px_auto]">
+                  <div data-testid="invoices-filter-bar" className="grid grid-cols-1 gap-2 xl:max-w-[680px]">
                     <div className="flex h-9 items-center gap-2 rounded-xl border border-border bg-card px-3">
                       <Search size={15} className="text-muted" />
                       <input
@@ -230,41 +192,14 @@ export default function InvoicesPage() {
                         className="min-w-0 flex-1 bg-transparent text-[12px] font-semibold text-text outline-none placeholder:text-muted"
                       />
                     </div>
-                    <FilterButton icon={<CalendarDays size={14} />} label="01/05/2026 - 31/05/2026" />
-                    <FilterButton label="Tất cả tòa nhà" />
-                    <FilterButton label="Tất cả trạng thái" />
-                    <FilterButton label="Công nợ" />
-                    <Button variant="outline" className="h-9 gap-2 px-3">
-                      <Filter size={15} /> Bộ lọc
-                    </Button>
                   </div>
                 </div>
-
-                {selectedCount > 0 && (
-                  <div className="mx-4 mt-3 flex flex-col gap-3 rounded-[12px] border border-[#6d3df8]/20 bg-[#f6f2ff] px-4 py-2.5 text-[13px] font-bold text-text shrink-0 sm:flex-row sm:items-center sm:justify-between">
-                    <span>{selectedCount} hóa đơn đã chọn</span>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button size="sm" variant="outline" className="gap-2 bg-card" onClick={() => toast.success("Gửi nhắc nợ")}>
-                        <Send size={14} /> Gửi nhắc nợ
-                      </Button>
-                      <Button size="sm" variant="outline" className="gap-2 bg-card" onClick={() => toast.success("Xuất PDF")}>
-                        <Download size={14} /> Xuất PDF
-                      </Button>
-                      <Button size="sm" className="gap-2 bg-[#6d3df8] text-white hover:bg-[#5b35f5]" onClick={() => toast.success("Đánh dấu đã thu")}>
-                        <CheckCircle2 size={14} /> Đánh dấu đã thu
-                      </Button>
-                    </div>
-                  </div>
-                )}
 
                 {/* SCROLLABLE TABLE AREA WITH HORIZONTAL SCROLL MIN-WIDTH */}
                 <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
                   <table className="w-full min-w-[1240px] text-left border-collapse">
                     <thead className="sticky top-0 z-10 bg-surface/90 backdrop-blur-sm text-[11px] uppercase text-muted shadow-[0_1px_0_var(--border)]">
                       <tr>
-                        <th className="w-[40px] px-3 py-3 font-black">
-                          <input type="checkbox" checked={allDisplayedSelected} onChange={toggleDisplayed} className="h-4 w-4 rounded border-border accent-[#6d3df8]" />
-                        </th>
                         <th className="w-[110px] px-3 py-3 font-black whitespace-nowrap">Hóa đơn</th>
                         <th className="w-[200px] px-3 py-3 font-black whitespace-nowrap">Khách thuê / Phòng</th>
                         <th className="w-[140px] px-3 py-3 font-black whitespace-nowrap">Kỳ hóa đơn</th>
@@ -280,18 +215,18 @@ export default function InvoicesPage() {
                     <tbody className="divide-y divide-border/60">
                       {isLoading && (
                         <tr>
-                          <td colSpan={11} className="px-4 py-10 text-center text-[13px] font-bold text-muted">Đang tải hóa đơn...</td>
+                          <td colSpan={10} className="px-4 py-10 text-center text-[13px] font-bold text-muted">Đang tải hóa đơn...</td>
                         </tr>
                       )}
                       {isError && (
                         <tr>
-                          <td colSpan={11} className="px-4 py-10 text-center text-[13px] font-bold text-rose-500">Không tải được danh sách hóa đơn.</td>
+                          <td data-testid="invoices-error-state" colSpan={10} className="px-4 py-10 text-center text-[13px] font-bold text-rose-500">Không tải được danh sách hóa đơn.</td>
                         </tr>
                       )}
                       {!isLoading && !isError && visibleInvoices.length === 0 && (
                         <tr>
-                          <td colSpan={11} className="px-4 py-10 text-center">
-                            <div className="mx-auto flex max-w-sm flex-col items-center gap-2 rounded-[16px] border border-dashed border-border bg-surface/40 px-6 py-8">
+                          <td colSpan={10} className="px-4 py-10 text-center">
+                            <div data-testid="empty-invoices-state" className="mx-auto flex max-w-sm flex-col items-center gap-2 rounded-[16px] border border-dashed border-border bg-surface/40 px-6 py-8">
                               <Receipt size={34} className="text-muted" />
                               <div className="text-[14px] font-black text-text">Chưa có hóa đơn phù hợp</div>
                               <div className="text-[12px] font-semibold text-muted">Thử đổi bộ lọc hoặc tạo hóa đơn mới.</div>
@@ -303,8 +238,6 @@ export default function InvoicesPage() {
                         <InvoiceRow
                           key={invoice.id}
                           invoice={invoice}
-                          selected={selectedIds.includes(invoice.id)}
-                          onToggle={() => toggleInvoice(invoice.id)}
                           onOpen={() => setSelectedInvoice(invoice)}
                         />
                       ))}
@@ -318,7 +251,7 @@ export default function InvoicesPage() {
                     Hiển thị {visibleInvoices.length === 0 ? 0 : (page - 1) * pageSize + 1} - {Math.min(page * pageSize, visibleInvoices.length)} của {visibleInvoices.length || 0} hóa đơn
                   </span>
                   <div className="flex items-center gap-2">
-                    <FilterButton label="5 / trang" />
+                    <span className="flex h-8 items-center rounded-xl border border-border bg-card px-3 text-[12px] font-black text-text">5 / trang</span>
                     <button
                       type="button"
                       disabled={page <= 1}
@@ -356,12 +289,12 @@ export default function InvoicesPage() {
             </div>
 
             {/* RIGHT SIDEBAR COLUMN MATCHING FULL HEIGHT OF LEFT COLUMN */}
-            <aside className="flex flex-col gap-3.5 xl:h-full xl:min-h-0">
+            <aside data-testid="billing-right-panel" className="hidden flex-col gap-3.5 2xl:flex 2xl:h-full 2xl:min-h-0">
               {/* Card 1: Tổng quan thu hồi */}
-              <section className="flex shrink-0 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+              <section className="flex shrink-0 flex-col rounded-[14px] border border-border/70 dark:border-white/[0.06] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h2 className="text-[15px] font-black text-text">Tổng quan thu hồi</h2>
-                  <FilterButton label="Tháng 5/2026" />
+                  <span className="rounded-xl border border-border bg-surface/60 px-3 py-2 text-[12px] font-black text-muted">Hiện tại</span>
                 </div>
                 <div className="flex min-h-0 flex-col items-center justify-center gap-3">
                   <div className="relative h-[142px] w-[142px]">
@@ -393,20 +326,18 @@ export default function InvoicesPage() {
               </section>
 
               {/* Card 2: Cần xử lý */}
-              <section className="flex shrink-0 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+              <section className="flex shrink-0 flex-col rounded-[14px] border border-border/70 dark:border-white/[0.06] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-[15px] font-black text-text">Cần xử lý</h2>
-                  <button className="text-[12px] font-black text-[#6d3df8]">Xem tất cả →</button>
                 </div>
                 <div className="grid content-center gap-2">
                   <ActionMetric label="Hóa đơn quá hạn" value={`${summary.overdueCount} hóa đơn`} tone="text-rose-600 bg-rose-50" />
                   <ActionMetric label="Sắp đến hạn" value={`${soonDueCount} hóa đơn`} tone="text-orange-600 bg-orange-50" />
-                  <ActionMetric label="Thanh toán chờ xác nhận" value="0 khoản" tone="text-sky-600 bg-sky-50" />
                 </div>
               </section>
 
               {/* Card 3: Thanh toán gần đây - STRETCHES FLEX-1 TO MATCH EXACT HEIGHT OF LEFT SIDE TABLE */}
-              <section className="flex min-h-0 flex-1 flex-col rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+              <section className="flex min-h-0 flex-1 flex-col rounded-[14px] border border-border/70 dark:border-white/[0.06] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
                 <div className="mb-3 flex items-center justify-between shrink-0">
                   <h2 className="text-[15px] font-black text-text">Thanh toán gần đây</h2>
                 </div>
@@ -453,7 +384,7 @@ function KpiCard({
   tone: string;
 }) {
   return (
-    <div className="h-[102px] rounded-[14px] border border-[#e6eaf0] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+    <div className="h-[102px] rounded-[14px] border border-border/70 dark:border-white/[0.06] bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
       <div className="flex items-start gap-3">
         <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] ${tone}`}>
           <Icon size={18} />
@@ -470,13 +401,9 @@ function KpiCard({
 
 function InvoiceRow({
   invoice,
-  selected,
-  onToggle,
   onOpen,
 }: {
   invoice: any;
-  selected: boolean;
-  onToggle: () => void;
   onOpen: () => void;
 }) {
   const meta = statusMeta[invoice.status] || { label: invoice.status || "Chưa rõ", tone: "bg-slate-100 text-slate-500", dot: "bg-slate-400" };
@@ -489,10 +416,7 @@ function InvoiceRow({
   const code = formatInvoiceCode(invoice);
 
   return (
-    <tr className="border-b border-border/70 last:border-b-0 hover:bg-[#fafbff]">
-      <td className="px-3 py-3">
-        <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded border-border accent-[#6d3df8]" />
-      </td>
+    <tr data-testid="invoice-card" className="border-b border-border/70 last:border-b-0 hover:bg-surface/70">
       <td className="px-3 py-3 font-mono">
         <button type="button" onClick={onOpen} className="text-left">
           <div className="text-[14px] font-black text-[#5b35f5] whitespace-nowrap">{code}</div>
@@ -527,22 +451,9 @@ function InvoiceRow({
       <td className="px-3 py-3">
         <div className="flex justify-end gap-2">
           <IconButton onClick={onOpen} icon={<Eye size={14} />} />
-          <IconButton onClick={() => toast.success("Thao tác hóa đơn")} icon={<MoreHorizontal size={14} />} />
         </div>
       </td>
     </tr>
-  );
-}
-
-function FilterButton({ label, icon }: { label: string; icon?: React.ReactNode }) {
-  return (
-    <button type="button" className="flex h-9 items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 text-[12px] font-bold text-text">
-      <span className="inline-flex min-w-0 items-center gap-2 truncate">
-        {icon}
-        {label}
-      </span>
-      <ChevronDown size={14} className="shrink-0 text-muted" />
-    </button>
   );
 }
 

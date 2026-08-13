@@ -26,10 +26,10 @@ export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children
   return (
     <div data-testid={testId} className="fixed inset-0 z-[100] flex justify-end">
       <div 
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" 
+        className="absolute inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
         onClick={onClose} 
       />
-      <div className={`relative max-w-full bg-card h-full shadow-drawer animate-in slide-in-from-right duration-200 flex flex-col ${
+      <div className={`relative max-w-full bg-card h-full border-l border-slate-200/80 dark:border-white/[0.08] shadow-drawer dark:shadow-[-15px_0_60px_rgba(0,0,0,0.85)] animate-in slide-in-from-right duration-200 flex flex-col ${
         size === "sm" ? "w-[300px]" :
         size === "md" ? "w-[400px]" :
         size === "lg" ? "w-[720px]" :
@@ -37,9 +37,9 @@ export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children
         "w-[100vw]"
       }`}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
+        <div className="flex items-center justify-between p-4 border-b border-slate-200/70 dark:border-white/[0.06]">
           <h2 className="font-black text-lg text-text">{title}</h2>
-          <Button aria-label="Đóng" data-testid={closeTestId} variant="ghost" size="icon" onClick={onClose} className="rounded-full">
+          <Button aria-label="Đóng" data-testid={closeTestId} variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-slate-100 dark:hover:bg-white/10">
             <X size={20} />
           </Button>
         </div>
@@ -51,7 +51,7 @@ export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children
 
         {/* Footer */}
         {footer && (
-          <div className="p-4 border-t border-border bg-surface">
+          <div className="p-4 border-t border-slate-200/70 dark:border-white/[0.06] bg-slate-50/60 dark:bg-slate-900/60">
             {footer}
           </div>
         )}

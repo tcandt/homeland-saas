@@ -46,13 +46,28 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
   },
   "/finance": {
     title: "Tài chính & Báo cáo",
-    subtitle: "Theo dõi dòng tiền, doanh thu và chi phí",
-    mobileSubtitle: "Biểu đồ thu chi và báo cáo tài chính",
+    subtitle: "Theo dõi dòng tiền vào, doanh thu và công nợ",
+    mobileSubtitle: "Doanh thu, công nợ và dòng tiền vào",
+  },
+  "/finance/expenses": {
+    title: "Chi phí",
+    subtitle: "Quản lý chi phí vận hành, duyệt chi và khấu trừ owner",
+    mobileSubtitle: "Chi phí vận hành và duyệt chi",
+  },
+  "/finance/transactions": {
+    title: "Lịch sử giao dịch",
+    subtitle: "Toàn bộ tiền vào/ra của các tài khoản ngân hàng",
+    mobileSubtitle: "Lịch sử giao dịch ngân hàng",
   },
   "/invoices": {
     title: "Hóa đơn",
     subtitle: "Quản lý hóa đơn thu tiền và trạng thái thanh toán",
     mobileSubtitle: "Hóa đơn đã phát hành và quá hạn",
+  },
+  "/reports": {
+    title: "Báo cáo",
+    subtitle: "Tổng hợp báo cáo vận hành, tài chính và hiệu suất",
+    mobileSubtitle: "Báo cáo vận hành và tài chính",
   },
   "/sales": {
     title: "Sales CRM",

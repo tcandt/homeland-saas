@@ -317,7 +317,7 @@ export default function MasterDetailBuildings() {
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex min-h-full w-full flex-col">
       {isMobilePresentation ? (
         <div className="mobile-page mobile-buildings-stable">
           <MobileBuildingsFlow buildings={mobileBuildings} onOpenRoomModal={openRoomModal} />

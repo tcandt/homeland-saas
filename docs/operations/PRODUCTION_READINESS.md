@@ -24,7 +24,7 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 
 ### Bằng chứng release candidate desktop gần nhất
 
-Lần chạy: `2026-08-13 14:39` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+Lần chạy: `2026-08-13 14:49` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
 
 | Cổng kiểm tra | Kết quả |
 |---|---|
@@ -32,7 +32,7 @@ Lần chạy: `2026-08-13 14:39` (Asia/Bangkok), local production bundle cô l�
 | Prisma schema | Hợp lệ |
 | Migration hiện tại | `7/7`, up to date |
 | API typecheck + unit | PASS, `181/181` |
-| Web typecheck + unit | PASS, `47/47` |
+| Web typecheck + unit | PASS, `49/49` |
 | API + Next production build | PASS |
 | Health/readiness | PASS |
 | Production Playwright desktop | PASS, `39/39` |
@@ -47,6 +47,7 @@ Phạm vi bằng chứng:
 - Các nhánh write nghiệp vụ chạy bằng mock trên production bundle để không tạo/sửa/xóa dữ liệu vận hành.
 - Test destructive chỉ được chạy trên database dùng một lần khi có `RUN_DESTRUCTIVE_E2E=true`.
 - Kết quả này xác nhận **release candidate local**, chưa thay thế staging, credential production và nghiệm thu giao dịch thật.
+- Build không còn cảnh báo Gemini/NFT trace rộng; còn deprecation không chặn runtime về convention `middleware.ts`, cần chuyển sang `proxy.ts` ở một mốc backup/rollback riêng.
 
 ### Chưa thể tự động hoàn tất bằng code
 

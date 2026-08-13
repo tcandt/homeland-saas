@@ -156,12 +156,19 @@ export interface LearningStoreOptions {
   maxBytes?: number;
 }
 
+export function resolveLearningDataDir(
+  cwd?: string,
+  configuredDir = process.env.CCCD_LEARNING_DATA_DIR,
+) {
+  if (configuredDir) return path.resolve(configuredDir);
+  if (cwd) return path.resolve(cwd, ".local-data", "learning");
+  return path.join(/* turbopackIgnore: true */ process.cwd(), ".local-data", "learning");
+}
+
 export async function createLearningStore(options: LearningStoreOptions = {}) {
-  const dataDir = path.resolve(
-    options.dataDir ||
-      process.env.CCCD_LEARNING_DATA_DIR ||
-      path.join(process.cwd(), ".local-data", "learning"),
-  );
+  const dataDir = options.dataDir
+    ? path.resolve(options.dataDir)
+    : resolveLearningDataDir();
   const configuredLimit = Number(
     options.maxBytes || process.env.CCCD_LEARNING_MAX_BYTES || DEFAULT_LIMIT_BYTES,
   );

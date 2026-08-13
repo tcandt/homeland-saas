@@ -34,7 +34,7 @@ Lần chạy: `2026-08-13 20:55` (Asia/Bangkok), local production bundle cô l�
 | Cổng kiểm tra | Kết quả |
 |---|---|
 | Mojibake/encoding | PASS |
-| Production/supply-chain safety unit | PASS, `19/19`; kiểm tra database E2E cô lập, Docker/deploy/SBOM workflow, không in secret và không tuyên bố LIVE thay cho nghiệm thu thủ công |
+| Production/supply-chain safety unit | PASS, `20/20`; kiểm tra database E2E cô lập, baseline checksum, Docker/deploy/SBOM workflow, không in secret và không tuyên bố LIVE thay cho nghiệm thu thủ công |
 | Prisma schema | Hợp lệ |
 | Migration hiện tại | `7/7`, up to date |
 | API typecheck + unit | PASS, `195/195` |
@@ -78,7 +78,7 @@ Phạm vi bằng chứng:
 - [ ] Chốt phiên bản Node production phù hợp với engine dependency; cập nhật đồng bộ Docker/CI sau phê duyệt.
 - [ ] Lập và nghiệm thu mốc nâng dependency để xử lý toàn bộ high-severity runtime advisory; CI hiện chặn đóng gói khi còn high/critical.
 - [ ] Chạy lại GitHub Actions từ commit release candidate và lưu bằng chứng mọi job bắt buộc; security gate phải xanh, không chỉ xuất được SBOM.
-- [ ] Chuẩn hóa runbook bootstrap database rỗng cho staging/khôi phục thảm họa theo cơ chế baseline đã review; không chạy thẳng chuỗi migration lịch sử trên database rỗng.
+- [x] Chuẩn hóa runbook bootstrap database rỗng tại `DATABASE_BASELINE.md`: guard database rỗng, checksum, review SQL, baseline 7 migration và nghiệm thu; không chạy thẳng chuỗi migration lịch sử.
 
 Không gọi hệ thống là LIVE nếu còn bất kỳ mục nào ở phần này chưa hoàn thành.
 
@@ -211,4 +211,4 @@ Không đặt cờ này khi trỏ tới database vận hành.
 
 Trong 24 giờ đầu, theo dõi health, lỗi 5xx, queue thông báo, webhook chưa match, sync Hunonic, chênh lệch bank và audit login. Nếu có sai lệch tiền, dừng tự động đối soát/ghi nhận liên quan trước khi sửa dữ liệu.
 
-Runbook chi tiết: [Deployment](./DEPLOYMENT.md), [Backup](./BACKUP.md), [Monitoring](./MONITORING.md).
+Runbook chi tiết: [Deployment](./DEPLOYMENT.md), [Database baseline](./DATABASE_BASELINE.md), [Backup](./BACKUP.md), [Monitoring](./MONITORING.md).

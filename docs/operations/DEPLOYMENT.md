@@ -40,7 +40,7 @@ Nếu bất kỳ bước nào sai, dừng promote production. Không sửa trự
 1. Xác nhận staging đạt và backup trước deploy còn sử dụng được.
 2. Phê duyệt GitHub environment `production` bằng người có thẩm quyền.
 3. Deploy đúng immutable image tag đã chạy trên staging, không deploy tag chưa nghiệm thu.
-4. Nếu có migration mới trên database đã baseline, chạy `prisma migrate deploy` đúng một lần từ artifact đã duyệt hoặc khởi động một lần với `RUN_DB_MIGRATIONS=true`, sau đó trả cờ về `false`. Không dùng `db push`, `--force-reset` hoặc seed production trong deploy thường lệ. Database rỗng phải theo runbook baseline đã review; không chạy thẳng chuỗi migration lịch sử hiện tại.
+4. Nếu có migration mới trên database đã baseline, chạy `prisma migrate deploy` đúng một lần từ artifact đã duyệt hoặc khởi động một lần với `RUN_DB_MIGRATIONS=true`, sau đó trả cờ về `false`. Không dùng `db push`, `--force-reset` hoặc seed production trong deploy thường lệ. Database rỗng phải theo [DATABASE_BASELINE.md](./DATABASE_BASELINE.md); không chạy thẳng chuỗi migration lịch sử hiện tại.
 5. Kiểm tra health/readiness/build-info trước khi mở traffic đầy đủ.
 6. Smoke read-only bốn persona: `admin`, `adminA`, `adminB`, `manager`.
 7. Chạy một giao dịch nhỏ đã thống nhất cho mỗi owner và đối chiếu bank, SePay, hóa đơn, audit log.

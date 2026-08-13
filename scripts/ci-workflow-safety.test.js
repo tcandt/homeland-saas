@@ -122,6 +122,23 @@ test('API integration tests compile shared workspace before Vitest resolves it',
   assert.doesNotMatch(bootstrap, /db\s+push|db\s+seed|force-reset|accept-data-loss/i);
 });
 
+test('empty-database baseline runbook matches the reviewed CI migration checksums', () => {
+  const baseline = read('docs/operations/DATABASE_BASELINE.md');
+  const { reviewedMigrations } = require('./ci-bootstrap-database');
+  for (const [name, checksum] of reviewedMigrations) {
+    assert.ok(
+      baseline.includes(`| \`${name}\` | \`${checksum}\` |`),
+      `Baseline runbook is missing the reviewed checksum for ${name}`,
+    );
+  }
+  assert.match(baseline, /public_base_tables = 0/);
+  assert.match(baseline, /migrate diff/);
+  assert.match(baseline, /migrate resolve/);
+  assert.match(baseline, /migrate status/);
+  assert.match(baseline, /Không dùng `prisma db push`/);
+  assert.match(baseline, /Không seed production/);
+});
+
 test('web build compiles shared workspace before Next resolves runtime schemas', () => {
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
   const webBuildBlock = workflow.slice(

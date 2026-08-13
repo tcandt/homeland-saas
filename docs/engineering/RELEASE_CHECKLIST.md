@@ -32,12 +32,12 @@
 - [x] Login audit và refresh-token metadata chỉ ghi vào database release-gate trong lượt test cuối.
 - [x] Business write regression dùng mock; destructive E2E chỉ mở với `RUN_DESTRUCTIVE_E2E=true` trên database dùng một lần.
 - [x] Không reset, truncate, seed hoặc migrate deploy database vận hành trong release gate.
-- [ ] Hoàn thiện và review runbook baseline database rỗng. Chuỗi migration lịch sử hiện không dựng fresh DB trực tiếp do enum hợp đồng trùng.
+- [x] Runbook baseline database rỗng có guard, checksum, SQL review, migration resolve/status và quy tắc không seed/reset: `docs/operations/DATABASE_BASELINE.md`.
 - [ ] Backup PostgreSQL và attachment ngoài máy chủ; kiểm tra manifest và restore drill có biên bản.
 
 ## 4. Supply chain và security
 
-- [x] Production/supply-chain safety tests PASS `19/19`.
+- [x] Production/supply-chain safety tests PASS `20/20`.
 - [x] Gitleaks PASS ở pipeline gần nhất quan sát được; Hunonic signing secret đã loại khỏi source.
 - [x] CycloneDX SBOM từ lockfile có validate/reproducible; runtime audit gate vẫn chặn high/critical.
 - [ ] GitHub Actions mới đạt toàn bộ job bắt buộc sau commit sửa SBOM.

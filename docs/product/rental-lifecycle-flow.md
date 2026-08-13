@@ -776,7 +776,7 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Bốn persona nhận credential riêng và đổi mật khẩu lần đầu.
 - [ ] Phê duyệt runtime Node thống nhất với engine của Puppeteer và ZXing; cập nhật Docker/CI theo mốc riêng.
 - [ ] Xử lý runtime audit GitHub CI gần nhất quan sát được còn `17 high`, `23 moderate`, `3 low`; không mở LIVE khi CI security gate còn đỏ.
-- [ ] Chốt runbook baseline database rỗng; chuỗi migration lịch sử không được chạy thẳng trên database rỗng vì enum hợp đồng trùng.
+- [x] Chốt runbook `docs/operations/DATABASE_BASELINE.md`; database rỗng dùng datamodel + baseline 7 migration đã review, không chạy thẳng SQL lịch sử có enum trùng.
 - [ ] Xác nhận GitHub Actions mới của commit release candidate đạt toàn bộ job bắt buộc sau sửa SBOM.
 
 ### Thứ tự ưu tiên khuyến nghị

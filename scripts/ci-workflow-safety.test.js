@@ -103,6 +103,13 @@ test('API integration tests compile shared workspace before Vitest resolves it',
   assert.match(bootstrap, /RUN_DESTRUCTIVE_E2E !== 'true'/);
   assert.match(bootstrap, /localhost', '127\.0\.0\.1/);
   assert.match(bootstrap, /databaseUrl\.port !== '5433'/);
+  assert.match(bootstrap, /information_schema\.tables/);
+  assert.match(bootstrap, /database is not empty/);
+  assert.match(bootstrap, /migrate',\s*'diff'/);
+  assert.match(bootstrap, /'--from-empty'/);
+  assert.match(bootstrap, /'--to-schema-datamodel'/);
+  assert.match(bootstrap, /migrate', 'resolve', '--applied'/);
+  assert.doesNotMatch(bootstrap, /migrate', 'deploy'/);
   assert.doesNotMatch(bootstrap, /db\s+push|db\s+seed|force-reset|accept-data-loss/i);
 });
 

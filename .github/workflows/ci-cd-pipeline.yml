@@ -95,6 +95,7 @@ jobs:
       - run: npm ci
       - run: npm run check:encoding
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
+      - run: npm run build -w @homeland/shared
       - run: docker compose up -d postgres redis
       - run: npm run test:e2e --workspace=api
 

@@ -77,6 +77,19 @@ test('staging and production gates use the real production Playwright command', 
   assert.ok((workflow.match(/\/api\/v1\/health\/ready/g) || []).length >= 2);
 });
 
+test('API integration tests compile shared workspace before Vitest resolves it', () => {
+  const workflow = read('.github/workflows/ci-cd-pipeline.yml');
+  const integrationBlock = workflow.slice(
+    workflow.indexOf('  integration-test:'),
+    workflow.indexOf('  build-api:'),
+  );
+  const sharedBuild = integrationBlock.indexOf('npm run build -w @homeland/shared');
+  const apiE2e = integrationBlock.indexOf('npm run test:e2e --workspace=api');
+  assert.ok(sharedBuild >= 0, 'Integration job must compile @homeland/shared');
+  assert.ok(apiE2e > sharedBuild, 'Shared workspace must compile before API E2E');
+  assert.doesNotMatch(integrationBlock, /prisma\s+(?:db\s+push|migrate\s+deploy|db\s+seed)/i);
+});
+
 test('release version is propagated through every deploy job dependency', () => {
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
   assert.match(workflow, /release_version: \$\{\{ needs\.semantic-release\.outputs\.new_release_version \}\}/);

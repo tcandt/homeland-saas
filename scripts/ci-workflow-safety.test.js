@@ -139,6 +139,37 @@ test('empty-database baseline runbook matches the reviewed CI migration checksum
   assert.match(baseline, /Không seed production/);
 });
 
+test('release documents point to the evidence-based central go-live backlog', () => {
+  const goLiveTodo = read('docs/operations/GO_LIVE_TODO.md');
+  for (const file of [
+    'docs/operations/PRODUCTION_READINESS.md',
+    'docs/operations/DEPLOYMENT.md',
+    'docs/engineering/RELEASE_CHECKLIST.md',
+    'docs/product/rental-lifecycle-flow.md',
+  ]) {
+    assert.match(read(file), /GO_LIVE_TODO\.md/, `${file} must link to the central go-live backlog`);
+  }
+  for (const requiredTask of [
+    'SEC-01',
+    'INF-01',
+    'BKP-03',
+    'SEP-03',
+    'HUN-03',
+    'UAT-01',
+    'OBS-05',
+    'REL-09',
+    'HC-08',
+  ]) {
+    assert.ok(
+      goLiveTodo.includes(`\`${requiredTask}\``),
+      `Go-live backlog is missing ${requiredTask}`,
+    );
+  }
+  assert.match(goLiveTodo, /Trigger NO-GO bắt buộc/);
+  assert.match(goLiveTodo, /Definition of Done \/ bằng chứng/);
+  assert.match(goLiveTodo, /LOCAL RELEASE CANDIDATE PASS \/ LIVE NO-GO/);
+});
+
 test('web build compiles shared workspace before Next resolves runtime schemas', () => {
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
   const webBuildBlock = workflow.slice(

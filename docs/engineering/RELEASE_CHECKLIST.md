@@ -5,6 +5,8 @@
 > Trạng thái hiện tại: **LOCAL RELEASE CANDIDATE PASS / LIVE NO-GO**.
 > Không đánh dấu PRODUCTION READY hoặc LIVE khi thiếu bằng chứng staging, security, backup, monitoring và nghiệm thu tích hợp thật.
 
+Backlog chi tiết và trạng thái P0/P1 được quản lý tại [GO_LIVE_TODO.md](../operations/GO_LIVE_TODO.md). File này chỉ là bản tóm tắt release gate.
+
 ## 1. Code và nghiệp vụ
 
 - [x] Encoding/mojibake gate PASS.
@@ -37,7 +39,7 @@
 
 ## 4. Supply chain và security
 
-- [x] Production/supply-chain safety tests PASS `20/20`.
+- [x] Production/supply-chain safety tests PASS `21/21`.
 - [x] Gitleaks PASS ở pipeline gần nhất quan sát được; Hunonic signing secret đã loại khỏi source.
 - [x] CycloneDX SBOM từ lockfile có validate/reproducible; runtime audit gate vẫn chặn high/critical.
 - [ ] GitHub Actions mới đạt toàn bộ job bắt buộc sau commit sửa SBOM.

@@ -4,6 +4,8 @@
 
 Runbook này áp dụng cho staging và production của HomeLand. Nhánh `main` hiện có pipeline tại `.github/workflows/ci-cd-pipeline.yml`: kiểm tra code, đóng gói image, deploy staging, smoke test, rollback staging khi smoke thất bại và chờ approval trước production.
 
+Toàn bộ task, owner, dependency, Definition of Done và evidence trước LIVE được theo dõi tập trung tại [GO_LIVE_TODO.md](./GO_LIVE_TODO.md).
+
 Không gọi bản phát hành là LIVE chỉ vì pipeline xanh. Production chỉ được mở sau khi các mục ngoại vi trong [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md) có bằng chứng.
 
 ## Điều kiện trước deploy

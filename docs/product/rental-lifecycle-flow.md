@@ -766,6 +766,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 
 ### 17. Điều kiện bên ngoài còn phải hoàn tất trước LIVE
 
+Owner, dependency, Definition of Done và evidence của từng mục được quản lý tập trung tại `docs/operations/GO_LIVE_TODO.md`.
+
 - [ ] Domain HTTPS production cho web/API.
 - [ ] Secret production PostgreSQL, Redis, JWT, SePay, Zalo, Telegram, SMTP và Hunonic được cấp ngoài Git.
 - [ ] Backup ngoài máy chủ và restore drill có biên bản.

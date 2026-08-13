@@ -2,7 +2,7 @@
 
 Ngày cập nhật: 2026-08-13
 
-Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệu nghiệp vụ chi tiết nằm tại [rental-lifecycle-flow.md](../product/rental-lifecycle-flow.md).
+Tài liệu này mô tả trạng thái và bằng chứng readiness. Backlog go-live trung tâm nằm tại [GO_LIVE_TODO.md](./GO_LIVE_TODO.md); tài liệu nghiệp vụ chi tiết nằm tại [rental-lifecycle-flow.md](../product/rental-lifecycle-flow.md).
 
 ## 1. Trạng thái hiện tại
 
@@ -211,4 +211,4 @@ Không đặt cờ này khi trỏ tới database vận hành.
 
 Trong 24 giờ đầu, theo dõi health, lỗi 5xx, queue thông báo, webhook chưa match, sync Hunonic, chênh lệch bank và audit login. Nếu có sai lệch tiền, dừng tự động đối soát/ghi nhận liên quan trước khi sửa dữ liệu.
 
-Runbook chi tiết: [Deployment](./DEPLOYMENT.md), [Database baseline](./DATABASE_BASELINE.md), [Backup](./BACKUP.md), [Monitoring](./MONITORING.md).
+Runbook chi tiết: [Go-live TODO](./GO_LIVE_TODO.md), [Deployment](./DEPLOYMENT.md), [Database baseline](./DATABASE_BASELINE.md), [Backup](./BACKUP.md), [Monitoring](./MONITORING.md).

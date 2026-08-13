@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Patch, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, ForbiddenException, Get, Patch, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema, RegisterSchema, ForgotPasswordSchema, ResetPasswordSchema, CreateTeamMemberSchema } from '@homeland/shared';
@@ -10,11 +10,15 @@ import { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { AllowPasswordChangeRequired } from '../shared/decorators/allow-password-change-required.decorator';
+import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @Public()
   @Throttle({ short: { limit: 500, ttl: 60000 } })
@@ -35,6 +39,9 @@ export class AuthController {
   @ApiResponse({ status: 201, description: 'Returns access token and refresh token' })
   async register(@Body() body: any, @Req() req: Request) {
     try {
+      if (!this.configService.get<boolean>('app.allowRegistration')) {
+        throw new ForbiddenException({ code: 'AUTH_REGISTRATION_DISABLED', message: 'Public registration is disabled' });
+      }
       const input = RegisterSchema.parse(body);
       const ip = req.ip || req.connection?.remoteAddress;
       const userAgent = req.headers['user-agent'];

@@ -5,7 +5,6 @@ import AuthCard from "@/components/auth/AuthCard";
 import AuthInput from "@/components/auth/AuthInput";
 import PasswordField from "@/components/auth/PasswordField";
 import SocialLoginButtons from "@/components/auth/SocialLoginButtons";
-import AuthFooter from "@/components/auth/AuthFooter";
 import Link from "next/link";
 import { Loader2, AlertCircle } from "lucide-react";
 import { authApi } from "@/lib/api/auth.api";
@@ -102,7 +101,6 @@ export default function LoginPage() {
           <SocialLoginButtons />
         </div>
 
-        <AuthFooter text="Chưa có tài khoản?" linkText="Đăng ký" href="/register" />
       </AuthCard>
     </AuthLayout>
   );

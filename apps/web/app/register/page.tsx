@@ -10,6 +10,23 @@ import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { authApi } from "@/lib/api/auth.api";
 
 export default function RegisterPage() {
+  if (process.env.NEXT_PUBLIC_ALLOW_REGISTRATION !== "true") {
+    return (
+      <AuthLayout>
+        <AuthCard>
+          <div className="py-[20px] text-center">
+            <h1 className="text-[22px] font-black text-text">Đăng ký đang đóng</h1>
+            <p className="mt-[8px] text-[13px] font-medium leading-[20px] text-muted">
+              Tài khoản được cấp bởi quản trị viên hệ thống.
+            </p>
+            <a href="/login" className="mt-[20px] inline-flex h-[44px] items-center justify-center rounded-[8px] bg-primary px-[18px] text-[13px] font-bold text-white">
+              Về trang đăng nhập
+            </a>
+          </div>
+        </AuthCard>
+      </AuthLayout>
+    );
+  }
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [password, setPassword] = useState("");

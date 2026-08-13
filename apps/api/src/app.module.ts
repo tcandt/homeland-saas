@@ -43,12 +43,14 @@ import { RepositoriesModule } from './shared/repositories/repositories.module';
 import { SettingsModule } from './settings/settings.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HunonicModule } from './hunonic/hunonic.module';
+import { validateEnvironment } from './shared/config/environment.validation';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       load: [appConfig, authConfig],
+      validate: validateEnvironment,
     }),
     ClockModule,
     RepositoriesModule,

@@ -6,6 +6,8 @@ import { Logger } from 'nestjs-pino';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { ClsService } from 'nestjs-cls';
 import { MetricsInterceptor } from './metrics/metrics.interceptor';
+import { ConfigService } from '@nestjs/config';
+import { configuredCorsOrigins } from './shared/config/environment.validation';
 
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './shared/interceptors/response.interceptor';
@@ -29,7 +31,10 @@ async function bootstrap() {
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // 3. CORS & Security
-  app.enableCors();
+  app.enableCors({
+    origin: configuredCorsOrigins(),
+    credentials: true,
+  });
   const helmet = require('helmet');
   app.use(helmet({
     contentSecurityPolicy: true,
@@ -49,19 +54,23 @@ async function bootstrap() {
   app.useGlobalFilters(new GlobalExceptionFilter(clsService));
 
   // 5. Swagger Setup
-  const config = new DocumentBuilder()
-    .setTitle('HomeLand PMS API')
-    .setDescription('The Enterprise Commercial PMS API documentation')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  const configService = app.get(ConfigService);
+  const swaggerEnabled = configService.get<boolean>('app.enableSwagger');
+  if (swaggerEnabled) {
+    const config = new DocumentBuilder()
+      .setTitle('HomeLand PMS API')
+      .setDescription('The Enterprise Commercial PMS API documentation')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   // 6. Start server
   const port = process.env.PORT || 3001;
   await app.listen(port);
   console.log(`Application is running on: http://localhost:${port}/api/v1`);
-  console.log(`Swagger Docs available at: http://localhost:${port}/api/docs`);
+  if (swaggerEnabled) console.log(`Swagger Docs available at: http://localhost:${port}/api/docs`);
 }
 bootstrap();

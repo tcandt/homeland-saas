@@ -141,6 +141,24 @@ test('CI blocks packaging when runtime audit contains high or critical findings'
   assert.match(workflow, /counts\.high/);
 });
 
+test('CI creates a validated reproducible SBOM while retaining the runtime audit gate', () => {
+  const workflow = read('.github/workflows/ci-cd-pipeline.yml');
+  const securityBlock = workflow.slice(
+    workflow.indexOf('  security-scan:'),
+    workflow.indexOf('  e2e:'),
+  );
+  assert.match(
+    securityBlock,
+    /cyclonedx-npm --package-lock-only --ignore-npm-errors --validate --output-reproducible/,
+  );
+  assert.match(securityBlock, /--output-file security\/sbom\.cdx\.json/);
+  assert.ok(
+    securityBlock.indexOf('Generate SBOM') < securityBlock.indexOf('Enforce Runtime Dependency Policy'),
+    'Runtime dependency policy must still run after SBOM generation',
+  );
+  assert.match(securityBlock, /if\(\(counts\.critical\|\|0\)>0\|\|\(counts\.high\|\|0\)>0\)process\.exit\(1\)/);
+});
+
 test('Hunonic mobile signing secrets stay outside source control', () => {
   const provider = read('apps/api/src/hunonic/hunonic.provider.ts');
   const exampleEnv = read('.env.example');

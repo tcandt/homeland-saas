@@ -224,7 +224,7 @@ jobs:
       - name: Install CycloneDX Node module
         run: npm install -g @cyclonedx/cyclonedx-npm
       - name: Generate SBOM
-        run: cyclonedx-npm --output-format JSON --output-file security/sbom.cdx.json
+        run: cyclonedx-npm --package-lock-only --ignore-npm-errors --validate --output-reproducible --output-format JSON --output-file security/sbom.cdx.json
       - name: Trivy FS Scan
         uses: aquasecurity/trivy-action@master
         with:

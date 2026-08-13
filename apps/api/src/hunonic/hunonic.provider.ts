@@ -183,6 +183,10 @@ export class HunonicProvider {
 
   async fetchElectricityRateGroups(rootId: string): Promise<HunonicElectricityRateGroup[]> {
     const tokenId = await this.login();
+    return this.fetchElectricityRateGroupsWithToken(tokenId, rootId);
+  }
+
+  private async fetchElectricityRateGroupsWithToken(tokenId: string, rootId: string): Promise<HunonicElectricityRateGroup[]> {
     const response = await this.postForm('/atmwifi/electricityRate', this.sign({ token_id: tokenId, root_id: rootId }));
     assertSuccess(response.data, 'Hunonic electricityRate failed');
     return arrayOf(response.data?.data).map((group) => ({
@@ -195,20 +199,39 @@ export class HunonicProvider {
 
   async applyElectricityRate(rootId: string, mode: HunonicElectricityRateMode, customRateVnd?: number) {
     const tokenId = await this.login();
+    const groups = await this.fetchElectricityRateGroupsWithToken(tokenId, rootId);
+    const targetGroup = findElectricityRateGroup(groups, mode);
+    if (mode === 'residential' && !targetGroup) {
+      throw new HunonicApiError('Hunonic residential electricity rate group was not found.');
+    }
+    const groupId = targetGroup?.id || (mode === 'custom' ? '1' : '2');
+    const groupName = targetGroup?.name || (mode === 'custom' ? 'Tự thiết lập' : 'Sinh hoạt');
+    const ratePayload = mode === 'custom'
+      ? buildCustomElectricityRatePayload(targetGroup, customRateVnd)
+      : buildExistingElectricityRatePayload(targetGroup);
+    if (mode === 'residential' && ratePayload.length === 0) {
+      throw new HunonicApiError('Hunonic residential electricity rates are empty.');
+    }
+
     const body: Record<string, unknown> = {
       token_id: tokenId,
       root_id: rootId,
-      electricity_group_id: mode === 'custom' ? 1 : 2,
-      electricity_group_name: mode === 'custom' ? 'Tự thiết lập' : 'Sinh hoạt',
+      electricity_group_id: groupId,
+      electricity_group_name: groupName,
+      electricity_rate: JSON.stringify(ratePayload),
     };
 
     if (mode === 'custom') {
       body.rate = customRateVnd;
       body.price = customRateVnd;
       body.money = customRateVnd;
-      body.root_extra = JSON.stringify({ rate: customRateVnd, price: customRateVnd, money: customRateVnd });
-      body.electricity_rate = JSON.stringify([{ price: customRateVnd }]);
     }
+    body.root_extra = JSON.stringify({
+      electricity_group_id: groupId,
+      electricity_group_name: groupName,
+      electricity_rate: ratePayload,
+      ...(mode === 'custom' ? { rate: customRateVnd, price: customRateVnd, money: customRateVnd } : {}),
+    });
 
     const response = await this.postForm('/atmwifi/addElectricityRate', this.sign(body));
     assertSuccess(response.data, 'Hunonic addElectricityRate failed');
@@ -395,6 +418,54 @@ function normalizeElectricityRates(value: any) {
     price: numberOrNull(rate.price),
     groupName: rate.group_name || null,
   }));
+}
+
+function findElectricityRateGroup(groups: HunonicElectricityRateGroup[], mode: HunonicElectricityRateMode) {
+  if (mode === 'custom') {
+    return groups.find((group) => group.id === '1')
+      || groups.find((group) => normalizeText(group.name).includes('tu thiet lap'));
+  }
+  return groups.find((group) => group.id === '2')
+    || groups.find((group) => normalizeText(group.name).includes('sinh hoat'));
+}
+
+function buildExistingElectricityRatePayload(group?: HunonicElectricityRateGroup) {
+  return normalizeElectricityRatePayload((group?.raw as any)?.electricity_rate, group?.name);
+}
+
+function buildCustomElectricityRatePayload(group: HunonicElectricityRateGroup | undefined, customRateVnd?: number) {
+  const price = Number(customRateVnd);
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new HunonicApiError('Invalid custom electricity rate.');
+  }
+
+  const existing = normalizeElectricityRatePayload((group?.raw as any)?.electricity_rate, group?.name);
+  const base = existing.length > 0
+    ? existing
+    : [{ id: '', min_rate: 0, max_rate: 0, name: group?.name || 'Tự thiết lập', group_name: group?.name || 'Tự thiết lập', price }];
+
+  return base.map((rate) => ({
+    ...rate,
+    price,
+  }));
+}
+
+function normalizeElectricityRatePayload(value: any, fallbackGroupName?: string) {
+  return arrayOf(value).map((rate) => ({
+    id: rate.id === null || rate.id === undefined ? '' : String(rate.id),
+    min_rate: numberOrNull(rate.min_rate) ?? 0,
+    max_rate: numberOrNull(rate.max_rate) ?? 0,
+    name: rate.name || null,
+    group_name: rate.group_name || fallbackGroupName || null,
+    price: numberOrNull(rate.price) ?? 0,
+  }));
+}
+
+function normalizeText(value: unknown) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
 
 function hunonicEncodeSign(payload: Record<string, unknown>) {

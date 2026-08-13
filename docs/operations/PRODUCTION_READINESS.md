@@ -24,7 +24,7 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 
 ### Bằng chứng release candidate desktop gần nhất
 
-Lần chạy: `2026-08-13 14:57` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+Lần chạy: `2026-08-13 15:07` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
 
 | Cổng kiểm tra | Kết quả |
 |---|---|
@@ -35,7 +35,7 @@ Lần chạy: `2026-08-13 14:57` (Asia/Bangkok), local production bundle cô l�
 | Web typecheck + unit | PASS, `49/49` |
 | API + Next production build | PASS |
 | Health/readiness | PASS |
-| Production Playwright desktop | PASS, `39/39` |
+| Production Playwright desktop | PASS, `40/40` |
 | Light/dark | PASS trên 10 trang/mỗi theme; không overflow, page error, console error hoặc HTTP 5xx ngoài SSE 503 cố ý của fixture |
 | Persona | PASS đăng nhập/RBAC cho `admin`, `adminA`, `adminB`, `manager`; admin vận hành có đủ 5 trường integration secret ở trạng thái chỉ đọc |
 | Public registration | PASS: API `403`, UI hiển thị đăng ký đóng và không có nút tạo account |
@@ -47,7 +47,7 @@ Phạm vi bằng chứng:
 - Các nhánh write nghiệp vụ chạy bằng mock trên production bundle để không tạo/sửa/xóa dữ liệu vận hành.
 - Test destructive chỉ được chạy trên database dùng một lần khi có `RUN_DESTRUCTIVE_E2E=true`.
 - Kết quả này xác nhận **release candidate local**, chưa thay thế staging, credential production và nghiệm thu giao dịch thật.
-- Build không còn cảnh báo Gemini/NFT trace rộng; còn deprecation không chặn runtime về convention `middleware.ts`, cần chuyển sang `proxy.ts` ở một mốc backup/rollback riêng.
+- Build không còn cảnh báo Gemini/NFT trace rộng hoặc deprecation về convention `middleware.ts`; Next proxy đã được kiểm tra tạo và giữ nguyên `x-correlation-id`.
 
 ### Chưa thể tự động hoàn tất bằng code
 

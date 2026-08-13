@@ -20,4 +20,17 @@ test.describe('Production registration gate', () => {
     await expect(page.getByText('Tài khoản được cấp bởi quản trị viên hệ thống.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Tạo tài khoản' })).toHaveCount(0);
   });
+
+  test('adds and preserves the web correlation ID', async ({ request }) => {
+    const generatedResponse = await request.get('/login');
+    expect(generatedResponse.ok()).toBeTruthy();
+    expect(generatedResponse.headers()['x-correlation-id']).toMatch(/^[0-9a-f-]{36}$/i);
+
+    const upstreamId = 'production-gate-correlation-id';
+    const preservedResponse = await request.get('/login', {
+      headers: { 'x-correlation-id': upstreamId },
+    });
+    expect(preservedResponse.ok()).toBeTruthy();
+    expect(preservedResponse.headers()['x-correlation-id']).toBe(upstreamId);
+  });
 });

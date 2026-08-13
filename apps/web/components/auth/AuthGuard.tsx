@@ -6,7 +6,7 @@ import { useAuthStore } from "@/lib/auth/auth-store";
 import { Loader2 } from "lucide-react";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname() || "/";
   const [mounted, setMounted] = useState(false);
@@ -29,13 +29,18 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const publicPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
     const isPublicPath = publicPaths.includes(pathname);
+    const requiresPasswordChange = Boolean(user?.mustChangePassword);
 
     if (!isAuthenticated && !isPublicPath) {
       router.replace("/login");
-    } else if (isAuthenticated && isPublicPath) {
+    } else if (isAuthenticated && requiresPasswordChange && pathname !== "/change-password") {
+      router.replace("/change-password");
+    } else if (isAuthenticated && !requiresPasswordChange && pathname === "/change-password") {
       router.replace("/");
+    } else if (isAuthenticated && isPublicPath) {
+      router.replace(requiresPasswordChange ? "/change-password" : "/");
     }
-  }, [isAuthenticated, pathname, mounted, router]);
+  }, [isAuthenticated, pathname, mounted, router, user?.mustChangePassword]);
 
   useEffect(() => {
     if (!mounted || !isAuthenticated) return;
@@ -88,6 +93,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (isAuthenticated && publicPaths.includes(pathname)) {
     return null; // Will redirect
+  }
+
+  if (isAuthenticated && user?.mustChangePassword && pathname !== "/change-password") {
+    return null;
+  }
+
+  if (isAuthenticated && !user?.mustChangePassword && pathname === "/change-password") {
+    return null;
   }
 
   return <>{children}</>;

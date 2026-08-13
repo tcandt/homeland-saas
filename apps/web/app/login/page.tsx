@@ -31,7 +31,7 @@ export default function LoginPage() {
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
       });
-      window.location.href = "/";
+      window.location.href = response.user.mustChangePassword ? "/change-password" : "/";
     } catch (err: any) {
       setLoading(false);
       if (err instanceof ApiError) {

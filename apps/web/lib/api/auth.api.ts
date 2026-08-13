@@ -7,6 +7,7 @@ export interface User {
   tenantId: string;
   roles: string[];
   permissions: string[];
+  mustChangePassword?: boolean;
 }
 
 export interface CurrentUserProfile extends User {
@@ -21,6 +22,18 @@ export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
   user: User;
+}
+
+export interface TeamAccount {
+  id: string;
+  email: string;
+  fullName: string;
+  status: 'ACTIVE' | 'PENDING_VERIFICATION' | 'DISABLED' | 'LOCKED';
+  roles: string[];
+  lastLoginAt: string | null;
+  lastLoginIp: string | null;
+  updatedAt: string;
+  mustChangePassword: boolean;
 }
 
 export const authApi = {
@@ -45,7 +58,7 @@ export const authApi = {
     return apiClient.post<{ success: boolean }>('/auth/reset-password', data);
   },
 
-  changePassword: (data: { oldPassword: string; newPassword: string }) => {
+  changePassword: (data: { oldPassword: string; newPassword: string; confirmPassword: string }) => {
     return apiClient.post<{ success: boolean }>('/auth/change-password', data);
   },
 
@@ -55,5 +68,13 @@ export const authApi = {
 
   me: () => {
     return apiClient.get<CurrentUserProfile>('/auth/me');
+  },
+
+  team: () => {
+    return apiClient.get<TeamAccount[]>('/auth/team');
+  },
+
+  createTeamMember: (data: { fullName: string; email: string; role: 'ADMIN' | 'MANAGER' | 'SALES' | 'FINANCE'; temporaryPassword: string }) => {
+    return apiClient.post<TeamAccount>('/auth/team', data);
   },
 };

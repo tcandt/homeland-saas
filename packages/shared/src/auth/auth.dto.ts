@@ -7,8 +7,8 @@ export const LoginSchema = z.object({
 
 export const ChangePasswordSchema = z.object({
   oldPassword: z.string().min(1, 'Old password is required'),
-  newPassword: z.string().min(6, 'New password must be at least 6 characters'),
-  confirmPassword: z.string().min(6, 'Confirm password is required'),
+  newPassword: z.string().min(12, 'New password must be at least 12 characters'),
+  confirmPassword: z.string().min(12, 'Confirm password is required'),
 }).refine((data: any) => data.newPassword === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -34,9 +34,17 @@ export const ResetPasswordSchema = z.object({
   newPassword: z.string().min(12, 'Password must be at least 12 characters'),
 });
 
+export const CreateTeamMemberSchema = z.object({
+  fullName: z.string().trim().min(2, 'Full name must be at least 2 characters'),
+  email: z.string().trim().email('Invalid email address'),
+  role: z.enum(['ADMIN', 'MANAGER', 'SALES', 'FINANCE']),
+  temporaryPassword: z.string().min(12, 'Temporary password must be at least 12 characters'),
+});
+
 export type LoginInput = z.infer<typeof LoginSchema>;
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>;
 export type RefreshTokenInput = z.infer<typeof RefreshTokenSchema>;
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
+export type CreateTeamMemberInput = z.infer<typeof CreateTeamMemberSchema>;

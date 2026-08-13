@@ -22,6 +22,7 @@ function AuthSyncBridge() {
       tenantId: currentUser.tenantId,
       roles: currentUser.roles,
       permissions: currentUser.permissions,
+      mustChangePassword: currentUser.mustChangePassword,
     };
 
     const isSame =
@@ -30,7 +31,8 @@ function AuthSyncBridge() {
       existing.user?.fullName === nextUser.fullName &&
       existing.user?.tenantId === nextUser.tenantId &&
       JSON.stringify(existing.user?.roles || []) === JSON.stringify(nextUser.roles || []) &&
-      JSON.stringify(existing.user?.permissions || []) === JSON.stringify(nextUser.permissions || []);
+      JSON.stringify(existing.user?.permissions || []) === JSON.stringify(nextUser.permissions || []) &&
+      existing.user?.mustChangePassword === nextUser.mustChangePassword;
 
     if (!isSame) {
       useAuthStore.setState({

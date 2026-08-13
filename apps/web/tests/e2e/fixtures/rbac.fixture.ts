@@ -119,11 +119,15 @@ const createRoleFixture = (email: string, roleName: string) => {
 
 export const test = base.extend<{
   admin: RoleFixture;
+  ownerAdminA: RoleFixture;
+  ownerAdminB: RoleFixture;
   manager: RoleFixture;
   sales: RoleFixture;
   finance: RoleFixture;
 }>({
   admin: createRoleFixture('admin@homeland.local', 'admin'),
+  ownerAdminA: createRoleFixture('adminA@homeland.local', 'owner-admin-a'),
+  ownerAdminB: createRoleFixture('adminB@homeland.local', 'owner-admin-b'),
   manager: createRoleFixture('manager@homeland.local', 'manager'),
   sales: createRoleFixture('sales@homeland.local', 'sales'),
   finance: createRoleFixture('finance@homeland.local', 'finance'),

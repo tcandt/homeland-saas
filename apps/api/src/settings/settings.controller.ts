@@ -10,6 +10,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../shared/guards/permissions.guard';
 import { Readable } from 'stream';
 import type { Response } from 'express';
+import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 
 function parseScope(scope?: string): SettingScope {
   return scope === 'USER' ? SettingScope.USER : SettingScope.TENANT;
@@ -57,6 +58,7 @@ export class SettingsController {
   }
 
   @Get(':key')
+  @RequirePermissions('setting.read')
   @ApiOperation({ summary: 'Get a settings section' })
   @ApiQuery({ name: 'scope', required: false, enum: SettingScope })
   getSection(
@@ -69,6 +71,7 @@ export class SettingsController {
   }
 
   @Patch(':key')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Save a settings section' })
   saveSection(
     @Param('key') key: string,
@@ -81,6 +84,7 @@ export class SettingsController {
   }
 
   @Post('upload')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Upload a settings asset (avatar/logo)' })
   @UseInterceptors(FileInterceptor('file', {
     limits: {

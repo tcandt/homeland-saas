@@ -49,6 +49,7 @@ import SettingsBuildingRooms from "@/components/settings/sections/SettingsBuildi
 import SettingsLicense from "@/components/settings/sections/SettingsLicense";
 import { auditApi, AuditLogItem } from "@/lib/api/audit.api";
 import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
+import { useAuthStore } from "@/lib/auth/auth-store";
 
 export type SettingsSection =
   | "overview"
@@ -660,8 +661,10 @@ function SettingsTopTabs({ activeSection, onSelect }: { activeSection: SettingsS
 export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const user = useAuthStore((state) => state.user);
   const [activeSection, setActiveSection] = useState<SettingsSection | null>(resolveSectionParam(searchParams.get("section")));
   const [isPending, startTransition] = useTransition();
+  const canReadSettings = (user?.email || "").toLowerCase() === "admin@homeland.local" || Boolean(user?.permissions?.includes("setting.read"));
 
   useEffect(() => {
     setActiveSection(resolveSectionParam(searchParams.get("section")));
@@ -697,6 +700,21 @@ export default function SettingsPage() {
       default: return <SettingsDashboard onSelect={changeSection} />;
     }
   };
+
+  if (!canReadSettings) {
+    return (
+      <AppShell>
+        <div className="mx-auto flex min-h-[60vh] w-full max-w-[720px] items-center justify-center px-[20px]">
+          <div className="w-full rounded-[8px] border border-warning/30 bg-card p-[24px] text-center shadow-sm" data-testid="settings-access-denied">
+            <Shield size={24} className="mx-auto text-warning" aria-hidden="true" />
+            <h1 className="mt-[12px] text-[17px] font-black text-text">Không có quyền truy cập cài đặt</h1>
+            <p className="mt-[6px] text-[12px] font-medium leading-[18px] text-muted">Tài khoản cần quyền `setting.read` để xem khu vực này.</p>
+            <Button type="button" onClick={() => router.replace("/")} className="mt-[16px] rounded-[8px]">Về tổng quan</Button>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>

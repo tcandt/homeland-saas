@@ -1,13 +1,15 @@
 import { Controller, Post, Body, Get, Patch, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema, RegisterSchema, ForgotPasswordSchema, ResetPasswordSchema } from '@homeland/shared';
+import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema, RegisterSchema, ForgotPasswordSchema, ResetPasswordSchema, CreateTeamMemberSchema } from '@homeland/shared';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { Public } from '../shared/decorators/public.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
+import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
+import { AllowPasswordChangeRequired } from '../shared/decorators/allow-password-change-required.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -65,6 +67,7 @@ export class AuthController {
 
   @Post('logout')
   @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
   @ApiOperation({ summary: 'Logout and revoke refresh token' })
   logout(@CurrentUser('id') userId: string) {
     return this.authService.logout(userId);
@@ -81,9 +84,31 @@ export class AuthController {
 
   @Get('me')
   @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
   @ApiOperation({ summary: 'Get current user profile and permissions' })
   getMe(@CurrentUser('id') userId: string) {
     return this.authService.getMe(userId);
+  }
+
+  @Get('team')
+  @ApiBearerAuth()
+  @RequirePermissions('setting.read')
+  @ApiOperation({ summary: 'List tenant user accounts and roles for settings' })
+  listTeam(@CurrentUser('tenantId') tenantId: string) {
+    return this.authService.listTeam(tenantId);
+  }
+
+  @Post('team')
+  @ApiBearerAuth()
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Provision a tenant user with an existing role' })
+  createTeamMember(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') actorUserId: string,
+    @Body() body: unknown,
+  ) {
+    const input = CreateTeamMemberSchema.parse(body);
+    return this.authService.createTeamMember(tenantId, actorUserId, input);
   }
 
   @Patch('me')
@@ -95,6 +120,7 @@ export class AuthController {
 
   @Post('change-password')
   @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
   @ApiOperation({ summary: 'Change password' })
   changePassword(@CurrentUser('id') userId: string, @Body() body: any) {
     const input = ChangePasswordSchema.parse(body);

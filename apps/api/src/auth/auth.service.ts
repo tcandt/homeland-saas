@@ -1,10 +1,10 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
-import { LoginInput, ChangePasswordInput, RegisterInput, ForgotPasswordInput, ResetPasswordInput } from '@homeland/shared';
+import { LoginInput, ChangePasswordInput, RegisterInput, ForgotPasswordInput, ResetPasswordInput, CreateTeamMemberInput } from '@homeland/shared';
 import { ErrorCodes } from '../shared/exceptions/error-codes';
 import * as crypto from 'crypto';
 import { MailProvider } from './services/mail.service';
@@ -73,6 +73,7 @@ export class AuthService {
       email: user.email,
       roles,
       permissions,
+      mustChangePassword: user.mustChangePassword,
     };
 
     const accessToken = this.jwtService.sign(payload, {
@@ -115,6 +116,7 @@ export class AuthService {
         tenantId: user.tenantId,
         roles,
         permissions,
+        mustChangePassword: user.mustChangePassword,
       }
     };
   }
@@ -169,7 +171,7 @@ export class AuthService {
     const roles = user.roles.map(ur => ur.role.code);
     const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
 
-    const payload = { sub: user.id, tenantId: user.tenantId, email: user.email, roles, permissions };
+    const payload = { sub: user.id, tenantId: user.tenantId, email: user.email, roles, permissions, mustChangePassword: user.mustChangePassword };
     const accessToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
     const refreshToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
@@ -203,6 +205,7 @@ export class AuthService {
         tenantId: user.tenantId,
         roles,
         permissions,
+        mustChangePassword: user.mustChangePassword,
       }
     };
   }
@@ -252,7 +255,7 @@ export class AuthService {
       const roles = user.roles.map(ur => ur.role.code);
       const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
 
-      const payload = { sub: user.id, tenantId: user.tenantId, email: user.email, roles, permissions };
+      const payload = { sub: user.id, tenantId: user.tenantId, email: user.email, roles, permissions, mustChangePassword: user.mustChangePassword };
 
       const newAccessToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
       const newRefreshToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
@@ -266,6 +269,7 @@ export class AuthService {
       return {
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
+        mustChangePassword: user.mustChangePassword,
       };
     } catch (e) {
       throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_EXPIRED, message: 'Refresh token expired or invalid' });
@@ -329,7 +333,9 @@ export class AuthService {
       data: {
         passwordHash,
         passwordResetHash: null,
-        passwordResetExpires: null
+        passwordResetExpires: null,
+        mustChangePassword: false,
+        refreshTokenHash: null,
       }
     });
 
@@ -369,6 +375,123 @@ export class AuthService {
       tenant: { id: user.tenant.id, name: user.tenant.name, code: user.tenant.code },
       roles,
       permissions,
+      mustChangePassword: user.mustChangePassword,
+    };
+  }
+
+  async listTeam(tenantId: string) {
+    const users = await this.prisma.user.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        status: true,
+        mustChangePassword: true,
+        lastLoginAt: true,
+        lastLoginIp: true,
+        updatedAt: true,
+        roles: {
+          select: {
+            role: {
+              select: {
+                code: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [
+        { email: 'asc' },
+      ],
+    });
+
+    return users.map((user) => ({
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      status: user.status,
+      mustChangePassword: user.mustChangePassword,
+      roles: user.roles.map((assignment) => assignment.role.code),
+      lastLoginAt: user.lastLoginAt,
+      lastLoginIp: user.lastLoginIp,
+      updatedAt: user.updatedAt,
+    }));
+  }
+
+  async createTeamMember(tenantId: string, actorUserId: string, input: CreateTeamMemberInput) {
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findFirst({
+      where: {
+        tenantId,
+        email: normalizedEmail,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException({ code: 'AUTH_EMAIL_EXISTS', message: 'Email is already registered in this tenant' });
+    }
+
+    const role = await this.prisma.role.findUnique({
+      where: { code: input.role },
+      select: { id: true, code: true },
+    });
+    if (!role) {
+      throw new NotFoundException({ code: 'AUTH_ROLE_NOT_FOUND', message: 'Role is not configured' });
+    }
+
+    const passwordHash = await bcrypt.hash(input.temporaryPassword, 12);
+    const user = await this.prisma.$transaction(async (tx) => {
+      return tx.user.create({
+        data: {
+          tenantId,
+          email: normalizedEmail,
+          fullName: input.fullName.trim(),
+          passwordHash,
+          status: 'ACTIVE',
+          mustChangePassword: true,
+          roles: {
+            create: {
+              roleId: role.id,
+            },
+          },
+        },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          status: true,
+          mustChangePassword: true,
+          lastLoginAt: true,
+          lastLoginIp: true,
+          updatedAt: true,
+        },
+      });
+    });
+
+    await this.audit.log({
+      action: 'CREATE',
+      entity: 'User',
+      entityId: user.id,
+      module: 'Auth',
+      tenantId,
+      userId: actorUserId,
+      after: {
+        email: user.email,
+        fullName: user.fullName,
+        role: role.code,
+        status: user.status,
+      },
+    });
+
+    return {
+      ...user,
+      roles: [role.code],
     };
   }
 
@@ -405,6 +528,7 @@ export class AuthService {
       tenant: { id: user.tenant.id, name: user.tenant.name, code: user.tenant.code },
       roles,
       permissions,
+      mustChangePassword: user.mustChangePassword,
     };
   }
 
@@ -417,10 +541,19 @@ export class AuthService {
       throw new UnauthorizedException({ code: ErrorCodes.AUTH_INVALID_CREDENTIALS, message: 'Invalid old password' });
     }
 
+    const isReusedPassword = await bcrypt.compare(input.newPassword, user.passwordHash);
+    if (isReusedPassword) {
+      throw new BadRequestException({ code: 'AUTH_PASSWORD_REUSED', message: 'New password must be different from the current password' });
+    }
+
     const newPasswordHash = await bcrypt.hash(input.newPassword, 12);
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash: newPasswordHash },
+      data: {
+        passwordHash: newPasswordHash,
+        mustChangePassword: false,
+        refreshTokenHash: null,
+      },
     });
 
     await this.audit.log({
@@ -428,6 +561,7 @@ export class AuthService {
       entity: 'User',
       entityId: userId,
       module: 'Auth',
+      tenantId: user.tenantId,
       userId: userId
     });
 

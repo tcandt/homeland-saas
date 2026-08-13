@@ -194,12 +194,13 @@ model Owner {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  tenantId     String
-  email        String
-  fullName     String
-  passwordHash String
-  status       UserStatus @default(ACTIVE)
+  id                 String     @id @default(cuid())
+  tenantId           String
+  email              String
+  fullName           String
+  passwordHash       String
+  status             UserStatus @default(ACTIVE)
+  mustChangePassword Boolean    @default(false)
 
   // Refresh Token Rotation
   refreshTokenHash String?

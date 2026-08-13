@@ -16,7 +16,7 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 - [x] Build production cô lập; kiểm tra không dừng port dev, không xóa cache và không chạy CRUD trên DB thật.
 - [x] E2E có tạo/sửa/xóa dữ liệu chỉ chạy khi đặt `RUN_DESTRUCTIVE_E2E=true` trên database dùng một lần.
 - [x] Bộ regression production dùng API read-only hoặc mock cho các write flow.
-- [x] Audit 10 trang desktop ở light/dark kiểm tra lỗi console, overflow, màu nền/chữ và lưu ảnh bằng chứng.
+- [x] Audit toàn bộ 28 route giao diện desktop ở light/dark, gồm route vận hành, public, maintenance được bảo vệ và bắt buộc đổi mật khẩu; kiểm tra lỗi console, overflow, màu nền/chữ và lưu ảnh bằng chứng.
 - [x] Prisma có đủ 7 migration trên database hiện tại.
 - [x] Prisma dùng một provider global duy nhất; API không còn tạo connection pool lặp theo feature module.
 - [x] Attachment chi phí dùng storage root ổn định ở dev/production, chặn path traversal và trả 404 khi file không tồn tại.
@@ -24,7 +24,7 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 
 ### Bằng chứng release candidate desktop gần nhất
 
-Lần chạy: `2026-08-13 15:07` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+Lần chạy: `2026-08-13 15:20` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
 
 | Cổng kiểm tra | Kết quả |
 |---|---|
@@ -35,8 +35,8 @@ Lần chạy: `2026-08-13 15:07` (Asia/Bangkok), local production bundle cô l�
 | Web typecheck + unit | PASS, `49/49` |
 | API + Next production build | PASS |
 | Health/readiness | PASS |
-| Production Playwright desktop | PASS, `40/40` |
-| Light/dark | PASS trên 10 trang/mỗi theme; không overflow, page error, console error hoặc HTTP 5xx ngoài SSE 503 cố ý của fixture |
+| Production Playwright desktop | PASS, `44/44` |
+| Light/dark | PASS trên toàn bộ `28/28` route giao diện ở mỗi theme (`56` lượt render); không redirect sai, overflow, page error, console error hoặc HTTP 5xx ngoài SSE 503 cố ý của fixture |
 | Persona | PASS đăng nhập/RBAC cho `admin`, `adminA`, `adminB`, `manager`; admin vận hành có đủ 5 trường integration secret ở trạng thái chỉ đọc |
 | Public registration | PASS: API `403`, UI hiển thị đăng ký đóng và không có nút tạo account |
 | Vòng đời | PASS regression cọc, giữ/khấu trừ/hoàn cọc, quyết toán, hoàn tiền, trạng thái phòng, chi phí, SePay và credit hóa đơn |
@@ -165,7 +165,7 @@ Không đặt cờ này khi trỏ tới database vận hành.
 
 - [x] Bốn persona đăng nhập thành công trong production gate local.
 - [ ] Bốn persona nhận credential bàn giao và tự đổi mật khẩu lần đầu trên staging/production.
-- [x] Light/dark desktop đạt 10/10 trang trên production bundle local, không overflow và không console error.
+- [x] Light/dark desktop đạt 28/28 route giao diện trên production bundle local, không redirect sai, overflow hoặc console error.
 - [x] Public registration trả 403 và trang `/register` báo đang đóng trên production bundle local.
 - [ ] QR/SePay về đúng bank và owner; webhook không ghi trùng.
 - [ ] Hunonic sync được, không trùng dữ liệu và không ghi đè kỳ khóa.

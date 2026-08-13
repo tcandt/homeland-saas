@@ -748,8 +748,9 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Chuẩn hóa Prisma thành một global provider, loại connection pool lặp và xác nhận các endpoint production không còn lỗi cạn kết nối.
 - [x] Ổn định storage chứng từ chi phí giữa repo root và `apps/web`; file thiếu trả 404 và đường dẫn traversal bị chặn.
 - [x] Chuyển notification SSE sang Bearer header và loại JWT khỏi query string.
-- [x] Chạy production gate local cuối: migration `7/7`, API `181/181`, web `47/47`, Playwright desktop `38/38`.
+- [x] Chạy production gate local cuối: migration `7/7`, API `181/181`, web `47/47`, Playwright desktop `39/39`.
 - [x] Xác nhận light/dark trên 10 trang và RBAC cho `admin`, `adminA`, `adminB`, `manager`.
+- [x] Xác nhận public registration fail-closed ở cả API (`403`) và UI production.
 
 ### 17. Điều kiện bên ngoài còn phải hoàn tất trước LIVE
 

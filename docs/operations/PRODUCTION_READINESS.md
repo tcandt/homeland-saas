@@ -24,7 +24,7 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 
 ### Bằng chứng release candidate desktop gần nhất
 
-Lần chạy: `2026-08-13 14:24` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+Lần chạy: `2026-08-13 14:39` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
 
 | Cổng kiểm tra | Kết quả |
 |---|---|
@@ -35,9 +35,10 @@ Lần chạy: `2026-08-13 14:24` (Asia/Bangkok), local production bundle cô l�
 | Web typecheck + unit | PASS, `47/47` |
 | API + Next production build | PASS |
 | Health/readiness | PASS |
-| Production Playwright desktop | PASS, `38/38` |
+| Production Playwright desktop | PASS, `39/39` |
 | Light/dark | PASS trên 10 trang/mỗi theme; không overflow, page error, console error hoặc HTTP 5xx ngoài SSE 503 cố ý của fixture |
 | Persona | PASS đăng nhập/RBAC cho `admin`, `adminA`, `adminB`, `manager` |
+| Public registration | PASS: API `403`, UI hiển thị đăng ký đóng và không có nút tạo account |
 | Vòng đời | PASS regression cọc, giữ/khấu trừ/hoàn cọc, quyết toán, hoàn tiền, trạng thái phòng, chi phí, SePay và credit hóa đơn |
 
 Phạm vi bằng chứng:
@@ -164,7 +165,7 @@ Không đặt cờ này khi trỏ tới database vận hành.
 - [x] Bốn persona đăng nhập thành công trong production gate local.
 - [ ] Bốn persona nhận credential bàn giao và tự đổi mật khẩu lần đầu trên staging/production.
 - [x] Light/dark desktop đạt 10/10 trang trên production bundle local, không overflow và không console error.
-- [ ] Public registration trả 403 và trang `/register` báo đang đóng.
+- [x] Public registration trả 403 và trang `/register` báo đang đóng trên production bundle local.
 - [ ] QR/SePay về đúng bank và owner; webhook không ghi trùng.
 - [ ] Hunonic sync được, không trùng dữ liệu và không ghi đè kỳ khóa.
 - [ ] Zalo/Telegram/SMTP gửi được và retry thất bại có log.

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { BaseCrudService } from '../shared/services/base-crud.service';
 import { Building } from '@prisma/client';
 import { BuildingsRepository } from './buildings.repository';
@@ -172,35 +172,14 @@ export class BuildingsService extends BaseCrudService<Building> {
   async softDelete(id: string, userId?: string, moduleName?: string): Promise<Building> {
     const building = await this.getDetail(id, {
       floors: { where: { deletedAt: null } },
-      rooms: {
-        where: { deletedAt: null },
-        include: { contracts: { where: { deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } }
-      }
+      rooms: { where: { deletedAt: null } },
     });
-    
+
     const rooms = (building as any).rooms || [];
     const floors = (building as any).floors || [];
-    const hasActiveContracts = rooms.some((r: any) => r.contracts && r.contracts.length > 0);
 
-    if (hasActiveContracts) {
-      const { HttpException, HttpStatus } = await import('@nestjs/common');
-      throw new HttpException('Không thể xóa tòa nhà. Một số phòng đang có hợp đồng hoạt động.', HttpStatus.CONFLICT);
-    }
-    
-    if (rooms.length > 0) {
-      const roomIds = rooms.map((r: any) => r.id);
-      await this.prisma.room.updateMany({
-        where: { id: { in: roomIds } },
-        data: { deletedAt: new Date(), deletedBy: userId }
-      });
-    }
-
-    if (floors.length > 0) {
-      const floorIds = floors.map((f: any) => f.id);
-      await this.prisma.floor.updateMany({
-        where: { id: { in: floorIds } },
-        data: { deletedAt: new Date(), deletedBy: userId }
-      });
+    if (rooms.length > 0 || floors.length > 0) {
+      throw new ConflictException('Không thể xóa tòa nhà khi vẫn còn tầng hoặc phòng.');
     }
 
     return super.softDelete(id, userId, moduleName);

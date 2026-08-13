@@ -215,34 +215,30 @@ describe('BuildingsService', () => {
       expect(repository.softDelete).toHaveBeenCalledWith('b1', 'u1');
     });
 
-    it('should reject delete if active floors or rooms exist', async () => {
+    it('should reject delete if rooms exist', async () => {
       vi.spyOn(repository, 'findById').mockResolvedValue({
         id: 'b1',
         floors: [],
-        rooms: [{ id: 'r1', contracts: [{ id: 'c1' }] }],
+        rooms: [{ id: 'r1' }],
       } as any);
-      
+
       await expect(service.softDelete('b1', 'u1')).rejects.toThrow(HttpException);
+      expect(repository.softDelete).not.toHaveBeenCalled();
+      expect(prismaService.room.updateMany).not.toHaveBeenCalled();
+      expect(prismaService.floor.updateMany).not.toHaveBeenCalled();
     });
 
-    it('should cascade soft delete floors and rooms without active contracts', async () => {
+    it('should reject delete if floors exist', async () => {
       vi.spyOn(repository, 'findById').mockResolvedValue({
         id: 'b1',
         floors: [{ id: 'f1' }],
-        rooms: [{ id: 'r1', contracts: [] }],
+        rooms: [],
       } as any);
-      vi.spyOn(repository, 'softDelete').mockResolvedValue({ id: 'b1' } as any);
 
-      await service.softDelete('b1', 'u1');
-
-      expect(prismaService.room.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['r1'] } },
-        data: { deletedAt: expect.any(Date), deletedBy: 'u1' },
-      });
-      expect(prismaService.floor.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['f1'] } },
-        data: { deletedAt: expect.any(Date), deletedBy: 'u1' },
-      });
+      await expect(service.softDelete('b1', 'u1')).rejects.toThrow(HttpException);
+      expect(repository.softDelete).not.toHaveBeenCalled();
+      expect(prismaService.room.updateMany).not.toHaveBeenCalled();
+      expect(prismaService.floor.updateMany).not.toHaveBeenCalled();
     });
   });
 });

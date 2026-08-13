@@ -98,4 +98,124 @@ describe('SettingsService', () => {
       ),
     ).rejects.toThrow('OWNER_NAME_REQUIRED');
   });
+
+  it('does not return protected integration secrets from settings', async () => {
+    prisma.appSetting.findUnique.mockResolvedValue({
+      value: {
+        enabled: true,
+        smtpHost: 'smtp.example.test',
+        smtpPassword: 'secret-password',
+      },
+      updatedAt: new Date('2026-08-12T00:00:00.000Z'),
+    });
+
+    const result = await service.getSection('tenant-1', 'user-1', 'email-provider', SettingScope.TENANT);
+
+    expect(result.value).toEqual({
+      enabled: true,
+      smtpHost: 'smtp.example.test',
+    });
+  });
+
+  it('rejects integration secret changes from the regular admin and writes a redacted audit event', async () => {
+    prisma.user.findFirst.mockResolvedValue({ email: 'admin@homeland.local' });
+
+    await expect(
+      service.saveSection(
+        'tenant-1',
+        'user-1',
+        'telegram-provider',
+        SettingScope.TENANT,
+        { enabled: true, botToken: 'new-secret-token' },
+        'user-1',
+      ),
+    ).rejects.toThrow('Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu tích hợp.');
+
+    expect(prisma.appSetting.upsert).not.toHaveBeenCalled();
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'UPDATE',
+      entityId: 'telegram-provider',
+      before: expect.objectContaining({
+        denied: true,
+        reason: 'INTEGRATION_SECRET_UPDATE_FORBIDDEN',
+        fields: ['botToken'],
+      }),
+      after: expect.objectContaining({ botToken: '__redacted__' }),
+    }));
+  });
+
+  it('allows owner admin A to replace a secret without returning it in the response', async () => {
+    prisma.user.findFirst.mockResolvedValue({ email: 'adminA@homeland.local' });
+    prisma.appSetting.upsert.mockResolvedValue({
+      id: 'setting-email',
+      key: 'email-provider',
+      scope: SettingScope.TENANT,
+      value: {
+        enabled: true,
+        smtpHost: 'smtp.example.test',
+        smtpPassword: 'new-secret-password',
+      },
+      updatedAt: new Date('2026-08-12T00:00:00.000Z'),
+    });
+
+    const result = await service.saveSection(
+      'tenant-1',
+      'owner-a-user',
+      'email-provider',
+      SettingScope.TENANT,
+      { enabled: true, smtpHost: 'smtp.example.test', smtpPassword: 'new-secret-password' },
+      'owner-a-user',
+    );
+
+    expect(prisma.appSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        value: expect.objectContaining({ smtpPassword: 'new-secret-password' }),
+      }),
+    }));
+    expect(result.value).toEqual({ enabled: true, smtpHost: 'smtp.example.test' });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      after: expect.objectContaining({ smtpPassword: '__redacted__' }),
+    }));
+  });
+
+  it('preserves an existing secret when an operational settings update omits it', async () => {
+    prisma.appSetting.findUnique.mockResolvedValue({
+      value: {
+        enabled: true,
+        defaultChatId: 'old-chat',
+        botToken: 'existing-secret-token',
+      },
+    });
+    prisma.appSetting.upsert.mockResolvedValue({
+      id: 'setting-telegram',
+      key: 'telegram-provider',
+      scope: SettingScope.TENANT,
+      value: {
+        enabled: true,
+        defaultChatId: 'new-chat',
+        botToken: 'existing-secret-token',
+      },
+      updatedAt: new Date('2026-08-12T00:00:00.000Z'),
+    });
+
+    await service.saveSection(
+      'tenant-1',
+      'user-1',
+      'telegram-provider',
+      SettingScope.TENANT,
+      { enabled: true, defaultChatId: 'new-chat' },
+      'user-1',
+    );
+
+    expect(prisma.user.findFirst).not.toHaveBeenCalled();
+    expect(prisma.appSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: {
+        value: expect.objectContaining({
+          defaultChatId: 'new-chat',
+          botToken: 'existing-secret-token',
+        }),
+        updatedBy: 'user-1',
+      },
+    }));
+  });
 });

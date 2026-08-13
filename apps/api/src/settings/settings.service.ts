@@ -10,6 +10,19 @@ export interface SettingsSectionRecord {
   updatedAt: Date;
 }
 
+const PROTECTED_SETTING_FIELDS: Record<string, readonly string[]> = {
+  hunonic: ['password', 'websiteToken', 'websiteCookie'],
+  sepay: ['webhookApiKey'],
+  'zalo-provider': ['accessToken', 'appSecret'],
+  'email-provider': ['smtpPassword'],
+  'telegram-provider': ['botToken'],
+};
+
+const SECRET_ADMIN_EMAILS = new Set([
+  'admina@homeland.local',
+  'adminb@homeland.local',
+]);
+
 @Injectable()
 export class SettingsService {
   constructor(
@@ -37,7 +50,7 @@ export class SettingsService {
     return {
       key,
       scope,
-      value: record?.value ?? {},
+      value: omitProtectedFields(key, record?.value ?? {}),
       updatedAt: record?.updatedAt ?? new Date(0),
     };
   }
@@ -122,20 +135,21 @@ export class SettingsService {
     return {
       key: record.key,
       scope: record.scope,
-      value: record.value,
+      value: omitProtectedFields(key, record.value),
       updatedAt: record.updatedAt,
     };
   }
 
   private async ensureSecretUpdateAllowed(tenantId: string, userId: string, key: string, value: Prisma.InputJsonValue) {
-    if (key !== 'hunonic' || !containsHunonicSecret(value)) return;
+    const submittedSecretFields = getSubmittedSecretFields(key, value);
+    if (submittedSecretFields.length === 0) return;
 
     const user = await this.prisma.user.findFirst({
       where: { id: userId, tenantId },
       select: { email: true },
     });
     const email = user?.email?.toLowerCase() ?? '';
-    if (email === 'admina@homeland.local' || email === 'adminb@homeland.local') return;
+    if (SECRET_ADMIN_EMAILS.has(email)) return;
 
     await this.audit.log({
       action: 'UPDATE',
@@ -144,11 +158,16 @@ export class SettingsService {
       module: 'Settings',
       tenantId,
       userId,
-      before: { denied: true, reason: 'HUNONIC_SECRET_UPDATE_FORBIDDEN', key },
+      before: {
+        denied: true,
+        reason: 'INTEGRATION_SECRET_UPDATE_FORBIDDEN',
+        key,
+        fields: submittedSecretFields,
+      },
       after: sanitizeSettingsAuditValue(key, value),
     });
 
-    throw new BadRequestException('Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu Hunonic.');
+    throw new BadRequestException('Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu tích hợp.');
   }
 }
 
@@ -203,10 +222,11 @@ function normalizeOptionalText(value: unknown) {
 }
 
 function mergePreservedSecrets(key: string, previous: Prisma.JsonValue | undefined, next: Prisma.InputJsonValue) {
-  if (key !== 'hunonic' || !isRecord(previous) || !isRecord(next)) return next;
+  const protectedFields = PROTECTED_SETTING_FIELDS[key] || [];
+  if (protectedFields.length === 0 || !isRecord(previous) || !isRecord(next)) return next;
 
   const merged = { ...previous, ...next };
-  for (const secretKey of ['password', 'websiteToken', 'websiteCookie']) {
+  for (const secretKey of protectedFields) {
     if (!Object.prototype.hasOwnProperty.call(next, secretKey)) {
       merged[secretKey] = previous[secretKey];
     }
@@ -218,19 +238,29 @@ function isRecord(value: unknown): value is Record<string, any> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function containsHunonicSecret(value: Prisma.InputJsonValue) {
-  if (!isRecord(value)) return false;
-  return ['password', 'websiteToken', 'websiteCookie'].some((key) => Object.prototype.hasOwnProperty.call(value, key));
+function getSubmittedSecretFields(key: string, value: Prisma.InputJsonValue) {
+  if (!isRecord(value)) return [];
+  return (PROTECTED_SETTING_FIELDS[key] || []).filter((field) => Object.prototype.hasOwnProperty.call(value, field));
+}
+
+function omitProtectedFields(key: string, value: Prisma.JsonValue): Prisma.JsonValue {
+  if (!isRecord(value)) return value;
+  const protectedFields = PROTECTED_SETTING_FIELDS[key] || [];
+  if (protectedFields.length === 0) return value;
+
+  const filtered = { ...value };
+  for (const field of protectedFields) {
+    delete filtered[field];
+  }
+  return filtered as Prisma.JsonValue;
 }
 
 function sanitizeSettingsAuditValue(key: string, value: Prisma.JsonValue | Prisma.InputJsonValue | undefined) {
   if (!value || !isRecord(value)) return value ?? null;
   const sanitized = { ...value };
-  if (key === 'hunonic') {
-    for (const secretKey of ['password', 'websiteToken', 'websiteCookie']) {
-      if (Object.prototype.hasOwnProperty.call(sanitized, secretKey)) {
-        sanitized[secretKey] = sanitized[secretKey] ? '__redacted__' : '';
-      }
+  for (const secretKey of PROTECTED_SETTING_FIELDS[key] || []) {
+    if (Object.prototype.hasOwnProperty.call(sanitized, secretKey)) {
+      sanitized[secretKey] = sanitized[secretKey] ? '__redacted__' : '';
     }
   }
   return sanitized;

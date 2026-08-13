@@ -1,12 +1,13 @@
 "use client";
 
-import React from "react";
-import { Bot, Send, ShieldCheck } from "lucide-react";
+import React, { useState } from "react";
+import { Bot, LockKeyhole, Send, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
+import { useAuthStore } from "@/lib/auth/auth-store";
 
 type TelegramSettings = {
   enabled: boolean;
@@ -28,6 +29,16 @@ const fallback: TelegramSettings = {
 
 export default function SettingsTelegramIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<TelegramSettings>("telegram-provider", "TENANT", fallback);
+  const user = useAuthStore((state) => state.user);
+  const [botTokenTouched, setBotTokenTouched] = useState(false);
+  const canEditSecrets = ["admina@homeland.local", "adminb@homeland.local"].includes((user?.email || "").toLowerCase());
+
+  const saveTelegram = async () => {
+    const payload: Partial<TelegramSettings> = { ...draft };
+    if (!canEditSecrets || !botTokenTouched) delete payload.botToken;
+    await save(payload as TelegramSettings);
+    setBotTokenTouched(false);
+  };
 
   return (
     <Card className="p-[20px] flex flex-col gap-[18px] border-[#22c55e]/15">
@@ -50,7 +61,17 @@ export default function SettingsTelegramIntegration() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-[16px]">
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Bot token</label>
-          <Input type="password" value={draft.botToken} onChange={(event) => setDraft((prev) => ({ ...prev, botToken: event.target.value }))} placeholder="123456:ABC..." />
+          <Input
+            type="password"
+            value={draft.botToken}
+            onChange={(event) => {
+              setBotTokenTouched(true);
+              setDraft((prev) => ({ ...prev, botToken: event.target.value }));
+            }}
+            placeholder={canEditSecrets ? "Để trống để giữ nguyên bot token" : "Chỉ owner admin A/B được chỉnh sửa"}
+            disabled={!canEditSecrets}
+            data-testid="integration-secret-field"
+          />
         </div>
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Default chat ID</label>
@@ -81,8 +102,15 @@ export default function SettingsTelegramIntegration() {
         </div>
       </div>
 
+      {!canEditSecrets && (
+        <div className="flex items-start gap-[9px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[11px] text-[12px] font-medium leading-[18px] text-muted">
+          <LockKeyhole size={15} className="mt-[1px] shrink-0 text-warning" aria-hidden="true" />
+          Bot token chỉ được chỉnh sửa bởi owner admin A/B.
+        </div>
+      )}
+
       <div className="flex justify-end">
-        <Button type="button" onClick={() => save()} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
+        <Button type="button" onClick={saveTelegram} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
           Lưu Telegram
         </Button>
       </div>

@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useMemo } from "react";
-import { Copy, CreditCard, Link2, MessageSquareText } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { Copy, CreditCard, Link2, LockKeyhole, MessageSquareText } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
+import { useAuthStore } from "@/lib/auth/auth-store";
 
 type SePaySettings = {
   enabled: boolean;
@@ -31,6 +32,9 @@ const fallback: SePaySettings = {
 
 export default function SettingsSePayIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<SePaySettings>("sepay", "TENANT", fallback);
+  const user = useAuthStore((state) => state.user);
+  const [webhookApiKeyTouched, setWebhookApiKeyTouched] = useState(false);
+  const canEditSecrets = ["admina@homeland.local", "adminb@homeland.local"].includes((user?.email || "").toLowerCase());
 
   const webhookUrl = useMemo(() => {
     const base = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api/v1";
@@ -40,6 +44,13 @@ export default function SettingsSePayIntegration() {
   const copyWebhook = async () => {
     await navigator.clipboard.writeText(webhookUrl);
     toast.success("Đã copy webhook URL");
+  };
+
+  const saveSePay = async () => {
+    const payload: Partial<SePaySettings> = { ...draft };
+    if (!canEditSecrets || !webhookApiKeyTouched) delete payload.webhookApiKey;
+    await save(payload as SePaySettings);
+    setWebhookApiKeyTouched(false);
   };
 
   return (
@@ -81,9 +92,15 @@ export default function SettingsSePayIntegration() {
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Webhook API key</label>
             <Input
+              type="password"
               value={draft.webhookApiKey}
-              onChange={(event) => setDraft((prev) => ({ ...prev, webhookApiKey: event.target.value }))}
-              placeholder="API key dùng để xác thực webhook"
+              onChange={(event) => {
+                setWebhookApiKeyTouched(true);
+                setDraft((prev) => ({ ...prev, webhookApiKey: event.target.value }));
+              }}
+              placeholder={canEditSecrets ? "Để trống để giữ nguyên API key" : "Chỉ owner admin A/B được chỉnh sửa"}
+              disabled={!canEditSecrets}
+              data-testid="integration-secret-field"
             />
           </div>
           <div className="flex flex-col gap-[6px]">
@@ -138,10 +155,17 @@ export default function SettingsSePayIntegration() {
         </div>
       </Card>
 
+      {!canEditSecrets && (
+        <div className="flex items-start gap-[9px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[11px] text-[12px] font-medium leading-[18px] text-muted">
+          <LockKeyhole size={15} className="mt-[1px] shrink-0 text-warning" aria-hidden="true" />
+          Token và mật khẩu tích hợp chỉ được chỉnh sửa bởi owner admin A/B. Các cấu hình vận hành khác vẫn có thể lưu bình thường.
+        </div>
+      )}
+
       <div className="flex justify-end">
         <Button
           type="button"
-          onClick={() => save()}
+          onClick={saveSePay}
           className="h-[44px] rounded-[12px] bg-primary px-[24px] text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-primary/90"
           isLoading={isSaving}
         >

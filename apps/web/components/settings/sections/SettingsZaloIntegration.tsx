@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
-import { MessageCircle, Copy, ShieldCheck, Smartphone } from "lucide-react";
+import { MessageCircle, Copy, LockKeyhole, ShieldCheck, Smartphone } from "lucide-react";
 import toast from "react-hot-toast";
+import { useAuthStore } from "@/lib/auth/auth-store";
 
 type ZaloSettings = {
   enabled: boolean;
@@ -37,6 +38,9 @@ const fallback: ZaloSettings = {
 
 export default function SettingsZaloIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<ZaloSettings>("zalo-provider", "TENANT", fallback);
+  const user = useAuthStore((state) => state.user);
+  const [secretTouched, setSecretTouched] = useState({ accessToken: false, appSecret: false });
+  const canEditSecrets = ["admina@homeland.local", "adminb@homeland.local"].includes((user?.email || "").toLowerCase());
 
   const webhookHint = useMemo(() => {
     const base = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api/v1";
@@ -46,6 +50,14 @@ export default function SettingsZaloIntegration() {
   const copyHint = async () => {
     await navigator.clipboard.writeText(webhookHint);
     toast.success("Đã copy endpoint");
+  };
+
+  const saveZalo = async () => {
+    const payload: Partial<ZaloSettings> = { ...draft };
+    if (!canEditSecrets || !secretTouched.accessToken) delete payload.accessToken;
+    if (!canEditSecrets || !secretTouched.appSecret) delete payload.appSecret;
+    await save(payload as ZaloSettings);
+    setSecretTouched({ accessToken: false, appSecret: false });
   };
 
   return (
@@ -78,11 +90,31 @@ export default function SettingsZaloIntegration() {
           </div>
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Access token</label>
-            <Input value={draft.accessToken} onChange={(event) => setDraft((prev) => ({ ...prev, accessToken: event.target.value }))} placeholder="Zalo access token" />
+            <Input
+              type="password"
+              value={draft.accessToken}
+              onChange={(event) => {
+                setSecretTouched((prev) => ({ ...prev, accessToken: true }));
+                setDraft((prev) => ({ ...prev, accessToken: event.target.value }));
+              }}
+              placeholder={canEditSecrets ? "Để trống để giữ nguyên access token" : "Chỉ owner admin A/B được chỉnh sửa"}
+              disabled={!canEditSecrets}
+              data-testid="integration-secret-field"
+            />
           </div>
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">App secret</label>
-            <Input value={draft.appSecret} onChange={(event) => setDraft((prev) => ({ ...prev, appSecret: event.target.value }))} placeholder="Zalo app secret" />
+            <Input
+              type="password"
+              value={draft.appSecret}
+              onChange={(event) => {
+                setSecretTouched((prev) => ({ ...prev, appSecret: true }));
+                setDraft((prev) => ({ ...prev, appSecret: event.target.value }));
+              }}
+              placeholder={canEditSecrets ? "Để trống để giữ nguyên app secret" : "Chỉ owner admin A/B được chỉnh sửa"}
+              disabled={!canEditSecrets}
+              data-testid="integration-secret-field"
+            />
           </div>
           <div className="flex flex-col gap-[6px] lg:col-span-2">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Message API endpoint</label>
@@ -136,8 +168,15 @@ export default function SettingsZaloIntegration() {
         </div>
       </Card>
 
+      {!canEditSecrets && (
+        <div className="flex items-start gap-[9px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[11px] text-[12px] font-medium leading-[18px] text-muted">
+          <LockKeyhole size={15} className="mt-[1px] shrink-0 text-warning" aria-hidden="true" />
+          Access token và app secret chỉ được chỉnh sửa bởi owner admin A/B.
+        </div>
+      )}
+
       <div className="flex justify-end">
-        <Button type="button" onClick={() => save()} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
+        <Button type="button" onClick={saveZalo} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
           Lưu Zalo
         </Button>
       </div>

@@ -1,12 +1,13 @@
 "use client";
 
-import React from "react";
-import { Mail, ShieldCheck } from "lucide-react";
+import React, { useState } from "react";
+import { LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
+import { useAuthStore } from "@/lib/auth/auth-store";
 
 type EmailSettings = {
   enabled: boolean;
@@ -34,6 +35,16 @@ const fallback: EmailSettings = {
 
 export default function SettingsEmailIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<EmailSettings>("email-provider", "TENANT", fallback);
+  const user = useAuthStore((state) => state.user);
+  const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
+  const canEditSecrets = ["admina@homeland.local", "adminb@homeland.local"].includes((user?.email || "").toLowerCase());
+
+  const saveEmail = async () => {
+    const payload: Partial<EmailSettings> = { ...draft };
+    if (!canEditSecrets || !smtpPasswordTouched) delete payload.smtpPassword;
+    await save(payload as EmailSettings);
+    setSmtpPasswordTouched(false);
+  };
 
   return (
     <Card className="p-[20px] flex flex-col gap-[18px] border-[#0ea5e9]/15">
@@ -79,7 +90,17 @@ export default function SettingsEmailIntegration() {
         </div>
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">SMTP password</label>
-          <Input type="password" value={draft.smtpPassword} onChange={(event) => setDraft((prev) => ({ ...prev, smtpPassword: event.target.value }))} placeholder="Mật khẩu hoặc API key" />
+          <Input
+            type="password"
+            value={draft.smtpPassword}
+            onChange={(event) => {
+              setSmtpPasswordTouched(true);
+              setDraft((prev) => ({ ...prev, smtpPassword: event.target.value }));
+            }}
+            placeholder={canEditSecrets ? "Để trống để giữ nguyên mật khẩu" : "Chỉ owner admin A/B được chỉnh sửa"}
+            disabled={!canEditSecrets}
+            data-testid="integration-secret-field"
+          />
         </div>
         <div className="flex flex-col gap-[6px]">
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Tên người gửi</label>
@@ -101,8 +122,15 @@ export default function SettingsEmailIntegration() {
         </div>
       </div>
 
+      {!canEditSecrets && (
+        <div className="flex items-start gap-[9px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[11px] text-[12px] font-medium leading-[18px] text-muted">
+          <LockKeyhole size={15} className="mt-[1px] shrink-0 text-warning" aria-hidden="true" />
+          Mật khẩu SMTP chỉ được chỉnh sửa bởi owner admin A/B.
+        </div>
+      )}
+
       <div className="flex justify-end">
-        <Button type="button" onClick={() => save()} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
+        <Button type="button" onClick={saveEmail} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
           Lưu Email
         </Button>
       </div>

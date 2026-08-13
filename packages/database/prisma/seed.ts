@@ -116,7 +116,16 @@ async function main() {
   });
 
   // 3. Users
-  const passwordHash = await bcrypt.hash('Homeland@123456', 12);
+  const developmentPassword = process.env.SEED_DEFAULT_PASSWORD || 'Homeland@123456';
+  const ownerATemporaryPassword = process.env.SEED_OWNER_A_TEMPORARY_PASSWORD;
+  const ownerBTemporaryPassword = process.env.SEED_OWNER_B_TEMPORARY_PASSWORD;
+  const productionMode = process.env.SEED_MODE === 'production' || process.env.NODE_ENV === 'production';
+  if (productionMode && (!ownerATemporaryPassword || !ownerBTemporaryPassword)) {
+    throw new Error('SEED_OWNER_A_TEMPORARY_PASSWORD and SEED_OWNER_B_TEMPORARY_PASSWORD are required in production mode.');
+  }
+  const passwordHash = await bcrypt.hash(developmentPassword, 12);
+  const ownerAPasswordHash = await bcrypt.hash(ownerATemporaryPassword || developmentPassword, 12);
+  const ownerBPasswordHash = await bcrypt.hash(ownerBTemporaryPassword || developmentPassword, 12);
 
   const adminUser = await prisma.user.upsert({
     where: { tenantId_email: { tenantId: org.id, email: 'admin@homeland.local' } },
@@ -127,13 +136,13 @@ async function main() {
   const ownerAUser = await prisma.user.upsert({
     where: { tenantId_email: { tenantId: org.id, email: 'adminA@homeland.local' } },
     update: { fullName: 'Owner Admin - Tính' },
-    create: { tenantId: org.id, email: 'adminA@homeland.local', fullName: 'Owner Admin - Tính', passwordHash },
+    create: { tenantId: org.id, email: 'adminA@homeland.local', fullName: 'Owner Admin - Tính', passwordHash: ownerAPasswordHash, mustChangePassword: true },
   });
 
   const ownerBUser = await prisma.user.upsert({
     where: { tenantId_email: { tenantId: org.id, email: 'adminB@homeland.local' } },
     update: { fullName: 'Owner Admin - Thể' },
-    create: { tenantId: org.id, email: 'adminB@homeland.local', fullName: 'Owner Admin - Thể', passwordHash },
+    create: { tenantId: org.id, email: 'adminB@homeland.local', fullName: 'Owner Admin - Thể', passwordHash: ownerBPasswordHash, mustChangePassword: true },
   });
 
   const managerUser = await prisma.user.upsert({
@@ -218,7 +227,7 @@ async function main() {
     });
   }
 
-  if (process.env.SEED_MODE === 'production' || process.env.NODE_ENV === 'production') {
+  if (productionMode) {
     console.log('Production mode detected. Skipping mock buildings, floors, rooms, contracts, invoices, and transactions.');
     console.log('Commercial-Grade Seed completed successfully in PRODUCTION mode.');
     return;

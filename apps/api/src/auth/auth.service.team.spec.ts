@@ -88,7 +88,10 @@ describe('AuthService team directory', () => {
   it('creates a tenant team member with a hashed password, role assignment and redacted audit data', async () => {
     const prisma: any = {
       user: {
-        findFirst: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn()
+          .mockResolvedValueOnce({ email: 'admin@homeland.local' })
+          .mockResolvedValueOnce(null),
+        count: vi.fn().mockResolvedValue(0),
         create: vi.fn().mockResolvedValue({
           id: 'owner-a-user',
           email: 'admina@homeland.local',
@@ -142,6 +145,31 @@ describe('AuthService team directory', () => {
       },
     }));
     expect(JSON.stringify(audit.log.mock.calls)).not.toContain('StrongTemp@123');
+  });
+
+  it('closes regular-admin provisioning after both owner accounts exist', async () => {
+    const prisma: any = {
+      user: {
+        findFirst: vi.fn().mockResolvedValue({ email: 'admin@homeland.local' }),
+        count: vi.fn().mockResolvedValue(2),
+      },
+    };
+    const audit: any = { log: vi.fn() };
+    const service = new AuthService(prisma, {} as any, {} as any, audit, {} as any);
+
+    await expect(service.createTeamMember('tenant-1', 'system-admin', {
+      fullName: 'Extra administrator',
+      email: 'extra-admin@homeland.local',
+      role: 'ADMIN',
+      temporaryPassword: 'StrongTemp@123',
+    })).rejects.toMatchObject({ status: 403 });
+
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      before: expect.objectContaining({
+        denied: true,
+        reason: 'TEAM_PROVISIONING_FORBIDDEN',
+      }),
+    }));
   });
 
   it('clears the forced password flag and revokes refresh sessions after password change', async () => {

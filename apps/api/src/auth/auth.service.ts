@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -25,7 +25,7 @@ export class AuthService {
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
-          { email: input.emailOrPhone },
+          { email: { equals: input.emailOrPhone.trim(), mode: 'insensitive' } },
           // { phone: input.emailOrPhone } // Uncomment when phone is added to User model
         ],
       },
@@ -425,6 +425,7 @@ export class AuthService {
 
   async createTeamMember(tenantId: string, actorUserId: string, input: CreateTeamMemberInput) {
     const normalizedEmail = input.email.trim().toLowerCase();
+    await this.ensureTeamProvisioningAllowed(tenantId, actorUserId, normalizedEmail, input.role);
     const existing = await this.prisma.user.findFirst({
       where: {
         tenantId,
@@ -493,6 +494,47 @@ export class AuthService {
       ...user,
       roles: [role.code],
     };
+  }
+
+  private async ensureTeamProvisioningAllowed(tenantId: string, actorUserId: string, email: string, role: string) {
+    const actor = await this.prisma.user.findFirst({
+      where: { id: actorUserId, tenantId, deletedAt: null },
+      select: { email: true },
+    });
+    const actorEmail = actor?.email?.toLowerCase() ?? '';
+    const ownerEmails = new Set(['admina@homeland.local', 'adminb@homeland.local']);
+    if (ownerEmails.has(actorEmail)) return;
+
+    const isBootstrapAdmin = actorEmail === 'admin@homeland.local';
+    const isExpectedOwnerAccount = ownerEmails.has(email) && role === 'ADMIN';
+    if (isBootstrapAdmin && isExpectedOwnerAccount) {
+      const existingOwnerAccounts = await this.prisma.user.count({
+        where: {
+          tenantId,
+          deletedAt: null,
+          email: { in: Array.from(ownerEmails), mode: 'insensitive' },
+        },
+      });
+      if (existingOwnerAccounts < ownerEmails.size) return;
+    }
+
+    await this.audit.log({
+      action: 'CREATE',
+      entity: 'User',
+      module: 'Auth',
+      tenantId,
+      userId: actorUserId,
+      before: {
+        denied: true,
+        reason: 'TEAM_PROVISIONING_FORBIDDEN',
+        email,
+        role,
+      },
+    });
+    throw new ForbiddenException({
+      code: 'AUTH_TEAM_PROVISIONING_FORBIDDEN',
+      message: 'Only owner administrators may provision team accounts',
+    });
   }
 
   async updateMe(userId: string, input: { fullName?: string }) {

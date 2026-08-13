@@ -18,7 +18,7 @@ const getAuthFilePath = (role: string) => {
   return path.join(__dirname, `../../.auth/${role}-${workerIndex}.json`);
 };
 
-const createRoleFixture = (email: string, roleName: string) => {
+const createRoleFixture = (email: string, roleName: string, passwordEnv?: string) => {
   return async ({ browser, request, baseURL }: any, use: any) => {
     let page: Page;
     let context;
@@ -49,7 +49,7 @@ const createRoleFixture = (email: string, roleName: string) => {
       const response = await request.post(`${finalBaseURL}/api/v1/auth/login`, {
         data: {
           emailOrPhone: email,
-          password: 'Homeland@123456'
+          password: (passwordEnv && process.env[passwordEnv]) || process.env.E2E_DEFAULT_PASSWORD || 'Homeland@123456'
         }
       });
       
@@ -126,8 +126,8 @@ export const test = base.extend<{
   finance: RoleFixture;
 }>({
   admin: createRoleFixture('admin@homeland.local', 'admin'),
-  ownerAdminA: createRoleFixture('adminA@homeland.local', 'owner-admin-a'),
-  ownerAdminB: createRoleFixture('adminB@homeland.local', 'owner-admin-b'),
+  ownerAdminA: createRoleFixture('adminA@homeland.local', 'owner-admin-a', 'E2E_OWNER_A_PASSWORD'),
+  ownerAdminB: createRoleFixture('adminB@homeland.local', 'owner-admin-b', 'E2E_OWNER_B_PASSWORD'),
   manager: createRoleFixture('manager@homeland.local', 'manager'),
   sales: createRoleFixture('sales@homeland.local', 'sales'),
   finance: createRoleFixture('finance@homeland.local', 'finance'),

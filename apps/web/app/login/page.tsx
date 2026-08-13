@@ -15,8 +15,8 @@ import { ApiError } from "@/lib/api/client";
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [emailOrPhone, setEmailOrPhone] = useState("admin@homeland.local");
-  const [password, setPassword] = useState("Homeland@123456");
+  const [emailOrPhone, setEmailOrPhone] = useState("");
+  const [password, setPassword] = useState("");
   const setSession = useAuthStore((state) => state.setSession);
 
   const handleSubmit = async (e: React.FormEvent) => {

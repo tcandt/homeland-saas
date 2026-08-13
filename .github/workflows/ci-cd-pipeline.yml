@@ -87,6 +87,8 @@ jobs:
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci_integration_secret_with_more_than_32_characters
       ALLOW_REGISTRATION: true
+      CI_DATABASE_BOOTSTRAP: true
+      RUN_DESTRUCTIVE_E2E: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -103,7 +105,7 @@ jobs:
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
       - run: npm run build -w @homeland/shared
       - run: docker compose up -d --wait --wait-timeout 60 postgres redis
-      - run: npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma
+      - run: node scripts/ci-bootstrap-database.js
       - run: npm run test:e2e --workspace=api
 
   build-api:

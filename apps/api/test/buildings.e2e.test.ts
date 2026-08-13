@@ -7,7 +7,9 @@ import { PrismaService } from './../src/prisma.service';
 import { AuthService } from './../src/auth/auth.service';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 
-describe('Building Property Flow (e2e)', () => {
+const describeDestructive = process.env.RUN_DESTRUCTIVE_E2E === 'true' ? describe : describe.skip;
+
+describeDestructive('Building Property Flow (e2e)', () => {
   let app: INestApplication;
   let authService: AuthService;
   let prisma: PrismaService;
@@ -69,6 +71,7 @@ describe('Building Property Flow (e2e)', () => {
   });
 
   afterAll(async () => {
+    if (!prisma || !app) return;
     // Cleanup
     if (buildingId) {
       await prisma.room.deleteMany({ where: { buildingId } });

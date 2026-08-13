@@ -79,13 +79,14 @@ test('staging and production gates use the real production Playwright command', 
 
 test('API integration tests compile shared workspace before Vitest resolves it', () => {
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
+  const bootstrap = read('scripts/ci-bootstrap-database.js');
   const integrationBlock = workflow.slice(
     workflow.indexOf('  integration-test:'),
     workflow.indexOf('  build-api:'),
   );
   const sharedBuild = integrationBlock.indexOf('npm run build -w @homeland/shared');
   const servicesReady = integrationBlock.indexOf('docker compose up -d --wait --wait-timeout 60 postgres redis');
-  const migration = integrationBlock.indexOf('prisma migrate deploy');
+  const migration = integrationBlock.indexOf('node scripts/ci-bootstrap-database.js');
   const apiE2e = integrationBlock.indexOf('npm run test:e2e --workspace=api');
   assert.ok(sharedBuild >= 0, 'Integration job must compile @homeland/shared');
   assert.ok(apiE2e > sharedBuild, 'Shared workspace must compile before API E2E');
@@ -94,7 +95,15 @@ test('API integration tests compile shared workspace before Vitest resolves it',
   assert.ok(apiE2e > migration, 'API E2E must run after migrations');
   assert.match(integrationBlock, /DATABASE_URL: postgresql:\/\/homeland:homeland123@localhost:5433\/homeland\?schema=public/);
   assert.match(integrationBlock, /ALLOW_REGISTRATION: true/);
+  assert.match(integrationBlock, /CI_DATABASE_BOOTSTRAP: true/);
+  assert.match(integrationBlock, /RUN_DESTRUCTIVE_E2E: true/);
   assert.doesNotMatch(integrationBlock, /prisma\s+(?:db\s+push|db\s+seed)|force-reset|accept-data-loss/i);
+  assert.match(bootstrap, /GITHUB_ACTIONS !== 'true'/);
+  assert.match(bootstrap, /CI_DATABASE_BOOTSTRAP !== 'true'/);
+  assert.match(bootstrap, /RUN_DESTRUCTIVE_E2E !== 'true'/);
+  assert.match(bootstrap, /localhost', '127\.0\.0\.1/);
+  assert.match(bootstrap, /databaseUrl\.port !== '5433'/);
+  assert.doesNotMatch(bootstrap, /db\s+push|db\s+seed|force-reset|accept-data-loss/i);
 });
 
 test('release version is propagated through every deploy job dependency', () => {

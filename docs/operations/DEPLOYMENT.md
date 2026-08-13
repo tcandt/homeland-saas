@@ -9,7 +9,7 @@ Không gọi bản phát hành là LIVE chỉ vì pipeline xanh. Production ch�
 ## Điều kiện trước deploy
 
 - [ ] Commit release candidate đã push và GitHub Actions đạt toàn bộ job bắt buộc.
-- [ ] `npm.cmd run verify:prod` đạt trên commit cần phát hành.
+- [ ] `npm.cmd run verify:prod` đạt trên commit cần phát hành với `RELEASE_GATE_DATABASE_URL` trỏ database test/staging riêng; không trỏ database vận hành.
 - [ ] `npm.cmd run preflight:prod -- --env-file <production-env-outside-git>` trả `Configuration: PASS`.
 - [ ] Domain web/API có HTTPS hợp lệ; `CORS_ORIGINS` chỉ chứa origin được phép.
 - [ ] PostgreSQL, Redis, JWT và Integration Center dùng secret production, không dùng giá trị trong file example.
@@ -33,12 +33,14 @@ Không gọi bản phát hành là LIVE chỉ vì pipeline xanh. Production ch�
 
 Nếu bất kỳ bước nào sai, dừng promote production. Không sửa trực tiếp dữ liệu để làm test xanh.
 
+`verify:prod` local khởi động bundle trên `3100/3101` và đăng nhập bốn persona thật. Login cập nhật audit/refresh-token metadata, vì vậy script từ chối chạy authenticated E2E nếu tên database không thể hiện rõ `release_gate`, `staging`, `test` hoặc `ci`. Các mutation nghiệp vụ trong regression được mock.
+
 ## Production
 
 1. Xác nhận staging đạt và backup trước deploy còn sử dụng được.
 2. Phê duyệt GitHub environment `production` bằng người có thẩm quyền.
 3. Deploy đúng immutable image tag đã chạy trên staging, không deploy tag chưa nghiệm thu.
-4. Nếu có migration mới, chạy `prisma migrate deploy` đúng một lần từ artifact đã duyệt hoặc khởi động một lần với `RUN_DB_MIGRATIONS=true`, sau đó trả cờ về `false`. Không dùng `db push`, `--force-reset` hoặc seed production trong deploy thường lệ.
+4. Nếu có migration mới trên database đã baseline, chạy `prisma migrate deploy` đúng một lần từ artifact đã duyệt hoặc khởi động một lần với `RUN_DB_MIGRATIONS=true`, sau đó trả cờ về `false`. Không dùng `db push`, `--force-reset` hoặc seed production trong deploy thường lệ. Database rỗng phải theo runbook baseline đã review; không chạy thẳng chuỗi migration lịch sử hiện tại.
 5. Kiểm tra health/readiness/build-info trước khi mở traffic đầy đủ.
 6. Smoke read-only bốn persona: `admin`, `adminA`, `adminB`, `manager`.
 7. Chạy một giao dịch nhỏ đã thống nhất cho mỗi owner và đối chiếu bank, SePay, hóa đơn, audit log.

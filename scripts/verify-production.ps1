@@ -49,6 +49,49 @@ function Assert-PortAvailable {
     }
 }
 
+function Assert-ReleaseGateDatabaseUrl {
+    param([Parameter(Mandatory = $true)][string]$DatabaseUrl)
+
+    try {
+        $uri = [System.Uri]$DatabaseUrl
+    } catch {
+        throw 'RELEASE_GATE_DATABASE_URL must be a valid PostgreSQL URL.'
+    }
+
+    $databaseName = $uri.AbsolutePath.Trim('/')
+    if ($uri.Scheme -notin @('postgresql', 'postgres')) {
+        throw 'RELEASE_GATE_DATABASE_URL must use postgresql:// or postgres://.'
+    }
+    if ($databaseName -notmatch '(?i)(^|[_-])(release[_-]?gate|staging|test|ci)([_-]|$)') {
+        throw "Release-gate database '$databaseName' is not clearly isolated. Its name must include release_gate, staging, test, or ci."
+    }
+}
+
+function Assert-PersonaLogin {
+    param(
+        [Parameter(Mandatory = $true)][string]$ApiOrigin,
+        [Parameter(Mandatory = $true)][string]$Email,
+        [Parameter(Mandatory = $true)][string]$Password,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $body = @{ emailOrPhone = $Email; password = $Password } | ConvertTo-Json -Compress
+    try {
+        $response = Invoke-RestMethod -Uri "$ApiOrigin/api/v1/auth/login" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 15
+    } catch {
+        throw "Credential preflight failed for $Label ($Email). Supply the current release-gate credential; no password was changed."
+    }
+
+    $authData = if ($null -ne $response.data) { $response.data } else { $response }
+    if ($null -eq $authData.user) {
+        throw "Credential preflight returned no user for $Label ($Email)."
+    }
+    if ($authData.user.mustChangePassword -eq $true) {
+        throw "$Label ($Email) must complete the temporary-password change before the release gate can test its normal permissions."
+    }
+    Write-Host "PASS $Label ($Email)" -ForegroundColor Green
+}
+
 function Wait-ForHttp {
     param(
         [Parameter(Mandatory = $true)][string]$Url,
@@ -92,7 +135,16 @@ try {
     Write-Host '====================================================='
     Write-Host ' HomeLand production verification (non-destructive) '
     Write-Host '====================================================='
-    Write-Host 'This script does not delete build caches, stop shared ports, seed data, run migrations, or run CRUD E2E tests.'
+    Write-Host 'This script does not delete build caches, stop shared ports, seed data, deploy migrations, or run business CRUD against an operational database.'
+
+    if (-not $SkipRuntime -and -not $SkipE2E) {
+        if ([string]::IsNullOrWhiteSpace($env:RELEASE_GATE_DATABASE_URL)) {
+            throw 'RELEASE_GATE_DATABASE_URL is required for authenticated E2E because login writes audit and refresh-token metadata.'
+        }
+        Assert-ReleaseGateDatabaseUrl -DatabaseUrl $env:RELEASE_GATE_DATABASE_URL
+        $env:DATABASE_URL = $env:RELEASE_GATE_DATABASE_URL
+        Write-Host 'Authenticated checks are restricted to the dedicated release-gate database.' -ForegroundColor Yellow
+    }
 
     New-Item -ItemType Directory -Force -Path $runtimeRoot, $logDir | Out-Null
     Assert-PortAvailable -Port $apiPort
@@ -143,6 +195,7 @@ try {
         $env:CORS_ORIGINS = $webOrigin
         $env:DISABLE_SCHEDULED_JOBS = 'true'
         $env:ENABLE_SWAGGER = 'false'
+        $env:THROTTLER_LIMIT = '100000'
         $env:NODE_PATH = @(
             (Join-Path $workspace 'apps/api/node_modules'),
             (Join-Path $workspace 'node_modules')
@@ -165,12 +218,27 @@ try {
 
         if (-not $SkipE2E) {
             if (-not $env:E2E_ADMIN_PASSWORD -or -not $env:E2E_OWNER_A_PASSWORD -or -not $env:E2E_OWNER_B_PASSWORD -or -not $env:E2E_MANAGER_PASSWORD) {
-                throw 'E2E_ADMIN_PASSWORD, E2E_OWNER_A_PASSWORD, E2E_OWNER_B_PASSWORD, and E2E_MANAGER_PASSWORD are required for the read-only production E2E gate.'
+                throw 'E2E_ADMIN_PASSWORD, E2E_OWNER_A_PASSWORD, E2E_OWNER_B_PASSWORD, and E2E_MANAGER_PASSWORD are required for the production E2E gate.'
             }
+
+            Write-Host "`n[Persona credential preflight]" -ForegroundColor Cyan
+            Assert-PersonaLogin -ApiOrigin $apiOrigin -Email 'admin@homeland.local' -Password $env:E2E_ADMIN_PASSWORD -Label 'Operational admin'
+            Assert-PersonaLogin -ApiOrigin $apiOrigin -Email 'adminA@homeland.local' -Password $env:E2E_OWNER_A_PASSWORD -Label 'Owner admin A'
+            Assert-PersonaLogin -ApiOrigin $apiOrigin -Email 'adminB@homeland.local' -Password $env:E2E_OWNER_B_PASSWORD -Label 'Owner admin B'
+            Assert-PersonaLogin -ApiOrigin $apiOrigin -Email 'manager@homeland.local' -Password $env:E2E_MANAGER_PASSWORD -Label 'Manager'
+
             $env:VERIFY_PROD = '1'
             $env:E2E_WEB_BASE_URL = $webOrigin
             $env:E2E_API_BASE_URL = $apiOrigin
-            Invoke-Checked 'Read-only and mocked production E2E' { npm.cmd run test:e2e:prod --workspace=web }
+            Invoke-Checked 'Desktop production E2E on dedicated release-gate database' { npm.cmd run test:e2e:prod --workspace=web }
+            Invoke-Checked 'Chromium mobile light/dark route audit (430, 390, 375)' {
+                Push-Location (Join-Path $workspace 'apps/web')
+                try {
+                    & ..\..\node_modules\.bin\playwright.cmd test tests/e2e/production/theme-audit.desktop.spec.ts --project='Release Mobile 430' --project='Release Mobile 390' --project='Release Mobile 375'
+                } finally {
+                    Pop-Location
+                }
+            }
         }
     }
 

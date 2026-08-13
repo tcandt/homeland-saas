@@ -69,12 +69,21 @@ test('deployment workflow preserves env files and validates compose before resta
 
 test('staging and production gates use the real production Playwright command', () => {
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
+  const localGate = read('scripts/verify-production.ps1');
   assert.doesNotMatch(workflow, /PLAYWRIGHT_BASE_URL|--project=smoke/);
   assert.match(workflow, /E2E_WEB_BASE_URL/);
   assert.match(workflow, /E2E_API_BASE_URL/);
   assert.match(workflow, /npm run test:e2e:prod --workspace=web/);
   assert.match(workflow, /health-smoke-production:/);
   assert.ok((workflow.match(/\/api\/v1\/health\/ready/g) || []).length >= 2);
+  assert.match(localGate, /RELEASE_GATE_DATABASE_URL is required/);
+  assert.match(localGate, /login writes audit and refresh-token metadata/);
+  assert.match(localGate, /Assert-PersonaLogin/);
+  assert.match(localGate, /THROTTLER_LIMIT = '100000'/);
+  assert.match(localGate, /--project='Release Mobile 430' --project='Release Mobile 390' --project='Release Mobile 375'/);
+  assert.equal((localGate.match(/Desktop production E2E on dedicated release-gate database/g) || []).length, 1);
+  assert.doesNotMatch(localGate, /SKIP_DESKTOP_E2E/);
+  assert.doesNotMatch(localGate, /db\s+push|db\s+seed|force-reset|accept-data-loss/i);
 });
 
 test('API integration tests compile shared workspace before Vitest resolves it', () => {

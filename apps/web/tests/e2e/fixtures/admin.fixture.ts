@@ -60,7 +60,8 @@ export const test = base.extend<{ admin: AdminFixture }>({
       });
       
       if (!response.ok()) {
-        throw new Error('Failed to login Admin fixture');
+        const errorText = await response.text();
+        throw new Error(`Failed to login Admin fixture. Status: ${response.status()}, Body: ${errorText}`);
       }
       
       const responseData = await response.json();

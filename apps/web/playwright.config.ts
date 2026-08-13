@@ -55,6 +55,18 @@ export default defineConfig({
       {
               name: 'Mobile 375',
               use: { ...devices['iPhone 11'], viewport: { width: 375, height: 667 } },
+      },
+      {
+              name: 'Release Mobile 430',
+              use: { ...devices['Pixel 7'], viewport: { width: 430, height: 932 } },
+      },
+      {
+              name: 'Release Mobile 390',
+              use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } },
+      },
+      {
+              name: 'Release Mobile 375',
+              use: { ...devices['Pixel 7'], viewport: { width: 375, height: 667 } },
       }
         ],
     webServer: process.env.VERIFY_PROD ? undefined : [

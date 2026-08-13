@@ -103,17 +103,18 @@ const auditRoutes = async (
   expect(responseErrors, `Unexpected HTTP 5xx responses in ${theme} mode`).toEqual([]);
 };
 
-test.describe('Production desktop theme audit', () => {
+test.describe('Production theme audit', () => {
   test.beforeEach(async ({}, testInfo) => {
-    test.skip(testInfo.project.name !== 'Desktop 1920', 'Desktop production audit');
+    const auditedProjects = ['Desktop 1920', 'Release Mobile 430', 'Release Mobile 390', 'Release Mobile 375'];
+    test.skip(!auditedProjects.includes(testInfo.project.name), 'Production route audit');
   });
 
   for (const theme of ['light', 'dark'] as const) {
-    test(`renders all authenticated desktop routes in ${theme} mode`, async ({ admin }, testInfo) => {
+    test(`renders all authenticated routes in ${theme} mode`, async ({ admin }, testInfo) => {
       await auditRoutes(admin.page, authenticatedRoutes, theme, testInfo);
     });
 
-    test(`renders all public desktop routes in ${theme} mode`, async ({ page }, testInfo) => {
+    test(`renders all public routes in ${theme} mode`, async ({ page }, testInfo) => {
       await page.goto('/login', { waitUntil: 'domcontentloaded' });
       await auditRoutes(page, publicRoutes, theme, testInfo);
     });

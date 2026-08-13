@@ -749,6 +749,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Ổn định storage chứng từ chi phí giữa repo root và `apps/web`; file thiếu trả 404 và đường dẫn traversal bị chặn.
 - [x] Chuyển notification SSE sang Bearer header và loại JWT khỏi query string.
 - [x] Chạy production gate local cuối: migration `7/7`, API `195/195`, web `49/49`, Playwright desktop `47/47`.
+- [x] Chạy mobile route/theme gate trên Chromium `430x932`, `390x844`, `375x667`: `18/18` nhóm, tổng `168` lượt render light/dark.
+- [x] Buộc authenticated production gate dùng `RELEASE_GATE_DATABASE_URL` riêng và preflight đủ `admin`, `adminA`, `adminB`, `manager` trước Playwright.
 - [x] Xác nhận light/dark trên 28 route giao diện và RBAC cho `admin`, `adminA`, `adminB`, `manager`.
 - [x] Audit responsive production cho Buildings, Contracts, Tenants, Expenses, Invoices, Reports ở `1280x720`, `1440x900`, `1920x1080`, `2560x1440` trong cả light/dark (`48` lượt render/đo layout).
 - [x] Bỏ action/control giả ở desktop shell, Contracts, Tenants, Invoices và Reports; chỉ giữ route, form hoặc mutation nghiệp vụ thật.
@@ -773,7 +775,9 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Nghiệm thu gửi Zalo/Telegram/SMTP và sync Hunonic bằng credential production.
 - [ ] Bốn persona nhận credential riêng và đổi mật khẩu lần đầu.
 - [ ] Phê duyệt runtime Node thống nhất với engine của Puppeteer và ZXing; cập nhật Docker/CI theo mốc riêng.
-- [ ] Xử lý runtime audit còn `13 high` và `17 moderate`; không mở LIVE khi CI security gate còn đỏ.
+- [ ] Xử lý runtime audit GitHub CI gần nhất quan sát được còn `17 high`, `23 moderate`, `3 low`; không mở LIVE khi CI security gate còn đỏ.
+- [ ] Chốt runbook baseline database rỗng; chuỗi migration lịch sử không được chạy thẳng trên database rỗng vì enum hợp đồng trùng.
+- [ ] Xác nhận GitHub Actions mới của commit release candidate đạt toàn bộ job bắt buộc sau sửa SBOM.
 
 ### Thứ tự ưu tiên khuyến nghị
 
@@ -785,4 +789,4 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 6. Chạy backup ngoài máy chủ và restore drill có biên bản.
 7. Bật monitoring/alerting, chốt người trực và quy trình xử lý sai lệch tiền.
 8. Bàn giao credential riêng, đổi mật khẩu lần đầu và ký biên bản go-live.
-9. Cleanup UI, tiếng Việt và mobile.
+9. UAT trên thiết bị Android/iOS thật và ký biên bản chấp nhận giao diện; gate tự động hiện chạy Chromium mobile, chưa thay thế Safari/WebKit thật.

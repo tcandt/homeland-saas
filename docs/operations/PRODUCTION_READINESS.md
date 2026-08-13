@@ -17,22 +17,24 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 - [x] E2E có tạo/sửa/xóa dữ liệu chỉ chạy khi đặt `RUN_DESTRUCTIVE_E2E=true` trên database dùng một lần.
 - [x] Bộ regression production dùng API read-only hoặc mock cho các write flow.
 - [x] Audit toàn bộ 28 route giao diện desktop ở light/dark, gồm route vận hành, public, maintenance được bảo vệ và bắt buộc đổi mật khẩu; kiểm tra lỗi console, overflow, màu nền/chữ và lưu ảnh bằng chứng.
-- [x] Prisma có đủ 7 migration trên database hiện tại.
+- [x] Prisma có đủ 7 migration trên database vận hành hiện tại và database release-gate đã baseline.
 - [x] Prisma dùng một provider global duy nhất; API không còn tạo connection pool lặp theo feature module.
 - [x] Attachment chi phí dùng storage root ổn định ở dev/production, chặn path traversal và trả 404 khi file không tồn tại.
 - [x] SSE thông báo dùng Bearer header; backend từ chối JWT trong query string để token không đi vào URL/log.
 - [x] Production preflight chỉ đọc kiểm tra cấu trúc URL, CORS, JWT, public registration, Swagger và scheduler mà không in secret hoặc truy cập database.
 - [x] Desktop shell và các màn Buildings, Contracts, Tenants, Finance, Invoices, Reports đã bỏ control báo thành công giả; thao tác chỉ hiển thị khi có route/mutation thật.
 - [x] Responsive production audit cố định ở `1280x720`, `1440x900`, `1920x1080`, `2560x1440` cho sáu workspace chính ở cả light/dark; sidebar phân tích chỉ mở từ `1536px` để ưu tiên bảng và sơ đồ ở laptop.
+- [x] Audit toàn bộ 28 route trên Chromium mobile ở `430x932`, `390x844`, `375x667` cho cả light/dark; kiểm tra overflow, redirect, màu nền/chữ, console/page error và HTTP 5xx.
+- [x] Production gate bắt buộc database kiểm thử/staging riêng qua `RELEASE_GATE_DATABASE_URL`; từ chối database không có tên rõ `release_gate`, `staging`, `test` hoặc `ci` vì login có ghi audit và refresh-token metadata.
 
-### Bằng chứng release candidate desktop gần nhất
+### Bằng chứng release candidate web gần nhất
 
-Lần chạy: `2026-08-13 18:30` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+Lần chạy: `2026-08-13 20:55` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`, database release-gate riêng.
 
 | Cổng kiểm tra | Kết quả |
 |---|---|
 | Mojibake/encoding | PASS |
-| Production/supply-chain safety unit | PASS, `15/15`; không in secret, kiểm tra Docker/deploy workflow và không tuyên bố LIVE thay cho nghiệm thu thủ công |
+| Production/supply-chain safety unit | PASS, `19/19`; kiểm tra database E2E cô lập, Docker/deploy/SBOM workflow, không in secret và không tuyên bố LIVE thay cho nghiệm thu thủ công |
 | Prisma schema | Hợp lệ |
 | Migration hiện tại | `7/7`, up to date |
 | API typecheck + unit | PASS, `195/195` |
@@ -40,8 +42,9 @@ Lần chạy: `2026-08-13 18:30` (Asia/Bangkok), local production bundle cô l�
 | API + Next production build | PASS |
 | Health/readiness | PASS |
 | Production Playwright desktop | PASS, `47/47` |
+| Production Playwright mobile | PASS, `18/18` nhóm trên Chromium `430/390/375`; tổng `168` lượt render route ở light/dark |
 | Docker artifact | PASS build local cho API và Web; web context giảm từ gần `2 GB` xuống `56 MB`; image không được push hoặc chạy trong lần kiểm chứng |
-| Runtime dependency audit | BLOCKED: `13 high`, `17 moderate`, `0 critical`; chưa tự nâng dependency vì cần phê duyệt phiên bản và regression riêng |
+| Runtime dependency audit | BLOCKED: GitHub CI gần nhất quan sát được có `17 high`, `23 moderate`, `3 low`; chưa tự đổi phiên bản dependency vì cần phê duyệt và regression riêng |
 | Runtime engine | BLOCKED: image/CI đang dùng Node 20, trong khi Puppeteer 25 yêu cầu Node `>=22.12` và `@zxing/library` yêu cầu Node `>=24` |
 | Light/dark | PASS trên toàn bộ `28/28` route giao diện ở mỗi theme (`56` lượt render); không redirect sai, overflow, page error, console error hoặc HTTP 5xx ngoài SSE 503 cố ý của fixture |
 | Responsive desktop | PASS `6` workspace x `4` viewport x `2` theme (`48` lượt render/đo layout); không document overflow, root lệch viewport hoặc console/page error |
@@ -51,7 +54,8 @@ Lần chạy: `2026-08-13 18:30` (Asia/Bangkok), local production bundle cô l�
 
 Phạm vi bằng chứng:
 
-- Auth, RBAC, các trang đọc và health chạy với API/database hiện tại.
+- Auth, RBAC, các trang đọc và health của lượt cuối chạy với API production bundle và database release-gate cô lập.
+- Lượt cuối chạy auth/RBAC trên database `release_gate` cô lập, không dùng database vận hành; login thành công vẫn tạo audit log và cập nhật refresh-token metadata trong database kiểm thử.
 - Các nhánh write nghiệp vụ chạy bằng mock trên production bundle để không tạo/sửa/xóa dữ liệu vận hành.
 - Hành trình stateful đã xác nhận các chuyển trạng thái: cọc `PENDING -> PAID -> CONVERTED_TO_CONTRACT`; hợp đồng `DRAFT -> PENDING_APPROVAL -> APPROVED -> ACTIVE -> TERMINATED`; hóa đơn `DRAFT -> ISSUED -> PAID`; phòng `AVAILABLE -> RESERVED -> OCCUPIED -> CLEANING -> AVAILABLE`.
 - Quyết toán trong hành trình trên lấy snapshot điện Hunonic và nước, khấu trừ `500.000` đồng từ cọc, hoàn `4.500.000` đồng và khóa đúng trạng thái hợp đồng/phòng.
@@ -59,6 +63,8 @@ Phạm vi bằng chứng:
 - Test destructive chỉ được chạy trên database dùng một lần khi có `RUN_DESTRUCTIVE_E2E=true`.
 - Kết quả này xác nhận **release candidate local**, chưa thay thế staging, credential production và nghiệm thu giao dịch thật.
 - Build không còn cảnh báo Gemini/NFT trace rộng hoặc deprecation về convention `middleware.ts`; Next proxy đã được kiểm tra tạo và giữ nguyên `x-correlation-id`.
+- Database rỗng không thể chạy thẳng toàn bộ chuỗi migration lịch sử vì enum hợp đồng bị thêm trùng. CI/release-gate dựng schema hiện tại từ datamodel trên database rỗng rồi baseline đúng 7 migration đã review; không sửa SQL/checksum migration lịch sử.
+- Commit `d6e392c` đã push và sửa bước xuất SBOM bằng CycloneDX lockfile có validate/reproducible. Trạng thái Actions mới chưa đọc được từ máy local do repository riêng không có phiên GitHub CLI/browser đăng nhập; không được tự xem là pipeline xanh.
 
 ### Chưa thể tự động hoàn tất bằng code
 
@@ -71,6 +77,8 @@ Phạm vi bằng chứng:
 - [ ] Deploy staging, chạy smoke/regression trên staging rồi mới mở production.
 - [ ] Chốt phiên bản Node production phù hợp với engine dependency; cập nhật đồng bộ Docker/CI sau phê duyệt.
 - [ ] Lập và nghiệm thu mốc nâng dependency để xử lý toàn bộ high-severity runtime advisory; CI hiện chặn đóng gói khi còn high/critical.
+- [ ] Chạy lại GitHub Actions từ commit release candidate và lưu bằng chứng mọi job bắt buộc; security gate phải xanh, không chỉ xuất được SBOM.
+- [ ] Chuẩn hóa runbook bootstrap database rỗng cho staging/khôi phục thảm họa theo cơ chế baseline đã review; không chạy thẳng chuỗi migration lịch sử trên database rỗng.
 
 Không gọi hệ thống là LIVE nếu còn bất kỳ mục nào ở phần này chưa hoàn thành.
 
@@ -168,10 +176,15 @@ Preflight kiểm tra cấu trúc PostgreSQL/Redis URL, HTTPS, CORS allowlist, JW
 ## 6. Lệnh kiểm tra phát hành
 
 ```powershell
+$env:RELEASE_GATE_DATABASE_URL='postgresql://<user>:<secret>@<host>:5432/<release_gate_or_staging_db>?schema=public'
+$env:E2E_ADMIN_PASSWORD='<release-gate-secret>'
+$env:E2E_OWNER_A_PASSWORD='<release-gate-secret>'
+$env:E2E_OWNER_B_PASSWORD='<release-gate-secret>'
+$env:E2E_MANAGER_PASSWORD='<release-gate-secret>'
 npm.cmd run verify:prod
 ```
 
-Lệnh trên dùng port `3100/3101`, output cô lập và tắt cron trong API kiểm chứng. Nó không dừng dịch vụ ở `3000/3001`, không xóa `.next`, không seed, không migrate deploy và không chạy E2E destructive.
+Lệnh trên dùng port `3100/3101`, output cô lập, tắt cron và tăng rate limit chỉ trong API kiểm chứng. Nó không dừng dịch vụ ở `3000/3001`, không xóa `.next`, không seed, không migrate deploy và không chạy business CRUD vào database vận hành. Bốn lần credential preflight và fixture login có ghi audit/refresh-token metadata vào database release-gate riêng.
 
 E2E destructive chỉ được phép trên DB dùng một lần:
 
@@ -184,9 +197,10 @@ Không đặt cờ này khi trỏ tới database vận hành.
 
 ## 7. Go-live và 24 giờ đầu
 
-- [x] Bốn persona đăng nhập thành công trong production gate local.
+- [x] Bốn persona đăng nhập thành công trong production gate local trên database release-gate cô lập.
 - [ ] Bốn persona nhận credential bàn giao và tự đổi mật khẩu lần đầu trên staging/production.
 - [x] Light/dark desktop đạt 28/28 route giao diện trên production bundle local, không redirect sai, overflow hoặc console error.
+- [x] Light/dark mobile đạt 28/28 route ở ba viewport Chromium `430/390/375`, không redirect sai, overflow, console/page error hoặc HTTP 5xx.
 - [x] Public registration trả 403 và trang `/register` báo đang đóng trên production bundle local.
 - [ ] QR/SePay về đúng bank và owner; webhook không ghi trùng.
 - [ ] Hunonic sync được, không trùng dữ liệu và không ghi đè kỳ khóa.

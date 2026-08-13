@@ -84,10 +84,17 @@ test('API integration tests compile shared workspace before Vitest resolves it',
     workflow.indexOf('  build-api:'),
   );
   const sharedBuild = integrationBlock.indexOf('npm run build -w @homeland/shared');
+  const servicesReady = integrationBlock.indexOf('docker compose up -d --wait --wait-timeout 60 postgres redis');
+  const migration = integrationBlock.indexOf('prisma migrate deploy');
   const apiE2e = integrationBlock.indexOf('npm run test:e2e --workspace=api');
   assert.ok(sharedBuild >= 0, 'Integration job must compile @homeland/shared');
   assert.ok(apiE2e > sharedBuild, 'Shared workspace must compile before API E2E');
-  assert.doesNotMatch(integrationBlock, /prisma\s+(?:db\s+push|migrate\s+deploy|db\s+seed)/i);
+  assert.ok(servicesReady > sharedBuild, 'Disposable services must start after build');
+  assert.ok(migration > servicesReady, 'Migrations must target the disposable CI database');
+  assert.ok(apiE2e > migration, 'API E2E must run after migrations');
+  assert.match(integrationBlock, /DATABASE_URL: postgresql:\/\/homeland:homeland123@localhost:5433\/homeland\?schema=public/);
+  assert.match(integrationBlock, /ALLOW_REGISTRATION: true/);
+  assert.doesNotMatch(integrationBlock, /prisma\s+(?:db\s+push|db\s+seed)|force-reset|accept-data-loss/i);
 });
 
 test('release version is propagated through every deploy job dependency', () => {

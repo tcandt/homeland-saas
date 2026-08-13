@@ -368,6 +368,7 @@ export default function ExpenseTable() {
               />
             </div>
             <Select
+              aria-label="Lọc chi phí theo chủ sở hữu"
               value={ownerId}
               onChange={(event) => {
                 setOwnerId(event.target.value);
@@ -375,11 +376,11 @@ export default function ExpenseTable() {
               }}
               options={ownerOptions}
             />
-            <Select value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} />
+            <Select aria-label="Lọc chi phí theo tòa nhà" value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} />
             <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
             <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
             <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} />
-            <Select value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} />
+            <Select aria-label="Lọc chi phí theo loại chi" value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} />
             <Button variant="outline" onClick={resetFilters} className="h-10 px-3" aria-label="Xóa bộ lọc" data-testid="expense-table-reset-filters">
               <FilterX size={15} />
             </Button>

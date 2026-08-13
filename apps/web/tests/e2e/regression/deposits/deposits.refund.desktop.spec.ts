@@ -338,6 +338,8 @@ test.describe("Deposits Refund Desktop Regression", () => {
       });
 
     await expect(admin.page.getByTestId("refund-center-item-dep-paid")).toBeVisible();
+    await admin.page.getByTestId("deposit-detail-close").click();
+    await expect(admin.page.getByTestId("deposit-detail-drawer")).not.toBeVisible();
     await admin.page.getByTestId("refund-center-item-dep-paid").click();
 
     const drawer = admin.page.getByTestId("deposit-detail-drawer");

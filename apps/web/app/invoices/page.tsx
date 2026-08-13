@@ -342,6 +342,8 @@ export default function InvoicesPage() {
                     {totalPages > 5 && <span className="px-1">...</span>}
                     <button
                       type="button"
+                      aria-label="Sang trang hóa đơn tiếp theo"
+                      title="Trang tiếp theo"
                       disabled={page >= totalPages}
                       onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
                       className="flex h-8 w-8 items-center justify-center rounded-xl border border-border text-muted disabled:opacity-40"

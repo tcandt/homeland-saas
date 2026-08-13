@@ -372,8 +372,9 @@ test.describe("Contracts Settlement Desktop Regression", () => {
         depositToDeduct: 500000,
       });
 
-    await expect(admin.page.getByText("Deposit applied to outstanding debt")).toBeVisible();
-    await expect(admin.page.getByText("500.000đ")).toHaveCount(1);
+    const deductionCredit = admin.page.getByTestId("contract-settlement-credit-depositToDeduct");
+    await expect(deductionCredit).toContainText("Deposit applied to outstanding debt");
+    await expect(deductionCredit).toContainText("500.000đ");
     await expect(admin.page.getByText("Thu thêm:").locator("..")).toContainText("400.000đ");
   });
 

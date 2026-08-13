@@ -1324,14 +1324,14 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
               </div>
             </Card>
 
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden" data-testid="contract-settlement-credits">
               <div className="border-b border-border px-4 py-3">
                 <div className="text-sm font-black text-text">Khoản hoàn / giảm trừ</div>
               </div>
               <div className="divide-y divide-border/60">
                 {(settlementPreview?.credits || []).length > 0 ? (
                   settlementPreview.credits.map((item: any) => (
-                    <div key={item.key} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                    <div key={item.key} data-testid={`contract-settlement-credit-${item.key}`} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                       <span className="text-muted">{item.description}</span>
                       <span className="font-black text-emerald-600">{formatCurrency(item.amount)}</span>
                     </div>

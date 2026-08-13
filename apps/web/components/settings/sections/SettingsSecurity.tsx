@@ -1,9 +1,13 @@
 "use client";
 
-import React from "react";
+import React, { FormEvent, useState } from "react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Shield, Smartphone, Key, LogOut, ClipboardList } from "lucide-react";
+import toast from "react-hot-toast";
+import { authApi } from "@/lib/api/auth.api";
+import { ApiError } from "@/lib/api/client";
+import { useAuthStore } from "@/lib/auth/auth-store";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -27,6 +31,39 @@ function EmptyState({ icon, title, desc }: { icon: React.ReactNode; title: strin
 }
 
 export default function SettingsSecurity() {
+  const clearSession = useAuthStore((state) => state.clearSession);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const changePassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (newPassword.length < 12) {
+      toast.error("Mật khẩu mới phải có ít nhất 12 ký tự.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Mật khẩu xác nhận không khớp.");
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await authApi.changePassword({
+        oldPassword: currentPassword,
+        newPassword,
+        confirmPassword,
+      });
+      clearSession();
+      toast.success("Đã đổi mật khẩu. Vui lòng đăng nhập lại.");
+      window.location.href = "/login";
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Không thể đổi mật khẩu. Vui lòng thử lại.");
+      setIsChangingPassword(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-[20px]">
       <div className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm">
@@ -45,17 +82,23 @@ export default function SettingsSecurity() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-[20px]">
         <Section title="Đổi mật khẩu">
-          <div className="flex flex-col gap-[14px]">
-            {["Mật khẩu hiện tại", "Mật khẩu mới", "Xác nhận mật khẩu mới"].map((label) => (
-              <div key={label} className="flex flex-col gap-[6px]">
-                <label className="text-[12px] font-bold text-muted uppercase tracking-wide">{label}</label>
-                <Input type="password" className="h-[42px] px-[14px] bg-background border border-border rounded-[10px] text-[13px] font-medium focus:outline-none focus:border-primary transition-all" />
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-end mt-auto pt-[14px]">
-            <Button className="h-[40px] px-[20px] rounded-[10px] bg-primary text-white font-bold text-[13px] hover:bg-primary/90 transition-colors w-full">Đổi mật khẩu</Button>
-          </div>
+          <form className="flex h-full flex-col gap-[14px]" onSubmit={changePassword}>
+            <div className="flex flex-col gap-[6px]">
+              <label htmlFor="settings-current-password" className="text-[12px] font-bold text-muted uppercase tracking-wide">Mật khẩu hiện tại</label>
+              <Input id="settings-current-password" data-testid="settings-current-password" type="password" autoComplete="current-password" required disabled={isChangingPassword} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="h-[42px] px-[14px] bg-background border border-border rounded-[10px] text-[13px] font-medium focus:outline-none focus:border-primary transition-all" />
+            </div>
+            <div className="flex flex-col gap-[6px]">
+              <label htmlFor="settings-new-password" className="text-[12px] font-bold text-muted uppercase tracking-wide">Mật khẩu mới</label>
+              <Input id="settings-new-password" data-testid="settings-new-password" type="password" autoComplete="new-password" required minLength={12} disabled={isChangingPassword} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="h-[42px] px-[14px] bg-background border border-border rounded-[10px] text-[13px] font-medium focus:outline-none focus:border-primary transition-all" />
+            </div>
+            <div className="flex flex-col gap-[6px]">
+              <label htmlFor="settings-confirm-password" className="text-[12px] font-bold text-muted uppercase tracking-wide">Xác nhận mật khẩu mới</label>
+              <Input id="settings-confirm-password" data-testid="settings-confirm-password" type="password" autoComplete="new-password" required minLength={12} disabled={isChangingPassword} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="h-[42px] px-[14px] bg-background border border-border rounded-[10px] text-[13px] font-medium focus:outline-none focus:border-primary transition-all" />
+            </div>
+            <div className="flex justify-end mt-auto pt-[14px]">
+              <Button type="submit" data-testid="settings-change-password-submit" isLoading={isChangingPassword} className="h-[40px] px-[20px] rounded-[10px] bg-primary text-white font-bold text-[13px] hover:bg-primary/90 transition-colors w-full">Đổi mật khẩu</Button>
+            </div>
+          </form>
         </Section>
 
         <Section title="Xác thực 2 bước (2FA)">

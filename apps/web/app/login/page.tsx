@@ -4,7 +4,6 @@ import AuthLayout from "@/components/auth/AuthLayout";
 import AuthCard from "@/components/auth/AuthCard";
 import AuthInput from "@/components/auth/AuthInput";
 import PasswordField from "@/components/auth/PasswordField";
-import SocialLoginButtons from "@/components/auth/SocialLoginButtons";
 import Link from "next/link";
 import { Loader2, AlertCircle } from "lucide-react";
 import { authApi } from "@/lib/api/auth.api";
@@ -77,11 +76,7 @@ export default function LoginPage() {
             data-testid="login-password"
           />
 
-          <div className="flex items-center justify-between mt-[-8px]">
-            <label className="flex items-center gap-[8px] cursor-pointer group">
-              <input type="checkbox" className="w-[16px] h-[16px] rounded-[4px] border-border text-[#6366f1] focus:ring-[#6366f1] transition-all" />
-              <span className="text-[13px] font-medium text-text group-hover:text-text transition-colors">Ghi nhớ đăng nhập</span>
-            </label>
+          <div className="flex items-center justify-end mt-[-8px]">
             <Link href="/forgot-password" className="text-[13px] font-bold text-[#6366f1] hover:underline">
               Quên mật khẩu?
             </Link>
@@ -96,10 +91,6 @@ export default function LoginPage() {
             {loading ? <Loader2 size={18} className="animate-spin" /> : "Đăng nhập"}
           </button>
         </form>
-
-        <div className="mt-[32px]">
-          <SocialLoginButtons />
-        </div>
 
       </AuthCard>
     </AuthLayout>

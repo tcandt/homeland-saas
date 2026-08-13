@@ -536,8 +536,9 @@ test.describe('Finance Expenses Regression', () => {
 
     await admin.page.goto('/finance/expenses');
 
-    const filterSelects = admin.page.locator('select');
-    await filterSelects.nth(2).selectOption('owner-2');
+    const ownerFilter = admin.page.getByLabel('Lọc chi phí theo chủ sở hữu');
+    const buildingFilter = admin.page.getByLabel('Lọc chi phí theo tòa nhà');
+    await ownerFilter.selectOption('owner-2');
 
     await expect
       .poll(() => mock.getLastExpensesQuery(), { timeout: 10000 })
@@ -545,10 +546,10 @@ test.describe('Finance Expenses Regression', () => {
         ownerId: 'owner-2',
       });
 
-    await expect(filterSelects.nth(3)).toContainText('LK01-32');
-    await expect(filterSelects.nth(3)).not.toContainText('LK01-31');
+    await expect(buildingFilter).toContainText('LK01-32');
+    await expect(buildingFilter).not.toContainText('LK01-31');
 
-    await filterSelects.nth(3).selectOption('building-2');
+    await buildingFilter.selectOption('building-2');
 
     await expect
       .poll(() => mock.getLastExpensesQuery(), { timeout: 10000 })

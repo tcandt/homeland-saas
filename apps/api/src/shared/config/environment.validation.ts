@@ -39,6 +39,10 @@ export function validateEnvironment(config: Record<string, unknown>) {
   return config;
 }
 
+export function schedulesEnabled(config: Record<string, unknown> = process.env) {
+  return stringValue(config.DISABLE_SCHEDULED_JOBS).toLowerCase() !== 'true';
+}
+
 export function configuredCorsOrigins() {
   const configured = (process.env.CORS_ORIGINS || '')
     .split(',')

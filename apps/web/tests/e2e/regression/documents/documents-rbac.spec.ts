@@ -3,6 +3,7 @@ import { DataFactory } from '../../utils/data-factory';
 import { test } from '../../fixtures/rbac.fixture';
 
 test.describe('Documents RBAC Regression', () => {
+  test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   let docId: string;
 
   test.beforeAll(async ({ browser }) => {

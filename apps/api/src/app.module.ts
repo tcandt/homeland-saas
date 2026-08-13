@@ -43,7 +43,7 @@ import { RepositoriesModule } from './shared/repositories/repositories.module';
 import { SettingsModule } from './settings/settings.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HunonicModule } from './hunonic/hunonic.module';
-import { validateEnvironment } from './shared/config/environment.validation';
+import { schedulesEnabled, validateEnvironment } from './shared/config/environment.validation';
 
 @Module({
   imports: [
@@ -113,7 +113,7 @@ import { validateEnvironment } from './shared/config/environment.validation';
       },
     }),
     EventEmitterModule.forRoot({ wildcard: true }),
-    ScheduleModule.forRoot(),
+    ScheduleModule.forRoot({ cronJobs: schedulesEnabled() }),
     CacheModule.registerAsync({
       isGlobal: true,
       useFactory: async () => {

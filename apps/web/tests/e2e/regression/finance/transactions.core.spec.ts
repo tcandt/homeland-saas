@@ -45,7 +45,7 @@ const baseRows: BankTransactionRow[] = [
     paymentCode: 'DEP-LK0824-001',
     providerTransactionId: 'MB-0000',
     reference: 'REF-000',
-    owner: { id: 'owner-1', name: 'TÃ­nh' },
+    owner: { id: 'owner-1', name: 'Tính' },
     bankAccount: bankAccounts[0],
     match: { status: 'MATCHED_DEPOSIT' },
   },

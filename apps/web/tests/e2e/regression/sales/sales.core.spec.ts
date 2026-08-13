@@ -6,6 +6,7 @@ import { EvidenceCollector } from '../../helpers/evidence';
 test.describe.configure({ mode: 'parallel' });
 
 test.describe('Sales Core Regression Workflow', () => {
+  test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   let factory: DataFactory;
   let testPrefix: string;
   let createdIds: any = {};

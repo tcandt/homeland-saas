@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../fixtures/rbac.fixture';
 
 test.describe('Property Structure Error & Edge Cases', () => {
+  test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   const testBuildingName = `Error Building ${Date.now()}`;
   const testBuildingCode = `ERR-${Date.now()}`;
   

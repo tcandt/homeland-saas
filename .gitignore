@@ -66,6 +66,7 @@ apps/web/tests/e2e/.auth/
 # local runtime and test artifacts
 apps/web/.local-data/
 .tmp*/
+.tmp-production-verify/
 .tmp-*.png
 tmp-*.png
 tmp-*.jpg

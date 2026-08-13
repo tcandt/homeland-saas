@@ -9,7 +9,7 @@ const roots = [
 ];
 
 const extensions = new Set([".ts", ".tsx", ".js", ".jsx", ".json", ".md"]);
-const ignoreDirs = new Set(["node_modules", ".next", ".turbo", "dist", "coverage", ".git", ".auth", "playwright-report", "test-results", ".tmp-smoke"]);
+const ignoreDirs = new Set(["node_modules", ".next", ".turbo", "dist", "coverage", ".git", ".auth", "playwright-report", "test-results", ".tmp-smoke", ".tmp-production-verify"]);
 const ignoreFiles = new Set(["report.json", "report_permission.json", "performance-results.jsonl", "opencv.js"]);
 
 const markers = [
@@ -40,6 +40,7 @@ const markers = [
   "\u00c2\u00a0",
   "\u00e2\u20ac",
   "\u00ef\u00bf\u00bd",
+  "\u0054\u0068\u1ed2",
   "\u0010",
   "\u0011",
   "\u0018",

@@ -1,119 +1,189 @@
+[CmdletBinding()]
+param(
+    [switch]$SkipBuild,
+    [switch]$SkipRuntime,
+    [switch]$SkipE2E
+)
+
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 
-Write-Host "============================================="
-Write-Host "   Phase 1: Production Build Verification    "
-Write-Host "============================================="
+$workspace = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+$runtimeRoot = Join-Path $workspace '.tmp-production-verify'
+$apiOutDir = Join-Path $runtimeRoot 'api-dist'
+$webOutName = '.tmp-production-verify/web-next'
+$webOutDir = Join-Path $workspace (Join-Path 'apps/web' $webOutName)
+$logDir = Join-Path $runtimeRoot 'logs'
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$apiPort = 3101
+$webPort = 3100
+$apiOrigin = "http://127.0.0.1:$apiPort"
+$webOrigin = "http://127.0.0.1:$webPort"
+$apiProcess = $null
+$webProcess = $null
+$webTsConfigPath = Join-Path $workspace 'apps/web/tsconfig.json'
+$webTsConfigSnapshot = $null
+$webNextEnvPath = Join-Path $workspace 'apps/web/next-env.d.ts'
+$webNextEnvSnapshot = $null
 
-function Kill-Port {
-    param([int]$Port)
-    Write-Host "Checking port $Port..."
-    $conns = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
-    if ($conns) {
-        foreach ($conn in $conns) {
-            $pidToKill = $conn.OwningProcess
-            if ($pidToKill -eq 0 -or $pidToKill -eq 4) { continue } # System Idle or System
+function Invoke-Checked {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][scriptblock]$Command
+    )
 
-            try {
-                $proc = Get-Process -Id $pidToKill -ErrorAction Stop
-                $procName = $proc.ProcessName.ToLower()
-                $protectedProcs = @("com.docker.backend", "docker desktop", "wslhost", "vmmem", "svchost", "system", "wsl")
-                
-                $isProtected = $false
-                foreach ($protected in $protectedProcs) {
-                    if ($procName -like "*$protected*") {
-                        $isProtected = $true
-                        break
-                    }
-                }
-
-                if ($isProtected) {
-                    Write-Host "Skipping protected process $($proc.ProcessName) (PID: $pidToKill) on port $Port" -ForegroundColor Yellow
-                } else {
-                    Write-Host "Killing process $($proc.ProcessName) (PID: $pidToKill) on port $Port"
-                    Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue
-                }
-            } catch {
-                Write-Host "Could not identify or kill PID $pidToKill" -ForegroundColor Yellow
-            }
-        }
-        Start-Sleep -Seconds 2
+    Write-Host "`n[$Label]" -ForegroundColor Cyan
+    & $Command
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Label failed with exit code $LASTEXITCODE."
     }
 }
 
-Write-Host "0. Running Infrastructure Gates..." -ForegroundColor Cyan
-powershell -ExecutionPolicy Bypass -File scripts/infra/run-all.ps1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "INFRASTRUCTURE BLOCKED. Cannot proceed with verify:prod." -ForegroundColor Red
-    exit 1
+function Assert-PortAvailable {
+    param([Parameter(Mandatory = $true)][int]$Port)
+
+    $listeners = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
+    if ($listeners) {
+        $owners = ($listeners | Select-Object -ExpandProperty OwningProcess -Unique) -join ', '
+        throw "Verification port $Port is already in use by PID(s) $owners. No process was stopped."
+    }
 }
 
-Write-Host "1. Stopping ports 3000, 3001..."
-Kill-Port 3000
-Kill-Port 3001
+function Wait-ForHttp {
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [Parameter(Mandatory = $true)]$Process,
+        [int]$Retries = 60
+    )
 
-Write-Host "2. Cleaning .next cache..."
-if (Test-Path "apps\web\.next") {
-    Remove-Item -Recurse -Force "apps\web\.next"
-}
-
-Write-Host "3. Building API..."
-npm run build --workspace=api
-if ($LASTEXITCODE -ne 0) { throw "API Build Failed" }
-
-Write-Host "4. Building Web..." -ForegroundColor Cyan
-npm run build --workspace=web
-if ($LASTEXITCODE -ne 0) { throw "Web Build Failed" }
-
-Write-Host "5. Starting API production server..." -ForegroundColor Cyan
-$npmCmd = if ($IsWindows -or $env:OS -match "Windows") { "npm.cmd" } else { "npm" }
-$apiProcess = Start-Process -FilePath $npmCmd -ArgumentList "run start:prod --workspace=api" -PassThru -NoNewWindow
-Start-Sleep -Seconds 3
-
-Write-Host "6. Starting Web production server..." -ForegroundColor Cyan
-$webProcess = Start-Process -FilePath $npmCmd -ArgumentList "run start --workspace=web" -PassThru -NoNewWindow
-
-function Wait-For-HealthCheck {
-    param([string]$Url, [int]$Retries = 30)
-    Write-Host "Waiting for $Url to be ready..."
-    for ($i = 0; $i -lt $Retries; $i++) {
+    for ($attempt = 1; $attempt -le $Retries; $attempt += 1) {
+        if ($Process.HasExited) {
+            throw "Process $($Process.Id) exited before $Url became ready."
+        }
         try {
-            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5
             if ($response.StatusCode -eq 200) {
-                Write-Host "  -> Ready ($Url)"
+                Write-Host "READY $Url" -ForegroundColor Green
                 return
             }
         } catch {
-            # Ignore and retry
+            Start-Sleep -Seconds 2
         }
-        Start-Sleep -Seconds 2
     }
-    throw "Timeout waiting for $Url"
+
+    throw "Timed out waiting for $Url."
 }
 
+function Stop-OwnedProcess {
+    param($Process, [string]$Label)
+
+    if ($null -eq $Process -or $Process.HasExited) { return }
+    Write-Host "Stopping $Label PID $($Process.Id)..."
+    Stop-Process -Id $Process.Id -ErrorAction SilentlyContinue
+    try {
+        Wait-Process -Id $Process.Id -Timeout 10 -ErrorAction Stop
+    } catch {
+        Write-Warning "$Label PID $($Process.Id) did not stop within 10 seconds. It was not force-killed."
+    }
+}
+
+Push-Location $workspace
 try {
-    Write-Host "7. Waiting for Health Endpoints..."
-    Wait-For-HealthCheck "http://127.0.0.1:3001/api/v1/health"
-    Wait-For-HealthCheck "http://127.0.0.1:3001/api/v1/health/ready"
-    Wait-For-HealthCheck "http://127.0.0.1:3000/buildings"
+    Write-Host '====================================================='
+    Write-Host ' HomeLand production verification (non-destructive) '
+    Write-Host '====================================================='
+    Write-Host 'This script does not delete build caches, stop shared ports, seed data, run migrations, or run CRUD E2E tests.'
 
-    Write-Host "8. Running Playwright Property Production Test..."
-    npm run test:e2e:prod --workspace=web
-    $pwExit = $LASTEXITCODE
+    New-Item -ItemType Directory -Force -Path $runtimeRoot, $logDir | Out-Null
+    Assert-PortAvailable -Port $apiPort
+    Assert-PortAvailable -Port $webPort
 
-    Write-Host "9. Evidence Package Collected."
+    Invoke-Checked 'Encoding' { node scripts/check-mojibake.js }
+    Invoke-Checked 'Prisma validate' { & .\node_modules\.bin\prisma.cmd validate --schema=packages/database/prisma/schema.prisma }
+    Invoke-Checked 'Prisma migration status (read-only)' { & .\node_modules\.bin\prisma.cmd migrate status --schema=packages/database/prisma/schema.prisma }
+    Invoke-Checked 'API typecheck' { npm.cmd run typecheck --workspace=api }
+    Invoke-Checked 'Web typecheck' { npm.cmd run typecheck --workspace=web }
+    Invoke-Checked 'API unit tests' { npm.cmd run test --workspace=api }
+    Invoke-Checked 'Web unit tests' { npm.cmd run test --workspace=web }
+
+    if (-not $SkipBuild) {
+        Invoke-Checked 'Shared typecheck' { & .\node_modules\.bin\tsc.cmd -p packages/shared/tsconfig.json --noEmit }
+        Invoke-Checked 'API isolated build' { & .\apps\api\node_modules\.bin\tsc.cmd -p apps/api/tsconfig.verify-production.json }
+
+        $env:NEXT_BUILD_DIR = $webOutName
+        $env:NEXT_PUBLIC_API_URL = "$apiOrigin/api/v1"
+        $env:INTERNAL_API_ORIGIN = $apiOrigin
+        $env:NEXT_PUBLIC_ALLOW_REGISTRATION = 'false'
+        $webTsConfigSnapshot = Get-Content -LiteralPath $webTsConfigPath -Raw
+        $webNextEnvSnapshot = Get-Content -LiteralPath $webNextEnvPath -Raw
+        Invoke-Checked 'Web isolated production build' { npm.cmd run build --workspace=web }
+        $webTsConfigAfterBuild = Get-Content -LiteralPath $webTsConfigPath -Raw
+        if ($webTsConfigAfterBuild -ne $webTsConfigSnapshot) {
+            [System.IO.File]::WriteAllText($webTsConfigPath, $webTsConfigSnapshot, [System.Text.UTF8Encoding]::new($false))
+            Write-Host 'Restored apps/web/tsconfig.json after Next.js added isolated build type paths.' -ForegroundColor Yellow
+        }
+        $webNextEnvAfterBuild = Get-Content -LiteralPath $webNextEnvPath -Raw
+        if ($webNextEnvAfterBuild -ne $webNextEnvSnapshot) {
+            [System.IO.File]::WriteAllText($webNextEnvPath, $webNextEnvSnapshot, [System.Text.UTF8Encoding]::new($false))
+            Write-Host 'Restored apps/web/next-env.d.ts after the isolated Next.js build.' -ForegroundColor Yellow
+        }
+    }
+
+    if (-not $SkipRuntime) {
+        $apiEntry = Join-Path $apiOutDir 'src/main.js'
+        $webBuildId = Join-Path $webOutDir 'BUILD_ID'
+        if (-not (Test-Path -LiteralPath $apiEntry)) { throw "Missing isolated API build: $apiEntry" }
+        if (-not (Test-Path -LiteralPath $webBuildId)) { throw "Missing isolated web build: $webBuildId" }
+
+        $env:NODE_ENV = 'production'
+        $env:PORT = "$apiPort"
+        $env:APP_URL = $apiOrigin
+        $env:CORS_ORIGINS = $webOrigin
+        $env:DISABLE_SCHEDULED_JOBS = 'true'
+        $env:ENABLE_SWAGGER = 'false'
+        if (-not $env:JWT_SECRET -or $env:JWT_SECRET.Length -lt 32 -or $env:JWT_SECRET -eq 'homeland_super_secret_key_change_in_production') {
+            $env:JWT_SECRET = 'verification-only-loopback-secret-2026-not-for-deployment'
+        }
+
+        $apiStdout = Join-Path $logDir "api-$stamp.stdout.log"
+        $apiStderr = Join-Path $logDir "api-$stamp.stderr.log"
+        $webStdout = Join-Path $logDir "web-$stamp.stdout.log"
+        $webStderr = Join-Path $logDir "web-$stamp.stderr.log"
+
+        $apiProcess = Start-Process -FilePath 'node.exe' -ArgumentList $apiEntry -WorkingDirectory $workspace -WindowStyle Hidden -RedirectStandardOutput $apiStdout -RedirectStandardError $apiStderr -PassThru
+        Wait-ForHttp -Url "$apiOrigin/api/v1/health" -Process $apiProcess
+        Wait-ForHttp -Url "$apiOrigin/api/v1/health/ready" -Process $apiProcess
+
+        $webProcess = Start-Process -FilePath 'node.exe' -ArgumentList @('node_modules/next/dist/bin/next', 'start', 'apps/web', '-p', "$webPort", '-H', '127.0.0.1') -WorkingDirectory $workspace -WindowStyle Hidden -RedirectStandardOutput $webStdout -RedirectStandardError $webStderr -PassThru
+        Wait-ForHttp -Url "$webOrigin/login" -Process $webProcess
+
+        if (-not $SkipE2E) {
+            if (-not $env:E2E_ADMIN_PASSWORD -or -not $env:E2E_OWNER_A_PASSWORD -or -not $env:E2E_OWNER_B_PASSWORD -or -not $env:E2E_MANAGER_PASSWORD) {
+                throw 'E2E_ADMIN_PASSWORD, E2E_OWNER_A_PASSWORD, E2E_OWNER_B_PASSWORD, and E2E_MANAGER_PASSWORD are required for the read-only production E2E gate.'
+            }
+            $env:VERIFY_PROD = '1'
+            $env:E2E_WEB_BASE_URL = $webOrigin
+            $env:E2E_API_BASE_URL = $apiOrigin
+            Invoke-Checked 'Read-only and mocked production E2E' { npm.cmd run test:e2e:prod --workspace=web }
+        }
+    }
+
+    Write-Host "`nProduction verification PASSED." -ForegroundColor Green
+    Write-Host "Logs: $logDir"
 } finally {
-    Write-Host "10. Shutting down spawned processes..."
-    if ($apiProcess -and -not $apiProcess.HasExited) { Stop-Process -Id $apiProcess.Id -Force }
-    if ($webProcess -and -not $webProcess.HasExited) { Stop-Process -Id $webProcess.Id -Force }
-    
-    # Failsafe kill
-    Kill-Port 3000
-    Kill-Port 3001
-}
-
-if ($pwExit -ne 0) {
-    Write-Host "Verification FAILED. Check Evidence Package." -ForegroundColor Red
-    exit 1
-} else {
-    Write-Host "Verification PASSED." -ForegroundColor Green
+    if ($null -ne $webTsConfigSnapshot -and (Test-Path -LiteralPath $webTsConfigPath)) {
+        $webTsConfigCurrent = Get-Content -LiteralPath $webTsConfigPath -Raw
+        if ($webTsConfigCurrent -ne $webTsConfigSnapshot) {
+            [System.IO.File]::WriteAllText($webTsConfigPath, $webTsConfigSnapshot, [System.Text.UTF8Encoding]::new($false))
+        }
+    }
+    if ($null -ne $webNextEnvSnapshot -and (Test-Path -LiteralPath $webNextEnvPath)) {
+        $webNextEnvCurrent = Get-Content -LiteralPath $webNextEnvPath -Raw
+        if ($webNextEnvCurrent -ne $webNextEnvSnapshot) {
+            [System.IO.File]::WriteAllText($webNextEnvPath, $webNextEnvSnapshot, [System.Text.UTF8Encoding]::new($false))
+        }
+    }
+    Stop-OwnedProcess -Process $webProcess -Label 'web verification server'
+    Stop-OwnedProcess -Process $apiProcess -Label 'API verification server'
+    Pop-Location
 }

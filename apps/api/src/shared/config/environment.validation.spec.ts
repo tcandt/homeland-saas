@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateEnvironment } from './environment.validation';
+import { schedulesEnabled, validateEnvironment } from './environment.validation';
 
 describe('production environment validation', () => {
   const valid = {
@@ -29,5 +29,11 @@ describe('production environment validation', () => {
 
   it('keeps development configuration permissive', () => {
     expect(validateEnvironment({ NODE_ENV: 'development' })).toEqual({ NODE_ENV: 'development' });
+  });
+
+  it('disables scheduled jobs only when explicitly requested', () => {
+    expect(schedulesEnabled({})).toBe(true);
+    expect(schedulesEnabled({ DISABLE_SCHEDULED_JOBS: 'false' })).toBe(true);
+    expect(schedulesEnabled({ DISABLE_SCHEDULED_JOBS: 'TRUE' })).toBe(false);
   });
 });

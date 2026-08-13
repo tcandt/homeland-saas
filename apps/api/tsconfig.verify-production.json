@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "incremental": false,
+    "outDir": "../../.tmp-production-verify/api-dist",
+    "tsBuildInfoFile": "../../.tmp-production-verify/api.tsbuildinfo"
+  }
+}

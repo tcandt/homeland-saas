@@ -3,6 +3,7 @@ import { test } from '../fixtures/rbac.fixture';
 import { EvidenceCollector } from '../helpers/evidence';
 
 test.describe('Invoice Lifecycle Workflow E2E', () => {
+  test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   test.setTimeout(120000);
 
   test('Full Invoice Flow: DRAFT -> ISSUED -> PARTIALLY_PAID -> PAID', async ({ admin }) => {

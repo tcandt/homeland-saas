@@ -1,6 +1,7 @@
 import { test, expect, request } from '@playwright/test';
 
 test.describe('Property Structure Tenant Isolation', () => {
+  test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   const timestamp = Date.now();
   const tenantAEmail = `admin_a_${timestamp}@tenant.com`;
   const tenantBEmail = `admin_b_${timestamp}@tenant.com`;

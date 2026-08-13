@@ -3,6 +3,7 @@ import { test } from '../../fixtures/rbac.fixture';
 import { DataFactory } from '../../utils/data-factory';
 
 test.describe('Notifications RBAC Regression', () => {
+  test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   let adminDataFactory: DataFactory;
   let adminCustomerId: string;
   let cleanupIds: any = {};

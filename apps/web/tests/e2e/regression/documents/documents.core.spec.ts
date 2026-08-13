@@ -3,6 +3,7 @@ import { DataFactory } from '../../utils/data-factory';
 import { test } from '../../fixtures/admin.fixture';
 
 test.describe('Documents Core Regression', () => {
+  test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   let docId: string;
   let signatureReqId: string;
   let adminToken: string;

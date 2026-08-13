@@ -4,6 +4,7 @@ import { Page } from '@playwright/test';
 import { EvidenceCollector } from '../helpers/evidence';
 
 test.describe('Property Structure E2E: Building -> Floor -> Room Lifecycle', () => {
+  test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   test.setTimeout(60000);
 
   test('Full CRUD Flow: Create Building -> Create Floor -> Create Room -> Edit -> Delete -> Reload', async ({ admin }) => {

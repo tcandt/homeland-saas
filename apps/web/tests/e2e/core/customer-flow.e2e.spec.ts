@@ -5,6 +5,7 @@ import { EvidenceCollector } from '../helpers/evidence';
 // Dataset: PRODUCTION_DATASET v1.0
 
 test.describe('Customer E2E: Create -> Edit -> Delete Lifecycle', () => {
+  test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   test.setTimeout(60000);
 
   test('Full CRUD Flow', async ({ admin }) => {

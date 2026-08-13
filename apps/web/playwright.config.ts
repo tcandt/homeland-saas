@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const webBaseUrl = process.env.E2E_WEB_BASE_URL || 'http://127.0.0.1:3000';
+const apiBaseUrl = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3001';
+
 export default defineConfig({
     testDir: './tests/e2e',
     fullyParallel: true,
@@ -11,7 +14,7 @@ export default defineConfig({
           ['list'],
         ],
     use: {
-          baseURL: 'http://127.0.0.1:3000',
+          baseURL: webBaseUrl,
           trace: 'on',
           video: 'on',
           screenshot: 'on',
@@ -57,7 +60,7 @@ export default defineConfig({
     webServer: process.env.VERIFY_PROD ? undefined : [
       {
               command: 'npm run start',
-              url: 'http://127.0.0.1:3000',
+              url: webBaseUrl,
               reuseExistingServer: !process.env.CI,
               timeout: 120 * 1000,
               stdout: 'pipe',
@@ -65,7 +68,7 @@ export default defineConfig({
       },
       {
               command: 'npm run start:prod --workspace=api --prefix ../..',
-              url: 'http://127.0.0.1:3001/api/docs',
+              url: `${apiBaseUrl}/api/v1/health`,
               reuseExistingServer: !process.env.CI,
               timeout: 120 * 1000,
               stdout: 'pipe',

@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "prelint": "node ../../scripts/check-mojibake.js",
-    "lint": "next lint",
+    "lint": "cross-env ESLINT_USE_FLAT_CONFIG=true eslint . --max-warnings=0",
     "pretypecheck": "node ../../scripts/check-mojibake.js",
     "typecheck": "tsc --noEmit",
     "pretest:e2e": "node ../../scripts/check-mojibake.js",

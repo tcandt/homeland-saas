@@ -1,4 +1,7 @@
 @api_url = http://localhost:3001/api/v1
+@loginEmail = admin@homeland.local
+@loginPassword = {{$dotenv E2E_ADMIN_PASSWORD}}
+@newPassword = {{$dotenv E2E_NEW_PASSWORD}}
 @accessToken = {{login.response.body.data.accessToken}}
 @refreshToken = {{login.response.body.data.refreshToken}}
 
@@ -8,8 +11,8 @@ POST {{api_url}}/auth/login
 Content-Type: application/json
 
 {
-  "emailOrPhone": "admin@homeland.local",
-  "password": "Homeland@123456"
+  "emailOrPhone": "{{loginEmail}}",
+  "password": "{{loginPassword}}"
 }
 
 ### 2. Get Profile
@@ -30,9 +33,9 @@ Authorization: Bearer {{accessToken}}
 Content-Type: application/json
 
 {
-  "oldPassword": "Homeland@123456",
-  "newPassword": "Homeland@New123",
-  "confirmPassword": "Homeland@New123"
+  "oldPassword": "{{loginPassword}}",
+  "newPassword": "{{newPassword}}",
+  "confirmPassword": "{{newPassword}}"
 }
 
 ### 5. Logout

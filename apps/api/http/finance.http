@@ -1,4 +1,6 @@
 @baseUrl = http://localhost:3001/api/v1
+@loginEmail = admin@homeland.local
+@loginPassword = {{$dotenv E2E_ADMIN_PASSWORD}}
 @authToken = {{login.response.body.accessToken}}
 
 ### Login to get token
@@ -7,8 +9,8 @@ POST {{baseUrl}}/auth/login
 Content-Type: application/json
 
 {
-  "emailOrPhone": "admin@homeland.local",
-  "password": "Homeland@123456"
+  "emailOrPhone": "{{loginEmail}}",
+  "password": "{{loginPassword}}"
 }
 
 ### Get Ledger

@@ -739,6 +739,23 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Không tạo hóa đơn quyết toán rỗng khi số phải thu bằng `0`; hóa đơn còn phải thu được phát hành ở trạng thái `ISSUED`.
 - [x] Đồng bộ `creditAmount` vào KPI công nợ và tỷ lệ thu hồi trên desktop, vẫn tách riêng tiền mặt thực thu.
 - [x] Bổ sung unit test tổng hợp tiền mặt, credit và số dư còn phải thu trên nhiều hóa đơn.
+- [x] Thêm cổng production không phá dữ liệu, build/port cô lập và tắt cron khi kiểm chứng.
+- [x] Khóa E2E CRUD thật sau cờ `RUN_DESTRUCTIVE_E2E=true` dành riêng cho database dùng một lần.
+- [x] Tách kiểm thử persona manager, owner A, owner B và admin toàn quyền.
+- [x] Audit 10 trang desktop ở cả light/dark, kiểm tra overflow, console error và theme token.
+- [x] Loại mật khẩu dùng chung khỏi blueprint và các request HTTP mẫu.
+- [x] Viết checklist vận hành và go-live tại `docs/operations/PRODUCTION_READINESS.md`.
+
+### 17. Điều kiện bên ngoài còn phải hoàn tất trước LIVE
+
+- [ ] Domain HTTPS production cho web/API.
+- [ ] Secret production PostgreSQL, Redis, JWT, SePay, Zalo, Telegram, SMTP và Hunonic được cấp ngoài Git.
+- [ ] Backup ngoài máy chủ và restore drill có biên bản.
+- [ ] Monitoring/alerting và người trực vận hành.
+- [ ] Deploy staging và chạy lại toàn bộ production gate trên staging.
+- [ ] Nghiệm thu giao dịch SePay giá trị nhỏ cho cả hai bank/owner.
+- [ ] Nghiệm thu gửi Zalo/Telegram/SMTP và sync Hunonic bằng credential production.
+- [ ] Bốn persona nhận credential riêng và đổi mật khẩu lần đầu.
 
 ### Thứ tự ưu tiên khuyến nghị
 

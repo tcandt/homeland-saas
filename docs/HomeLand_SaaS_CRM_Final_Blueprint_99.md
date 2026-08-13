@@ -627,7 +627,9 @@ async function main() {
   const managerRole = roles.find((r) => r.code === RoleCode.MANAGER)!;
   const salesRole = roles.find((r) => r.code === RoleCode.SALES)!;
 
-  const passwordHash = await bcrypt.hash('Homeland@123456', 12);
+  const seedPassword = process.env.SEED_DEFAULT_PASSWORD;
+  if (!seedPassword) throw new Error('SEED_DEFAULT_PASSWORD is required');
+  const passwordHash = await bcrypt.hash(seedPassword, 12);
 
   const admin = await prisma.user.upsert({
     where: { tenantId_email: { tenantId: org.id, email: 'admin@homeland.local' } },
@@ -1323,7 +1325,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: homeland
-      POSTGRES_PASSWORD: homeland_prod_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
       POSTGRES_DB: homeland
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -1356,7 +1358,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: postgresql://homeland:homeland_prod_password@postgres:5432/homeland
+      DATABASE_URL: ${DATABASE_URL:?required}
       REDIS_URL: redis://redis:6379
     ports:
       - "4000:4000"
@@ -1415,7 +1417,7 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: homeland
-          POSTGRES_PASSWORD: homeland
+          POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
           POSTGRES_DB: homeland_test
         ports:
           - 5432:5432
@@ -1457,11 +1459,11 @@ jobs:
 
       - run: pnpm --filter @homeland/database prisma:migrate:deploy
         env:
-          DATABASE_URL: postgresql://homeland:homeland@localhost:5432/homeland_test
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
 
       - run: pnpm test
         env:
-          DATABASE_URL: postgresql://homeland:homeland@localhost:5432/homeland_test
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
           REDIS_URL: redis://localhost:6379
           JWT_ACCESS_SECRET: test_access_secret_12345678901234567890
           JWT_REFRESH_SECRET: test_refresh_secret_12345678901234567890
@@ -1834,11 +1836,16 @@ pnpm typecheck
 pnpm test
 pnpm build
 
-## Default accounts
+## Provisioned account identifiers
 
-Admin: admin@homeland.local / Homeland@123456
-Manager: manager@homeland.local / Homeland@123456
-Sales: sales@homeland.local / Homeland@123456
+- `admin@homeland.local`
+- `adminA@homeland.local`
+- `adminB@homeland.local`
+- `manager@homeland.local`
+- `sales@homeland.local`
+- `finance@homeland.local`
+
+Mỗi tài khoản phải có mật khẩu riêng, được bàn giao ngoài Git và bắt buộc đổi mật khẩu tạm ở lần đăng nhập đầu tiên.
 ```
 
 ---

@@ -50,6 +50,17 @@ describe('FinanceReportingService', () => {
       auditLog: {
         create: vi.fn(),
       },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      bankAccount: {
+        findFirst: vi.fn(),
+        update: vi.fn(),
+      },
+      appSetting: {
+        findUnique: vi.fn(),
+      },
       ...prismaOverrides,
     };
     const communicationService = {
@@ -138,6 +149,152 @@ describe('FinanceReportingService', () => {
         title: expect.stringContaining('Yeu cau duyet chi'),
       }),
     }));
+  });
+
+  it('returns bank usage metadata for owners', async () => {
+    const { service } = createService({
+      owner: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'owner-1',
+            code: 'OWNER_A',
+            name: 'Tinh',
+            buildings: [{ id: 'building-1', code: 'LK01-31', name: 'LK01-31' }],
+            bankAccounts: [
+              { id: 'bank-1', bankName: 'ACB', accountNumber: '123', accountName: 'Owner A', isActive: true },
+            ],
+          },
+        ]),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          { bankAccountId: 'bank-1', status: 'PENDING', createdAt: new Date('2026-08-10T00:00:00.000Z') },
+          { bankAccountId: 'bank-1', status: 'CONFIRMED', createdAt: new Date('2026-08-09T00:00:00.000Z') },
+        ]),
+      },
+    });
+
+    await expect(service.getOwners('tenant-1')).resolves.toEqual([
+      expect.objectContaining({
+        bankAccounts: [
+          expect.objectContaining({
+            id: 'bank-1',
+            usage: expect.objectContaining({
+              requestCount: 2,
+              pendingCount: 1,
+              confirmedCount: 1,
+              inUse: true,
+              latestRequestAt: new Date('2026-08-10T00:00:00.000Z'),
+            }),
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('blocks disabling a bank account that still has pending payment requests', async () => {
+    const { service } = createService({
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1',
+          tenantId: 'tenant-1',
+          bankName: 'ACB',
+          accountNumber: '123',
+          isActive: true,
+        }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(2),
+      },
+      appSetting: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+    });
+
+    await expect(service.updateBankAccountStatus('tenant-1', 'user-1', 'bank-1', false)).rejects.toThrow(
+      'BANK_ACCOUNT_HAS_PENDING_PAYMENT_REQUESTS',
+    );
+  });
+
+  it('blocks disabling a bank account that is currently set as owner default', async () => {
+    const { service } = createService({
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1',
+          tenantId: 'tenant-1',
+          ownerId: 'owner-1',
+          bankName: 'ACB',
+          accountNumber: '123',
+          isActive: true,
+        }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      appSetting: {
+        findUnique: vi.fn().mockResolvedValue({
+          value: {
+            defaults: {
+              'owner-1': 'bank-1',
+            },
+          },
+        }),
+      },
+    });
+
+    await expect(service.updateBankAccountStatus('tenant-1', 'user-1', 'bank-1', false)).rejects.toThrow(
+      'BANK_ACCOUNT_IS_DEFAULT_PAYMENT_BANK',
+    );
+  });
+
+  it('updates bank account status and writes audit log when guard passes', async () => {
+    const { service, prisma } = createService({
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1',
+          tenantId: 'tenant-1',
+          bankName: 'ACB',
+          accountNumber: '123',
+          isActive: true,
+        }),
+        update: vi.fn().mockResolvedValue({
+          id: 'bank-1',
+          tenantId: 'tenant-1',
+          bankName: 'ACB',
+          accountNumber: '123',
+          isActive: false,
+        }),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      appSetting: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+    });
+
+    await expect(service.updateBankAccountStatus('tenant-1', 'user-1', 'bank-1', false)).resolves.toEqual(
+      expect.objectContaining({ id: 'bank-1', isActive: false }),
+    );
+    expect(prisma.bankAccount.update).toHaveBeenCalledWith({
+      where: { id: 'bank-1' },
+      data: { isActive: false },
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          module: 'Finance',
+          entity: 'BankAccount',
+          entityId: 'bank-1',
+          action: 'UPDATE',
+        }),
+      }),
+    );
   });
 
   it('summarizes open invoice debt by customer, room, building, and owner', async () => {

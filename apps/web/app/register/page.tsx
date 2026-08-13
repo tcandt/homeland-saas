@@ -10,6 +10,14 @@ import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { authApi } from "@/lib/api/auth.api";
 
 export default function RegisterPage() {
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+
   if (process.env.NEXT_PUBLIC_ALLOW_REGISTRATION !== "true") {
     return (
       <AuthLayout>
@@ -27,13 +35,6 @@ export default function RegisterPage() {
       </AuthLayout>
     );
   }
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

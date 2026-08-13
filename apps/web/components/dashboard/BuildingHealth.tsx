@@ -1,4 +1,5 @@
 import React from "react";
+import Link from "next/link";
 import { Building2, ChevronRight } from "lucide-react";
 import { useDashboardData } from "@/app/dashboard-context";
 
@@ -21,7 +22,7 @@ export default function BuildingHealth() {
     <div className="bg-card border border-border rounded-[20px] p-[20px] md:p-[24px] shadow-sm flex flex-col h-full">
       <div className="flex justify-between items-center mb-[20px]">
         <h3 className="font-black text-[14px] md:text-[14px] text-text md:uppercase m-0">Tình hình tòa nhà</h3>
-        <a href="/buildings" className="text-[#4f46e5] text-[13px] font-bold hover:underline">Xem tất cả <ChevronRight size={14} className="inline md:hidden" /></a>
+        <Link href="/buildings" className="text-[#4f46e5] text-[13px] font-bold hover:underline">Xem tất cả <ChevronRight size={14} className="inline md:hidden" /></Link>
       </div>
 
       {buildings.length === 0 ? (
@@ -53,9 +54,9 @@ export default function BuildingHealth() {
                   <div className={`text-[10px] font-bold ${building.warningColor}`}>{building.warningType}</div>
                 </div>
 
-                <a href={`/buildings/${building.code}`} className="w-[24px] h-[24px] rounded-full border border-border flex items-center justify-center text-muted hover:bg-black/5 dark:hover:bg-white/5 shrink-0 transition-colors">
+                <Link href={`/buildings/${building.code}`} className="w-[24px] h-[24px] rounded-full border border-border flex items-center justify-center text-muted hover:bg-black/5 dark:hover:bg-white/5 shrink-0 transition-colors">
                   <ChevronRight size={14} />
-                </a>
+                </Link>
               </div>
 
               <div className="flex md:hidden items-center justify-between w-full">
@@ -89,9 +90,9 @@ export default function BuildingHealth() {
         </div>
       )}
 
-      <a href="/buildings" className="hidden md:block mt-[20px] text-center py-[12px] border border-border/80 rounded-[12px] text-[#4f46e5] text-[13px] font-bold hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+      <Link href="/buildings" className="hidden md:block mt-[20px] text-center py-[12px] border border-border/80 rounded-[12px] text-[#4f46e5] text-[13px] font-bold hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
         Xem báo cáo chi tiết -&gt;
-      </a>
+      </Link>
     </div>
   );
 }

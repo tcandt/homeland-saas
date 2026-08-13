@@ -68,6 +68,12 @@ test('supports an explicit loopback mode for isolated release verification', () 
   assert.equal(result.configReady, true);
 });
 
+test('accepts a same-origin web API path without weakening the public API HTTPS check', () => {
+  const result = runProductionPreflight({ ...valid, NEXT_PUBLIC_API_URL: '/api/v1' });
+  assert.equal(result.configReady, true);
+  assert.equal(result.checks.find((check) => check.id === 'next_public_api_url').message, 'NEXT_PUBLIC_API_URL uses a same-origin path.');
+});
+
 test('human report never includes configured secret values', () => {
   const report = formatHumanReport(runProductionPreflight(valid));
   assert.equal(report.includes('private-database-value'), false);

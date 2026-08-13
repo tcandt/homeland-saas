@@ -6,7 +6,12 @@ export type ContractSettlementPayload = {
   rentDaysCharged?: number;
   baseRentAmount?: number;
   electricityAmount?: number;
+  electricityClosingKwh?: number;
   waterAmount?: number;
+  waterPreviousReading?: number;
+  waterCurrentReading?: number;
+  waterUsage?: number;
+  waterUnitPrice?: number;
   serviceAmount?: number;
   damageFee?: number;
   penaltyFee?: number;
@@ -16,6 +21,9 @@ export type ContractSettlementPayload = {
   otherCreditAmount?: number;
   depositToRefund?: number;
   depositToDeduct?: number;
+  refundReceiptStatus?: "PENDING" | "COMPLETED";
+  refundReason?: string | null;
+  refundAttachmentUrls?: string[];
   note?: string | null;
 };
 
@@ -58,6 +66,10 @@ export const contractsApi = {
 
   terminate: (id: string, payload?: Partial<ContractSettlementPayload>) => {
     return apiClient.post(`/contracts/${id}/terminate`, payload);
+  },
+
+  completePendingSettlementRefund: (id: string, payload?: { note?: string }) => {
+    return apiClient.post(`/contracts/${id}/settlement-refund/complete`, payload || {});
   },
 
   expire: (id: string) => {

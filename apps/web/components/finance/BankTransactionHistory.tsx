@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { useBankTransactionsQuery } from "@/lib/queries/finance.queries";
 
-const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} Ä‘`;
+const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
 const formatDateTime = (value?: string | null) => (value ? new Date(value).toLocaleString("vi-VN") : "-");
 
 function maskAccountNumber(value?: string) {
@@ -46,20 +46,20 @@ export default function BankTransactionHistory() {
     [currentYear],
   );
   const monthOptions = [
-    { value: "", label: "Cáº£ nÄƒm" },
-    ...Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1), label: `ThÃ¡ng ${index + 1}` })),
+    { value: "", label: "Cả năm" },
+    ...Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1), label: `Tháng ${index + 1}` })),
   ];
   const bankOptions = [
-    { value: "", label: "Táº¥t cáº£ tÃ i khoáº£n" },
+    { value: "", label: "Tất cả tài khoản" },
     ...bankAccounts.map((bank: any) => ({
       value: bank.id,
       label: `${bank.bankName} - ${maskAccountNumber(bank.accountNumber)}`,
     })),
   ];
   const directionOptions = [
-    { value: "", label: "Tiá»n vÃ o/ra" },
-    { value: "IN", label: "Tiá»n vÃ o" },
-    { value: "OUT", label: "Tiá»n ra" },
+    { value: "", label: "Tiền vào/ra" },
+    { value: "IN", label: "Tiền vào" },
+    { value: "OUT", label: "Tiền ra" },
   ];
 
   return (
@@ -69,7 +69,7 @@ export default function BankTransactionHistory() {
         <div>
             <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#0f766e]">
               <History size={14} />
-              DÃ²ng tiá»n ngÃ¢n hÃ ng
+              Dòng tiền ngân hàng
             </div>
             <h2 className="mt-2 text-[16px] font-black text-text md:text-[18px]">Lịch sử giao dịch</h2>
             <p className="mt-1 text-[12px] font-medium text-muted md:text-[13px]">
@@ -94,10 +94,10 @@ export default function BankTransactionHistory() {
       </div>
 
       <div data-testid="bank-transactions-kpis" className="grid shrink-0 grid-cols-2 gap-3 border-b border-border bg-card p-[16px] md:grid-cols-4 md:p-[20px]">
-        <Metric label="Giao dá»‹ch" value={data?.summary?.total || 0} />
-        <Metric label="Tiá»n vÃ o" value={formatVnd(data?.summary?.inflow || 0)} tone="income" />
-        <Metric label="Tiá»n ra" value={formatVnd(data?.summary?.outflow || 0)} tone="expense" />
-        <Metric label="ChÃªnh lá»‡ch" value={formatVnd(data?.summary?.net || 0)} tone={Number(data?.summary?.net || 0) >= 0 ? "income" : "expense"} />
+        <Metric label="Giao dịch" value={data?.summary?.total || 0} />
+        <Metric label="Tiền vào" value={formatVnd(data?.summary?.inflow || 0)} tone="income" />
+        <Metric label="Tiền ra" value={formatVnd(data?.summary?.outflow || 0)} tone="expense" />
+        <Metric label="Chênh lệch" value={formatVnd(data?.summary?.net || 0)} tone={Number(data?.summary?.net || 0) >= 0 ? "income" : "expense"} />
       </div>
 
       {isLoading && <div data-testid="bank-transactions-loading" className="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-[13px] font-semibold text-muted">Đang tải lịch sử giao dịch...</div>}
@@ -108,13 +108,13 @@ export default function BankTransactionHistory() {
           <table data-testid="bank-transactions-table" className="w-full min-w-[1180px] text-left text-sm">
             <thead className="sticky top-0 z-10 bg-surface text-[11px] uppercase text-muted shadow-[0_1px_0_var(--border)]">
               <tr>
-                <th className="px-4 py-3 font-black">Thá»i Ä‘iá»ƒm</th>
-                <th className="px-4 py-3 font-black">Loáº¡i</th>
-                <th className="px-4 py-3 font-black">TÃ i khoáº£n</th>
-                <th className="px-4 py-3 font-black">Ná»™i dung</th>
-                <th className="px-4 py-3 font-black">MÃ£ Ä‘á»‘i soÃ¡t</th>
-                <th className="px-4 py-3 text-right font-black">Sá»‘ tiá»n</th>
-                <th className="px-4 py-3 font-black">Tráº¡ng thÃ¡i</th>
+                <th className="px-4 py-3 font-black">Thời điểm</th>
+                <th className="px-4 py-3 font-black">Loại</th>
+                <th className="px-4 py-3 font-black">Tài khoản</th>
+                <th className="px-4 py-3 font-black">Nội dung</th>
+                <th className="px-4 py-3 font-black">Mã đối soát</th>
+                <th className="px-4 py-3 text-right font-black">Số tiền</th>
+                <th className="px-4 py-3 font-black">Trạng thái</th>
               </tr>
             </thead>
             <tbody>
@@ -133,18 +133,18 @@ export default function BankTransactionHistory() {
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-black ${isInflow ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
                         {isInflow ? <ArrowDownLeft size={12} /> : <ArrowUpRight size={12} />}
-                        {isInflow ? "Tiá»n vÃ o" : "Tiá»n ra"}
+                        {isInflow ? "Tiền vào" : "Tiền ra"}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-black text-text">{row.bankAccount?.bankName || "-"}</div>
                       <div className="mt-1 text-[12px] font-semibold text-muted">
-                        {row.bankAccount?.accountName || "-"} Â· {maskAccountNumber(row.bankAccount?.accountNumber)}
+                        {row.bankAccount?.accountName || "-"} · {maskAccountNumber(row.bankAccount?.accountNumber)}
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="line-clamp-2 max-w-[420px] font-bold text-text">{row.content || "-"}</div>
-                      <div className="mt-1 text-[11px] text-muted">{row.owner?.name || "ChÆ°a xÃ¡c Ä‘á»‹nh owner"}</div>
+                      <div className="mt-1 text-[11px] text-muted">{row.owner?.name || "Chưa xác định owner"}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-black text-text">{row.paymentCode || "-"}</div>
@@ -155,7 +155,7 @@ export default function BankTransactionHistory() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`rounded-full px-2 py-1 text-[11px] font-black ${row.match ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
-                        {row.match ? row.match.status : "ChÆ°a match"}
+                        {row.match ? row.match.status : "Chưa match"}
                       </span>
                     </td>
                   </tr>

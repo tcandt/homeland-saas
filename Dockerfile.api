@@ -16,7 +16,7 @@ COPY packages/tsconfig/package.json ./packages/tsconfig/
 COPY packages/tsconfig/base.json ./packages/tsconfig/
 
 # Install all dependencies across workspaces
-RUN npm install
+RUN npm ci
 
 # Copy source code
 COPY apps/api ./apps/api
@@ -24,6 +24,11 @@ COPY packages ./packages
 
 # Build shared package
 RUN npm run build -w @homeland/shared
+
+# Generate the client and compile the API during image build. Runtime startup
+# applies reviewed migrations only with explicit opt-in and never pushes or seeds.
+RUN npm run db:generate
+RUN npm run build --workspace=api
 
 # Copy the entrypoint script
 COPY scripts/docker-api-entrypoint.sh ./scripts/docker-api-entrypoint.sh

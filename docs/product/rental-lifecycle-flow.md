@@ -748,11 +748,14 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [x] Chuẩn hóa Prisma thành một global provider, loại connection pool lặp và xác nhận các endpoint production không còn lỗi cạn kết nối.
 - [x] Ổn định storage chứng từ chi phí giữa repo root và `apps/web`; file thiếu trả 404 và đường dẫn traversal bị chặn.
 - [x] Chuyển notification SSE sang Bearer header và loại JWT khỏi query string.
-- [x] Chạy production gate local cuối: migration `7/7`, API `181/181`, web `49/49`, Playwright desktop `45/45`.
+- [x] Chạy production gate local cuối: migration `7/7`, API `183/183`, web `49/49`, Playwright desktop `45/45`.
 - [x] Xác nhận light/dark trên 28 route giao diện và RBAC cho `admin`, `adminA`, `adminB`, `manager`.
 - [x] Chạy hành trình stateful trên một hồ sơ: thu/chuyển cọc, submit/duyệt/kích hoạt hợp đồng, phát hành/thanh toán hóa đơn, snapshot điện nước, khấu trừ/hoàn cọc, chấm dứt hợp đồng và đưa phòng từ vệ sinh về trống.
 - [x] Chạy lặp riêng `6/6` regression quyết toán và chặn race preview theo nguyên tắc request mới nhất thắng.
 - [x] Bổ sung production configuration preflight chỉ đọc, unit test chống cấu hình dev nguy hiểm và chống lộ secret trong báo cáo.
+- [x] Loại `db push --accept-data-loss`, seed và dev watcher khỏi API container startup; migration production chuyển thành opt-in.
+- [x] Sửa deploy workflow giữ nguyên `.env`, truyền đúng release version, chạy production gate trên staging/production và rollback image tag khi gate lỗi.
+- [x] Build thành công Docker API/Web local không push; Docker context web giảm từ gần `2 GB` xuống `56 MB`.
 - [x] Xác nhận public registration fail-closed ở cả API (`403`) và UI production.
 - [x] Giới hạn Turbopack trace của learning-store vào thư mục dữ liệu, loại warning trace toàn workspace.
 
@@ -766,6 +769,8 @@ Phần này ghi lại các việc đã hoàn thành và các việc cần làm t
 - [ ] Nghiệm thu giao dịch SePay giá trị nhỏ cho cả hai bank/owner.
 - [ ] Nghiệm thu gửi Zalo/Telegram/SMTP và sync Hunonic bằng credential production.
 - [ ] Bốn persona nhận credential riêng và đổi mật khẩu lần đầu.
+- [ ] Phê duyệt runtime Node thống nhất với engine của Puppeteer và ZXing; cập nhật Docker/CI theo mốc riêng.
+- [ ] Xử lý runtime audit còn `13 high` và `17 moderate`; không mở LIVE khi CI security gate còn đỏ.
 
 ### Thứ tự ưu tiên khuyến nghị
 

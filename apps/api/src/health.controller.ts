@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { Public } from './shared/decorators/public.decorator';
 
@@ -6,7 +6,7 @@ import { Public } from './shared/decorators/public.decorator';
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Liveness check  is the process running? */
+  /** Liveness check: is the process running? */
   @Public()
   @Get()
   checkHealth() {
@@ -17,7 +17,7 @@ export class HealthController {
     };
   }
 
-  /** Readiness check  can the service serve traffic? */
+  /** Readiness check: can the service serve traffic? */
   @Public()
   @Get('ready')
   async checkReadiness() {
@@ -33,11 +33,19 @@ export class HealthController {
     }
 
     const allUp = Object.values(checks).every((c) => c.status === 'UP');
-    return {
+    const result = {
       status: allUp ? 'READY' : 'NOT_READY',
       timestamp: new Date().toISOString(),
       checks,
     };
+    if (!allUp) {
+      throw new ServiceUnavailableException({
+        code: 'SERVICE_NOT_READY',
+        message: 'Service dependencies are not ready',
+        details: result,
+      });
+    }
+    return result;
   }
 
   /** Seed verification */

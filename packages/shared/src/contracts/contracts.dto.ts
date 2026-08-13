@@ -37,7 +37,12 @@ export const ContractSettlementInputSchema = z.object({
   rentDaysCharged: z.number().min(0).max(31).optional(),
   baseRentAmount: z.number().min(0).optional(),
   electricityAmount: z.number().min(0).optional(),
+  electricityClosingKwh: z.number().min(0).optional(),
   waterAmount: z.number().min(0).optional(),
+  waterPreviousReading: z.number().min(0).optional(),
+  waterCurrentReading: z.number().min(0).optional(),
+  waterUsage: z.number().min(0).optional(),
+  waterUnitPrice: z.number().min(0).optional(),
   serviceAmount: z.number().min(0).optional(),
   damageFee: z.number().min(0).optional(),
   penaltyFee: z.number().min(0).optional(),
@@ -47,6 +52,9 @@ export const ContractSettlementInputSchema = z.object({
   otherCreditAmount: z.number().min(0).optional(),
   depositToRefund: z.number().min(0).optional(),
   depositToDeduct: z.number().min(0).optional(),
+  refundReceiptStatus: z.enum(['PENDING', 'COMPLETED']).optional(),
+  refundReason: z.string().max(1000).optional().nullable(),
+  refundAttachmentUrls: z.array(z.string()).optional(),
   note: z.string().max(2000).optional().nullable(),
 });
 

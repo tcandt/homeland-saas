@@ -79,6 +79,18 @@ export class FinanceController {
     return this.reportingService.getBankCashFlow(req.user.tenantId, query);
   }
 
+  @Get('banks/transactions')
+  @RequirePermissions('finance.read')
+  async getBankTransactions(@Request() req, @Query() query: any) {
+    return this.reportingService.getBankTransactions(req.user.tenantId, query);
+  }
+
+  @Patch('banks/:id/status')
+  @RequirePermissions('finance.update')
+  async updateBankAccountStatus(@Param('id') id: string, @Request() req, @Body() body: any) {
+    return this.reportingService.updateBankAccountStatus(req.user.tenantId, req.user?.id, id, Boolean(body?.isActive));
+  }
+
   @Get('sepay/reconciliation')
   @RequirePermissions('finance.read')
   async getSePayReconciliation(@Request() req, @Query() query: any) {

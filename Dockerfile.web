@@ -12,7 +12,7 @@ COPY packages/database/package.json ./packages/database/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/tsconfig/package.json ./packages/tsconfig/
 COPY packages/tsconfig/base.json ./packages/tsconfig/
-RUN npm install && \
+RUN npm ci && \
     mkdir -p /app/apps/web/node_modules \
              /app/packages/database/node_modules \
              /app/packages/shared/node_modules
@@ -27,17 +27,27 @@ COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_module
 
 COPY . .
 
+# The workspace package points to dist/index.js, so it must be compiled inside
+# the clean image build instead of relying on a developer's local dist output.
+RUN npm run build -w @homeland/shared
+
 # Build arguments for versioning
 ARG COMMIT_SHA
 ARG VERSION
 ARG BUILD_ID
 ARG BUILD_TIME
+ARG NEXT_PUBLIC_API_URL=/api/v1
+ARG INTERNAL_API_ORIGIN=http://api:3001
+ARG NEXT_PUBLIC_ALLOW_REGISTRATION=false
 
 # Set environment variables for runtime
 ENV NEXT_PUBLIC_COMMIT_SHA=${COMMIT_SHA}
 ENV NEXT_PUBLIC_APP_VERSION=${VERSION}
 ENV NEXT_PUBLIC_BUILD_ID=${BUILD_ID}
 ENV NEXT_PUBLIC_BUILD_TIME=${BUILD_TIME}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV INTERNAL_API_ORIGIN=${INTERNAL_API_ORIGIN}
+ENV NEXT_PUBLIC_ALLOW_REGISTRATION=${NEXT_PUBLIC_ALLOW_REGISTRATION}
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Build the project
@@ -46,6 +56,11 @@ RUN npm run build -w apps/web
 # Production image, copy all the files and run next
 FROM base AS runner
 WORKDIR /app
+
+ARG COMMIT_SHA
+ARG VERSION
+ARG BUILD_ID
+ARG BUILD_TIME
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

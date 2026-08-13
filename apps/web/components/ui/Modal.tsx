@@ -12,6 +12,7 @@ interface ModalProps {
   maxWidth?: string;
   zIndex?: number;
   headerActions?: React.ReactNode;
+  testId?: string;
 }
 
 export const Modal: React.FC<ModalProps> = ({ 
@@ -22,7 +23,8 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   maxWidth = "max-w-md",
   zIndex = 10020,
-  headerActions
+  headerActions,
+  testId
 }) => {
   useEffect(() => {
     if (isOpen) document.body.style.overflow = 'hidden';
@@ -38,7 +40,7 @@ export const Modal: React.FC<ModalProps> = ({
         className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200" 
         onClick={onClose} 
       />
-      <div className={`relative w-full ${maxWidth} bg-card rounded-2xl shadow-modal flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]`}>
+      <div data-testid={testId} className={`relative w-full ${maxWidth} bg-card rounded-2xl shadow-modal flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]`}>
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">

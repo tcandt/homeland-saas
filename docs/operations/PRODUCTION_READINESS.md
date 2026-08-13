@@ -25,19 +25,22 @@ Tài liệu này là checklist vận hành chuẩn cho bản desktop. Tài liệ
 
 ### Bằng chứng release candidate desktop gần nhất
 
-Lần chạy: `2026-08-13 16:12` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
+Lần chạy: `2026-08-13 16:47` (Asia/Bangkok), local production bundle cô lập trên `3100/3101`.
 
 | Cổng kiểm tra | Kết quả |
 |---|---|
 | Mojibake/encoding | PASS |
-| Production preflight unit | PASS, `6/6`; không in secret và không tuyên bố LIVE thay cho nghiệm thu thủ công |
+| Production/supply-chain safety unit | PASS, `15/15`; không in secret, kiểm tra Docker/deploy workflow và không tuyên bố LIVE thay cho nghiệm thu thủ công |
 | Prisma schema | Hợp lệ |
 | Migration hiện tại | `7/7`, up to date |
-| API typecheck + unit | PASS, `181/181` |
+| API typecheck + unit | PASS, `183/183` |
 | Web typecheck + unit | PASS, `49/49` |
 | API + Next production build | PASS |
 | Health/readiness | PASS |
 | Production Playwright desktop | PASS, `45/45` |
+| Docker artifact | PASS build local cho API và Web; web context giảm từ gần `2 GB` xuống `56 MB`; image không được push hoặc chạy trong lần kiểm chứng |
+| Runtime dependency audit | BLOCKED: `13 high`, `17 moderate`, `0 critical`; chưa tự nâng dependency vì cần phê duyệt phiên bản và regression riêng |
+| Runtime engine | BLOCKED: image/CI đang dùng Node 20, trong khi Puppeteer 25 yêu cầu Node `>=22.12` và `@zxing/library` yêu cầu Node `>=24` |
 | Light/dark | PASS trên toàn bộ `28/28` route giao diện ở mỗi theme (`56` lượt render); không redirect sai, overflow, page error, console error hoặc HTTP 5xx ngoài SSE 503 cố ý của fixture |
 | Persona | PASS đăng nhập/RBAC cho `admin`, `adminA`, `adminB`, `manager`; admin vận hành có đủ 5 trường integration secret ở trạng thái chỉ đọc |
 | Public registration | PASS: API `403`, UI hiển thị đăng ký đóng và không có nút tạo account |
@@ -63,6 +66,8 @@ Phạm vi bằng chứng:
 - [ ] Chọn nơi backup ngoài máy chủ và chạy restore drill có biên bản.
 - [ ] Bật monitoring/alerting, chỉ định người trực và kênh xử lý sự cố.
 - [ ] Deploy staging, chạy smoke/regression trên staging rồi mới mở production.
+- [ ] Chốt phiên bản Node production phù hợp với engine dependency; cập nhật đồng bộ Docker/CI sau phê duyệt.
+- [ ] Lập và nghiệm thu mốc nâng dependency để xử lý toàn bộ high-severity runtime advisory; CI hiện chặn đóng gói khi còn high/critical.
 
 Không gọi hệ thống là LIVE nếu còn bất kỳ mục nào ở phần này chưa hoàn thành.
 
@@ -114,7 +119,7 @@ Không dùng `.env` local để deploy. Tối thiểu phải cấp:
 ```text
 NODE_ENV=production
 APP_URL=https://api.example.com
-NEXT_PUBLIC_API_URL=https://api.example.com/api/v1
+NEXT_PUBLIC_API_URL=/api/v1
 CORS_ORIGINS=https://app.example.com
 DATABASE_URL=postgresql://<user>:<secret>@<host>:5432/<database>?schema=public
 REDIS_URL=redis://:<secret>@<host>:6379

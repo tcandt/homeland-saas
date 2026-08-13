@@ -119,6 +119,13 @@ export class ContractsController {
     return this.contractsService.terminateContract(id, userId, input);
   }
 
+  @Post(':id/settlement-refund/complete')
+  @RequirePermissions('contract.update')
+  @ApiOperation({ summary: 'Mark a pending settlement refund as completed' })
+  completePendingSettlementRefund(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+    return this.contractsService.completePendingSettlementRefund(id, userId, body?.note);
+  }
+
   @Post(':id/expire')
   @RequirePermissions('contract.update')
   @ApiOperation({ summary: 'Expire contract' })

@@ -285,6 +285,26 @@ export class HunonicService {
     };
   }
 
+  async getRoomElectricityPricing(tenantId: string, roomId: string) {
+    const mapping = await this.prismaAny.hunonicMeterMapping.findFirst({
+      where: { tenantId, roomId, enabled: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!mapping) return null;
+
+    const rates = await this.getElectricityRates(tenantId);
+    const row = rates.rows.find((item: any) => item.id === mapping.id);
+    if (!row || (row.currentMode !== 'custom' && row.currentMode !== 'residential')) {
+      return null;
+    }
+
+    return {
+      currentMode: row.currentMode as HunonicElectricityRateMode,
+      customRateVnd: row.currentMode === 'custom' ? Number(row.customRateVnd || 0) || null : null,
+      residentialSteps: Array.isArray(row.residentialSteps) ? row.residentialSteps : [],
+    };
+  }
+
   async getHistory(tenantId: string, query: HunonicHistoryQuery) {
     const settings = await this.getSettings(tenantId);
     const lockedPeriods = normalizeLockedPeriods(settings.lockedPeriods);

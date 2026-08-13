@@ -51,8 +51,15 @@ function checkConnectionUrl(config, key, protocols, options) {
   return pass(key.toLowerCase(), `${key} is present and structurally valid.`);
 }
 
-function checkPublicUrl(config, key, options, expectedPathPrefix) {
-  const parsed = parseUrl(stringValue(config[key]), ['http:', 'https:']);
+function checkPublicUrl(config, key, options, expectedPathPrefix, allowRelative = false) {
+  const rawValue = stringValue(config[key]);
+  if (allowRelative && rawValue.startsWith('/') && !rawValue.startsWith('//')) {
+    if (!expectedPathPrefix || rawValue.startsWith(expectedPathPrefix)) {
+      return pass(key.toLowerCase(), `${key} uses a same-origin path.`);
+    }
+  }
+
+  const parsed = parseUrl(rawValue, ['http:', 'https:']);
   if (!parsed) return fail(key.toLowerCase(), `${key} must be an absolute URL.`);
 
   const loopback = isLoopbackHost(parsed.hostname);
@@ -88,7 +95,7 @@ function runProductionPreflight(config, options = {}) {
   checks.push(checkConnectionUrl(config, 'DATABASE_URL', ['postgres:', 'postgresql:'], normalizedOptions));
   checks.push(checkConnectionUrl(config, 'REDIS_URL', ['redis:', 'rediss:'], normalizedOptions));
   checks.push(checkPublicUrl(config, 'APP_URL', normalizedOptions));
-  checks.push(checkPublicUrl(config, 'NEXT_PUBLIC_API_URL', normalizedOptions, '/api'));
+  checks.push(checkPublicUrl(config, 'NEXT_PUBLIC_API_URL', normalizedOptions, '/api', true));
 
   const corsOrigins = stringValue(config.CORS_ORIGINS)
     .split(',')

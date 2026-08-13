@@ -205,7 +205,7 @@ jobs:
         with:
           output: security/codeql.sarif
       - name: Run npm audit
-        run: npm audit --json > security/npm-audit.json || true
+        run: npm audit --omit=dev --json > security/npm-audit.json || true
       - name: Install license-checker
         run: npm install -g license-checker
       - name: Run License Scan
@@ -237,6 +237,9 @@ jobs:
           name: security-reports
           path: security/
           retention-days: 30
+      - name: Enforce Runtime Dependency Policy
+        run: |
+          node -e "const fs=require('fs');const report=JSON.parse(fs.readFileSync('security/npm-audit.json','utf8'));const counts=report.metadata?.vulnerabilities||{};console.log('Runtime audit:',counts);if((counts.critical||0)>0||(counts.high||0)>0)process.exit(1)"
 
   e2e:
     name: E2E Tests
@@ -269,7 +272,7 @@ jobs:
       # Playwright browser caching
       - name: Get installed Playwright version
         id: playwright-version
-        run: echo "PLAYWRIGHT_VERSION=\$(npx playwright --version | awk '{print \$2}')" >> \$GITHUB_ENV
+        run: echo "PLAYWRIGHT_VERSION=$(npx playwright --version | awk '{print $2}')" >> $GITHUB_ENV
       - name: Cache Playwright binaries
         uses: actions/cache@v4
         with:
@@ -282,7 +285,7 @@ jobs:
       - run: sleep 5
       - run: npx prisma db execute --file packages/database/prisma/sql/enable-pgvector.sql --schema packages/database/prisma/schema.prisma
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
-      - run: npx prisma db push --schema=packages/database/prisma/schema.prisma
+      - run: npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma
       - run: cd packages/database && npx prisma db seed
       - run: npm run build
       
@@ -337,6 +340,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [semantic-release]
     if: github.ref == 'refs/heads/main' && needs.semantic-release.outputs.new_release_published == 'true'
+    outputs:
+      release_version: ${{ needs.semantic-release.outputs.new_release_version }}
     permissions:
       contents: read
       packages: write
@@ -391,6 +396,9 @@ jobs:
             VERSION=${{ needs.semantic-release.outputs.new_release_version }}
             BUILD_ID=${{ github.run_id }}
             BUILD_TIME=${{ github.event.repository.updated_at }}
+            NEXT_PUBLIC_API_URL=/api/v1
+            INTERNAL_API_ORIGIN=http://api:3001
+            NEXT_PUBLIC_ALLOW_REGISTRATION=false
           tags: |
             ghcr.io/${{ github.repository }}/homeland-web:${{ needs.semantic-release.outputs.new_release_version }}
             ghcr.io/${{ github.repository }}/homeland-web:latest
@@ -413,6 +421,8 @@ jobs:
     needs: [package]
     runs-on: ubuntu-latest
     environment: staging
+    outputs:
+      release_version: ${{ needs.package.outputs.release_version }}
     steps:
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.0.3
@@ -421,20 +431,35 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
+            set -euo pipefail
             cd /opt/homeland-staging
-            
-            # Backup current tags
-            source .env
-            echo "PREVIOUS_API_TAG=\$API_TAG" > .env.tmp
-            echo "PREVIOUS_WEB_TAG=\$WEB_TAG" >> .env.tmp
-            
-            # Set new tags
-            echo "API_TAG=${{ needs.semantic-release.outputs.new_release_version }}" >> .env.tmp
-            echo "WEB_TAG=${{ needs.semantic-release.outputs.new_release_version }}" >> .env.tmp
-            
-            mv .env.tmp .env
-            
-            # Pull and Restart
+            test -f .env
+
+            backup=".env.backup-${{ github.run_id }}-${{ github.run_attempt }}"
+            cp -p .env "$backup"
+
+            update_env() {
+              key="$1"
+              value="$2"
+              if grep -q "^${key}=" .env; then
+                sed -i "s|^${key}=.*$|${key}=${value}|" .env
+              else
+                printf '\n%s=%s\n' "$key" "$value" >> .env
+              fi
+            }
+
+            current_api_tag="$(sed -n 's/^API_TAG=//p' .env | tail -n 1)"
+            current_web_tag="$(sed -n 's/^WEB_TAG=//p' .env | tail -n 1)"
+            test -n "$current_api_tag"
+            test -n "$current_web_tag"
+
+            update_env PREVIOUS_API_TAG "$current_api_tag"
+            update_env PREVIOUS_WEB_TAG "$current_web_tag"
+            update_env API_TAG "${{ needs.package.outputs.release_version }}"
+            update_env WEB_TAG "${{ needs.package.outputs.release_version }}"
+            update_env RUN_DB_MIGRATIONS false
+
+            docker compose config --quiet
             docker compose pull
             docker compose up -d
             
@@ -442,12 +467,12 @@ jobs:
         run: |
           cat <<EOF > deployment.json
           {
-            "version": "${{ needs.semantic-release.outputs.new_release_version }}",
+            "version": "${{ needs.package.outputs.release_version }}",
             "commit": "${{ github.sha }}",
             "buildId": "${{ github.run_id }}",
             "actor": "${{ github.actor }}",
             "environment": "staging",
-            "deployedAt": "\$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            "deployedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           }
           EOF
           
@@ -461,6 +486,9 @@ jobs:
     name: Health + Smoke (Staging)
     needs: [deploy-staging]
     runs-on: ubuntu-latest
+    environment: staging
+    outputs:
+      release_version: ${{ needs.deploy-staging.outputs.release_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -474,25 +502,32 @@ jobs:
         
       - name: Verify Build Info
         run: |
-          RESPONSE=\$(curl -s --fail ${{ secrets.STAGING_URL }}/api/v1/health/build-info)
-          COMMIT=\$(echo \$RESPONSE | jq -r '.commit')
+          curl -s --fail ${{ secrets.STAGING_URL }}/api/v1/health/ready > /dev/null
+          RESPONSE=$(curl -s --fail ${{ secrets.STAGING_URL }}/api/v1/health/build-info)
+          COMMIT=$(echo "$RESPONSE" | jq -r '.commit')
           
-          if [ "\$COMMIT" != "${{ github.sha }}" ]; then
-            echo "Commit mismatch: \$COMMIT vs ${{ github.sha }}"
+          if [ "$COMMIT" != "${{ github.sha }}" ]; then
+            echo "Commit mismatch: $COMMIT vs ${{ github.sha }}"
             exit 1
           fi
 
       - name: Run Playwright Smoke Tests
-        working-directory: apps/web
         env:
-          PLAYWRIGHT_BASE_URL: ${{ secrets.STAGING_URL }}
-        run: npx playwright test --project=smoke
+          VERIFY_PROD: '1'
+          E2E_WEB_BASE_URL: ${{ secrets.STAGING_URL }}
+          E2E_API_BASE_URL: ${{ secrets.STAGING_URL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_OWNER_A_PASSWORD: ${{ secrets.E2E_OWNER_A_PASSWORD }}
+          E2E_OWNER_B_PASSWORD: ${{ secrets.E2E_OWNER_B_PASSWORD }}
+          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
+        run: npm run test:e2e:prod --workspace=web
 
   rollback-staging:
     name: Rollback (Staging)
     needs: [deploy-staging, health-smoke-staging]
-    if: always() && needs.deploy-staging.result == 'success' && needs.health-smoke-staging.result == 'failure'
+    if: always() && (needs.deploy-staging.result == 'failure' || (needs.deploy-staging.result == 'success' && needs.health-smoke-staging.result == 'failure'))
     runs-on: ubuntu-latest
+    environment: staging
     steps:
       - name: Rollback on VPS
         uses: appleboy/ssh-action@v1.0.3
@@ -501,14 +536,30 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
+            set -euo pipefail
             cd /opt/homeland-staging
-            source .env
-            
-            # Swap back tags
-            echo "API_TAG=\$PREVIOUS_API_TAG" > .env.tmp
-            echo "WEB_TAG=\$PREVIOUS_WEB_TAG" >> .env.tmp
-            mv .env.tmp .env
-            
+            test -f .env
+
+            update_env() {
+              key="$1"
+              value="$2"
+              if grep -q "^${key}=" .env; then
+                sed -i "s|^${key}=.*$|${key}=${value}|" .env
+              else
+                printf '\n%s=%s\n' "$key" "$value" >> .env
+              fi
+            }
+
+            previous_api_tag="$(sed -n 's/^PREVIOUS_API_TAG=//p' .env | tail -n 1)"
+            previous_web_tag="$(sed -n 's/^PREVIOUS_WEB_TAG=//p' .env | tail -n 1)"
+            test -n "$previous_api_tag"
+            test -n "$previous_web_tag"
+            cp -p .env ".env.failed-${{ github.run_id }}-${{ github.run_attempt }}"
+            update_env API_TAG "$previous_api_tag"
+            update_env WEB_TAG "$previous_web_tag"
+            update_env RUN_DB_MIGRATIONS false
+
+            docker compose config --quiet
             docker compose pull
             docker compose up -d
 
@@ -517,6 +568,8 @@ jobs:
     needs: [health-smoke-staging]
     runs-on: ubuntu-latest
     environment: production
+    outputs:
+      release_version: ${{ needs.health-smoke-staging.outputs.release_version }}
     steps:
       - name: Deploy to Production VPS
         uses: appleboy/ssh-action@v1.0.3
@@ -525,13 +578,106 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           script: |
+            set -euo pipefail
             cd /opt/homeland-production
-            source .env
-            echo "PREVIOUS_API_TAG=\$API_TAG" > .env.tmp
-            echo "PREVIOUS_WEB_TAG=\$WEB_TAG" >> .env.tmp
-            echo "API_TAG=${{ needs.semantic-release.outputs.new_release_version }}" >> .env.tmp
-            echo "WEB_TAG=${{ needs.semantic-release.outputs.new_release_version }}" >> .env.tmp
-            mv .env.tmp .env
-            
+            test -f .env
+
+            backup=".env.backup-${{ github.run_id }}-${{ github.run_attempt }}"
+            cp -p .env "$backup"
+
+            update_env() {
+              key="$1"
+              value="$2"
+              if grep -q "^${key}=" .env; then
+                sed -i "s|^${key}=.*$|${key}=${value}|" .env
+              else
+                printf '\n%s=%s\n' "$key" "$value" >> .env
+              fi
+            }
+
+            current_api_tag="$(sed -n 's/^API_TAG=//p' .env | tail -n 1)"
+            current_web_tag="$(sed -n 's/^WEB_TAG=//p' .env | tail -n 1)"
+            test -n "$current_api_tag"
+            test -n "$current_web_tag"
+            update_env PREVIOUS_API_TAG "$current_api_tag"
+            update_env PREVIOUS_WEB_TAG "$current_web_tag"
+            update_env API_TAG "${{ needs.health-smoke-staging.outputs.release_version }}"
+            update_env WEB_TAG "${{ needs.health-smoke-staging.outputs.release_version }}"
+            update_env RUN_DB_MIGRATIONS false
+
+            docker compose config --quiet
+            docker compose pull
+            docker compose up -d
+
+  health-smoke-production:
+    name: Health + Smoke (Production)
+    needs: [deploy-production]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Wait for services
+        run: sleep 10
+      - name: Verify Build Info
+        run: |
+          curl -s --fail ${{ secrets.PRODUCTION_URL }}/api/v1/health/ready > /dev/null
+          RESPONSE="$(curl -s --fail ${{ secrets.PRODUCTION_URL }}/api/v1/health/build-info)"
+          COMMIT="$(echo "$RESPONSE" | jq -r '.commit')"
+          test "$COMMIT" = "${{ github.sha }}"
+      - name: Run production gate
+        env:
+          VERIFY_PROD: '1'
+          E2E_WEB_BASE_URL: ${{ secrets.PRODUCTION_URL }}
+          E2E_API_BASE_URL: ${{ secrets.PRODUCTION_URL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_OWNER_A_PASSWORD: ${{ secrets.E2E_OWNER_A_PASSWORD }}
+          E2E_OWNER_B_PASSWORD: ${{ secrets.E2E_OWNER_B_PASSWORD }}
+          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
+        run: npm run test:e2e:prod --workspace=web
+
+  rollback-production:
+    name: Rollback (Production App Images)
+    needs: [deploy-production, health-smoke-production]
+    if: always() && (needs.deploy-production.result == 'failure' || (needs.deploy-production.result == 'success' && needs.health-smoke-production.result == 'failure'))
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Roll back image tags on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/homeland-production
+            test -f .env
+
+            update_env() {
+              key="$1"
+              value="$2"
+              if grep -q "^${key}=" .env; then
+                sed -i "s|^${key}=.*$|${key}=${value}|" .env
+              else
+                printf '\n%s=%s\n' "$key" "$value" >> .env
+              fi
+            }
+
+            previous_api_tag="$(sed -n 's/^PREVIOUS_API_TAG=//p' .env | tail -n 1)"
+            previous_web_tag="$(sed -n 's/^PREVIOUS_WEB_TAG=//p' .env | tail -n 1)"
+            test -n "$previous_api_tag"
+            test -n "$previous_web_tag"
+            cp -p .env ".env.failed-${{ github.run_id }}-${{ github.run_attempt }}"
+            update_env API_TAG "$previous_api_tag"
+            update_env WEB_TAG "$previous_web_tag"
+            update_env RUN_DB_MIGRATIONS false
+
+            docker compose config --quiet
             docker compose pull
             docker compose up -d

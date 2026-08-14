@@ -203,10 +203,90 @@ describe('AuthService team directory', () => {
         refreshTokenHash: null,
       }),
     });
+    const updatedPasswordHash = prisma.user.update.mock.calls[0][0].data.passwordHash;
+    await expect(bcrypt.compare('StrongTemp@123', updatedPasswordHash)).resolves.toBe(false);
+    await expect(bcrypt.compare('OwnerFinal@456', updatedPasswordHash)).resolves.toBe(true);
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
       action: 'CHANGE_PASSWORD',
       tenantId: 'tenant-1',
       userId: 'owner-a-user',
     }));
+  });
+
+  it('defers the password change for only the current token session', async () => {
+    const prisma: any = {
+      user: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'owner-a-user',
+          tenantId: 'tenant-1',
+          email: 'admina@homeland.local',
+          status: 'ACTIVE',
+          mustChangePassword: true,
+          roles: [{ role: { code: 'ADMIN', permissions: [] } }],
+        }),
+        update: vi.fn().mockResolvedValue({ id: 'owner-a-user' }),
+      },
+    };
+    const jwtService: any = {
+      sign: vi.fn().mockReturnValueOnce('deferred-access-token').mockReturnValueOnce('deferred-refresh-token'),
+    };
+    const config: any = { get: vi.fn().mockReturnValue('1h') };
+    const audit: any = { log: vi.fn() };
+    const service = new AuthService(prisma, jwtService, config, audit, {} as any);
+
+    const result = await service.deferPasswordChange('owner-a-user');
+
+    expect(result).toEqual(expect.objectContaining({
+      accessToken: 'deferred-access-token',
+      refreshToken: 'deferred-refresh-token',
+      mustChangePassword: true,
+      passwordChangeDeferred: true,
+    }));
+    expect(jwtService.sign).toHaveBeenCalledWith(expect.objectContaining({
+      mustChangePassword: false,
+      passwordChangeDeferred: true,
+    }), expect.any(Object));
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'owner-a-user' },
+      data: { refreshTokenHash: expect.any(String) },
+    });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'UPDATE',
+      after: { mustChangePassword: true, passwordChangeDeferredForSession: true },
+    }));
+  });
+
+  it('preserves a deferred password prompt while rotating the refresh token', async () => {
+    const bcrypt = await import('bcryptjs');
+    const refreshTokenHash = await bcrypt.hash('current-refresh-token', 4);
+    const prisma: any = {
+      user: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'owner-a-user',
+          tenantId: 'tenant-1',
+          email: 'admina@homeland.local',
+          status: 'ACTIVE',
+          mustChangePassword: true,
+          refreshTokenHash,
+          roles: [{ role: { code: 'ADMIN', permissions: [] } }],
+        }),
+        update: vi.fn().mockResolvedValue({ id: 'owner-a-user' }),
+      },
+    };
+    const jwtService: any = {
+      verify: vi.fn().mockReturnValue({ sub: 'owner-a-user', passwordChangeDeferred: true }),
+      sign: vi.fn().mockReturnValueOnce('next-access-token').mockReturnValueOnce('next-refresh-token'),
+    };
+    const config: any = { get: vi.fn().mockReturnValue('1h') };
+    const service = new AuthService(prisma, jwtService, config, {} as any, {} as any);
+
+    const result = await service.refresh('current-refresh-token');
+
+    expect(result.passwordChangeDeferred).toBe(true);
+    expect(result.mustChangePassword).toBe(true);
+    expect(jwtService.sign).toHaveBeenCalledWith(expect.objectContaining({
+      mustChangePassword: false,
+      passwordChangeDeferred: true,
+    }), expect.any(Object));
   });
 });

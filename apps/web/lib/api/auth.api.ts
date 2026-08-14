@@ -24,6 +24,13 @@ export interface LoginResponse {
   user: User;
 }
 
+export interface DeferredPasswordChangeResponse {
+  accessToken: string;
+  refreshToken: string;
+  mustChangePassword: true;
+  passwordChangeDeferred: true;
+}
+
 export interface TeamAccount {
   id: string;
   email: string;
@@ -60,6 +67,10 @@ export const authApi = {
 
   changePassword: (data: { oldPassword: string; newPassword: string; confirmPassword: string }) => {
     return apiClient.post<{ success: boolean }>('/auth/change-password', data);
+  },
+
+  deferPasswordChange: () => {
+    return apiClient.post<DeferredPasswordChangeResponse>('/auth/defer-password-change');
   },
 
   updateMe: (data: { fullName?: string }) => {

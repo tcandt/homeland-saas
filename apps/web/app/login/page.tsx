@@ -10,6 +10,7 @@ import { authApi } from "@/lib/api/auth.api";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { ApiError } from "@/lib/api/client";
 import { getLoginErrorMessage } from "@/lib/auth/login-errors";
+import { clearPasswordChangePromptDeferral } from "@/lib/auth/password-change-prompt";
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -30,7 +31,8 @@ export default function LoginPage() {
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
       });
-      window.location.href = response.user.mustChangePassword ? "/change-password" : "/";
+      clearPasswordChangePromptDeferral(response.user.id);
+      window.location.href = "/";
     } catch (err: any) {
       setLoading(false);
       if (err instanceof ApiError) {

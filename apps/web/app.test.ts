@@ -9,6 +9,7 @@ import {
 import { CCCD_LIVE_SCAN_CONFIG } from './lib/utils/cccd-camera';
 import { shouldRecoverSessionFromUnauthorized } from './lib/api/auth-unauthorized-policy';
 import { getLoginErrorMessage } from './lib/auth/login-errors';
+import { getPasswordChangePromptKey, shouldShowPasswordChangePrompt } from './lib/auth/password-change-prompt';
 
 describe('Web Workspace', () => {
   it('should pass a basic sanity check', () => {
@@ -30,6 +31,14 @@ describe('authentication error handling', () => {
       .toBe('Tài khoản hoặc mật khẩu không chính xác.');
     expect(getLoginErrorMessage({ status: 401, code: 'AUTH_ACCOUNT_DISABLED' }))
       .toBe('Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.');
+  });
+
+  it('shows the temporary-password prompt until it is deferred or completed', () => {
+    expect(getPasswordChangePromptKey('user-1')).toBe('homeland:password-change-deferred:user-1');
+    expect(shouldShowPasswordChangePrompt(true, false, '/')).toBe(true);
+    expect(shouldShowPasswordChangePrompt(true, true, '/')).toBe(false);
+    expect(shouldShowPasswordChangePrompt(false, false, '/')).toBe(false);
+    expect(shouldShowPasswordChangePrompt(true, false, '/change-password')).toBe(false);
   });
 });
 

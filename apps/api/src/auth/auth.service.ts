@@ -227,6 +227,61 @@ export class AuthService {
     return { success: true };
   }
 
+  async deferPasswordChange(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        roles: {
+          include: { role: { include: { permissions: { include: { permission: true } } } } },
+        },
+      },
+    });
+
+    if (!user || user.status !== 'ACTIVE') {
+      throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_INVALID, message: 'Invalid token or user inactive' });
+    }
+    if (!user.mustChangePassword) {
+      throw new BadRequestException({ code: 'AUTH_PASSWORD_CHANGE_NOT_REQUIRED', message: 'Password change is not required' });
+    }
+
+    const roles = user.roles.map(ur => ur.role.code);
+    const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
+    const payload = {
+      sub: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      roles,
+      permissions,
+      mustChangePassword: false,
+      passwordChangeDeferred: true,
+    };
+    const accessToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
+    const refreshToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
+    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { refreshTokenHash },
+    });
+    await this.audit.log({
+      action: 'UPDATE',
+      entity: 'User',
+      entityId: user.id,
+      module: 'Auth',
+      tenantId: user.tenantId,
+      userId: user.id,
+      before: { mustChangePassword: true },
+      after: { mustChangePassword: true, passwordChangeDeferredForSession: true },
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      mustChangePassword: true,
+      passwordChangeDeferred: true,
+    };
+  }
+
   async refresh(refreshToken: string) {
     try {
       const decoded = this.jwtService.verify(refreshToken);
@@ -255,7 +310,16 @@ export class AuthService {
       const roles = user.roles.map(ur => ur.role.code);
       const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
 
-      const payload = { sub: user.id, tenantId: user.tenantId, email: user.email, roles, permissions, mustChangePassword: user.mustChangePassword };
+      const passwordChangeDeferred = Boolean(user.mustChangePassword && decoded.passwordChangeDeferred);
+      const payload = {
+        sub: user.id,
+        tenantId: user.tenantId,
+        email: user.email,
+        roles,
+        permissions,
+        mustChangePassword: user.mustChangePassword && !passwordChangeDeferred,
+        passwordChangeDeferred,
+      };
 
       const newAccessToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
       const newRefreshToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
@@ -270,6 +334,7 @@ export class AuthService {
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
         mustChangePassword: user.mustChangePassword,
+        passwordChangeDeferred,
       };
     } catch (e) {
       throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_EXPIRED, message: 'Refresh token expired or invalid' });

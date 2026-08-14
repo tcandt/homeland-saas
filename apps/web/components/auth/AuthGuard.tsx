@@ -4,12 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { Loader2 } from "lucide-react";
+import PasswordChangePrompt from "@/components/auth/PasswordChangePrompt";
+import {
+  isPasswordChangePromptDeferred,
+  shouldShowPasswordChangePrompt,
+} from "@/lib/auth/password-change-prompt";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname() || "/";
   const [mounted, setMounted] = useState(false);
+  const [passwordPromptReady, setPasswordPromptReady] = useState(false);
+  const [passwordPromptDeferred, setPasswordPromptDeferred] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -33,14 +40,22 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (!isAuthenticated && !isPublicPath) {
       router.replace("/login");
-    } else if (isAuthenticated && requiresPasswordChange && pathname !== "/change-password") {
-      router.replace("/change-password");
     } else if (isAuthenticated && !requiresPasswordChange && pathname === "/change-password") {
       router.replace("/");
     } else if (isAuthenticated && isPublicPath) {
-      router.replace(requiresPasswordChange ? "/change-password" : "/");
+      router.replace("/");
     }
   }, [isAuthenticated, pathname, mounted, router, user?.mustChangePassword]);
+
+  useEffect(() => {
+    if (!mounted || !user?.id) {
+      setPasswordPromptDeferred(false);
+      setPasswordPromptReady(false);
+      return;
+    }
+    setPasswordPromptDeferred(isPasswordChangePromptDeferred(user.id));
+    setPasswordPromptReady(true);
+  }, [mounted, user?.id, user?.mustChangePassword]);
 
   useEffect(() => {
     if (!mounted || !isAuthenticated) return;
@@ -95,13 +110,26 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     return null; // Will redirect
   }
 
-  if (isAuthenticated && user?.mustChangePassword && pathname !== "/change-password") {
-    return null;
-  }
-
   if (isAuthenticated && !user?.mustChangePassword && pathname === "/change-password") {
     return null;
   }
 
-  return <>{children}</>;
+  const showPasswordPrompt = Boolean(
+    passwordPromptReady &&
+    user &&
+    shouldShowPasswordChangePrompt(Boolean(user.mustChangePassword), passwordPromptDeferred, pathname),
+  );
+
+  return (
+    <>
+      {children}
+      {user && (
+        <PasswordChangePrompt
+          isOpen={showPasswordPrompt}
+          user={user}
+          onDeferred={() => setPasswordPromptDeferred(true)}
+        />
+      )}
+    </>
+  );
 }

@@ -80,6 +80,14 @@ export class AuthController {
     return this.authService.logout(userId);
   }
 
+  @Post('defer-password-change')
+  @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
+  @ApiOperation({ summary: 'Defer the required password change for the current login session' })
+  deferPasswordChange(@CurrentUser('id') userId: string) {
+    return this.authService.deferPasswordChange(userId);
+  }
+
   @Public()
   @Throttle({ short: { limit: 20, ttl: 60000 } })
   @Post('refresh')

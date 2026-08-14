@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RuleEngine } from './rule.engine';
 import { PrismaService } from '../../prisma.service';
 import { CommunicationService } from '../../communication/communication.service';
@@ -10,6 +10,9 @@ describe('RuleEngine', () => {
   let communicationService: any;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-11T00:00:00.000Z'));
+
     prisma = {
       ruleExecution: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -23,6 +26,10 @@ describe('RuleEngine', () => {
     };
 
     engine = new RuleEngine(prisma as PrismaService, communicationService as CommunicationService);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('skips duplicate executions when correlationId already succeeded', async () => {

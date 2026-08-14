@@ -7,10 +7,29 @@ import {
   parseCccdQrPayload,
 } from './lib/utils/cccd-qr';
 import { CCCD_LIVE_SCAN_CONFIG } from './lib/utils/cccd-camera';
+import { shouldRecoverSessionFromUnauthorized } from './lib/api/auth-unauthorized-policy';
+import { getLoginErrorMessage } from './lib/auth/login-errors';
 
 describe('Web Workspace', () => {
   it('should pass a basic sanity check', () => {
     expect(1 + 1).toBe(2);
+  });
+});
+
+describe('authentication error handling', () => {
+  it('keeps expected authentication form errors out of session recovery', () => {
+    expect(shouldRecoverSessionFromUnauthorized('/auth/login')).toBe(false);
+    expect(shouldRecoverSessionFromUnauthorized('/auth/change-password', 'AUTH_INVALID_CREDENTIALS')).toBe(false);
+    expect(shouldRecoverSessionFromUnauthorized('/auth/change-password', 'AUTH_TOKEN_EXPIRED')).toBe(true);
+    expect(shouldRecoverSessionFromUnauthorized('/auth/refresh')).toBe(false);
+    expect(shouldRecoverSessionFromUnauthorized('/auth/me')).toBe(true);
+  });
+
+  it('shows actionable Vietnamese login errors', () => {
+    expect(getLoginErrorMessage({ status: 401, code: 'AUTH_INVALID_CREDENTIALS' }))
+      .toBe('Tài khoản hoặc mật khẩu không chính xác.');
+    expect(getLoginErrorMessage({ status: 401, code: 'AUTH_ACCOUNT_DISABLED' }))
+      .toBe('Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.');
   });
 });
 

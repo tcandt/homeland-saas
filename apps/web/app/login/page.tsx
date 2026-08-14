@@ -9,6 +9,7 @@ import { Loader2, AlertCircle } from "lucide-react";
 import { authApi } from "@/lib/api/auth.api";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { ApiError } from "@/lib/api/client";
+import { getLoginErrorMessage } from "@/lib/auth/login-errors";
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -33,7 +34,7 @@ export default function LoginPage() {
     } catch (err: any) {
       setLoading(false);
       if (err instanceof ApiError) {
-        setError(err.message || "Tài khoản hoặc mật khẩu không chính xác.");
+        setError(getLoginErrorMessage(err));
       } else {
         setError("Có lỗi kết nối máy chủ. Vui lòng thử lại sau.");
       }

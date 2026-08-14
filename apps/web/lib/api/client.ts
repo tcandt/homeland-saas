@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/lib/auth/auth-store';
+import { shouldRecoverSessionFromUnauthorized } from './auth-unauthorized-policy';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001/api/v1';
 let refreshPromise: Promise<string | null> | null = null;
@@ -83,7 +84,11 @@ export const apiClient = {
 
     let response = await fetch(url, config);
 
-    if (response.status === 401) {
+    const unauthorizedCode = response.status === 401
+      ? await readApiErrorCode(response)
+      : undefined;
+
+    if (response.status === 401 && shouldRecoverSessionFromUnauthorized(endpoint, unauthorizedCode)) {
       const refreshedToken = endpoint !== '/auth/refresh' ? await refreshAccessToken() : null;
       if (refreshedToken) {
         response = await fetch(url, {
@@ -96,7 +101,6 @@ export const apiClient = {
       }
 
       if (response.status === 401) {
-        console.error('FETCH CLIENT 401 ERROR URL:', url);
         clearAuthAndRedirect();
         throw new ApiError(401, 'UNAUTHORIZED', 'Phiên đăng nhập đã hết hạn');
       }
@@ -190,6 +194,15 @@ async function runRefreshToken() {
     return tokens.accessToken as string;
   } catch {
     return null;
+  }
+}
+
+async function readApiErrorCode(response: Response) {
+  try {
+    const payload = await response.clone().json();
+    return payload?.error?.code || payload?.code;
+  } catch {
+    return undefined;
   }
 }
 

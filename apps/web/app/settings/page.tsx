@@ -22,6 +22,7 @@ import {
   Settings2,
   Shield,
   SlidersHorizontal,
+  RefreshCcw,
   User,
   Users,
   UsersRound,
@@ -47,6 +48,7 @@ import SettingsAuditLogs from "@/components/settings/sections/SettingsAuditLogs"
 import SettingsApiKeys from "@/components/settings/sections/SettingsApiKeys";
 import SettingsBuildingRooms from "@/components/settings/sections/SettingsBuildingRooms";
 import SettingsLicense from "@/components/settings/sections/SettingsLicense";
+import SettingsSystemUpdate from "@/components/settings/sections/SettingsSystemUpdate";
 import { auditApi, AuditLogItem } from "@/lib/api/audit.api";
 import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
 import { useAuthStore } from "@/lib/auth/auth-store";
@@ -68,6 +70,7 @@ export type SettingsSection =
   | "backup"
   | "audit"
   | "license"
+  | "system-update"
   | "profile";
 
 type SettingsDomain = "organization" | "operations" | "finance" | "integrations" | "system" | "account";
@@ -247,6 +250,14 @@ const settingsGroups: SettingsGroup[] = [
         description: "Lịch sao lưu tự động và quản lý phiên bản dữ liệu.",
         keywords: ["backup", "sao luu", "restore", "phuc hoi", "du lieu"],
         icon: <Cloud size={17} />,
+      },
+      {
+        id: "system-update",
+        domain: "system",
+        title: "Cập nhật hệ thống",
+        description: "Kiểm tra version mới, xác nhận cập nhật và rollback có kiểm soát.",
+        keywords: ["update", "cap nhat", "version", "rollback", "release", "git"],
+        icon: <RefreshCcw size={17} />,
       },
       {
         id: "audit",
@@ -695,6 +706,7 @@ export default function SettingsPage() {
       case "api": return <SettingsApiKeys />;
       case "owners": return <SettingsOwnerManagement />;
       case "backup": return <SettingsBackup />;
+      case "system-update": return <SettingsSystemUpdate />;
       case "audit": return <SettingsAuditLogs />;
       case "license": return <SettingsLicense />;
       default: return <SettingsDashboard onSelect={changeSection} />;

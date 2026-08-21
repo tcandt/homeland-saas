@@ -43,6 +43,7 @@ import { RepositoriesModule } from './shared/repositories/repositories.module';
 import { SettingsModule } from './settings/settings.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HunonicModule } from './hunonic/hunonic.module';
+import { SystemUpdateModule } from './system-update/system-update.module';
 import { schedulesEnabled, validateEnvironment } from './shared/config/environment.validation';
 
 @Module({
@@ -155,6 +156,7 @@ import { schedulesEnabled, validateEnvironment } from './shared/config/environme
     SettingsModule,
     PaymentsModule,
     HunonicModule,
+    SystemUpdateModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -33,7 +33,7 @@ describe('PermissionsGuard', () => {
     const guard = createGuard(['finance.pay']);
 
     expect(() => guard.canActivate(createContext({
-      email: 'admin@homeland.local',
+      email: 'admin@homeland.vn',
       roles: ['MANAGER'],
       permissions: [],
     }))).toThrow(ForbiddenException);

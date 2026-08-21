@@ -42,8 +42,8 @@ type BuildingOwnerConfirmState = {
 const ownerFallback: OwnerSettings = {
   ownerAName: "Tính",
   ownerBName: "Thể",
-  ownerAAccountEmail: "adminA@homeland.local",
-  ownerBAccountEmail: "adminB@homeland.local",
+  ownerAAccountEmail: "admin@homeland.vn",
+  ownerBAccountEmail: "admin@homeland.vn",
   ownerAContactEmail: "",
   ownerBContactEmail: "",
   ownerAPhone: "",

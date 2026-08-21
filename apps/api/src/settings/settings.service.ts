@@ -19,8 +19,7 @@ const PROTECTED_SETTING_FIELDS: Record<string, readonly string[]> = {
 };
 
 const SECRET_ADMIN_EMAILS = new Set([
-  'admina@homeland.local',
-  'adminb@homeland.local',
+  'admin@homeland.vn',
 ]);
 
 @Injectable()
@@ -167,7 +166,7 @@ export class SettingsService {
       after: sanitizeSettingsAuditValue(key, value),
     });
 
-    throw new BadRequestException('Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu tích hợp.');
+    throw new BadRequestException('Chỉ tài khoản admin@homeland.vn được chỉnh sửa token hoặc mật khẩu tích hợp.');
   }
 }
 

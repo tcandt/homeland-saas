@@ -118,8 +118,8 @@ describe('SettingsService', () => {
     });
   });
 
-  it('rejects integration secret changes from the regular admin and writes a redacted audit event', async () => {
-    prisma.user.findFirst.mockResolvedValue({ email: 'admin@homeland.local' });
+  it('rejects integration secret changes from non-system admins and writes a redacted audit event', async () => {
+    prisma.user.findFirst.mockResolvedValue({ email: 'manager@homeland.local' });
 
     await expect(
       service.saveSection(
@@ -130,7 +130,7 @@ describe('SettingsService', () => {
         { enabled: true, botToken: 'new-secret-token' },
         'user-1',
       ),
-    ).rejects.toThrow('Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu tích hợp.');
+    ).rejects.toThrow('Chỉ tài khoản admin@homeland.vn được chỉnh sửa token hoặc mật khẩu tích hợp.');
 
     expect(prisma.appSetting.upsert).not.toHaveBeenCalled();
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
@@ -145,8 +145,8 @@ describe('SettingsService', () => {
     }));
   });
 
-  it('allows owner admin A to replace a secret without returning it in the response', async () => {
-    prisma.user.findFirst.mockResolvedValue({ email: 'adminA@homeland.local' });
+  it('allows the system admin to replace a secret without returning it in the response', async () => {
+    prisma.user.findFirst.mockResolvedValue({ email: 'admin@homeland.vn' });
     prisma.appSetting.upsert.mockResolvedValue({
       id: 'setting-email',
       key: 'email-provider',

@@ -217,14 +217,12 @@ try {
         Wait-ForHttp -Url "$webOrigin/login" -Process $webProcess
 
         if (-not $SkipE2E) {
-            if (-not $env:E2E_ADMIN_PASSWORD -or -not $env:E2E_OWNER_A_PASSWORD -or -not $env:E2E_OWNER_B_PASSWORD -or -not $env:E2E_MANAGER_PASSWORD) {
-                throw 'E2E_ADMIN_PASSWORD, E2E_OWNER_A_PASSWORD, E2E_OWNER_B_PASSWORD, and E2E_MANAGER_PASSWORD are required for the production E2E gate.'
+            if (-not $env:E2E_ADMIN_PASSWORD -or -not $env:E2E_MANAGER_PASSWORD) {
+                throw 'E2E_ADMIN_PASSWORD and E2E_MANAGER_PASSWORD are required for the production E2E gate.'
             }
 
             Write-Host "`n[Persona credential preflight]" -ForegroundColor Cyan
-            Assert-PersonaLogin -ApiOrigin $apiOrigin -Email 'admin@homeland.local' -Password $env:E2E_ADMIN_PASSWORD -Label 'Operational admin'
-            Assert-PersonaLogin -ApiOrigin $apiOrigin -Email 'adminA@homeland.local' -Password $env:E2E_OWNER_A_PASSWORD -Label 'Owner admin A'
-            Assert-PersonaLogin -ApiOrigin $apiOrigin -Email 'adminB@homeland.local' -Password $env:E2E_OWNER_B_PASSWORD -Label 'Owner admin B'
+            Assert-PersonaLogin -ApiOrigin $apiOrigin -Email 'admin@homeland.vn' -Password $env:E2E_ADMIN_PASSWORD -Label 'System admin'
             Assert-PersonaLogin -ApiOrigin $apiOrigin -Email 'manager@homeland.local' -Password $env:E2E_MANAGER_PASSWORD -Label 'Manager'
 
             $env:VERIFY_PROD = '1'

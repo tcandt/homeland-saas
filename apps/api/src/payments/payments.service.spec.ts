@@ -39,7 +39,7 @@ describe('PaymentsService', () => {
       },
       user: {
         findMany: vi.fn().mockResolvedValue([
-          { id: 'admin-a', email: 'adminA@homeland.local', role: 'ADMIN' },
+          { id: 'system-admin', email: 'admin@homeland.vn', role: 'ADMIN' },
         ]),
       },
       invoice: {
@@ -263,7 +263,7 @@ describe('PaymentsService', () => {
     expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-1',
-        userId: 'admin-a',
+        userId: 'system-admin',
         templateCode: 'SYSTEM_ALERT',
         channel: 'IN_APP',
         context: expect.objectContaining({
@@ -324,7 +324,7 @@ describe('PaymentsService', () => {
     expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-1',
-        userId: 'admin-a',
+        userId: 'system-admin',
         templateCode: 'SYSTEM_ALERT',
         channel: 'IN_APP',
         context: expect.objectContaining({
@@ -415,7 +415,7 @@ describe('PaymentsService', () => {
     expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-1',
-        userId: 'admin-a',
+        userId: 'system-admin',
         templateCode: 'SYSTEM_ALERT',
         channel: 'IN_APP',
         context: expect.objectContaining({

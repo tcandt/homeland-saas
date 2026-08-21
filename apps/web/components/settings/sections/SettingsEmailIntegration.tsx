@@ -37,7 +37,7 @@ export default function SettingsEmailIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<EmailSettings>("email-provider", "TENANT", fallback);
   const user = useAuthStore((state) => state.user);
   const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
-  const canEditSecrets = ["admina@homeland.local", "adminb@homeland.local"].includes((user?.email || "").toLowerCase());
+  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
   const saveEmail = async () => {
     const payload: Partial<EmailSettings> = { ...draft };
@@ -97,7 +97,7 @@ export default function SettingsEmailIntegration() {
               setSmtpPasswordTouched(true);
               setDraft((prev) => ({ ...prev, smtpPassword: event.target.value }));
             }}
-            placeholder={canEditSecrets ? "Để trống để giữ nguyên mật khẩu" : "Chỉ owner admin A/B được chỉnh sửa"}
+            placeholder={canEditSecrets ? "Để trống để giữ nguyên mật khẩu" : "Chỉ admin@homeland.vn được chỉnh sửa"}
             disabled={!canEditSecrets}
             data-testid="integration-secret-field"
           />
@@ -125,7 +125,7 @@ export default function SettingsEmailIntegration() {
       {!canEditSecrets && (
         <div className="flex items-start gap-[9px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[11px] text-[12px] font-medium leading-[18px] text-muted">
           <LockKeyhole size={15} className="mt-[1px] shrink-0 text-warning" aria-hidden="true" />
-          Mật khẩu SMTP chỉ được chỉnh sửa bởi owner admin A/B.
+          Mật khẩu SMTP chỉ được chỉnh sửa bởi admin@homeland.vn.
         </div>
       )}
 

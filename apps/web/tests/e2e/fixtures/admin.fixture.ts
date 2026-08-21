@@ -54,7 +54,7 @@ export const test = base.extend<{ admin: AdminFixture }>({
       // For fixture, API login is faster, but let's just log in via API and save state
       const response = await request.post(`${finalBaseURL}/api/v1/auth/login`, {
         data: {
-          emailOrPhone: 'admin@homeland.local',
+          emailOrPhone: 'admin@homeland.vn',
           password: adminPassword
         }
       });

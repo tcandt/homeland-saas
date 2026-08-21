@@ -38,7 +38,7 @@ describe('FinanceReportingService', () => {
       },
       user: {
         findMany: vi.fn().mockResolvedValue([
-          { id: 'admin-1', email: 'adminA@homeland.local', fullName: 'Admin A' },
+          { id: 'admin-1', email: 'admin@homeland.vn', fullName: 'System Admin' },
         ]),
       },
       costCenter: {

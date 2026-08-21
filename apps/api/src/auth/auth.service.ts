@@ -567,21 +567,8 @@ export class AuthService {
       select: { email: true },
     });
     const actorEmail = actor?.email?.toLowerCase() ?? '';
-    const ownerEmails = new Set(['admina@homeland.local', 'adminb@homeland.local']);
-    if (ownerEmails.has(actorEmail)) return;
-
-    const isBootstrapAdmin = actorEmail === 'admin@homeland.local';
-    const isExpectedOwnerAccount = ownerEmails.has(email) && role === 'ADMIN';
-    if (isBootstrapAdmin && isExpectedOwnerAccount) {
-      const existingOwnerAccounts = await this.prisma.user.count({
-        where: {
-          tenantId,
-          deletedAt: null,
-          email: { in: Array.from(ownerEmails), mode: 'insensitive' },
-        },
-      });
-      if (existingOwnerAccounts < ownerEmails.size) return;
-    }
+    const isBootstrapAdmin = actorEmail === 'admin@homeland.vn';
+    if (isBootstrapAdmin) return;
 
     await this.audit.log({
       action: 'CREATE',
@@ -598,7 +585,7 @@ export class AuthService {
     });
     throw new ForbiddenException({
       code: 'AUTH_TEAM_PROVISIONING_FORBIDDEN',
-      message: 'Only owner administrators may provision team accounts',
+      message: 'Only admin@homeland.vn may provision team accounts',
     });
   }
 

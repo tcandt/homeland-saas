@@ -34,7 +34,7 @@ export default function SettingsSePayIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<SePaySettings>("sepay", "TENANT", fallback);
   const user = useAuthStore((state) => state.user);
   const [webhookApiKeyTouched, setWebhookApiKeyTouched] = useState(false);
-  const canEditSecrets = ["admina@homeland.local", "adminb@homeland.local"].includes((user?.email || "").toLowerCase());
+  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
   const webhookUrl = useMemo(() => {
     const base = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api/v1";
@@ -98,7 +98,7 @@ export default function SettingsSePayIntegration() {
                 setWebhookApiKeyTouched(true);
                 setDraft((prev) => ({ ...prev, webhookApiKey: event.target.value }));
               }}
-              placeholder={canEditSecrets ? "Để trống để giữ nguyên API key" : "Chỉ owner admin A/B được chỉnh sửa"}
+              placeholder={canEditSecrets ? "Để trống để giữ nguyên API key" : "Chỉ admin@homeland.vn được chỉnh sửa"}
               disabled={!canEditSecrets}
               data-testid="integration-secret-field"
             />
@@ -158,7 +158,7 @@ export default function SettingsSePayIntegration() {
       {!canEditSecrets && (
         <div className="flex items-start gap-[9px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[11px] text-[12px] font-medium leading-[18px] text-muted">
           <LockKeyhole size={15} className="mt-[1px] shrink-0 text-warning" aria-hidden="true" />
-          Token và mật khẩu tích hợp chỉ được chỉnh sửa bởi owner admin A/B. Các cấu hình vận hành khác vẫn có thể lưu bình thường.
+          Token và mật khẩu tích hợp chỉ được chỉnh sửa bởi admin@homeland.vn. Các cấu hình vận hành khác vẫn có thể lưu bình thường.
         </div>
       )}
 

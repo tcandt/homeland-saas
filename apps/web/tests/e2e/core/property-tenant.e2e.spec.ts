@@ -5,7 +5,7 @@ test.describe('Property Structure Tenant Isolation', () => {
   const timestamp = Date.now();
   const tenantAEmail = `admin_a_${timestamp}@tenant.com`;
   const tenantBEmail = `admin_b_${timestamp}@tenant.com`;
-  const password = 'Homeland@123456';
+  const password = 'TenantTest@123456';
 
   let tenantAToken = '';
   let tenantBToken = '';

@@ -22,8 +22,8 @@ function createOwnersSettings(): OwnerSettings {
   return {
     ownerAName: "Tinh",
     ownerBName: "The",
-    ownerAAccountEmail: "adminA@homeland.local",
-    ownerBAccountEmail: "adminB@homeland.local",
+    ownerAAccountEmail: "admin@homeland.vn",
+    ownerBAccountEmail: "admin@homeland.vn",
     ownerAContactEmail: "tinh@example.com",
     ownerBContactEmail: "the@example.com",
     ownerAPhone: "0901000001",
@@ -104,7 +104,7 @@ function createAuditLogs() {
       after: { ownerId: "owner-b" },
       user: {
         id: "user-1",
-        email: "admin@homeland.local",
+        email: "admin@homeland.vn",
         fullName: "Admin Homeland",
       },
     },

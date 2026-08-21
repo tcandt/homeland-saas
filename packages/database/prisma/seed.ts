@@ -116,33 +116,24 @@ async function main() {
   });
 
   // 3. Users
-  const developmentPassword = process.env.SEED_DEFAULT_PASSWORD || 'Homeland@123456';
-  const ownerATemporaryPassword = process.env.SEED_OWNER_A_TEMPORARY_PASSWORD;
-  const ownerBTemporaryPassword = process.env.SEED_OWNER_B_TEMPORARY_PASSWORD;
+  const defaultAdminEmail = 'admin@homeland.vn';
+  const legacyAdminEmails = ['admin@homeland.local', 'adminA@homeland.local', 'adminB@homeland.local'];
+  const developmentPassword = process.env.SEED_DEFAULT_PASSWORD;
   const productionMode = process.env.SEED_MODE === 'production' || process.env.NODE_ENV === 'production';
-  if (productionMode && (!process.env.SEED_DEFAULT_PASSWORD || !ownerATemporaryPassword || !ownerBTemporaryPassword)) {
-    throw new Error('SEED_DEFAULT_PASSWORD, SEED_OWNER_A_TEMPORARY_PASSWORD and SEED_OWNER_B_TEMPORARY_PASSWORD are required in production mode.');
+  if (!developmentPassword) {
+    throw new Error('SEED_DEFAULT_PASSWORD is required to seed the system admin account.');
   }
   const passwordHash = await bcrypt.hash(developmentPassword, 12);
-  const ownerAPasswordHash = await bcrypt.hash(ownerATemporaryPassword || developmentPassword, 12);
-  const ownerBPasswordHash = await bcrypt.hash(ownerBTemporaryPassword || developmentPassword, 12);
 
   const adminUser = await prisma.user.upsert({
-    where: { tenantId_email: { tenantId: org.id, email: 'admin@homeland.local' } },
-    update: {},
-    create: { tenantId: org.id, email: 'admin@homeland.local', fullName: 'System Admin', passwordHash },
+    where: { tenantId_email: { tenantId: org.id, email: defaultAdminEmail } },
+    update: { fullName: 'System Admin', status: 'ACTIVE' },
+    create: { tenantId: org.id, email: defaultAdminEmail, fullName: 'System Admin', passwordHash, mustChangePassword: true },
   });
 
-  const ownerAUser = await prisma.user.upsert({
-    where: { tenantId_email: { tenantId: org.id, email: 'adminA@homeland.local' } },
-    update: { fullName: 'Owner Admin - Tính' },
-    create: { tenantId: org.id, email: 'adminA@homeland.local', fullName: 'Owner Admin - Tính', passwordHash: ownerAPasswordHash, mustChangePassword: true },
-  });
-
-  const ownerBUser = await prisma.user.upsert({
-    where: { tenantId_email: { tenantId: org.id, email: 'adminB@homeland.local' } },
-    update: { fullName: 'Owner Admin - Thể' },
-    create: { tenantId: org.id, email: 'adminB@homeland.local', fullName: 'Owner Admin - Thể', passwordHash: ownerBPasswordHash, mustChangePassword: true },
+  await prisma.user.updateMany({
+    where: { tenantId: org.id, email: { in: legacyAdminEmails, mode: 'insensitive' } },
+    data: { status: 'DISABLED' },
   });
 
   const managerUser = await prisma.user.upsert({
@@ -167,8 +158,6 @@ async function main() {
   await prisma.userRole.createMany({
     data: [
       { userId: adminUser.id, roleId: adminRole.id },
-      { userId: ownerAUser.id, roleId: adminRole.id },
-      { userId: ownerBUser.id, roleId: adminRole.id },
       { userId: managerUser.id, roleId: managerRole.id },
       { userId: salesUser.id, roleId: salesRole.id },
       { userId: financeUser.id, roleId: financeRole.id },
@@ -181,14 +170,14 @@ async function main() {
 
   const ownerA = await prisma.owner.upsert({
     where: { tenantId_code: { tenantId: org.id, code: 'OWNER-A' } },
-    update: { name: 'Tính', isActive: true, notes: 'Owner account: adminA@homeland.local. Buildings: LK01-31, LK08-25.' },
-    create: { tenantId: org.id, code: 'OWNER-A', name: 'Tính', notes: 'Owner account: adminA@homeland.local. Buildings: LK01-31, LK08-25.' },
+    update: { name: 'Tính', isActive: true, notes: 'Managed by admin@homeland.vn. Buildings: LK01-31, LK08-25.' },
+    create: { tenantId: org.id, code: 'OWNER-A', name: 'Tính', notes: 'Managed by admin@homeland.vn. Buildings: LK01-31, LK08-25.' },
   });
 
   const ownerB = await prisma.owner.upsert({
     where: { tenantId_code: { tenantId: org.id, code: 'OWNER-B' } },
-    update: { name: 'Thể', isActive: true, notes: 'Owner account: adminB@homeland.local. Buildings: LK01-32, LK08-24.' },
-    create: { tenantId: org.id, code: 'OWNER-B', name: 'Thể', notes: 'Owner account: adminB@homeland.local. Buildings: LK01-32, LK08-24.' },
+    update: { name: 'Thể', isActive: true, notes: 'Managed by admin@homeland.vn. Buildings: LK01-32, LK08-24.' },
+    create: { tenantId: org.id, code: 'OWNER-B', name: 'Thể', notes: 'Managed by admin@homeland.vn. Buildings: LK01-32, LK08-24.' },
   });
 
   const ownerByBuildingCode: Record<string, string> = {

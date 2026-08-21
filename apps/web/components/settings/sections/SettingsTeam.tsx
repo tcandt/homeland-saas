@@ -15,9 +15,9 @@ import { authApi, type TeamAccount } from "@/lib/api/auth.api";
 
 const requiredTestAccounts = [
   { email: "manager@homeland.local", label: "Manager" },
-  { email: "adminA@homeland.local", label: "Quản lý A" },
-  { email: "adminB@homeland.local", label: "Quản lý B" },
-  { email: "admin@homeland.local", label: "Toàn quyền" },
+  { email: "sales@homeland.local", label: "Kinh doanh" },
+  { email: "finance@homeland.local", label: "Kế toán" },
+  { email: "admin@homeland.vn", label: "Toàn quyền" },
 ] as const;
 
 const roleLabels: Record<string, string> = {

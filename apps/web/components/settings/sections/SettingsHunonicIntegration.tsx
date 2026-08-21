@@ -181,9 +181,7 @@ export default function SettingsHunonicIntegration() {
   );
   const allMonthlySelected = monthlyRows.length > 0 && selectedMonthlyKeys.length === monthlyRows.length;
   const allRateSelected = rateRows.length > 0 && selectedRateIds.length === rateRows.length;
-  const canEditHunonicSecrets = ["admina@homeland.local", "adminb@homeland.local"].includes(
-    (user?.email || "").toLowerCase(),
-  );
+  const canEditHunonicSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
   const patchHistoryFilter = (patch: Partial<typeof historyFilters>) => {
     setHistoryFilters((prev) => ({ ...prev, ...patch, page: patch.page ?? 1 }));
@@ -515,7 +513,7 @@ export default function SettingsHunonicIntegration() {
 
           {!canEditHunonicSecrets && (
             <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-[12px] py-[10px] text-[12px] font-semibold text-amber-800">
-              Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu tích hợp Hunonic. Admin vận hành chỉ được xem trạng thái, kiểm tra kết nối và sync.
+              Chỉ admin@homeland.vn được chỉnh sửa token hoặc mật khẩu tích hợp Hunonic. Tài khoản vận hành chỉ được xem trạng thái, kiểm tra kết nối và sync.
             </div>
           )}
 

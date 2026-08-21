@@ -83,7 +83,7 @@ export class PaymentsService {
 
     const adminUsers = users.filter((user: any) => {
       const email = String(user.email || '').toLowerCase();
-      return email === 'admina@homeland.local' || email === 'adminb@homeland.local';
+      return email === 'admin@homeland.vn';
     });
     const recipients = adminUsers.length > 0 ? adminUsers : [{ id: null }];
 

@@ -1,5 +1,5 @@
 @api_url = http://localhost:3001/api/v1
-@loginEmail = admin@homeland.local
+@loginEmail = admin@homeland.vn
 @loginPassword = {{$dotenv E2E_ADMIN_PASSWORD}}
 @newPassword = {{$dotenv E2E_NEW_PASSWORD}}
 @accessToken = {{login.response.body.data.accessToken}}

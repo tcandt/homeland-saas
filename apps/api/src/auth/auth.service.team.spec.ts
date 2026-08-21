@@ -8,17 +8,17 @@ describe('AuthService team directory', () => {
     const prisma: any = {
       user: {
         findFirst: vi.fn().mockResolvedValue({
-          id: 'owner-a-user',
+          id: 'system-admin',
           tenantId: 'tenant-1',
-          email: 'admina@homeland.local',
-          fullName: 'Owner Admin - Tính',
+          email: 'admin@homeland.vn',
+          fullName: 'System Admin',
           status: 'ACTIVE',
           mustChangePassword: true,
           passwordHash,
           tenant: { id: 'tenant-1' },
           roles: [{ role: { code: 'ADMIN', permissions: [] } }],
         }),
-        update: vi.fn().mockResolvedValue({ id: 'owner-a-user' }),
+        update: vi.fn().mockResolvedValue({ id: 'system-admin' }),
       },
     };
     const jwtService: any = { sign: vi.fn().mockReturnValueOnce('access-token').mockReturnValueOnce('refresh-token') };
@@ -27,13 +27,13 @@ describe('AuthService team directory', () => {
     const service = new AuthService(prisma, jwtService, config, audit, {} as any);
 
     const result = await service.login({
-      emailOrPhone: 'admina@homeland.local',
+      emailOrPhone: 'admin@homeland.vn',
       password: 'StrongTemp@123',
     });
 
     expect(result.user.mustChangePassword).toBe(true);
     expect(jwtService.sign).toHaveBeenCalledWith(expect.objectContaining({
-      sub: 'owner-a-user',
+      sub: 'system-admin',
       mustChangePassword: true,
     }), expect.any(Object));
   });
@@ -43,9 +43,9 @@ describe('AuthService team directory', () => {
       user: {
         findMany: vi.fn().mockResolvedValue([
           {
-            id: 'user-admin-a',
-            email: 'adminA@homeland.local',
-            fullName: 'Owner Admin - Tính',
+            id: 'user-admin',
+            email: 'admin@homeland.vn',
+            fullName: 'System Admin',
             status: 'ACTIVE',
             mustChangePassword: true,
             lastLoginAt: new Date('2026-08-13T04:00:00.000Z'),
@@ -75,8 +75,8 @@ describe('AuthService team directory', () => {
     }));
     expect(result).toEqual([
       expect.objectContaining({
-        id: 'user-admin-a',
-        email: 'adminA@homeland.local',
+        id: 'user-admin',
+        email: 'admin@homeland.vn',
         roles: ['ADMIN'],
         mustChangePassword: true,
       }),
@@ -89,13 +89,12 @@ describe('AuthService team directory', () => {
     const prisma: any = {
       user: {
         findFirst: vi.fn()
-          .mockResolvedValueOnce({ email: 'admin@homeland.local' })
+          .mockResolvedValueOnce({ email: 'admin@homeland.vn' })
           .mockResolvedValueOnce(null),
-        count: vi.fn().mockResolvedValue(0),
         create: vi.fn().mockResolvedValue({
-          id: 'owner-a-user',
-          email: 'admina@homeland.local',
-          fullName: 'Owner Admin - Tính',
+          id: 'manager-user',
+          email: 'new-manager@homeland.local',
+          fullName: 'New Manager',
           status: 'ACTIVE',
           mustChangePassword: true,
           lastLoginAt: null,
@@ -104,7 +103,7 @@ describe('AuthService team directory', () => {
         }),
       },
       role: {
-        findUnique: vi.fn().mockResolvedValue({ id: 'admin-role', code: 'ADMIN' }),
+        findUnique: vi.fn().mockResolvedValue({ id: 'manager-role', code: 'MANAGER' }),
       },
       $transaction: vi.fn(async (callback: any) => callback(prisma)),
     };
@@ -112,24 +111,24 @@ describe('AuthService team directory', () => {
     const service = new AuthService(prisma, {} as any, {} as any, audit, {} as any);
 
     const result = await service.createTeamMember('tenant-1', 'system-admin', {
-      fullName: 'Owner Admin - Tính',
-      email: 'AdminA@HomeLand.Local',
-      role: 'ADMIN',
+      fullName: 'New Manager',
+      email: 'New-Manager@HomeLand.Local',
+      role: 'MANAGER',
       temporaryPassword: 'StrongTemp@123',
     });
 
     expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         tenantId: 'tenant-1',
-        email: 'admina@homeland.local',
+        email: 'new-manager@homeland.local',
         passwordHash: expect.not.stringContaining('StrongTemp@123'),
-        roles: { create: { roleId: 'admin-role' } },
+        roles: { create: { roleId: 'manager-role' } },
         mustChangePassword: true,
       }),
     }));
     expect(result).toEqual(expect.objectContaining({
-      email: 'admina@homeland.local',
-      roles: ['ADMIN'],
+      email: 'new-manager@homeland.local',
+      roles: ['MANAGER'],
       mustChangePassword: true,
     }));
     expect(result).not.toHaveProperty('passwordHash');
@@ -138,20 +137,19 @@ describe('AuthService team directory', () => {
       entity: 'User',
       userId: 'system-admin',
       after: {
-        email: 'admina@homeland.local',
-        fullName: 'Owner Admin - Tính',
-        role: 'ADMIN',
+        email: 'new-manager@homeland.local',
+        fullName: 'New Manager',
+        role: 'MANAGER',
         status: 'ACTIVE',
       },
     }));
     expect(JSON.stringify(audit.log.mock.calls)).not.toContain('StrongTemp@123');
   });
 
-  it('closes regular-admin provisioning after both owner accounts exist', async () => {
+  it('blocks team provisioning from non-system admins', async () => {
     const prisma: any = {
       user: {
-        findFirst: vi.fn().mockResolvedValue({ email: 'admin@homeland.local' }),
-        count: vi.fn().mockResolvedValue(2),
+        findFirst: vi.fn().mockResolvedValue({ email: 'manager@homeland.local' }),
       },
     };
     const audit: any = { log: vi.fn() };
@@ -219,7 +217,7 @@ describe('AuthService team directory', () => {
         findUnique: vi.fn().mockResolvedValue({
           id: 'owner-a-user',
           tenantId: 'tenant-1',
-          email: 'admina@homeland.local',
+          email: 'admin@homeland.vn',
           status: 'ACTIVE',
           mustChangePassword: true,
           roles: [{ role: { code: 'ADMIN', permissions: [] } }],
@@ -264,7 +262,7 @@ describe('AuthService team directory', () => {
         findUnique: vi.fn().mockResolvedValue({
           id: 'owner-a-user',
           tenantId: 'tenant-1',
-          email: 'admina@homeland.local',
+          email: 'admin@homeland.vn',
           status: 'ACTIVE',
           mustChangePassword: true,
           refreshTokenHash,

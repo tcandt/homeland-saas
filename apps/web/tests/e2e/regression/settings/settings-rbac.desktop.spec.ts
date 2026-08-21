@@ -17,27 +17,19 @@ test.describe('Settings RBAC Desktop Regression', () => {
     await expect(manager.page.getByTestId('sidebar-nav-settings')).toHaveCount(0);
   });
 
-  const verifyOwnerAdmin = async (ownerAdmin: any) => {
-    const response = await ownerAdmin.api.get(`${apiBaseUrl}/api/v1/settings/owners?scope=TENANT`);
+  test('allows system admin to read Settings and edit integration secret fields', async ({ admin }) => {
+    const response = await admin.api.get(`${apiBaseUrl}/api/v1/settings/owners?scope=TENANT`);
     expect(response.ok()).toBeTruthy();
 
-    await ownerAdmin.page.goto('/settings?section=integrations', { waitUntil: 'domcontentloaded' });
-    const secretFields = ownerAdmin.page.getByTestId('integration-secret-field');
+    await admin.page.goto('/settings?section=integrations', { waitUntil: 'domcontentloaded' });
+    const secretFields = admin.page.getByTestId('integration-secret-field');
     await expect(secretFields).toHaveCount(5);
     for (let index = 0; index < 5; index += 1) {
       await expect(secretFields.nth(index)).toBeEnabled();
     }
-  };
-
-  test('allows owner admin A to read Settings and edit integration secret fields', async ({ ownerAdminA }) => {
-    await verifyOwnerAdmin(ownerAdminA);
   });
 
-  test('allows owner admin B to read Settings and edit integration secret fields', async ({ ownerAdminB }) => {
-    await verifyOwnerAdmin(ownerAdminB);
-  });
-
-  test('shows the account directory while keeping integration secrets read-only for the operational admin', async ({ admin }) => {
+  test('shows the account directory for the system admin', async ({ admin }) => {
     const response = await admin.api.get(`${apiBaseUrl}/api/v1/auth/team`);
     expect(response.ok()).toBeTruthy();
     const body = await response.json();
@@ -46,9 +38,7 @@ test.describe('Settings RBAC Desktop Regression', () => {
 
     expect(emails).toEqual(expect.arrayContaining([
       'manager@homeland.local',
-      'admina@homeland.local',
-      'adminb@homeland.local',
-      'admin@homeland.local',
+      'admin@homeland.vn',
     ]));
     expect(accounts.every((item: any) => !('passwordHash' in item) && !('refreshTokenHash' in item))).toBeTruthy();
 
@@ -56,17 +46,10 @@ test.describe('Settings RBAC Desktop Regression', () => {
     const directory = admin.page.getByTestId('settings-team-real-data');
     await expect(directory).toBeVisible();
     await expect(directory).toContainText('manager@homeland.local');
-    await expect(directory).toContainText('adminA@homeland.local');
-    await expect(directory).toContainText('adminB@homeland.local');
-    await expect(directory).toContainText('admin@homeland.local');
+    await expect(directory).toContainText('admin@homeland.vn');
+    await expect(directory).not.toContainText('adminA@homeland.local');
+    await expect(directory).not.toContainText('adminB@homeland.local');
     await expect(directory).not.toContainText('Permission Matrix');
     await expect(directory.getByRole('button', { name: /Thêm thành viên|Lưu phân quyền/ })).toHaveCount(0);
-
-    await admin.page.goto('/settings?section=integrations', { waitUntil: 'domcontentloaded' });
-    const secretFields = admin.page.getByTestId('integration-secret-field');
-    await expect(secretFields).toHaveCount(5);
-    for (let index = 0; index < 5; index += 1) {
-      await expect(secretFields.nth(index)).toBeDisabled();
-    }
   });
 });

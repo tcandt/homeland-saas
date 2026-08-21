@@ -44,7 +44,7 @@ async function mockSettingsDashboard(page: any) {
             entity: 'Owner',
             entityId: 'owner-a',
             userId: 'admin-1',
-            user: { id: 'admin-1', email: 'admin@homeland.local', fullName: 'Admin dữ liệu thật' },
+            user: { id: 'admin-1', email: 'admin@homeland.vn', fullName: 'Admin dữ liệu thật' },
             ip: '127.0.0.1',
             userAgent: 'Playwright',
             before: null,

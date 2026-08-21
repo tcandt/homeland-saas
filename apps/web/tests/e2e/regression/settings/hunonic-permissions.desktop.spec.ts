@@ -69,7 +69,7 @@ test.describe('Hunonic Permissions Desktop Regression', () => {
     const secret = main.locator('input[type="password"]');
     await expect(secret).toHaveCount(1);
     await expect(secret).toBeDisabled();
-    await expect(main.getByText('Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu tích hợp Hunonic.')).toBeVisible();
+    await expect(main.getByText('Chỉ admin@homeland.vn được chỉnh sửa token hoặc mật khẩu tích hợp Hunonic.')).toBeVisible();
     await expect(main.getByRole('button', { name: 'Kiểm tra kết nối' })).toBeEnabled();
     await expect(main.getByRole('button', { name: 'Đồng bộ ngay' })).toBeEnabled();
     await expect(main.getByRole('button', { name: 'Lưu cấu hình' })).toBeEnabled();

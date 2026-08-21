@@ -45,11 +45,16 @@
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
+    "mongodb-memory-server": "^11.2.0",
     "tsx": "^4.7.1",
     "turbo": "latest",
     "vitest": "^4.1.9"
   },
   "prisma": {
     "seed": "tsx packages/database/prisma/seed.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "mongodb": "^7.5.0"
   }
 }

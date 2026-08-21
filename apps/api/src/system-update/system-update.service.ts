@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -29,6 +29,8 @@ type UpdateJob = {
   startedAt: string;
   finishedAt?: string;
   logs: string[];
+  manifestPath?: string;
+  error?: string;
 };
 
 const SAFE_UPDATE_STEPS: Array<{ status: UpdateJobStatus; progressPercent: number; message: string }> = [
@@ -112,19 +114,100 @@ export class SystemUpdateService {
       job.logs.push(`${new Date().toISOString()} ${step.message}`);
     }
 
-    if (mode !== 'enabled') {
+    if (mode !== 'enabled' || job.dryRun) {
       job.status = 'BLOCKED';
       job.progressPercent = 100;
       job.finishedAt = new Date().toISOString();
-      job.logs.push(`${job.finishedAt} SYSTEM_UPDATE_MODE=${mode}; chưa chạy ghi đè source/restart thật.`);
+      job.logs.push(`${job.finishedAt} SYSTEM_UPDATE_MODE=${mode}; dryRun=${job.dryRun}; chưa chạy runner thật.`);
       return job;
     }
 
-    job.status = type === 'rollback' ? 'ROLLED_BACK' : 'DONE';
-    job.progressPercent = 100;
-    job.finishedAt = new Date().toISOString();
-    job.logs.push(`${job.finishedAt} Runner thật chưa được nối script destructive trong giai đoạn scaffold.`);
+    this.runSystemUpdateScript(job);
     return job;
+  }
+
+  private runSystemUpdateScript(job: UpdateJob) {
+    const scriptPath = join(process.cwd(), 'scripts', 'update', job.type === 'rollback' ? 'rollback-version.ps1' : 'install-version.ps1');
+    const powershell = process.env.SYSTEM_UPDATE_POWERSHELL_PATH || 'powershell.exe';
+    const args = [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      scriptPath,
+      '-TargetVersion',
+      job.toVersion,
+      '-Workspace',
+      process.cwd(),
+      '-UpdateRoot',
+      process.env.SYSTEM_UPDATE_ROOT || join(process.cwd(), '.codex-update'),
+      '-Repository',
+      this.repositoryUrl,
+    ];
+
+    if (job.type === 'rollback') {
+      args.splice(args.indexOf('-Repository'), 2);
+    }
+
+    job.logs.push(`${new Date().toISOString()} Starting runner: ${job.type} ${shortSha(job.toVersion)}`);
+    const child = spawn(powershell, args, {
+      cwd: process.cwd(),
+      windowsHide: true,
+      env: process.env,
+    });
+
+    child.stdout.on('data', (chunk) => {
+      for (const line of chunk.toString().split(/\r?\n/).filter(Boolean)) {
+        this.applyRunnerLine(job, line);
+      }
+    });
+
+    child.stderr.on('data', (chunk) => {
+      for (const line of chunk.toString().split(/\r?\n/).filter(Boolean)) {
+        job.logs.push(`${new Date().toISOString()} STDERR ${line}`);
+      }
+    });
+
+    child.on('error', (error) => {
+      job.status = 'FAILED';
+      job.error = error.message;
+      job.progressPercent = 100;
+      job.finishedAt = new Date().toISOString();
+      job.logs.push(`${job.finishedAt} Runner failed to start: ${error.message}`);
+    });
+
+    child.on('close', (code) => {
+      if (job.status === 'FAILED') return;
+      job.progressPercent = 100;
+      job.finishedAt = new Date().toISOString();
+      if (code === 0) {
+        job.status = job.type === 'rollback' ? 'ROLLED_BACK' : 'DONE';
+        job.logs.push(`${job.finishedAt} Runner finished successfully.`);
+      } else {
+        job.status = 'FAILED';
+        job.error = `Runner exited with code ${code}`;
+        job.logs.push(`${job.finishedAt} Runner exited with code ${code}.`);
+      }
+    });
+  }
+
+  private applyRunnerLine(job: UpdateJob, line: string) {
+    const stepMatch = line.match(/^SYSTEM_UPDATE_STEP\s+(\S+)\s+(\d+)\s+(.+)$/);
+    if (stepMatch) {
+      job.status = stepMatch[1] as UpdateJobStatus;
+      job.progressPercent = Number(stepMatch[2]);
+      job.logs.push(`${new Date().toISOString()} ${stepMatch[3]}`);
+      return;
+    }
+
+    const manifestMatch = line.match(/^SYSTEM_UPDATE_MANIFEST\s+(.+)$/);
+    if (manifestMatch) {
+      job.manifestPath = manifestMatch[1];
+      job.logs.push(`${new Date().toISOString()} Manifest: ${manifestMatch[1]}`);
+      return;
+    }
+
+    job.logs.push(`${new Date().toISOString()} ${line}`);
   }
 }
 

@@ -25,7 +25,7 @@ describe('SystemUpdateService', () => {
     expect(job.status).toBe('BLOCKED');
     expect(job.progressPercent).toBe(100);
     expect(job.dryRun).toBe(true);
-    expect(job.logs.join('\n')).toContain('chưa chạy ghi đè source/restart thật');
+    expect(job.logs.join('\n')).toContain('chưa chạy runner thật');
   });
 
   it('creates a rollback job without requiring destructive commands', () => {

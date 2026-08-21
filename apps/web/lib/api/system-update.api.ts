@@ -27,6 +27,8 @@ export type SystemUpdateJob = {
   startedAt?: string;
   finishedAt?: string;
   logs: string[];
+  manifestPath?: string;
+  error?: string;
 };
 
 export const systemUpdateApi = {

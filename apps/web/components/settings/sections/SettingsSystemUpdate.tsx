@@ -39,7 +39,7 @@ export default function SettingsSystemUpdate() {
     if (!confirmMode) return;
     setIsSubmitting(true);
     try {
-      const payload = { targetVersion: confirmMode === "install" ? info?.latestVersion : undefined, dryRun: true };
+      const payload = { targetVersion: confirmMode === "install" ? info?.latestVersion : undefined, dryRun: false };
       const nextJob = confirmMode === "install"
         ? await systemUpdateApi.install(payload)
         : await systemUpdateApi.rollback(payload);
@@ -94,7 +94,7 @@ export default function SettingsSystemUpdate() {
           {isBlockedMode && (
             <div className="flex items-start gap-[10px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[12px] text-[12px] font-semibold text-warning">
               <AlertTriangle size={16} className="mt-[1px] shrink-0" />
-              Update runner đang ở chế độ an toàn. Job sẽ mô phỏng đầy đủ progress, chưa tải/ghi đè source thật cho đến khi bật `SYSTEM_UPDATE_MODE=enabled` và nối script đã được nghiệm thu.
+                Update runner đang ở chế độ an toàn. Job sẽ mô phỏng đầy đủ progress. Khi bật `SYSTEM_UPDATE_MODE=enabled`, runner sẽ backup, clone release, build và preflight trong thư mục riêng; switch/restart vẫn bị khóa cho đến khi bật riêng.
             </div>
           )}
 
@@ -157,7 +157,7 @@ export default function SettingsSystemUpdate() {
       >
         <div className="flex flex-col gap-[12px] text-[13px] leading-6 text-muted">
           <p>
-            Job hiện chạy ở chế độ an toàn/dry-run để xác nhận luồng UI, phân quyền, progress và log. Runner ghi đè source thật sẽ được bật sau khi script backup, build, health check và rollback được nghiệm thu.
+            Nếu hệ thống đang ở `dry-run`, job chỉ mô phỏng progress. Nếu bật `SYSTEM_UPDATE_MODE=enabled`, runner sẽ chạy backup, clone source, build và preflight thật trong thư mục release riêng; switch/restart chỉ chạy khi đã bật khóa vận hành riêng.
           </p>
           <div className="rounded-[8px] border border-border bg-background p-[12px]">
             <div className="font-mono text-[12px] text-text">From: {shortVersion(info?.currentVersion)}</div>

@@ -5,10 +5,13 @@ export type HunonicSettingsPayload = {
   mode?: 'mobile' | 'website';
   username?: string;
   password?: string;
+  passwordConfigured?: boolean;
   baseUrl?: string;
   websiteBaseUrl?: string;
   websiteToken?: string;
+  websiteTokenConfigured?: boolean;
   websiteCookie?: string;
+  websiteCookieConfigured?: boolean;
   timeoutMs?: number;
   syncIntervalMinutes?: number;
   retentionYears?: number;

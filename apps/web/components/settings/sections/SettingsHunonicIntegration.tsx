@@ -35,10 +35,13 @@ const fallback: Required<HunonicSettingsPayload> = {
   mode: "website",
   username: "",
   password: "",
+  passwordConfigured: false,
   baseUrl: "https://api.hunonicpro.com/v2",
   websiteBaseUrl: "https://web.hunonic.com/api/api/hun-api",
   websiteToken: "",
+  websiteTokenConfigured: false,
   websiteCookie: "",
+  websiteCookieConfigured: false,
   timeoutMs: 15000,
   syncIntervalMinutes: 60,
   retentionYears: 3,
@@ -72,6 +75,9 @@ function buildHunonicPayload(
   secretTouched: { password: boolean; websiteToken: boolean; websiteCookie: boolean },
 ) {
   const payload: HunonicSettingsPayload = { ...draft };
+  delete payload.passwordConfigured;
+  delete payload.websiteTokenConfigured;
+  delete payload.websiteCookieConfigured;
   if (!secretTouched.password) delete payload.password;
   if (!secretTouched.websiteToken) delete payload.websiteToken;
   if (!secretTouched.websiteCookie) delete payload.websiteCookie;
@@ -455,6 +461,7 @@ export default function SettingsHunonicIntegration() {
                 <Input
                   type="password"
                   value={draft.websiteToken ?? ""}
+                  placeholder={draft.websiteTokenConfigured ? "Token đã được lưu và đang được ẩn" : ""}
                   disabled={!canEditHunonicSecrets}
                   onChange={(event) => {
                     if (!canEditHunonicSecrets) return;
@@ -468,6 +475,7 @@ export default function SettingsHunonicIntegration() {
                 <Input
                   type="password"
                   value={draft.websiteCookie ?? ""}
+                  placeholder={draft.websiteCookieConfigured ? "Cookie đã được lưu và đang được ẩn" : ""}
                   disabled={!canEditHunonicSecrets}
                   onChange={(event) => {
                     if (!canEditHunonicSecrets) return;
@@ -493,6 +501,7 @@ export default function SettingsHunonicIntegration() {
                 <Input
                   type="password"
                   value={draft.password ?? ""}
+                  placeholder={draft.passwordConfigured ? "Mật khẩu đã được lưu và đang được ẩn" : ""}
                   disabled={!canEditHunonicSecrets}
                   onChange={(event) => {
                     if (!canEditHunonicSecrets) return;
@@ -507,6 +516,18 @@ export default function SettingsHunonicIntegration() {
           {!canEditHunonicSecrets && (
             <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-[12px] py-[10px] text-[12px] font-semibold text-amber-800">
               Chỉ owner admin A/B được chỉnh sửa token hoặc mật khẩu tích hợp Hunonic. Admin vận hành chỉ được xem trạng thái, kiểm tra kết nối và sync.
+            </div>
+          )}
+
+          {canEditHunonicSecrets && (
+            <div className="rounded-[12px] border border-emerald-200 bg-emerald-50 px-[12px] py-[10px] text-[12px] font-semibold text-emerald-800">
+              {draft.mode === "mobile"
+                ? draft.passwordConfigured && !secretTouched.password
+                  ? "Mật khẩu Hunonic mobile đã được lưu. Nhập giá trị mới chỉ khi cần thay đổi."
+                  : "Nhập mật khẩu Hunonic mobile rồi bấm Lưu cấu hình hoặc Kiểm tra kết nối."
+                : (draft.websiteTokenConfigured || draft.websiteCookieConfigured) && !secretTouched.websiteToken && !secretTouched.websiteCookie
+                  ? "Token/Cookie Hunonic website đã được lưu. Nhập giá trị mới chỉ khi cần thay đổi."
+                  : "Nhập token hoặc cookie Hunonic website rồi bấm Lưu cấu hình hoặc Kiểm tra kết nối."}
             </div>
           )}
 

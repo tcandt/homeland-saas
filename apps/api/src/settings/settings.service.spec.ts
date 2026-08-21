@@ -114,6 +114,7 @@ describe('SettingsService', () => {
     expect(result.value).toEqual({
       enabled: true,
       smtpHost: 'smtp.example.test',
+      smtpPasswordConfigured: true,
     });
   });
 
@@ -172,7 +173,7 @@ describe('SettingsService', () => {
         value: expect.objectContaining({ smtpPassword: 'new-secret-password' }),
       }),
     }));
-    expect(result.value).toEqual({ enabled: true, smtpHost: 'smtp.example.test' });
+    expect(result.value).toEqual({ enabled: true, smtpHost: 'smtp.example.test', smtpPasswordConfigured: true });
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
       after: expect.objectContaining({ smtpPassword: '__redacted__' }),
     }));

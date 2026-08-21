@@ -250,6 +250,7 @@ function omitProtectedFields(key: string, value: Prisma.JsonValue): Prisma.JsonV
 
   const filtered = { ...value };
   for (const field of protectedFields) {
+    filtered[`${field}Configured`] = Boolean(filtered[field]);
     delete filtered[field];
   }
   return filtered as Prisma.JsonValue;

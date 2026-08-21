@@ -94,9 +94,161 @@ Biến môi trường:
 | `SYSTEM_UPDATE_PG_DUMP_PATH` | rỗng | Đường dẫn `pg_dump` nếu không nằm ở vị trí mặc định |
 | `SYSTEM_UPDATE_NPM_PATH` | rỗng | Đường dẫn `npm.cmd`/package manager đã duyệt |
 | `SYSTEM_UPDATE_POWERSHELL_PATH` | rỗng | Đường dẫn PowerShell nếu service không thấy `powershell.exe` |
+| `SYSTEM_UPDATE_SHELL_PATH` | rỗng | Đường dẫn shell Linux nếu service không thấy `bash` |
+| `SYSTEM_UPDATE_API_HEALTH_URL` | `http://127.0.0.1:3001/api/v1/health/ready` | Health check API sau restart |
+| `SYSTEM_UPDATE_WEB_HEALTH_URL` | `http://127.0.0.1:3000/login` | Health check web sau restart |
+| `SYSTEM_UPDATE_HEALTH_TIMEOUT_SECONDS` | `90` | Timeout health check |
 
 Ba mức vận hành:
 
 1. `SYSTEM_UPDATE_MODE=dry-run`: chỉ mô phỏng progress, không chạy script.
 2. `SYSTEM_UPDATE_MODE=enabled`, `SYSTEM_UPDATE_ALLOW_SWITCH=false`: chạy backup/clone/build/preflight thật, nhưng chưa chuyển active version và chưa restart.
 3. `SYSTEM_UPDATE_MODE=enabled`, `SYSTEM_UPDATE_ALLOW_SWITCH=true`: ghi active manifest và chạy restart command nếu đã cấu hình.
+
+## Linux + PM2
+
+Phù hợp khi chạy trực tiếp trên VPS Linux, không đóng gói runtime bằng Docker.
+
+File liên quan:
+
+| File | Vai trò |
+| --- | --- |
+| `ecosystem.config.cjs` | Chạy `homeland-api` và `homeland-web` bằng PM2 |
+| `scripts/update/restart-pm2.sh` | Đọc `.codex-update/current.json`, export `HOMELAND_RELEASE_PATH`, reload PM2 và health check |
+| `scripts/update/health-check.sh` | Kiểm tra API và web sau restart |
+
+Thiết lập một lần:
+
+```bash
+chmod +x scripts/update/*.sh
+npm ci
+npm run db:generate
+npm run build
+pm2 start ecosystem.config.cjs --update-env
+pm2 save
+```
+
+Env staging mức 2:
+
+```env
+SYSTEM_UPDATE_MODE=enabled
+SYSTEM_UPDATE_ALLOW_SWITCH=false
+SYSTEM_UPDATE_RUN_BUILD=true
+SYSTEM_UPDATE_RESTART_COMMAND=
+SYSTEM_UPDATE_ROOT=.codex-update
+SYSTEM_UPDATE_API_HEALTH_URL=http://127.0.0.1:3001/api/v1/health/ready
+SYSTEM_UPDATE_WEB_HEALTH_URL=http://127.0.0.1:3000/login
+```
+
+Env production mức 3 sau khi mức 2 PASS:
+
+```env
+SYSTEM_UPDATE_MODE=enabled
+SYSTEM_UPDATE_ALLOW_SWITCH=true
+SYSTEM_UPDATE_RESTART_COMMAND="./scripts/update/restart-pm2.sh"
+```
+
+Luồng update:
+
+1. Push code lên GitHub.
+2. Đăng nhập `admin@homeland.vn`.
+3. Vào Settings > Cập nhật hệ thống.
+4. Bấm Kiểm tra version.
+5. Bấm Cập nhật.
+6. Theo dõi progress/log.
+7. Sau restart, script health check API/Web.
+
+Rollback PM2:
+
+```env
+SYSTEM_UPDATE_ALLOW_SWITCH=true
+SYSTEM_UPDATE_RESTART_COMMAND="./scripts/update/restart-pm2.sh"
+SYSTEM_UPDATE_PREVIOUS_VERSION=<commit-sha-truoc-do>
+```
+
+Sau đó bấm Rollback trên UI.
+
+Runner hỗ trợ rollback một bước bằng `last-install-manifest.json`: khi update, hệ thống lưu `previousReleasePath`; khi rollback về `currentVersion` của lần update gần nhất, `restart-pm2.sh` sẽ đọc lại path này và reload PM2 về source cũ. Nếu cần rollback xa hơn một version hoặc rollback kèm thay đổi schema dữ liệu, phải dùng backup DB tương ứng và xác nhận thủ công trước khi switch.
+
+## Docker + Linux
+
+Phù hợp khi API/Web/PostgreSQL/Redis chạy bằng Docker Compose.
+
+File liên quan:
+
+| File | Vai trò |
+| --- | --- |
+| `Dockerfile.api` | Có thêm `git`, `curl`, `postgresql-client` để runner có thể clone/backup/check |
+| `Dockerfile.web` | Build Next.js production |
+| `docker-compose.yml` | PostgreSQL + Redis |
+| `docker-compose.app.yml` | API + Web production services |
+| `scripts/update/restart-docker.sh` | Host-side rebuild/recreate API/Web + health check |
+
+Khởi chạy Docker production:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml up -d --build
+```
+
+Env mức 2 trong Docker:
+
+```env
+SYSTEM_UPDATE_MODE=enabled
+SYSTEM_UPDATE_ALLOW_SWITCH=false
+SYSTEM_UPDATE_RUN_BUILD=true
+SYSTEM_UPDATE_RESTART_COMMAND=
+SYSTEM_UPDATE_ROOT=/app/.codex-update
+SYSTEM_UPDATE_API_HEALTH_URL=http://api:3001/api/v1/health/ready
+SYSTEM_UPDATE_WEB_HEALTH_URL=http://web:3000/login
+```
+
+Ở mức này API container sẽ backup/clone/build/preflight trong volume `.codex-update`, nhưng không restart container.
+
+Docker restart có 2 phương án:
+
+1. Host-controlled, khuyến nghị:
+
+   Chạy update mức 2 từ UI, sau khi PASS thì SSH vào host và chạy:
+
+   ```bash
+   ./scripts/update/restart-docker.sh
+   ```
+
+   Cách này không cần mount Docker socket vào API container.
+
+2. Web-controlled Docker restart, chỉ dùng khi đã chấp nhận rủi ro:
+
+   - Cài Docker CLI trong API image hoặc dùng image có Docker CLI.
+   - Mount Docker socket vào API container.
+   - Cấu hình:
+
+   ```env
+   SYSTEM_UPDATE_ALLOW_SWITCH=true
+   SYSTEM_UPDATE_RESTART_COMMAND="./scripts/update/restart-docker.sh"
+   ```
+
+   Docker socket gần tương đương quyền root trên host. Không bật trên production nếu chưa có giới hạn network, audit và backup off-host.
+
+## Linux systemd wrapper cho PM2
+
+PM2 có thể tự sinh systemd service:
+
+```bash
+pm2 startup systemd
+pm2 save
+systemctl status pm2-$(whoami)
+```
+
+Sau đó update runner chỉ cần gọi `pm2 startOrReload ecosystem.config.cjs --update-env` qua `restart-pm2.sh`.
+
+## Checklist trước khi bật mức 3
+
+- `[ ]` Mức 2 chạy PASS trên staging.
+- `[ ]` Backup DB tạo được và restore drill PASS.
+- `[ ]` Build release mới PASS.
+- `[ ]` Health check API/Web PASS.
+- `[ ]` PM2 hoặc Docker restart command đã test thủ công.
+- `[ ]` Rollback code PASS.
+- `[ ]` Nếu có migration, đã có kế hoạch rollback/restore DB.
+- `[ ]` Log không chứa secret.
+- `[ ]` Chỉ `admin@homeland.vn` có quyền bấm update/rollback.

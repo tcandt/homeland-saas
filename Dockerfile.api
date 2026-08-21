@@ -1,7 +1,9 @@
 FROM node:20-alpine
 
-# Install wait-for-it equivalent, bash, and openssl for Prisma
-RUN apk add --no-cache bash netcat-openbsd openssl
+# Install runtime/update tools:
+# - bash/netcat/openssl for API startup and Prisma
+# - git/curl/postgresql-client for guarded system update runner
+RUN apk add --no-cache bash netcat-openbsd openssl git curl postgresql-client
 
 WORKDIR /app
 

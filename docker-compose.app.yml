@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-local}
+        VERSION: ${APP_VERSION:-local}
+        BUILD_ID: ${BUILD_ID:-local}
+        BUILD_TIME: ${BUILD_TIME:-local}
+    image: homeland-api:${APP_VERSION:-local}
+    container_name: homeland_api
+    env_file:
+      - .env
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      SYSTEM_UPDATE_MODE: ${SYSTEM_UPDATE_MODE:-dry-run}
+      SYSTEM_UPDATE_ALLOW_SWITCH: ${SYSTEM_UPDATE_ALLOW_SWITCH:-false}
+      SYSTEM_UPDATE_RESTART_COMMAND: ${SYSTEM_UPDATE_RESTART_COMMAND:-}
+      SYSTEM_UPDATE_ROOT: ${SYSTEM_UPDATE_ROOT:-/app/.codex-update}
+      SYSTEM_UPDATE_RUN_BUILD: ${SYSTEM_UPDATE_RUN_BUILD:-true}
+    volumes:
+      - system_update:/app/.codex-update
+      - system_update_backups:/app/.codex-backups/system-update
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-local}
+        VERSION: ${APP_VERSION:-local}
+        BUILD_ID: ${BUILD_ID:-local}
+        BUILD_TIME: ${BUILD_TIME:-local}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api/v1}
+        INTERNAL_API_ORIGIN: ${INTERNAL_API_ORIGIN:-http://api:3001}
+        NEXT_PUBLIC_ALLOW_REGISTRATION: ${NEXT_PUBLIC_ALLOW_REGISTRATION:-false}
+    image: homeland-web:${APP_VERSION:-local}
+    container_name: homeland_web
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  system_update:
+  system_update_backups:

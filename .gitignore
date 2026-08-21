@@ -38,6 +38,7 @@ yarn-error.log*
 *.bak
 .npm-cache/
 .codex-backups/
+.codex-update/
 
 # OS / IDE
 .DS_Store

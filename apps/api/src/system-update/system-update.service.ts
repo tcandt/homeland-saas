@@ -127,30 +127,10 @@ export class SystemUpdateService {
   }
 
   private runSystemUpdateScript(job: UpdateJob) {
-    const scriptPath = join(process.cwd(), 'scripts', 'update', job.type === 'rollback' ? 'rollback-version.ps1' : 'install-version.ps1');
-    const powershell = process.env.SYSTEM_UPDATE_POWERSHELL_PATH || 'powershell.exe';
-    const args = [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-File',
-      scriptPath,
-      '-TargetVersion',
-      job.toVersion,
-      '-Workspace',
-      process.cwd(),
-      '-UpdateRoot',
-      process.env.SYSTEM_UPDATE_ROOT || join(process.cwd(), '.codex-update'),
-      '-Repository',
-      this.repositoryUrl,
-    ];
-
-    if (job.type === 'rollback') {
-      args.splice(args.indexOf('-Repository'), 2);
-    }
+    const runner = buildRunnerCommand(job, this.repositoryUrl);
 
     job.logs.push(`${new Date().toISOString()} Starting runner: ${job.type} ${shortSha(job.toVersion)}`);
-    const child = spawn(powershell, args, {
+    const child = spawn(runner.command, runner.args, {
       cwd: process.cwd(),
       windowsHide: true,
       env: process.env,
@@ -209,6 +189,47 @@ export class SystemUpdateService {
 
     job.logs.push(`${new Date().toISOString()} ${line}`);
   }
+}
+
+function buildRunnerCommand(job: UpdateJob, repositoryUrl: string) {
+  const updateRoot = process.env.SYSTEM_UPDATE_ROOT || join(process.cwd(), '.codex-update');
+  if (process.platform === 'win32') {
+    const scriptPath = join(process.cwd(), 'scripts', 'update', job.type === 'rollback' ? 'rollback-version.ps1' : 'install-version.ps1');
+    const command = process.env.SYSTEM_UPDATE_POWERSHELL_PATH || 'powershell.exe';
+    const args = [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      scriptPath,
+      '-TargetVersion',
+      job.toVersion,
+      '-Workspace',
+      process.cwd(),
+      '-UpdateRoot',
+      updateRoot,
+    ];
+    if (job.type === 'install') {
+      args.push('-Repository', repositoryUrl);
+    }
+    return { command, args };
+  }
+
+  const scriptPath = join(process.cwd(), 'scripts', 'update', job.type === 'rollback' ? 'rollback-version.sh' : 'install-version.sh');
+  const command = process.env.SYSTEM_UPDATE_SHELL_PATH || 'bash';
+  const args = [
+    scriptPath,
+    '--target-version',
+    job.toVersion,
+    '--workspace',
+    process.cwd(),
+    '--update-root',
+    updateRoot,
+  ];
+  if (job.type === 'install') {
+    args.push('--repository', repositoryUrl);
+  }
+  return { command, args };
 }
 
 function getCurrentCommit() {

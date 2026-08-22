@@ -549,6 +549,7 @@ function SettingsDashboard({ onSelect }: { onSelect: (section: SettingsSection) 
           <p className="text-[13px] font-medium text-muted">Truy cập nhanh các cài đặt quan trọng thường dùng</p>
         </div>
         <div className="grid grid-cols-1 gap-[16px] md:grid-cols-2 xl:grid-cols-4">
+          <QuickSetupCard icon={<RefreshCcw size={22} />} title="Cập nhật hệ thống" description="Kiểm tra version mới, chạy cập nhật và rollback có kiểm soát" tone="blue" onSelect={() => onSelect("system-update")} />
           <QuickSetupCard icon={<Shield size={22} />} title="Bảo mật tài khoản" description="Quản lý mật khẩu, 2FA, phiên đăng nhập và bảo mật tài khoản" tone="primary" onSelect={() => onSelect("security")} />
           <QuickSetupCard icon={<Bell size={22} />} title="Thông báo tự động" description="Thiết lập nhắc nợ, nhắc hết hạn hợp đồng và thông báo hệ thống" tone="orange" onSelect={() => onSelect("notifications")} />
           <QuickSetupCard icon={<Link2 size={22} />} title="Tích hợp dịch vụ" description="Kết nối ngân hàng, SePay, Zalo, Email, Hunonic và dịch vụ khác" tone="green" onSelect={() => onSelect("integrations")} />

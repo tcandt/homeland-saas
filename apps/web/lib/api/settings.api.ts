@@ -9,7 +9,16 @@ export interface SettingsSectionResponse<T = any> {
   updatedAt: string;
 }
 
+export type PublicAccessControl = {
+  registrationEnabled: boolean;
+  maintenanceEnabled: boolean;
+};
+
 export const settingsApi = {
+  getPublicAccessControl: () => {
+    return apiClient.get<PublicAccessControl>('/settings/public/access-control');
+  },
+
   getSection: <T = any>(key: string, scope: SettingsScope = 'TENANT') => {
     return apiClient.get<SettingsSectionResponse<T>>(`/settings/${key}`, { params: { scope } });
   },

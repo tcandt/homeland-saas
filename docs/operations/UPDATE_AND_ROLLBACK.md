@@ -54,6 +54,23 @@ flowchart TD
 
 ## Bật runner thật sau này
 
+`SYSTEM_UPDATE_MODE=enabled` là biến môi trường của API service. Thiết lập trong file `.env` đang được API đọc, hoặc trong secret/environment của hệ thống deploy production, sau đó restart API để process mới nhận biến.
+
+Ví dụ local/PM2:
+
+```env
+APP_VERSION=v1.0.0
+SYSTEM_UPDATE_MODE=enabled
+```
+
+Ví dụ Docker Compose: đặt trong file `.env` cạnh `docker-compose.app.yml`; compose đang truyền `SYSTEM_UPDATE_MODE` vào service `api`.
+
+```env
+APP_VERSION=v1.0.0
+SYSTEM_UPDATE_MODE=enabled
+SYSTEM_UPDATE_ALLOW_SWITCH=false
+```
+
 Chỉ bật `SYSTEM_UPDATE_MODE=enabled` sau khi có script đã nghiệm thu cho các bước:
 
 1. Tạo backup DB bằng `pg_dump`.
@@ -86,6 +103,7 @@ Biến môi trường:
 
 | Env | Mặc định | Ý nghĩa |
 | --- | --- | --- |
+| `APP_VERSION` | `unknown` | Version đang chạy để UI hiển thị dạng `v1.0.0`; khi build Docker có thể truyền bằng build arg `APP_VERSION` |
 | `SYSTEM_UPDATE_MODE` | `dry-run` | `enabled` mới chạy runner thật |
 | `SYSTEM_UPDATE_ROOT` | `.codex-update` | Nơi lưu release và manifest |
 | `SYSTEM_UPDATE_RUN_BUILD` | `true` | `false` để bỏ qua build trong runner |

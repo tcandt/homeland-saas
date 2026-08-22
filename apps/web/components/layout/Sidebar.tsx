@@ -21,6 +21,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import webPackage from "../../package.json";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -39,6 +40,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
   const pathname = usePathname();
   const { user, clearSession } = useAuthStore();
   const [mounted, setMounted] = React.useState(false);
+  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version;
 
   React.useEffect(() => {
     setMounted(true);
@@ -63,7 +65,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
         {!collapsed && (
           <div className="whitespace-nowrap overflow-hidden">
             <div className="text-[20px] font-black tracking-tight text-text">HomeLand</div>
-            <div className="text-[12px] font-semibold text-muted">Premium CRM</div>
+            <div className="font-mono text-[12px] font-semibold text-muted">v{appVersion}</div>
           </div>
         )}
       </div>

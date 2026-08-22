@@ -1,0 +1,104 @@
+name: homeland_public_testing
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: homeland_testing_postgres
+    environment:
+      POSTGRES_USER: homeland
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: homeland
+    ports:
+      - "${POSTGRES_HOST_PORT}:5432"
+    volumes:
+      - postgres_testing_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homeland -d homeland"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: homeland_testing_redis
+    ports:
+      - "${REDIS_HOST_PORT}:6379"
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-testing}
+        VERSION: ${APP_VERSION:-v1.0.0-testing}
+        BUILD_ID: ${BUILD_ID:-public-testing}
+        BUILD_TIME: ${BUILD_TIME:-manual}
+    image: homeland-api:${APP_VERSION:-v1.0.0-testing}
+    container_name: homeland_testing_api
+    env_file:
+      - .env.public-testing
+    environment:
+      PORT: ${API_CONTAINER_PORT}
+      NODE_ENV: production
+      DATABASE_URL: postgresql://homeland:${POSTGRES_PASSWORD}@postgres:5432/homeland?schema=public
+      REDIS_URL: redis://redis:6379
+      APP_URL: http://localhost:${API_HOST_PORT}
+      CORS_ORIGINS: http://localhost:${WEB_HOST_PORT},http://127.0.0.1:${WEB_HOST_PORT}
+      RUN_DB_MIGRATIONS: ${RUN_DB_MIGRATIONS:-false}
+      SYSTEM_UPDATE_MODE: ${SYSTEM_UPDATE_MODE:-dry-run}
+      SYSTEM_UPDATE_ALLOW_SWITCH: ${SYSTEM_UPDATE_ALLOW_SWITCH:-false}
+      SYSTEM_UPDATE_RESTART_COMMAND: ${SYSTEM_UPDATE_RESTART_COMMAND:-}
+      SYSTEM_UPDATE_ROOT: ${SYSTEM_UPDATE_ROOT:-/app/.codex-update}
+      SYSTEM_UPDATE_RUN_BUILD: ${SYSTEM_UPDATE_RUN_BUILD:-true}
+      SYSTEM_UPDATE_API_HEALTH_URL: http://api:${API_CONTAINER_PORT}/api/v1/health/ready
+      SYSTEM_UPDATE_WEB_HEALTH_URL: http://web:${WEB_CONTAINER_PORT}/login
+    volumes:
+      - system_update_testing:/app/.codex-update
+      - system_update_testing_backups:/app/.codex-backups/system-update
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "${API_HOST_PORT}:${API_CONTAINER_PORT}"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-testing}
+        VERSION: ${APP_VERSION:-v1.0.0-testing}
+        BUILD_ID: ${BUILD_ID:-public-testing}
+        BUILD_TIME: ${BUILD_TIME:-manual}
+        NEXT_PUBLIC_API_URL: /api/v1
+        INTERNAL_API_ORIGIN: http://api:${API_CONTAINER_PORT}
+        NEXT_PUBLIC_ALLOW_REGISTRATION: ${NEXT_PUBLIC_ALLOW_REGISTRATION:-false}
+        NEXT_PUBLIC_MAINTENANCE_MODE: ${NEXT_PUBLIC_MAINTENANCE_MODE:-false}
+    image: homeland-web:${APP_VERSION:-v1.0.0-testing}
+    container_name: homeland_testing_web
+    env_file:
+      - .env.public-testing
+    environment:
+      NODE_ENV: production
+      PORT: ${WEB_CONTAINER_PORT}
+      NEXT_PUBLIC_API_URL: /api/v1
+      INTERNAL_API_ORIGIN: http://api:${API_CONTAINER_PORT}
+      NEXT_TELEMETRY_DISABLED: "1"
+      MAINTENANCE_MODE: ${MAINTENANCE_MODE:-false}
+      NEXT_PUBLIC_MAINTENANCE_MODE: ${NEXT_PUBLIC_MAINTENANCE_MODE:-false}
+      MAINTENANCE_BYPASS_KEY: ${MAINTENANCE_BYPASS_KEY:-}
+    depends_on:
+      - api
+    ports:
+      - "${WEB_HOST_PORT}:${WEB_CONTAINER_PORT}"
+    restart: unless-stopped
+
+volumes:
+  postgres_testing_data:
+  system_update_testing:
+  system_update_testing_backups:

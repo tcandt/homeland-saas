@@ -5,7 +5,10 @@ import Sidebar from "./Sidebar";
 import Header from "./Header";
 import MobileBottomNav from "./MobileBottomNav";
 import LoginVersionUpdateNotice from "./LoginVersionUpdateNotice";
+import { MaintenanceScreen } from "@/components/settings/sections/SettingsLicense";
 import { usePathname } from "next/navigation";
+import { useAuthStore } from "@/lib/auth/auth-store";
+import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
 
 const SMALL_DESKTOP_COLLAPSE_WIDTH = 1536;
 const BUILDINGS_COLLAPSE_WIDTH = 1280;
@@ -13,6 +16,11 @@ const BUILDINGS_COLLAPSE_WIDTH = 1280;
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const pathname = usePathname();
+  const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const canBypassMaintenance = Boolean(user?.roles?.includes("ADMIN") || user?.permissions?.includes("setting.update"));
+  const accessControl = useSettingsSectionQuery<{ maintenanceEnabled?: boolean }>("access-control", "TENANT", Boolean(accessToken));
+  const isRuntimeMaintenance = Boolean(accessControl.data?.value?.maintenanceEnabled);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -47,6 +55,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
+  if (isRuntimeMaintenance && !canBypassMaintenance && pathname !== "/maintenance") {
+    return (
+      <main className="flex min-h-screen w-full items-center justify-center bg-slate-950 p-4 sm:p-6 lg:p-8">
+        <div className="w-full max-w-6xl">
+          <MaintenanceScreen isPreview={false} />
+        </div>
+      </main>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background text-text">

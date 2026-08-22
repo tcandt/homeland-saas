@@ -57,6 +57,13 @@ export class SettingsController {
     return new StreamableFile(buffer);
   }
 
+  @Get('public/access-control')
+  @Public()
+  @ApiOperation({ summary: 'Get public access-control state' })
+  getPublicAccessControl() {
+    return this.settingsService.getPublicAccessControl();
+  }
+
   @Get(':key')
   @RequirePermissions('setting.read')
   @ApiOperation({ summary: 'Get a settings section' })

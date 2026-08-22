@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
@@ -27,6 +28,7 @@ export class SettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly configService: ConfigService,
   ) {}
 
   private resolveOwnerId(scope: SettingScope, tenantId: string, userId: string) {
@@ -51,6 +53,38 @@ export class SettingsService {
       scope,
       value: omitProtectedFields(key, record?.value ?? {}),
       updatedAt: record?.updatedAt ?? new Date(0),
+    };
+  }
+
+  async getPublicAccessControl() {
+    const defaultValue = {
+      registrationEnabled: this.configService.get<boolean>('app.allowRegistration') === true,
+      maintenanceEnabled: process.env.MAINTENANCE_MODE === 'true' || process.env.NEXT_PUBLIC_MAINTENANCE_MODE === 'true',
+    };
+    const tenant = await this.prisma.tenantOrg.findUnique({ where: { code: 'HOMELAND' }, select: { id: true } });
+    if (!tenant) return defaultValue;
+
+    const record = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId: tenant.id,
+          scope: SettingScope.TENANT,
+          ownerId: tenant.id,
+          key: 'access-control',
+        },
+      },
+    });
+
+    const value = record?.value;
+    if (!isRecord(value)) return defaultValue;
+    const settings = value as Record<string, unknown>;
+    return {
+      registrationEnabled: typeof settings.registrationEnabled === 'boolean'
+        ? settings.registrationEnabled
+        : defaultValue.registrationEnabled,
+      maintenanceEnabled: typeof settings.maintenanceEnabled === 'boolean'
+        ? settings.maintenanceEnabled
+        : defaultValue.maintenanceEnabled,
     };
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -16,18 +16,33 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
+import { useQueryClient } from "@tanstack/react-query";
+import { settingsKeys } from "@/lib/queries/settings.queries";
 
 type PreviewTheme = "dark" | "light";
+type AccessControlSettings = {
+  registrationEnabled: boolean;
+  maintenanceEnabled: boolean;
+};
 
-function DisabledControl({
+function AccessControlSwitch({
   icon,
   title,
   description,
+  badge,
+  enabled,
+  isSaving,
+  onToggle,
   testId,
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
+  badge: string;
+  enabled: boolean;
+  isSaving: boolean;
+  onToggle: () => void;
   testId: string;
 }) {
   return (
@@ -36,25 +51,37 @@ function DisabledControl({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-[8px]">
-          <h3 className="text-[15px] font-black text-text">{title}</h3>
-          <span className="rounded-[6px] border border-warning/30 bg-warning/10 px-[8px] py-[3px] text-[10px] font-black text-warning">
-            CHƯA KHẢ DỤNG
-          </span>
+        <div className="flex flex-col gap-[10px] sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-[8px]">
+            <h3 className="text-[15px] font-black text-text">{title}</h3>
+            <span className="rounded-[6px] border border-warning/30 bg-warning/10 px-[8px] py-[3px] text-[10px] font-black text-warning">
+              {badge}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-[8px]" data-testid={`${testId}-state`}>
+            <span className={`text-[11px] font-black uppercase ${enabled ? "text-success" : "text-muted"}`}>
+              {enabled ? "Đang bật" : "Đang tắt"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              aria-label={`${title} ${enabled ? "đang bật" : "đang tắt"}`}
+              disabled={isSaving}
+              onClick={onToggle}
+              data-testid={testId}
+              className={`relative h-[26px] w-[46px] shrink-0 rounded-full border transition ${
+                enabled
+                  ? "border-primary bg-primary"
+                  : "border-border bg-muted/20"
+              } ${isSaving ? "cursor-wait opacity-60" : "cursor-pointer"}`}
+            >
+              <span className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-card shadow-sm ring-1 ring-border transition ${enabled ? "left-[23px]" : "left-[3px]"}`} />
+            </button>
+          </div>
         </div>
         <p className="mt-[8px] text-[12px] font-medium leading-[19px] text-muted">{description}</p>
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked="false"
-        aria-label={`${title} chưa khả dụng`}
-        disabled
-        data-testid={testId}
-        className="relative mt-[2px] h-[24px] w-[42px] shrink-0 cursor-not-allowed rounded-full bg-muted/20 opacity-60"
-      >
-        <span className="absolute left-[3px] top-[3px] h-[18px] w-[18px] rounded-full bg-card shadow-sm" />
-      </button>
     </div>
   );
 }
@@ -165,10 +192,21 @@ export default function SettingsLicense() {
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [modalTheme, setModalTheme] = useState<PreviewTheme>("dark");
   const [mounted, setMounted] = useState(false);
+  const queryClient = useQueryClient();
+  const fallback = useMemo<AccessControlSettings>(() => ({
+    registrationEnabled: process.env.NEXT_PUBLIC_ALLOW_REGISTRATION === "true",
+    maintenanceEnabled: process.env.NEXT_PUBLIC_MAINTENANCE_MODE === "true",
+  }), []);
+  const { draft, isLoading, isSaving, save } = useSettingsSection<AccessControlSettings>("access-control", "TENANT", fallback);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const updateAccessControl = async (patch: Partial<AccessControlSettings>) => {
+    const saved = await save({ ...draft, ...patch });
+    queryClient.setQueryData(settingsKeys.section("access-control", "TENANT"), saved);
+  };
 
   return (
     <div data-testid="settings-license-root" className="flex flex-col gap-[20px]">
@@ -176,26 +214,34 @@ export default function SettingsLicense() {
         <div className="flex items-start gap-[12px]">
           <LockKeyhole className="mt-[1px] shrink-0 text-warning" size={19} aria-hidden="true" />
           <div>
-            <h2 className="text-[15px] font-black text-text">Kiểm soát truy cập chưa được kết nối</h2>
+            <h2 className="text-[15px] font-black text-text">Kiểm soát truy cập runtime</h2>
             <p className="mt-[5px] text-[13px] font-medium leading-[20px] text-muted">
-              Hai cấu hình bên dưới được khóa để tránh tạo trạng thái sai. Chỉ mở khi API đăng ký, middleware bảo trì, cơ chế bỏ qua cho quản trị viên và nhật ký thay đổi đã được kiểm thử đầy đủ.
+              Các công tắc bên dưới lưu trực tiếp vào cấu hình runtime của hệ thống. Thay đổi có hiệu lực ngay sau khi lưu, không cần sửa file env.
             </p>
           </div>
         </div>
       </section>
 
       <div data-testid="settings-license-control-grid" className="grid grid-cols-1 gap-[14px] xl:grid-cols-2">
-        <DisabledControl
+        <AccessControlSwitch
           icon={<UserPlus size={20} aria-hidden="true" />}
           title="Đăng ký tài khoản"
-          description="API /auth/register hiện chưa đọc cấu hình access-control nên công tắc này chưa thể chặn đăng ký thật."
-          testId="registration-control-disabled"
+          badge={draft.registrationEnabled ? "ĐANG MỞ" : "ĐANG ĐÓNG"}
+          enabled={draft.registrationEnabled}
+          isSaving={isLoading || isSaving}
+          onToggle={() => updateAccessControl({ registrationEnabled: !draft.registrationEnabled })}
+          description="Bật để cho phép người dùng truy cập /register và tạo tenant mới. Tắt để API /auth/register trả về trạng thái đăng ký đang đóng."
+          testId="registration-control-switch"
         />
-        <DisabledControl
+        <AccessControlSwitch
           icon={<Wrench size={20} aria-hidden="true" />}
           title="Bảo trì hệ thống"
-          description="Middleware hiện chỉ gắn correlation ID và chưa điều hướng người dùng hoặc xác minh quyền bỏ qua của quản trị viên."
-          testId="maintenance-control-disabled"
+          badge={draft.maintenanceEnabled ? "ĐANG BẢO TRÌ" : "ĐANG TẮT"}
+          enabled={draft.maintenanceEnabled}
+          isSaving={isLoading || isSaving}
+          onToggle={() => updateAccessControl({ maintenanceEnabled: !draft.maintenanceEnabled })}
+          description="Bật để người dùng thường thấy màn hình bảo trì. Tài khoản quản trị vẫn được vào Settings để tắt lại khi cần."
+          testId="maintenance-control-switch"
         />
       </div>
 
@@ -222,7 +268,7 @@ export default function SettingsLicense() {
         <div className="flex items-start gap-[10px]">
           <ServerCog className="mt-[1px] shrink-0 text-primary" size={18} aria-hidden="true" />
           <p className="text-[12px] font-medium leading-[19px] text-muted">
-            Mốc triển khai tiếp theo cần có nguồn cấu hình phía server, từ chối đăng ký tại API, kiểm soát route ở middleware, bypass cho adminA/adminB/Owner, audit log và kịch bản khôi phục khi cấu hình lỗi.
+            Cấu hình được lưu trong Settings và ghi audit log khi thay đổi. Đăng ký public được chặn tại API; bảo trì runtime áp dụng cho người dùng thường trong web app, còn quản trị viên được bypass để có thể tắt lại.
           </p>
         </div>
       </section>

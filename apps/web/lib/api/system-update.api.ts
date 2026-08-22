@@ -4,6 +4,8 @@ export type SystemUpdateCheck = {
   currentVersion: string;
   latestVersion: string;
   packageVersion: string;
+  currentCommit: string;
+  latestCommit: string;
   updateAvailable: boolean;
   mode: string;
   canInstallAutomatically: boolean;

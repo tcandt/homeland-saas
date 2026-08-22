@@ -1,22 +1,36 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SystemUpdateService } from './system-update.service';
 
 vi.mock('child_process', () => ({
   execFileSync: vi.fn((command: string, args: string[]) => {
     if (command !== 'git') throw new Error('unexpected command');
     if (args[0] === 'rev-parse') return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n';
+    if (args[0] === 'ls-remote' && args[1] === '--tags') {
+      return [
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/v1.0.1',
+        'cccccccccccccccccccccccccccccccccccccccc\trefs/tags/v1.0.0',
+      ].join('\n');
+    }
     if (args[0] === 'ls-remote') return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\tHEAD\n';
     throw new Error('unexpected git args');
   }),
+  spawn: vi.fn(),
 }));
 
 describe('SystemUpdateService', () => {
+  beforeEach(() => {
+    vi.stubEnv('APP_VERSION', 'v1.0.0');
+    vi.stubEnv('SYSTEM_UPDATE_MODE', 'dry-run');
+  });
+
   it('detects a remote version and creates a non-destructive install job by default', () => {
     const service = new SystemUpdateService();
 
     const check = service.checkForUpdates();
-    expect(check.currentVersion).toMatch(/^a+/);
-    expect(check.latestVersion).toMatch(/^b+/);
+    expect(check.currentVersion).toBe('v1.0.0');
+    expect(check.latestVersion).toBe('v1.0.1');
+    expect(check.currentCommit).toMatch(/^a+/);
+    expect(check.latestCommit).toMatch(/^b+/);
     expect(check.updateAvailable).toBe(true);
     expect(check.canInstallAutomatically).toBe(false);
 

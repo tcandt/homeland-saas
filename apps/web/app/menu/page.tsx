@@ -22,6 +22,7 @@ import { useAuthStore } from "@/lib/auth/auth-store";
 import type { CurrentUserProfile } from "@/lib/api/auth.api";
 import { useCurrentUserQuery } from "@/lib/queries/auth.queries";
 import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
+import webPackage from "../../package.json";
 
 const quickTools = [
   { href: "/contracts", label: "Hợp đồng", icon: FileText, color: "text-[#22c55e]", bg: "bg-[#22c55e]/10" },
@@ -41,6 +42,7 @@ const supportFeatures = [
 export default function MenuPage() {
   const storedUser = useAuthStore((state) => state.user);
   const accessToken = useAuthStore((state) => state.accessToken);
+  const clearSession = useAuthStore((state) => state.clearSession);
   const { data: currentUser, isLoading } = useCurrentUserQuery(accessToken);
   const { data: profileSection } = useSettingsSectionQuery<{ avatarUrl?: string; fullName?: string; email?: string }>("profile", "USER", Boolean(accessToken));
 
@@ -73,6 +75,11 @@ export default function MenuPage() {
 
   const accountLabel = user?.tenant?.name || "Tài khoản hệ thống";
   const emailLabel = profileEmail || user?.email || "Đang đồng bộ email...";
+  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version;
+  const handleLogout = () => {
+    clearSession();
+    window.location.assign("/login");
+  };
 
   return (
     <AppShell>
@@ -173,7 +180,7 @@ export default function MenuPage() {
               );
             })}
 
-            <button className="flex items-center gap-3 p-3 hover:bg-rose-500/5 active:bg-rose-500/10 transition-colors text-rose-500 text-left w-full">
+            <button type="button" onClick={handleLogout} className="flex items-center gap-3 p-3 hover:bg-rose-500/5 active:bg-rose-500/10 transition-colors text-rose-500 text-left w-full">
               <div className="w-[32px] h-[32px] rounded-[8px] bg-rose-500/10 flex items-center justify-center shrink-0">
                 <LogOut size={16} />
               </div>
@@ -183,7 +190,7 @@ export default function MenuPage() {
         </section>
 
         <div className="text-center mt-2">
-          <p className="text-[10px] font-medium text-muted">Phiên bản 8.0.0 (Premium)</p>
+          <p className="font-mono text-[10px] font-medium text-muted">v{appVersion}</p>
         </div>
       </div>
     </AppShell>

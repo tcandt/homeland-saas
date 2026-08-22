@@ -50,21 +50,27 @@ export class SystemUpdateService {
   private readonly repositoryUrl = process.env.SYSTEM_UPDATE_REPOSITORY || 'https://github.com/tcandt/homeland-saas.git';
 
   checkForUpdates() {
-    const currentVersion = getCurrentCommit();
-    const remoteVersion = getRemoteCommit(this.repositoryUrl);
+    const currentCommit = getCurrentCommit();
+    const remoteCommit = getRemoteCommit(this.repositoryUrl);
     const packageVersion = readPackageVersion();
+    const currentVersion = readCurrentVersion(packageVersion);
+    const latestRelease = getLatestReleaseVersion(this.repositoryUrl);
+    const latestVersion = latestRelease?.version || remoteCommit || currentVersion;
     const mode = process.env.SYSTEM_UPDATE_MODE || 'dry-run';
+    const updateAvailable = isUpdateAvailable(currentVersion, latestVersion, currentCommit, latestRelease?.commit || remoteCommit);
 
     return {
       currentVersion,
-      latestVersion: remoteVersion || currentVersion,
+      latestVersion,
       packageVersion,
-      updateAvailable: Boolean(remoteVersion && currentVersion !== remoteVersion),
+      currentCommit,
+      latestCommit: latestRelease?.commit || remoteCommit || currentCommit,
+      updateAvailable,
       mode,
       canInstallAutomatically: mode === 'enabled',
       repository: this.repositoryUrl,
       checkedAt: new Date().toISOString(),
-      changelog: buildChangelog(currentVersion, remoteVersion),
+      changelog: buildChangelog(currentVersion, latestVersion, currentCommit, latestRelease?.commit || remoteCommit),
       rollback: {
         supported: true,
         note: 'Rollback code cần version trước và backup DB tương ứng nếu migration đã chạy.',
@@ -265,17 +271,46 @@ function readPackageVersion() {
   }
 }
 
-function buildChangelog(currentVersion: string, remoteVersion: string | null) {
-  if (!remoteVersion || currentVersion === remoteVersion) {
+function readCurrentVersion(packageVersion: string) {
+  return normalizeDisplayVersion(process.env.APP_VERSION || process.env.VERSION || packageVersion);
+}
+
+function getLatestReleaseVersion(repositoryUrl: string) {
+  const output = safeGit(['ls-remote', '--tags', '--refs', repositoryUrl, 'v*']);
+  if (!output) return null;
+
+  const tags = output
+    .split(/\r?\n/)
+    .map((line) => {
+      const [commit, ref] = line.trim().split(/\s+/);
+      const tag = ref?.replace(/^refs\/tags\//, '');
+      const semver = parseSemver(tag);
+      return commit && tag && semver ? { commit, version: normalizeDisplayVersion(tag), semver } : null;
+    })
+    .filter((item): item is { commit: string; version: string; semver: [number, number, number] } => Boolean(item))
+    .sort((a, b) => compareSemver(a.semver, b.semver));
+
+  return tags.at(-1) || null;
+}
+
+function isUpdateAvailable(currentVersion: string, latestVersion: string, currentCommit: string, latestCommit?: string | null) {
+  const currentSemver = parseSemver(currentVersion);
+  const latestSemver = parseSemver(latestVersion);
+  if (currentSemver && latestSemver) return compareSemver(currentSemver, latestSemver) < 0;
+  return Boolean(latestCommit && currentCommit !== latestCommit);
+}
+
+function buildChangelog(currentVersion: string, latestVersion: string, currentCommit: string, latestCommit: string | null) {
+  if (!latestCommit || !isUpdateAvailable(currentVersion, latestVersion, currentCommit, latestCommit)) {
     return [
-      'Đang chạy version mới nhất theo remote HEAD hoặc không đọc được remote.',
+      'Đang chạy version mới nhất theo release tag hoặc không đọc được remote.',
       'Không có thay đổi mới để cài đặt ở thời điểm kiểm tra.',
     ];
   }
 
-  const range = `${shortSha(currentVersion)}..${shortSha(remoteVersion)}`;
+  const range = `${shortSha(currentCommit)}..${shortSha(latestCommit)}`;
   return [
-    `Phát hiện version mới ${shortSha(remoteVersion)} so với hiện tại ${shortSha(currentVersion)}.`,
+    `Phát hiện version mới ${latestVersion} so với hiện tại ${currentVersion}.`,
     `Cần review commit range ${range} trên GitHub trước khi bật update thật.`,
     'Quy trình an toàn bắt buộc backup DB/env/source, build, preflight, health check và kế hoạch rollback.',
   ];
@@ -283,4 +318,21 @@ function buildChangelog(currentVersion: string, remoteVersion: string | null) {
 
 function shortSha(value: string) {
   return value && value !== 'unknown' ? value.slice(0, 7) : value;
+}
+
+function normalizeDisplayVersion(value?: string) {
+  if (!value || value === 'unknown' || value === 'workspace' || value === 'local') return value || 'unknown';
+  return value.startsWith('v') ? value : `v${value}`;
+}
+
+function parseSemver(value?: string): [number, number, number] | null {
+  const match = value?.match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+function compareSemver(a: [number, number, number], b: [number, number, number]) {
+  for (let index = 0; index < 3; index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return 0;
 }

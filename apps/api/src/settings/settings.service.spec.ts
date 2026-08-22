@@ -6,6 +6,7 @@ describe('SettingsService', () => {
   let service: SettingsService;
   let prisma: any;
   let audit: any;
+  let configService: any;
 
   beforeEach(() => {
     prisma = {
@@ -29,7 +30,8 @@ describe('SettingsService', () => {
       $transaction: vi.fn(async (callback: any) => callback(prisma)),
     };
     audit = { log: vi.fn() };
-    service = new SettingsService(prisma, audit);
+    configService = { get: vi.fn().mockReturnValue(false) };
+    service = new SettingsService(prisma, audit, configService);
   });
 
   it('syncs tenant owner settings into the owner directory', async () => {

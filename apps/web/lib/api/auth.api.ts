@@ -8,6 +8,7 @@ export interface User {
   roles: string[];
   permissions: string[];
   mustChangePassword?: boolean;
+  avatarUrl?: string | null;
 }
 
 export interface CurrentUserProfile extends User {
@@ -41,6 +42,7 @@ export interface TeamAccount {
   lastLoginIp: string | null;
   updatedAt: string;
   mustChangePassword: boolean;
+  avatarUrl?: string | null;
 }
 
 export const authApi = {
@@ -87,5 +89,18 @@ export const authApi = {
 
   createTeamMember: (data: { fullName: string; email: string; role: 'ADMIN' | 'MANAGER' | 'SALES' | 'FINANCE'; temporaryPassword: string }) => {
     return apiClient.post<TeamAccount>('/auth/team', data);
+  },
+
+  updateTeamMember: (
+    id: string,
+    data: {
+      fullName?: string;
+      role?: 'ADMIN' | 'MANAGER' | 'SALES' | 'FINANCE';
+      status?: 'ACTIVE' | 'PENDING_VERIFICATION' | 'DISABLED' | 'LOCKED';
+      temporaryPassword?: string;
+      avatarUrl?: string;
+    },
+  ) => {
+    return apiClient.patch<TeamAccount>(`/auth/team/${id}`, data);
   },
 };

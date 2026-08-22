@@ -2,9 +2,10 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
+import { SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
-import { LoginInput, ChangePasswordInput, RegisterInput, ForgotPasswordInput, ResetPasswordInput, CreateTeamMemberInput } from '@homeland/shared';
+import { LoginInput, ChangePasswordInput, RegisterInput, ForgotPasswordInput, ResetPasswordInput, CreateTeamMemberInput, UpdateTeamMemberInput } from '@homeland/shared';
 import { ErrorCodes } from '../shared/exceptions/error-codes';
 import * as crypto from 'crypto';
 import { MailProvider } from './services/mail.service';
@@ -475,6 +476,20 @@ export class AuthService {
       ],
     });
 
+    const avatars = await this.prisma.appSetting.findMany({
+      where: {
+        tenantId,
+        scope: SettingScope.USER,
+        ownerId: { in: users.map((user) => user.id) },
+        key: 'profile',
+      },
+      select: {
+        ownerId: true,
+        value: true,
+      },
+    });
+    const avatarByUserId = new Map(avatars.map((record) => [record.ownerId, extractAvatarUrl(record.value)]));
+
     return users.map((user) => ({
       id: user.id,
       email: user.email,
@@ -485,6 +500,7 @@ export class AuthService {
       lastLoginAt: user.lastLoginAt,
       lastLoginIp: user.lastLoginIp,
       updatedAt: user.updatedAt,
+      avatarUrl: avatarByUserId.get(user.id) || null,
     }));
   }
 
@@ -559,6 +575,221 @@ export class AuthService {
       ...user,
       roles: [role.code],
     };
+  }
+
+  async updateTeamMember(tenantId: string, actorUserId: string, userId: string, input: UpdateTeamMemberInput) {
+    const current = await this.prisma.user.findFirst({
+      where: {
+        tenantId,
+        id: userId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        status: true,
+        mustChangePassword: true,
+        roles: {
+          select: {
+            role: {
+              select: {
+                code: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!current) {
+      throw new NotFoundException({ code: 'AUTH_TEAM_MEMBER_NOT_FOUND', message: 'Team member not found' });
+    }
+
+    const currentAvatarUrl = await this.resolveTeamAvatarUrl(tenantId, userId);
+    const nextFullName = input.fullName?.trim();
+    const nextPassword = input.temporaryPassword?.trim();
+    const nextAvatarUrl = normalizeAvatarUrl(input.avatarUrl);
+    const nextRole = input.role || current.roles[0]?.role.code;
+    const nextStatus = input.status || current.status;
+
+    if (nextRole && nextRole !== current.roles[0]?.role.code) {
+      const role = await this.prisma.role.findUnique({
+        where: { code: nextRole },
+        select: { id: true, code: true },
+      });
+      if (!role) {
+        throw new NotFoundException({ code: 'AUTH_ROLE_NOT_FOUND', message: 'Role is not configured' });
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        const userUpdate: Record<string, unknown> = {};
+        if (nextFullName && nextFullName !== current.fullName) {
+          userUpdate.fullName = nextFullName;
+        }
+        if (nextStatus !== current.status) {
+          userUpdate.status = nextStatus;
+          if (nextStatus !== 'ACTIVE') {
+            userUpdate.refreshTokenHash = null;
+          }
+        }
+        if (nextPassword) {
+          userUpdate.passwordHash = await bcrypt.hash(nextPassword, 12);
+          userUpdate.mustChangePassword = true;
+          userUpdate.refreshTokenHash = null;
+        }
+        if (Object.keys(userUpdate).length > 0) {
+          await tx.user.update({
+            where: { id: userId },
+            data: userUpdate,
+          });
+        }
+
+        await tx.userRole.deleteMany({
+          where: { userId },
+        });
+        await tx.userRole.create({
+          data: {
+            userId,
+            roleId: role.id,
+          },
+        });
+
+        if (nextAvatarUrl !== undefined) {
+          const previous = await tx.appSetting.findUnique({
+            where: {
+              tenantId_scope_ownerId_key: {
+                tenantId,
+                scope: SettingScope.USER,
+                ownerId: userId,
+                key: 'profile',
+              },
+            },
+          });
+          const previousValue = isRecord(previous?.value) ? previous.value : {};
+          const value = {
+            ...previousValue,
+            avatarUrl: nextAvatarUrl,
+          };
+
+          await tx.appSetting.upsert({
+            where: {
+              tenantId_scope_ownerId_key: {
+                tenantId,
+                scope: SettingScope.USER,
+                ownerId: userId,
+                key: 'profile',
+              },
+            },
+            create: {
+              tenantId,
+              scope: SettingScope.USER,
+              ownerId: userId,
+              key: 'profile',
+              value,
+              updatedBy: actorUserId,
+            },
+            update: {
+              value,
+              updatedBy: actorUserId,
+            },
+          });
+        }
+      });
+    } else {
+      const userUpdate: Record<string, unknown> = {};
+      if (nextFullName && nextFullName !== current.fullName) {
+        userUpdate.fullName = nextFullName;
+      }
+      if (nextStatus !== current.status) {
+        userUpdate.status = nextStatus;
+        if (nextStatus !== 'ACTIVE') {
+          userUpdate.refreshTokenHash = null;
+        }
+      }
+      if (nextPassword) {
+        userUpdate.passwordHash = await bcrypt.hash(nextPassword, 12);
+        userUpdate.mustChangePassword = true;
+        userUpdate.refreshTokenHash = null;
+      }
+
+      if (Object.keys(userUpdate).length > 0) {
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: userUpdate,
+        });
+      }
+
+      if (nextAvatarUrl !== undefined) {
+        const previous = await this.prisma.appSetting.findUnique({
+          where: {
+            tenantId_scope_ownerId_key: {
+              tenantId,
+              scope: SettingScope.USER,
+              ownerId: userId,
+              key: 'profile',
+            },
+          },
+        });
+        const previousValue = isRecord(previous?.value) ? previous.value : {};
+        const value = {
+          ...previousValue,
+          avatarUrl: nextAvatarUrl,
+        };
+
+        await this.prisma.appSetting.upsert({
+          where: {
+            tenantId_scope_ownerId_key: {
+              tenantId,
+              scope: SettingScope.USER,
+              ownerId: userId,
+              key: 'profile',
+            },
+          },
+          create: {
+            tenantId,
+            scope: SettingScope.USER,
+            ownerId: userId,
+            key: 'profile',
+            value,
+            updatedBy: actorUserId,
+          },
+          update: {
+            value,
+            updatedBy: actorUserId,
+          },
+        });
+      }
+    }
+
+    const next = await this.getTeamMemberSnapshot(tenantId, userId);
+    await this.audit.log({
+      action: 'UPDATE',
+      entity: 'User',
+      entityId: userId,
+      module: 'Auth',
+      tenantId,
+      userId: actorUserId,
+      before: {
+        fullName: current.fullName,
+        status: current.status,
+        role: current.roles[0]?.role.code || null,
+        avatarUrl: currentAvatarUrl,
+        mustChangePassword: current.mustChangePassword,
+      },
+      after: {
+        fullName: next?.fullName || current.fullName,
+        status: next?.status || current.status,
+        role: next?.roles?.[0] || nextRole || current.roles[0]?.role.code || null,
+        avatarUrl: next?.avatarUrl || nextAvatarUrl || null,
+        mustChangePassword: next?.mustChangePassword ?? current.mustChangePassword,
+      },
+    });
+
+    if (!next) {
+      throw new NotFoundException({ code: 'AUTH_TEAM_MEMBER_NOT_FOUND', message: 'Team member not found' });
+    }
+    return next;
   }
 
   private async ensureTeamProvisioningAllowed(tenantId: string, actorUserId: string, email: string, role: string) {
@@ -661,4 +892,85 @@ export class AuthService {
 
     return { success: true };
   }
+
+  private async resolveTeamAvatarUrl(tenantId: string, userId: string) {
+    const profile = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.USER,
+          ownerId: userId,
+          key: 'profile',
+        },
+      },
+      select: {
+        value: true,
+      },
+    });
+
+    return extractAvatarUrl(profile?.value);
+  }
+
+  private async getTeamMemberSnapshot(tenantId: string, userId: string) {
+    const [user, avatarUrl] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: {
+          tenantId,
+          id: userId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          status: true,
+          mustChangePassword: true,
+          lastLoginAt: true,
+          lastLoginIp: true,
+          updatedAt: true,
+          roles: {
+            select: {
+              role: {
+                select: {
+                  code: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.resolveTeamAvatarUrl(tenantId, userId),
+    ]);
+
+    if (!user) return null;
+
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      status: user.status,
+      mustChangePassword: user.mustChangePassword,
+      roles: user.roles.map((assignment) => assignment.role.code),
+      lastLoginAt: user.lastLoginAt,
+      lastLoginIp: user.lastLoginIp,
+      updatedAt: user.updatedAt,
+      avatarUrl,
+    };
+  }
+}
+
+function extractAvatarUrl(value: unknown) {
+  if (!isRecord(value)) return null;
+  return typeof value.avatarUrl === 'string' && value.avatarUrl.trim() ? value.avatarUrl.trim() : null;
+}
+
+function normalizeAvatarUrl(value: unknown) {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

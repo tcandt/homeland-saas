@@ -1,7 +1,7 @@
-import { Controller, Post, Body, ForbiddenException, Get, Patch, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, ForbiddenException, Get, Patch, Req, UseGuards, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema, RegisterSchema, ForgotPasswordSchema, ResetPasswordSchema, CreateTeamMemberSchema } from '@homeland/shared';
+import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema, RegisterSchema, ForgotPasswordSchema, ResetPasswordSchema, CreateTeamMemberSchema, UpdateTeamMemberSchema } from '@homeland/shared';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { Public } from '../shared/decorators/public.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
@@ -10,14 +10,14 @@ import { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { AllowPasswordChangeRequired } from '../shared/decorators/allow-password-change-required.decorator';
-import { ConfigService } from '@nestjs/config';
+import { SettingsService } from '../settings/settings.service';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
-    private readonly configService: ConfigService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   @Public()
@@ -39,7 +39,8 @@ export class AuthController {
   @ApiResponse({ status: 201, description: 'Returns access token and refresh token' })
   async register(@Body() body: any, @Req() req: Request) {
     try {
-      if (!this.configService.get<boolean>('app.allowRegistration')) {
+      const accessControl = await this.settingsService.getPublicAccessControl();
+      if (!accessControl.registrationEnabled) {
         throw new ForbiddenException({ code: 'AUTH_REGISTRATION_DISABLED', message: 'Public registration is disabled' });
       }
       const input = RegisterSchema.parse(body);
@@ -124,6 +125,20 @@ export class AuthController {
   ) {
     const input = CreateTeamMemberSchema.parse(body);
     return this.authService.createTeamMember(tenantId, actorUserId, input);
+  }
+
+  @Patch('team/:id')
+  @ApiBearerAuth()
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Update a tenant team member' })
+  updateTeamMember(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') actorUserId: string,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const input = UpdateTeamMemberSchema.parse(body);
+    return this.authService.updateTeamMember(tenantId, actorUserId, id, input);
   }
 
   @Patch('me')

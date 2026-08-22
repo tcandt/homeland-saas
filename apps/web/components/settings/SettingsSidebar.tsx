@@ -35,7 +35,7 @@ const groups: SidebarGroup[] = [
     items: [
       { id: "profile", icon: <User size={15} />, label: "Hồ sơ cá nhân", desc: "Thông tin tài khoản đăng nhập" },
       { id: "security", icon: <Shield size={15} />, label: "Bảo mật tài khoản", desc: "Mật khẩu và kiểm soát truy cập" },
-      { id: "team", icon: <Users size={15} />, label: "Nhân sự & phân quyền", desc: "Account nội bộ và vai trò" },
+      { id: "users", icon: <Users size={15} />, label: "Users", desc: "Account nội bộ và vai trò" },
     ],
   },
   {

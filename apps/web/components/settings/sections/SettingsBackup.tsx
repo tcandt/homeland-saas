@@ -79,7 +79,7 @@ export default function SettingsBackup() {
           </div>
           <span className="inline-flex w-fit shrink-0 items-center gap-[7px] rounded-[6px] border border-warning/30 bg-warning/10 px-[10px] py-[7px] text-[12px] font-bold text-warning">
             <LockKeyhole size={14} aria-hidden="true" />
-            Chưa kết nối backend
+            Backup thủ công chưa kết nối
           </span>
         </div>
 
@@ -107,7 +107,7 @@ export default function SettingsBackup() {
           <div className="min-w-0">
             <h3 className="text-[14px] font-black text-text">Chưa thể quản lý bản sao lưu tại đây</h3>
             <p className="mt-[5px] text-[13px] font-medium leading-[20px] text-muted">
-              Backend chưa cung cấp API tạo, liệt kê, tải xuống, xác minh hoặc khôi phục bản sao. Hiện tại quản trị viên phải thực hiện sao lưu theo quy trình vận hành đã được kiểm chứng trên máy chủ và xác minh tệp trước khi cần khôi phục.
+              Backend chưa cung cấp API tạo, liệt kê, tải xuống, xác minh hoặc khôi phục bản sao thủ công. Backup trước khi cập nhật vẫn do update runner xử lý theo job cập nhật; phần này chỉ dành cho quản lý backup dữ liệu độc lập.
             </p>
           </div>
         </div>

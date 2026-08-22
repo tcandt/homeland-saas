@@ -44,7 +44,6 @@ import SettingsOwnerManagement from "@/components/settings/sections/SettingsOwne
 import SettingsBackup from "@/components/settings/sections/SettingsBackup";
 import SettingsContractRules from "@/components/settings/sections/SettingsContractRules";
 import SettingsInvoiceRules from "@/components/settings/sections/SettingsInvoiceRules";
-import SettingsAuditLogs from "@/components/settings/sections/SettingsAuditLogs";
 import SettingsApiKeys from "@/components/settings/sections/SettingsApiKeys";
 import SettingsBuildingRooms from "@/components/settings/sections/SettingsBuildingRooms";
 import SettingsLicense from "@/components/settings/sections/SettingsLicense";
@@ -67,8 +66,8 @@ export type SettingsSection =
   | "hunonic"
   | "api"
   | "security"
+  | "users"
   | "backup"
-  | "audit"
   | "license"
   | "system-update"
   | "profile";
@@ -108,10 +107,10 @@ const settingsGroups: SettingsGroup[] = [
         icon: <UsersRound size={17} />,
       },
       {
-        id: "team",
+        id: "users",
         domain: "organization",
-        title: "Thành viên & Phân quyền",
-        description: "Người dùng nội bộ, vai trò và quyền truy cập hệ thống.",
+        title: "Users",
+        description: "Tài khoản nội bộ, vai trò và quyền truy cập hệ thống.",
         keywords: ["nhan su", "phan quyen", "role", "user", "rbac", "thanh vien"],
         icon: <Users size={17} />,
       },
@@ -246,26 +245,10 @@ const settingsGroups: SettingsGroup[] = [
       {
         id: "backup",
         domain: "system",
-        title: "Sao lưu dữ liệu",
-        description: "Lịch sao lưu tự động và quản lý phiên bản dữ liệu.",
-        keywords: ["backup", "sao luu", "restore", "phuc hoi", "du lieu"],
+        title: "Cập nhật, sao lưu & rollback",
+        description: "Kiểm tra version mới, xác nhận cập nhật, sao lưu và rollback có kiểm soát.",
+        keywords: ["backup", "sao luu", "restore", "phuc hoi", "du lieu", "update", "cap nhat", "version", "rollback", "release", "git"],
         icon: <Cloud size={17} />,
-      },
-      {
-        id: "system-update",
-        domain: "system",
-        title: "Cập nhật hệ thống",
-        description: "Kiểm tra version mới, xác nhận cập nhật và rollback có kiểm soát.",
-        keywords: ["update", "cap nhat", "version", "rollback", "release", "git"],
-        icon: <RefreshCcw size={17} />,
-      },
-      {
-        id: "audit",
-        domain: "system",
-        title: "Nhật ký hệ thống",
-        description: "Audit log, hoạt động người dùng và thay đổi quan trọng.",
-        keywords: ["audit", "log", "nhat ky", "hoat dong", "history"],
-        icon: <ClipboardList size={17} />,
       },
       {
         id: "license",
@@ -303,11 +286,11 @@ const settingsItems = [...settingsGroups.flatMap((group) => group.items), ...acc
 const topTabs: Array<{ id: SettingsSection; label: string; icon: React.ReactNode }> = [
   { id: "overview", label: "Tổng quan", icon: <Settings2 size={16} /> },
   { id: "security", label: "Bảo mật", icon: <Shield size={16} /> },
+  { id: "users", label: "Users", icon: <Users size={16} /> },
   { id: "notifications", label: "Thông báo", icon: <Bell size={16} /> },
   { id: "integrations", label: "Tích hợp", icon: <Plug size={16} /> },
-  { id: "audit", label: "Nhật ký hệ thống", icon: <ClipboardList size={16} /> },
   { id: "license", label: "Đăng ký & bảo trì", icon: <Wrench size={16} /> },
-  { id: "backup", label: "Sao lưu & khôi phục", icon: <Database size={16} /> },
+  { id: "backup", label: "Cập nhật, sao lưu & rollback", icon: <Database size={16} /> },
 ];
 
 function hasValue(value: unknown): boolean {
@@ -333,13 +316,33 @@ function normalize(text: string) {
 }
 
 function getSectionTitle(section: SettingsSection) {
-  return settingsItems.find((item) => item.id === section)?.title ?? "Cài đặt";
+  const resolvedSection = section === "team" ? "users" : section;
+  return settingsItems.find((item) => item.id === resolvedSection)?.title ?? "Cài đặt";
 }
 
 function resolveSectionParam(section: string | null): SettingsSection | null {
   if (!section || section === "overview" || section === "reports") return "overview";
+  if (section === "team") return "users";
+  if (section === "system-update") return "backup";
   if (settingsItems.some((item) => item.id === section)) return section as SettingsSection;
   return "overview";
+}
+
+function SettingsSystemContinuity() {
+  return (
+    <div className="flex flex-col gap-[20px]" data-testid="settings-system-continuity">
+      <section className="rounded-[8px] border border-primary/20 bg-primary/5 px-[20px] py-[16px] sm:px-[24px]">
+        <div className="flex flex-col gap-[4px]">
+          <h2 className="text-[17px] font-black text-text">Cập nhật, sao lưu và rollback</h2>
+          <p className="max-w-[920px] text-[13px] font-medium leading-[20px] text-muted">
+            Các thao tác có rủi ro vận hành được gom trong cùng một tab. Cập nhật và rollback cần xác nhận trước khi tạo job; sao lưu/khôi phục dữ liệu vẫn khóa cho đến khi backend cung cấp API thật.
+          </p>
+        </div>
+      </section>
+      <SettingsSystemUpdate />
+      <SettingsBackup />
+    </div>
+  );
 }
 
 function SettingsCard({ item, onSelect }: { item: SettingsItem; onSelect: (section: SettingsSection) => void }) {
@@ -549,14 +552,13 @@ function SettingsDashboard({ onSelect }: { onSelect: (section: SettingsSection) 
           <p className="text-[13px] font-medium text-muted">Truy cập nhanh các cài đặt quan trọng thường dùng</p>
         </div>
         <div className="grid grid-cols-1 gap-[16px] md:grid-cols-2 xl:grid-cols-4">
-          <QuickSetupCard icon={<RefreshCcw size={22} />} title="Cập nhật hệ thống" description="Kiểm tra version mới, chạy cập nhật và rollback có kiểm soát" tone="blue" onSelect={() => onSelect("system-update")} />
+          <QuickSetupCard icon={<RefreshCcw size={22} />} title="Cập nhật, sao lưu & rollback" description="Kiểm tra version mới, xác nhận cập nhật, sao lưu và rollback có kiểm soát" tone="blue" onSelect={() => onSelect("backup")} />
           <QuickSetupCard icon={<Shield size={22} />} title="Bảo mật tài khoản" description="Quản lý mật khẩu, 2FA, phiên đăng nhập và bảo mật tài khoản" tone="primary" onSelect={() => onSelect("security")} />
           <QuickSetupCard icon={<Bell size={22} />} title="Thông báo tự động" description="Thiết lập nhắc nợ, nhắc hết hạn hợp đồng và thông báo hệ thống" tone="orange" onSelect={() => onSelect("notifications")} />
           <QuickSetupCard icon={<Link2 size={22} />} title="Tích hợp dịch vụ" description="Kết nối ngân hàng, SePay, Zalo, Email, Hunonic và dịch vụ khác" tone="green" onSelect={() => onSelect("integrations")} />
           <QuickSetupCard icon={<ReceiptText size={22} />} title="Thiết lập hóa đơn" description="Cấu hình mẫu hóa đơn, ký hiệu, số hóa đơn và quy tắc tạo hóa đơn" tone="blue" onSelect={() => onSelect("invoice-rules")} />
           <QuickSetupCard icon={<FileKey2 size={22} />} title="Quy tắc hợp đồng" description="Thiết lập tiền cọc, gia hạn, điều khoản và phụ lục hợp đồng" tone="primary" onSelect={() => onSelect("contract-rules")} />
           <QuickSetupCard icon={<BookOpen size={22} />} title="Kế toán & hạch toán" description="Quản lý hệ thống tài khoản, danh mục hạch toán và mapping" tone="blue" onSelect={() => onSelect("accounting")} />
-          <QuickSetupCard icon={<Cloud size={22} />} title="Sao lưu dữ liệu" description="Thiết lập lịch sao lưu tự động và quản lý phiên bản dữ liệu" tone="green" onSelect={() => onSelect("backup")} />
           <QuickSetupCard icon={<Wrench size={22} />} title="Đăng ký bảo trì" description="Quản lý lịch bảo trì hệ thống, thiết bị và nhà cung cấp" tone="orange" onSelect={() => onSelect("license")} />
         </div>
       </section>
@@ -574,7 +576,7 @@ function SettingsDashboard({ onSelect }: { onSelect: (section: SettingsSection) 
             <ServiceRow icon={<Bell size={17} />} name="Zalo OA" desc="Gửi thông báo" status={hasValue(zalo.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(zalo.data?.value)} onSelect={() => onSelect("integrations")} />
             <ServiceRow icon={<ReceiptText size={17} />} name="Email SMTP" desc="Gửi email" status={hasValue(email.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(email.data?.value)} onSelect={() => onSelect("integrations")} />
             <ServiceRow icon={<PlugZap size={17} />} name="Hunonic" desc="Điện & IoT" status={hasValue(hunonic.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(hunonic.data?.value)} onSelect={() => onSelect("hunonic")} />
-            <ServiceRow icon={<Server size={17} />} name="API hệ thống" desc="Kết nối audit" status={audit.isLoading ? "Đang kiểm tra" : audit.error ? "Không kết nối" : "Đã kết nối"} warning={Boolean(audit.error)} onSelect={() => onSelect("audit")} />
+            <ServiceRow icon={<Server size={17} />} name="API hệ thống" desc="Kết nối audit" status={audit.isLoading ? "Đang kiểm tra" : audit.error ? "Không kết nối" : "Đã kết nối"} warning={Boolean(audit.error)} onSelect={() => onSelect("overview")} />
           </div>
           <button type="button" onClick={() => onSelect("overview")} className="mt-[12px] w-full text-center text-[13px] font-black text-primary">
             Xem tất cả trạng thái hệ thống -&gt;
@@ -587,7 +589,7 @@ function SettingsDashboard({ onSelect }: { onSelect: (section: SettingsSection) 
               <h3 className="text-[17px] font-black text-text">Nhật ký hoạt động gần đây</h3>
               <p className="mt-[4px] text-[13px] font-medium text-muted">Dữ liệu audit mới nhất từ hệ thống</p>
             </div>
-            <Button variant="outline" className="h-[36px] rounded-[8px] px-[14px] text-[12px]" onClick={() => onSelect("audit")}>
+            <Button variant="outline" className="h-[36px] rounded-[8px] px-[14px] text-[12px]" onClick={() => onSelect("overview")}>
               Xem tất cả
             </Button>
           </div>
@@ -695,6 +697,7 @@ export default function SettingsPage() {
       case "overview": return <SettingsDashboard onSelect={changeSection} />;
       case "profile": return <SettingsProfile />;
       case "security": return <SettingsSecurity />;
+      case "users": return <SettingsTeam />;
       case "team": return <SettingsTeam />;
       case "building-rooms": return <SettingsBuildingRooms />;
       case "contract-rules": return <SettingsContractRules />;
@@ -706,9 +709,8 @@ export default function SettingsPage() {
       case "hunonic": return <SettingsHunonicIntegration />;
       case "api": return <SettingsApiKeys />;
       case "owners": return <SettingsOwnerManagement />;
-      case "backup": return <SettingsBackup />;
-      case "system-update": return <SettingsSystemUpdate />;
-      case "audit": return <SettingsAuditLogs />;
+      case "backup": return <SettingsSystemContinuity />;
+      case "system-update": return <SettingsSystemContinuity />;
       case "license": return <SettingsLicense />;
       default: return <SettingsDashboard onSelect={changeSection} />;
     }

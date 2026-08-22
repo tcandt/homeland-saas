@@ -57,6 +57,9 @@ describe('AuthService team directory', () => {
           },
         ]),
       },
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
     };
     const service = new AuthService(prisma, {} as any, {} as any, {} as any, {} as any);
 
@@ -83,6 +86,85 @@ describe('AuthService team directory', () => {
     ]);
     expect(result[0]).not.toHaveProperty('passwordHash');
     expect(result[0]).not.toHaveProperty('refreshTokenHash');
+  });
+
+  it('updates a tenant team member and preserves the audit trail', async () => {
+    const bcrypt = await import('bcryptjs');
+    const prisma: any = {
+      user: {
+        findFirst: vi.fn()
+          .mockResolvedValueOnce({
+            id: 'member-1',
+            email: 'member@homeland.local',
+            fullName: 'Member One',
+            status: 'ACTIVE',
+            mustChangePassword: false,
+            roles: [{ role: { code: 'SALES', name: 'Sales' } }],
+          })
+          .mockResolvedValueOnce({
+            id: 'member-1',
+            email: 'member@homeland.local',
+            fullName: 'Member Updated',
+            status: 'DISABLED',
+            mustChangePassword: true,
+            lastLoginAt: null,
+            lastLoginIp: null,
+            updatedAt: new Date('2026-08-13T06:00:00.000Z'),
+            roles: [{ role: { code: 'MANAGER', name: 'Manager' } }],
+          }),
+        update: vi.fn().mockResolvedValue({ id: 'member-1' }),
+      },
+      role: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'manager-role', code: 'MANAGER' }),
+      },
+      userRole: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+        create: vi.fn().mockResolvedValue({ userId: 'member-1', roleId: 'manager-role' }),
+      },
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockResolvedValue({ id: 'setting-1' }),
+      },
+      $transaction: vi.fn(async (callback: any) => callback(prisma)),
+    };
+    const audit: any = { log: vi.fn() };
+    const service = new AuthService(prisma, {} as any, {} as any, audit, {} as any);
+
+    const result = await service.updateTeamMember('tenant-1', 'system-admin', 'member-1', {
+      fullName: 'Member Updated',
+      role: 'MANAGER',
+      status: 'DISABLED',
+      temporaryPassword: 'StrongTemp@123',
+    });
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'member-1' },
+      data: expect.objectContaining({
+        fullName: 'Member Updated',
+        status: 'DISABLED',
+        mustChangePassword: true,
+        refreshTokenHash: null,
+        passwordHash: expect.any(String),
+      }),
+    });
+    expect(prisma.userRole.deleteMany).toHaveBeenCalledWith({ where: { userId: 'member-1' } });
+    expect(prisma.userRole.create).toHaveBeenCalledWith({
+      data: { userId: 'member-1', roleId: 'manager-role' },
+    });
+    await expect(bcrypt.compare('StrongTemp@123', prisma.user.update.mock.calls[0][0].data.passwordHash)).resolves.toBe(true);
+    expect(result).toEqual(expect.objectContaining({
+      id: 'member-1',
+      fullName: 'Member Updated',
+      status: 'DISABLED',
+      mustChangePassword: true,
+      roles: ['MANAGER'],
+    }));
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'UPDATE',
+      entity: 'User',
+      userId: 'system-admin',
+    }));
   });
 
   it('creates a tenant team member with a hashed password, role assignment and redacted audit data', async () => {

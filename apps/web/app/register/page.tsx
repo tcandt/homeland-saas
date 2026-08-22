@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import AuthLayout from "@/components/auth/AuthLayout";
 import AuthCard from "@/components/auth/AuthCard";
 import AuthInput from "@/components/auth/AuthInput";
@@ -8,6 +8,7 @@ import PasswordStrength from "@/components/auth/PasswordStrength";
 import AuthFooter from "@/components/auth/AuthFooter";
 import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { authApi } from "@/lib/api/auth.api";
+import { settingsApi } from "@/lib/api/settings.api";
 
 export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
@@ -17,8 +18,28 @@ export default function RegisterPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
+  const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null);
 
-  if (process.env.NEXT_PUBLIC_ALLOW_REGISTRATION !== "true") {
+  useEffect(() => {
+    settingsApi.getPublicAccessControl()
+      .then((state) => setRegistrationEnabled(state.registrationEnabled))
+      .catch(() => setRegistrationEnabled(process.env.NEXT_PUBLIC_ALLOW_REGISTRATION === "true"));
+  }, []);
+
+  if (registrationEnabled === null) {
+    return (
+      <AuthLayout>
+        <AuthCard>
+          <div className="flex items-center justify-center gap-[10px] py-[28px] text-[13px] font-bold text-muted">
+            <Loader2 size={18} className="animate-spin" />
+            Đang kiểm tra trạng thái đăng ký...
+          </div>
+        </AuthCard>
+      </AuthLayout>
+    );
+  }
+
+  if (!registrationEnabled) {
     return (
       <AuthLayout>
         <AuthCard>

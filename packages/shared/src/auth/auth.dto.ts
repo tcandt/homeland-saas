@@ -41,6 +41,16 @@ export const CreateTeamMemberSchema = z.object({
   temporaryPassword: z.string().min(12, 'Temporary password must be at least 12 characters'),
 });
 
+export const UpdateTeamMemberSchema = z.object({
+  fullName: z.string().trim().min(2, 'Full name must be at least 2 characters').optional(),
+  role: z.enum(['ADMIN', 'MANAGER', 'SALES', 'FINANCE']).optional(),
+  status: z.enum(['ACTIVE', 'PENDING_VERIFICATION', 'DISABLED', 'LOCKED']).optional(),
+  temporaryPassword: z.string().min(12, 'Temporary password must be at least 12 characters').optional(),
+  avatarUrl: z.string().trim().min(1).optional(),
+}).refine((data) => Object.values(data).some((value) => value !== undefined), {
+  message: 'At least one field is required',
+});
+
 export type LoginInput = z.infer<typeof LoginSchema>;
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>;
 export type RefreshTokenInput = z.infer<typeof RefreshTokenSchema>;
@@ -48,3 +58,4 @@ export type RegisterInput = z.infer<typeof RegisterSchema>;
 export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
 export type CreateTeamMemberInput = z.infer<typeof CreateTeamMemberSchema>;
+export type UpdateTeamMemberInput = z.infer<typeof UpdateTeamMemberSchema>;

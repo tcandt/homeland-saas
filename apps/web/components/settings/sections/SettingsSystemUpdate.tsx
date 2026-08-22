@@ -15,6 +15,11 @@ function shortVersion(value?: string) {
   return value.slice(0, 7);
 }
 
+function displayVersion(value?: string) {
+  if (!value) return "unknown";
+  return value;
+}
+
 function formatDate(value?: string) {
   if (!value) return "-";
   return new Date(value).toLocaleString("vi-VN");
@@ -34,6 +39,8 @@ export default function SettingsSystemUpdate() {
   const info = check.data;
   const job = status.data as SystemUpdateJob | undefined;
   const isBlockedMode = info && !info.canInstallAutomatically;
+  const isJobRunning = Boolean(job && !["IDLE", "DONE", "FAILED", "BLOCKED", "ROLLED_BACK"].includes(job.status));
+  const canInstall = Boolean(canOperate && info?.updateAvailable && !isJobRunning);
 
   const startJob = async () => {
     if (!confirmMode) return;
@@ -65,7 +72,7 @@ export default function SettingsSystemUpdate() {
               </div>
               <h3 className="mt-[8px] text-[20px] font-black text-text">Version, cập nhật và rollback có kiểm soát</h3>
               <p className="mt-[6px] text-[13px] leading-6 text-muted">
-                Website kiểm tra version mới từ GitHub, hiển thị chi tiết và tạo job cập nhật. Runner thật đang ở chế độ an toàn, chưa tự ghi đè source hoặc restart dịch vụ.
+                Website kiểm tra release tag mới từ GitHub, hiển thị version ứng dụng và tạo job cập nhật. Runner thật đang ở chế độ an toàn, chưa tự ghi đè source hoặc restart dịch vụ.
               </p>
             </div>
             <Button type="button" variant="outline" onClick={() => check.mutate()} isLoading={check.isLoading}>
@@ -77,11 +84,13 @@ export default function SettingsSystemUpdate() {
           <div className="grid grid-cols-1 gap-[12px] md:grid-cols-3">
             <div className="rounded-[8px] border border-border bg-background p-[14px]">
               <div className="flex items-center gap-[8px] text-[12px] font-bold text-muted"><GitBranch size={14} /> Version hiện tại</div>
-              <div className="mt-[8px] font-mono text-[18px] font-black text-text">{shortVersion(info?.currentVersion)}</div>
+              <div className="mt-[8px] font-mono text-[18px] font-black text-text">{displayVersion(info?.currentVersion)}</div>
+              <div className="mt-[4px] font-mono text-[11px] font-semibold text-muted">{shortVersion(info?.currentCommit)}</div>
             </div>
             <div className="rounded-[8px] border border-border bg-background p-[14px]">
               <div className="flex items-center gap-[8px] text-[12px] font-bold text-muted"><GitBranch size={14} /> Version mới nhất</div>
-              <div className="mt-[8px] font-mono text-[18px] font-black text-text">{shortVersion(info?.latestVersion)}</div>
+              <div className="mt-[8px] font-mono text-[18px] font-black text-text">{displayVersion(info?.latestVersion)}</div>
+              <div className="mt-[4px] font-mono text-[11px] font-semibold text-muted">{shortVersion(info?.latestCommit)}</div>
             </div>
             <div className="rounded-[8px] border border-border bg-background p-[14px]">
               <div className="flex items-center gap-[8px] text-[12px] font-bold text-muted"><ShieldCheck size={14} /> Chế độ runner</div>
@@ -91,10 +100,18 @@ export default function SettingsSystemUpdate() {
             </div>
           </div>
 
+          <div className={`rounded-[8px] border px-[14px] py-[12px] text-[13px] font-bold ${info?.updateAvailable ? "border-primary/30 bg-primary/5 text-primary" : "border-success/30 bg-success/5 text-success"}`}>
+            {info?.updateAvailable
+              ? `Có bản cập nhật: ${displayVersion(info.currentVersion)} -> ${displayVersion(info.latestVersion)}`
+              : `Đang ở phiên bản mới nhất: ${displayVersion(info?.currentVersion)}`}
+          </div>
+
           {isBlockedMode && (
             <div className="flex items-start gap-[10px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[12px] text-[12px] font-semibold text-warning">
               <AlertTriangle size={16} className="mt-[1px] shrink-0" />
-                Update runner đang ở chế độ an toàn. Job sẽ mô phỏng đầy đủ progress. Khi bật `SYSTEM_UPDATE_MODE=enabled`, runner sẽ backup, clone release, build và preflight trong thư mục riêng; switch/restart vẫn bị khóa cho đến khi bật riêng.
+              <span>
+                Update runner đang ở chế độ an toàn. Job sẽ mô phỏng đầy đủ progress. Để chạy runner thật, đặt <span className="font-mono">SYSTEM_UPDATE_MODE=enabled</span> trong file <span className="font-mono">.env</span> của API hoặc biến môi trường production rồi restart API.
+              </span>
             </div>
           )}
 
@@ -133,9 +150,9 @@ export default function SettingsSystemUpdate() {
               <History size={14} className="mr-2" />
               Rollback
             </Button>
-            <Button type="button" disabled={!canOperate || !info} onClick={() => setConfirmMode("install")}>
+            <Button type="button" disabled={!canInstall} onClick={() => setConfirmMode("install")}>
               <Rocket size={14} className="mr-2" />
-              Cập nhật
+              {info && !info.updateAvailable ? "Đã mới nhất" : "Cập nhật"}
             </Button>
           </div>
         </div>
@@ -160,8 +177,8 @@ export default function SettingsSystemUpdate() {
             Nếu hệ thống đang ở `dry-run`, job chỉ mô phỏng progress. Nếu bật `SYSTEM_UPDATE_MODE=enabled`, runner sẽ chạy backup, clone source, build và preflight thật trong thư mục release riêng; switch/restart chỉ chạy khi đã bật khóa vận hành riêng.
           </p>
           <div className="rounded-[8px] border border-border bg-background p-[12px]">
-            <div className="font-mono text-[12px] text-text">From: {shortVersion(info?.currentVersion)}</div>
-            <div className="mt-[4px] font-mono text-[12px] text-text">To: {confirmMode === "rollback" ? "previous-version-required" : shortVersion(info?.latestVersion)}</div>
+            <div className="font-mono text-[12px] text-text">From: {displayVersion(info?.currentVersion)} ({shortVersion(info?.currentCommit)})</div>
+            <div className="mt-[4px] font-mono text-[12px] text-text">To: {confirmMode === "rollback" ? "previous-version-required" : `${displayVersion(info?.latestVersion)} (${shortVersion(info?.latestCommit)})`}</div>
           </div>
         </div>
       </Modal>

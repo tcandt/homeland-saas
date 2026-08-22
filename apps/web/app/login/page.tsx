@@ -11,6 +11,7 @@ import { useAuthStore } from "@/lib/auth/auth-store";
 import { ApiError } from "@/lib/api/client";
 import { getLoginErrorMessage } from "@/lib/auth/login-errors";
 import { clearPasswordChangePromptDeferral } from "@/lib/auth/password-change-prompt";
+import { requestLoginVersionCheck } from "@/lib/system-update/login-version-check";
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -32,6 +33,7 @@ export default function LoginPage() {
         refreshToken: response.refreshToken,
       });
       clearPasswordChangePromptDeferral(response.user.id);
+      requestLoginVersionCheck(response.user.id);
       window.location.href = "/";
     } catch (err: any) {
       setLoading(false);

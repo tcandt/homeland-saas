@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import MobileBottomNav from "./MobileBottomNav";
+import LoginVersionUpdateNotice from "./LoginVersionUpdateNotice";
 import { usePathname } from "next/navigation";
 
 const SMALL_DESKTOP_COLLAPSE_WIDTH = 1536;
@@ -57,6 +58,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* Main Content Area */}
       <main className={`flex-1 min-w-0 transition-all duration-300 ${isSidebarCollapsed ? "md:ml-20" : "md:ml-[260px]"} min-h-screen flex flex-col pt-[87px] md:pt-0 pb-[90px] md:pb-0`}>
         <Header onToggleSidebar={handleToggleSidebar} />
+        <LoginVersionUpdateNotice />
         <div className={pathname.startsWith("/buildings")
           ? "flex-1 p-0"
           : `md:p-[24px] ${pathname.startsWith("/rooms") || pathname === "/" ? "p-0" : "px-[16px] py-[16px] md:px-[16px] md:py-[16px]"}`}>

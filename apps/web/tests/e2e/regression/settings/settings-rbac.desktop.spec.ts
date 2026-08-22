@@ -17,16 +17,17 @@ test.describe('Settings RBAC Desktop Regression', () => {
     await expect(manager.page.getByTestId('sidebar-nav-settings')).toHaveCount(0);
   });
 
-  test('allows system admin to read Settings and edit integration secret fields', async ({ admin }) => {
+  test('allows system admin to read Settings and manage integration secret fields', async ({ admin }) => {
     const response = await admin.api.get(`${apiBaseUrl}/api/v1/settings/owners?scope=TENANT`);
     expect(response.ok()).toBeTruthy();
 
     await admin.page.goto('/settings?section=integrations', { waitUntil: 'domcontentloaded' });
     const secretFields = admin.page.getByTestId('integration-secret-field');
-    await expect(secretFields).toHaveCount(5);
-    for (let index = 0; index < 5; index += 1) {
+    await expect(secretFields).toHaveCount(6);
+    for (const index of [0, 1, 3, 4, 5]) {
       await expect(secretFields.nth(index)).toBeEnabled();
     }
+    await expect(secretFields.nth(2)).toBeDisabled();
   });
 
   test('shows the account directory for the system admin', async ({ admin }) => {

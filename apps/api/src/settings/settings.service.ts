@@ -14,7 +14,7 @@ export interface SettingsSectionRecord {
 const PROTECTED_SETTING_FIELDS: Record<string, readonly string[]> = {
   hunonic: ['password', 'websiteToken', 'websiteCookie'],
   sepay: ['webhookApiKey'],
-  'zalo-provider': ['accessToken', 'appSecret'],
+  'zalo-provider': ['accessToken', 'appSecret', 'webhookSecret'],
   'email-provider': ['smtpPassword'],
   'telegram-provider': ['botToken'],
 };
@@ -37,6 +37,7 @@ export class SettingsService {
 
   async getSection(tenantId: string, userId: string, key: string, scope: SettingScope = SettingScope.TENANT): Promise<SettingsSectionRecord> {
     const ownerId = this.resolveOwnerId(scope, tenantId, userId);
+    const canRevealSecrets = await this.canRevealProtectedFields(tenantId, userId);
     const record = await this.prisma.appSetting.findUnique({
       where: {
         tenantId_scope_ownerId_key: {
@@ -51,7 +52,7 @@ export class SettingsService {
     return {
       key,
       scope,
-      value: omitProtectedFields(key, record?.value ?? {}),
+      value: omitProtectedFields(key, record?.value ?? {}, canRevealSecrets),
       updatedAt: record?.updatedAt ?? new Date(0),
     };
   }
@@ -140,6 +141,7 @@ export class SettingsService {
       return { saved, ownerChanges };
     });
     const record = transactionResult.saved;
+    const canRevealSecrets = await this.canRevealProtectedFields(tenantId, userId);
 
     await this.audit.log({
       action: 'UPDATE',
@@ -168,7 +170,7 @@ export class SettingsService {
     return {
       key: record.key,
       scope: record.scope,
-      value: omitProtectedFields(key, record.value),
+      value: omitProtectedFields(key, record.value, canRevealSecrets),
       updatedAt: record.updatedAt,
     };
   }
@@ -201,6 +203,15 @@ export class SettingsService {
     });
 
     throw new BadRequestException('Chỉ tài khoản admin@homeland.vn được chỉnh sửa token hoặc mật khẩu tích hợp.');
+  }
+
+  private async canRevealProtectedFields(tenantId: string, userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+      select: { email: true },
+    });
+    const email = user?.email?.toLowerCase() ?? '';
+    return SECRET_ADMIN_EMAILS.has(email);
   }
 }
 
@@ -276,8 +287,8 @@ function getSubmittedSecretFields(key: string, value: Prisma.InputJsonValue) {
   return (PROTECTED_SETTING_FIELDS[key] || []).filter((field) => Object.prototype.hasOwnProperty.call(value, field));
 }
 
-function omitProtectedFields(key: string, value: Prisma.JsonValue): Prisma.JsonValue {
-  if (!isRecord(value)) return value;
+function omitProtectedFields(key: string, value: Prisma.JsonValue, revealProtectedFields = false): Prisma.JsonValue {
+  if (!isRecord(value) || revealProtectedFields) return value;
   const protectedFields = PROTECTED_SETTING_FIELDS[key] || [];
   if (protectedFields.length === 0) return value;
 

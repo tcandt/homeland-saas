@@ -120,6 +120,26 @@ describe('SettingsService', () => {
     });
   });
 
+  it('returns protected integration secrets to the system admin', async () => {
+    prisma.user.findFirst.mockResolvedValue({ email: 'admin@homeland.vn' });
+    prisma.appSetting.findUnique.mockResolvedValue({
+      value: {
+        enabled: true,
+        smtpHost: 'smtp.example.test',
+        smtpPassword: 'secret-password',
+      },
+      updatedAt: new Date('2026-08-12T00:00:00.000Z'),
+    });
+
+    const result = await service.getSection('tenant-1', 'user-1', 'email-provider', SettingScope.TENANT);
+
+    expect(result.value).toEqual({
+      enabled: true,
+      smtpHost: 'smtp.example.test',
+      smtpPassword: 'secret-password',
+    });
+  });
+
   it('rejects integration secret changes from non-system admins and writes a redacted audit event', async () => {
     prisma.user.findFirst.mockResolvedValue({ email: 'manager@homeland.local' });
 
@@ -147,7 +167,7 @@ describe('SettingsService', () => {
     }));
   });
 
-  it('allows the system admin to replace a secret without returning it in the response', async () => {
+  it('allows the system admin to replace a secret and returns it in the response', async () => {
     prisma.user.findFirst.mockResolvedValue({ email: 'admin@homeland.vn' });
     prisma.appSetting.upsert.mockResolvedValue({
       id: 'setting-email',
@@ -175,7 +195,7 @@ describe('SettingsService', () => {
         value: expect.objectContaining({ smtpPassword: 'new-secret-password' }),
       }),
     }));
-    expect(result.value).toEqual({ enabled: true, smtpHost: 'smtp.example.test', smtpPasswordConfigured: true });
+    expect(result.value).toEqual({ enabled: true, smtpHost: 'smtp.example.test', smtpPassword: 'new-secret-password' });
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
       after: expect.objectContaining({ smtpPassword: '__redacted__' }),
     }));

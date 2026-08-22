@@ -153,10 +153,14 @@ export default function SettingsIntegrations() {
         </button>
       )}
 
-      {visiblePanelIds.has("sepay") && <SettingsSePayIntegration />}
-      {visiblePanelIds.has("zalo") && <SettingsZaloIntegration />}
-      {visiblePanelIds.has("email") && <SettingsEmailIntegration />}
-      {visiblePanelIds.has("telegram") && <SettingsTelegramIntegration />}
+      {(visiblePanelIds.has("sepay") || visiblePanelIds.has("zalo") || visiblePanelIds.has("email") || visiblePanelIds.has("telegram")) && (
+        <div className="grid grid-cols-1 auto-rows-fr gap-[16px] xl:grid-cols-2 items-stretch">
+          {visiblePanelIds.has("sepay") && <SettingsSePayIntegration />}
+          {visiblePanelIds.has("zalo") && <SettingsZaloIntegration />}
+          {visiblePanelIds.has("email") && <SettingsEmailIntegration />}
+          {visiblePanelIds.has("telegram") && <SettingsTelegramIntegration />}
+        </div>
+      )}
 
       {!hasVisiblePanels && (
         <div className="rounded-[8px] border border-dashed border-border bg-card p-[28px] text-center" data-testid="integration-filter-empty">

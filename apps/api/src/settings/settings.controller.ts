@@ -34,7 +34,7 @@ export class SettingsController {
     @Query('path') path: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const normalizedPath = decodeURIComponent(path || '');
+    const normalizedPath = normalizeStoragePath(path || '');
     if (!normalizedPath) {
       throw new BadRequestException('Missing file path');
     }
@@ -121,14 +121,35 @@ export class SettingsController {
       file.buffer,
       file.mimetype,
     );
-    const fileUrl = `/api/v1/settings/file?path=${encodeURIComponent(saved.url)}`;
 
     return {
-      url: fileUrl,
+      url: saved.url,
       size: saved.size,
       mimeType: saved.mimeType,
       scope,
       folder,
     };
   }
+}
+
+function normalizeStoragePath(value: string) {
+  let normalized = decodeURIComponent(value || '').trim();
+  if (!normalized) return '';
+
+  const legacyPrefix = '/api/v1/settings/file?path=';
+  const storagePrefix = '/api/v1/documents/storage/';
+  const directPrefix = '/documents/storage/';
+
+  if (normalized.startsWith(legacyPrefix)) {
+    normalized = normalized.slice(legacyPrefix.length);
+  }
+  if (normalized.startsWith(storagePrefix)) {
+    normalized = normalized.slice(storagePrefix.length);
+  } else if (normalized.startsWith(directPrefix)) {
+    normalized = normalized.slice(directPrefix.length);
+  }
+  if (normalized.startsWith('/')) {
+    normalized = normalized.slice(1);
+  }
+  return normalized;
 }

@@ -1,12 +1,14 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
+import { mutate as swrMutate } from 'swr';
 import { useCurrentUserQuery } from '@/lib/queries/auth.queries';
 import { useAuthStore } from '@/lib/auth/auth-store';
 
 function AuthSyncBridge() {
+  const queryClient = useQueryClient();
   const accessToken = useAuthStore((state) => state.accessToken);
   const { data: currentUser } = useCurrentUserQuery(accessToken);
 
@@ -42,6 +44,16 @@ function AuthSyncBridge() {
       });
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    const handleSessionRestored = () => {
+      void queryClient.invalidateQueries();
+      void swrMutate(() => true, undefined, { revalidate: true });
+    };
+
+    window.addEventListener('homeland:auth-session-restored', handleSessionRestored as EventListener);
+    return () => window.removeEventListener('homeland:auth-session-restored', handleSessionRestored as EventListener);
+  }, [queryClient]);
 
   return null;
 }

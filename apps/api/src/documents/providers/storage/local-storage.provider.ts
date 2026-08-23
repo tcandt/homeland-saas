@@ -49,24 +49,53 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   private validatePath(url: string): string {
-    // Decode URI component in case it's url encoded
-    const decodedUrl = decodeURIComponent(url);
+    const decodedUrl = this.normalizeStoragePath(url);
     
     if (decodedUrl.includes('\0')) {
       throw new Error('Invalid path: null byte detected');
     }
-    if (path.isAbsolute(decodedUrl)) {
-      throw new Error('Invalid path: absolute path not allowed');
-    }
 
     const base = path.resolve(this.baseStoragePath);
-    const target = path.resolve(base, decodedUrl);
+    const safeRelativePath = decodedUrl.startsWith(path.sep)
+      ? decodedUrl.slice(1)
+      : decodedUrl;
+    const target = path.resolve(base, safeRelativePath);
 
     if (!target.startsWith(base + path.sep) && target !== base) {
       throw new Error('Forbidden: Invalid storage path');
     }
 
     return target;
+  }
+
+  private normalizeStoragePath(url: string): string {
+    let normalized = decodeURIComponent(url || '').trim();
+
+    if (!normalized) return normalized;
+
+    const queryIndex = normalized.indexOf('path=');
+    if (normalized.includes('/api/v1/settings/file?path=') && queryIndex >= 0) {
+      normalized = normalized.slice(queryIndex + 5);
+    } else if (normalized.includes('/api/v1/settings/file?path=') || normalized.includes('/api/v1/documents/storage/')) {
+      const storagePrefix = '/api/v1/documents/storage/';
+      const legacyPrefix = '/api/v1/settings/file?path=';
+      const directPrefix = '/documents/storage/';
+
+      if (normalized.startsWith(legacyPrefix)) {
+        normalized = normalized.slice(legacyPrefix.length);
+      }
+      if (normalized.startsWith(storagePrefix)) {
+        normalized = normalized.slice(storagePrefix.length);
+      } else if (normalized.startsWith(directPrefix)) {
+        normalized = normalized.slice(directPrefix.length);
+      }
+    }
+
+    if (normalized.startsWith('/')) {
+      normalized = normalized.slice(1);
+    }
+
+    return normalized;
   }
 
   async read(url: string): Promise<Buffer> {

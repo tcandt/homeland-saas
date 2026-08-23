@@ -12,6 +12,7 @@ import { ApiError } from "@/lib/api/client";
 import { getLoginErrorMessage } from "@/lib/auth/login-errors";
 import { clearPasswordChangePromptDeferral } from "@/lib/auth/password-change-prompt";
 import { requestLoginVersionCheck } from "@/lib/system-update/login-version-check";
+import { saveMobileLoginCredentials } from "@/lib/auth/mobile-session-recovery";
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -32,6 +33,7 @@ export default function LoginPage() {
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
       });
+      saveMobileLoginCredentials(emailOrPhone, password);
       clearPasswordChangePromptDeferral(response.user.id);
       requestLoginVersionCheck(response.user.id);
       window.location.href = "/";

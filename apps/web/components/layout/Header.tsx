@@ -1,13 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Search, Moon, Sun, Bell, Menu } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
+import useSWR from "swr";
 import { useTheme } from "next-themes";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { useCurrentUserQuery } from "@/lib/queries/auth.queries";
 import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
 import { consumeServerSentEvents } from "@/lib/server-sent-events";
+import { Button } from "@/components/ui/Button";
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -92,18 +96,45 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
 };
 
 export default function Header({ onToggleSidebar }: HeaderProps) {
+  const router = useRouter();
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
   const current = pathname.startsWith("/buildings") ? routeMeta["/buildings"] : routeMeta[pathname] ?? routeMeta["/"];
   const [mounted, setMounted] = useState(false);
+  const [dropdownMounted, setDropdownMounted] = useState(false);
   const user = useAuthStore((state) => state.user);
   const accessToken = useAuthStore((state) => state.accessToken);
   const { data: currentUser } = useCurrentUserQuery(accessToken);
   const { data: profileSection } = useSettingsSectionQuery<{ fullName?: string }>("profile", "USER", Boolean(accessToken));
   const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationMenuPosition, setNotificationMenuPosition] = useState<{ top: number; right: number } | null>(null);
+  const notificationMenuRef = useRef<HTMLDivElement | null>(null);
+  const notificationButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const fetchNotifications = async (url: string) => {
+    if (!accessToken) return [];
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) throw new Error("Unable to load notifications.");
+    return res.json();
+  };
+
+  const { data: notificationList, mutate: mutateNotifications } = useSWR(
+    accessToken ? "/api/v1/notifications" : null,
+    fetchNotifications,
+    { revalidateOnFocus: false, refreshInterval: 30000 },
+  );
+  const recentNotifications = Array.isArray(notificationList?.data)
+    ? notificationList.data.slice(0, 5)
+    : Array.isArray(notificationList)
+      ? notificationList.slice(0, 5)
+      : [];
 
   useEffect(() => {
     setMounted(true);
+    setDropdownMounted(true);
   }, []);
 
   useEffect(() => {
@@ -163,6 +194,36 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (!notificationsOpen) return;
+      const target = event.target as Node | null;
+      if (notificationButtonRef.current && target && notificationButtonRef.current.contains(target)) return;
+      if (notificationMenuRef.current && target && notificationMenuRef.current.contains(target)) return;
+      setNotificationsOpen(false);
+      setNotificationMenuPosition(null);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [notificationsOpen]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+
+    const closeMenu = () => {
+      setNotificationsOpen(false);
+      setNotificationMenuPosition(null);
+    };
+
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    return () => {
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+    };
+  }, [notificationsOpen]);
+
   const getDisplayName = () => {
     const profileName = (profileSection?.value as any)?.fullName?.trim?.() || "";
     return profileName || currentUser?.fullName || user?.fullName || "System Admin";
@@ -178,6 +239,31 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark");
   };
+
+  const openNotificationsMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setNotificationMenuPosition({
+      top: rect.bottom + 10,
+      right: Math.max(12, window.innerWidth - rect.right),
+    });
+    setNotificationsOpen((currentValue) => !currentValue);
+  };
+
+  const closeNotificationsMenu = () => {
+    setNotificationsOpen(false);
+    setNotificationMenuPosition(null);
+  };
+
+  const formatNotificationTime = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("vi-VN", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(date);
+  };
+
+  const unreadBadgeCount = useMemo(() => unreadCount > 99 ? "99+" : String(unreadCount), [unreadCount]);
 
   return (
     <header
@@ -220,18 +306,21 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
           >
             {mounted ? (theme === "dark" ? <Sun size={20} /> : <Moon size={20} />) : <div className="w-[20px] h-[20px]" />}
           </button>
-          <a
-            href="/notifications"
+          <button
+            ref={notificationButtonRef}
+            type="button"
+            onClick={openNotificationsMenu}
             aria-label="Thông báo"
+            aria-expanded={notificationsOpen}
             className="w-[40px] h-[40px] bg-card border border-border/50 text-text rounded-full flex items-center justify-center cursor-pointer relative shadow-sm transition-colors shrink-0"
           >
             <Bell size={20} />
             {unreadCount > 0 && (
               <span className="absolute -top-[2px] -right-[2px] bg-[#ef4444] text-white text-[10px] w-[16px] h-[16px] flex items-center justify-center rounded-full font-bold border-2 border-card">
-                {unreadCount}
+                {unreadBadgeCount}
               </span>
             )}
-          </a>
+          </button>
         </div>
       </div>
 
@@ -252,19 +341,121 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
         >
           {mounted ? (theme === "dark" ? <Sun size={18} /> : <Moon size={18} />) : <div className="w-[18px] h-[18px]" />}
         </button>
-        <a
-          href="/notifications"
+        <button
+          ref={notificationButtonRef}
+          type="button"
+          onClick={openNotificationsMenu}
           aria-label="Thông báo"
+          aria-expanded={notificationsOpen}
           className="w-[42px] h-[42px] border border-border bg-card hover:bg-black/5 dark:hover:bg-white/5 text-text rounded-full flex items-center justify-center cursor-pointer relative transition-colors"
         >
           <Bell size={18} />
           {unreadCount > 0 && (
             <span className="absolute -top-[2px] -right-[2px] bg-[#ef4444] text-white text-[10px] w-[18px] h-[18px] flex items-center justify-center rounded-full font-bold border-2 border-card">
-              {unreadCount}
+              {unreadBadgeCount}
             </span>
           )}
-        </a>
+        </button>
       </div>
+
+      {dropdownMounted && notificationsOpen && notificationMenuPosition && createPortal(
+        <div className="fixed inset-0 z-[10040] pointer-events-none">
+          <div
+            ref={notificationMenuRef}
+            className="pointer-events-auto fixed w-[360px] max-w-[calc(100vw-24px)] overflow-hidden rounded-[12px] border border-border bg-card shadow-2xl"
+            style={{
+              top: `${notificationMenuPosition.top}px`,
+              right: `${notificationMenuPosition.right}px`,
+            }}
+          >
+            <div className="flex items-center justify-between border-b border-border px-[14px] py-[12px]">
+              <div>
+                <div className="text-[13px] font-black text-text">Thông báo</div>
+                <div className="mt-[2px] text-[11px] font-medium text-muted">
+                  {unreadCount > 0 ? `${unreadCount} thông báo chưa đọc` : "Không có thông báo mới"}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-[30px] px-[10px] text-[12px]"
+                onClick={async () => {
+                  if (!accessToken) return;
+                  await fetch("/api/v1/notifications/read-all", {
+                    method: "PATCH",
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                  });
+                  setUnreadCount(0);
+                  await mutateNotifications();
+                }}
+              >
+                Đánh dấu đã đọc
+              </Button>
+            </div>
+
+            <div className="max-h-[420px] overflow-y-auto">
+              {recentNotifications.length > 0 ? recentNotifications.map((item: any) => {
+                const isUnread = item.status !== "READ";
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`block w-full border-b border-border px-[14px] py-[12px] text-left transition hover:bg-background last:border-b-0 ${isUnread ? "bg-primary/5" : ""}`}
+                    onClick={async () => {
+                      if (isUnread && accessToken) {
+                        await fetch(`/api/v1/notifications/${item.id}/read`, {
+                          method: "PATCH",
+                          headers: { Authorization: `Bearer ${accessToken}` },
+                        });
+                        setUnreadCount((currentValue) => Math.max(0, currentValue - 1));
+                        void mutateNotifications();
+                      }
+                      closeNotificationsMenu();
+                      router.push("/notifications");
+                    }}
+                  >
+                    <div className="flex items-start gap-[10px]">
+                      <span className={`mt-[4px] h-[8px] w-[8px] shrink-0 rounded-full ${isUnread ? "bg-primary" : "bg-border"}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-[10px]">
+                          <div className={`min-w-0 text-[12px] font-black ${isUnread ? "text-text" : "text-muted"}`}>
+                            {item.title || "Thông báo"}
+                          </div>
+                          <div className="shrink-0 text-[10px] font-medium text-muted">
+                            {formatNotificationTime(item.createdAt)}
+                          </div>
+                        </div>
+                        <div className="mt-[4px] line-clamp-2 text-[11px] font-medium leading-[16px] text-muted">
+                          {item.message || ""}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              }) : (
+                <div className="px-[14px] py-[24px] text-center text-[12px] font-medium text-muted">
+                  Chưa có thông báo mới.
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-border bg-background/60 px-[14px] py-[10px]">
+              <button
+                type="button"
+                className="w-full rounded-[8px] border border-border bg-card px-[12px] py-[9px] text-[12px] font-bold text-text transition hover:bg-background"
+                onClick={() => {
+                  closeNotificationsMenu();
+                  router.push("/notifications");
+                }}
+              >
+                Xem tất cả thông báo
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </header>
   );
 }

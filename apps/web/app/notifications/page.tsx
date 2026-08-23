@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -33,6 +33,34 @@ const fetcher = async (url: string) => {
   return json.data || json;
 };
 
+function normalizeNotifications(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+
+  const record = value as Record<string, unknown>;
+  const candidates = [
+    record.data,
+    record.items,
+    record.notifications,
+    record.result,
+    record.rows,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  if (record.data && typeof record.data === "object") {
+    const nested = record.data as Record<string, unknown>;
+    const nestedCandidates = [nested.items, nested.notifications, nested.result, nested.rows];
+    for (const candidate of nestedCandidates) {
+      if (Array.isArray(candidate)) return candidate;
+    }
+  }
+
+  return [];
+}
+
 export default function InboxCenter() {
   const [activeTab, setActiveTab] = useState("all");
   const [selectedNotification, setSelectedNotification] = useState<any>(null);
@@ -40,6 +68,7 @@ export default function InboxCenter() {
   const { data: notifications, mutate } = useSWR("/api/v1/notifications", fetcher, {
     refreshInterval: 0,
   });
+  const notificationItems = useMemo(() => normalizeNotifications(notifications), [notifications]);
 
   const markAsRead = async (id: string) => {
     const token = getAuthToken();
@@ -60,12 +89,12 @@ export default function InboxCenter() {
   };
 
   const filteredNotifications =
-    notifications?.filter((n: any) => {
+    notificationItems.filter((n: any) => {
       if (activeTab === "unread") return n.status !== "READ";
       return true;
-    }) || [];
+    });
 
-  const unreadCount = notifications?.filter((n: any) => n.status !== "READ").length || 0;
+  const unreadCount = notificationItems.filter((n: any) => n.status !== "READ").length;
 
   return (
     <AppShell>

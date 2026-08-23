@@ -9,6 +9,7 @@ import { LoginInput, ChangePasswordInput, RegisterInput, ForgotPasswordInput, Re
 import { ErrorCodes } from '../shared/exceptions/error-codes';
 import * as crypto from 'crypto';
 import { MailProvider } from './services/mail.service';
+import { LocalStorageProvider } from '../documents/providers/storage/local-storage.provider';
 
 @Injectable()
 export class AuthService {
@@ -20,6 +21,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly audit: AuditService,
     private readonly mailProvider: MailProvider,
+    private readonly storageProvider?: LocalStorageProvider,
   ) {}
 
   async login(input: LoginInput, ip?: string, userAgent?: string) {
@@ -788,6 +790,14 @@ export class AuthService {
 
     if (!next) {
       throw new NotFoundException({ code: 'AUTH_TEAM_MEMBER_NOT_FOUND', message: 'Team member not found' });
+    }
+
+    if (currentAvatarUrl && nextAvatarUrl && currentAvatarUrl !== nextAvatarUrl) {
+      try {
+        await this.storageProvider?.delete(currentAvatarUrl);
+      } catch (error) {
+        this.logger.warn(`Failed to delete previous avatar for user ${userId}: ${String(error)}`);
+      }
     }
     return next;
   }

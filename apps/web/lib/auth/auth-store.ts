@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User } from '../api/auth.api';
+import { clearMobileLoginCredentials } from './mobile-session-recovery';
 
 interface AuthState {
   user: User | null;
@@ -37,13 +38,15 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: Boolean(state.user),
         })),
 
-      clearSession: () =>
+      clearSession: () => {
+        clearMobileLoginCredentials();
         set({
           user: null,
           accessToken: null,
           refreshToken: null,
           isAuthenticated: false,
-        }),
+        });
+      },
     }),
     {
       name: 'auth-storage', // key in localStorage

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { FormEvent, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import useSWR from "swr";
 import {
   AlertTriangle,
@@ -92,6 +93,7 @@ export default function SettingsTeam() {
   });
   const editAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
+  const actionMenuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -112,8 +114,18 @@ export default function SettingsTeam() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [statusLoadingId, setStatusLoadingId] = useState<string | null>(null);
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+  const [openActionMenuPosition, setOpenActionMenuPosition] = useState<{ top: number; right: number } | null>(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState<{
+    accountId: string;
+    email: string;
+    nextStatus: TeamAccount["status"];
+  } | null>(null);
 
   const accounts = data || [];
+  const pendingStatusAccountId = pendingStatusChange?.accountId ?? null;
+  const statusDialogEmail = pendingStatusChange?.email ?? "";
+  const statusDialogNextStatus = pendingStatusChange?.nextStatus ?? "DISABLED";
+  const statusDialogIsActivate = statusDialogNextStatus === "ACTIVE";
   const editingCurrentAvatar = normalizeText(editingAccount?.avatarUrl || "");
   const editingCurrentRole = editingAccount ? getAccountRole(editingAccount) : "MANAGER";
   const editingCurrentName = editingAccount?.fullName || "";
@@ -130,16 +142,43 @@ export default function SettingsTeam() {
     const onPointerDown = (event: PointerEvent) => {
       if (!openActionMenuId) return;
       const target = event.target as Node | null;
+      if (actionMenuButtonRef.current && target && actionMenuButtonRef.current.contains(target)) return;
       if (actionMenuRef.current && target && actionMenuRef.current.contains(target)) return;
       setOpenActionMenuId(null);
+      setOpenActionMenuPosition(null);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [openActionMenuId]);
 
-  const openEditor = (account: TeamAccount, focusPassword = false) => {
+  useEffect(() => {
+    if (!openActionMenuId) return;
+
+    const closeMenu = () => {
+      setOpenActionMenuId(null);
+      setOpenActionMenuPosition(null);
+    };
+
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    return () => {
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+    };
+  }, [openActionMenuId]);
+
+  const closeActionMenu = () => {
     setOpenActionMenuId(null);
+    setOpenActionMenuPosition(null);
+  };
+
+  const closeStatusConfirm = () => {
+    setPendingStatusChange(null);
+  };
+
+  const openEditor = (account: TeamAccount, focusPassword = false) => {
+    closeActionMenu();
     setEditingAccount(account);
     setEditFullName(account.fullName);
     setEditRole(getAccountRole(account));
@@ -279,18 +318,25 @@ export default function SettingsTeam() {
   };
 
   const toggleStatus = async (account: TeamAccount) => {
-    setOpenActionMenuId(null);
+    closeActionMenu();
     const nextStatus: TeamAccount["status"] = account.status === "ACTIVE" ? "DISABLED" : "ACTIVE";
-    const message = nextStatus === "ACTIVE"
-      ? `Mở khóa tài khoản ${account.email}?`
-      : `Khóa tài khoản ${account.email}?`;
-    if (typeof window !== "undefined" && !window.confirm(message)) return;
+    setPendingStatusChange({
+      accountId: account.id,
+      email: account.email,
+      nextStatus,
+    });
+  };
 
-    setStatusLoadingId(account.id);
+  const confirmToggleStatus = async () => {
+    if (!pendingStatusChange) return;
+
+    const { accountId, nextStatus } = pendingStatusChange;
+    setStatusLoadingId(accountId);
+    closeStatusConfirm();
     try {
-      await authApi.updateTeamMember(account.id, { status: nextStatus });
+      await authApi.updateTeamMember(accountId, { status: nextStatus });
       toast.success(nextStatus === "ACTIVE" ? "Đã mở khóa tài khoản." : "Đã khóa tài khoản.");
-      if (editingAccount?.id === account.id) {
+      if (editingAccount?.id === accountId) {
         closeEditor();
       }
       await mutate();
@@ -410,13 +456,26 @@ export default function SettingsTeam() {
                             {account.lastLoginIp || "-"}
                           </td>
                           <td className="px-[20px] py-[13px] sm:px-[24px]">
-                            <div ref={isMenuOpen ? actionMenuRef : undefined} className="relative flex justify-end">
+                            <div className="relative flex justify-end">
                               <Button
+                                ref={isMenuOpen ? actionMenuButtonRef : undefined}
                                 type="button"
                                 variant="outline"
                                 size="icon"
                                 className="h-[32px] w-[32px]"
-                                onClick={() => setOpenActionMenuId((current) => current === account.id ? null : account.id)}
+                                onClick={(event) => {
+                                  if (openActionMenuId === account.id) {
+                                    closeActionMenu();
+                                    return;
+                                  }
+                                  const rect = event.currentTarget.getBoundingClientRect();
+                                  actionMenuButtonRef.current = event.currentTarget;
+                                  setOpenActionMenuId(account.id);
+                                  setOpenActionMenuPosition({
+                                    top: rect.bottom + 8,
+                                    right: Math.max(12, window.innerWidth - rect.right),
+                                  });
+                                }}
                                 title="Mở hành động"
                                 aria-label="Mở hành động"
                               >
@@ -426,52 +485,6 @@ export default function SettingsTeam() {
                                   <span className="h-[3px] w-[3px] rounded-full bg-current" />
                                 </span>
                               </Button>
-                              {isMenuOpen && (
-                                <div className="absolute right-0 top-[40px] z-20 w-[212px] overflow-hidden rounded-[10px] border border-border bg-card shadow-lg">
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-[10px] px-[14px] py-[11px] text-left text-[12px] font-semibold text-text hover:bg-background"
-                                    onClick={() => {
-                                      setOpenActionMenuId(null);
-                                      openEditor(account, false);
-                                    }}
-                                  >
-                                    <PencilLine size={14} className="text-muted" />
-                                    Chỉnh sửa thông tin
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-[10px] px-[14px] py-[11px] text-left text-[12px] font-semibold text-text hover:bg-background"
-                                    onClick={() => {
-                                      setOpenActionMenuId(null);
-                                      openEditor(account, true);
-                                    }}
-                                  >
-                                    <KeyRound size={14} className="text-muted" />
-                                    Đổi mật khẩu
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-[10px] px-[14px] py-[11px] text-left text-[12px] font-semibold text-text hover:bg-background"
-                                    onClick={() => {
-                                      setOpenActionMenuId(null);
-                                      openAvatarEditor(account);
-                                    }}
-                                  >
-                                    <Camera size={14} className="text-muted" />
-                                    Cập nhật ảnh đại diện
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={`flex w-full items-center gap-[10px] px-[14px] py-[11px] text-left text-[12px] font-semibold hover:bg-background ${account.status === "ACTIVE" ? "text-danger" : "text-success"}`}
-                                    onClick={() => toggleStatus(account)}
-                                    disabled={statusLoadingId === account.id}
-                                  >
-                                    {account.status === "ACTIVE" ? <Ban size={14} /> : <ShieldCheck size={14} />}
-                                    {quickStatusLabel} tài khoản
-                                  </button>
-                                </div>
-                              )}
                             </div>
                           </td>
                         </tr>
@@ -569,6 +582,72 @@ export default function SettingsTeam() {
           </Card>
         </div>
       </section>
+
+      {typeof document !== "undefined" && openActionMenuId && openActionMenuPosition && createPortal(
+        <div className="fixed inset-0 z-[10040] pointer-events-none">
+          <div
+            ref={actionMenuRef}
+            className="pointer-events-auto fixed w-[212px] overflow-hidden rounded-[10px] border border-border bg-card shadow-lg"
+            style={{
+              top: `${openActionMenuPosition.top}px`,
+              right: `${openActionMenuPosition.right}px`,
+            }}
+          >
+            {accounts.find((item) => item.id === openActionMenuId) && (() => {
+              const account = accounts.find((item) => item.id === openActionMenuId)!;
+              const quickStatusLabel = account.status === "ACTIVE" ? "Khóa" : "Mở";
+
+              return (
+                <>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-[10px] px-[14px] py-[11px] text-left text-[12px] font-semibold text-text hover:bg-background"
+                    onClick={() => {
+                      closeActionMenu();
+                      openEditor(account, false);
+                    }}
+                  >
+                    <PencilLine size={14} className="text-muted" />
+                    Chỉnh sửa thông tin
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-[10px] px-[14px] py-[11px] text-left text-[12px] font-semibold text-text hover:bg-background"
+                    onClick={() => {
+                      closeActionMenu();
+                      openEditor(account, true);
+                    }}
+                  >
+                    <KeyRound size={14} className="text-muted" />
+                    Đổi mật khẩu
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-[10px] px-[14px] py-[11px] text-left text-[12px] font-semibold text-text hover:bg-background"
+                    onClick={() => {
+                      closeActionMenu();
+                      openAvatarEditor(account);
+                    }}
+                  >
+                    <Camera size={14} className="text-muted" />
+                    Cập nhật ảnh đại diện
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex w-full items-center gap-[10px] px-[14px] py-[11px] text-left text-[12px] font-semibold hover:bg-background ${account.status === "ACTIVE" ? "text-danger" : "text-success"}`}
+                                  onClick={() => toggleStatus(account)}
+                                  disabled={statusLoadingId === account.id}
+                                >
+                                  {account.status === "ACTIVE" ? <Ban size={14} /> : <ShieldCheck size={14} />}
+                                  {quickStatusLabel} tài khoản
+                                </button>
+                </>
+              );
+            })()}
+          </div>
+        </div>,
+        document.body,
+      )}
 
       <section className="grid grid-cols-1 gap-[10px] sm:grid-cols-2 xl:grid-cols-4" data-testid="required-role-accounts">
         {requiredTestAccounts.map((required) => {
@@ -736,6 +815,46 @@ export default function SettingsTeam() {
             </label>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(pendingStatusChange)}
+        onClose={closeStatusConfirm}
+        title={pendingStatusChange?.nextStatus === "ACTIVE" ? "Xác nhận mở khóa" : "Xác nhận khóa tài khoản"}
+        maxWidth="max-w-md"
+        testId="team-status-confirm-modal"
+        footer={
+          <div className="flex flex-col-reverse gap-[10px] sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={closeStatusConfirm} disabled={statusLoadingId !== null}>
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              variant={statusDialogIsActivate ? "primary" : "danger"}
+              onClick={confirmToggleStatus}
+              isLoading={Boolean(pendingStatusAccountId && statusLoadingId === pendingStatusAccountId)}
+              disabled={statusLoadingId !== null}
+            >
+              {statusDialogIsActivate ? "Mở khóa" : "Khóa tài khoản"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex items-start gap-[12px] rounded-[8px] border border-border bg-background/70 p-[14px]">
+          <div className={`mt-[1px] flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${statusDialogIsActivate ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>
+            {statusDialogIsActivate ? <ShieldCheck size={16} /> : <Ban size={16} />}
+          </div>
+          <div className="min-w-0">
+            <div className="text-[14px] font-black text-text">
+              {statusDialogIsActivate ? "Mở khóa tài khoản" : "Khóa tài khoản"}
+            </div>
+            <p className="mt-[4px] text-[12px] font-medium leading-[18px] text-muted">
+              {statusDialogIsActivate
+                ? `Bạn sắp mở khóa ${statusDialogEmail}. Tài khoản sẽ có thể đăng nhập và sử dụng lại bình thường.`
+                : `Bạn sắp khóa ${statusDialogEmail}. Tài khoản sẽ không thể đăng nhập cho đến khi được mở khóa lại.`}
+            </p>
+          </div>
+        </div>
       </Modal>
     </div>
   );

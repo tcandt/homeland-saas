@@ -1,5 +1,6 @@
 import { useAuthStore } from '@/lib/auth/auth-store';
 import { shouldRecoverSessionFromUnauthorized } from './auth-unauthorized-policy';
+import { clearMobileLoginCredentials, readMobileLoginCredentials, shouldUseMobileSessionRecovery } from '@/lib/auth/mobile-session-recovery';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001/api/v1';
 let refreshPromise: Promise<string | null> | null = null;
@@ -98,6 +99,17 @@ export const apiClient = {
             Authorization: `Bearer ${refreshedToken}`,
           },
         });
+      } else {
+        const recoveredToken = await recoverMobileSession();
+        if (recoveredToken) {
+          response = await fetch(url, {
+            ...config,
+            headers: {
+              ...(config.headers as Record<string, string>),
+              Authorization: `Bearer ${recoveredToken}`,
+            },
+          });
+        }
       }
 
       if (response.status === 401) {
@@ -191,6 +203,51 @@ async function runRefreshToken() {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     });
+    return tokens.accessToken as string;
+  } catch {
+    return null;
+  }
+}
+
+async function recoverMobileSession() {
+  if (!shouldUseMobileSessionRecovery()) return null;
+  const credentials = readMobileLoginCredentials();
+  if (!credentials) return null;
+
+  try {
+    const response = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        emailOrPhone: credentials.emailOrPhone,
+        password: credentials.password,
+      }),
+    });
+
+    if (!response.ok) {
+      clearMobileLoginCredentials();
+      return null;
+    }
+
+    const payload = await response.json();
+    const tokens = payload?.data || payload;
+    if (!tokens?.accessToken || !tokens?.refreshToken || !tokens?.user) {
+      clearMobileLoginCredentials();
+      return null;
+    }
+
+    useAuthStore.getState().setSession({
+      user: tokens.user,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('homeland:auth-session-restored', {
+        detail: { source: 'mobile-recovery' },
+      }));
+    }
+
     return tokens.accessToken as string;
   } catch {
     return null;

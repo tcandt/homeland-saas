@@ -436,14 +436,29 @@ export default function SettingsHunonicIntegration() {
             <div className="grid grid-cols-2 gap-[12px]">
               <div className="flex flex-col gap-[6px]">
                 <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Chu kỳ đồng bộ</label>
-                <Input value={String(draft.syncIntervalMinutes ?? 60)} disabled />
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={String(draft.syncIntervalMinutes ?? 60)}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, syncIntervalMinutes: Number(event.target.value) || 60 }))}
+                />
+                <p className="text-[11px] leading-[16px] text-muted">
+                  Số phút giữa hai lần đồng bộ tự động. Ví dụ `60` nghĩa là hệ thống chạy sync mỗi 60 phút.
+                </p>
               </div>
               <div className="flex flex-col gap-[6px]">
                 <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Thời gian chờ (ms)</label>
                 <Input
+                  type="number"
+                  min={1000}
+                  step={1000}
                   value={String(draft.timeoutMs ?? 15000)}
                   onChange={(event) => setDraft((prev) => ({ ...prev, timeoutMs: Number(event.target.value) || 15000 }))}
                 />
+                <p className="text-[11px] leading-[16px] text-muted">
+                  Thời gian tối đa chờ phản hồi cho một request. Quá thời gian này hệ thống xem như lỗi timeout.
+                </p>
               </div>
             </div>
           </div>

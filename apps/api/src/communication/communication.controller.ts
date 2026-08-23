@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Post, Sse, MessageEvent, UseGuards, Req, Delete, Body, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Post, Sse, MessageEvent, UseGuards, Req, Delete, Body, ForbiddenException, BadRequestException, Headers, Logger } from '@nestjs/common';
 import { CommunicationService } from './communication.service';
 import { PrismaService } from '../prisma.service';
 import { Observable, interval, timer } from 'rxjs';
@@ -7,16 +7,22 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { ZaloProvider } from './providers/communication.providers';
+import { Public } from '../shared/decorators/public.decorator';
+import { timingSafeEqual } from 'crypto';
 
 @ApiTags('Notifications')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('notifications')
 export class CommunicationController {
+  private readonly logger = new Logger(CommunicationController.name);
+
   constructor(
     private readonly communicationService: CommunicationService,
     private readonly prisma: PrismaService,
-    private readonly eventEmitter: EventEmitter2
+    private readonly eventEmitter: EventEmitter2,
+    private readonly zaloProvider: ZaloProvider,
   ) {}
 
   @Get()
@@ -163,5 +169,64 @@ export class CommunicationController {
     return this.prisma.notificationPreference.findMany({
       where: { tenantId: req.user.tenantId, userId: req.user.id }
     });
+  }
+
+  @Public()
+  @Post('zalo/webhook')
+  @ApiOperation({ summary: 'Receive webhook events from Zalo Bot' })
+  async handleZaloWebhook(
+    @Body() body: any,
+    @Headers('x-bot-api-secret-token') secretTokenHeader?: string,
+    @Headers('x-secret-token') legacySecretTokenHeader?: string,
+    @Headers('secret-token') rawSecretTokenHeader?: string,
+  ) {
+    const settings = await this.prisma.appSetting.findMany({
+      where: { key: 'zalo-provider', scope: 'TENANT' as any },
+      select: { tenantId: true, value: true },
+    });
+
+    const providedSecret = String(secretTokenHeader || legacySecretTokenHeader || rawSecretTokenHeader || '').trim();
+    const matched = settings.find((setting) => {
+      const expected = String((setting.value as any)?.webhookSecret || '').trim();
+      if (!expected || !providedSecret || expected.length !== providedSecret.length) return false;
+      return timingSafeEqual(Buffer.from(expected), Buffer.from(providedSecret));
+    });
+
+    if (!matched) {
+      throw new BadRequestException('ZALO_WEBHOOK_SECRET_INVALID');
+    }
+
+    this.logger.log(`Accepted Zalo webhook for tenant ${matched.tenantId}: ${JSON.stringify(body)}`);
+
+    return { success: true };
+  }
+
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @Post('zalo/test')
+  @ApiOperation({ summary: 'Send a test Zalo message with the currently saved tenant settings' })
+  async sendZaloTest(
+    @Req() req,
+    @Body() body: { recipient?: string; title?: string; message?: string },
+  ) {
+    const recipient = String(body?.recipient || '').trim();
+    if (!recipient) {
+      throw new BadRequestException('ZALO_TEST_RECIPIENT_REQUIRED');
+    }
+
+    const title = String(body?.title || '').trim() || 'Zalo test';
+    const message = String(body?.message || '').trim() || `Test message from HomeLand at ${new Date().toISOString()}`;
+    const result = await this.zaloProvider.send({
+      tenantId: req.user.tenantId,
+      recipient,
+      title,
+      message,
+      context: {},
+    });
+
+    return {
+      success: true,
+      recipient,
+      result,
+    };
   }
 }

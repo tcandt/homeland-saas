@@ -109,25 +109,25 @@ export default function SettingsSePayIntegration() {
             />
           </div>
         </div>
-      </Card>
 
-      {!canEditSecrets && (
-        <div className="flex items-start gap-[9px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[11px] text-[12px] font-medium leading-[18px] text-muted">
-          <LockKeyhole size={15} className="mt-[1px] shrink-0 text-warning" aria-hidden="true" />
-          Token và mật khẩu tích hợp chỉ được chỉnh sửa bởi admin@homeland.vn. Các cấu hình vận hành khác vẫn có thể lưu bình thường.
+        {!canEditSecrets && (
+          <div className="flex items-start gap-[9px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[11px] text-[12px] font-medium leading-[18px] text-muted">
+            <LockKeyhole size={15} className="mt-[1px] shrink-0 text-warning" aria-hidden="true" />
+            Token và mật khẩu tích hợp chỉ được chỉnh sửa bởi admin@homeland.vn. Các cấu hình vận hành khác vẫn có thể lưu bình thường.
+          </div>
+        )}
+
+        <div className="flex justify-end border-t border-border/70 pt-[14px]">
+          <Button
+            type="button"
+            onClick={saveSePay}
+            className="h-[44px] rounded-[12px] bg-primary px-[24px] text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-primary/90"
+            isLoading={isSaving}
+          >
+            Lưu SePay
+          </Button>
         </div>
-      )}
-
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          onClick={saveSePay}
-          className="h-[44px] rounded-[12px] bg-primary px-[24px] text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-primary/90"
-          isLoading={isSaving}
-        >
-          Lưu SePay
-        </Button>
-      </div>
+      </Card>
     </div>
   );
 }

@@ -14,7 +14,7 @@ export interface SettingsSectionRecord {
 const PROTECTED_SETTING_FIELDS: Record<string, readonly string[]> = {
   hunonic: ['password', 'websiteToken', 'websiteCookie'],
   sepay: ['webhookApiKey'],
-  'zalo-provider': ['accessToken', 'appSecret', 'webhookSecret'],
+  'zalo-provider': ['botToken', 'webhookSecret'],
   'email-provider': ['smtpPassword'],
   'telegram-provider': ['botToken'],
 };

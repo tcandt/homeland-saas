@@ -27,6 +27,10 @@ export const settingsApi = {
     return apiClient.patch<SettingsSectionResponse<T>>(`/settings/${key}`, { scope, value });
   },
 
+  testZalo: (payload: { recipient: string; title?: string; message?: string }) => {
+    return apiClient.post<{ success: true; recipient: string; result: any }>('/notifications/zalo/test', payload);
+  },
+
   uploadAsset: async (file: File, params: { folder: string; purpose?: string; scope?: SettingsScope }) => {
     const formData = new FormData();
     formData.append('file', file);

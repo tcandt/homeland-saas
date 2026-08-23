@@ -53,6 +53,11 @@ function resolveRecipient(payload: ProviderPayload, keys: string[]) {
   return '';
 }
 
+function looksLikePhoneNumber(value: string) {
+  const normalized = value.replace(/[^\d+]/g, '');
+  return /^(\+?84|0)\d{8,11}$/.test(normalized);
+}
+
 @Injectable()
 export class InAppProvider implements CommunicationProvider {
   channel = NotificationChannel.IN_APP;
@@ -164,6 +169,7 @@ export class ConsoleProvider implements CommunicationProvider {
 
 @Injectable() export class ZaloProvider implements CommunicationProvider {
   channel = NotificationChannel.ZALO;
+  private readonly defaultApiBase = 'https://bot-api.zaloplatforms.com';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -171,30 +177,30 @@ export class ConsoleProvider implements CommunicationProvider {
     const settings = await readTenantSetting<any>(this.prisma, payload.tenantId, 'zalo-provider');
     assertEnabled(settings, 'Zalo');
 
-    const accessToken = String(settings.accessToken || '').trim();
-    const endpoint = String(settings.messageEndpoint || 'https://openapi.zalo.me/v3.0/oa/message/cs').trim();
-    const recipient = resolveRecipient(payload, ['zaloUserId', 'customerZaloUserId', 'customerPhone']);
+    const botToken = String(settings.botToken || '').trim();
+    const apiBase = String(settings.apiBaseUrl || this.defaultApiBase).trim().replace(/\/+$/, '');
+    const recipient = resolveRecipient(payload, ['zaloChatId', 'customerZaloChatId', 'chatId', 'zaloUserId', 'customerZaloUserId']);
 
-    if (!accessToken || !recipient) {
+    if (!botToken || !recipient) {
       throw new Error('Zalo provider is not configured');
     }
+    if (looksLikePhoneNumber(recipient)) {
+      throw new Error('Zalo Bot requires chat_id or user_id. Current recipient looks like a phone number.');
+    }
 
-    const response = await fetch(endpoint, {
+    const response = await fetch(`${apiBase}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        access_token: accessToken,
       },
       body: JSON.stringify({
-        recipient: { user_id: recipient },
-        message: {
-          text: [payload.title, payload.message].filter(Boolean).join('\n\n'),
-        },
+        chat_id: recipient,
+        text: [payload.title, payload.message].filter(Boolean).join('\n\n'),
       }),
     });
     const body = await response.json().catch(() => ({}));
 
-    if (!response.ok || (body?.error && Number(body.error) !== 0)) {
+    if (!response.ok || body?.ok === false || body?.error) {
       throw new Error(body?.message || body?.error_name || `Zalo send failed with ${response.status}`);
     }
 

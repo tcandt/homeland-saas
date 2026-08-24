@@ -65,6 +65,7 @@ describe('FinanceReportingService', () => {
       },
       bankAccount: {
         findFirst: vi.fn(),
+        create: vi.fn(),
         update: vi.fn(),
       },
       appSetting: {
@@ -301,6 +302,65 @@ describe('FinanceReportingService', () => {
           entity: 'BankAccount',
           entityId: 'bank-1',
           action: 'UPDATE',
+        }),
+      }),
+    );
+  });
+
+  it('creates a bank account for an owner and writes audit log', async () => {
+    const { service, prisma } = createService({
+      owner: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'owner-1',
+          name: 'Tinh',
+        }),
+      },
+      bankAccount: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(null),
+        create: vi.fn().mockResolvedValue({
+          id: 'bank-2',
+          tenantId: 'tenant-1',
+          ownerId: 'owner-1',
+          bankName: 'Techcombank',
+          accountNumber: '190333444555',
+          accountName: 'CONG TY TNHH HOMELAND',
+          isActive: true,
+        }),
+        update: vi.fn(),
+      },
+    });
+
+    await expect(
+      service.createBankAccount('tenant-1', 'user-1', {
+        ownerId: 'owner-1',
+        bankName: 'Techcombank',
+        accountNumber: '190333444555',
+        accountName: 'CONG TY TNHH HOMELAND',
+      }),
+    ).resolves.toEqual(expect.objectContaining({
+      id: 'bank-2',
+      ownerId: 'owner-1',
+      accountNumber: '190333444555',
+    }));
+
+    expect(prisma.bankAccount.create).toHaveBeenCalledWith({
+      data: {
+        tenantId: 'tenant-1',
+        ownerId: 'owner-1',
+        bankName: 'Techcombank',
+        accountNumber: '190333444555',
+        accountName: 'CONG TY TNHH HOMELAND',
+      },
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'CREATE',
+          entity: 'BankAccount',
+          entityId: 'bank-2',
         }),
       }),
     );

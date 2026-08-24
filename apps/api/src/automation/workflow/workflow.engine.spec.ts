@@ -4,6 +4,9 @@ import { WorkflowEngine } from './workflow.engine';
 describe('WorkflowEngine', () => {
   function createEngine() {
     const prisma = {
+      appSetting: {
+        findUnique: vi.fn(),
+      },
       chartOfAccount: {
         findFirst: vi.fn(),
       },
@@ -34,6 +37,7 @@ describe('WorkflowEngine', () => {
 
     return {
       prisma,
+      communicationService,
       journalEntryService,
       engine: new WorkflowEngine(
         prisma as any,
@@ -44,6 +48,54 @@ describe('WorkflowEngine', () => {
       ),
     };
   }
+
+  it('sends admin group Zalo notification for SePay payment confirmation when enabled', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique
+      .mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } })
+      .mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
+
+    await (engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-1',
+      customerName: 'Khach A',
+      roomCode: '31.06',
+      roomRentalTypeLabel: 'Phòng ghép',
+      roomMemberCount: 2,
+      buildingName: 'Toa A',
+      amount: 3500000,
+      paymentProvider: 'SEPAY',
+      paymentRef: 'txn-1',
+      metadata: { code: 'INV-001' },
+    });
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        channel: 'ZALO',
+        recipient: 'admin-group-1',
+        context: expect.objectContaining({
+          title: 'SePay xác nhận hóa đơn INV-001',
+          message: expect.stringContaining('Mã giao dịch: txn-1'),
+        }),
+      }),
+    );
+  });
+
+  it('skips Zalo payment confirmations when sepay.sendPaymentResultToZalo is false', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { sendPaymentResultToZalo: false } });
+
+    await (engine as any).executeStep('SEND_PAYMENT_CONFIRMATION_ZALO', {
+      tenantId: 'tenant-1',
+      customerZaloChatId: 'chat-1',
+      paymentProvider: 'SEPAY',
+      metadata: { code: 'INV-001' },
+    }, { templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION' });
+
+    expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
+  });
 
   it('posts collected deposits to bank and deposit liability accounts', async () => {
     const { engine, prisma, journalEntryService } = createEngine();

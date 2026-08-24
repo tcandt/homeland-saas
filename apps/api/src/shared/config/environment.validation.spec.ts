@@ -9,6 +9,7 @@ describe('production environment validation', () => {
     APP_URL: 'https://api.homeland.example',
     CORS_ORIGINS: 'https://homeland.example',
     JWT_SECRET: 'a-production-secret-with-more-than-32-characters',
+    STORAGE_DIR: '/app/storage',
   };
 
   it('accepts a complete production configuration', () => {

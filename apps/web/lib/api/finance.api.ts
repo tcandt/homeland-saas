@@ -31,6 +31,12 @@ export const financeApi = {
   getBankTransactions: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/banks/transactions', { params });
   },
+  createBankAccount: async (payload: { ownerId: string; bankName: string; accountNumber: string; accountName: string }) => {
+    return await apiClient.post<any>('/finance/banks', payload);
+  },
+  updateBankAccount: async (id: string, payload: { bankName: string; accountNumber: string; accountName: string }) => {
+    return await apiClient.patch<any>(`/finance/banks/${id}`, payload);
+  },
   updateBankAccountStatus: async (id: string, payload: { isActive: boolean }) => {
     return await apiClient.patch<any>(`/finance/banks/${id}/status`, payload);
   },

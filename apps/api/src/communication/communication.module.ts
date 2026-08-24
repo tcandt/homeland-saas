@@ -1,4 +1,6 @@
 import { Module, OnModuleInit } from '@nestjs/common';
+import { MetricsModule } from '../metrics/metrics.module';
+import { SystemUpdateModule } from '../system-update/system-update.module';
 import { CommunicationService } from './communication.service';
 import { CommunicationScheduler } from './communication.scheduler';
 import { CommunicationController } from './communication.controller';
@@ -11,8 +13,11 @@ import {
   SMSProvider,
   PushProvider
 } from './providers/communication.providers';
+import { ZaloRegistrationService } from './services/zalo-registration.service';
+import { AdminZaloAlertsService } from './services/admin-zalo-alerts.service';
 
 @Module({
+  imports: [MetricsModule, SystemUpdateModule],
   controllers: [CommunicationController],
   providers: [
     CommunicationService,
@@ -22,10 +27,12 @@ import {
     EmailProvider,
     TelegramProvider,
     ZaloProvider,
+    ZaloRegistrationService,
+    AdminZaloAlertsService,
     SMSProvider,
     PushProvider
   ],
-  exports: [CommunicationService],
+  exports: [CommunicationService, ZaloProvider],
 })
 export class CommunicationModule implements OnModuleInit {
   constructor(

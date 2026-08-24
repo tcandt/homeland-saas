@@ -8,6 +8,8 @@ import { NotificationChannel } from '../automation/automation.constants';
 import { JournalEntryService } from '../finance/journal-entry.service';
 import { AuditService } from '../shared/audit/audit.service';
 import { buildRoomContext } from '../shared/context/room-context';
+import { createHmac, timingSafeEqual } from 'crypto';
+import { ZaloProvider } from '../communication/providers/communication.providers';
 
 type SePayWebhookPayload = {
   id?: number | string;
@@ -48,6 +50,85 @@ type PaymentRequestResponse = {
   updatedAt: Date;
 };
 
+type SePayAuthMode = 'apiKey' | 'hmac' | 'dual';
+type SePayRoutingAssignment = {
+  id?: string;
+  roomId: string;
+  bankAccountId: string;
+  validFrom?: string | null;
+  validTo?: string | null;
+  note?: string | null;
+};
+type SePayRoutingSettings = {
+  assignments?: SePayRoutingAssignment[];
+};
+type SePayAdminConfig = {
+  routes: Array<{
+    id: string;
+    roomId: string;
+    roomCode: string;
+    roomName: string;
+    buildingCode: string;
+    buildingName: string;
+    bankAccountId: string;
+    bankAccountLabel: string;
+    validFrom: string;
+    validTo: string | null;
+    note: string | null;
+    isActive: boolean;
+  }>;
+  rooms: Array<{
+    id: string;
+    code: string;
+    name: string;
+    rentalType: string;
+    buildingId: string;
+    buildingCode: string;
+    buildingName: string;
+    ownerId: string | null;
+    mappedBankAccountId: string | null;
+    mappedBankAccountLabel: string | null;
+    mappingSource: 'ROOM' | 'OWNER_DEFAULT' | 'OWNER_FALLBACK' | 'GLOBAL_FALLBACK' | null;
+    validFrom: string | null;
+    validTo: string | null;
+  }>;
+  bankAccounts: Array<{
+    id: string;
+    ownerId: string | null;
+    ownerName: string | null;
+    bankName: string;
+    accountNumber: string;
+    accountName: string;
+    isActive: boolean;
+    label: string;
+  }>;
+  status: Awaited<ReturnType<PaymentsService['getSePayStatus']>>;
+};
+
+type ResolvedSePayBankAccount = {
+  bankAccount: {
+    id: string;
+    ownerId: string | null;
+    bankName: string;
+    accountNumber: string;
+    accountName: string;
+    isActive: boolean;
+    createdAt?: Date;
+  };
+  source: 'ROOM' | 'OWNER_DEFAULT' | 'OWNER_FALLBACK' | 'GLOBAL_FALLBACK' | 'EXPLICIT';
+  roomRoute?: SePayRoutingAssignment | null;
+  room?: {
+    id: string;
+    code: string;
+    name: string;
+    rentalType: string;
+    buildingId: string;
+    buildingName: string;
+    buildingCode: string;
+    ownerId: string | null;
+  } | null;
+};
+
 function randomCode(prefix: string, scope: string) {
   const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `${prefix}-${scope.slice(0, 6).toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${suffix}`;
@@ -62,6 +143,7 @@ export class PaymentsService {
     private readonly invoicesService: InvoicesService,
     private readonly depositsService: DepositsService,
     private readonly communicationService: CommunicationService,
+    private readonly zaloProvider: ZaloProvider,
     private readonly journalEntryService: JournalEntryService,
     private readonly auditService: AuditService,
   ) {}
@@ -205,6 +287,33 @@ export class PaymentsService {
     return (record?.value as any) || {};
   }
 
+  private normalizeSePayAuthMode(value: unknown): SePayAuthMode {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'hmac') return 'hmac';
+    if (normalized === 'dual') return 'dual';
+    return 'apiKey';
+  }
+
+  private constantTimeEquals(left: string, right: string) {
+    if (!left || !right || left.length !== right.length) return false;
+    return timingSafeEqual(Buffer.from(left), Buffer.from(right));
+  }
+
+  private verifySePayTimestamp(timestamp: string) {
+    const parsed = Number(timestamp);
+    if (!Number.isFinite(parsed)) return false;
+    const milliseconds = parsed > 1e12 ? parsed : parsed * 1000;
+    return Math.abs(Date.now() - milliseconds) <= 10 * 60 * 1000;
+  }
+
+  private verifySePayHmac(secret: string, timestamp: string, rawBody: string, signature: string) {
+    if (!secret || !timestamp || !rawBody || !signature) return false;
+    const expected = createHmac('sha256', secret)
+      .update(`${timestamp}.${rawBody}`)
+      .digest('hex');
+    return this.constantTimeEquals(expected, signature);
+  }
+
   private async resolveOwnerDefaultBankAccountId(tenantId: string, ownerId?: string | null) {
     if (!ownerId) return null;
 
@@ -224,10 +333,298 @@ export class PaymentsService {
     return bankAccountId || null;
   }
 
-  private async resolveBankAccount(tenantId: string, ownerId?: string | null) {
+  private async resolveRoutingSettings(tenantId: string): Promise<SePayRoutingSettings> {
+    try {
+      const routes = await (this.prisma as any).roomPaymentAccountRoute.findMany({
+        where: { tenantId },
+        orderBy: [{ roomId: 'asc' }, { validFrom: 'desc' }],
+        select: {
+          id: true,
+          roomId: true,
+          bankAccountId: true,
+          validFrom: true,
+          validTo: true,
+          note: true,
+        },
+      });
+
+      return {
+        assignments: routes.map((route) => ({
+          id: route.id,
+          roomId: route.roomId,
+          bankAccountId: route.bankAccountId,
+          validFrom: route.validFrom.toISOString(),
+          validTo: route.validTo ? route.validTo.toISOString() : null,
+          note: route.note || null,
+        })),
+      };
+    } catch (error: any) {
+      if (String(error?.code || '') !== 'P2021') throw error;
+    }
+
+    const record = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: tenantId,
+          key: 'sepay-routing',
+        },
+      },
+    });
+
+    return ((record?.value as any) || {}) as SePayRoutingSettings;
+  }
+
+  private normalizeRoutingAssignments(assignments: SePayRoutingAssignment[] = []) {
+    return assignments
+      .map((assignment) => ({
+        roomId: String(assignment.roomId || '').trim(),
+        bankAccountId: String(assignment.bankAccountId || '').trim(),
+        validFrom: this.parseRoutingDate(assignment.validFrom || new Date().toISOString(), 'start'),
+        validTo: this.parseRoutingDate(assignment.validTo || null, 'end'),
+        note: String(assignment.note || '').trim() || null,
+      }))
+      .filter((assignment) => assignment.roomId && assignment.bankAccountId && assignment.validFrom)
+      .sort((left, right) => {
+        if (left.roomId === right.roomId) {
+          return (right.validFrom?.getTime() || 0) - (left.validFrom?.getTime() || 0);
+        }
+        return left.roomId.localeCompare(right.roomId);
+      });
+  }
+
+  async saveRoomPaymentAccountRoutes(tenantId: string, assignments: SePayRoutingAssignment[], userId?: string) {
+    const normalized = this.normalizeRoutingAssignments(assignments);
+    const roomIds = Array.from(new Set(normalized.map((assignment) => assignment.roomId)));
+    const bankAccountIds = Array.from(new Set(normalized.map((assignment) => assignment.bankAccountId)));
+    const serializedAssignments = normalized.map((assignment) => ({
+      roomId: assignment.roomId,
+      bankAccountId: assignment.bankAccountId,
+      validFrom: assignment.validFrom?.toISOString() || null,
+      validTo: assignment.validTo?.toISOString() || null,
+      note: assignment.note,
+    }));
+
+    const [rooms, bankAccounts] = await Promise.all([
+      roomIds.length
+        ? this.prisma.room.findMany({
+            where: { tenantId, id: { in: roomIds }, deletedAt: null as any },
+            select: { id: true },
+          })
+        : Promise.resolve([]),
+      bankAccountIds.length
+        ? this.prisma.bankAccount.findMany({
+            where: { tenantId, id: { in: bankAccountIds } },
+            select: { id: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const validRoomIds = new Set(rooms.map((room) => room.id));
+    const validBankIds = new Set(bankAccounts.map((bank) => bank.id));
+    const invalidRoom = normalized.find((assignment) => !validRoomIds.has(assignment.roomId));
+    if (invalidRoom) throw new BadRequestException('Có room routing không hợp lệ.');
+    const invalidBank = normalized.find((assignment) => !validBankIds.has(assignment.bankAccountId));
+    if (invalidBank) throw new BadRequestException('Có tài khoản nhận tiền không hợp lệ.');
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await (tx as any).roomPaymentAccountRoute.deleteMany({ where: { tenantId } });
+        if (normalized.length > 0) {
+          await (tx as any).roomPaymentAccountRoute.createMany({
+            data: normalized.map((assignment) => ({
+              tenantId,
+              roomId: assignment.roomId,
+              bankAccountId: assignment.bankAccountId,
+              validFrom: assignment.validFrom!,
+              validTo: assignment.validTo || null,
+              note: assignment.note,
+            })),
+          });
+        }
+      });
+    } catch (error: any) {
+      if (String(error?.code || '') === 'P2021') {
+        await this.prisma.appSetting.upsert({
+          where: {
+            tenantId_scope_ownerId_key: {
+              tenantId,
+              scope: SettingScope.TENANT,
+              ownerId: tenantId,
+              key: 'sepay-routing',
+            },
+          },
+          create: {
+            tenantId,
+            scope: SettingScope.TENANT,
+            ownerId: tenantId,
+            key: 'sepay-routing',
+            value: { assignments: serializedAssignments } as any,
+            updatedBy: userId || null,
+          },
+          update: {
+            value: { assignments: serializedAssignments } as any,
+            updatedBy: userId || null,
+          },
+        });
+      } else {
+        throw error;
+      }
+    }
+
+    await this.auditService.log({
+      action: AuditAction.UPDATE,
+      module: 'Payments',
+      entity: 'RoomPaymentAccountRoute',
+      entityId: tenantId,
+      tenantId,
+      userId,
+      after: {
+        count: normalized.length,
+        roomIds,
+        bankAccountIds,
+      },
+    });
+
+    return this.getSePayAdminConfig(tenantId);
+  }
+
+  private parseRoutingDate(value?: string | null, boundary: 'start' | 'end' = 'start') {
+    if (!value) return null;
+    const trimmed = String(value).trim();
+    if (!trimmed) return null;
+    const normalized = trimmed.length <= 10
+      ? `${trimmed}T${boundary === 'start' ? '00:00:00.000' : '23:59:59.999'}Z`
+      : trimmed;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private isRoutingAssignmentActive(assignment: SePayRoutingAssignment, at = new Date()) {
+    const from = this.parseRoutingDate(assignment.validFrom, 'start');
+    const to = this.parseRoutingDate(assignment.validTo, 'end');
+    if (from && at < from) return false;
+    if (to && at > to) return false;
+    return true;
+  }
+
+  private pickBestRoomAssignment(assignments: SePayRoutingAssignment[], at = new Date()) {
+    const active = assignments.filter((assignment) => this.isRoutingAssignmentActive(assignment, at));
+    if (active.length === 0) return null;
+
+    return [...active].sort((left, right) => {
+      const leftFrom = this.parseRoutingDate(left.validFrom, 'start')?.getTime() || 0;
+      const rightFrom = this.parseRoutingDate(right.validFrom, 'start')?.getTime() || 0;
+      return rightFrom - leftFrom;
+    })[0] || null;
+  }
+
+  private maskAccountNumber(value?: string | null) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return '';
+    if (normalized.length <= 4) return normalized;
+    return `${'*'.repeat(Math.max(0, normalized.length - 4))}${normalized.slice(-4)}`;
+  }
+
+  private formatBankAccountLabel(bankAccount: { bankName: string; accountNumber: string; accountName?: string | null }) {
+    return `${bankAccount.bankName} • ${this.maskAccountNumber(bankAccount.accountNumber)}${bankAccount.accountName ? ` • ${bankAccount.accountName}` : ''}`;
+  }
+
+  private async getRoomAccountRouting(
+    tenantId: string,
+    roomId: string,
+    at = new Date(),
+  ): Promise<SePayRoutingAssignment | null> {
+    const routing = await this.resolveRoutingSettings(tenantId);
+    const assignments = Array.isArray(routing.assignments) ? routing.assignments : [];
+    return this.pickBestRoomAssignment(
+      assignments.filter((assignment) => String(assignment.roomId || '').trim() === roomId),
+      at,
+    );
+  }
+
+  private async resolveRoomContext(tenantId: string, roomId: string) {
+    return this.prisma.room.findFirst({
+      where: { id: roomId, tenantId, deletedAt: null as any },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        rentalType: true,
+        buildingId: true,
+        building: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            ownerId: true,
+          },
+        },
+      },
+    });
+  }
+
+  private async resolveBankAccount(
+    tenantId: string,
+    options: { ownerId?: string | null; roomId?: string | null; bankAccountId?: string | null } = {},
+  ): Promise<ResolvedSePayBankAccount> {
     const sepayConfig = await this.resolveSePayConfig(tenantId);
     if (sepayConfig.enabled === false) {
       throw new BadRequestException('SePay đang tắt trong Settings');
+    }
+
+    if (options.bankAccountId) {
+      const explicit = await this.prisma.bankAccount.findFirst({
+        where: {
+          tenantId,
+          id: options.bankAccountId,
+          isActive: true,
+        },
+      });
+      if (!explicit) throw new BadRequestException('Không tìm thấy tài khoản nhận tiền đang hoạt động.');
+      return {
+        bankAccount: explicit,
+        source: 'EXPLICIT',
+        roomRoute: null,
+        room: null,
+      };
+    }
+
+    let room: Awaited<ReturnType<PaymentsService['resolveRoomContext']>> | null = null;
+    let roomRoute: SePayRoutingAssignment | null = null;
+    let ownerId = options.ownerId || null;
+    if (options.roomId) {
+      room = await this.resolveRoomContext(tenantId, options.roomId);
+      if (!room) throw new BadRequestException('Không tìm thấy phòng để resolve QR SePay.');
+      ownerId = room.building?.ownerId || ownerId || null;
+      roomRoute = await this.getRoomAccountRouting(tenantId, options.roomId);
+      if (roomRoute?.bankAccountId) {
+        const routeBankAccount = await this.prisma.bankAccount.findFirst({
+          where: {
+            tenantId,
+            id: roomRoute.bankAccountId,
+            isActive: true,
+          },
+        });
+        if (routeBankAccount) {
+          return {
+            bankAccount: routeBankAccount,
+            source: 'ROOM',
+            roomRoute,
+            room: {
+              id: room.id,
+              code: room.code,
+              name: room.name,
+              rentalType: String(room.rentalType),
+              buildingId: room.buildingId,
+              buildingName: room.building?.name || '',
+              buildingCode: room.building?.code || '',
+              ownerId: room.building?.ownerId || null,
+            },
+          };
+        }
+      }
     }
 
     const defaultBankAccountId = await this.resolveOwnerDefaultBankAccountId(tenantId, ownerId);
@@ -252,7 +649,25 @@ export class PaymentsService {
       throw new BadRequestException('Không tìm thấy tài khoản ngân hàng để tạo QR SePay');
     }
 
-    return bankAccount;
+    return {
+      bankAccount,
+      source: ownerId
+        ? (defaultBankAccount ? 'OWNER_DEFAULT' : 'OWNER_FALLBACK')
+        : 'GLOBAL_FALLBACK',
+      roomRoute,
+      room: room
+        ? {
+            id: room.id,
+            code: room.code,
+            name: room.name,
+            rentalType: String(room.rentalType),
+            buildingId: room.buildingId,
+            buildingName: room.building?.name || '',
+            buildingCode: room.building?.code || '',
+            ownerId: room.building?.ownerId || null,
+          }
+        : null,
+    };
   }
 
   private buildQrUrl(params: {
@@ -289,7 +704,11 @@ export class PaymentsService {
     allocation?: { ownerId?: string | null; buildingId?: string | null; roomId?: string | null },
   ): Promise<PaymentRequestResponse> {
     const sepayConfig = await this.resolveSePayConfig(tenantId);
-    const bankAccount = await this.resolveBankAccount(tenantId, allocation?.ownerId);
+    const resolved = await this.resolveBankAccount(tenantId, {
+      ownerId: allocation?.ownerId,
+      roomId: allocation?.roomId,
+    });
+    const bankAccount = resolved.bankAccount;
     const paymentCodePrefix = String(sepayConfig.paymentCodePrefix || memoPrefix || 'PAY');
     const paymentCode = randomCode(paymentCodePrefix, tenantId);
     const memo = `${paymentCode} ${sourceType.toLowerCase()} ${sourceId}`;
@@ -325,6 +744,8 @@ export class PaymentsService {
         metadata: {
           ...(metadata && typeof metadata === 'object' ? metadata : {}),
           ...roomContext,
+          sepayRoutingSource: resolved.source,
+          sepayRoomRouting: resolved.roomRoute || null,
         },
       },
     });
@@ -611,7 +1032,7 @@ export class PaymentsService {
 
       const bankAccount = accountNumber
         ? await this.prisma.bankAccount.findFirst({ where: { tenantId, accountNumber } })
-        : await this.resolveBankAccount(tenantId, invoice.contract?.room?.building?.ownerId);
+        : (await this.resolveBankAccount(tenantId, { ownerId: invoice.contract?.room?.building?.ownerId })).bankAccount;
 
       const request =
         existingRequest ||
@@ -700,7 +1121,7 @@ export class PaymentsService {
 
       const bankAccount = accountNumber
         ? await this.prisma.bankAccount.findFirst({ where: { tenantId, accountNumber } })
-        : await this.resolveBankAccount(tenantId, deposit.room?.building?.ownerId);
+        : (await this.resolveBankAccount(tenantId, { ownerId: deposit.room?.building?.ownerId })).bankAccount;
 
       const request =
         existingRequest ||
@@ -1157,29 +1578,305 @@ export class PaymentsService {
     });
   }
 
-  async handleSePayWebhook(payload: SePayWebhookPayload, authorization?: string) {
+  async getSePayStatus(tenantId: string) {
+    const settings = await this.resolveSePayConfig(tenantId);
+    const latestWebhook = await this.prisma.paymentWebhookLog.findFirst({
+      where: { provider: PaymentProvider.SEPAY },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        processedAt: true,
+        lastError: true,
+        payload: true,
+      },
+    });
+    const routing = await this.resolveRoutingSettings(tenantId);
+    return {
+      enabled: settings.enabled !== false,
+      authMode: this.normalizeSePayAuthMode(settings.authMode),
+      webhookUrl: `${String(process.env.APP_URL || '').replace(/\/+$/, '')}/api/v1/payments/sepay/webhook`,
+      webhookApiKeyConfigured: Boolean(String(settings.webhookApiKey || '').trim()),
+      hmacSecretConfigured: Boolean(String(settings.hmacSecret || '').trim()),
+      paymentCodePrefix: String(settings.paymentCodePrefix || '').trim() || 'PAY',
+      sendPaymentResultToZalo: settings.sendPaymentResultToZalo !== false,
+      routingAssignments: Array.isArray(routing.assignments) ? routing.assignments.length : 0,
+      lastWebhookAt: latestWebhook?.createdAt || null,
+      lastWebhookStatus: latestWebhook?.status || null,
+      lastWebhookProcessedAt: latestWebhook?.processedAt || null,
+      lastWebhookError: latestWebhook?.lastError || null,
+      lastWebhookAccountNumber: String((latestWebhook?.payload as any)?.accountNumber || (latestWebhook?.payload as any)?.account_number || '').trim() || null,
+    };
+  }
+
+  async getSePayAdminConfig(tenantId: string): Promise<SePayAdminConfig> {
+    const [status, routing, bankAccounts, rooms, owners] = await Promise.all([
+      this.getSePayStatus(tenantId),
+      this.resolveRoutingSettings(tenantId),
+      this.prisma.bankAccount.findMany({
+        where: { tenantId },
+        orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
+        select: {
+          id: true,
+          ownerId: true,
+          bankName: true,
+          accountNumber: true,
+          accountName: true,
+          isActive: true,
+        },
+      }),
+      this.prisma.room.findMany({
+        where: { tenantId, deletedAt: null as any },
+        orderBy: [{ buildingId: 'asc' }, { code: 'asc' }],
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          rentalType: true,
+          buildingId: true,
+          building: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              ownerId: true,
+            },
+          },
+        },
+      }),
+      this.prisma.owner.findMany({
+        where: { tenantId },
+        select: { id: true, name: true },
+      }),
+    ]);
+    const assignmentMap = new Map<string, SePayRoutingAssignment>();
+    const assignmentList = Array.isArray(routing.assignments) ? routing.assignments : [];
+    for (const assignment of assignmentList) {
+      if (!assignment?.roomId || !assignment?.bankAccountId) continue;
+      const current = assignmentMap.get(assignment.roomId);
+      if (!current || this.pickBestRoomAssignment([current, assignment])?.bankAccountId === assignment.bankAccountId) {
+        assignmentMap.set(assignment.roomId, assignment);
+      }
+    }
+    const ownerById = new Map(owners.map((owner) => [owner.id, owner.name]));
+    const bankAccountById = new Map(bankAccounts.map((bankAccount) => [bankAccount.id, bankAccount]));
+    return {
+      status,
+      routes: assignmentList
+        .map((assignment) => {
+          const room = rooms.find((candidate) => candidate.id === assignment.roomId);
+          const bankAccount = bankAccounts.find((candidate) => candidate.id === assignment.bankAccountId);
+          if (!room || !bankAccount) return null;
+          return {
+            id: assignment.id || `${assignment.roomId}-${assignment.bankAccountId}-${assignment.validFrom || 'na'}`,
+            roomId: room.id,
+            roomCode: room.code,
+            roomName: room.name,
+            buildingCode: room.building?.code || '',
+            buildingName: room.building?.name || '',
+            bankAccountId: bankAccount.id,
+            bankAccountLabel: this.formatBankAccountLabel(bankAccount),
+            validFrom: assignment.validFrom || new Date(0).toISOString(),
+            validTo: assignment.validTo || null,
+            note: assignment.note || null,
+            isActive: this.isRoutingAssignmentActive(assignment),
+          };
+        })
+        .filter((route): route is NonNullable<typeof route> => Boolean(route)),
+      bankAccounts: bankAccounts.map((bankAccount) => ({
+        ...bankAccount,
+        ownerName: bankAccount.ownerId ? ownerById.get(bankAccount.ownerId) || null : null,
+        label: this.formatBankAccountLabel(bankAccount),
+      })),
+      rooms: await Promise.all(
+        rooms.map(async (room) => {
+          const resolved = await this.resolveBankAccount(tenantId, {
+            ownerId: room.building?.ownerId || null,
+            roomId: room.id,
+          });
+          const assignment = assignmentMap.get(room.id) || null;
+          const mappedBankAccount = assignment?.bankAccountId ? bankAccountById.get(assignment.bankAccountId) || null : null;
+          return {
+            id: room.id,
+            code: room.code,
+            name: room.name,
+            rentalType: String(room.rentalType),
+            buildingId: room.buildingId,
+            buildingCode: room.building?.code || '',
+            buildingName: room.building?.name || '',
+            ownerId: room.building?.ownerId || null,
+            mappedBankAccountId: mappedBankAccount?.id || null,
+            mappedBankAccountLabel: mappedBankAccount ? this.formatBankAccountLabel(mappedBankAccount) : null,
+            mappingSource: resolved.source === 'EXPLICIT' ? 'ROOM' : resolved.source,
+            validFrom: assignment?.validFrom || null,
+            validTo: assignment?.validTo || null,
+          };
+        }),
+      ),
+    };
+  }
+
+  async previewSePayQr(
+    tenantId: string,
+    payload: { amount?: number; memo?: string; roomId?: string; bankAccountId?: string } = {},
+  ) {
+    const sepayConfig = await this.resolveSePayConfig(tenantId);
+    const amount = Math.max(1000, Number(payload.amount || 123000));
+    const resolved = await this.resolveBankAccount(tenantId, {
+      roomId: payload.roomId || null,
+      bankAccountId: payload.bankAccountId || null,
+    });
+    const bankAccount = resolved.bankAccount;
+    const prefix = String(sepayConfig.paymentCodePrefix || 'HL').trim() || 'HL';
+    const memo = String(payload.memo || '').trim() || `${prefix}TEST${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    return {
+      bankName: bankAccount.bankName,
+      bankLabel: this.formatBankAccountLabel(bankAccount),
+      bankAccountId: bankAccount.id,
+      bankAccountNumber: bankAccount.accountNumber,
+      bankAccountNumberMasked: this.maskAccountNumber(bankAccount.accountNumber),
+      bankAccountName: bankAccount.accountName,
+      amount,
+      memo,
+      resolvedFrom: resolved.source,
+      roomId: resolved.room?.id || null,
+      roomCode: resolved.room?.code || null,
+      roomName: resolved.room?.name || null,
+      rentalType: resolved.room?.rentalType || null,
+      buildingName: resolved.room?.buildingName || null,
+      qrUrl: this.buildQrUrl({
+        bankName: bankAccount.bankName,
+        accountNumber: bankAccount.accountNumber,
+        accountName: bankAccount.accountName,
+        amount,
+        memo,
+        store: 'HomeLand',
+      }),
+    };
+  }
+
+  async sendPreviewSePayQrToAdminGroup(
+    tenantId: string,
+    payload: { amount?: number; memo?: string; roomId?: string; bankAccountId?: string },
+  ) {
+    const zaloSettings = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    const adminGroupChatId = String((zaloSettings?.value as any)?.adminGroupChatId || '').trim();
+    if (!adminGroupChatId) {
+      throw new BadRequestException('Zalo Admin Group chưa được kết nối.');
+    }
+
+    const preview = await this.previewSePayQr(tenantId, payload);
+    const roomLabel = preview.roomCode ? `${preview.roomCode}${preview.buildingName ? ` • ${preview.buildingName}` : ''}` : 'Không gắn phòng';
+
+    const builtCaption = [
+      `${preview.bankName} - ${preview.bankAccountNumber}`,
+      `${preview.bankAccountName || '-'}`,
+      `So tien: ${Math.round(preview.amount).toLocaleString('vi-VN')} đ`,
+      `ND: ${preview.memo}`,
+    ].join('\n');
+
+    const result = await this.zaloProvider.sendPhoto({
+      tenantId,
+      recipient: adminGroupChatId,
+      photo: preview.qrUrl,
+      caption: builtCaption,
+      context: {},
+    });
+
+    return {
+      success: true,
+      recipient: adminGroupChatId,
+      preview,
+      result,
+    };
+  }
+
+  async testSePayReconciliation(tenantId: string, payload: { paymentCode?: string; amount?: number; accountNumber?: string }) {
+    const paymentCode = String(payload.paymentCode || '').trim();
+    if (!paymentCode) throw new BadRequestException('SEPAY_TEST_PAYMENT_CODE_REQUIRED');
+
+    const request = await this.prisma.paymentRequest.findFirst({
+      where: { tenantId, provider: PaymentProvider.SEPAY, paymentCode },
+      select: {
+        id: true,
+        sourceType: true,
+        sourceId: true,
+        status: true,
+        amount: true,
+        bankAccountNumber: true,
+      },
+    });
+    if (!request) throw new BadRequestException('SEPAY_TEST_PAYMENT_REQUEST_NOT_FOUND');
+
+    const expectedAmount = Number(request.amount || 0);
+    const actualAmount = Number(payload.amount ?? expectedAmount);
+    const accountNumber = String(payload.accountNumber || request.bankAccountNumber || '').trim();
+    return {
+      paymentRequestId: request.id,
+      sourceType: request.sourceType,
+      sourceId: request.sourceId,
+      status: request.status,
+      expectedAmount,
+      actualAmount,
+      exactAmount: actualAmount === expectedAmount,
+      shortAmount: actualAmount < expectedAmount,
+      overpayment: actualAmount > expectedAmount,
+      expectedBankAccount: request.bankAccountNumber,
+      actualBankAccount: accountNumber,
+      bankMatches: !accountNumber || accountNumber === request.bankAccountNumber,
+    };
+  }
+
+  async handleSePayWebhook(
+    payload: SePayWebhookPayload,
+    authorizationOrHeaders: string | { authorization?: string; signature?: string; timestamp?: string; rawBody?: string } = {},
+  ) {
+    const headers = typeof authorizationOrHeaders === 'string'
+      ? { authorization: authorizationOrHeaders }
+      : authorizationOrHeaders;
     const webhookSettings = await this.prisma.appSetting.findMany({
       where: {
         key: 'sepay',
         scope: SettingScope.TENANT,
       },
       select: {
+        tenantId: true,
         value: true,
       },
     });
 
-    const expectedKeys = Array.from(new Set(
-      webhookSettings
-        .map((setting) => (setting.value as any)?.webhookApiKey)
-        .filter((value): value is string => Boolean(value && String(value).trim())),
-    ));
+    const authMatched = webhookSettings.some((setting) => {
+      const config = (setting.value as any) || {};
+      const authMode = this.normalizeSePayAuthMode(config.authMode);
+      const apiKey = String(config.webhookApiKey || '').trim();
+      const hmacSecret = String(config.hmacSecret || '').trim();
+      const apiKeyOk = Boolean(apiKey) && String(headers.authorization || '').trim() === `Apikey ${apiKey}`;
+      const timestamp = String(headers.timestamp || '').trim();
+      const rawBody = String(headers.rawBody || '').trim();
+      const signature = String(headers.signature || '').trim();
+      const hmacOk = Boolean(hmacSecret)
+        && Boolean(timestamp)
+        && Boolean(rawBody)
+        && Boolean(signature)
+        && this.verifySePayTimestamp(timestamp)
+        && this.verifySePayHmac(hmacSecret, timestamp, rawBody, signature);
 
-    if (!expectedKeys.length) {
-      throw new UnauthorizedException('SePay webhook is not configured');
-    }
+      if (authMode === 'hmac') return hmacOk;
+      if (authMode === 'dual') return apiKeyOk || hmacOk;
+      return apiKeyOk;
+    });
 
-    const expectedAuthMatched = expectedKeys.some((key) => authorization === `Apikey ${key}`);
-    if (!expectedAuthMatched) {
+    if (!authMatched) {
       throw new UnauthorizedException('Unauthorized SePay webhook');
     }
 

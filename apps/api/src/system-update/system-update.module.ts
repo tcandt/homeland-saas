@@ -5,5 +5,6 @@ import { SystemUpdateService } from './system-update.service';
 @Module({
   controllers: [SystemUpdateController],
   providers: [SystemUpdateService],
+  exports: [SystemUpdateService],
 })
 export class SystemUpdateModule {}

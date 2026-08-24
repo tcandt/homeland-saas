@@ -202,6 +202,7 @@ describe('SettingsService', () => {
   });
 
   it('preserves an existing secret when an operational settings update omits it', async () => {
+    prisma.user.findFirst.mockResolvedValue({ email: 'manager@homeland.local' });
     prisma.appSetting.findUnique.mockResolvedValue({
       value: {
         enabled: true,
@@ -230,7 +231,7 @@ describe('SettingsService', () => {
       'user-1',
     );
 
-    expect(prisma.user.findFirst).not.toHaveBeenCalled();
+    expect(prisma.user.findFirst).toHaveBeenCalledTimes(1);
     expect(prisma.appSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({
       update: {
         value: expect.objectContaining({

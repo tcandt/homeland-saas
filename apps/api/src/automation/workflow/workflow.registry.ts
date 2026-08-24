@@ -40,9 +40,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 3,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
         name: 'Notify Customer',
         type: 'CREATE_IN_APP_NOTIFICATION',
-        order: 3,
+        order: 4,
         params: {
           templateCode: 'DEPOSIT_COLLECTED'
         }
@@ -50,17 +58,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
       {
         name: 'Invalidate Dashboard Cache',
         type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 4,
+        order: 5,
       },
       {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 5,
+        order: 6,
       },
       {
         name: 'Write Automation Audit',
         type: 'WRITE_AUTOMATION_AUDIT',
-        order: 6,
+        order: 7,
       }
     ]
   },
@@ -103,9 +111,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 3,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 3,
+        order: 4,
       }
     ]
   },

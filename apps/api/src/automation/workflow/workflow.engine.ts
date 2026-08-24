@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AccountType } from '@prisma/client';
+import { AccountType, SettingScope } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { WORKFLOW_REGISTRY } from './workflow.registry';
 import { WorkflowStatus } from '../automation.constants';
@@ -109,6 +109,9 @@ export class WorkflowEngine {
         });
         break;
       case 'SEND_PAYMENT_CONFIRMATION_ZALO':
+        if (!(await this.shouldSendSePayResultToZalo(payload))) {
+          break;
+        }
         const zaloRecipient = String(payload.customerZaloChatId || payload.customerZaloUserId || '').trim();
         if (zaloRecipient) {
           await this.communicationService.dispatchDirect({
@@ -126,6 +129,28 @@ export class WorkflowEngine {
         } else {
           this.logger.warn('Skipping Zalo payment confirmation because customer Zalo chat/user id is missing');
         }
+        break;
+      case 'SEND_ADMIN_GROUP_ZALO':
+        if (!(await this.shouldSendSePayResultToZalo(payload))) {
+          break;
+        }
+        const adminGroupChatId = await this.resolveAdminGroupChatId(payload.tenantId);
+        if (!adminGroupChatId) {
+          this.logger.warn('Skipping admin group Zalo notification because adminGroupChatId is missing');
+          break;
+        }
+        await this.communicationService.dispatchDirect({
+          tenantId: payload.tenantId,
+          channel: 'ZALO' as any,
+          templateCode: params?.templateCode || 'SYSTEM_ALERT',
+          recipient: adminGroupChatId,
+          userId: null,
+          context: {
+            ...payload,
+            title: this.buildAdminPaymentTitle(payload),
+            message: this.buildAdminPaymentMessage(payload),
+          },
+        });
         break;
       case 'INVALIDATE_DASHBOARD_CACHE':
         await this.analyticsCache.invalidateDashboard(payload.tenantId);
@@ -346,6 +371,65 @@ export class WorkflowEngine {
       status: 'POSTED',
       lines,
     });
+  }
+
+  private async shouldSendSePayResultToZalo(payload: any) {
+    const requiredProvider = String(payload?.paymentProvider || '').trim().toUpperCase();
+    if (requiredProvider && requiredProvider !== 'SEPAY') {
+      return false;
+    }
+
+    const record = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId: payload.tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: payload.tenantId,
+          key: 'sepay',
+        },
+      },
+    });
+    const settings = (record?.value as any) || {};
+    return settings.sendPaymentResultToZalo !== false;
+  }
+
+  private async resolveAdminGroupChatId(tenantId: string) {
+    const record = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    const settings = (record?.value as any) || {};
+    return String(settings.adminGroupChatId || '').trim();
+  }
+
+  private buildAdminPaymentTitle(payload: any) {
+    if (payload.sourceType === 'DEPOSIT') {
+      return `SePay xác nhận phiếu cọc ${payload.metadata?.code || ''}`.trim();
+    }
+    return `SePay xác nhận hóa đơn ${payload.metadata?.code || ''}`.trim();
+  }
+
+  private buildAdminPaymentMessage(payload: any) {
+    const sourceLabel = payload.sourceType === 'DEPOSIT' ? 'Phiếu cọc' : 'Hóa đơn';
+    const roomLabel = payload.roomCode ? `\nPhòng: ${payload.roomCode}${payload.roomRentalTypeLabel ? ` (${payload.roomRentalTypeLabel})` : ''}` : '';
+    const buildingLabel = payload.buildingName ? `\nTòa nhà: ${payload.buildingName}` : '';
+    const memberLabel = payload.roomMemberCount ? `\nSố người: ${payload.roomMemberCount}` : '';
+    return [
+      'HomeLand - Đã nhận thanh toán',
+      `${sourceLabel}: ${payload.metadata?.code || payload.sourceId || '-'}`,
+      `Khách: ${payload.customerName || '-'}`,
+      `Số tiền: ${Number(payload.amount || 0).toLocaleString('vi-VN')} VND`,
+      payload.paymentRef ? `Mã giao dịch: ${payload.paymentRef}` : null,
+      roomLabel ? roomLabel.trimStart() : null,
+      buildingLabel ? buildingLabel.trimStart() : null,
+      memberLabel ? memberLabel.trimStart() : null,
+    ].filter(Boolean).join('\n');
   }
 
   private async resolveChartOfAccount(

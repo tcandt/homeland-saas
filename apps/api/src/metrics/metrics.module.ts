@@ -10,6 +10,7 @@ import { MetricsInterceptor } from './metrics.interceptor';
 import { MetricsSchedulerService } from './metrics.scheduler';
 import { MetricsController } from './metrics.controller';
 import { InternalTokenGuard } from '../shared/guards/internal-token.guard';
+import { RequestAnomalyTrackerService } from './request-anomaly-tracker.service';
 
 @Module({
   imports: [
@@ -126,8 +127,9 @@ import { InternalTokenGuard } from '../shared/guards/internal-token.guard';
     MetricsService,
     MetricsInterceptor,
     MetricsSchedulerService,
+    RequestAnomalyTrackerService,
     InternalTokenGuard,
   ],
-  exports: [MetricsService, MetricsInterceptor],
+  exports: [MetricsService, MetricsInterceptor, RequestAnomalyTrackerService],
 })
 export class MetricsModule {}

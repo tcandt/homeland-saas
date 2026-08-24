@@ -9,7 +9,15 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { EmailProvider, TelegramProvider, ZaloProvider } from './providers/communication.providers';
 import { Public } from '../shared/decorators/public.decorator';
-import { timingSafeEqual } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
+import { buildTenantWebhookUrl, extractZaloWebhookChat, mergeRecentZaloWebhookChat, normalizeZaloUpdate } from './adapters/zalo-normalizer';
+import { ZaloRegistrationService } from './services/zalo-registration.service';
+import {
+  buildAdminGroupConnectedMessage,
+  buildAdminGroupTestMessage,
+  buildServerOverloadAlertMessage,
+  buildUpdateAvailableMessage,
+} from './services/admin-zalo-message-builder';
 
 @ApiTags('Notifications')
 @ApiBearerAuth()
@@ -25,6 +33,7 @@ export class CommunicationController {
     private readonly zaloProvider: ZaloProvider,
     private readonly emailProvider: EmailProvider,
     private readonly telegramProvider: TelegramProvider,
+    private readonly zaloRegistrationService: ZaloRegistrationService,
   ) {}
 
   @Get()
@@ -161,10 +170,13 @@ export class CommunicationController {
   @Post('zalo/webhook')
   @ApiOperation({ summary: 'Receive webhook events from Zalo Bot' })
   async handleZaloWebhook(
+    @Req() request: any,
     @Body() body: any,
     @Headers('x-bot-api-secret-token') secretTokenHeader?: string,
     @Headers('x-secret-token') legacySecretTokenHeader?: string,
     @Headers('secret-token') rawSecretTokenHeader?: string,
+    @Headers('content-type') contentTypeHeader?: string,
+    @Headers('user-agent') userAgentHeader?: string,
   ) {
     const settings = await this.prisma.appSetting.findMany({
       where: { key: 'zalo-provider', scope: 'TENANT' as any },
@@ -172,6 +184,13 @@ export class CommunicationController {
     });
 
     const providedSecret = String(secretTokenHeader || legacySecretTokenHeader || rawSecretTokenHeader || '').trim();
+    const provisionalNormalized = normalizeZaloUpdate(body);
+    const rejectedPreview = buildWebhookPreview(body, provisionalNormalized, {
+      contentType: contentTypeHeader,
+      userAgent: userAgentHeader,
+      rawBodyLength: String(request?.rawBody || '').length,
+      secretProvided: Boolean(providedSecret),
+    });
     const matched = settings.find((setting) => {
       const expected = String((setting.value as any)?.webhookSecret || '').trim();
       if (!expected || !providedSecret || expected.length !== providedSecret.length) return false;
@@ -179,28 +198,409 @@ export class CommunicationController {
     });
 
     if (!matched) {
+      if (settings.length === 1) {
+        const only = settings[0];
+        const onlyValue = ((only?.value as any) || {});
+        await this.prisma.appSetting.update({
+          where: { id: only.id },
+          data: {
+            value: {
+              ...onlyValue,
+              lastWebhookReceivedAt: new Date().toISOString(),
+              lastWebhookEventName: provisionalNormalized.eventName || null,
+              lastWebhookChatId: provisionalNormalized.chatId || null,
+              lastWebhookChatType: provisionalNormalized.chatType || 'unknown',
+              lastWebhookSenderId: provisionalNormalized.senderId || null,
+              lastWebhookRejectedReason: 'SECRET_INVALID_OR_MISSING',
+              lastWebhookPreview: rejectedPreview,
+            },
+          },
+        });
+      }
+      this.logger.warn({
+        message: 'Rejected Zalo webhook due to invalid secret',
+        providedSecretLength: providedSecret.length,
+        eventName: provisionalNormalized.eventName,
+        payloadKeys: summarizePayloadKeys(body),
+        contentType: contentTypeHeader || null,
+        rawBodyLength: String(request?.rawBody || '').length,
+      });
       throw new BadRequestException('ZALO_WEBHOOK_SECRET_INVALID');
     }
+
+    const normalized = provisionalNormalized;
+    const capturedChat = extractZaloWebhookChat(body);
+    const lastWebhookRejectedReason = normalized.chatId ? null : 'CHAT_ID_NOT_FOUND';
+    const nextValue = {
+      ...((matched.value as any) || {}),
+      lastWebhookReceivedAt: new Date().toISOString(),
+      lastWebhookEventName: normalized.eventName || null,
+      lastWebhookChatId: normalized.chatId || null,
+      lastWebhookChatType: normalized.chatType || 'unknown',
+      lastWebhookSenderId: normalized.senderId || null,
+      lastWebhookRejectedReason,
+      lastWebhookPreview: buildWebhookPreview(body, normalized, {
+        contentType: contentTypeHeader,
+        userAgent: userAgentHeader,
+        rawBodyLength: String(request?.rawBody || '').length,
+        secretProvided: Boolean(providedSecret),
+      }),
+    };
+    const mergedValue = capturedChat ? mergeRecentZaloWebhookChat(nextValue, capturedChat) : nextValue;
 
     this.logger.log({
       message: 'Accepted Zalo webhook',
       tenantId: matched.tenantId,
-      eventName: body?.event_name || body?.eventName || body?.event || null,
+      eventName: normalized.eventName,
+      chatId: normalized.chatId,
+      chatType: normalized.chatType,
+      senderId: normalized.senderId,
       appId: body?.app_id || body?.appId || null,
       timestamp: body?.timestamp || null,
+      payloadKeys: summarizePayloadKeys(body),
+      rejectedReason: lastWebhookRejectedReason,
     });
 
-    const capturedChat = extractZaloWebhookChat(body);
-    if (capturedChat) {
-      await this.prisma.appSetting.update({
-        where: { id: matched.id },
-        data: {
-          value: mergeRecentZaloWebhookChat(matched.value, capturedChat),
-        },
-      });
+    await this.prisma.appSetting.update({
+      where: { id: matched.id },
+      data: {
+        value: mergedValue,
+      },
+    });
+
+    try {
+      await this.zaloRegistrationService.handleIncomingMessage(
+        matched.tenantId,
+        normalized,
+        mergedValue,
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `Zalo webhook business handling failed for tenant ${matched.tenantId}: ${String(error?.message || error)}`,
+        error?.stack,
+      );
     }
 
     return { success: true, capturedChat: Boolean(capturedChat) };
+  }
+
+  @Public()
+  @Get('zalo/webhook/health')
+  @ApiOperation({ summary: 'Public health endpoint for Zalo webhook routing' })
+  getZaloWebhookHealth() {
+    return {
+      service: 'zalo-webhook',
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  @Get('zalo/status')
+  @ApiOperation({ summary: 'Get current Zalo integration status for the tenant' })
+  async getZaloStatus(@Req() req) {
+    const tenantId = req.user.tenantId;
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    const value = (setting?.value as any) || {};
+    const webhookUrl = buildTenantWebhookUrl(value);
+    const recentWebhookChats = Array.isArray(value.recentWebhookChats) ? value.recentWebhookChats : [];
+    return {
+      success: true,
+      status: {
+        enabled: value.enabled !== false,
+        webhookUrl,
+        botTokenConfigured: Boolean(value.botToken),
+        webhookSecretConfigured: Boolean(value.webhookSecret),
+        adminGroupChatIdConfigured: Boolean(value.adminGroupChatId),
+        adminGroupConnectedAt: value.adminGroupConnectedAt || null,
+        adminSetupCodePending: Boolean(value.adminSetupCode && value.adminSetupCodeExpiresAt),
+        adminSetupCodeExpiresAt: value.adminSetupCodeExpiresAt || null,
+        lastWebhookConnectedAt: value.lastWebhookConnectedAt || null,
+        lastWebhookStatus: value.lastWebhookStatus || null,
+        lastWebhookReceivedAt: value.lastWebhookReceivedAt || null,
+        lastWebhookEventName: value.lastWebhookEventName || null,
+        lastWebhookChatId: value.lastWebhookChatId || null,
+        lastWebhookChatType: value.lastWebhookChatType || null,
+        lastWebhookSenderId: value.lastWebhookSenderId || null,
+        lastWebhookRejectedReason: value.lastWebhookRejectedReason || null,
+        lastWebhookPreview: value.lastWebhookPreview || null,
+        defaultChatId: value.defaultChatId || null,
+        recentWebhookChats: recentWebhookChats.slice(0, 10),
+      },
+    };
+  }
+
+  @Post('zalo/test-bot')
+  @ApiOperation({ summary: 'Validate Zalo Bot token via getMe' })
+  async testZaloBot(@Req() req) {
+    const result = await this.zaloProvider.getMe(req.user.tenantId);
+    return { success: true, result };
+  }
+
+  @Post('zalo/admin-group/setup-code')
+  @ApiOperation({ summary: 'Generate a one-time admin group setup code for /setadmin <CODE>' })
+  async generateZaloAdminGroupSetupCode(@Req() req) {
+    const tenantId = req.user.tenantId;
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    if (!setting?.id) {
+      throw new BadRequestException('ZALO_SETTINGS_NOT_SAVED');
+    }
+
+    const value = (setting.value as any) || {};
+    const code = randomBytes(4).toString('hex').toUpperCase();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    await this.prisma.appSetting.update({
+      where: { id: setting.id },
+      data: {
+        value: {
+          ...value,
+          adminSetupCode: code,
+          adminSetupCodeExpiresAt: expiresAt,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      code,
+      expiresAt,
+      command: `/setadmin ${code}`,
+    };
+  }
+
+  @Post('zalo/test-admin-group')
+  @ApiOperation({ summary: 'Send a test Zalo message to the configured admin group' })
+  async testZaloAdminGroup(
+    @Req() req,
+    @Body() body: { message?: string; template?: 'default' | 'connected' | 'update' | 'overload'; currentVersion?: string; latestVersion?: string; suspiciousIpCount?: number; topSource?: string; currentRps?: number },
+  ) {
+    const tenantId = req.user.tenantId;
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    const value = (setting?.value as any) || {};
+    const adminGroupChatId = String(value.adminGroupChatId || '').trim();
+    if (!adminGroupChatId) {
+      throw new BadRequestException('ZALO_ADMIN_GROUP_CHAT_ID_REQUIRED');
+    }
+    const template = String(body?.template || 'default').trim().toLowerCase();
+    const built =
+      template === 'connected'
+        ? buildAdminGroupConnectedMessage({
+            chatId: adminGroupChatId,
+            connectedAt: new Date(),
+            domain: process.env.APP_URL || null,
+          })
+        : template === 'update'
+        ? buildUpdateAvailableMessage({
+            currentVersion: String(body?.currentVersion || process.env.APP_VERSION || 'v1.1.6'),
+            latestVersion: String(body?.latestVersion || 'v1.1.7'),
+            checkedAt: new Date(),
+          })
+        : template === 'overload'
+          ? buildServerOverloadAlertMessage({
+              currentRps: Number(body?.currentRps || 0) || null,
+              suspiciousIpCount: Number(body?.suspiciousIpCount || 0) || null,
+              topSource: String(body?.topSource || '').trim() || null,
+              detectedAt: new Date(),
+            })
+          : buildAdminGroupTestMessage();
+
+    const result = await this.zaloProvider.send({
+      tenantId,
+      recipient: adminGroupChatId,
+      title: built.title,
+      message: String(body?.message || '').trim() || built.message,
+      context: {},
+    });
+    return { success: true, recipient: adminGroupChatId, result };
+  }
+
+  @Delete('zalo/admin-group')
+  @ApiOperation({ summary: 'Clear the configured Zalo admin group binding' })
+  async clearZaloAdminGroup(@Req() req) {
+    const tenantId = req.user.tenantId;
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    if (!setting?.id) {
+      throw new BadRequestException('ZALO_SETTINGS_NOT_SAVED');
+    }
+
+    const value = (setting.value as any) || {};
+    await this.prisma.appSetting.update({
+      where: { id: setting.id },
+      data: {
+        value: {
+          ...value,
+          adminGroupChatId: null,
+          adminGroupConnectedAt: null,
+          adminSetupCode: null,
+          adminSetupCodeExpiresAt: null,
+        },
+      },
+    });
+
+    return { success: true };
+  }
+
+  @Post('zalo/auto-detect-admin-group')
+  @ApiOperation({ summary: 'Pick the latest webhook chat_id, preferring group chats, and save it as the admin group chat id' })
+  async autoDetectAdminGroup(@Req() req) {
+    const tenantId = req.user.tenantId;
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    if (!setting?.id) {
+      throw new BadRequestException('ZALO_SETTINGS_NOT_SAVED');
+    }
+
+    const value = (setting.value as any) || {};
+    const recentWebhookChats = Array.isArray(value.recentWebhookChats) ? value.recentWebhookChats : [];
+    const detectedChat =
+      recentWebhookChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
+      || recentWebhookChats[0]
+      || (
+        value.lastWebhookChatId
+          ? {
+              chatId: value.lastWebhookChatId,
+              chatType: value.lastWebhookChatType || 'unknown',
+              userId: value.lastWebhookSenderId || null,
+              eventName: value.lastWebhookEventName || null,
+              lastSeenAt: value.lastWebhookReceivedAt || null,
+            }
+          : null
+      )
+      || null;
+
+    if (!detectedChat?.chatId) {
+      throw new BadRequestException({
+        message: 'ZALO_NO_WEBHOOK_CHAT_AVAILABLE',
+        lastWebhookReceivedAt: value.lastWebhookReceivedAt || null,
+        lastWebhookEventName: value.lastWebhookEventName || null,
+        lastWebhookRejectedReason: value.lastWebhookRejectedReason || null,
+      });
+    }
+
+    await this.prisma.appSetting.update({
+      where: { id: setting.id },
+      data: {
+        value: {
+          ...value,
+          adminGroupChatId: detectedChat.chatId,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      chat: detectedChat,
+    };
+  }
+
+  @Post('zalo/connect-webhook')
+  @ApiOperation({ summary: 'Call Zalo setWebhook with the current tenant webhook URL and secret token' })
+  async connectZaloWebhook(@Req() req) {
+    const tenantId = req.user.tenantId;
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    const value = (setting?.value as any) || {};
+    const webhookSecret = String(value.webhookSecret || '').trim();
+    const webhookUrl = buildTenantWebhookUrl(value);
+    if (!setting?.id) throw new BadRequestException('ZALO_SETTINGS_NOT_SAVED');
+    if (!webhookSecret) throw new BadRequestException('ZALO_WEBHOOK_SECRET_REQUIRED');
+    if (!webhookUrl) throw new BadRequestException('ZALO_WEBHOOK_URL_REQUIRED');
+
+    const result = await this.zaloProvider.setWebhook(tenantId, {
+      url: webhookUrl,
+      secretToken: webhookSecret,
+    });
+
+    await this.prisma.appSetting.update({
+      where: { id: setting!.id },
+      data: {
+        value: {
+          ...value,
+          lastWebhookConnectedAt: new Date().toISOString(),
+          lastWebhookStatus: 'CONNECTED',
+        },
+      },
+    });
+
+    return { success: true, webhookUrl, result };
+  }
+
+  @Post('zalo/test-endpoint')
+  @ApiOperation({ summary: 'Validate current Zalo webhook endpoint configuration without calling the provider' })
+  async testZaloEndpoint(@Req() req) {
+    const tenantId = req.user.tenantId;
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    const value = (setting?.value as any) || {};
+    const webhookUrl = buildTenantWebhookUrl(value);
+    const webhookSecretConfigured = Boolean(String(value.webhookSecret || '').trim());
+    const botTokenConfigured = Boolean(String(value.botToken || '').trim());
+    return {
+      success: Boolean(webhookUrl && webhookSecretConfigured && botTokenConfigured),
+      webhookUrl,
+      webhookSecretConfigured,
+      botTokenConfigured,
+    };
   }
 
   @Throttle({ short: { limit: 5, ttl: 60000 } })
@@ -287,82 +687,34 @@ export class CommunicationController {
   }
 }
 
-type ZaloWebhookChat = {
-  chatId: string;
-  userId?: string | null;
-  displayName?: string | null;
-  eventName?: string | null;
-  lastSeenAt: string;
-};
+function summarizePayloadKeys(body: any) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return [];
+  return Object.keys(body).slice(0, 12);
+}
 
-function extractZaloWebhookChat(body: any): ZaloWebhookChat | null {
-  const chatId = firstStringValue(body, [
-    'chat_id',
-    'chatId',
-    'conversation_id',
-    'conversationId',
-    'thread_id',
-    'threadId',
-    'message.chat.id',
-    'message.chat_id',
-    'event.chat_id',
-    'event.chat.id',
-    'recipient.chat_id',
-  ]);
-  const userId = firstStringValue(body, [
-    'user_id',
-    'userId',
-    'sender.id',
-    'sender.user_id',
-    'message.from.id',
-    'from.id',
-    'event.user_id',
-  ]);
-  const resolvedChatId = chatId || userId;
-
-  if (!resolvedChatId) return null;
-
+function buildWebhookPreview(
+  body: any,
+  normalized: ReturnType<typeof normalizeZaloUpdate>,
+  extra: {
+    contentType?: string;
+    userAgent?: string;
+    rawBodyLength?: number;
+    secretProvided?: boolean;
+  } = {},
+) {
   return {
-    chatId: resolvedChatId,
-    userId: userId || null,
-    displayName: firstStringValue(body, [
-      'sender.name',
-      'sender.display_name',
-      'message.from.name',
-      'from.name',
-      'user.name',
-    ]) || null,
-    eventName: firstStringValue(body, ['event_name', 'eventName', 'event', 'type']) || null,
-    lastSeenAt: new Date().toISOString(),
+    eventName: normalized.eventName || null,
+    chatId: normalized.chatId || null,
+    chatType: normalized.chatType || 'unknown',
+    senderId: normalized.senderId || null,
+    hasText: Boolean(normalized.text),
+    contentType: extra.contentType || null,
+    userAgent: extra.userAgent || null,
+    rawBodyLength: Number(extra.rawBodyLength || 0),
+    secretProvided: Boolean(extra.secretProvided),
+    payloadKeys: summarizePayloadKeys(body),
+    messageKeys: summarizePayloadKeys(body?.message),
+    eventKeys: summarizePayloadKeys(body?.event),
+    dataKeys: summarizePayloadKeys(body?.data),
   };
-}
-
-function mergeRecentZaloWebhookChat(value: any, capturedChat: ZaloWebhookChat) {
-  const existing = value && typeof value === 'object' && !Array.isArray(value)
-    ? { ...value }
-    : {};
-  const currentList = Array.isArray(existing.recentWebhookChats) ? existing.recentWebhookChats : [];
-  const withoutDuplicate = currentList.filter((item: any) => String(item?.chatId || '') !== capturedChat.chatId);
-
-  return {
-    ...existing,
-    defaultChatId: existing.defaultChatId || capturedChat.chatId,
-    recentWebhookChats: [capturedChat, ...withoutDuplicate].slice(0, 10),
-  };
-}
-
-function firstStringValue(source: any, paths: string[]) {
-  for (const path of paths) {
-    const value = getPath(source, path);
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  }
-  return '';
-}
-
-function getPath(source: any, path: string) {
-  return path.split('.').reduce((current, key) => {
-    if (!current || typeof current !== 'object') return undefined;
-    return current[key];
-  }, source);
 }

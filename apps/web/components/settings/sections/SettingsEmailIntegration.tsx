@@ -85,7 +85,6 @@ export default function SettingsEmailIntegration() {
           </p>
         </div>
         <div className="flex items-center gap-[10px] rounded-full border border-border px-[12px] py-[8px] bg-background">
-          <span className="text-[12px] font-bold text-muted">Bật Email</span>
           <Switch checked={draft.enabled} onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))} />
         </div>
       </div>

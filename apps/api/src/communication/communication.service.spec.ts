@@ -9,6 +9,8 @@ describe('CommunicationService', () => {
       id: 'queue-1',
       notificationId: notification.id,
       channel: NotificationChannel.ZALO,
+      status: 'QUEUED',
+      error: null,
       retryCount: 0,
       payload: {
         tenantId: 'tenant-1',
@@ -40,7 +42,7 @@ describe('CommunicationService', () => {
         create: vi.fn().mockResolvedValue(queueItem),
         findUnique: vi.fn().mockResolvedValue(queueItem),
         findFirst: vi.fn().mockResolvedValue(queueItem),
-        findMany: vi.fn().mockResolvedValue([queueItem]),
+        findMany: vi.fn().mockResolvedValue([{ id: 'queue-1', status: 'DELIVERED', error: null }]),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         update: vi.fn(),
       },
@@ -152,6 +154,37 @@ describe('CommunicationService', () => {
         status: 'FAILED',
       }),
     }));
+  });
+
+  it('throws from dispatchDirect when immediate provider delivery fails', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.findMany = vi.fn().mockResolvedValue([
+      {
+        id: 'queue-1',
+        status: 'FAILED',
+        error: 'Zalo unavailable',
+      },
+    ]);
+    const service = new CommunicationService(prisma as any);
+    const send = vi.fn().mockRejectedValue(new Error('Zalo unavailable'));
+    service.registerProvider({
+      channel: NotificationChannel.ZALO,
+      send,
+    });
+
+    await expect(
+      service.dispatchDirect({
+        tenantId: 'tenant-1',
+        userId: 'customer-1',
+        channel: NotificationChannel.ZALO,
+        recipient: 'zalo-user-1',
+        templateCode: 'INVOICE_ZALO_PAYMENT_REQUEST',
+        context: {
+          title: 'Pay now',
+          message: 'Please scan QR',
+        },
+      }),
+    ).rejects.toThrow('Zalo unavailable');
   });
 
   it('does not send when another worker already claimed the queue item', async () => {

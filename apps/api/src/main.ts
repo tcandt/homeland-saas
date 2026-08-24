@@ -40,8 +40,13 @@ async function bootstrap() {
 
   const express = require('express');
   const bodyLimit = process.env.API_BODY_LIMIT || '2mb';
-  app.use(express.json({ limit: bodyLimit }));
-  app.use(express.urlencoded({ limit: bodyLimit, extended: true }));
+  const captureRawBody = (req: any, _res: any, buffer: Buffer) => {
+    if (buffer?.length) {
+      req.rawBody = buffer.toString('utf8');
+    }
+  };
+  app.use(express.json({ limit: bodyLimit, verify: captureRawBody }));
+  app.use(express.urlencoded({ limit: bodyLimit, extended: true, verify: captureRawBody }));
 
   // 3. CORS & Security
   app.enableCors({

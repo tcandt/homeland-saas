@@ -1,4 +1,5 @@
 import { UnauthorizedException } from '@nestjs/common';
+import { createHmac } from 'crypto';
 import { PaymentProvider, PaymentRequestStatus, PaymentSourceType } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { PaymentsService } from './payments.service';
@@ -9,6 +10,7 @@ describe('PaymentsService', () => {
       appSetting: {
         findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn(),
+        upsert: vi.fn(),
       },
       paymentWebhookLog: {
         upsert: vi.fn(),
@@ -40,6 +42,19 @@ describe('PaymentsService', () => {
       },
       bankAccount: {
         findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      owner: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      room: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      roomPaymentAccountRoute: {
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn(),
+        createMany: vi.fn(),
       },
       user: {
         findMany: vi.fn().mockResolvedValue([
@@ -61,6 +76,9 @@ describe('PaymentsService', () => {
           : (prismaOverrides[key] ?? value),
       ]),
     );
+    if (!prisma.$transaction) {
+      prisma.$transaction = vi.fn().mockImplementation(async (callback: any) => callback(prisma));
+    }
 
     const invoicesService = {
       getDetail: vi.fn(),
@@ -74,6 +92,10 @@ describe('PaymentsService', () => {
       dispatchDirect: vi.fn(),
       dispatch: vi.fn(),
     };
+    const zaloProvider = {
+      send: vi.fn().mockResolvedValue({ success: true, zaloResponse: { result: { message_id: 'zalo-msg-1' } } }),
+      sendPhoto: vi.fn().mockResolvedValue({ success: true, zaloResponse: { result: { message_id: 'zalo-photo-1' } } }),
+    };
     const journalEntryService = {
       createJournalEntry: vi.fn(),
     };
@@ -86,6 +108,7 @@ describe('PaymentsService', () => {
       invoicesService,
       depositsService,
       communicationService,
+      zaloProvider,
       journalEntryService,
       auditService,
       service: new PaymentsService(
@@ -93,6 +116,7 @@ describe('PaymentsService', () => {
         invoicesService as any,
         depositsService as any,
         communicationService as any,
+        zaloProvider as any,
         journalEntryService as any,
         auditService as any,
       ),
@@ -103,6 +127,129 @@ describe('PaymentsService', () => {
     const { service } = createService();
 
     await expect(service.handleSePayWebhook({ id: 'txn-1' }, 'Apikey anything')).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('accepts SePay webhooks in HMAC mode with a valid raw-body signature', async () => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const rawBody = JSON.stringify({
+      id: 'txn-hmac-1',
+      code: 'PAY-TENANT-HMAC-001',
+      transferType: 'in',
+      transferAmount: 100000,
+    });
+    const signature = createHmac('sha256', 'hmac-secret-1')
+      .update(`${timestamp}.${rawBody}`)
+      .digest('hex');
+
+    const { service, prisma, invoicesService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([{ value: { authMode: 'hmac', hmacSecret: 'hmac-secret-1' } }]),
+        findUnique: vi.fn(),
+      },
+      paymentWebhookLog: {
+        upsert: vi.fn().mockResolvedValue({ id: 'log-hmac-1', processedAt: null }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'request-hmac-1',
+          tenantId: 'tenant-1',
+          sourceType: PaymentSourceType.INVOICE,
+          sourceId: 'invoice-1',
+          status: PaymentRequestStatus.PENDING,
+          amount: 100000,
+        }),
+        update: vi.fn(),
+      },
+    });
+    invoicesService.pay.mockResolvedValue({ id: 'invoice-1' });
+
+    await expect(
+      service.handleSePayWebhook(JSON.parse(rawBody), {
+        timestamp,
+        rawBody,
+        signature,
+      }),
+    ).resolves.toEqual({ success: true });
+
+    expect(prisma.paymentRequest.update).toHaveBeenCalledWith({
+      where: { id: 'request-hmac-1' },
+      data: expect.objectContaining({
+        status: PaymentRequestStatus.CONFIRMED,
+        providerTransactionId: 'txn-hmac-1',
+      }),
+    });
+  });
+
+  it('rejects SePay webhooks in HMAC mode when the signature is invalid', async () => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const rawBody = JSON.stringify({
+      id: 'txn-hmac-bad-1',
+      code: 'PAY-TENANT-HMAC-BAD-001',
+      transferType: 'in',
+      transferAmount: 100000,
+    });
+
+    const { service } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([{ value: { authMode: 'hmac', hmacSecret: 'hmac-secret-1' } }]),
+        findUnique: vi.fn(),
+      },
+    });
+
+    await expect(
+      service.handleSePayWebhook(JSON.parse(rawBody), {
+        timestamp,
+        rawBody,
+        signature: 'bad-signature',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('accepts SePay webhooks in dual mode with either api key or HMAC', async () => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const rawBody = JSON.stringify({
+      id: 'txn-dual-1',
+      code: 'PAY-TENANT-DUAL-001',
+      transferType: 'in',
+      transferAmount: 100000,
+    });
+    const signature = createHmac('sha256', 'dual-secret-1')
+      .update(`${timestamp}.${rawBody}`)
+      .digest('hex');
+
+    const { service, prisma, invoicesService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([{ value: { authMode: 'dual', webhookApiKey: 'dual-key-1', hmacSecret: 'dual-secret-1' } }]),
+        findUnique: vi.fn(),
+      },
+      paymentWebhookLog: {
+        upsert: vi.fn().mockResolvedValue({ id: 'log-dual-1', processedAt: null }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'request-dual-1',
+          tenantId: 'tenant-1',
+          sourceType: PaymentSourceType.INVOICE,
+          sourceId: 'invoice-1',
+          status: PaymentRequestStatus.PENDING,
+          amount: 100000,
+        }),
+        update: vi.fn(),
+      },
+    });
+    invoicesService.pay.mockResolvedValue({ id: 'invoice-1' });
+
+    await expect(
+      service.handleSePayWebhook(JSON.parse(rawBody), {
+        timestamp,
+        rawBody,
+        signature,
+      }),
+    ).resolves.toEqual({ success: true });
+
+    expect(prisma.paymentRequest.update).toHaveBeenCalled();
   });
 
   it('ignores concurrent duplicate SePay webhooks for the same transaction id in the same API process', async () => {
@@ -223,6 +370,21 @@ describe('PaymentsService', () => {
       bankAccount: {
         findFirst: vi.fn().mockResolvedValue(bankAccount),
       },
+      room: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'room-1',
+          code: '31.01',
+          name: '31.01',
+          rentalType: 'WHOLE',
+          buildingId: 'building-1',
+          building: {
+            id: 'building-1',
+            code: 'LK01',
+            name: 'Toa LK01',
+            ownerId: 'owner-a',
+          },
+        }),
+      },
       paymentRequest: {
         findFirst: vi.fn(),
         update: vi.fn(),
@@ -278,6 +440,183 @@ describe('PaymentsService', () => {
       amount: 350000,
       bankAccountNumber: '123456789',
     });
+  });
+
+  it('resolves test QR by room routing before owner fallback', async () => {
+    const { service, prisma } = createService({
+      appSetting: {
+        findUnique: vi.fn().mockImplementation(({ where }: any) => {
+          const key = where?.tenantId_scope_ownerId_key?.key;
+          if (key === 'sepay') return Promise.resolve({ value: { paymentCodePrefix: 'HL' } });
+          return Promise.resolve(null);
+        }),
+      },
+      roomPaymentAccountRoute: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'route-1',
+            roomId: 'room-1',
+            bankAccountId: 'bank-room-route',
+            validFrom: new Date('2026-01-01T00:00:00.000Z'),
+            validTo: null,
+            note: null,
+          },
+        ]),
+        deleteMany: vi.fn(),
+        createMany: vi.fn(),
+      },
+      room: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'room-1',
+          code: 'LK01.31',
+          name: 'LK01.31',
+          rentalType: 'WHOLE',
+          buildingId: 'building-1',
+          building: {
+            id: 'building-1',
+            code: 'LK01',
+            name: 'Tòa LK01',
+            ownerId: 'owner-a',
+          },
+        }),
+      },
+      bankAccount: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'bank-room-route',
+            ownerId: 'owner-a',
+            bankName: 'MBBank',
+            accountNumber: '111122223333',
+            accountName: 'Owner A',
+            isActive: true,
+          }),
+      },
+    });
+
+    const preview = await service.previewSePayQr('tenant-1', { roomId: 'room-1', amount: 10000 });
+
+    expect(preview.roomCode).toBe('LK01.31');
+    expect(preview.bankAccountId).toBe('bank-room-route');
+    expect(preview.resolvedFrom).toBe('ROOM');
+    expect(prisma.bankAccount.findFirst).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-1',
+        id: 'bank-room-route',
+        isActive: true,
+      },
+    });
+  });
+
+  it('sends test QR preview to zalo admin group', async () => {
+    const { service, zaloProvider } = createService({
+      appSetting: {
+        findUnique: vi.fn().mockImplementation(({ where }: any) => {
+          const key = where?.tenantId_scope_ownerId_key?.key;
+          if (key === 'sepay') return Promise.resolve({ value: { paymentCodePrefix: 'HL' } });
+          if (key === 'sepay-routing') return Promise.resolve({ value: { assignments: [] } });
+          if (key === 'zalo-provider') return Promise.resolve({ value: { adminGroupChatId: 'zalo-group-1' } });
+          return Promise.resolve(null);
+        }),
+      },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1',
+          ownerId: 'owner-a',
+          bankName: 'MBBank',
+          accountNumber: '111122223333',
+          accountName: 'Owner A',
+          isActive: true,
+        }),
+      },
+    });
+
+    const result = await service.sendPreviewSePayQrToAdminGroup('tenant-1', { amount: 20000 });
+
+    expect(result.recipient).toBe('zalo-group-1');
+    expect(zaloProvider.sendPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        recipient: 'zalo-group-1',
+        photo: expect.stringContaining('https://vietqr.app/img?'),
+        caption: expect.stringContaining('QR test SePay'),
+      }),
+    );
+  });
+
+  it('falls back to AppSetting routing storage when the routing table is not migrated', async () => {
+    const { service, prisma, auditService } = createService({
+      roomPaymentAccountRoute: {
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockRejectedValue(Object.assign(new Error('missing table'), { code: 'P2021' })),
+        createMany: vi.fn(),
+      },
+      room: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'room-1',
+          code: 'LK01.31',
+          name: 'LK01.31',
+          rentalType: 'WHOLE',
+          buildingId: 'building-1',
+          building: {
+            id: 'building-1',
+            code: 'LK01',
+            name: 'Tòa LK01',
+            ownerId: 'owner-a',
+          },
+        }),
+        findMany: vi.fn().mockResolvedValue([{ id: 'room-1' }]),
+      },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1',
+          ownerId: 'owner-a',
+          bankName: 'MBBank',
+          accountNumber: '111122223333',
+          accountName: 'Owner A',
+          isActive: true,
+        }),
+        findMany: vi.fn().mockResolvedValue([{ id: 'bank-1' }]),
+      },
+      appSetting: {
+        findUnique: vi.fn().mockImplementation(({ where }: any) => {
+          const key = where?.tenantId_scope_ownerId_key?.key;
+          if (key === 'sepay') return Promise.resolve({ value: { paymentCodePrefix: 'HL' } });
+          if (key === 'sepay-routing') return Promise.resolve({ value: { assignments: [{ roomId: 'room-1', bankAccountId: 'bank-1' }] } });
+          return Promise.resolve(null);
+        }),
+        upsert: vi.fn().mockResolvedValue({ id: 'setting-1' }),
+      },
+    });
+
+    const result = await service.saveRoomPaymentAccountRoutes(
+      'tenant-1',
+      [{ roomId: 'room-1', bankAccountId: 'bank-1' }],
+      'user-1',
+    );
+
+    expect(prisma.appSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId: 'tenant-1',
+          scope: 'TENANT',
+          ownerId: 'tenant-1',
+          key: 'sepay-routing',
+        },
+      },
+      update: expect.objectContaining({
+        value: expect.objectContaining({
+          assignments: [
+            expect.objectContaining({
+              roomId: 'room-1',
+              bankAccountId: 'bank-1',
+            }),
+          ],
+        }),
+      }),
+    }));
+    expect(auditService.log).toHaveBeenCalled();
+    expect(result).toBeTruthy();
   });
 
   it('does not confirm SePay webhooks when the transfer amount is short', async () => {
@@ -520,6 +859,21 @@ describe('PaymentsService', () => {
       bankAccount: {
         findFirst: vi.fn().mockResolvedValue(bankAccount),
       },
+      room: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'room-1',
+          code: '31.01',
+          name: '31.01',
+          rentalType: 'WHOLE',
+          buildingId: 'building-1',
+          building: {
+            id: 'building-1',
+            code: 'LK01',
+            name: 'Toa LK01',
+            ownerId: 'owner-a',
+          },
+        }),
+      },
       paymentRequest: {
         findFirst: vi.fn(),
         update: vi.fn(),
@@ -587,6 +941,89 @@ describe('PaymentsService', () => {
         entityId: 'request-zalo-1',
         tenantId: 'tenant-1',
         userId: 'user-1',
+      }),
+    );
+  });
+
+  it('preserves shared-room context when sending invoice payment request to Zalo', async () => {
+    const bankAccount = {
+      id: 'bank-owner-a',
+      ownerId: 'owner-a',
+      bankName: 'ACB',
+      accountNumber: '123456789',
+      accountName: 'Owner A',
+      isActive: true,
+      createdAt: new Date('2026-08-09T00:00:00.000Z'),
+    };
+    const { service, invoicesService, communicationService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue({ value: { paymentCodePrefix: 'INV' } }),
+      },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue(bankAccount),
+      },
+      room: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'room-1',
+          code: '31.06',
+          name: '31.06',
+          rentalType: 'SHARED',
+          buildingId: 'building-1',
+          building: {
+            id: 'building-1',
+            code: 'LK01',
+            name: 'Toa A',
+            ownerId: 'owner-a',
+          },
+        }),
+      },
+      paymentRequest: {
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        create: vi.fn().mockImplementation(({ data }) => Promise.resolve({
+          id: 'request-zalo-shared-1',
+          ...data,
+          status: PaymentRequestStatus.PENDING,
+          provider: PaymentProvider.SEPAY,
+          createdAt: new Date('2026-08-09T00:00:00.000Z'),
+          updatedAt: new Date('2026-08-09T00:00:00.000Z'),
+        })),
+      },
+    });
+    invoicesService.getDetail.mockResolvedValue({
+      id: 'invoice-1',
+      tenantId: 'tenant-1',
+      code: 'INV-001',
+      total: 3500000,
+      paidAmount: 0,
+      creditAmount: 0,
+      customerId: 'customer-1',
+      customer: { fullName: 'Khach A', phone: '0901000001', zaloChatId: 'zalo-chat-1' },
+      contract: {
+        id: 'contract-1',
+        roomId: 'room-1',
+        memberCount: 2,
+        room: {
+          code: '31.06',
+          buildingId: 'building-1',
+          rentalType: 'SHARED',
+          building: { ownerId: 'owner-a', name: 'Toa A' },
+        },
+      },
+    });
+
+    await service.sendInvoiceRequestToZalo('invoice-1', 'user-1');
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          roomCode: '31.06',
+          roomRentalType: 'SHARED',
+          roomRentalTypeLabel: 'Phòng ghép',
+          roomMemberCount: 2,
+          customerName: 'Khach A',
+        }),
       }),
     );
   });

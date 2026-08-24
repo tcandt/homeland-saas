@@ -181,6 +181,7 @@ model TenantOrg {
   users     User[]
   buildings Building[]
   owners    Owner[]
+  roomPaymentAccountRoutes RoomPaymentAccountRoute[]
 }
 
 model Owner {
@@ -353,6 +354,7 @@ model Room {
   roommates            Customer[]            @relation("RoomRoommates")
   hunonicMeterMappings HunonicMeterMapping[]
   hunonicMeterReadings HunonicMeterReading[]
+  paymentAccountRoutes RoomPaymentAccountRoute[]
 
   @@unique([tenantId, buildingId, code])
   @@index([tenantId, status])
@@ -711,9 +713,31 @@ model BankAccount {
 
   owner           Owner?           @relation(fields: [ownerId], references: [id])
   paymentRequests PaymentRequest[]
+  roomPaymentAccountRoutes RoomPaymentAccountRoute[]
 
   @@unique([tenantId, accountNumber])
   @@index([tenantId, ownerId])
+}
+
+model RoomPaymentAccountRoute {
+  id            String   @id @default(cuid())
+  tenantId      String
+  roomId        String
+  bankAccountId String
+  validFrom     DateTime
+  validTo       DateTime?
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant      TenantOrg   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  room        Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, roomId, validFrom])
+  @@index([tenantId, roomId, validFrom])
+  @@index([tenantId, bankAccountId, validFrom])
+  @@index([tenantId, validFrom, validTo])
 }
 
 model PaymentRequest {

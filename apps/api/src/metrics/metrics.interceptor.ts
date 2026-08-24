@@ -7,10 +7,14 @@ import {
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { MetricsService } from './metrics.service';
+import { RequestAnomalyTrackerService } from './request-anomaly-tracker.service';
 
 @Injectable()
 export class MetricsInterceptor implements NestInterceptor {
-  constructor(private readonly metricsService: MetricsService) {}
+  constructor(
+    private readonly metricsService: MetricsService,
+    private readonly requestAnomalyTracker: RequestAnomalyTrackerService,
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const req = context.switchToHttp().getRequest();
@@ -27,6 +31,7 @@ export class MetricsInterceptor implements NestInterceptor {
             res.statusCode,
             duration,
           );
+          this.requestAnomalyTracker.recordRequest(extractRequestIp(req), req.url);
         },
         error: (err) => {
           const duration = Date.now() - start;
@@ -37,8 +42,19 @@ export class MetricsInterceptor implements NestInterceptor {
             statusCode,
             duration,
           );
+          this.requestAnomalyTracker.recordRequest(extractRequestIp(req), req.url);
         },
       }),
     );
   }
+}
+
+function extractRequestIp(req: any) {
+  return (
+    req?.headers?.['cf-connecting-ip'] ||
+    req?.headers?.['x-forwarded-for'] ||
+    req?.ip ||
+    req?.socket?.remoteAddress ||
+    null
+  );
 }

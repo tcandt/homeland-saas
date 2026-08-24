@@ -21,6 +21,7 @@ export default function BankTransactionHistory() {
   const [month, setMonth] = useState("");
   const [bankAccountId, setBankAccountId] = useState("");
   const [direction, setDirection] = useState("");
+  const [matchStatus, setMatchStatus] = useState("");
   const [content, setContent] = useState("");
   const [search, setSearch] = useState("");
 
@@ -30,11 +31,12 @@ export default function BankTransactionHistory() {
       ...(month ? { month } : {}),
       ...(bankAccountId ? { bankAccountId } : {}),
       ...(direction ? { direction } : {}),
+      ...(matchStatus ? { matchStatus } : {}),
       ...(content.trim() ? { content: content.trim() } : {}),
       ...(search.trim() ? { search: search.trim() } : {}),
       limit: 300,
     }),
-    [bankAccountId, content, direction, month, search, year],
+    [bankAccountId, content, direction, matchStatus, month, search, year],
   );
 
   const { data, isLoading, isError } = useBankTransactionsQuery(params);
@@ -72,6 +74,11 @@ export default function BankTransactionHistory() {
     { value: "OUT", label: "Tiền ra" },
   ];
 
+  const matchOptions = [
+    { value: "", label: "Tất cả trạng thái" },
+    ...((Array.isArray(data?.filters?.matchStatuses) ? data.filters.matchStatuses : []) as Array<{ value: string; label: string }>),
+  ];
+
   return (
     <section
       data-testid="bank-transactions-root"
@@ -90,7 +97,7 @@ export default function BankTransactionHistory() {
             </p>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[960px] xl:grid-cols-[minmax(170px,1.2fr)_minmax(170px,1.2fr)_90px_120px_160px_120px] 2xl:min-w-[1180px] 2xl:grid-cols-[minmax(220px,1.2fr)_minmax(220px,1.2fr)_100px_140px_190px_140px]">
+          <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[1140px] xl:grid-cols-[minmax(160px,1.1fr)_minmax(160px,1.1fr)_90px_120px_160px_150px_140px] 2xl:min-w-[1320px] 2xl:grid-cols-[minmax(220px,1.2fr)_minmax(220px,1.2fr)_100px_140px_190px_170px_150px]">
             <div className="relative">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
               <Input
@@ -127,6 +134,12 @@ export default function BankTransactionHistory() {
               onChange={(event) => setDirection(event.target.value)}
               options={directionOptions}
             />
+            <Select
+              data-testid="bank-transactions-match-status"
+              value={matchStatus}
+              onChange={(event) => setMatchStatus(event.target.value)}
+              options={matchOptions}
+            />
           </div>
         </div>
       </div>
@@ -138,11 +151,7 @@ export default function BankTransactionHistory() {
         <Metric label="Giao dịch" value={data?.summary?.total || 0} />
         <Metric label="Tiền vào" value={formatVnd(data?.summary?.inflow || 0)} tone="income" />
         <Metric label="Tiền ra" value={formatVnd(data?.summary?.outflow || 0)} tone="expense" />
-        <Metric
-          label="Chênh lệch"
-          value={formatVnd(data?.summary?.net || 0)}
-          tone={Number(data?.summary?.net || 0) >= 0 ? "income" : "expense"}
-        />
+        <Metric label="Cần tra soát" value={data?.summary?.needsReview || 0} tone="expense" />
       </div>
 
       {isLoading && (
@@ -206,10 +215,13 @@ export default function BankTransactionHistory() {
                       <div className="mt-1 text-[12px] font-semibold text-muted">
                         {row.bankAccount?.accountName || "-"} · {maskAccountNumber(row.bankAccount?.accountNumber)}
                       </div>
+                      <div className="mt-1 text-[11px] text-muted">
+                        {row.bankAccount?.isLinked ? "Đã liên kết SePay" : "Chưa liên kết tài khoản SePay"}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="line-clamp-2 max-w-[420px] font-bold text-text">{row.content || "-"}</div>
-                      <div className="mt-1 text-[11px] text-muted">{row.owner?.name || "Chưa xác định owner"}</div>
+                      <div className="mt-1 text-[11px] text-muted">{row.owner?.name || "Không gắn owner nội bộ"}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-black text-text">{row.paymentCode || "-"}</div>
@@ -225,8 +237,9 @@ export default function BankTransactionHistory() {
                           row.match ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        {row.match ? row.match.status : "Chưa match"}
+                        {row.reviewStatus || (row.match ? row.match.status : "Chưa match")}
                       </span>
+                      <div className="mt-1 text-[11px] text-muted">{row.webhookStatus || "-"}</div>
                     </td>
                   </tr>
                 );

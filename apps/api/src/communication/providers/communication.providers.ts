@@ -11,6 +11,8 @@ type ProviderPayload = {
   recipient?: string | null;
   title?: string;
   message?: string;
+  photo?: string;
+  caption?: string;
   context?: Record<string, any>;
   [key: string]: any;
 };
@@ -56,6 +58,10 @@ function resolveRecipient(payload: ProviderPayload, keys: string[]) {
 function looksLikePhoneNumber(value: string) {
   const normalized = value.replace(/[^\d+]/g, '');
   return /^(\+?84|0)\d{8,11}$/.test(normalized);
+}
+
+function buildZaloBotBaseUrl(apiBase: string, botToken: string) {
+  return `${apiBase}/bot${botToken}`;
 }
 
 async function postJsonWithTimeout(url: string, body: Record<string, any>, timeoutMs: number) {
@@ -214,14 +220,59 @@ export class ConsoleProvider implements CommunicationProvider {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async send(payload: ProviderPayload): Promise<any> {
-    const settings = await readTenantSetting<any>(this.prisma, payload.tenantId, 'zalo-provider');
+  private async resolveSettings(tenantId?: string) {
+    const settings = await readTenantSetting<any>(this.prisma, tenantId, 'zalo-provider');
     assertEnabled(settings, 'Zalo');
-
     const botToken = String(settings.botToken || '').trim();
-    const apiBase = String(settings.apiBaseUrl || this.defaultApiBase).trim().replace(/\/+$/, '');
-    const recipient = resolveRecipient(payload, ['zaloChatId', 'customerZaloChatId', 'chatId', 'zaloUserId', 'customerZaloUserId']);
+    const configuredApiBase = String(settings.apiBaseUrl || '').trim();
+    const apiBase = (configuredApiBase || this.defaultApiBase).replace(/\/+$/, '');
     const timeoutMs = Number(settings.providerTimeoutMs || 10000);
+    return { settings, botToken, apiBase, timeoutMs };
+  }
+
+  async getMe(tenantId?: string) {
+    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(tenantId);
+    if (!botToken) throw new Error('Zalo provider is not configured');
+
+    const { response, body } = await postJsonWithTimeout(
+      `${buildZaloBotBaseUrl(apiBase, botToken)}/getMe`,
+      {},
+      timeoutMs,
+    );
+    if (!response.ok || body?.ok === false || body?.error) {
+      throw new Error(body?.message || body?.error_name || `Zalo getMe failed with ${response.status}`);
+    }
+    return body;
+  }
+
+  async setWebhook(
+    tenantId: string | undefined,
+    payload: { url: string; secretToken: string },
+  ) {
+    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(tenantId);
+    if (!botToken) throw new Error('Zalo provider is not configured');
+    if (!payload.url || !payload.secretToken) {
+      throw new Error('Missing Zalo webhook URL or secret token');
+    }
+
+    const { response, body } = await postJsonWithTimeout(
+      `${buildZaloBotBaseUrl(apiBase, botToken)}/setWebhook`,
+      {
+        url: payload.url,
+        secret_token: payload.secretToken,
+      },
+      timeoutMs,
+    );
+
+    if (!response.ok || body?.ok === false || body?.error) {
+      throw new Error(body?.message || body?.error_name || `Zalo setWebhook failed with ${response.status}`);
+    }
+    return body;
+  }
+
+  async send(payload: ProviderPayload): Promise<any> {
+    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(payload.tenantId);
+    const recipient = resolveRecipient(payload, ['zaloChatId', 'customerZaloChatId', 'chatId', 'zaloUserId', 'customerZaloUserId']);
 
     if (!botToken || !recipient) {
       throw new Error('Zalo provider is not configured');
@@ -231,7 +282,7 @@ export class ConsoleProvider implements CommunicationProvider {
     }
 
     const { response, body } = await postJsonWithTimeout(
-      `${apiBase}/bot${botToken}/sendMessage`,
+      `${buildZaloBotBaseUrl(apiBase, botToken)}/sendMessage`,
       {
         chat_id: recipient,
         text: [payload.title, payload.message].filter(Boolean).join('\n\n'),
@@ -241,6 +292,39 @@ export class ConsoleProvider implements CommunicationProvider {
 
     if (!response.ok || body?.ok === false || body?.error) {
       throw new Error(body?.message || body?.error_name || `Zalo send failed with ${response.status}`);
+    }
+
+    return { success: true, zaloResponse: body };
+  }
+
+  async sendPhoto(payload: ProviderPayload): Promise<any> {
+    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(payload.tenantId);
+    const recipient = resolveRecipient(payload, ['zaloChatId', 'customerZaloChatId', 'chatId', 'zaloUserId', 'customerZaloUserId']);
+    const photo = String(payload.photo || '').trim();
+    const caption = String(payload.caption || payload.message || '').trim();
+
+    if (!botToken || !recipient) {
+      throw new Error('Zalo provider is not configured');
+    }
+    if (looksLikePhoneNumber(recipient)) {
+      throw new Error('Zalo Bot requires chat_id or user_id. Current recipient looks like a phone number.');
+    }
+    if (!photo) {
+      throw new Error('Zalo photo URL is required');
+    }
+
+    const { response, body } = await postJsonWithTimeout(
+      `${buildZaloBotBaseUrl(apiBase, botToken)}/sendPhoto`,
+      {
+        chat_id: recipient,
+        photo,
+        ...(caption ? { caption } : {}),
+      },
+      timeoutMs,
+    );
+
+    if (!response.ok || body?.ok === false || body?.error) {
+      throw new Error(body?.message || body?.error_name || `Zalo sendPhoto failed with ${response.status}`);
     }
 
     return { success: true, zaloResponse: body };

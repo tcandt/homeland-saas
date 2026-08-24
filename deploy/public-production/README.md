@@ -1,6 +1,8 @@
 # HomeLand Public Production Bundle
 
-This bundle is for the production upload set. It is separate from the testing bundle and uses production naming only.
+Production domain: `https://homeland.ductinh.one`
+
+This bundle is the clean production upload set for a fresh VPS rebuild. It keeps the existing public port layout and assumes the Cloudflare Tunnel will continue forwarding to the web container on `localhost:49187`.
 
 ## Ports
 
@@ -8,30 +10,60 @@ This bundle is for the production upload set. It is separate from the testing bu
 | --- | --- |
 | Web | `http://localhost:49187` |
 | API | `http://localhost:49188/api/v1` |
-| Notification worker | no public port |
 | PostgreSQL | `localhost:49189` |
 | Redis | `localhost:49190` |
+| Notification worker | no public port |
 
-The web app calls the API through same-origin `/api/v1`, so a reverse proxy or Cloudflare Tunnel can point to the web service only.
+The web app calls the API through same-origin `/api/v1`, so Cloudflare Tunnel only needs to target `http://localhost:49187`.
 
-## Start
+## Fresh reset
 
-From the repository root:
+For a full wipe-and-rebuild on the VPS:
 
 ```bash
 cp deploy/public-production/env.public-production.example deploy/public-production/env.public-production
+nano deploy/public-production/env.public-production
+bash deploy/public-production/reset-public-production.sh
+```
+
+For a one-command Ubuntu VPS bootstrap on a clean server:
+
+```bash
+cd /path/to/homeland-saas/deploy/public-production
+sudo bash setup-public-production-ubuntu.sh
+```
+
+What the reset script does:
+
+1. Stops the current production stack and removes named volumes for PostgreSQL, Redis cache state, attachments, backups, and runtime state.
+2. Starts PostgreSQL and Redis again on the same ports.
+3. Resets the database schema from the current Prisma model and seeds a fresh dataset.
+4. Starts `api`, `notification_worker`, and `web`.
+
+What the Ubuntu setup script does:
+
+1. Installs Docker Engine and Docker Compose plugin if missing.
+2. Copies `env.public-production.example` to `env.public-production` when needed.
+3. Generates strong defaults for `POSTGRES_PASSWORD`, `JWT_SECRET`, `INTERNAL_API_TOKEN`, and `MAINTENANCE_BYPASS_KEY` if still placeholders.
+4. Forces `APP_URL` and `CORS_ORIGINS` to `https://homeland.ductinh.one`.
+5. Runs the full reset script to rebuild PostgreSQL, Redis, API, worker, and web.
+6. Starts Cloudflare Tunnel automatically if `CLOUDFLARE_TUNNEL_TOKEN` is present in the env file.
+
+Default seeded login after reset:
+
+- Email: `admin@homeland.vn`
+- Password: `admin123456`
+- First login must change password when `SEED_FORCE_PASSWORD_CHANGE=true`
+
+## Manual start
+
+Source-build mode:
+
+```bash
 docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.public-production.yml up -d --build
 ```
 
-If images were prebuilt and loaded already:
-
-```bash
-docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.public-production.yml up -d
-```
-
-## Registry Pull Mode
-
-For VPS production, prefer immutable images pulled from GHCR instead of building on the host:
+Registry mode:
 
 ```bash
 docker login ghcr.io
@@ -39,35 +71,58 @@ docker compose --env-file deploy/public-production/env.public-production -f depl
 docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.registry-production.yml up -d
 ```
 
-Required variables in `deploy/public-production/env.public-production`:
+## Required production changes before public exposure
 
-- `API_TAG=<approved-api-tag-or-sha>`
-- `WEB_TAG=<approved-web-tag-or-sha>`
-- optional `API_IMAGE` / `WEB_IMAGE` when registry path changes
-- `STORAGE_PROVIDER=local|s3|r2`
-- `STORAGE_DIR=/app/storage` when `STORAGE_PROVIDER=local`
+These values must not stay at placeholder defaults:
 
-This mode keeps PostgreSQL, Redis, and local attachment storage on the VPS, but API/Web are deployed from reviewed registry artifacts only.
+- `POSTGRES_PASSWORD`
+- `JWT_SECRET`
+- `INTERNAL_API_TOKEN`
+- `MAINTENANCE_BYPASS_KEY`
+- any real S3/R2 credentials if object storage is enabled
 
-## Stop
+## Production verdict
+
+Current state is close to production-ready for a single VPS deployment, with these characteristics:
+
+- `notification_worker` already runs out-of-process when `COMMUNICATION_IMMEDIATE_DELIVERY=false`
+- same-origin web to API routing reduces browser-side cross-origin overhead
+- SePay multi-account routing is now backed by DB routing plus historical payment snapshots
+- transaction history already exposes unmatched and needs-review webhook traffic for manual reconciliation
+
+Remaining operational gaps:
+
+1. Storage is still `local` by default. This is acceptable for one VPS, but not enough for stronger disaster recovery.
+2. In-app system update is present, but production rollout should still rely on reviewed deploy artifacts and evidence, not blind in-place updates.
+3. Seeded default admin credentials are intentionally weak for bootstrap convenience. Treat them as temporary only.
+
+## Performance notes
+
+Recommended settings for smoother production behavior:
+
+- keep `COMMUNICATION_IMMEDIATE_DELIVERY=false`
+- keep `notification_worker` running
+- do not expose PostgreSQL or Redis publicly beyond server-local/admin access
+- prefer GHCR immutable tags in registry mode when release artifacts already exist
+- move to S3/R2 storage once production documents and attachments grow
+
+## Verification
+
+After deploy:
 
 ```bash
-docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.public-production.yml down
+curl -i http://localhost:49188/api/v1/health
+curl -i http://localhost:49188/api/v1/health/ready
+curl -I https://homeland.ductinh.one
+docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.public-production.yml ps
 ```
 
-Registry mode uses the same command shape with `docker-compose.registry-production.yml`.
+Optional release checks before shipping:
 
-## Notes
-
-- This bundle keeps its own PostgreSQL and Redis volumes.
-- Local attachment storage persists in `documents_production_storage` when `STORAGE_PROVIDER=local`.
-- The bundle also starts `notification_worker` so queue delivery can run out-of-process when `COMMUNICATION_IMMEDIATE_DELIVERY=false`.
-- Backup/retention state lives in the `production_backups` volume, and notification worker heartbeat lives in `operations_runtime`.
-- `SYSTEM_UPDATE_MODE=enabled` is set for production release flow.
-- `docker-compose.registry-production.yml` is the preferred production entrypoint when CI already pushed `API_TAG` and `WEB_TAG` to GHCR.
-- Replace `POSTGRES_PASSWORD`, `JWT_SECRET`, `MAINTENANCE_BYPASS_KEY`, and any optional integration secrets before deployment.
-- `deploy/public-production/env.public-production` should stay outside Git; only the `.example` template is committed.
-- For Cloudflare Tunnel, point the tunnel to `http://localhost:49187` on the server.
+```bash
+npm run bundle-preflight:prod -- --env-file deploy/public-production/env.public-production
+npm run release-evidence:prod -- --env-file deploy/public-production/env.public-production
+```
 
 ## Optional systemd timers
 
@@ -77,23 +132,3 @@ Template files are available in [deploy/public-production/systemd](C:/Users/tinh
 - `homeland-backup-cycle.timer`
 - `homeland-restore-drill.service`
 - `homeland-restore-drill.timer`
-
-Recommended install flow on Ubuntu:
-
-```bash
-sudo cp deploy/public-production/systemd/homeland-*.service /etc/systemd/system/
-sudo cp deploy/public-production/systemd/homeland-*.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now homeland-backup-cycle.timer
-sudo systemctl enable --now homeland-restore-drill.timer
-systemctl list-timers --all | grep homeland
-```
-
-## Production bundle checks
-
-Before deploy:
-
-```bash
-npm run bundle-preflight:prod -- --env-file deploy/public-production/env.public-production
-npm run release-evidence:prod -- --env-file deploy/public-production/env.public-production
-```

@@ -714,6 +714,132 @@ export class FinanceReportingService {
     return updated;
   }
 
+  async updateBankAccountDetails(
+    tenantId: string,
+    userId: string | undefined,
+    bankAccountId: string,
+    payload: { bankName?: string; accountNumber?: string; accountName?: string },
+  ) {
+    const bankAccount = await this.prisma.bankAccount.findFirst({
+      where: { tenantId, id: bankAccountId },
+    });
+    if (!bankAccount) {
+      throw new BadRequestException('BANK_ACCOUNT_NOT_FOUND');
+    }
+
+    const bankName = String(payload.bankName || '').trim();
+    const accountNumber = String(payload.accountNumber || '').trim();
+    const accountName = String(payload.accountName || '').trim();
+
+    if (!bankName) throw new BadRequestException('BANK_ACCOUNT_NAME_REQUIRED');
+    if (!accountNumber) throw new BadRequestException('BANK_ACCOUNT_NUMBER_REQUIRED');
+    if (!accountName) throw new BadRequestException('BANK_ACCOUNT_OWNER_REQUIRED');
+
+    const duplicate = await this.prisma.bankAccount.findFirst({
+      where: {
+        tenantId,
+        accountNumber,
+        id: { not: bankAccountId },
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new BadRequestException('BANK_ACCOUNT_NUMBER_ALREADY_EXISTS');
+    }
+
+    const updated = await this.prisma.bankAccount.update({
+      where: { id: bankAccountId },
+      data: {
+        bankName,
+        accountNumber,
+        accountName,
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        userId,
+        module: 'Finance',
+        entity: 'BankAccount',
+        entityId: bankAccountId,
+        action: AuditAction.UPDATE,
+        before: {
+          bankName: bankAccount.bankName,
+          accountNumber: bankAccount.accountNumber,
+          accountName: bankAccount.accountName,
+        },
+        after: {
+          bankName: updated.bankName,
+          accountNumber: updated.accountNumber,
+          accountName: updated.accountName,
+        },
+      },
+    });
+
+    return updated;
+  }
+
+  async createBankAccount(
+    tenantId: string,
+    userId: string | undefined,
+    payload: { ownerId?: string; bankName?: string; accountNumber?: string; accountName?: string },
+  ) {
+    const ownerId = String(payload.ownerId || '').trim();
+    const bankName = String(payload.bankName || '').trim();
+    const accountNumber = String(payload.accountNumber || '').trim();
+    const accountName = String(payload.accountName || '').trim();
+
+    if (!ownerId) throw new BadRequestException('BANK_ACCOUNT_OWNER_REQUIRED');
+    if (!bankName) throw new BadRequestException('BANK_ACCOUNT_NAME_REQUIRED');
+    if (!accountNumber) throw new BadRequestException('BANK_ACCOUNT_NUMBER_REQUIRED');
+    if (!accountName) throw new BadRequestException('BANK_ACCOUNT_BENEFICIARY_REQUIRED');
+
+    const owner = await this.prisma.owner.findFirst({
+      where: { tenantId, id: ownerId, isActive: true },
+      select: { id: true, name: true },
+    });
+    if (!owner) throw new BadRequestException('OWNER_NOT_FOUND');
+
+    const duplicate = await this.prisma.bankAccount.findFirst({
+      where: { tenantId, accountNumber },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new BadRequestException('BANK_ACCOUNT_NUMBER_ALREADY_EXISTS');
+    }
+
+    const created = await this.prisma.bankAccount.create({
+      data: {
+        tenantId,
+        ownerId,
+        bankName,
+        accountNumber,
+        accountName,
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        userId,
+        module: 'Finance',
+        entity: 'BankAccount',
+        entityId: created.id,
+        action: AuditAction.CREATE,
+        after: {
+          ownerId,
+          ownerName: owner.name,
+          bankName: created.bankName,
+          accountNumber: created.accountNumber,
+          accountName: created.accountName,
+        },
+      },
+    });
+
+    return created;
+  }
+
   async getBankCashFlow(tenantId: string, options: { year?: string; month?: string; ownerId?: string } = {}) {
     const period = this.buildPeriodRange(options.year, options.month);
     const bankAccounts = await this.prisma.bankAccount.findMany({
@@ -808,7 +934,7 @@ export class FinanceReportingService {
 
   async getBankTransactions(
     tenantId: string,
-    options: { year?: string; month?: string; bankAccountId?: string; direction?: string; content?: string; search?: string; limit?: string } = {},
+    options: { year?: string; month?: string; bankAccountId?: string; direction?: string; content?: string; search?: string; matchStatus?: string; limit?: string } = {},
   ) {
     const period = this.buildPeriodRange(options.year, options.month);
     const bankAccounts = await this.prisma.bankAccount.findMany({
@@ -828,6 +954,7 @@ export class FinanceReportingService {
     const content = String(options.content || '').trim().toLowerCase();
     const search = String(options.search || '').trim().toLowerCase();
     const requestedDirection = String(options.direction || '').toUpperCase();
+    const requestedMatchStatus = String(options.matchStatus || '').trim().toUpperCase();
 
     if (bankAccounts.length === 0) {
       return {
@@ -875,13 +1002,32 @@ export class FinanceReportingService {
         const paymentCode = this.resolveWebhookPaymentCode(payload);
         const accountNumber = String(payload?.accountNumber || payload?.account_number || payload?.bank_account_xid || '').trim();
         const request = paymentCode ? requestByCode.get(paymentCode) : null;
-        const bankAccount = bankByAccountNumber.get(accountNumber) || request?.bankAccount || null;
-        if (!bankAccount || !accountNumbers.includes(bankAccount.accountNumber)) return null;
+        const linkedBankAccount = accountNumber ? bankByAccountNumber.get(accountNumber) || null : null;
+        if (options.bankAccountId && (!linkedBankAccount || linkedBankAccount.id !== options.bankAccountId)) return null;
 
         const direction = this.resolveWebhookDirection(payload);
         const amount = this.resolveWebhookAmount(payload);
         const content = String(payload?.content || payload?.description || payload?.memo || '').trim();
         const reference = String(payload?.referenceCode || payload?.reference_code || payload?.transactionDate || '').trim();
+        const providerBankName = String(
+          payload?.gateway || payload?.bankName || payload?.bank_name || payload?.bankCode || payload?.bank_code || 'SEPAY',
+        ).trim();
+        const providerAccountName = String(payload?.accountName || payload?.account_name || '').trim();
+        const bankAccount = linkedBankAccount
+          ? {
+              id: linkedBankAccount.id,
+              bankName: linkedBankAccount.bankName,
+              accountNumber: linkedBankAccount.accountNumber,
+              accountName: linkedBankAccount.accountName,
+              isLinked: true,
+            }
+          : {
+              id: `external:${log.id}`,
+              bankName: providerBankName || 'SEPAY',
+              accountNumber: accountNumber || '',
+              accountName: providerAccountName || null,
+              isLinked: false,
+            };
 
         return {
           id: log.id,
@@ -889,6 +1035,7 @@ export class FinanceReportingService {
           providerTransactionId: log.providerTransactionId,
           createdAt: log.createdAt,
           processedAt: log.processedAt,
+          webhookStatus: log.status,
           direction,
           amount,
           content,
@@ -900,18 +1047,34 @@ export class FinanceReportingService {
             bankName: bankAccount.bankName,
             accountNumber: bankAccount.accountNumber,
             accountName: bankAccount.accountName,
+            isLinked: bankAccount.isLinked,
           },
-          owner: request?.owner || (bankAccounts.find((bank) => bank.id === bankAccount.id) as any)?.owner || null,
+          owner: linkedBankAccount
+            ? request?.owner || (bankAccounts.find((bank) => bank.id === linkedBankAccount.id) as any)?.owner || null
+            : null,
           match: request ? {
             sourceType: request.sourceType,
             sourceId: request.sourceId,
             status: request.status,
             expectedAmount: Number(request.amount || 0),
           } : null,
+          reviewStatus:
+            request?.status === 'CONFIRMED' && log.status === 'PROCESSED'
+              ? 'MATCHED'
+              : log.status === 'NEEDS_REVIEW'
+                ? 'NEEDS_REVIEW'
+                : log.status === 'IGNORED'
+                  ? 'IGNORED'
+                  : log.status === 'FAILED'
+                    ? 'FAILED'
+                    : request
+                      ? 'PENDING_REQUEST'
+                      : 'UNMATCHED',
         };
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row))
       .filter((row) => !requestedDirection || row.direction === requestedDirection)
+      .filter((row) => !requestedMatchStatus || row.reviewStatus === requestedMatchStatus)
       .filter((row) => !content || row.content.toLowerCase().includes(content))
       .filter((row) => {
         if (!search) return true;
@@ -947,6 +1110,14 @@ export class FinanceReportingService {
           accountName: bank.accountName,
           owner: bank.owner,
         })),
+        matchStatuses: [
+          { value: 'MATCHED', label: 'Đã match' },
+          { value: 'NEEDS_REVIEW', label: 'Cần tra soát' },
+          { value: 'UNMATCHED', label: 'Không có payment code' },
+          { value: 'PENDING_REQUEST', label: 'Có request nhưng chưa confirm' },
+          { value: 'IGNORED', label: 'Đã bỏ qua' },
+          { value: 'FAILED', label: 'Lỗi xử lý' },
+        ],
       },
       summary: {
         total: rows.length,
@@ -954,6 +1125,9 @@ export class FinanceReportingService {
         outflow,
         net: inflow - outflow,
         bankCount: bankAccounts.length,
+        matched: rows.filter((row) => row.reviewStatus === 'MATCHED').length,
+        needsReview: rows.filter((row) => row.reviewStatus === 'NEEDS_REVIEW').length,
+        unmatched: rows.filter((row) => row.reviewStatus === 'UNMATCHED').length,
       },
       rows: limitedRows,
     };

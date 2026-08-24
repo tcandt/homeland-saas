@@ -120,6 +120,9 @@ async function main() {
   const legacyAdminEmails = ['admin@homeland.local', 'adminA@homeland.local', 'adminB@homeland.local'];
   const developmentPassword = process.env.SEED_DEFAULT_PASSWORD;
   const productionMode = process.env.SEED_MODE === 'production' || process.env.NODE_ENV === 'production';
+  const forcePasswordChange = String(
+    process.env.SEED_FORCE_PASSWORD_CHANGE ?? (productionMode ? 'true' : 'false'),
+  ).toLowerCase() !== 'false';
   if (!developmentPassword) {
     throw new Error('SEED_DEFAULT_PASSWORD is required to seed the system admin account.');
   }
@@ -127,8 +130,21 @@ async function main() {
 
   const adminUser = await prisma.user.upsert({
     where: { tenantId_email: { tenantId: org.id, email: defaultAdminEmail } },
-    update: { fullName: 'System Admin', status: 'ACTIVE' },
-    create: { tenantId: org.id, email: defaultAdminEmail, fullName: 'System Admin', passwordHash, mustChangePassword: true },
+    update: {
+      fullName: 'System Admin',
+      status: 'ACTIVE',
+      passwordHash,
+      mustChangePassword: forcePasswordChange,
+      refreshTokenHash: null,
+    },
+    create: {
+      tenantId: org.id,
+      email: defaultAdminEmail,
+      fullName: 'System Admin',
+      passwordHash,
+      mustChangePassword: forcePasswordChange,
+      refreshTokenHash: null,
+    },
   });
 
   await prisma.user.updateMany({
@@ -194,17 +210,64 @@ async function main() {
     });
   }
 
-  await prisma.bankAccount.upsert({
+  const bankAccountA = await prisma.bankAccount.upsert({
     where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444555' } },
     update: { ownerId: ownerA.id, accountName: 'HKD NGUYEN DUC TINH' },
     create: { tenantId: org.id, ownerId: ownerA.id, bankName: 'Techcombank', accountNumber: '190333444555', accountName: 'HKD NGUYEN DUC TINH' },
   });
 
-  await prisma.bankAccount.upsert({
+  const bankAccountB = await prisma.bankAccount.upsert({
     where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444556' } },
     update: { ownerId: ownerB.id, accountName: 'HKD PHAN VAN THE' },
     create: { tenantId: org.id, ownerId: ownerB.id, bankName: 'Techcombank', accountNumber: '190333444556', accountName: 'HKD PHAN VAN THE' },
   });
+
+  const managedBuildings = await prisma.building.findMany({
+    where: { tenantId: org.id, code: { in: MANAGED_BUILDINGS } },
+    select: { id: true, code: true },
+  });
+  const managedRooms = await prisma.room.findMany({
+    where: {
+      tenantId: org.id,
+      buildingId: { in: managedBuildings.map((building) => building.id) },
+      deletedAt: null,
+    },
+    select: { id: true, buildingId: true },
+  });
+  const buildingCodeById = new Map(managedBuildings.map((building) => [building.id, building.code]));
+  const routeRows = managedRooms
+    .map((room) => {
+      const buildingCode = buildingCodeById.get(room.buildingId);
+      if (!buildingCode) return null;
+      const bankAccountId = buildingCode === 'LK01.31' || buildingCode === 'LK08.25'
+        ? bankAccountA.id
+        : buildingCode === 'LK01.32' || buildingCode === 'LK08.24'
+          ? bankAccountB.id
+          : null;
+      if (!bankAccountId) return null;
+      return {
+        tenantId: org.id,
+        roomId: room.id,
+        bankAccountId,
+        validFrom: new Date('2026-01-01T00:00:00.000Z'),
+        validTo: null,
+        note: `Default seeded from building ${buildingCode}`,
+      };
+    })
+    .filter(Boolean);
+
+  try {
+    await (prisma as any).roomPaymentAccountRoute.deleteMany({ where: { tenantId: org.id } });
+    if (routeRows.length > 0) {
+      await (prisma as any).roomPaymentAccountRoute.createMany({
+        data: routeRows,
+      });
+    }
+  } catch (error: any) {
+    if (String(error?.code || '') !== 'P2021') {
+      throw error;
+    }
+  }
 
   for (const bCode of MANAGED_BUILDINGS) {
     const building = await prisma.building.findUnique({ where: { tenantId_code: { tenantId: org.id, code: bCode } } });
@@ -607,6 +670,281 @@ async function main() {
   ];
 
   for (const t of paymentTemplates) {
+    await prisma.notificationTemplate.upsert({
+      where: { tenantId_code: { tenantId: org.id, code: t.code } },
+      update: { name: t.name, subject: t.subject, body: t.body },
+      create: { tenantId: org.id, ...t }
+    });
+  }
+
+  const zaloBotTemplates = [
+    {
+      code: 'CUSTOMER_ZALO_REGISTERED',
+      name: 'Customer Zalo Registered',
+      subject: '✅ HomeLand - Đăng ký thành công',
+      body: '✅ *HomeLand - Đăng ký thành công*\n\n🏠 Phòng: {{roomCode}}\n📱 SĐT: {{phone}}\n\nTài khoản Zalo này sẽ nhận thông báo về hợp đồng, hóa đơn và thanh toán.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_REGISTER_SYNTAX_ERROR',
+      name: 'Customer Zalo Register Syntax Error',
+      subject: '⚠️ HomeLand - Đăng ký Zalo Bot',
+      body: '⚠️ *Cú pháp chưa đúng*\n\nVui lòng nhắn theo mẫu:\n`DK <SĐT> <PHÒNG>`\n\nVí dụ:\n`DK 0567867889 31.06`'
+    },
+    {
+      code: 'CUSTOMER_ZALO_ROOM_NOT_FOUND',
+      name: 'Customer Zalo Room Not Found',
+      subject: '❌ HomeLand - Không tìm thấy phòng',
+      body: '❌ *Không thể đăng ký*\n\n🏠 Phòng: {{roomCode}}\nLý do: không tìm thấy phòng.\n\nVui lòng kiểm tra lại mã phòng.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_NO_ACTIVE_CONTRACT',
+      name: 'Customer Zalo No Active Contract',
+      subject: '❌ HomeLand - Chưa có hợp đồng hoạt động',
+      body: '❌ *Không thể đăng ký*\n\n🏠 Phòng: {{roomCode}}\nPhòng hiện không có hợp đồng đang hoạt động.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_PHONE_NOT_IN_CONTRACT',
+      name: 'Customer Zalo Phone Not In Contract',
+      subject: '⚠️ HomeLand - Không thể xác minh đăng ký',
+      body: '⚠️ *Không thể xác minh đăng ký*\n\n🏠 Phòng: {{roomCode}}\n📱 SĐT: {{phone}}\n\nSĐT chưa được ghi nhận trong hợp đồng. Vui lòng liên hệ quản lý.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_DEPOSIT_REQUEST',
+      name: 'Customer Zalo Deposit Request',
+      subject: '💰 HomeLand - Thông báo tiền cọc',
+      body: '💰 *Thông báo tiền cọc*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách thuê: {{customerName}}\n💵 Số tiền cọc: {{formatCurrency amount "VND"}}\n\nVui lòng thanh toán theo thông tin/QR đã gửi.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_DEPOSIT_CONFIRMED',
+      name: 'Customer Zalo Deposit Confirmed',
+      subject: '✅ HomeLand - Xác nhận tiền cọc',
+      body: '✅ *Đã nhận tiền cọc*\n\n🏠 Phòng: {{roomCode}}\n💵 Số tiền: {{formatCurrency amount "VND"}}\n🕒 Thời gian: {{formatDateTime paidAt}}\n\nHomeLand đã ghi nhận khoản cọc của anh/chị.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_INVOICE_ISSUED',
+      name: 'Customer Zalo Invoice Issued',
+      subject: '🧾 HomeLand - Hóa đơn {{invoiceCode}}',
+      body: '🧾 *Hóa đơn kỳ {{billingPeriod}}*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách thuê: {{customerName}}\n\n• Tiền phòng: {{formatCurrency rentAmount "VND"}}\n• Điện: {{formatCurrency electricAmount "VND"}}\n• Nước: {{formatCurrency waterAmount "VND"}}\n• Dịch vụ: {{formatCurrency serviceAmount "VND"}}\n• Khác: {{formatCurrency otherAmount "VND"}}\n\n💵 Tổng thanh toán: {{formatCurrency totalAmount "VND"}}\n📅 Hạn thanh toán: {{dueDate}}\n🔖 Mã thanh toán: {{paymentCode}}'
+    },
+    {
+      code: 'CUSTOMER_ZALO_PAYMENT_QR',
+      name: 'Customer Zalo Payment QR',
+      subject: '🏦 HomeLand - Thanh toán hóa đơn',
+      body: '🏦 *Thanh toán hóa đơn*\n\n🏠 Phòng: {{roomCode}}\n📆 Kỳ: {{billingPeriod}}\n💵 Tổng thanh toán: {{formatCurrency totalAmount "VND"}}\n🔖 Mã thanh toán: {{paymentCode}}\n\nQR thanh toán:\n{{qrUrl}}\n\nVui lòng chuyển đúng số tiền và đúng nội dung.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_PAYMENT_REMINDER',
+      name: 'Customer Zalo Payment Reminder',
+      subject: '⏰ HomeLand - Nhắc thanh toán',
+      body: '⏰ *Nhắc thanh toán*\n\n🏠 Phòng: {{roomCode}}\n📆 Kỳ: {{billingPeriod}}\n💵 Số tiền cần thanh toán: {{formatCurrency totalAmount "VND"}}\n📅 Hạn thanh toán: {{dueDate}}\n🔖 Mã thanh toán: {{paymentCode}}\n{{#if qrUrl}}\nQR: {{qrUrl}}{{/if}}'
+    },
+    {
+      code: 'CUSTOMER_ZALO_PAYMENT_OVERDUE',
+      name: 'Customer Zalo Payment Overdue',
+      subject: '🚨 HomeLand - Thanh toán quá hạn',
+      body: '🚨 *Thanh toán quá hạn*\n\n🏠 Phòng: {{roomCode}}\n📆 Kỳ: {{billingPeriod}}\n💵 Còn thiếu: {{formatCurrency remainingAmount "VND"}}\n📅 Hạn thanh toán: {{dueDate}}\n🔖 Mã thanh toán: {{paymentCode}}\n\nVui lòng thanh toán sớm để tránh ảnh hưởng đến dịch vụ.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_PAYMENT_CONFIRMED',
+      name: 'Customer Zalo Payment Confirmed',
+      subject: '✅ HomeLand - Thanh toán thành công',
+      body: '✅ *Thanh toán thành công*\n\n🏠 Phòng: {{roomCode}}\n📆 Kỳ: {{billingPeriod}}\n💵 Số tiền đã nhận: {{formatCurrency paidAmount "VND"}}\n🕒 Thời gian: {{formatDateTime paidAt}}\n\nHomeLand đã ghi nhận thanh toán. Xin cảm ơn.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_PAYMENT_PARTIAL',
+      name: 'Customer Zalo Payment Partial',
+      subject: '⚠️ HomeLand - Thanh toán chưa đủ',
+      body: '⚠️ *Thanh toán chưa đủ*\n\n🏠 Phòng: {{roomCode}}\n📆 Kỳ: {{billingPeriod}}\n💵 Tổng cần thanh toán: {{formatCurrency expectedAmount "VND"}}\n💸 Đã nhận: {{formatCurrency paidAmount "VND"}}\n➖ Còn thiếu: {{formatCurrency remainingAmount "VND"}}\n\nVui lòng thanh toán phần còn lại theo mã `{{paymentCode}}`.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_PAYMENT_OVERPAID',
+      name: 'Customer Zalo Payment Overpaid',
+      subject: 'ℹ️ HomeLand - Thanh toán vượt số tiền cần thu',
+      body: 'ℹ️ *Thanh toán vượt số tiền cần thu*\n\n🏠 Phòng: {{roomCode}}\n📆 Kỳ: {{billingPeriod}}\n💵 Cần thanh toán: {{formatCurrency expectedAmount "VND"}}\n💸 Đã nhận: {{formatCurrency paidAmount "VND"}}\n➕ Dư: {{formatCurrency overpaidAmount "VND"}}\n\nHomeLand sẽ kiểm tra và liên hệ xử lý phần chênh lệch.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_UNMATCHED_TRANSACTION',
+      name: 'Customer Zalo Unmatched Transaction',
+      subject: '🔎 HomeLand - Giao dịch đang chờ kiểm tra',
+      body: '🔎 *Giao dịch đang chờ kiểm tra*\n\n💵 Số tiền: {{formatCurrency paidAmount "VND"}}\n📝 Nội dung chuyển khoản: {{transferContent}}\n\nHomeLand đã nhận được giao dịch nhưng chưa thể đối soát tự động. Quản lý sẽ kiểm tra sớm.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_CONTRACT_EXPIRING',
+      name: 'Customer Zalo Contract Expiring',
+      subject: '📅 HomeLand - Nhắc gia hạn hợp đồng',
+      body: '📅 *Nhắc gia hạn hợp đồng*\n\n🏠 Phòng: {{roomCode}}\n📅 Hợp đồng sẽ hết hạn vào: {{contractEndDate}}\n\nNếu có nhu cầu gia hạn, vui lòng phản hồi quản lý sớm.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_CONTRACT_RENEWAL_REQUESTED',
+      name: 'Customer Zalo Contract Renewal Requested',
+      subject: '✅ HomeLand - Đã tiếp nhận yêu cầu gia hạn',
+      body: '✅ *Đã tiếp nhận yêu cầu gia hạn*\n\n🏠 Phòng: {{roomCode}}\n📅 Ngày hết hạn hiện tại: {{contractEndDate}}\n\nHomeLand sẽ liên hệ xác nhận sớm.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_CONTRACT_RENEWAL_DECLINED',
+      name: 'Customer Zalo Contract Renewal Declined',
+      subject: '📦 HomeLand - Xác nhận không gia hạn',
+      body: '📦 *Xác nhận không gia hạn*\n\n🏠 Phòng: {{roomCode}}\n📅 Ngày kết thúc hợp đồng: {{contractEndDate}}\n\nVui lòng phối hợp bàn giao đúng thời gian.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_RESIDENCY_REMINDER',
+      name: 'Customer Zalo Residency Reminder',
+      subject: '📄 HomeLand - Nhắc bổ sung hồ sơ',
+      body: '📄 *Nhắc bổ sung hồ sơ*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách thuê: {{customerName}}\n\nVui lòng bổ sung hồ sơ/tạm trú còn thiếu theo hướng dẫn của quản lý.'
+    },
+    {
+      code: 'CUSTOMER_ZALO_GENERAL_NOTICE',
+      name: 'Customer Zalo General Notice',
+      subject: '📢 HomeLand - Thông báo',
+      body: '📢 *Thông báo*\n\n🏠 Phòng: {{roomCode}}\n\n{{messageBody}}\n\nNếu cần hỗ trợ, vui lòng liên hệ quản lý.'
+    },
+    {
+      code: 'ADMIN_ZALO_CUSTOMER_REGISTERED',
+      name: 'Admin Zalo Customer Registered',
+      subject: '✅ HomeLand - Khách đã đăng ký Zalo Bot',
+      body: '✅ *Khách đã đăng ký Zalo Bot*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📱 SĐT: {{phone}}\n#️⃣ Chat ID: {{chatId}}'
+    },
+    {
+      code: 'ADMIN_ZALO_REGISTER_FAILED_ROOM_NOT_FOUND',
+      name: 'Admin Zalo Register Failed Room Not Found',
+      subject: '❌ HomeLand - Đăng ký Bot thất bại',
+      body: '❌ *Đăng ký Bot thất bại*\n\n🏠 Phòng: {{roomCode}}\n📱 SĐT: {{phone}}\nLý do: `ROOM_NOT_FOUND`'
+    },
+    {
+      code: 'ADMIN_ZALO_REGISTER_REVIEW_REQUIRED',
+      name: 'Admin Zalo Register Review Required',
+      subject: '⚠️ HomeLand - Đăng ký Bot cần kiểm tra',
+      body: '⚠️ *Đăng ký Bot cần kiểm tra*\n\n🏠 Phòng: {{roomCode}}\n📱 SĐT: {{phone}}\nLý do: `PHONE_NOT_IN_CONTRACT`'
+    },
+    {
+      code: 'ADMIN_ZALO_GROUP_CONNECTED',
+      name: 'Admin Zalo Group Connected',
+      subject: 'HomeLand - Admin Bot Connected',
+      body: '✅ *Bot Admin đã kết nối*\n\n#️⃣ Chat ID: `{{chatId}}`\n{{#if senderId}}👤 Sender: `{{senderId}}`\n{{/if}}{{#if domain}}🌐 Domain: {{domain}}\n{{/if}}🕒 {{connectedAt}}'
+    },
+    {
+      code: 'ADMIN_ZALO_INVOICE_CREATED',
+      name: 'Admin Zalo Invoice Created',
+      subject: '🧾 HomeLand - Đã tạo hóa đơn',
+      body: '🧾 *Đã tạo hóa đơn*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📆 Kỳ: {{billingPeriod}}\n💵 Tổng tiền: {{formatCurrency totalAmount "VND"}}\n📅 Hạn thanh toán: {{dueDate}}\n🔖 Mã thanh toán: {{paymentCode}}'
+    },
+    {
+      code: 'ADMIN_ZALO_INVOICE_SENT',
+      name: 'Admin Zalo Invoice Sent',
+      subject: '📨 HomeLand - Gửi hóa đơn thành công',
+      body: '📨 *Gửi hóa đơn thành công*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📆 Kỳ: {{billingPeriod}}\n🔖 Mã thanh toán: {{paymentCode}}\nKênh: Zalo'
+    },
+    {
+      code: 'ADMIN_ZALO_INVOICE_SEND_FAILED',
+      name: 'Admin Zalo Invoice Send Failed',
+      subject: '❌ HomeLand - Gửi hóa đơn thất bại',
+      body: '❌ *Gửi hóa đơn thất bại*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📆 Kỳ: {{billingPeriod}}\n🔖 Mã thanh toán: {{paymentCode}}\nLỗi: {{errorMessage}}'
+    },
+    {
+      code: 'ADMIN_ZALO_PAYMENT_CONFIRMED',
+      name: 'Admin Zalo Payment Confirmed',
+      subject: '✅ HomeLand - Đã nhận thanh toán',
+      body: '✅ *Đã nhận thanh toán*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📆 Kỳ: {{billingPeriod}}\n💵 Số tiền: {{formatCurrency paidAmount "VND"}}\n🕒 Thời gian: {{formatDateTime paidAt}}\n🔖 Mã thanh toán: {{paymentCode}}'
+    },
+    {
+      code: 'ADMIN_ZALO_PAYMENT_PARTIAL',
+      name: 'Admin Zalo Payment Partial',
+      subject: '⚠️ HomeLand - Thanh toán thiếu',
+      body: '⚠️ *Thanh toán thiếu*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📆 Kỳ: {{billingPeriod}}\n💵 Cần thu: {{formatCurrency expectedAmount "VND"}}\n💸 Đã nhận: {{formatCurrency paidAmount "VND"}}\n➖ Còn thiếu: {{formatCurrency remainingAmount "VND"}}\n🔖 Mã thanh toán: {{paymentCode}}'
+    },
+    {
+      code: 'ADMIN_ZALO_PAYMENT_OVERPAID',
+      name: 'Admin Zalo Payment Overpaid',
+      subject: 'ℹ️ HomeLand - Thanh toán dư',
+      body: 'ℹ️ *Thanh toán dư*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📆 Kỳ: {{billingPeriod}}\n💵 Cần thu: {{formatCurrency expectedAmount "VND"}}\n💸 Đã nhận: {{formatCurrency paidAmount "VND"}}\n➕ Dư: {{formatCurrency overpaidAmount "VND"}}\n🔖 Mã thanh toán: {{paymentCode}}'
+    },
+    {
+      code: 'ADMIN_ZALO_UNMATCHED_TRANSACTION',
+      name: 'Admin Zalo Unmatched Transaction',
+      subject: '🔎 HomeLand - Giao dịch không match',
+      body: '🔎 *Giao dịch không match*\n\n💵 Số tiền: {{formatCurrency paidAmount "VND"}}\n🕒 Thời gian: {{formatDateTime paidAt}}\n📝 Nội dung CK: {{transferContent}}\n🏦 Ngân hàng nhận: {{bankAccount}}\nLý do: {{reason}}'
+    },
+    {
+      code: 'ADMIN_ZALO_WRONG_BANK',
+      name: 'Admin Zalo Wrong Bank',
+      subject: '🏦 HomeLand - Giao dịch sai tài khoản/ngân hàng',
+      body: '🏦 *Giao dịch sai tài khoản/ngân hàng*\n\n💵 Số tiền: {{formatCurrency paidAmount "VND"}}\n📝 Nội dung CK: {{transferContent}}\n🏦 Ngân hàng nhận: {{actualBank}}\n🎯 Kỳ vọng: {{expectedBank}}\n\nCần kiểm tra thủ công.'
+    },
+    {
+      code: 'ADMIN_ZALO_PAYMENT_OVERDUE',
+      name: 'Admin Zalo Payment Overdue',
+      subject: '🚨 HomeLand - Khách quá hạn thanh toán',
+      body: '🚨 *Khách quá hạn thanh toán*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📆 Kỳ: {{billingPeriod}}\n💵 Còn nợ: {{formatCurrency remainingAmount "VND"}}\n📅 Hạn thanh toán: {{dueDate}}\n⏳ Quá hạn: {{overdueDays}} ngày'
+    },
+    {
+      code: 'ADMIN_ZALO_CONTRACT_EXPIRING',
+      name: 'Admin Zalo Contract Expiring',
+      subject: '📅 HomeLand - Hợp đồng sắp hết hạn',
+      body: '📅 *Hợp đồng sắp hết hạn*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📅 Ngày hết hạn: {{contractEndDate}}\n⏳ Còn lại: {{daysRemaining}} ngày'
+    },
+    {
+      code: 'ADMIN_ZALO_CONTRACT_RENEWAL_REQUESTED',
+      name: 'Admin Zalo Contract Renewal Requested',
+      subject: '✅ HomeLand - Khách yêu cầu gia hạn',
+      body: '✅ *Khách yêu cầu gia hạn*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📅 Ngày hết hạn hiện tại: {{contractEndDate}}'
+    },
+    {
+      code: 'ADMIN_ZALO_CONTRACT_RENEWAL_DECLINED',
+      name: 'Admin Zalo Contract Renewal Declined',
+      subject: '📦 HomeLand - Khách không gia hạn',
+      body: '📦 *Khách không gia hạn*\n\n🏠 Phòng: {{roomCode}}\n👤 Khách: {{customerName}}\n📅 Ngày kết thúc hợp đồng: {{contractEndDate}}'
+    },
+    {
+      code: 'ADMIN_ZALO_WEBHOOK_ERROR',
+      name: 'Admin Zalo Webhook Error',
+      subject: '❌ HomeLand - Lỗi webhook Zalo',
+      body: '❌ *Lỗi webhook Zalo*\n\nTenant: {{tenantId}}\nEvent: {{eventName}}\nChat ID: {{chatId}}\nLỗi: {{errorMessage}}'
+    },
+    {
+      code: 'ADMIN_ZALO_SEPAY_WEBHOOK_ERROR',
+      name: 'Admin Zalo SePay Webhook Error',
+      subject: '❌ HomeLand - Lỗi webhook SePay',
+      body: '❌ *Lỗi webhook SePay*\n\nGateway: {{gateway}}\nTransaction ID: {{transactionId}}\nSố tiền: {{formatCurrency paidAmount "VND"}}\nLỗi: {{errorMessage}}'
+    },
+    {
+      code: 'ADMIN_ZALO_SEND_FAILED',
+      name: 'Admin Zalo Send Failed',
+      subject: '❌ HomeLand - Lỗi gửi Zalo',
+      body: '❌ *Lỗi gửi Zalo*\n\nĐối tượng: {{targetType}}\nNgười nhận/Chat ID: {{recipient}}\nTiêu đề: {{title}}\nLỗi: {{errorMessage}}'
+    },
+    {
+      code: 'ZALO_GROUP_CHAT_ID_ECHO',
+      name: 'Zalo Group Chat ID Echo',
+      subject: '🆔 HomeLand - Chat ID',
+      body: '🆔 *HomeLand - Chat ID*\n\nChat ID: {{chatId}}\nChat type: {{chatType}}'
+    },
+    {
+      code: 'ZALO_ADMIN_SETUP_SUCCESS',
+      name: 'Zalo Admin Setup Success',
+      subject: 'HomeLand - Admin Bot Connected',
+      body: '✅ *Bot Admin đã kết nối*\n\n#️⃣ Chat ID: `{{chatId}}`\n{{#if senderId}}👤 Sender: `{{senderId}}`\n{{/if}}{{#if domain}}🌐 Domain: {{domain}}\n{{/if}}🕒 {{connectedAt}}'
+    },
+    {
+      code: 'ZALO_ADMIN_SETUP_INVALID',
+      name: 'Zalo Admin Setup Invalid',
+      subject: '⚠️ HomeLand - Kết nối nhóm Admin',
+      body: '⚠️ *Mã kết nối không hợp lệ hoặc đã hết hạn.*'
+    },
+    {
+      code: 'ADMIN_ZALO_UPDATE_AVAILABLE',
+      name: 'Admin Zalo Update Available',
+      subject: 'HomeLand - Update Available',
+      body: '🆕 *Có phiên bản mới*\n\n• Hiện tại: `{{currentVersion}}`\n• Mới nhất: `{{latestVersion}}`\n🕒 {{checkedAt}}\n{{default note "Vui lòng kiểm tra mục cập nhật trước khi triển khai."}}'
+    },
+    {
+      code: 'ADMIN_ZALO_SERVER_OVERLOAD',
+      name: 'Admin Zalo Server Overload',
+      subject: 'HomeLand - Server Alert',
+      body: '🚨 *Cảnh báo tải cao / request bất thường*\n\n{{#if currentRps}}• RPS hiện tại: `{{currentRps}}`\n{{/if}}{{#if suspiciousIpCount}}• IP nghi vấn: `{{suspiciousIpCount}}`\n{{/if}}{{#if topSource}}• Nguồn nổi bật: `{{topSource}}`\n{{/if}}🕒 {{detectedAt}}\n{{default note "Kiểm tra rate limit, reverse proxy và access log ngay."}}'
+    }
+  ];
+
+  for (const t of zaloBotTemplates) {
     await prisma.notificationTemplate.upsert({
       where: { tenantId_code: { tenantId: org.id, code: t.code } },
       update: { name: t.name, subject: t.subject, body: t.body },

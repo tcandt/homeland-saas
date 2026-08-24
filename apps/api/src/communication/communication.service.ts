@@ -14,6 +14,11 @@ export interface CommunicationPayload {
   context: any;
 }
 
+type DispatchResult = {
+  notificationId: string;
+  queueIds: string[];
+};
+
 export abstract class CommunicationProvider {
   abstract channel: NotificationChannel;
   abstract send(payload: any): Promise<any>;
@@ -46,7 +51,7 @@ export class CommunicationService {
     this.logger.log(`Registered Communication Provider: ${provider.channel}`);
   }
 
-  async dispatch(payload: CommunicationPayload) {
+  async dispatch(payload: CommunicationPayload): Promise<DispatchResult | null> {
     const context = normalizeDispatchContext(payload.context);
 
     // 1. Fetch template
@@ -56,7 +61,7 @@ export class CommunicationService {
 
     if (!template) {
       this.logger.error(`Template not found: ${payload.templateCode}`);
-      return;
+      return null;
     }
 
     // 2. Fetch User Preferences (Fallback to IN_APP and CONSOLE if none)
@@ -89,6 +94,7 @@ export class CommunicationService {
     });
 
     // 5. Enqueue and dispatch to channels
+    const queueIds: string[] = [];
     for (const ch of channelsToUse) {
       const channelEnum = ch as NotificationChannel;
       
@@ -111,15 +117,42 @@ export class CommunicationService {
           status: 'QUEUED'
         }
       });
+      queueIds.push(queueItem.id);
 
       if (this.immediateDeliveryEnabled) {
         await this.processQueueItem(queueItem.id);
       }
     }
+
+    return {
+      notificationId: notification.id,
+      queueIds,
+    };
   }
 
   async dispatchDirect(payload: CommunicationPayload) {
-    return this.dispatch(payload);
+    const result = await this.dispatch(payload);
+    if (!result || !this.immediateDeliveryEnabled || result.queueIds.length === 0) {
+      return result;
+    }
+
+    const queueItems = await this.prisma.notificationQueue.findMany({
+      where: { id: { in: result.queueIds } },
+      select: {
+        id: true,
+        status: true,
+        error: true,
+      },
+    });
+    const failedItem = queueItems.find((item) => item.status !== 'DELIVERED');
+    if (failedItem) {
+      throw new BadRequestException(failedItem.error || `Communication delivery failed: ${failedItem.status}`);
+    }
+
+    return {
+      ...result,
+      delivered: true,
+    };
   }
 
   async getQueueAdmin(

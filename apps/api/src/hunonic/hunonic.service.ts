@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { HunonicElectricMeter, HunonicElectricityRateMode, HunonicMonthlyHistoryPoint, HunonicProvider, HunonicProviderOptions } from './hunonic.provider';
+import { shouldRunGeneralSchedulers } from '../shared/config/runtime-mode';
 
 type HunonicSettings = {
   enabled?: boolean;
@@ -760,6 +761,7 @@ export class HunonicService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async syncEnabledTenantsHourly() {
+    if (!shouldRunGeneralSchedulers()) return;
     const records = await this.prismaAny.appSetting.findMany({
       where: { key: HUNONIC_SETTING_KEY, scope: SettingScope.TENANT },
     });

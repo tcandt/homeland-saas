@@ -6,6 +6,7 @@ import { AuditService } from '../shared/audit/audit.service';
 import { PaginatedResult } from '@homeland/shared';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { PrismaService } from '../prisma.service';
+import { buildRoomContext } from '../shared/context/room-context';
 
 @Injectable()
 export class InvoicesService extends BaseCrudService<Invoice> {
@@ -133,10 +134,16 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       customerId: invoice.customerId,
       customerName: invoice.customer?.fullName,
       customerPhone: invoice.customer?.phone,
+      customerZaloChatId: invoice.customer?.zaloChatId,
+      customerZaloUserId: invoice.customer?.zaloUserId,
+      ...buildRoomContext(invoice.contract?.room, invoice.contract),
       metadata: {
         code: invoice.code,
         roomCode: invoice.contract?.room?.code,
         buildingName: invoice.contract?.room?.building?.name,
+        roomRentalType: invoice.contract?.room?.rentalType || null,
+        roomRentalTypeLabel: buildRoomContext(invoice.contract?.room, invoice.contract).roomRentalTypeLabel,
+        roomMemberCount: buildRoomContext(invoice.contract?.room, invoice.contract).roomMemberCount,
         title: `Phát hành hóa đơn ${invoice.code}`,
         message: `Hóa đơn ${invoice.code} đã được phát hành với số tiền ${total.toLocaleString('vi-VN')} VND.`,
       },
@@ -236,10 +243,16 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         customerId: invoice.customerId,
         customerName: invoice.customer?.fullName,
         customerPhone: invoice.customer?.phone,
+        customerZaloChatId: invoice.customer?.zaloChatId,
+        customerZaloUserId: invoice.customer?.zaloUserId,
+        ...buildRoomContext(invoice.contract?.room, invoice.contract),
         metadata: {
           code: invoice.code,
           grossTotal: Number(result.total),
           creditAmount,
+          roomRentalType: invoice.contract?.room?.rentalType || null,
+          roomRentalTypeLabel: buildRoomContext(invoice.contract?.room, invoice.contract).roomRentalTypeLabel,
+          roomMemberCount: buildRoomContext(invoice.contract?.room, invoice.contract).roomMemberCount,
         },
         sourceId: invoice.id,
         sourceType: 'INVOICE',

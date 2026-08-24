@@ -2,6 +2,39 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { AuditAction, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { CommunicationService } from '../communication/communication.service';
+import { buildRoomContext } from '../shared/context/room-context';
+
+type SePayAuditSeverity = 'CRITICAL' | 'WARNING' | 'INFO';
+
+type SePayAuditIssue = {
+  id: string;
+  severity: SePayAuditSeverity;
+  type: string;
+  title: string;
+  description: string;
+  createdAt: Date | null;
+  ageHours: number | null;
+  paymentCode: string | null;
+  providerTransactionId: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  sourceCode: string | null;
+  sourceStatus: string | null;
+  requestId: string | null;
+  requestStatus: string | null;
+  webhookId: string | null;
+  webhookStatus: string | null;
+  expectedAmount: number | null;
+  actualAmount: number | null;
+  roomCode: string | null;
+  buildingName: string | null;
+  roomRentalTypeLabel: string | null;
+  roomMemberCount: number | null;
+  ownerName: string | null;
+  bankName: string | null;
+  accountNumber: string | null;
+  metadata?: Record<string, any>;
+};
 
 @Injectable()
 export class FinanceReportingService {
@@ -954,6 +987,38 @@ export class FinanceReportingService {
       },
     }) : [];
     const requestByCode = new Map(requests.map((request) => [request.paymentCode, request]));
+    const roomIds = Array.from(new Set(requests.map((request) => request.roomId).filter(Boolean)));
+    const buildingIds = Array.from(new Set(requests.map((request) => request.buildingId).filter(Boolean)));
+    const rooms = roomIds.length
+      ? await this.prisma.room.findMany({
+          where: { tenantId, id: { in: roomIds as string[] } },
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            rentalType: true,
+            capacity: true,
+            buildingId: true,
+            building: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        })
+      : [];
+    const buildings = buildingIds.length
+      ? await this.prisma.building.findMany({
+          where: { tenantId, id: { in: buildingIds as string[] } },
+          select: {
+            id: true,
+            name: true,
+          },
+        })
+      : [];
+    const roomById = new Map(rooms.map((room) => [room.id, room]));
+    const buildingById = new Map(buildings.map((building) => [building.id, building]));
 
     const rows = logs.map((log) => {
       const payload = log.payload as any;
@@ -963,12 +1028,37 @@ export class FinanceReportingService {
       const transferType = String(payload?.transferType || payload?.transfer_type || '').toLowerCase();
       const request = paymentCode ? requestByCode.get(paymentCode) : null;
       const requestMetadata = (request?.metadata as any) || {};
+      const requestRoom = request?.roomId ? roomById.get(request.roomId) || null : null;
+      const requestBuilding = request?.buildingId ? buildingById.get(request.buildingId) || null : null;
+      const roomContext = requestRoom
+        ? buildRoomContext(requestRoom, { memberCount: requestMetadata.roomMemberCount })
+        : {
+            roomId: requestMetadata.roomId || request?.roomId || null,
+            roomCode: requestMetadata.roomCode || null,
+            roomName: requestMetadata.roomName || null,
+            roomRentalType: requestMetadata.roomRentalType || null,
+            roomRentalTypeLabel: requestMetadata.roomRentalTypeLabel || null,
+            roomMemberCount:
+              Number.isFinite(Number(requestMetadata.roomMemberCount)) && Number(requestMetadata.roomMemberCount) > 0
+                ? Number(requestMetadata.roomMemberCount)
+                : null,
+            roomCapacity:
+              Number.isFinite(Number(requestMetadata.roomCapacity)) && Number(requestMetadata.roomCapacity) > 0
+                ? Number(requestMetadata.roomCapacity)
+                : null,
+            buildingId: requestMetadata.buildingId || request?.buildingId || requestBuilding?.id || null,
+            buildingName: requestMetadata.buildingName || requestBuilding?.name || null,
+          };
       const expectedAmount = request ? Number(request.amount || 0) : 0;
       const amountDiff = request ? amount - expectedAmount : amount;
       const directionInvalid = transferType === 'debit' || transferType === 'out';
 
+      const webhookStatus = String((log as any).status || '').toUpperCase();
       let status = 'UNMATCHED';
-      if (directionInvalid) status = 'IGNORED_OUTGOING';
+      if (webhookStatus === 'FAILED') status = 'FAILED';
+      else if (webhookStatus === 'PROCESSING') status = 'PROCESSING';
+      else if (webhookStatus === 'RECEIVED' && !log.processedAt) status = 'PENDING_PROCESSING';
+      else if (directionInvalid) status = 'IGNORED_OUTGOING';
       else if (!paymentCode || !request) status = 'UNMATCHED';
       else if (accountNumber && request.bankAccountNumber !== accountNumber) status = 'WRONG_BANK';
       else if (amount < expectedAmount) status = 'SHORT_AMOUNT';
@@ -981,6 +1071,9 @@ export class FinanceReportingService {
         createdAt: log.createdAt,
         processedAt: log.processedAt,
         status,
+        webhookStatus: webhookStatus || null,
+        webhookLastError: (log as any).lastError || null,
+        webhookAttemptCount: Number((log as any).attemptCount || 0),
         paymentCode,
         amount,
         expectedAmount,
@@ -990,6 +1083,7 @@ export class FinanceReportingService {
         sourceType: request?.sourceType || null,
         sourceId: request?.sourceId || null,
         requestStatus: request?.status || null,
+        ...roomContext,
         owner: request?.owner || null,
         bankAccount: request?.bankAccount || null,
         overpaymentResolution: requestMetadata.overpaymentResolution || payload?.overpaymentResolution || null,
@@ -1025,8 +1119,491 @@ export class FinanceReportingService {
         overAmount: rows.filter((row) => row.status === 'OVER_AMOUNT').length,
         wrongBank: rows.filter((row) => row.status === 'WRONG_BANK').length,
         ignoredOutgoing: rows.filter((row) => row.status === 'IGNORED_OUTGOING').length,
+        failed: rows.filter((row) => row.status === 'FAILED').length,
+        processing: rows.filter((row) => row.status === 'PROCESSING').length,
+        pendingProcessing: rows.filter((row) => row.status === 'PENDING_PROCESSING').length,
       },
       rows: filteredRows,
+    };
+  }
+
+  async getSePayReconciliationAudit(
+    tenantId: string,
+    options: { year?: string; month?: string; severity?: string; type?: string } = {},
+  ) {
+    const period = this.buildPeriodRange(options.year, options.month);
+    const [requests, logs, sepayPayments] = await Promise.all([
+      this.prisma.paymentRequest.findMany({
+        where: {
+          tenantId,
+          provider: 'SEPAY' as any,
+          OR: [{ createdAt: period }, { updatedAt: period }, { paidAt: period }],
+        },
+        include: {
+          owner: { select: { id: true, code: true, name: true } },
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true, accountName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.paymentWebhookLog.findMany({
+        where: {
+          tenantId,
+          provider: 'SEPAY' as any,
+          createdAt: period,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      }),
+      this.prisma.payment.findMany({
+        where: {
+          tenantId,
+          provider: 'SEPAY',
+          deletedAt: null,
+          OR: [{ createdAt: period }, { paidAt: period }],
+        },
+        include: {
+          invoice: {
+            select: {
+              id: true,
+              code: true,
+              status: true,
+              total: true,
+              paidAmount: true,
+              creditAmount: true,
+              contract: {
+                select: {
+                  room: {
+                    select: {
+                      id: true,
+                      code: true,
+                      name: true,
+                      rentalType: true,
+                      capacity: true,
+                      building: {
+                        select: {
+                          id: true,
+                          name: true,
+                          owner: { select: { id: true, name: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const invoiceIds = Array.from(
+      new Set([
+        ...requests.filter((request) => request.sourceType === 'INVOICE').map((request) => request.sourceId),
+        ...sepayPayments.map((payment) => payment.invoiceId),
+      ].filter(Boolean)),
+    );
+    const depositIds = Array.from(
+      new Set(requests.filter((request) => request.sourceType === 'DEPOSIT').map((request) => request.sourceId).filter(Boolean)),
+    );
+
+    const [invoices, deposits] = await Promise.all([
+      invoiceIds.length
+        ? this.prisma.invoice.findMany({
+            where: { tenantId, id: { in: invoiceIds as string[] }, deletedAt: null },
+            include: {
+              contract: {
+                include: {
+                  room: {
+                    include: {
+                      building: {
+                        include: {
+                          owner: { select: { id: true, name: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              customer: { select: { id: true, fullName: true } },
+              payments: {
+                where: { provider: 'SEPAY', deletedAt: null },
+                select: {
+                  id: true,
+                  amount: true,
+                  status: true,
+                  providerRef: true,
+                  paidAt: true,
+                  createdAt: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve([]),
+      depositIds.length
+        ? this.prisma.deposit.findMany({
+            where: { tenantId, id: { in: depositIds as string[] }, deletedAt: null },
+            include: {
+              customer: { select: { id: true, fullName: true } },
+              contract: { select: { id: true, status: true } },
+              room: {
+                include: {
+                  building: {
+                    include: {
+                      owner: { select: { id: true, name: true } },
+                    },
+                  },
+                },
+              },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const invoiceById = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+    const depositById = new Map(deposits.map((deposit) => [deposit.id, deposit]));
+    const requestsBySource = new Map<string, any[]>();
+    const confirmedRequestsBySource = new Map<string, any[]>();
+    const logsByPaymentCode = new Map<string, any[]>();
+    const logByTransactionId = new Map<string, any>();
+    const issues: SePayAuditIssue[] = [];
+    const issueKeys = new Set<string>();
+    const now = Date.now();
+
+    for (const request of requests) {
+      const key = this.buildPaymentSourceKey(request.sourceType, request.sourceId);
+      const sourceRequests = requestsBySource.get(key) || [];
+      sourceRequests.push(request);
+      requestsBySource.set(key, sourceRequests);
+      if (request.status === 'CONFIRMED') {
+        const confirmed = confirmedRequestsBySource.get(key) || [];
+        confirmed.push(request);
+        confirmedRequestsBySource.set(key, confirmed);
+      }
+    }
+
+    for (const log of logs) {
+      const payload = log.payload as any;
+      const paymentCode = this.resolveWebhookPaymentCode(payload);
+      if (paymentCode) {
+        const paymentCodeLogs = logsByPaymentCode.get(paymentCode) || [];
+        paymentCodeLogs.push(log);
+        logsByPaymentCode.set(paymentCode, paymentCodeLogs);
+      }
+      if (log.providerTransactionId) {
+        logByTransactionId.set(log.providerTransactionId, log);
+      }
+    }
+
+    const pushIssue = (issue: SePayAuditIssue) => {
+      const dedupeKey = `${issue.type}:${issue.requestId || '-'}:${issue.webhookId || '-'}:${issue.sourceType || '-'}:${issue.sourceId || '-'}:${issue.providerTransactionId || '-'}:${issue.paymentCode || '-'}`;
+      if (issueKeys.has(dedupeKey)) return;
+      issueKeys.add(dedupeKey);
+      issues.push(issue);
+    };
+
+    for (const request of requests) {
+      const sourceType = String(request.sourceType || '');
+      const metadata = (request.metadata as any) || {};
+      const source =
+        sourceType === 'INVOICE'
+          ? invoiceById.get(request.sourceId) || null
+          : sourceType === 'DEPOSIT'
+            ? depositById.get(request.sourceId) || null
+            : null;
+      const sourceSnapshot = this.buildSePayAuditSourceSnapshot(request, source);
+      const paymentCodeLogs = logsByPaymentCode.get(request.paymentCode) || [];
+      const latestRelevantLog = paymentCodeLogs[0] || null;
+      const transactionLog = request.providerTransactionId ? logByTransactionId.get(request.providerTransactionId) || null : null;
+      const activeLog = transactionLog || latestRelevantLog;
+
+      if (request.status === 'CONFIRMED' && !sourceSnapshot.settled) {
+        pushIssue({
+          id: `confirmed-open-${request.id}`,
+          severity: 'CRITICAL',
+          type: 'CONFIRMED_REQUEST_SOURCE_OPEN',
+          title: 'Payment request đã xác nhận nhưng chứng từ nguồn chưa settled',
+          description: `${sourceSnapshot.sourceLabel} ${sourceSnapshot.sourceCode || request.sourceId} vẫn ở trạng thái ${sourceSnapshot.sourceStatus || 'UNKNOWN'}.`,
+          createdAt: request.paidAt || request.updatedAt || request.createdAt,
+          ageHours: this.toAgeHours(request.paidAt || request.updatedAt || request.createdAt, now),
+          paymentCode: request.paymentCode,
+          providerTransactionId: request.providerTransactionId || null,
+          sourceType,
+          sourceId: request.sourceId,
+          sourceCode: sourceSnapshot.sourceCode,
+          sourceStatus: sourceSnapshot.sourceStatus,
+          requestId: request.id,
+          requestStatus: request.status,
+          webhookId: activeLog?.id || null,
+          webhookStatus: activeLog?.status || null,
+          expectedAmount: Number(request.amount || 0),
+          actualAmount: sourceSnapshot.actualAmount,
+          roomCode: sourceSnapshot.roomCode,
+          buildingName: sourceSnapshot.buildingName,
+          roomRentalTypeLabel: sourceSnapshot.roomRentalTypeLabel,
+          roomMemberCount: sourceSnapshot.roomMemberCount,
+          ownerName: sourceSnapshot.ownerName,
+          bankName: request.bankAccount?.bankName || request.bankName || null,
+          accountNumber: request.bankAccount?.accountNumber || request.bankAccountNumber || null,
+          metadata: {
+            remainingAmount: sourceSnapshot.remainingAmount,
+          },
+        });
+      }
+
+      if (request.status !== 'CONFIRMED' && sourceSnapshot.settled) {
+        pushIssue({
+          id: `open-settled-${request.id}`,
+          severity: 'WARNING',
+          type: 'SETTLED_SOURCE_MISSING_CONFIRMED_REQUEST',
+          title: 'Chứng từ nguồn đã settled nhưng payment request chưa confirmed',
+          description: `${sourceSnapshot.sourceLabel} ${sourceSnapshot.sourceCode || request.sourceId} đã settled, nhưng request vẫn là ${request.status}.`,
+          createdAt: sourceSnapshot.settledAt || request.updatedAt || request.createdAt,
+          ageHours: this.toAgeHours(sourceSnapshot.settledAt || request.updatedAt || request.createdAt, now),
+          paymentCode: request.paymentCode,
+          providerTransactionId: request.providerTransactionId || null,
+          sourceType,
+          sourceId: request.sourceId,
+          sourceCode: sourceSnapshot.sourceCode,
+          sourceStatus: sourceSnapshot.sourceStatus,
+          requestId: request.id,
+          requestStatus: request.status,
+          webhookId: activeLog?.id || null,
+          webhookStatus: activeLog?.status || null,
+          expectedAmount: Number(request.amount || 0),
+          actualAmount: sourceSnapshot.actualAmount,
+          roomCode: sourceSnapshot.roomCode,
+          buildingName: sourceSnapshot.buildingName,
+          roomRentalTypeLabel: sourceSnapshot.roomRentalTypeLabel,
+          roomMemberCount: sourceSnapshot.roomMemberCount,
+          ownerName: sourceSnapshot.ownerName,
+          bankName: request.bankAccount?.bankName || request.bankName || null,
+          accountNumber: request.bankAccount?.accountNumber || request.bankAccountNumber || null,
+        });
+      }
+
+      const processedLog = paymentCodeLogs.find((log) => log.status === 'PROCESSED');
+      if (processedLog && request.status !== 'CONFIRMED') {
+        pushIssue({
+          id: `processed-unconfirmed-${request.id}`,
+          severity: 'CRITICAL',
+          type: 'PROCESSED_WEBHOOK_REQUEST_UNCONFIRMED',
+          title: 'Webhook đã processed nhưng payment request chưa confirmed',
+          description: `Webhook ${processedLog.providerTransactionId} đã xử lý xong, nhưng request ${request.paymentCode} vẫn là ${request.status}.`,
+          createdAt: processedLog.processedAt || processedLog.createdAt,
+          ageHours: this.toAgeHours(processedLog.processedAt || processedLog.createdAt, now),
+          paymentCode: request.paymentCode,
+          providerTransactionId: processedLog.providerTransactionId || null,
+          sourceType,
+          sourceId: request.sourceId,
+          sourceCode: sourceSnapshot.sourceCode,
+          sourceStatus: sourceSnapshot.sourceStatus,
+          requestId: request.id,
+          requestStatus: request.status,
+          webhookId: processedLog.id,
+          webhookStatus: processedLog.status,
+          expectedAmount: Number(request.amount || 0),
+          actualAmount: this.resolveWebhookAmount(processedLog.payload as any),
+          roomCode: sourceSnapshot.roomCode,
+          buildingName: sourceSnapshot.buildingName,
+          roomRentalTypeLabel: sourceSnapshot.roomRentalTypeLabel,
+          roomMemberCount: sourceSnapshot.roomMemberCount,
+          ownerName: sourceSnapshot.ownerName,
+          bankName: request.bankAccount?.bankName || request.bankName || null,
+          accountNumber: request.bankAccount?.accountNumber || request.bankAccountNumber || null,
+        });
+      }
+
+      if (request.status === 'CONFIRMED' && !metadata.manualAssigned && !request.providerTransactionId) {
+        pushIssue({
+          id: `confirmed-no-txn-${request.id}`,
+          severity: 'WARNING',
+          type: 'CONFIRMED_REQUEST_MISSING_TRANSACTION_ID',
+          title: 'Payment request confirmed nhưng thiếu provider transaction id',
+          description: `Request ${request.paymentCode} đã confirmed nhưng chưa lưu transaction id để truy vết webhook.`,
+          createdAt: request.paidAt || request.updatedAt || request.createdAt,
+          ageHours: this.toAgeHours(request.paidAt || request.updatedAt || request.createdAt, now),
+          paymentCode: request.paymentCode,
+          providerTransactionId: null,
+          sourceType,
+          sourceId: request.sourceId,
+          sourceCode: sourceSnapshot.sourceCode,
+          sourceStatus: sourceSnapshot.sourceStatus,
+          requestId: request.id,
+          requestStatus: request.status,
+          webhookId: null,
+          webhookStatus: null,
+          expectedAmount: Number(request.amount || 0),
+          actualAmount: sourceSnapshot.actualAmount,
+          roomCode: sourceSnapshot.roomCode,
+          buildingName: sourceSnapshot.buildingName,
+          roomRentalTypeLabel: sourceSnapshot.roomRentalTypeLabel,
+          roomMemberCount: sourceSnapshot.roomMemberCount,
+          ownerName: sourceSnapshot.ownerName,
+          bankName: request.bankAccount?.bankName || request.bankName || null,
+          accountNumber: request.bankAccount?.accountNumber || request.bankAccountNumber || null,
+        });
+      }
+
+      if (metadata.overpaymentResolution === 'REFUND_PENDING' && !metadata.overpaymentRefundCompletedAt) {
+        const ageHours = this.toAgeHours(request.updatedAt || request.paidAt || request.createdAt, now);
+        if (ageHours !== null && ageHours >= 24) {
+          pushIssue({
+            id: `refund-stale-${request.id}`,
+            severity: ageHours >= 72 ? 'CRITICAL' : 'WARNING',
+            type: 'OVERPAYMENT_REFUND_PENDING_STALE',
+            title: 'Hoàn dư SePay đang treo quá lâu',
+            description: `Payment code ${request.paymentCode} còn tác vụ hoàn dư chưa hoàn tất.`,
+            createdAt: request.updatedAt || request.paidAt || request.createdAt,
+            ageHours,
+            paymentCode: request.paymentCode,
+            providerTransactionId: request.providerTransactionId || null,
+            sourceType,
+            sourceId: request.sourceId,
+            sourceCode: sourceSnapshot.sourceCode,
+            sourceStatus: sourceSnapshot.sourceStatus,
+            requestId: request.id,
+            requestStatus: request.status,
+            webhookId: activeLog?.id || null,
+            webhookStatus: activeLog?.status || null,
+            expectedAmount: Number(request.amount || 0),
+            actualAmount: Number(metadata.overpaymentAmount || 0),
+            roomCode: sourceSnapshot.roomCode,
+            buildingName: sourceSnapshot.buildingName,
+            roomRentalTypeLabel: sourceSnapshot.roomRentalTypeLabel,
+            roomMemberCount: sourceSnapshot.roomMemberCount,
+            ownerName: sourceSnapshot.ownerName,
+            bankName: request.bankAccount?.bankName || request.bankName || null,
+            accountNumber: request.bankAccount?.accountNumber || request.bankAccountNumber || null,
+            metadata: {
+              overpaymentTaskTitle: metadata.overpaymentTaskTitle || null,
+            },
+          });
+        }
+      }
+    }
+
+    for (const payment of sepayPayments) {
+      const invoice = invoiceById.get(payment.invoiceId) || payment.invoice;
+      if (!invoice) continue;
+      const sourceKey = this.buildPaymentSourceKey('INVOICE', payment.invoiceId);
+      const hasConfirmedRequest = (confirmedRequestsBySource.get(sourceKey) || []).length > 0;
+      if (hasConfirmedRequest) continue;
+      const sourceSnapshot = this.buildSePayAuditSourceSnapshot(null, invoice);
+      pushIssue({
+        id: `payment-no-request-${payment.id}`,
+        severity: 'WARNING',
+        type: 'SEPAY_PAYMENT_WITHOUT_CONFIRMED_REQUEST',
+        title: 'Invoice có payment SePay nhưng không có confirmed request',
+        description: `Invoice ${invoice.code} đã ghi nhận payment SePay ${payment.providerRef || payment.id}, nhưng thiếu payment request confirmed tương ứng.`,
+        createdAt: payment.paidAt || payment.createdAt,
+        ageHours: this.toAgeHours(payment.paidAt || payment.createdAt, now),
+        paymentCode: null,
+        providerTransactionId: payment.providerRef || null,
+        sourceType: 'INVOICE',
+        sourceId: invoice.id,
+        sourceCode: invoice.code,
+        sourceStatus: invoice.status,
+        requestId: null,
+        requestStatus: null,
+        webhookId: payment.providerRef ? logByTransactionId.get(payment.providerRef)?.id || null : null,
+        webhookStatus: payment.providerRef ? logByTransactionId.get(payment.providerRef)?.status || null : null,
+        expectedAmount: Number(invoice.total || 0),
+        actualAmount: Number(payment.amount || 0),
+        roomCode: sourceSnapshot.roomCode,
+        buildingName: sourceSnapshot.buildingName,
+        roomRentalTypeLabel: sourceSnapshot.roomRentalTypeLabel,
+        roomMemberCount: sourceSnapshot.roomMemberCount,
+        ownerName: sourceSnapshot.ownerName,
+        bankName: null,
+        accountNumber: null,
+      });
+    }
+
+    for (const log of logs) {
+      const paymentCode = this.resolveWebhookPaymentCode(log.payload as any);
+      const relatedRequest = paymentCode ? requests.find((request) => request.paymentCode === paymentCode) || null : null;
+      const ageHours = this.toAgeHours(log.createdAt, now);
+      const isReviewState = ['FAILED', 'NEEDS_REVIEW'].includes(String(log.status || ''));
+      const isPendingState = ['RECEIVED', 'PROCESSING'].includes(String(log.status || '')) && !log.processedAt;
+      if ((isReviewState && (ageHours || 0) >= 6) || (isPendingState && (ageHours || 0) >= 1)) {
+        pushIssue({
+          id: `stale-log-${log.id}`,
+          severity: isReviewState && (ageHours || 0) >= 24 ? 'CRITICAL' : 'WARNING',
+          type: relatedRequest ? 'WEBHOOK_REVIEW_STALE' : 'UNMATCHED_WEBHOOK_STALE',
+          title: relatedRequest ? 'Webhook SePay đang treo cần xử lý' : 'Webhook SePay chưa được gán nguồn',
+          description: relatedRequest
+            ? `Webhook ${log.providerTransactionId} đang ở trạng thái ${log.status} quá lâu cho payment code ${paymentCode || '-'}.`
+            : `Webhook ${log.providerTransactionId} chưa khớp payment request nào và đang ở trạng thái ${log.status}.`,
+          createdAt: log.createdAt,
+          ageHours,
+          paymentCode: paymentCode || null,
+          providerTransactionId: log.providerTransactionId || null,
+          sourceType: relatedRequest?.sourceType || null,
+          sourceId: relatedRequest?.sourceId || null,
+          sourceCode: null,
+          sourceStatus: null,
+          requestId: relatedRequest?.id || null,
+          requestStatus: relatedRequest?.status || null,
+          webhookId: log.id,
+          webhookStatus: log.status,
+          expectedAmount: relatedRequest ? Number(relatedRequest.amount || 0) : null,
+          actualAmount: this.resolveWebhookAmount(log.payload as any),
+          roomCode: null,
+          buildingName: null,
+          roomRentalTypeLabel: null,
+          roomMemberCount: null,
+          ownerName: relatedRequest?.owner?.name || null,
+          bankName: relatedRequest?.bankAccount?.bankName || relatedRequest?.bankName || null,
+          accountNumber: String((log.payload as any)?.accountNumber || (log.payload as any)?.account_number || ''),
+          metadata: {
+            lastError: (log as any).lastError || null,
+            attemptCount: Number((log as any).attemptCount || 0),
+          },
+        });
+      }
+    }
+
+    const filteredRows = issues.filter((issue) => {
+      if (options.severity && issue.severity !== options.severity) return false;
+      if (options.type && issue.type !== options.type) return false;
+      return true;
+    });
+
+    const severityCounts = {
+      critical: issues.filter((issue) => issue.severity === 'CRITICAL').length,
+      warning: issues.filter((issue) => issue.severity === 'WARNING').length,
+      info: issues.filter((issue) => issue.severity === 'INFO').length,
+    };
+
+    const issueTypeCounts = issues.reduce((acc, issue) => {
+      acc[issue.type] = (acc[issue.type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      period: {
+        year: Number(options.year || new Date().getFullYear()),
+        month: options.month ? Number(options.month) : null,
+        startDate: period.gte,
+        endDate: period.lte,
+      },
+      summary: {
+        total: issues.length,
+        ...severityCounts,
+      },
+      filters: {
+        issueTypes: Object.entries(issueTypeCounts)
+          .map(([type, count]) => ({ type, count }))
+          .sort((left, right) => right.count - left.count),
+      },
+      rows: filteredRows.sort((left, right) => {
+        const severityRank = { CRITICAL: 0, WARNING: 1, INFO: 2 };
+        const leftRank = severityRank[left.severity] ?? 99;
+        const rightRank = severityRank[right.severity] ?? 99;
+        if (leftRank !== rightRank) return leftRank - rightRank;
+        return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
+      }),
     };
   }
 
@@ -1452,6 +2029,74 @@ export class FinanceReportingService {
     const year = new Date().getFullYear();
     const count = await this.prisma.expense.count({ where: { tenantId, code: { startsWith: `EXP-${year}-` } } });
     return `EXP-${year}-${String(count + 1).padStart(4, '0')}`;
+  }
+
+  private buildPaymentSourceKey(sourceType: unknown, sourceId: unknown) {
+    return `${String(sourceType || '')}:${String(sourceId || '')}`;
+  }
+
+  private toAgeHours(value: Date | string | null | undefined, now = Date.now()) {
+    if (!value) return null;
+    const timestamp = new Date(value).getTime();
+    if (!Number.isFinite(timestamp)) return null;
+    return Math.max(0, Math.round(((now - timestamp) / 36e5) * 10) / 10);
+  }
+
+  private buildSePayAuditSourceSnapshot(request: any, source: any) {
+    const metadata = (request?.metadata as any) || {};
+    const sourceType = String(request?.sourceType || (source?.contractId !== undefined ? 'INVOICE' : 'DEPOSIT'));
+    const room = source?.contract?.room || source?.room || null;
+    const building = room?.building || null;
+    const roomContext = room
+      ? buildRoomContext(room, source?.contract || { memberCount: metadata.roomMemberCount })
+      : {
+          roomCode: metadata.roomCode || null,
+          buildingName: metadata.buildingName || null,
+          roomRentalTypeLabel: metadata.roomRentalTypeLabel || null,
+          roomMemberCount:
+            Number.isFinite(Number(metadata.roomMemberCount)) && Number(metadata.roomMemberCount) > 0
+              ? Number(metadata.roomMemberCount)
+              : null,
+        };
+
+    if (sourceType === 'INVOICE') {
+      const total = Number(source?.total || request?.amount || 0);
+      const paidAmount = Number(source?.paidAmount || 0);
+      const creditAmount = Number(source?.creditAmount || 0);
+      const remainingAmount = Math.max(0, total - paidAmount - creditAmount);
+      const settled = remainingAmount <= 0.01 || source?.status === 'PAID';
+      return {
+        sourceLabel: 'Invoice',
+        sourceCode: source?.code || metadata.sourceCode || null,
+        sourceStatus: source?.status || null,
+        settled,
+        settledAt: settled ? request?.paidAt || request?.updatedAt || null : null,
+        remainingAmount,
+        actualAmount: paidAmount,
+        roomCode: roomContext.roomCode || null,
+        buildingName: roomContext.buildingName || building?.name || null,
+        roomRentalTypeLabel: roomContext.roomRentalTypeLabel || null,
+        roomMemberCount: roomContext.roomMemberCount || null,
+        ownerName: building?.owner?.name || request?.owner?.name || null,
+      };
+    }
+
+    const depositSettledStatuses = new Set(['PAID', 'CONVERTED_TO_CONTRACT']);
+    const actualAmount = Number(source?.amount || request?.amount || 0);
+    return {
+      sourceLabel: 'Deposit',
+      sourceCode: source?.code || metadata.sourceCode || null,
+      sourceStatus: source?.status || null,
+      settled: depositSettledStatuses.has(String(source?.status || '')),
+      settledAt: depositSettledStatuses.has(String(source?.status || '')) ? request?.paidAt || request?.updatedAt || null : null,
+      remainingAmount: depositSettledStatuses.has(String(source?.status || '')) ? 0 : actualAmount,
+      actualAmount,
+      roomCode: roomContext.roomCode || null,
+      buildingName: roomContext.buildingName || building?.name || null,
+      roomRentalTypeLabel: roomContext.roomRentalTypeLabel || null,
+      roomMemberCount: roomContext.roomMemberCount || null,
+      ownerName: building?.owner?.name || request?.owner?.name || null,
+    };
   }
 
   private buildPeriodRange(year?: string, month?: string) {

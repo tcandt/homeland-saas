@@ -32,4 +32,12 @@ export interface StorageProvider {
    * @param url The storage URL/path
    */
   delete(url: string): Promise<void>;
+
+  /**
+   * Build a direct download URL when the provider supports it.
+   * Providers without direct URLs may return the original storage URL or a proxied URL.
+   */
+  getDownloadUrl?(url: string, expiresInSeconds?: number): Promise<string> | string;
 }
+
+export const STORAGE_PROVIDER = 'STORAGE_PROVIDER';

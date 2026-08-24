@@ -2,13 +2,21 @@
 
 ## Stack hiện có
 
-`docker-compose.monitoring.yml` cung cấp Prometheus, Alertmanager, Grafana, Loki, Promtail và Tempo. API công khai health/readiness/build-info và Prometheus metrics.
+`docker-compose.monitoring.yml` cung cấp Prometheus, Alertmanager, Grafana, Loki, Promtail và Tempo. API chỉ công khai liveness/readiness; metrics, seed check và build-info là endpoint nội bộ cần token.
 
 Đây mới là cấu hình triển khai mẫu. `monitoring/alertmanager.yml` còn URL localhost và token placeholder; không được coi monitoring là hoạt động và không expose các cổng ra Internet trước khi thay endpoint, bảo vệ truy cập và gửi thử cảnh báo thành công.
 
+Dashboard Grafana da provision san trong repo:
+
+- `monitoring/grafana/provisioning/dashboards/homeland-overview.json`
+- `monitoring/grafana/provisioning/dashboards/homeland-slo.json`
+- `monitoring/grafana/provisioning/dashboards/homeland-operations.json`
+- `monitoring/grafana/provisioning/dashboards/homeland-logs.json`
+- `monitoring/grafana/provisioning/dashboards/homeland-traces.json`
+
 ## Điều kiện bật production
 
-- [ ] Prometheus scrape được API qua mạng nội bộ tại `/api/v1/metrics`.
+- [ ] Prometheus scrape được API qua mạng nội bộ tại `/api/v1/metrics` với header `X-Internal-Token` hoặc `Authorization: Bearer <INTERNAL_API_TOKEN>`.
 - [ ] Grafana, Prometheus, Loki, Tempo và Alertmanager không mở công khai hoặc được bảo vệ bằng TLS/auth/VPN.
 - [ ] Mật khẩu Grafana mặc định đã đổi và lưu trong secret manager.
 - [ ] Alertmanager receiver thật đã thay toàn bộ endpoint/token placeholder.
@@ -30,14 +38,28 @@
 | Disk/database/storage | `>80%` warning, `>90%` critical | Mở rộng/giảm log, không xóa dữ liệu tùy tiện |
 | Backup quá hạn | Không có backup hợp lệ `>24 giờ` | Critical |
 
-Các rule HTTP/SLO đã có trong `monitoring/prometheus-rules.yml`. Trước LIVE phải bổ sung hoặc cấu hình monitor ngoài cho readiness DB, disk/storage và backup freshness nếu chưa có metric tương ứng.
+Các rule HTTP/SLO đã có trong `monitoring/prometheus-rules.yml`. API hiện xuất thêm:
+
+- `payment_webhook_logs{provider,status}` cho SePay webhook state.
+- `sepay_reconciliation_audit_issues{type,severity}` cho sai lệch cross-service giữa webhook, request va source.
+- `notification_queue_items{channel,status}` cho queue/DLQ.
+- `notification_queue_oldest_age_seconds` cho backlog treo lau.
+- `notification_worker_heartbeat_age_seconds` cho worker tach rieng.
+- `hunonic_sync_latest_status{status}`, `hunonic_sync_enabled_tenants`, `hunonic_sync_missing_tenants`, `hunonic_sync_oldest_age_seconds` cho suc khoe dong bo Hunonic.
+- `backup_age_seconds` va `backup_last_success` tu `BACKUP_MANIFEST_PATH`.
+- `backup_off_host_last_success`, `backup_retention_local_copies`, `backup_retention_prunable_copies` tu retention report local.
+
+Trước LIVE vẫn phải bổ sung hoặc cấu hình monitor ngoài cho readiness DB, disk/storage và host-level metrics nếu chưa có exporter tương ứng.
 
 ## Cảnh báo nghiệp vụ bắt buộc
 
 - SePay webhook lỗi, signature sai, giao dịch trùng hoặc transaction chưa match quá SLA.
 - Giao dịch vào sai bank so với owner/tòa hoặc số tiền thiếu/thừa chưa xử lý.
+- `PaymentRequest.CONFIRMED` nhưng invoice/deposit chưa settled, webhook `PROCESSED` nhưng request còn pending, hoặc hoàn dư `REFUND_PENDING` quá SLA.
+- Backup thành công nhưng không có `offHostLocation`, hoặc số local backup prunable tăng liên tục mà retention cleanup chưa chạy.
 - Hunonic sync thất bại, lần sync cuối quá `2 giờ`, reading trùng/bất thường hoặc cố ghi kỳ khóa.
 - Notification Zalo/Telegram/SMTP thất bại sau retry hoặc queue tăng liên tục.
+- `notification_worker_heartbeat_age_seconds > 300` hoac khong co heartbeat trong luc `COMMUNICATION_IMMEDIATE_DELIVERY=false`.
 - Sai lệch dashboard tổng thu/chi/còn lại so với bank/owner.
 - Hoàn cọc/hoàn tiền ở trạng thái pending quá SLA.
 - Login thất bại tăng đột biến, sửa integration secret hoặc thay owner.

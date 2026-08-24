@@ -56,4 +56,10 @@ describe("adaptRoom optional numeric fields", () => {
     expect(room.monthlyPrice).toBe(7_300_000);
     expect(room.contract?.rentPrice).toBe(7_300_000);
   });
+
+  it("maps API rentalType to UI rentalType", () => {
+    expect(adaptRoom(apiRoom({ rentalType: "SHARED" })).rentalType).toBe("shared");
+    expect(adaptRoom(apiRoom({ rentalType: "WHOLE" })).rentalType).toBe("whole");
+    expect(adaptRoom(apiRoom({ rentalType: undefined })).rentalType).toBe("whole");
+  });
 });

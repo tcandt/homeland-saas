@@ -7,6 +7,7 @@ import { CommunicationService } from '../../communication/communication.service'
 import { AnalyticsCacheService } from '../../analytics/analytics-cache.service';
 import { JournalEntryService } from '../../finance/journal-entry.service';
 import { DocumentsService } from '../../documents/documents.service';
+import { buildRoomContext } from '../../shared/context/room-context';
 
 @Injectable()
 export class WorkflowEngine {
@@ -108,20 +109,22 @@ export class WorkflowEngine {
         });
         break;
       case 'SEND_PAYMENT_CONFIRMATION_ZALO':
-        if (payload.customerPhone) {
+        const zaloRecipient = String(payload.customerZaloChatId || payload.customerZaloUserId || '').trim();
+        if (zaloRecipient) {
           await this.communicationService.dispatchDirect({
             tenantId: payload.tenantId,
             channel: 'ZALO' as any,
             templateCode: params?.templateCode || 'PAYMENT_ZALO_CONFIRMATION',
-            recipient: payload.customerPhone,
+            recipient: zaloRecipient,
             userId: payload.customerId || payload.userId || null,
             context: {
               ...payload,
+              ...buildRoomContext(payload.room || payload.contract?.room, payload.contract),
               paymentCode: payload.metadata?.code,
             },
           });
         } else {
-          this.logger.warn('Skipping Zalo payment confirmation because customerPhone is missing');
+          this.logger.warn('Skipping Zalo payment confirmation because customer Zalo chat/user id is missing');
         }
         break;
       case 'INVALIDATE_DASHBOARD_CACHE':

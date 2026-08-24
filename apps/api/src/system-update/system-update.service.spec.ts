@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ConflictException } from '@nestjs/common';
 import { SystemUpdateService } from './system-update.service';
 
 vi.mock('child_process', () => ({
@@ -49,5 +50,22 @@ describe('SystemUpdateService', () => {
     expect(job.type).toBe('rollback');
     expect(job.toVersion).toBe('previous-sha');
     expect(job.status).toBe('BLOCKED');
+  });
+
+  it('rejects overlapping update jobs', () => {
+    const service = new SystemUpdateService();
+    (service as any).currentJob = {
+      id: 'upd_running',
+      type: 'install',
+      status: 'BUILDING',
+      progressPercent: 60,
+      fromVersion: 'v1.0.0',
+      toVersion: 'v1.0.1',
+      dryRun: false,
+      startedAt: new Date().toISOString(),
+      logs: [],
+    };
+
+    expect(() => service.startRollback({ targetVersion: 'previous-sha' })).toThrow(ConflictException);
   });
 });

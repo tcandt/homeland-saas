@@ -16,6 +16,14 @@ type ZaloSettings = {
   baseUrl: string;
   botToken: string;
   webhookSecret: string;
+  defaultChatId?: string;
+  recentWebhookChats?: Array<{
+    chatId: string;
+    userId?: string | null;
+    displayName?: string | null;
+    eventName?: string | null;
+    lastSeenAt?: string;
+  }>;
   botTokenConfigured?: boolean;
   webhookSecretConfigured?: boolean;
 };
@@ -25,6 +33,7 @@ const fallback: ZaloSettings = {
   baseUrl: "",
   botToken: "",
   webhookSecret: "",
+  recentWebhookChats: [],
 };
 
 function normalizeBaseUrl(value: string) {
@@ -51,6 +60,7 @@ export default function SettingsZaloIntegration() {
   const [isTesting, setIsTesting] = useState(false);
   const [isGeneratingSecret, setIsGeneratingSecret] = useState(false);
   const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
+  const recentWebhookChats = Array.isArray(draft.recentWebhookChats) ? draft.recentWebhookChats : [];
   const resolvedBaseUrl = useMemo(() => {
     const candidate = draft.baseUrl
       || (typeof window !== "undefined" ? window.location.origin : "")
@@ -221,6 +231,32 @@ export default function SettingsZaloIntegration() {
               Bot Platform không gửi trực tiếp theo số điện thoại. Cần nhập <span className="font-semibold text-text">chat_id</span> hoặc định danh hội thoại thực tế của bot.
             </div>
           </div>
+
+          {recentWebhookChats.length > 0 && (
+            <div className="flex flex-col gap-[8px] lg:col-span-2">
+              <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Chat ID nhận từ webhook gần đây</label>
+              <div className="grid grid-cols-1 gap-[8px] md:grid-cols-2">
+                {recentWebhookChats.slice(0, 6).map((chat) => (
+                  <button
+                    key={`${chat.chatId}-${chat.lastSeenAt || ""}`}
+                    type="button"
+                    onClick={() => {
+                      setTestRecipient(chat.chatId);
+                      copyText(chat.chatId, "chat_id");
+                    }}
+                    className="flex min-w-0 items-center justify-between gap-[10px] rounded-[10px] border border-border bg-background px-[12px] py-[10px] text-left transition-colors hover:border-[#8b5cf6]/35 hover:bg-[#8b5cf6]/5"
+                    title="Nhấp để dùng chat_id này và sao chép"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-black text-text">{chat.displayName || chat.eventName || "Zalo chat"}</span>
+                      <span className="block truncate font-mono text-[12px] text-muted">{chat.chatId}</span>
+                    </span>
+                    <span className="shrink-0 text-[11px] font-bold text-muted">Dùng</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-[10px] border-t border-border/70 pt-[14px]">
@@ -232,9 +268,6 @@ export default function SettingsZaloIntegration() {
           </Button>
         </div>
       </Card>
-      
-      <div className="hidden">
-      </div>
     </div>
   );
 }

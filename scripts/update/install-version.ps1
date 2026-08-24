@@ -60,7 +60,7 @@ $updateRootPath = if (Test-Path -LiteralPath $UpdateRoot) { (Resolve-Path -Liter
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $safeVersion = ($TargetVersion -replace "[^0-9A-Za-z_.-]", "_")
 $releasePath = Join-Path (Join-Path $updateRootPath "releases") "$stamp-$safeVersion"
-$backupRoot = Join-Path $workspacePath ".codex-backups\system-update"
+$backupRoot = if ($env:SYSTEM_UPDATE_BACKUP_OUTPUT_DIR) { $env:SYSTEM_UPDATE_BACKUP_OUTPUT_DIR } else { Join-Path $workspacePath ".codex-backups\system-update" }
 $backupPath = Join-Path $backupRoot "$stamp-before-$safeVersion"
 $manifestPath = Join-Path $updateRootPath "last-install-manifest.json"
 
@@ -72,7 +72,7 @@ Write-Step "CHECKING" 5 "Preparing update to $TargetVersion."
 $currentVersion = (& git -C $workspacePath rev-parse HEAD).Trim()
 
 Write-Step "BACKING_UP" 20 "Backing up env and metadata."
-$envPath = Join-Path $workspacePath ".env"
+$envPath = if ($env:SYSTEM_UPDATE_ENV_FILE) { $env:SYSTEM_UPDATE_ENV_FILE } else { Join-Path $workspacePath ".env" }
 if (Test-Path -LiteralPath $envPath) { Copy-Item -LiteralPath $envPath -Destination (Join-Path $backupPath ".env") }
 @{
     currentVersion = $currentVersion
@@ -80,7 +80,30 @@ if (Test-Path -LiteralPath $envPath) { Copy-Item -LiteralPath $envPath -Destinat
     createdAt = (Get-Date).ToString("o")
     workspace = $workspacePath
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $backupPath "metadata.json") -Encoding UTF8
-$databaseBackup = Backup-Database -EnvPath $envPath -BackupDir $backupPath
+
+$storageDir = if ($env:SYSTEM_UPDATE_STORAGE_DIR) { $env:SYSTEM_UPDATE_STORAGE_DIR } else { Get-EnvValue -Path $envPath -Key "STORAGE_DIR" }
+if (-not $storageDir) { $storageDir = Join-Path $workspacePath "storage" }
+
+Write-Step "BACKING_UP" 28 "Creating production backup bundle."
+$backupScript = Join-Path $workspacePath "scripts\production-backup.js"
+& node $backupScript --env-file $envPath --output-dir $backupRoot --storage-dir $storageDir
+if ($LASTEXITCODE -ne 0) { throw "production backup failed with code $LASTEXITCODE" }
+$backupManifest = Join-Path $backupRoot "latest-manifest.json"
+$backupManifestJson = Get-Content -LiteralPath $backupManifest -Raw | ConvertFrom-Json
+$backupBundlePath = Join-Path $backupRoot $backupManifestJson.id
+
+Write-Step "BACKING_UP" 35 "Verifying backup manifest and dump readability."
+$restoreCheckScript = Join-Path $workspacePath "scripts\production-restore-check.js"
+$restoreArgs = @(
+    $restoreCheckScript,
+    "--manifest", $backupManifest,
+    "--max-age-hours", $(if ($env:SYSTEM_UPDATE_BACKUP_MAX_AGE_HOURS) { $env:SYSTEM_UPDATE_BACKUP_MAX_AGE_HOURS } else { "24" })
+)
+if ($env:SYSTEM_UPDATE_REQUIRE_OFF_HOST -eq "true") { $restoreArgs += "--require-off-host" }
+if ($env:SYSTEM_UPDATE_PG_RESTORE_PATH) { $restoreArgs += @("--pg-restore", $env:SYSTEM_UPDATE_PG_RESTORE_PATH) }
+if ($env:SYSTEM_UPDATE_SKIP_PG_RESTORE_LIST -eq "true") { $restoreArgs += "--skip-pg-restore-list" }
+& node @restoreArgs
+if ($LASTEXITCODE -ne 0) { throw "production restore check failed with code $LASTEXITCODE" }
 
 Write-Step "DOWNLOADING" 42 "Cloning target source into isolated release directory."
 & git clone --no-checkout $Repository $releasePath
@@ -111,24 +134,78 @@ $manifest = @{
     type = "install"
     currentVersion = $currentVersion
     targetVersion = $TargetVersion
+    previousReleasePath = $workspacePath
     releasePath = $releasePath
-    backupPath = $backupPath
-    databaseBackup = $databaseBackup
+    backupPath = $backupBundlePath
+    systemMetadataBackupPath = $backupPath
+    backupManifest = $backupManifest
     switched = $false
     restartRequested = $false
+    restartExitCode = $null
+    autoRollbackPerformed = $false
+    rollbackRestartExitCode = $null
+    status = "DONE"
     finishedAt = (Get-Date).ToString("o")
 }
+$runnerExitCode = 0
 
 if ($AllowSwitch -or $env:SYSTEM_UPDATE_ALLOW_SWITCH -eq "true") {
     Write-Step "SWITCHING" 90 "Writing active version manifest."
     $currentManifestPath = Join-Path $updateRootPath "current.json"
     $manifest.switched = $true
-    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $currentManifestPath -Encoding UTF8
+    @{
+        releasePath = $releasePath
+        targetVersion = $TargetVersion
+        previousReleasePath = $workspacePath
+        previousVersion = $currentVersion
+        backupPath = $backupBundlePath
+        activatedAt = (Get-Date).ToString("o")
+    } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $currentManifestPath -Encoding UTF8
 
     if ($env:SYSTEM_UPDATE_RESTART_COMMAND) {
         Write-Step "RESTARTING" 94 "Restart command configured; running service restart."
-        Invoke-Expression $env:SYSTEM_UPDATE_RESTART_COMMAND
         $manifest.restartRequested = $true
+        $global:LASTEXITCODE = 0
+        try {
+            Invoke-Expression $env:SYSTEM_UPDATE_RESTART_COMMAND
+            $manifest.restartExitCode = $LASTEXITCODE
+        } catch {
+            $manifest.restartExitCode = 1
+            $manifest.error = $_.Exception.Message
+        }
+
+        if ($manifest.restartExitCode -ne 0) {
+            $manifest.status = "FAILED_RESTART"
+            $runnerExitCode = 1
+            if ($env:SYSTEM_UPDATE_AUTO_ROLLBACK -ne "false") {
+                Write-Step "RESTARTING" 97 "Restart/health failed; rolling back active manifest to previous release."
+                $manifest.autoRollbackPerformed = $true
+                @{
+                    releasePath = $workspacePath
+                    targetVersion = $currentVersion
+                    rolledBackFrom = $TargetVersion
+                    backupPath = $backupBundlePath
+                    activatedAt = (Get-Date).ToString("o")
+                } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $currentManifestPath -Encoding UTF8
+
+                $global:LASTEXITCODE = 0
+                try {
+                    Invoke-Expression $env:SYSTEM_UPDATE_RESTART_COMMAND
+                    $manifest.rollbackRestartExitCode = $LASTEXITCODE
+                } catch {
+                    $manifest.rollbackRestartExitCode = 1
+                    $manifest.rollbackError = $_.Exception.Message
+                }
+
+                if ($manifest.rollbackRestartExitCode -eq 0) {
+                    $manifest.status = "ROLLED_BACK_AFTER_FAILED_RESTART"
+                } else {
+                    $manifest.status = "ROLLBACK_RESTART_FAILED"
+                }
+            } else {
+                Write-Step "RESTARTING" 97 "Restart/health failed; auto rollback is disabled."
+            }
+        }
     } else {
         Write-Step "RESTARTING" 94 "No restart command configured; service manager must restart manually."
     }
@@ -137,5 +214,10 @@ if ($AllowSwitch -or $env:SYSTEM_UPDATE_ALLOW_SWITCH -eq "true") {
 }
 
 $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
-Write-Step "DONE" 100 "Update runner completed."
+if ($runnerExitCode -eq 0) {
+    Write-Step "DONE" 100 "Update runner completed."
+} else {
+    Write-Step "FAILED" 100 "Update runner failed; app rollback attempted according to manifest."
+}
 Write-Output "SYSTEM_UPDATE_MANIFEST $manifestPath"
+exit $runnerExitCode

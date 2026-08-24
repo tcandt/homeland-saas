@@ -113,6 +113,33 @@ function calculateRentalDuration(startDateStr?: string | null, endDateStr?: stri
   return `${totalMonths} tháng`;
 }
 
+function resolveAssetUrl(assetUrl: string, apiBaseUrl: string) {
+  if (!assetUrl) return '';
+  if (assetUrl.startsWith('http://') || assetUrl.startsWith('https://')) {
+    return assetUrl;
+  }
+  const root = apiBaseUrl.replace(/\/api\/v1\/?$/, '');
+  if (assetUrl.startsWith('/')) {
+    return `${root}${assetUrl}`;
+  }
+  return `${root}/${assetUrl}`;
+}
+
+async function fetchAssetBuffer(assetUrl: string, apiBaseUrl: string, authHeader?: string | null) {
+  const resolvedUrl = resolveAssetUrl(assetUrl, apiBaseUrl);
+  if (!resolvedUrl) return null;
+  const response = await fetch(resolvedUrl, {
+    headers: {
+      ...(authHeader ? { Authorization: authHeader } : {}),
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch asset: ${resolvedUrl} (${response.status})`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 export async function POST(request: Request) {
   const tempFiles: string[] = [];
   try {
@@ -268,10 +295,12 @@ export async function POST(request: Request) {
     let hasContractPdf = false;
 
     if (docxAttachment) {
-      const relPath = docxAttachment.replace('/api/v1/documents/storage/', '');
-      const fullPath = path.join('d:\\homeland-new\\homeland-saas\\apps\\api\\storage', relPath);
-      if (fs.existsSync(fullPath)) {
-        convertDocxToPdf(fullPath, tempContractPdf);
+      const attachmentBuffer = await fetchAssetBuffer(docxAttachment, apiBaseUrl, authHeader);
+      if (attachmentBuffer) {
+        const tempAttachmentDocx = path.join(tempDir, `attached_contract_${nowTimestamp}.docx`);
+        fs.writeFileSync(tempAttachmentDocx, attachmentBuffer);
+        tempFiles.push(tempAttachmentDocx);
+        convertDocxToPdf(tempAttachmentDocx, tempContractPdf);
         tempFiles.push(tempContractPdf);
         hasContractPdf = true;
       }
@@ -343,26 +372,21 @@ export async function POST(request: Request) {
 
     // CCCD Images (from contract.customer.idImages)
     const idImages = contract.customer?.idImages || [];
-    const storageDir = 'd:\\homeland-new\\homeland-saas\\apps\\api\\storage';
     
     // Front CCCD
     if (idImages[0]) {
-      const relPath = idImages[0].replace('/api/v1/documents/storage/', '');
-      const fullPath = path.join(storageDir, relPath);
-      if (fs.existsSync(fullPath)) {
-        const imgBuf = fs.readFileSync(fullPath);
-        const isPng = fullPath.toLowerCase().endsWith('.png');
+      const imgBuf = await fetchAssetBuffer(idImages[0], apiBaseUrl, authHeader);
+      if (imgBuf) {
+        const isPng = idImages[0].toLowerCase().includes('.png');
         await addImagePage(mergedPdf, imgBuf, isPng);
       }
     }
 
     // Back CCCD
     if (idImages[1]) {
-      const relPath = idImages[1].replace('/api/v1/documents/storage/', '');
-      const fullPath = path.join(storageDir, relPath);
-      if (fs.existsSync(fullPath)) {
-        const imgBuf = fs.readFileSync(fullPath);
-        const isPng = fullPath.toLowerCase().endsWith('.png');
+      const imgBuf = await fetchAssetBuffer(idImages[1], apiBaseUrl, authHeader);
+      if (imgBuf) {
+        const isPng = idImages[1].toLowerCase().includes('.png');
         await addImagePage(mergedPdf, imgBuf, isPng);
       }
     }

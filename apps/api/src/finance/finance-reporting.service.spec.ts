@@ -54,6 +54,15 @@ describe('FinanceReportingService', () => {
         findMany: vi.fn().mockResolvedValue([]),
         count: vi.fn().mockResolvedValue(0),
       },
+      paymentWebhookLog: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      payment: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      room: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       bankAccount: {
         findFirst: vi.fn(),
         update: vi.fn(),
@@ -294,6 +303,272 @@ describe('FinanceReportingService', () => {
           action: 'UPDATE',
         }),
       }),
+    );
+  });
+
+  it('keeps failed SePay webhook status visible in reconciliation', async () => {
+    const { service } = createService({
+      paymentWebhookLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'log-failed-1',
+            provider: 'SEPAY',
+            providerTransactionId: 'txn-failed-1',
+            payload: {
+              id: 'txn-failed-1',
+              code: 'PAY-TENANT-ABC-XYZ',
+              transferType: 'in',
+              transferAmount: 100000,
+              accountNumber: '123456789',
+            },
+            status: 'FAILED',
+            attemptCount: 2,
+            lastError: 'Payment write failed',
+            createdAt: new Date('2026-08-10T00:00:00.000Z'),
+            processedAt: null,
+          },
+        ]),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'request-1',
+            tenantId: 'tenant-1',
+            paymentCode: 'PAY-TENANT-ABC-XYZ',
+            amount: 100000,
+            sourceType: 'INVOICE',
+            sourceId: 'invoice-1',
+            status: 'PENDING',
+            bankAccountNumber: '123456789',
+            metadata: {
+              roomCode: '31-01',
+              buildingName: 'LK01-31',
+              roomRentalType: 'SHARED',
+              roomRentalTypeLabel: 'Phòng ghép',
+              roomMemberCount: 3,
+            },
+            owner: null,
+            bankAccount: null,
+            room: null,
+            building: null,
+          },
+        ]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+    });
+
+    const result = await service.getSePayReconciliation('tenant-1', { year: '2026', month: '8' });
+
+    expect(result.summary).toMatchObject({
+      total: 1,
+      failed: 1,
+      matched: 0,
+    });
+    expect(result.rows[0]).toMatchObject({
+      status: 'FAILED',
+      webhookStatus: 'FAILED',
+      webhookLastError: 'Payment write failed',
+      webhookAttemptCount: 2,
+      roomCode: '31-01',
+      buildingName: 'LK01-31',
+      roomRentalTypeLabel: 'Phòng ghép',
+      roomMemberCount: 3,
+    });
+  });
+
+  it('flags confirmed request when invoice source is not settled', async () => {
+    const { service } = createService({
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'request-1',
+            tenantId: 'tenant-1',
+            sourceType: 'INVOICE',
+            sourceId: 'invoice-1',
+            paymentCode: 'PAY-INV-001',
+            amount: 1000000,
+            status: 'CONFIRMED',
+            providerTransactionId: 'txn-1',
+            paidAt: new Date('2026-08-20T00:00:00.000Z'),
+            createdAt: new Date('2026-08-19T00:00:00.000Z'),
+            updatedAt: new Date('2026-08-20T00:00:00.000Z'),
+            metadata: { roomCode: '31-01', buildingName: 'LK01-31' },
+            owner: { id: 'owner-1', name: 'Tinh' },
+            bankAccount: { id: 'bank-1', bankName: 'ACB', accountNumber: '123' },
+            bankName: 'ACB',
+            bankAccountNumber: '123',
+          },
+        ]),
+      },
+      paymentWebhookLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'log-1',
+            tenantId: 'tenant-1',
+            provider: 'SEPAY',
+            providerTransactionId: 'txn-1',
+            payload: { code: 'PAY-INV-001', transferAmount: 1000000, accountNumber: '123' },
+            status: 'PROCESSED',
+            createdAt: new Date('2026-08-20T00:00:00.000Z'),
+            processedAt: new Date('2026-08-20T00:05:00.000Z'),
+          },
+        ]),
+      },
+      invoice: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'invoice-1',
+            code: 'INV-001',
+            status: 'PARTIALLY_PAID',
+            total: 1000000,
+            paidAmount: 400000,
+            creditAmount: 0,
+            contract: null,
+            customer: { id: 'customer-1', fullName: 'Khach A' },
+            payments: [],
+          },
+        ]),
+      },
+    });
+
+    const result = await service.getSePayReconciliationAudit('tenant-1', { year: '2026', month: '8' });
+
+    expect(result.summary).toMatchObject({
+      total: 1,
+      critical: 1,
+    });
+    expect(result.rows[0]).toMatchObject({
+      type: 'CONFIRMED_REQUEST_SOURCE_OPEN',
+      severity: 'CRITICAL',
+      sourceCode: 'INV-001',
+      requestStatus: 'CONFIRMED',
+      sourceStatus: 'PARTIALLY_PAID',
+    });
+  });
+
+  it('flags processed webhook when request is still pending', async () => {
+    const { service } = createService({
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'request-2',
+            tenantId: 'tenant-1',
+            sourceType: 'INVOICE',
+            sourceId: 'invoice-2',
+            paymentCode: 'PAY-INV-002',
+            amount: 500000,
+            status: 'PENDING',
+            providerTransactionId: null,
+            paidAt: null,
+            createdAt: new Date('2026-08-21T00:00:00.000Z'),
+            updatedAt: new Date('2026-08-21T00:00:00.000Z'),
+            metadata: {},
+            owner: null,
+            bankAccount: null,
+            bankName: 'ACB',
+            bankAccountNumber: '123',
+          },
+        ]),
+      },
+      paymentWebhookLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'log-2',
+            tenantId: 'tenant-1',
+            provider: 'SEPAY',
+            providerTransactionId: 'txn-2',
+            payload: { code: 'PAY-INV-002', transferAmount: 500000, accountNumber: '123' },
+            status: 'PROCESSED',
+            createdAt: new Date('2026-08-21T00:00:00.000Z'),
+            processedAt: new Date('2026-08-21T00:02:00.000Z'),
+          },
+        ]),
+      },
+      invoice: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'invoice-2',
+            code: 'INV-002',
+            status: 'ISSUED',
+            total: 500000,
+            paidAmount: 0,
+            creditAmount: 0,
+            contract: null,
+            customer: { id: 'customer-1', fullName: 'Khach A' },
+            payments: [],
+          },
+        ]),
+      },
+    });
+
+    const result = await service.getSePayReconciliationAudit('tenant-1', { year: '2026', month: '8' });
+
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'PROCESSED_WEBHOOK_REQUEST_UNCONFIRMED',
+          severity: 'CRITICAL',
+          requestId: 'request-2',
+          webhookId: 'log-2',
+          requestStatus: 'PENDING',
+        }),
+      ]),
+    );
+  });
+
+  it('flags stale refund-pending overpayment tasks', async () => {
+    const { service } = createService({
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'request-3',
+            tenantId: 'tenant-1',
+            sourceType: 'DEPOSIT',
+            sourceId: 'deposit-1',
+            paymentCode: 'PAY-DEP-001',
+            amount: 2000000,
+            status: 'CONFIRMED',
+            providerTransactionId: 'txn-3',
+            paidAt: new Date('2026-08-10T00:00:00.000Z'),
+            createdAt: new Date('2026-08-10T00:00:00.000Z'),
+            updatedAt: new Date('2026-08-10T00:00:00.000Z'),
+            metadata: {
+              overpaymentResolution: 'REFUND_PENDING',
+              overpaymentAmount: 200000,
+              overpaymentTaskTitle: 'Hoan tien du',
+            },
+            owner: { id: 'owner-1', name: 'Tinh' },
+            bankAccount: { id: 'bank-1', bankName: 'ACB', accountNumber: '123' },
+            bankName: 'ACB',
+            bankAccountNumber: '123',
+          },
+        ]),
+      },
+      deposit: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'deposit-1',
+            code: 'DEP-001',
+            status: 'PAID',
+            amount: 2000000,
+            room: null,
+            building: null,
+            contract: null,
+            customer: { id: 'customer-1', fullName: 'Khach A' },
+          },
+        ]),
+      },
+    });
+
+    const result = await service.getSePayReconciliationAudit('tenant-1', { year: '2026', month: '8' });
+
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'OVERPAYMENT_REFUND_PENDING_STALE',
+          paymentCode: 'PAY-DEP-001',
+        }),
+      ]),
     );
   });
 

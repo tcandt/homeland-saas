@@ -23,6 +23,7 @@ export const CreateContractSchema = z.object({
   purpose: z.string().optional().nullable(),
   rentAmount: z.number().min(0),
   depositAmount: z.number().min(0),
+  memberCount: z.number().int().min(1).optional(),
   status: ContractStatusEnum.default('ACTIVE'),
   notes: z.string().optional().nullable(),
   attachments: z.array(z.string()).optional(),

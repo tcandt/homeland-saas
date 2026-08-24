@@ -8,6 +8,7 @@ import { BaseCrudService } from '../shared/services/base-crud.service';
 import { HunonicService } from '../hunonic/hunonic.service';
 import { mapStatusFilter } from './contracts.adapter';
 import { ContractsRepository } from './contracts.repository';
+import { buildRoomContext } from '../shared/context/room-context';
 
 @Injectable()
 export class ContractsService extends BaseCrudService<Contract> {
@@ -334,6 +335,7 @@ export class ContractsService extends BaseCrudService<Contract> {
       customerId: contract.customerId,
       customerName: contract.customer?.fullName,
       customerPhone: contract.customer?.phone,
+      ...buildRoomContext(contract.room, contract),
       metadata: {
         code: contract.code,
         refundSourceType: 'CONTRACT_SETTLEMENT',
@@ -512,6 +514,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         customerId: contract.customerId,
         customerName: contract.customer?.fullName,
         customerPhone: contract.customer?.phone,
+        ...buildRoomContext(contract.room, contract),
         metadata: {
           code: contract.code,
           refundSourceType: 'CONTRACT_SETTLEMENT',
@@ -537,6 +540,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         customerId: contract.customerId,
         customerName: contract.customer?.fullName,
         customerPhone: contract.customer?.phone,
+        ...buildRoomContext(contract.room, contract),
         metadata: {
           code: contract.code,
           adjustmentType: 'DEPOSIT_SETTLEMENT_APPLICATION',
@@ -559,6 +563,7 @@ export class ContractsService extends BaseCrudService<Contract> {
       customerId: contract.customerId,
       customerName: contract.customer?.fullName,
       customerPhone: contract.customer?.phone,
+      ...buildRoomContext(contract.room, contract),
       metadata: {
         code: contract.code,
         settlement,

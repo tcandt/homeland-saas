@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { execFileSync, spawn } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
@@ -100,6 +100,15 @@ export class SystemUpdateService {
   }
 
   private createControlledJob(type: 'install' | 'rollback', fromVersion: string, toVersion: string, dryRun: boolean) {
+    if (this.currentJob && !isTerminalStatus(this.currentJob.status)) {
+      throw new ConflictException({
+        code: 'SYSTEM_UPDATE_JOB_RUNNING',
+        message: 'Một job cập nhật hoặc rollback đang chạy. Vui lòng chờ job hiện tại kết thúc.',
+        jobId: this.currentJob.id,
+        status: this.currentJob.status,
+      });
+    }
+
     const mode = process.env.SYSTEM_UPDATE_MODE || 'dry-run';
     const job: UpdateJob = {
       id: `upd_${Date.now()}`,
@@ -335,4 +344,8 @@ function compareSemver(a: [number, number, number], b: [number, number, number])
     if (a[index] !== b[index]) return a[index] - b[index];
   }
   return 0;
+}
+
+function isTerminalStatus(status: UpdateJobStatus) {
+  return ['DONE', 'FAILED', 'ROLLED_BACK', 'BLOCKED'].includes(status);
 }

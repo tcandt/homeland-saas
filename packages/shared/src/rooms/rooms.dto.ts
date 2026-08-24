@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const RoomStatusEnum = z.enum(['AVAILABLE', 'RESERVED', 'OCCUPIED', 'MAINTENANCE', 'CLEANING', 'INACTIVE']);
 export const RoomTypeEnum = z.enum(['STUDIO', 'ONE_BED', 'TWO_BED', 'THREE_BED', 'SHOP', 'OFFICE']);
+export const RoomRentalTypeEnum = z.enum(['WHOLE', 'SHARED']);
 
 export const CreateRoomSchema = z.object({
   buildingId: z.string().min(1, 'Building ID is required'),
@@ -11,6 +12,7 @@ export const CreateRoomSchema = z.object({
   capacity: z.number().int().min(1).optional(),
   area: z.number().min(0).optional(),
   monthlyPrice: z.number().min(0),
+  rentalType: RoomRentalTypeEnum.optional(),
 });
 
 export const UpdateRoomSchema = CreateRoomSchema.extend({

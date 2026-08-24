@@ -1,9 +1,9 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { LocalStorageProvider } from './providers/storage/local-storage.provider';
 import { PuppeteerPdfProvider } from './providers/pdf/puppeteer-pdf.provider';
 import { InternalSignatureProvider } from './providers/signature/internal-signature.provider';
 import * as handlebars from 'handlebars';
+import { STORAGE_PROVIDER, StorageProvider } from './interfaces/storage-provider.interface';
 
 @Injectable()
 export class DocumentsService {
@@ -11,7 +11,7 @@ export class DocumentsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storageProvider: LocalStorageProvider,
+    @Inject(STORAGE_PROVIDER) private readonly storageProvider: StorageProvider,
     private readonly pdfProvider: PuppeteerPdfProvider,
     private readonly signatureProvider: InternalSignatureProvider,
   ) {

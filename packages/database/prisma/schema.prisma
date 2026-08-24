@@ -26,6 +26,11 @@ enum RoomStatus {
   INACTIVE
 }
 
+enum RoomRentalType {
+  WHOLE
+  SHARED
+}
+
 enum ContractStatus {
   DRAFT
   PENDING_APPROVAL
@@ -71,6 +76,15 @@ enum PaymentRequestStatus {
   CONFIRMED
   EXPIRED
   CANCELLED
+}
+
+enum PaymentWebhookStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  IGNORED
+  NEEDS_REVIEW
+  FAILED
 }
 
 enum DepositType {
@@ -324,6 +338,7 @@ model Room {
   capacity     Int        @default(1)
   area         Decimal?   @db.Decimal(10, 2)
   monthlyPrice Decimal    @db.Decimal(14, 2)
+  rentalType   RoomRentalType @default(WHOLE)
   status       RoomStatus @default(AVAILABLE)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -358,6 +373,8 @@ model Customer {
   nationality    String?
   address        String?
   zaloPhone      String?
+  zaloChatId     String?
+  zaloUserId     String?
   emergencyPhone String?
   roomId         String?
   room           Room?     @relation("RoomRoommates", fields: [roomId], references: [id])
@@ -374,6 +391,8 @@ model Customer {
   invoices  Invoice[]
 
   @@index([tenantId, phone])
+  @@index([tenantId, zaloChatId])
+  @@index([tenantId, zaloUserId])
   @@index([tenantId, fullName])
   @@index([tenantId, deletedAt])
 }
@@ -738,10 +757,15 @@ model PaymentWebhookLog {
   provider              PaymentProvider
   providerTransactionId String
   payload               Json
+  status                PaymentWebhookStatus @default(RECEIVED)
+  attemptCount          Int             @default(0)
+  processingStartedAt   DateTime?
   processedAt           DateTime?
+  lastError             String?
   createdAt             DateTime        @default(now())
 
   @@unique([provider, providerTransactionId])
+  @@index([status, createdAt])
   @@index([tenantId, createdAt])
 }
 

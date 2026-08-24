@@ -9,7 +9,7 @@ export interface RoomResponse {
   area: number;
   capacity: number;
   images: string[];
-  rentalType: 'whole' | 'shared';
+  rentalType?: 'WHOLE' | 'SHARED';
   notes?: string;
   buildingId: string;
   floorId?: string;
@@ -38,7 +38,11 @@ export const roomsApi = {
   },
 
   create: (data: any) => {
-    return apiClient.post<RoomResponse>('/rooms', data);
+    const payload = { ...data };
+    if (payload.rentalType) {
+      payload.rentalType = String(payload.rentalType).toLowerCase() === 'shared' ? 'SHARED' : 'WHOLE';
+    }
+    return apiClient.post<RoomResponse>('/rooms', payload);
   },
 
   update: (id: string, data: any) => {
@@ -52,6 +56,9 @@ export const roomsApi = {
         maintenance: 'MAINTENANCE',
       };
       payload.status = statusMap[payload.status] || payload.status;
+    }
+    if (payload.rentalType) {
+      payload.rentalType = String(payload.rentalType).toLowerCase() === 'shared' ? 'SHARED' : 'WHOLE';
     }
     return apiClient.patch<RoomResponse>(`/rooms/${id}`, payload);
   },

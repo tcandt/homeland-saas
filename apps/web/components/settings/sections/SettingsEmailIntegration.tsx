@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { settingsApi } from "@/lib/api/settings.api";
+import toast from "react-hot-toast";
 
 type EmailSettings = {
   enabled: boolean;
@@ -37,6 +39,8 @@ export default function SettingsEmailIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<EmailSettings>("email-provider", "TENANT", fallback);
   const user = useAuthStore((state) => state.user);
   const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
+  const [testRecipient, setTestRecipient] = useState("");
+  const [isTesting, setIsTesting] = useState(false);
   const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
   const saveEmail = async () => {
@@ -44,6 +48,28 @@ export default function SettingsEmailIntegration() {
     if (!canEditSecrets || !smtpPasswordTouched) delete payload.smtpPassword;
     await save(payload as EmailSettings);
     setSmtpPasswordTouched(false);
+  };
+
+  const testEmail = async () => {
+    const recipient = testRecipient.trim();
+    if (!recipient) {
+      toast.error("Nhập email nhận test");
+      return;
+    }
+
+    setIsTesting(true);
+    try {
+      await settingsApi.testEmail({
+        recipient,
+        title: "HomeLand email test",
+        message: `HomeLand test email at ${new Date().toLocaleString("vi-VN")}`,
+      });
+      toast.success("Đã gửi email test");
+    } catch (error: any) {
+      toast.error(error?.message || "Không gửi được email test");
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   return (
@@ -110,6 +136,10 @@ export default function SettingsEmailIntegration() {
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Email người gửi</label>
           <Input value={draft.fromEmail} onChange={(event) => setDraft((prev) => ({ ...prev, fromEmail: event.target.value }))} placeholder="Nhập email người gửi" />
         </div>
+        <div className="flex flex-col gap-[6px] lg:col-span-2">
+          <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Email nhận test</label>
+          <Input value={testRecipient} onChange={(event) => setTestRecipient(event.target.value)} placeholder="Nhập email để gửi thử" />
+        </div>
       </div>
 
       <div className="rounded-2xl border border-border bg-background p-[16px] flex items-start gap-[12px]">
@@ -129,7 +159,10 @@ export default function SettingsEmailIntegration() {
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-[10px]">
+        <Button type="button" variant="outline" onClick={testEmail} className="h-[44px] px-[20px] rounded-[12px] font-bold text-[14px]" isLoading={isTesting}>
+          Gửi thử Email
+        </Button>
         <Button type="button" onClick={saveEmail} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
           Lưu Email
         </Button>

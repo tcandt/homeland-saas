@@ -1,0 +1,14 @@
+[Unit]
+Description=HomeLand production backup cycle
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tcandt
+WorkingDirectory=/home/tcandt/homeland-public-production
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/env node scripts/production-backup-cycle.js --env-file .env.public-production --output-dir .codex-backups/production --storage-dir /srv/homeland/storage --require-off-host
+
+[Install]
+WantedBy=multi-user.target

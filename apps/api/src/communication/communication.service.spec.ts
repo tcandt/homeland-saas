@@ -32,10 +32,16 @@ describe('CommunicationService', () => {
       notification: {
         create: vi.fn().mockResolvedValue(notification),
         update: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([
+          { id: notification.id, title: 'Pay now', message: 'Please scan QR', type: 'INVOICE_ZALO_PAYMENT_REQUEST', userId: 'customer-1', createdAt: new Date() },
+        ]),
       },
       notificationQueue: {
         create: vi.fn().mockResolvedValue(queueItem),
         findUnique: vi.fn().mockResolvedValue(queueItem),
+        findFirst: vi.fn().mockResolvedValue(queueItem),
+        findMany: vi.fn().mockResolvedValue([queueItem]),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         update: vi.fn(),
       },
       notificationDelivery: {
@@ -47,7 +53,7 @@ describe('CommunicationService', () => {
   it('uses the explicit direct channel and forwards tenant recipient payload to provider', async () => {
     const prisma = createPrismaMock();
     const service = new CommunicationService(prisma as any);
-    const send = vi.fn().mockResolvedValue({ ok: true });
+    const send = vi.fn().mockResolvedValue({ ok: true, zaloResponse: { result: { message_id: 12345 } } });
     const provider: CommunicationProvider = {
       channel: NotificationChannel.ZALO,
       send,
@@ -63,6 +69,16 @@ describe('CommunicationService', () => {
       context: {
         title: 'Pay now',
         message: 'Please scan QR',
+        room: {
+          id: 'room-1',
+          code: 'P101',
+          rentalType: 'SHARED',
+          building: { id: 'building-1', name: 'LK01-31' },
+        },
+        contract: {
+          id: 'contract-1',
+          memberCount: 3,
+        },
       },
     });
 
@@ -81,12 +97,27 @@ describe('CommunicationService', () => {
           tenantId: 'tenant-1',
           recipient: 'zalo-user-1',
           channel: NotificationChannel.ZALO,
+          context: expect.objectContaining({
+            roomCode: 'P101',
+            roomRentalType: 'SHARED',
+            roomRentalTypeLabel: 'Phòng ghép',
+            roomMemberCount: 3,
+            buildingName: 'LK01-31',
+          }),
         }),
       }),
     });
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'tenant-1',
       recipient: 'zalo-user-1',
+    }));
+    expect(prisma.notificationDelivery.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        notificationId: 'notif-1',
+        channel: NotificationChannel.ZALO,
+        status: 'DELIVERED',
+        providerId: '12345',
+      }),
     }));
   });
 
@@ -121,5 +152,87 @@ describe('CommunicationService', () => {
         status: 'FAILED',
       }),
     }));
+  });
+
+  it('does not send when another worker already claimed the queue item', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.updateMany.mockResolvedValue({ count: 0 });
+    const service = new CommunicationService(prisma as any);
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    service.registerProvider({
+      channel: NotificationChannel.ZALO,
+      send,
+    });
+
+    await service.processQueueItem('queue-1');
+
+    expect(send).not.toHaveBeenCalled();
+    expect(prisma.notificationQueue.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'queue-1' },
+      data: expect.objectContaining({ status: 'DELIVERED' }),
+    }));
+  });
+
+  it('returns queue admin summary and hydrated rows', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.findMany.mockResolvedValue([
+      {
+        id: 'queue-1',
+        notificationId: 'notif-1',
+        tenantId: 'tenant-1',
+        channel: NotificationChannel.ZALO,
+        retryCount: 1,
+        status: 'FAILED',
+        error: 'Zalo unavailable',
+        nextRetryAt: new Date('2026-08-24T04:00:00.000Z'),
+        createdAt: new Date('2026-08-24T03:00:00.000Z'),
+        updatedAt: new Date('2026-08-24T03:30:00.000Z'),
+        payload: {
+          tenantId: 'tenant-1',
+          recipient: 'zalo-user-1',
+          title: 'Pay now',
+          message: 'Please scan QR',
+          templateCode: 'INVOICE_ZALO_PAYMENT_REQUEST',
+        },
+      },
+    ]);
+    const service = new CommunicationService(prisma as any);
+
+    const result = await service.getQueueAdmin('tenant-1', { status: 'FAILED', search: 'scan' });
+
+    expect(prisma.notificationQueue.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: 'tenant-1', status: 'FAILED' }),
+    }));
+    expect(result.summary).toMatchObject({
+      total: 1,
+      failed: 1,
+      delivered: 0,
+    });
+    expect(result.rows[0]).toMatchObject({
+      id: 'queue-1',
+      payloadTitle: 'Pay now',
+      templateCode: 'INVOICE_ZALO_PAYMENT_REQUEST',
+      recipient: 'zalo-user-1',
+    });
+  });
+
+  it('moves queue item to dead letter on manual cancel', async () => {
+    const prisma = createPrismaMock();
+    const service = new CommunicationService(prisma as any);
+
+    await service.cancelQueueItem('tenant-1', 'queue-1');
+
+    expect(prisma.notificationQueue.update).toHaveBeenCalledWith({
+      where: { id: 'queue-1' },
+      data: {
+        status: 'DEAD_LETTER',
+        error: 'Cancelled manually',
+        nextRetryAt: null,
+      },
+    });
+    expect(prisma.notification.update).toHaveBeenCalledWith({
+      where: { id: 'notif-1' },
+      data: { status: 'FAILED' },
+    });
   });
 });

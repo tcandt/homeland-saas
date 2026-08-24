@@ -39,6 +39,7 @@ yarn-error.log*
 .npm-cache/
 .codex-backups/
 .codex-update/
+.codex-runtime/
 
 # OS / IDE
 .DS_Store
@@ -79,6 +80,8 @@ img-test/
 scratch/
 apps/web/tmp-*.png
 apps/web/tests/e2e/acceptance/screenshots/
+deploy/public-production/env.public-production
+deploy/public-production/release/
 
 # local document fixtures and restore experiments
 tai-lieu/

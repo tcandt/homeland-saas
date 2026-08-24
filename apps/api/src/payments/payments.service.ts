@@ -7,6 +7,7 @@ import { CommunicationService } from '../communication/communication.service';
 import { NotificationChannel } from '../automation/automation.constants';
 import { JournalEntryService } from '../finance/journal-entry.service';
 import { AuditService } from '../shared/audit/audit.service';
+import { buildRoomContext } from '../shared/context/room-context';
 
 type SePayWebhookPayload = {
   id?: number | string;
@@ -54,6 +55,8 @@ function randomCode(prefix: string, scope: string) {
 
 @Injectable()
 export class PaymentsService {
+  private static readonly processingSePayTransactionIds = new Set<string>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly invoicesService: InvoicesService,
@@ -119,6 +122,14 @@ export class PaymentsService {
       before,
       after,
     });
+  }
+
+  private resolveZaloRecipient(customer: any) {
+    const recipient = String(customer?.zaloChatId || customer?.zaloUserId || '').trim();
+    if (!recipient) {
+      throw new BadRequestException('Khách thuê chưa có Zalo chat ID hoặc user ID để gửi qua Zalo Bot.');
+    }
+    return recipient;
   }
 
   private async createOverpaymentJournalEntry(
@@ -291,6 +302,10 @@ export class PaymentsService {
       store: 'HomeLand',
     });
 
+    const roomContext = allocation?.roomId || allocation?.buildingId
+      ? { roomId: allocation?.roomId || null, buildingId: allocation?.buildingId || null }
+      : {};
+
     const request = await this.prisma.paymentRequest.create({
       data: {
         tenantId,
@@ -307,7 +322,10 @@ export class PaymentsService {
         bankAccountNumber: bankAccount.accountNumber,
         bankAccountName: bankAccount.accountName,
         qrUrl,
-        metadata: metadata ?? {},
+        metadata: {
+          ...(metadata && typeof metadata === 'object' ? metadata : {}),
+          ...roomContext,
+        },
       },
     });
 
@@ -366,7 +384,12 @@ export class PaymentsService {
       remaining,
       'INV',
       userId,
-      { invoiceCode: invoice.code, customerId: invoice.customerId, createdBy: userId },
+      {
+        invoiceCode: invoice.code,
+        customerId: invoice.customerId,
+        createdBy: userId,
+        ...buildRoomContext(invoice.contract?.room, invoice.contract),
+      },
       {
         ownerId: invoice.contract?.room?.building?.ownerId,
         buildingId: invoice.contract?.room?.buildingId,
@@ -376,20 +399,23 @@ export class PaymentsService {
   }
 
   async sendInvoiceRequestToZalo(invoiceId: string, userId: string) {
-    const request = await this.createInvoiceRequest(invoiceId, userId);
     const invoice = await this.invoicesService.getDetail(invoiceId);
     const customerPhone = invoice.customer?.phone || '';
+    const zaloRecipient = this.resolveZaloRecipient(invoice.customer);
+    const request = await this.createInvoiceRequest(invoiceId, userId);
 
     await this.communicationService.dispatchDirect({
       tenantId: invoice.tenantId,
       channel: NotificationChannel.ZALO,
       templateCode: 'INVOICE_ZALO_PAYMENT_REQUEST',
-      recipient: customerPhone,
+      recipient: zaloRecipient,
       userId: invoice.customerId,
       context: {
         invoiceCode: invoice.code,
         customerName: invoice.customer?.fullName || 'Khách hàng',
         customerPhone,
+        zaloChatId: invoice.customer?.zaloChatId || null,
+        zaloUserId: invoice.customer?.zaloUserId || null,
         amount: Number(request.amount),
         paymentCode: request.paymentCode,
         qrUrl: request.qrUrl,
@@ -397,6 +423,7 @@ export class PaymentsService {
         bankAccountNumber: request.bankAccountNumber,
         dueDate: invoice.dueDate,
         sentAt: new Date(),
+        ...buildRoomContext(invoice.contract?.room, invoice.contract),
       },
     });
 
@@ -413,7 +440,7 @@ export class PaymentsService {
         sourceType: request.sourceType,
         sourceId: request.sourceId,
         channel: NotificationChannel.ZALO,
-        recipient: customerPhone,
+        recipient: zaloRecipient,
         paymentCode: request.paymentCode,
       },
       userId,
@@ -436,7 +463,12 @@ export class PaymentsService {
       Number(deposit.amount),
       'DEP',
       userId,
-      { depositCode: deposit.code, customerId: deposit.customerId, createdBy: userId },
+      {
+        depositCode: deposit.code,
+        customerId: deposit.customerId,
+        createdBy: userId,
+        ...buildRoomContext(deposit.room, deposit.contract),
+      },
       {
         ownerId: deposit.room?.building?.ownerId,
         buildingId: deposit.room?.buildingId,
@@ -446,26 +478,30 @@ export class PaymentsService {
   }
 
   async sendDepositRequestToZalo(depositId: string, userId: string) {
-    const request = await this.createDepositRequest(depositId, userId);
     const deposit = await this.depositsService.getDetail(depositId);
     const customerPhone = deposit.customer?.phone || '';
+    const zaloRecipient = this.resolveZaloRecipient(deposit.customer);
+    const request = await this.createDepositRequest(depositId, userId);
 
     await this.communicationService.dispatchDirect({
       tenantId: deposit.tenantId,
       channel: NotificationChannel.ZALO,
       templateCode: 'DEPOSIT_ZALO_PAYMENT_REQUEST',
-      recipient: customerPhone,
+      recipient: zaloRecipient,
       userId: deposit.customerId,
       context: {
         depositCode: deposit.code,
         customerName: deposit.customer?.fullName || 'Khách hàng',
         customerPhone,
+        zaloChatId: deposit.customer?.zaloChatId || null,
+        zaloUserId: deposit.customer?.zaloUserId || null,
         amount: Number(request.amount),
         paymentCode: request.paymentCode,
         qrUrl: request.qrUrl,
         bankName: request.bankName,
         bankAccountNumber: request.bankAccountNumber,
         sentAt: new Date(),
+        ...buildRoomContext(deposit.room, deposit.contract),
       },
     });
 
@@ -482,7 +518,7 @@ export class PaymentsService {
         sourceType: request.sourceType,
         sourceId: request.sourceId,
         channel: NotificationChannel.ZALO,
-        recipient: customerPhone,
+        recipient: zaloRecipient,
         paymentCode: request.paymentCode,
       },
       userId,
@@ -600,6 +636,7 @@ export class PaymentsService {
               sourceCode: payload.sourceCode,
               logId: payload.logId,
               assignedBy: userId,
+              ...buildRoomContext(invoice.contract?.room, invoice.contract),
             },
           },
         }));
@@ -688,6 +725,7 @@ export class PaymentsService {
               sourceCode: payload.sourceCode,
               logId: payload.logId,
               assignedBy: userId,
+              ...buildRoomContext(deposit.room, deposit.contract),
             },
           },
         }));
@@ -730,13 +768,7 @@ export class PaymentsService {
       throw new BadRequestException('Loại nguồn thanh toán không hỗ trợ.');
     }
 
-    await this.prisma.paymentWebhookLog.update({
-      where: { id: log.id },
-      data: {
-        tenantId,
-        processedAt: new Date(),
-      },
-    });
+    await this.markSePayWebhookLog(log.id, 'PROCESSED', { tenantId });
 
     await this.auditService.log({
       action: AuditAction.UPDATE,
@@ -1091,6 +1123,40 @@ export class PaymentsService {
     return match?.[0] || '';
   }
 
+  private async claimSePayWebhookLog(logId: string) {
+    const claimed = await this.prisma.paymentWebhookLog.updateMany({
+      where: {
+        id: logId,
+        processedAt: null,
+        status: { in: ['RECEIVED', 'FAILED'] as any },
+      } as any,
+      data: {
+        status: 'PROCESSING' as any,
+        processingStartedAt: new Date(),
+        lastError: null,
+        attemptCount: { increment: 1 },
+      } as any,
+    });
+
+    return claimed.count === 1;
+  }
+
+  private async markSePayWebhookLog(
+    logId: string,
+    status: 'PROCESSED' | 'IGNORED' | 'NEEDS_REVIEW' | 'FAILED',
+    data: { tenantId?: string | null; error?: string | null } = {},
+  ) {
+    await this.prisma.paymentWebhookLog.update({
+      where: { id: logId },
+      data: {
+        status: status as any,
+        tenantId: data.tenantId ?? undefined,
+        processedAt: status === 'FAILED' ? undefined : new Date(),
+        lastError: data.error ?? null,
+      } as any,
+    });
+  }
+
   async handleSePayWebhook(payload: SePayWebhookPayload, authorization?: string) {
     const webhookSettings = await this.prisma.appSetting.findMany({
       where: {
@@ -1122,6 +1188,33 @@ export class PaymentsService {
       return { success: true };
     }
 
+    if (PaymentsService.processingSePayTransactionIds.has(transactionId)) {
+      return { success: true };
+    }
+
+    PaymentsService.processingSePayTransactionIds.add(transactionId);
+    try {
+      return await this.processSePayWebhookPayload(payload, transactionId);
+    } catch (error: any) {
+      await this.prisma.paymentWebhookLog.update({
+        where: {
+          provider_providerTransactionId: {
+            provider: PaymentProvider.SEPAY,
+            providerTransactionId: transactionId,
+          },
+        },
+        data: {
+          status: 'FAILED' as any,
+          lastError: String(error?.message || error || 'Unknown SePay webhook processing error').slice(0, 1000),
+        } as any,
+      }).catch(() => undefined);
+      throw error;
+    } finally {
+      PaymentsService.processingSePayTransactionIds.delete(transactionId);
+    }
+  }
+
+  private async processSePayWebhookPayload(payload: SePayWebhookPayload, transactionId: string) {
     const providerAmount = Number(payload.transferAmount ?? payload.amount ?? 0);
     const transferType = String(payload.transferType || payload.transfer_type || '').toLowerCase();
     const paymentCode = this.resolveWebhookPaymentCode(payload);
@@ -1138,21 +1231,24 @@ export class PaymentsService {
         provider: PaymentProvider.SEPAY,
         providerTransactionId: transactionId,
         payload,
-      },
+        status: 'RECEIVED' as any,
+      } as any,
       update: {
         payload,
-      },
+      } as any,
     });
 
     if (log.processedAt) {
       return { success: true };
     }
 
+    const claimed = await this.claimSePayWebhookLog(log.id);
+    if (!claimed) {
+      return { success: true };
+    }
+
     if (!paymentCode || transferType === 'debit' || transferType === 'out') {
-      await this.prisma.paymentWebhookLog.update({
-        where: { id: log.id },
-        data: { processedAt: new Date() },
-      });
+      await this.markSePayWebhookLog(log.id, 'IGNORED');
       return { success: true };
     }
 
@@ -1211,10 +1307,7 @@ export class PaymentsService {
     }
 
     if (!request || request.status !== PaymentRequestStatus.PENDING) {
-      await this.prisma.paymentWebhookLog.update({
-        where: { id: log.id },
-        data: { processedAt: new Date() },
-      });
+      await this.markSePayWebhookLog(log.id, 'NEEDS_REVIEW', { tenantId: requestByCode?.tenantId || null });
       return { success: true };
     }
 
@@ -1247,10 +1340,7 @@ export class PaymentsService {
         expectedBankAccount: request.bankAccountNumber,
         actualBankAccount: accountNumber || request.bankAccountNumber,
       });
-      await this.prisma.paymentWebhookLog.update({
-        where: { id: log.id },
-        data: { processedAt: new Date() },
-      });
+      await this.markSePayWebhookLog(log.id, 'NEEDS_REVIEW', { tenantId: request.tenantId });
       return { success: true };
     }
 
@@ -1286,7 +1376,18 @@ export class PaymentsService {
     }
 
     if (request.sourceType === PaymentSourceType.INVOICE) {
-      await this.invoicesService.pay(request.sourceId, Number(request.amount), 'SEPAY', transactionId, 'SEPAY_WEBHOOK');
+      const existingPayment = await this.prisma.payment.findFirst({
+        where: {
+          tenantId: request.tenantId,
+          provider: 'SEPAY',
+          providerRef: transactionId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!existingPayment) {
+        await this.invoicesService.pay(request.sourceId, Number(request.amount), 'SEPAY', transactionId, 'SEPAY_WEBHOOK');
+      }
     } else if (request.sourceType === PaymentSourceType.DEPOSIT) {
       await this.depositsService.collect(request.sourceId, `SePay transaction ${transactionId}`, 'SEPAY_WEBHOOK');
     }
@@ -1320,12 +1421,8 @@ export class PaymentsService {
       'SEPAY_WEBHOOK',
     );
 
-    await this.prisma.paymentWebhookLog.update({
-      where: { id: log.id },
-      data: {
-        tenantId: request.tenantId,
-        processedAt: new Date(),
-      },
+    await this.markSePayWebhookLog(log.id, providerAmount > Number(request.amount) ? 'NEEDS_REVIEW' : 'PROCESSED', {
+      tenantId: request.tenantId,
     });
 
     return { success: true };

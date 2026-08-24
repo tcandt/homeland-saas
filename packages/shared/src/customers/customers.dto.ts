@@ -11,6 +11,8 @@ export const CreateCustomerSchema = z.object({
   birthDate: z.string().optional().nullable(),
   nationality: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
+  zaloChatId: z.string().optional().nullable(),
+  zaloUserId: z.string().optional().nullable(),
   emergencyPhone: z.string().optional().nullable(),
   roomId: z.string().optional().nullable(),
   relationship: z.string().optional().nullable(),

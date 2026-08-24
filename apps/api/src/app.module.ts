@@ -45,6 +45,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { HunonicModule } from './hunonic/hunonic.module';
 import { SystemUpdateModule } from './system-update/system-update.module';
 import { schedulesEnabled, validateEnvironment } from './shared/config/environment.validation';
+import { InternalTokenGuard } from './shared/guards/internal-token.guard';
 
 @Module({
   imports: [
@@ -163,6 +164,7 @@ import { schedulesEnabled, validateEnvironment } from './shared/config/environme
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    InternalTokenGuard,
     ReportSchedulerService,
   ],
 })

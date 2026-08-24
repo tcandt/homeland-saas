@@ -1,0 +1,15 @@
+[Unit]
+Description=HomeLand weekly restore drill
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tcandt
+WorkingDirectory=/home/tcandt/homeland-public-production
+Environment=NODE_ENV=production
+EnvironmentFile=/home/tcandt/homeland-public-production/.env.public-production
+ExecStart=/usr/bin/env node scripts/production-restore-drill.js --manifest .codex-backups/production/latest-manifest.json --max-age-hours 168 --require-off-host --database-url ${RESTORE_DRILL_DATABASE_URL} --confirm-target-db homeland_restore_drill
+
+[Install]
+WantedBy=multi-user.target

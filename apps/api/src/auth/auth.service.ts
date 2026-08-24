@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException, Optional, Inject } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -9,7 +9,7 @@ import { LoginInput, ChangePasswordInput, RegisterInput, ForgotPasswordInput, Re
 import { ErrorCodes } from '../shared/exceptions/error-codes';
 import * as crypto from 'crypto';
 import { MailProvider } from './services/mail.service';
-import { LocalStorageProvider } from '../documents/providers/storage/local-storage.provider';
+import { STORAGE_PROVIDER, StorageProvider } from '../documents/interfaces/storage-provider.interface';
 
 @Injectable()
 export class AuthService {
@@ -21,7 +21,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly audit: AuditService,
     private readonly mailProvider: MailProvider,
-    private readonly storageProvider?: LocalStorageProvider,
+    @Optional() @Inject(STORAGE_PROVIDER) private readonly storageProvider?: StorageProvider,
   ) {}
 
   async login(input: LoginInput, ip?: string, userAgent?: string) {

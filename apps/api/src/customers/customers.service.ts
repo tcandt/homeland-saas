@@ -29,6 +29,8 @@ export class CustomersService extends BaseCrudService<Customer> {
         { fullName: { contains: search, mode: 'insensitive' } },
         { phone: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
+        { zaloChatId: { contains: search, mode: 'insensitive' } },
+        { zaloUserId: { contains: search, mode: 'insensitive' } },
       ];
     }
     if (status) {

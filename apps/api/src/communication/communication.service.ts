@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { TemplateEngine } from './templates/template.engine';
 import { NotificationChannel } from '../automation/automation.constants';
+import { buildRoomContext } from '../shared/context/room-context';
 
 export interface CommunicationPayload {
   tenantId: string;
@@ -18,12 +19,25 @@ export abstract class CommunicationProvider {
   abstract send(payload: any): Promise<any>;
 }
 
+function normalizeDispatchContext(context: any) {
+  const baseContext = context && typeof context === 'object' ? context : {};
+  const roomSource = baseContext.room || baseContext.contract?.room || null;
+  const contractSource = baseContext.contract || null;
+  const roomContext = buildRoomContext(roomSource, contractSource);
+
+  return {
+    ...baseContext,
+    ...roomContext,
+  };
+}
+
 @Injectable()
 export class CommunicationService {
   private readonly logger = new Logger(CommunicationService.name);
   private providers = new Map<NotificationChannel, CommunicationProvider>();
   private readonly templateEngine = new TemplateEngine();
   private readonly maxRetryCount = 3;
+  private readonly immediateDeliveryEnabled = process.env.COMMUNICATION_IMMEDIATE_DELIVERY !== 'false';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -33,6 +47,8 @@ export class CommunicationService {
   }
 
   async dispatch(payload: CommunicationPayload) {
+    const context = normalizeDispatchContext(payload.context);
+
     // 1. Fetch template
     const template = await this.prisma.notificationTemplate.findUnique({
       where: { tenantId_code: { tenantId: payload.tenantId, code: payload.templateCode } }
@@ -55,8 +71,8 @@ export class CommunicationService {
       : preferences?.channels || [NotificationChannel.IN_APP, NotificationChannel.CONSOLE];
 
     // 3. Compile template
-    const title = template.subject ? this.templateEngine.compile(template.subject, payload.context) : template.name;
-    const message = this.templateEngine.compile(template.body, payload.context);
+    const title = template.subject ? this.templateEngine.compile(template.subject, context) : template.name;
+    const message = this.templateEngine.compile(template.body, context);
 
     // 4. Create master Notification record
     const notification = await this.prisma.notification.create({
@@ -68,7 +84,7 @@ export class CommunicationService {
         message,
         type: payload.templateCode,
         status: 'QUEUED',
-        metadata: payload.context,
+        metadata: context,
       }
     });
 
@@ -90,14 +106,15 @@ export class CommunicationService {
             channel: channelEnum,
             title,
             message,
-            context: payload.context,
+            context,
           },
           status: 'QUEUED'
         }
       });
 
-      // Attempt immediate delivery
-      await this.processQueueItem(queueItem.id);
+      if (this.immediateDeliveryEnabled) {
+        await this.processQueueItem(queueItem.id);
+      }
     }
   }
 
@@ -105,15 +122,152 @@ export class CommunicationService {
     return this.dispatch(payload);
   }
 
-  async processQueueItem(queueId: string) {
-    const item = await this.prisma.notificationQueue.findUnique({ where: { id: queueId }});
-    if (!item) return;
-    if (item.status === 'DELIVERED') return;
+  async getQueueAdmin(
+    tenantId: string,
+    options: { status?: string; channel?: string; search?: string; limit?: string | number } = {},
+  ) {
+    const requestedLimit = Number(options.limit || 100);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(300, Math.max(20, Math.round(requestedLimit))) : 100;
+    const status = String(options.status || '').trim().toUpperCase();
+    const channel = String(options.channel || '').trim().toUpperCase();
+    const search = String(options.search || '').trim().toLowerCase();
+
+    const rows = await this.prisma.notificationQueue.findMany({
+      where: {
+        tenantId,
+        ...(status ? { status: status as any } : {}),
+        ...(channel ? { channel: channel as any } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: search ? Math.min(limit * 3, 500) : limit,
+    });
+
+    const notificationIds = Array.from(new Set(rows.map((row) => row.notificationId).filter(Boolean)));
+    const notifications = notificationIds.length
+      ? await this.prisma.notification.findMany({
+          where: { tenantId, id: { in: notificationIds } },
+          select: {
+            id: true,
+            title: true,
+            message: true,
+            type: true,
+            userId: true,
+            createdAt: true,
+          },
+        })
+      : [];
+    const notificationById = new Map(notifications.map((item) => [item.id, item]));
+
+    const hydrated = rows
+      .map((row) => {
+        const payload = row.payload && typeof row.payload === 'object' ? (row.payload as Record<string, any>) : {};
+        const notification = notificationById.get(row.notificationId) || null;
+        return {
+          ...row,
+          notification,
+          payloadTitle: String(payload.title || notification?.title || '').trim() || null,
+          payloadMessage: String(payload.message || notification?.message || '').trim() || null,
+          recipient: String(payload.recipient || '').trim() || null,
+          templateCode: String(payload.templateCode || notification?.type || '').trim() || null,
+        };
+      })
+      .filter((row) => {
+        if (!search) return true;
+        const haystack = [
+          row.id,
+          row.channel,
+          row.status,
+          row.error,
+          row.payloadTitle,
+          row.payloadMessage,
+          row.recipient,
+          row.templateCode,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(search);
+      });
+
+    const limitedRows = hydrated.slice(0, limit);
+    const summary = {
+      total: hydrated.length,
+      queued: hydrated.filter((row) => row.status === 'QUEUED').length,
+      sending: hydrated.filter((row) => row.status === 'SENDING').length,
+      delivered: hydrated.filter((row) => row.status === 'DELIVERED').length,
+      failed: hydrated.filter((row) => row.status === 'FAILED').length,
+      deadLetter: hydrated.filter((row) => row.status === 'DEAD_LETTER').length,
+    };
+
+    return {
+      filters: {
+        status: status || null,
+        channel: channel || null,
+        search: search || null,
+        limit,
+      },
+      summary,
+      rows: limitedRows,
+    };
+  }
+
+  async retryQueueItem(tenantId: string, queueId: string) {
+    const item = await this.prisma.notificationQueue.findFirst({
+      where: { id: queueId, tenantId },
+    });
+    if (!item) throw new BadRequestException('Không tìm thấy queue item.');
+    if (item.status === 'DELIVERED') {
+      throw new BadRequestException('Queue item đã gửi thành công, không thể retry.');
+    }
 
     await this.prisma.notificationQueue.update({
       where: { id: queueId },
-      data: { status: 'SENDING', error: null }
+      data: { status: 'QUEUED', error: null, nextRetryAt: null },
     });
+    await this.processQueueItem(queueId);
+
+    return { success: true };
+  }
+
+  async cancelQueueItem(tenantId: string, queueId: string) {
+    const item = await this.prisma.notificationQueue.findFirst({
+      where: { id: queueId, tenantId },
+    });
+    if (!item) throw new BadRequestException('Không tìm thấy queue item.');
+    if (item.status === 'DELIVERED') {
+      throw new BadRequestException('Queue item đã gửi thành công, không thể hủy.');
+    }
+
+    await this.prisma.notificationQueue.update({
+      where: { id: queueId },
+      data: {
+        status: 'DEAD_LETTER',
+        error: 'Cancelled manually',
+        nextRetryAt: null,
+      },
+    });
+    await this.prisma.notification.update({
+      where: { id: item.notificationId },
+      data: { status: 'FAILED' },
+    });
+
+    return { success: true };
+  }
+
+  async processQueueItem(queueId: string) {
+    const item = await this.prisma.notificationQueue.findUnique({ where: { id: queueId }});
+    if (!item) return;
+    if (item.status === 'DELIVERED' || item.status === 'DEAD_LETTER') return;
+    if (item.status === 'FAILED' && item.nextRetryAt && item.nextRetryAt > new Date()) return;
+
+    const claimed = await this.prisma.notificationQueue.updateMany({
+      where: {
+        id: queueId,
+        status: { in: ['QUEUED', 'FAILED', 'RETRYING'] as any },
+      },
+      data: { status: 'SENDING', error: null },
+    });
+    if (claimed.count !== 1) return;
     
     const provider = this.providers.get(item.channel as NotificationChannel);
     
@@ -136,6 +290,7 @@ export class CommunicationService {
           notificationId: item.notificationId,
           channel: item.channel as NotificationChannel,
           status: 'DELIVERED',
+          providerId: this.extractProviderMessageId(response),
           providerResponse: response || {}
         }
       });
@@ -154,6 +309,25 @@ export class CommunicationService {
     }
   }
 
+  private extractProviderMessageId(response: any): string | null {
+    if (!response || typeof response !== 'object') return null;
+
+    const candidates = [
+      response.providerMessageId,
+      response.telegramMessageId,
+      response.messageId,
+      response.id,
+      response.zaloMessageId,
+      response.zaloResponse?.message_id,
+      response.zaloResponse?.result?.message_id,
+      response.zaloResponse?.data?.message_id,
+      response.zaloResponse?.data?.messageId,
+    ];
+
+    const providerId = candidates.find((value) => value !== undefined && value !== null && String(value).trim());
+    return providerId === undefined ? null : String(providerId);
+  }
+
   private async markQueueFailed(item: { id: string; notificationId: string; retryCount?: number }, error: string) {
     const nextRetryCount = Number(item.retryCount || 0) + 1;
     const shouldRetry = nextRetryCount < this.maxRetryCount;
@@ -162,7 +336,7 @@ export class CommunicationService {
     await this.prisma.notificationQueue.update({
       where: { id: item.id },
       data: {
-        status: 'FAILED',
+        status: shouldRetry ? 'FAILED' : 'DEAD_LETTER',
         error,
         retryCount: nextRetryCount,
         nextRetryAt,

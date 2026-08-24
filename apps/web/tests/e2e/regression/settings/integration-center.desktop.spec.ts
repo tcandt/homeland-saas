@@ -4,7 +4,7 @@ import { test } from "../../fixtures/admin.fixture";
 async function mockIntegrationSettings(page: any) {
   const values: Record<string, Record<string, unknown>> = {
     sepay: { enabled: true, paymentCodePrefix: "HL" },
-    "zalo-provider": { enabled: true, officialAccountId: "oa-1" },
+    "zalo-provider": { enabled: true, baseUrl: "https://homeland.ductinh.one" },
     "email-provider": { enabled: false, smtpHost: "smtp.example.test", smtpPort: 587 },
     "telegram-provider": { enabled: true, defaultChatId: "-1001" },
     hunonic: { enabled: true, mode: "mobile" },

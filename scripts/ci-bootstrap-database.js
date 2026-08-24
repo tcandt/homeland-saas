@@ -15,8 +15,11 @@ const reviewedMigrations = [
   ['20260708042302_expand_contract_status', '4f9a58f6e09dca855127be278fe182b7915e1009ff4946f056de64c2eca396fb'], // gitleaks:allow - reviewed migration checksum
   ['20260708065702_migrate_legacy_contract_statuses', '62bea64fae79dde0f483fcaf8297ff2ca6b5da61cc04c743a96748450e2e46cc'], // gitleaks:allow - reviewed migration checksum
   ['20260809000000_add_hunonic_meter_sync', '44e4cdbc0085fdfcfea64c1f1ed8e3fe4bd8bc372791eef8e59865b603917b97'], // gitleaks:allow - reviewed migration checksum
+  ['20260809010000_create_payment_request_tables', 'b11d28ced96f6b6d49d10655a2d5cf63247fe6a6312dfc763049815d9d28004a'], // gitleaks:allow - reviewed migration checksum
   ['20260809020000_add_owner_expense_allocation', 'c6f8205e5e52061868461cac99b25926dda5eb464c747f04c433754c875834fc'], // gitleaks:allow - reviewed migration checksum
   ['20260813050000_add_forced_password_change', 'baf6e36dde03d858f8e7f5933f50eea84dff99d96b19571fce0cfbe452d84eca'], // gitleaks:allow - reviewed migration checksum
+  ['20260823060000_harden_payment_webhook_processing', '6bc6a0c59dbcc6213b0b1dc51770c99ae2ea78af0617464f795e3dcb889ff780'], // gitleaks:allow - reviewed migration checksum
+  ['20260823070000_add_customer_zalo_identity', '52aa5ca04ffb9aed359e6ab96d1940d3ab9b35923111b671c13d98f34ff304d3'], // gitleaks:allow - reviewed migration checksum
 ];
 
 function assertDisposableCiDatabase() {

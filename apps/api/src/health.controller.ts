@@ -1,6 +1,9 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException, UseGuards } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { Public } from './shared/decorators/public.decorator';
+import { InternalTokenGuard } from './shared/guards/internal-token.guard';
+import * as fs from 'fs';
+import { notificationWorkerHeartbeatPath, resolveAppRuntimeRole } from './shared/config/runtime-mode';
 
 @Controller('health')
 export class HealthController {
@@ -50,6 +53,7 @@ export class HealthController {
 
   /** Seed verification */
   @Public()
+  @UseGuards(InternalTokenGuard)
   @Get('seed')
   async checkSeed() {
     try {
@@ -75,14 +79,27 @@ export class HealthController {
 
   /** Build metadata verification */
   @Public()
+  @UseGuards(InternalTokenGuard)
   @Get('build-info')
   getBuildInfo() {
+    const heartbeatPath = notificationWorkerHeartbeatPath();
+    let notificationWorkerHeartbeat = null;
+    if (fs.existsSync(heartbeatPath)) {
+      try {
+        notificationWorkerHeartbeat = JSON.parse(fs.readFileSync(heartbeatPath, 'utf8'));
+      } catch {
+        notificationWorkerHeartbeat = { status: 'UNREADABLE', path: heartbeatPath };
+      }
+    }
+
     return {
       version: process.env.APP_VERSION || 'unknown',
       commit: process.env.COMMIT_SHA || 'unknown',
       buildId: process.env.BUILD_ID || 'unknown',
       buildTime: process.env.BUILD_TIME || 'unknown',
       environment: process.env.NODE_ENV || 'development',
+      runtimeRole: resolveAppRuntimeRole(),
+      notificationWorkerHeartbeat,
     };
   }
 }

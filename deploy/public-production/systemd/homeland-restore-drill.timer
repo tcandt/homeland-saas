@@ -1,0 +1,10 @@
+[Unit]
+Description=Run HomeLand weekly restore drill
+
+[Timer]
+OnCalendar=Sun *-*-* 03:30:00
+Persistent=true
+Unit=homeland-restore-drill.service
+
+[Install]
+WantedBy=timers.target

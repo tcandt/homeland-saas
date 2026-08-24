@@ -9,11 +9,12 @@ import { TokenService } from './services/token.service';
 import { PasswordService } from './services/password.service';
 import { MailProvider, DbSmtpMailProvider } from './services/mail.service';
 import { SettingsModule } from '../settings/settings.module';
-import { LocalStorageProvider } from '../documents/providers/storage/local-storage.provider';
+import { StorageModule } from '../documents/providers/storage/storage.module';
 
 @Module({
   imports: [
     SettingsModule,
+    StorageModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -32,7 +33,6 @@ import { LocalStorageProvider } from '../documents/providers/storage/local-stora
     JwtStrategy, 
     TokenService, 
     PasswordService,
-    LocalStorageProvider,
     { provide: MailProvider, useClass: DbSmtpMailProvider }
   ],
   exports: [AuthService, TokenService, PasswordService, MailProvider],

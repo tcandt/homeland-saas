@@ -14,6 +14,7 @@ export const financeKeys = {
   bankCashFlow: (params: any) => [...financeKeys.all, 'bankCashFlow', params] as const,
   bankTransactions: (params: any) => [...financeKeys.all, 'bankTransactions', params] as const,
   sePayReconciliation: (params: any) => [...financeKeys.all, 'sePayReconciliation', params] as const,
+  sePayReconciliationAudit: (params: any) => [...financeKeys.all, 'sePayReconciliationAudit', params] as const,
   expensesRoot: () => [...financeKeys.all, 'expenses'] as const,
   expenses: (params: any) => [...financeKeys.all, 'expenses', params] as const,
 };
@@ -87,6 +88,13 @@ export function useSePayReconciliationQuery(params?: Record<string, any>) {
   return useQuery({
     queryKey: financeKeys.sePayReconciliation(params),
     queryFn: () => financeAdapter.getSePayReconciliation(params),
+  });
+}
+
+export function useSePayReconciliationAuditQuery(params?: Record<string, any>) {
+  return useQuery({
+    queryKey: financeKeys.sePayReconciliationAudit(params),
+    queryFn: () => financeAdapter.getSePayReconciliationAudit(params),
   });
 }
 

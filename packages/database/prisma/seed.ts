@@ -554,27 +554,27 @@ async function main() {
     {
       code: 'DEPOSIT_COLLECTED',
       name: 'Deposit Collected Notification',
-      subject: 'Xác nhận thu cọc thành công - {{tenantId}}',
-      body: 'Xin chào,\n\nChúng tôi đã thu thành công khoản cọc {{formatCurrency amount "VND"}} cho giao dịch {{code}} vào lúc {{formatDateTime createdAt}}.\n\nTrân trọng,'
+      subject: 'Xác nhận thu cọc {{code}}{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
+      body: 'Xin chào {{default customerName "quý khách"}},\n\nChúng tôi đã thu thành công khoản cọc {{formatCurrency amount "VND"}} cho giao dịch {{code}} vào lúc {{formatDateTime createdAt}}.{{#if roomCode}}\nPhòng áp dụng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\n\nTrân trọng,'
     },
     {
       code: 'INVOICE_OVERDUE',
       name: 'Invoice Overdue Notification',
-      subject: 'Nhắc nhở: Hóa đơn {{code}} đã quá hạn',
-      body: 'Xin chào,\n\nHóa đơn {{code}} với số tiền {{formatCurrency total "VND"}} đã quá hạn thanh toán {{daysDiff dueDate "now"}} ngày.\n\nVui lòng thanh toán sớm.\n\nTrân trọng,'
+      subject: 'Nhắc nhở: Hóa đơn {{code}} quá hạn{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
+      body: 'Xin chào {{default customerName "quý khách"}},\n\nHóa đơn {{code}} với số tiền {{formatCurrency total "VND"}} đã quá hạn thanh toán {{daysDiff dueDate "now"}} ngày.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if roomMemberCount}}\nSố người theo hợp đồng: {{roomMemberCount}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\n\nVui lòng thanh toán sớm.\n\nTrân trọng,'
     },
     {
       code: 'SYSTEM_ALERT',
       name: 'System Alert',
       subject: 'Thông báo hệ thống: {{title}}',
-      body: '{{message}}'
+      body: '{{message}}{{#if roomCode}}\n\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}{{/if}}{{#if roomMemberCount}}\nSố người: {{roomMemberCount}}{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}{{/if}}'
     }
   ];
 
   for (const t of templates) {
     await prisma.notificationTemplate.upsert({
       where: { tenantId_code: { tenantId: org.id, code: t.code } },
-      update: {},
+      update: { name: t.name, subject: t.subject, body: t.body },
       create: { tenantId: org.id, ...t }
     });
   }
@@ -583,33 +583,33 @@ async function main() {
     {
       code: 'INVOICE_ZALO_PAYMENT_REQUEST',
       name: 'Invoice Payment Request Zalo',
-      subject: 'Hóa đơn {{invoiceCode}} - Thanh toán qua SePay',
-      body: 'Xin chào {{customerName}},\n\nHóa đơn {{invoiceCode}} số tiền {{formatCurrency amount "VND"}} đã sẵn sàng thanh toán.\nNội dung chuyển khoản: {{paymentCode}}\n\nQuét QR trong tin nhắn để thanh toán nhanh: {{qrUrl}}\n\nTrân trọng,'
+      subject: 'Hóa đơn {{invoiceCode}}{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
+      body: 'Xin chào {{customerName}},\n\nHóa đơn {{invoiceCode}} số tiền {{formatCurrency amount "VND"}} đã sẵn sàng thanh toán.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if roomMemberCount}}\nSố người theo hợp đồng: {{roomMemberCount}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\nNội dung chuyển khoản: {{paymentCode}}\nNgân hàng nhận: {{bankName}} - {{bankAccountNumber}}\n\nQuét QR trong tin nhắn để thanh toán nhanh: {{qrUrl}}\n\nTrân trọng,'
     },
     {
       code: 'DEPOSIT_ZALO_PAYMENT_REQUEST',
       name: 'Deposit Payment Request Zalo',
-      subject: 'Phiếu cọc {{depositCode}} - Thanh toán qua SePay',
-      body: 'Xin chào {{customerName}},\n\nPhiếu cọc {{depositCode}} số tiền {{formatCurrency amount "VND"}} đã sẵn sàng thanh toán.\nNội dung chuyển khoản: {{paymentCode}}\n\nQuét QR trong tin nhắn để thanh toán nhanh: {{qrUrl}}\n\nTrân trọng,'
+      subject: 'Phiếu cọc {{depositCode}}{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
+      body: 'Xin chào {{customerName}},\n\nPhiếu cọc {{depositCode}} số tiền {{formatCurrency amount "VND"}} đã sẵn sàng thanh toán.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if roomMemberCount}}\nSố người theo hợp đồng: {{roomMemberCount}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\nNội dung chuyển khoản: {{paymentCode}}\nNgân hàng nhận: {{bankName}} - {{bankAccountNumber}}\n\nQuét QR trong tin nhắn để thanh toán nhanh: {{qrUrl}}\n\nTrân trọng,'
     },
     {
       code: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
       name: 'Invoice Payment Confirmation Zalo',
-      subject: 'Đã nhận thanh toán hóa đơn {{invoiceCode}}',
-      body: 'Xin chào {{customerName}},\n\nHệ thống đã nhận thanh toán thành công cho hóa đơn {{invoiceCode}} với số tiền {{formatCurrency amount "VND"}}.\n\nTrân trọng,'
+      subject: 'Đã nhận thanh toán hóa đơn {{invoiceCode}}{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
+      body: 'Xin chào {{customerName}},\n\nHệ thống đã nhận thanh toán thành công cho hóa đơn {{invoiceCode}} với số tiền {{formatCurrency amount "VND"}}.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\n\nTrân trọng,'
     },
     {
       code: 'DEPOSIT_ZALO_PAYMENT_CONFIRMATION',
       name: 'Deposit Payment Confirmation Zalo',
-      subject: 'Đã nhận thanh toán phiếu cọc {{depositCode}}',
-      body: 'Xin chào {{customerName}},\n\nHệ thống đã nhận thanh toán thành công cho phiếu cọc {{depositCode}} với số tiền {{formatCurrency amount "VND"}}.\n\nTrân trọng,'
+      subject: 'Đã nhận thanh toán phiếu cọc {{depositCode}}{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
+      body: 'Xin chào {{customerName}},\n\nHệ thống đã nhận thanh toán thành công cho phiếu cọc {{depositCode}} với số tiền {{formatCurrency amount "VND"}}.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\n\nTrân trọng,'
     }
   ];
 
   for (const t of paymentTemplates) {
     await prisma.notificationTemplate.upsert({
       where: { tenantId_code: { tenantId: org.id, code: t.code } },
-      update: {},
+      update: { name: t.name, subject: t.subject, body: t.body },
       create: { tenantId: org.id, ...t }
     });
   }

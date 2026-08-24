@@ -11,6 +11,7 @@ import FinancialCommandDrawer from "@/components/finance/FinancialCommandDrawer"
 import FinancialCommandKpi from "@/components/finance/FinancialCommandKpi";
 import FinancialCommandLedger from "@/components/finance/FinancialCommandLedger";
 import OwnerProfitSummary from "@/components/finance/OwnerProfitSummary";
+import SePayReconciliationAuditPanel from "@/components/finance/SePayReconciliationAuditPanel";
 import SePayReconciliationSummary from "@/components/finance/SePayReconciliationSummary";
 import { financeApi } from "@/lib/api/finance.api";
 import { usePermissions } from "@/lib/hooks/usePermissions";
@@ -102,6 +103,7 @@ export default function FinancePage() {
 
         <BankCashFlowSummary />
         <SePayReconciliationSummary />
+        <SePayReconciliationAuditPanel />
 
         <div className="grid grid-cols-1 gap-[16px] md:gap-[24px]">
           <div

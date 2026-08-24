@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Res, StreamableFile, Req, UseGuards, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Res, StreamableFile, Req, UseGuards, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException, Inject, Query, Redirect } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentsService } from './documents.service';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Readable } from 'stream';
+import { STORAGE_PROVIDER, StorageProvider } from './interfaces/storage-provider.interface';
+import { inferMimeTypeFromPath, normalizeStorageReference } from './providers/storage/storage-path.util';
 
 // Assuming JwtAuthGuard is available globally or can be imported.
 // In homeland we usually use guards on controllers or globally. 
@@ -15,12 +17,17 @@ import { PermissionsGuard } from '../shared/guards/permissions.guard';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { Public } from '../shared/decorators/public.decorator';
 
+const DOCUMENT_UPLOAD_LIMIT_BYTES = Number(process.env.DOCUMENT_UPLOAD_LIMIT_BYTES || 20 * 1024 * 1024);
+
 @ApiTags('Documents')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('documents')
 export class DocumentsController {
-  constructor(private readonly documentsService: DocumentsService) {}
+  constructor(
+    private readonly documentsService: DocumentsService,
+    @Inject(STORAGE_PROVIDER) private readonly storageProvider: StorageProvider,
+  ) {}
 
   private getTenantId(req: any): string {
     const tenantId = req.user?.tenantId;
@@ -30,8 +37,43 @@ export class DocumentsController {
 
   @Get('storage/*')
   @Public()
-  serveStorage(@Param('0') path: string, @Res() res: Response) {
-    return res.sendFile(path, { root: 'storage' });
+  async serveStorage(@Param('0') path: string, @Res({ passthrough: true }) res: Response) {
+    const normalizedPath = normalizeStorageReference(path || '');
+    const buffer = await this.storageProvider.read(normalizedPath);
+    res.set({
+      'Content-Type': inferMimeTypeFromPath(normalizedPath),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    });
+    return new StreamableFile(Readable.from(buffer));
+  }
+
+  @Get('storage-link')
+  @Public()
+  @Redirect()
+  async getStorageLink(@Query('path') path: string, @Query('direct') direct?: string) {
+    const normalizedPath = normalizeStorageReference(path || '');
+    if (!normalizedPath) {
+      throw new BadRequestException('Missing file path');
+    }
+    if (direct === 'true' && this.storageProvider.getDownloadUrl) {
+      return { url: await this.storageProvider.getDownloadUrl(normalizedPath) };
+    }
+    return { url: normalizedPath ? `/api/v1/documents/storage?path=${encodeURIComponent(normalizedPath)}` : '' };
+  }
+
+  @Get('storage')
+  @Public()
+  async serveStorageByQuery(@Query('path') path: string, @Res({ passthrough: true }) res: Response) {
+    const normalizedPath = normalizeStorageReference(path || '');
+    if (!normalizedPath) {
+      throw new BadRequestException('Missing file path');
+    }
+    const buffer = await this.storageProvider.read(normalizedPath);
+    res.set({
+      'Content-Type': inferMimeTypeFromPath(normalizedPath),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    });
+    return new StreamableFile(Readable.from(buffer));
   }
 
   @Get()
@@ -95,7 +137,11 @@ export class DocumentsController {
 
   @Post('upload')
   @RequirePermissions('document.create')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', {
+    limits: {
+      fileSize: DOCUMENT_UPLOAD_LIMIT_BYTES,
+    },
+  }))
   async uploadFile(
     @Req() req: any,
     @UploadedFile() file: any,

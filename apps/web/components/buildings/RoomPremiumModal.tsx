@@ -264,9 +264,15 @@ export default function RoomPremiumModal({
   onUpdateRoom,
   initialTab = "rental_flow",
 }: Props) {
+  const normalizeInitialTab = (tab: string): TabKey => {
+    if (tab === "finances" || tab === "contract" || tab === "temp_residence" || tab === "images" || tab === "notes" || tab === "overview" || tab === "rental_flow") {
+      return tab;
+    }
+    return "rental_flow";
+  };
   const queryClient = useQueryClient();
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>(initialTab as TabKey);
+  const [activeTab, setActiveTab] = useState<TabKey>(normalizeInitialTab(initialTab));
   const [isTenantModalOpen, setIsTenantModalOpen] = useState(false);
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
@@ -344,12 +350,18 @@ export default function RoomPremiumModal({
     if (currentRoom) break;
   }
 
-  const [roomData, setRoomData] = useState<Room | null>(currentRoom);
+  const [roomData, setRoomData] = useState<Room | null>(
+    currentRoom ? { ...currentRoom, rentalType: currentRoom.rentalType || "whole" } : currentRoom,
+  );
 
   useEffect(() => {
     setMounted(true);
-    setRoomData(currentRoom);
+    setRoomData(currentRoom ? { ...currentRoom, rentalType: currentRoom.rentalType || "whole" } : currentRoom);
   }, [roomId, currentRoom]);
+
+  useEffect(() => {
+    setActiveTab(normalizeInitialTab(initialTab));
+  }, [initialTab]);
 
   useEffect(() => {
     if (!roomData?.tenant) {
@@ -578,6 +590,7 @@ export default function RoomPremiumModal({
       monthlyPrice: roomData.monthlyPrice !== undefined ? Number(roomData.monthlyPrice) : undefined,
       area: roomData.area !== undefined ? Number(roomData.area) : undefined,
       capacity: roomData.capacity !== undefined ? Number(roomData.capacity) : undefined,
+      rentalType: roomData.rentalType || "whole",
       notes: roomData.notes,
     };
 
@@ -589,6 +602,38 @@ export default function RoomPremiumModal({
   };
   const handleFieldChange = (field: keyof Room, value: any) => {
     setRoomData((prev) => (prev ? { ...prev, [field]: value } : null));
+  };
+  const shouldStartAsRepresentative = roomData?.rentalType === "shared" || !roomData?.tenant;
+  const roomRentalTypeLabel = roomData?.rentalType === "shared" ? "Phòng ghép" : "Nguyên căn";
+  const getRepresentativeCandidates = () => [
+    ...(roomData?.tenant ? [roomData.tenant] : []),
+    ...(roomData?.sharedTenants || []).filter((tenant: any) => tenant.isRep),
+  ];
+  const getOccupantsList = () => {
+    if (roomData?.rentalType === "shared") {
+      return [
+        ...(roomData.sharedTenants || []).map((tenant: any) => ({
+          ...tenant,
+          role: tenant.isRep ? "Đại diện HĐ" : "Người ở cùng",
+          isRep: !!tenant.isRep,
+        })),
+      ];
+    }
+
+    return [
+      ...(roomData?.tenant ? [{ ...roomData.tenant, role: "Đại diện HĐ", isRep: true }] : []),
+      ...((roomData?.roommates || []).map((tenant: any) => ({
+        ...tenant,
+        role: "Người ở cùng",
+        isRep: false,
+      }))),
+    ];
+  };
+  const getDefaultMemberCount = () => {
+    if (roomData?.rentalType === "shared") {
+      return Math.max(1, roomData.sharedTenants?.length || 1);
+    }
+    return Math.max(1, 1 + (roomData?.roommates?.length || 0));
   };
   const handleTenantChange = (field: keyof Tenant, value: any) => {
     setRoomData((prev) => {
@@ -626,6 +671,7 @@ export default function RoomPremiumModal({
 
   const commitTenantDraft = async (isCustomContract?: boolean) => {
     try {
+      const isSharedRoom = roomData?.rentalType === "shared";
       const name = tenantDraft.name.trim();
       const phone = tenantDraft.phone.trim();
       const birthDate = normalizeVietnameseDate(tenantDraft.birthDate.trim());
@@ -708,6 +754,7 @@ export default function RoomPremiumModal({
             firstPaymentDate: isCustomContract && contractDraft.ngayThanhToanDauTien ? new Date(contractDraft.ngayThanhToanDauTien).toISOString() : new Date().toISOString(),
             rentAmount: isCustomContract ? Number(contractDraft.tienThue.replace(/\D/g, "")) : Number(roomData?.monthlyPrice || 0),
             depositAmount: isCustomContract ? Number(contractDraft.tienCoc.replace(/\D/g, "")) : Number(roomData?.monthlyPrice || 0) * 2,
+            memberCount: getDefaultMemberCount(),
             status: "ACTIVE",
             purpose: isCustomContract ? contractDraft.mucDichThue : "Tạo nhanh từ luồng thêm khách thuê vào phòng",
             coRepresentativeIds: existingCoReps,
@@ -722,7 +769,7 @@ export default function RoomPremiumModal({
         }
       } else if (isContractRepresentative && tenantDraft.id && existingContractId) {
         try {
-          const updatePayload: any = { coRepresentativeIds: existingCoReps };
+          const updatePayload: any = { coRepresentativeIds: existingCoReps, memberCount: getDefaultMemberCount() };
           if (isCustomContract) {
             updatePayload.startDate = contractDraft.ngayBatDau ? new Date(contractDraft.ngayBatDau) : undefined;
             updatePayload.endDate = contractDraft.ngayKetThuc ? new Date(contractDraft.ngayKetThuc) : undefined;
@@ -755,7 +802,7 @@ export default function RoomPremiumModal({
       setRoomData((prev) => {
         if (!prev) return null;
 
-        if (isContractRepresentative && (!prev.tenant || tenantDraft.id === prev.tenant.id)) {
+        if (isContractRepresentative && !isSharedRoom && (!prev.tenant || tenantDraft.id === prev.tenant.id)) {
           return {
             ...prev,
             status: shouldCreateContract ? "occupied" : prev.status,
@@ -793,7 +840,7 @@ export default function RoomPremiumModal({
               purpose: (updatedContract as any).data.purpose || prev.contract?.purpose,
             } : prev.contract,
           };
-        } else if (isContractRepresentative && prev.tenant && tenantDraft.id !== prev.tenant.id) {
+        } else if (isContractRepresentative && (isSharedRoom || (prev.tenant && tenantDraft.id !== prev.tenant.id))) {
           const sharedTenants = [...(prev.sharedTenants || [])];
           const newRepTenant = {
             id: customerId || `t-${Date.now()}`,
@@ -834,8 +881,21 @@ export default function RoomPremiumModal({
           } else {
             sharedTenants.push(newRepTenant);
           }
-          return { ...prev, sharedTenants };
-        } else {
+          return {
+            ...prev,
+            tenant: isSharedRoom ? null : prev.tenant,
+            status: shouldCreateContract ? "occupied" : prev.status,
+            contract: shouldCreateContract && createdContract ? {
+              id: (createdContract as any)?.data?.id || (createdContract as any)?.id || prev.contract?.id || "",
+              code: (createdContract as any)?.data?.code || (createdContract as any)?.code || prev.contract?.code || "",
+              startDate: isCustomContract ? contractDraft.ngayBatDau : new Date().toISOString().slice(0, 10),
+              endDate: isCustomContract ? contractDraft.ngayKetThuc : new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().slice(0, 10),
+              deposit: isCustomContract ? Number(contractDraft.tienCoc.replace(/\D/g, "")) : Number(roomData?.monthlyPrice || 0) * 2,
+              rentPrice: isCustomContract ? Number(contractDraft.tienThue.replace(/\D/g, "")) : Number(roomData?.monthlyPrice || 0),
+            } : prev.contract,
+            sharedTenants,
+          };
+        } else if (isSharedRoom) {
           const sharedTenants = [...(prev.sharedTenants || [])];
           const existingIdx = sharedTenants.findIndex((st) => st.id === customerId || st.id === tenantDraft.id);
           const newTenant = {
@@ -875,6 +935,35 @@ export default function RoomPremiumModal({
           return {
             ...prev,
             sharedTenants,
+          };
+        } else {
+          const roommates = [...(prev.roommates || [])];
+          const existingIdx = roommates.findIndex((rm) => rm.id === customerId || rm.id === tenantDraft.id);
+          const newRoommate = {
+            id: customerId || `t-${Date.now()}`,
+            name,
+            phone,
+            email: "",
+            cccd: tenantDraft.cccd.trim(),
+            gender: tenantDraft.gender.trim(),
+            birthDate,
+            nationality: tenantDraft.nationality.trim(),
+            address: tenantDraft.address.trim(),
+            emergencyPhone: tenantDraft.emergencyPhone.trim(),
+            idImages: existingIdx >= 0 ? roommates[existingIdx].idImages || [] : [],
+            tempResidence: existingIdx >= 0 ? roommates[existingIdx].tempResidence || false : false,
+          } as any;
+          if (existingIdx >= 0) {
+            roommates[existingIdx] = {
+              ...roommates[existingIdx],
+              ...newRoommate,
+            };
+          } else {
+            roommates.push(newRoommate);
+          }
+          return {
+            ...prev,
+            roommates,
           };
         }
       });
@@ -1265,6 +1354,40 @@ export default function RoomPremiumModal({
 
               {activeTab === "rental_flow" && (
                 <div className="flex flex-col gap-4 md:gap-6 animate-in w-full box-border">
+                  <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-black/5 dark:bg-white/5 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-black uppercase tracking-wide text-muted">Loại phòng hiện tại</div>
+                        <div className="mt-1 text-[15px] font-black text-text">{roomRentalTypeLabel}</div>
+                      </div>
+                      <div className="rounded-full bg-white/80 dark:bg-[#1e1e1e] px-3 py-1 text-[11px] font-bold text-muted shadow-sm">
+                        {roomData?.rentalType === "shared"
+                          ? `Mặc định thêm cư dân theo đại diện hợp đồng`
+                          : `Mặc định thêm khách vào hợp đồng chính`}
+                      </div>
+                    </div>
+                    <div className="text-[11px] leading-relaxed text-muted">
+                      Chọn lại loại phòng trước khi thêm khách để hệ thống áp dụng đúng logic hợp đồng, cư dân cùng phòng và thông báo Zalo/SePay.
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-black/5 dark:bg-white/5 p-4">
+                    <label className="text-[11px] font-black text-muted uppercase">
+                      Kiểu thuê phòng
+                    </label>
+                    <Select
+                      value={roomData.rentalType || "whole"}
+                      onChange={(e) => handleFieldChange("rentalType", e.target.value)}
+                      options={[
+                        { label: "Nguyên căn", value: "whole" },
+                        { label: "Phòng ghép", value: "shared" },
+                      ]}
+                    />
+                    <span className="text-[11px] text-muted leading-relaxed">
+                      Chọn trước khi thêm khách thuê để hệ thống áp dụng đúng logic hợp đồng, cư dân cùng phòng và thông báo Zalo/SePay.
+                    </span>
+                  </div>
+
                   <div className="flex items-center justify-between pb-2 mb-2">
                     <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2">
                       Thông tin khách hàng
@@ -1304,10 +1427,7 @@ export default function RoomPremiumModal({
                         </thead>
                         <tbody>
                           {(() => {
-                            const allTenantsList = [
-                              ...(roomData.tenant ? [{ ...roomData.tenant, role: "Đại diện HĐ", isRep: true }] : []),
-                              ...(roomData.sharedTenants || []).map((t: any) => ({ ...t, role: t.isRep ? "Đại diện HĐ" : "Người ở cùng", isRep: !!t.isRep }))
-                            ];
+                            const allTenantsList = getOccupantsList();
 
                             if (allTenantsList.length === 0) {
                               return (
@@ -1352,10 +1472,7 @@ export default function RoomPremiumModal({
                                       });
                                       setIsContractRepresentative(t.isRep);
                                       if (!t.isRep && (t as any).contractId) {
-                                        const repIdForContract = [
-                                          ...(roomData?.tenant ? [roomData.tenant] : []),
-                                          ...(roomData?.sharedTenants || []).filter(st => st.isRep)
-                                        ].find(st => (st as any).contractId === (t as any).contractId || (st.id === roomData?.tenant?.id && roomData?.contract?.id === (t as any).contractId))?.id;
+                                        const repIdForContract = getRepresentativeCandidates().find((st: any) => (st as any).contractId === (t as any).contractId || (st.id === roomData?.tenant?.id && roomData?.contract?.id === (t as any).contractId))?.id;
                                         setHouseholdRepId(repIdForContract || "");
                                       } else {
                                         setHouseholdRepId("");
@@ -1403,7 +1520,7 @@ export default function RoomPremiumModal({
                     <Button
                       variant="outline"
                       onClick={() => {
-                        setIsContractRepresentative(false);
+                        setIsContractRepresentative(shouldStartAsRepresentative);
                         setHouseholdRepId("");
                         setTenantDraft({
                           id: undefined,
@@ -1421,7 +1538,7 @@ export default function RoomPremiumModal({
                       }}
                       className="w-full border-dashed border-[#6366f1]/40 bg-[#6366f1]/5 text-[#6366f1] hover:bg-[#6366f1]/10"
                     >
-                      <UserPlus size={16} className="mr-2" /> Thêm người ở cùng
+                      <UserPlus size={16} className="mr-2" /> {roomData?.rentalType === "shared" ? "Thêm khách ghép" : roomData?.tenant ? "Thêm người ở cùng" : "Thêm khách thuê"}
                     </Button>
                   </div>
                 </div>
@@ -1820,12 +1937,16 @@ export default function RoomPremiumModal({
         }
       >
         <div className="flex flex-col gap-4 py-2">
-          {tenantModalStep === 1 && (
-            <>
+              {tenantModalStep === 1 && (
+                <>
               <div className="flex items-center justify-between bg-indigo-50/50 p-3 rounded-lg border border-emerald-100">
                 <div className="flex flex-col mr-2">
                   <span className="text-[12px] md:text-[13px] font-bold text-emerald-900">Đại diện hợp đồng</span>
-                  <span className="text-[10px] md:text-[11px] text-indigo-600">Sẽ tạo hợp đồng riêng</span>
+                  <span className="text-[10px] md:text-[11px] text-indigo-600">
+                    {roomData?.rentalType === "shared"
+                      ? "Phòng ghép: khách này sẽ là đại diện hợp đồng"
+                      : "Nguyên căn: khách này sẽ là người thuê chính"}
+                  </span>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer shrink-0">
                   <input
@@ -1852,10 +1973,7 @@ export default function RoomPremiumModal({
                       onChange={(e) => setHouseholdRepId(e.target.value)}
                       options={[
                         { label: "Chọn người đại diện...", value: "" },
-                        ...[
-                          ...(roomData?.tenant ? [roomData.tenant] : []),
-                          ...(roomData?.sharedTenants || []).filter(t => t.isRep)
-                        ].map(rep => ({ label: rep.name || rep.fullName || "", value: rep.id }))
+                        ...getRepresentativeCandidates().map((rep: any) => ({ label: rep.name || rep.fullName || "", value: rep.id }))
                       ]}
                     />
                   </div>
@@ -2231,6 +2349,7 @@ export default function RoomPremiumModal({
                     endDate: contractEndDate,
                     rentAmount: Number(contractRent),
                     depositAmount: Number(contractDeposit),
+                    memberCount: getDefaultMemberCount(),
                     status: "DRAFT",
                   },
                   {

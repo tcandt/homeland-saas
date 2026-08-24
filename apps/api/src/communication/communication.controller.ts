@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Post, Sse, MessageEvent, UseGuards, Req, Delete, Body, ForbiddenException, BadRequestException, Headers, Logger } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Post, Sse, MessageEvent, UseGuards, Req, Delete, Body, ForbiddenException, BadRequestException, Headers, Logger, Query } from '@nestjs/common';
 import { CommunicationService } from './communication.service';
 import { PrismaService } from '../prisma.service';
 import { Observable, interval, timer } from 'rxjs';
@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { ZaloProvider } from './providers/communication.providers';
+import { EmailProvider, TelegramProvider, ZaloProvider } from './providers/communication.providers';
 import { Public } from '../shared/decorators/public.decorator';
 import { timingSafeEqual } from 'crypto';
 
@@ -23,6 +23,8 @@ export class CommunicationController {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly zaloProvider: ZaloProvider,
+    private readonly emailProvider: EmailProvider,
+    private readonly telegramProvider: TelegramProvider,
   ) {}
 
   @Get()
@@ -91,35 +93,19 @@ export class CommunicationController {
   }
 
   @Get('queue')
-  async getQueue(@Req() req) {
-    const tenantId = req.user.tenantId;
-    return this.prisma.notificationQueue.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'desc' },
-      take: 100
-    });
+  async getQueue(@Req() req, @Query() query: any) {
+    return this.communicationService.getQueueAdmin(req.user.tenantId, query);
   }
 
   @Throttle({ short: { limit: 10, ttl: 60000 } })
   @Post('queue/:id/retry')
   async retryQueue(@Req() req, @Param('id') id: string) {
-    const tenantId = req.user.tenantId;
-    await this.prisma.notificationQueue.update({
-      where: { id, tenantId },
-      data: { status: 'QUEUED', error: null, nextRetryAt: null }
-    });
-    await this.communicationService.processQueueItem(id);
-    return { success: true };
+    return this.communicationService.retryQueueItem(req.user.tenantId, id);
   }
 
   @Post('queue/:id/cancel')
   async cancelQueue(@Req() req, @Param('id') id: string) {
-    const tenantId = req.user.tenantId;
-    await this.prisma.notificationQueue.update({
-      where: { id, tenantId },
-      data: { status: 'FAILED', error: 'Cancelled manually' }
-    });
-    return { success: true };
+    return this.communicationService.cancelQueueItem(req.user.tenantId, id);
   }
 
   @Post('test-utils/queue/failed')
@@ -182,7 +168,7 @@ export class CommunicationController {
   ) {
     const settings = await this.prisma.appSetting.findMany({
       where: { key: 'zalo-provider', scope: 'TENANT' as any },
-      select: { tenantId: true, value: true },
+      select: { id: true, tenantId: true, value: true },
     });
 
     const providedSecret = String(secretTokenHeader || legacySecretTokenHeader || rawSecretTokenHeader || '').trim();
@@ -196,9 +182,25 @@ export class CommunicationController {
       throw new BadRequestException('ZALO_WEBHOOK_SECRET_INVALID');
     }
 
-    this.logger.log(`Accepted Zalo webhook for tenant ${matched.tenantId}: ${JSON.stringify(body)}`);
+    this.logger.log({
+      message: 'Accepted Zalo webhook',
+      tenantId: matched.tenantId,
+      eventName: body?.event_name || body?.eventName || body?.event || null,
+      appId: body?.app_id || body?.appId || null,
+      timestamp: body?.timestamp || null,
+    });
 
-    return { success: true };
+    const capturedChat = extractZaloWebhookChat(body);
+    if (capturedChat) {
+      await this.prisma.appSetting.update({
+        where: { id: matched.id },
+        data: {
+          value: mergeRecentZaloWebhookChat(matched.value, capturedChat),
+        },
+      });
+    }
+
+    return { success: true, capturedChat: Boolean(capturedChat) };
   }
 
   @Throttle({ short: { limit: 5, ttl: 60000 } })
@@ -229,4 +231,138 @@ export class CommunicationController {
       result,
     };
   }
+
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @Post('email/test')
+  @ApiOperation({ summary: 'Send a test email with the currently saved tenant settings' })
+  async sendEmailTest(
+    @Req() req,
+    @Body() body: { recipient?: string; title?: string; message?: string },
+  ) {
+    const recipient = String(body?.recipient || '').trim();
+    if (!recipient) {
+      throw new BadRequestException('EMAIL_TEST_RECIPIENT_REQUIRED');
+    }
+
+    const title = String(body?.title || '').trim() || 'HomeLand email test';
+    const message = String(body?.message || '').trim() || `Test email from HomeLand at ${new Date().toISOString()}`;
+    const result = await this.emailProvider.send({
+      tenantId: req.user.tenantId,
+      recipient,
+      title,
+      message,
+      context: {},
+    });
+
+    return {
+      success: true,
+      recipient,
+      result,
+    };
+  }
+
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @Post('telegram/test')
+  @ApiOperation({ summary: 'Send a test Telegram message with the currently saved tenant settings' })
+  async sendTelegramTest(
+    @Req() req,
+    @Body() body: { recipient?: string; title?: string; message?: string },
+  ) {
+    const recipient = String(body?.recipient || '').trim();
+    const title = String(body?.title || '').trim() || 'HomeLand Telegram test';
+    const message = String(body?.message || '').trim() || `Test Telegram message from HomeLand at ${new Date().toISOString()}`;
+    const result = await this.telegramProvider.send({
+      tenantId: req.user.tenantId,
+      recipient: recipient || null,
+      title,
+      message,
+      context: {},
+    });
+
+    return {
+      success: true,
+      recipient: recipient || null,
+      result,
+    };
+  }
+}
+
+type ZaloWebhookChat = {
+  chatId: string;
+  userId?: string | null;
+  displayName?: string | null;
+  eventName?: string | null;
+  lastSeenAt: string;
+};
+
+function extractZaloWebhookChat(body: any): ZaloWebhookChat | null {
+  const chatId = firstStringValue(body, [
+    'chat_id',
+    'chatId',
+    'conversation_id',
+    'conversationId',
+    'thread_id',
+    'threadId',
+    'message.chat.id',
+    'message.chat_id',
+    'event.chat_id',
+    'event.chat.id',
+    'recipient.chat_id',
+  ]);
+  const userId = firstStringValue(body, [
+    'user_id',
+    'userId',
+    'sender.id',
+    'sender.user_id',
+    'message.from.id',
+    'from.id',
+    'event.user_id',
+  ]);
+  const resolvedChatId = chatId || userId;
+
+  if (!resolvedChatId) return null;
+
+  return {
+    chatId: resolvedChatId,
+    userId: userId || null,
+    displayName: firstStringValue(body, [
+      'sender.name',
+      'sender.display_name',
+      'message.from.name',
+      'from.name',
+      'user.name',
+    ]) || null,
+    eventName: firstStringValue(body, ['event_name', 'eventName', 'event', 'type']) || null,
+    lastSeenAt: new Date().toISOString(),
+  };
+}
+
+function mergeRecentZaloWebhookChat(value: any, capturedChat: ZaloWebhookChat) {
+  const existing = value && typeof value === 'object' && !Array.isArray(value)
+    ? { ...value }
+    : {};
+  const currentList = Array.isArray(existing.recentWebhookChats) ? existing.recentWebhookChats : [];
+  const withoutDuplicate = currentList.filter((item: any) => String(item?.chatId || '') !== capturedChat.chatId);
+
+  return {
+    ...existing,
+    defaultChatId: existing.defaultChatId || capturedChat.chatId,
+    recentWebhookChats: [capturedChat, ...withoutDuplicate].slice(0, 10),
+  };
+}
+
+function firstStringValue(source: any, paths: string[]) {
+  for (const path of paths) {
+    const value = getPath(source, path);
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return '';
+}
+
+function getPath(source: any, path: string) {
+  return path.split('.').reduce((current, key) => {
+    if (!current || typeof current !== 'object') return undefined;
+    return current[key];
+  }, source);
 }

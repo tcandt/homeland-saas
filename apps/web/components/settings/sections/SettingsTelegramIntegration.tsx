@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { settingsApi } from "@/lib/api/settings.api";
+import toast from "react-hot-toast";
 
 type TelegramSettings = {
   enabled: boolean;
@@ -31,6 +33,8 @@ export default function SettingsTelegramIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<TelegramSettings>("telegram-provider", "TENANT", fallback);
   const user = useAuthStore((state) => state.user);
   const [botTokenTouched, setBotTokenTouched] = useState(false);
+  const [testRecipient, setTestRecipient] = useState("");
+  const [isTesting, setIsTesting] = useState(false);
   const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
   const saveTelegram = async () => {
@@ -38,6 +42,22 @@ export default function SettingsTelegramIntegration() {
     if (!canEditSecrets || !botTokenTouched) delete payload.botToken;
     await save(payload as TelegramSettings);
     setBotTokenTouched(false);
+  };
+
+  const testTelegram = async () => {
+    setIsTesting(true);
+    try {
+      await settingsApi.testTelegram({
+        recipient: testRecipient.trim() || undefined,
+        title: "HomeLand Telegram test",
+        message: `HomeLand test Telegram at ${new Date().toLocaleString("vi-VN")}`,
+      });
+      toast.success("Đã gửi Telegram test");
+    } catch (error: any) {
+      toast.error(error?.message || "Không gửi được Telegram test");
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   return (
@@ -90,6 +110,10 @@ export default function SettingsTelegramIntegration() {
           <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Ghi chú vận hành</label>
           <Input value={draft.note} onChange={(event) => setDraft((prev) => ({ ...prev, note: event.target.value }))} />
         </div>
+        <div className="flex flex-col gap-[6px] lg:col-span-2">
+          <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Chat ID nhận test</label>
+          <Input value={testRecipient} onChange={(event) => setTestRecipient(event.target.value)} placeholder="Để trống để dùng default chat ID" />
+        </div>
       </div>
 
       <div className="rounded-2xl border border-border bg-background p-[16px] flex items-start gap-[12px]">
@@ -109,7 +133,10 @@ export default function SettingsTelegramIntegration() {
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-[10px]">
+        <Button type="button" variant="outline" onClick={testTelegram} className="h-[44px] px-[20px] rounded-[12px] font-bold text-[14px]" isLoading={isTesting}>
+          Gửi thử Telegram
+        </Button>
         <Button type="button" onClick={saveTelegram} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
           Lưu Telegram
         </Button>

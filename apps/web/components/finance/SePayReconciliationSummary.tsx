@@ -19,6 +19,9 @@ const statusOptions = [
   { value: "OVER_AMOUNT", label: "Thừa tiền" },
   { value: "WRONG_BANK", label: "Sai ngân hàng" },
   { value: "IGNORED_OUTGOING", label: "Giao dịch ra" },
+  { value: "FAILED", label: "Lỗi xử lý" },
+  { value: "PROCESSING", label: "Đang xử lý" },
+  { value: "PENDING_PROCESSING", label: "Chờ xử lý" },
 ];
 
 const sourceTypeOptions = [
@@ -39,6 +42,9 @@ const statusLabels: Record<string, string> = {
   OVER_AMOUNT: "Thừa tiền",
   WRONG_BANK: "Sai ngân hàng",
   IGNORED_OUTGOING: "Giao dịch ra",
+  FAILED: "Lỗi xử lý",
+  PROCESSING: "Đang xử lý",
+  PENDING_PROCESSING: "Chờ xử lý",
 };
 
 const statusClass: Record<string, string> = {
@@ -48,6 +54,9 @@ const statusClass: Record<string, string> = {
   OVER_AMOUNT: "bg-blue-50 text-blue-700",
   WRONG_BANK: "bg-rose-50 text-rose-700",
   IGNORED_OUTGOING: "bg-slate-100 text-slate-500",
+  FAILED: "bg-rose-50 text-rose-700",
+  PROCESSING: "bg-amber-50 text-amber-700",
+  PENDING_PROCESSING: "bg-amber-50 text-amber-700",
 };
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
@@ -213,13 +222,16 @@ export default function SePayReconciliationSummary() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 border-b border-border p-[16px] md:grid-cols-6 md:p-[20px]">
+        <div className="grid grid-cols-2 gap-3 border-b border-border p-[16px] md:grid-cols-4 lg:grid-cols-9 md:p-[20px]">
           <Metric label="Tổng log" value={data?.summary?.total || 0} />
           <Metric label="Đã khớp" value={data?.summary?.matched || 0} tone="success" />
           <Metric label="Chưa match" value={data?.summary?.unmatched || 0} />
           <Metric label="Thiếu" value={data?.summary?.shortAmount || 0} tone="warning" />
           <Metric label="Thừa" value={data?.summary?.overAmount || 0} tone="info" />
           <Metric label="Sai bank" value={data?.summary?.wrongBank || 0} tone="danger" />
+          <Metric label="Lỗi" value={data?.summary?.failed || 0} tone="danger" />
+          <Metric label="Đang xử lý" value={data?.summary?.processing || 0} tone="warning" />
+          <Metric label="Chờ xử lý" value={data?.summary?.pendingProcessing || 0} tone="warning" />
         </div>
 
         {isLoading && <div className="p-8 text-center text-[13px] font-semibold text-muted">Đang tải đối soát SePay...</div>}
@@ -227,13 +239,14 @@ export default function SePayReconciliationSummary() {
 
         {!isLoading && !isError && (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1260px] text-left text-sm">
+            <table className="w-full min-w-[1460px] text-left text-sm">
               <thead className="bg-surface text-[11px] uppercase text-muted">
                 <tr>
                   <th className="px-4 py-3 font-black">Thời điểm</th>
                   <th className="px-4 py-3 font-black">Trạng thái</th>
                   <th className="px-4 py-3 font-black">Payment code</th>
                   <th className="px-4 py-3 font-black">Nguồn</th>
+                  <th className="px-4 py-3 font-black">Phòng / tòa nhà</th>
                   <th className="px-4 py-3 text-right font-black">Tiền vào</th>
                   <th className="px-4 py-3 text-right font-black">Phải thu</th>
                   <th className="px-4 py-3 font-black">Bank / owner</th>
@@ -243,13 +256,13 @@ export default function SePayReconciliationSummary() {
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-[13px] font-semibold text-muted">
+                    <td colSpan={9} className="px-4 py-8 text-center text-[13px] font-semibold text-muted">
                       Chưa có webhook SePay phù hợp bộ lọc.
                     </td>
                   </tr>
                 )}
                 {rows.map((row: any) => {
-                  const canManualAssign = row.status !== "MATCHED" && row.status !== "IGNORED_OUTGOING";
+                  const canManualAssign = ["UNMATCHED", "SHORT_AMOUNT", "OVER_AMOUNT", "WRONG_BANK", "FAILED"].includes(row.status);
                   const isRefundPending =
                     row.overpaymentResolution === "REFUND_PENDING" && !row.overpaymentRefundCompletedAt;
                   const canResolveOverpayment = row.status === "OVER_AMOUNT" && !row.overpaymentResolution;
@@ -285,6 +298,18 @@ export default function SePayReconciliationSummary() {
                         {resolutionLabel ? (
                           <div className="mt-1 text-[11px] font-semibold text-[#2563eb]">
                             {resolutionLabel}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-bold text-text">{row.roomCode || "-"}</div>
+                        <div className="text-[11px] text-muted">
+                          {row.buildingName || "Chưa xác định tòa nhà"}
+                        </div>
+                        {row.roomRentalTypeLabel ? (
+                          <div className="mt-1 text-[11px] font-semibold text-[#7c3aed]">
+                            {row.roomRentalTypeLabel}
+                            {row.roomMemberCount ? ` • ${row.roomMemberCount} người` : ""}
                           </div>
                         ) : null}
                       </td>

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run HomeLand production backup cycle daily
+
+[Timer]
+OnCalendar=*-*-* 01:15:00
+Persistent=true
+Unit=homeland-backup-cycle.service
+
+[Install]
+WantedBy=timers.target

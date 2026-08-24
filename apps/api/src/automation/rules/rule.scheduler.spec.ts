@@ -43,6 +43,16 @@ describe('RuleScheduler', () => {
           fullName: 'Khach A',
           phone: '0900000001',
         },
+        contract: {
+          id: 'contract-1',
+          memberCount: 4,
+          room: {
+            id: 'room-1',
+            code: '31-01',
+            rentalType: 'SHARED',
+            building: { id: 'building-1', name: 'LK01-31' },
+          },
+        },
       },
     ]);
 
@@ -57,6 +67,8 @@ describe('RuleScheduler', () => {
         invoiceCode: 'INV-001',
         status: InvoiceStatus.ISSUED,
         remainingAmount: 2500000,
+        roomRentalTypeLabel: 'Phòng ghép',
+        roomMemberCount: 4,
       }),
     );
   });
@@ -78,6 +90,16 @@ describe('RuleScheduler', () => {
           fullName: 'Khach B',
           phone: '0900000002',
         },
+        contract: {
+          id: 'contract-2',
+          memberCount: 1,
+          room: {
+            id: 'room-2',
+            code: '32-02',
+            rentalType: 'WHOLE',
+            building: { id: 'building-1', name: 'LK01-31' },
+          },
+        },
       },
     ]);
 
@@ -90,6 +112,7 @@ describe('RuleScheduler', () => {
         invoiceId: 'invoice-2',
         invoiceCode: 'INV-002',
         remainingAmount: 1500000,
+        roomRentalTypeLabel: 'Nguyên căn',
       }),
     );
   });
@@ -112,11 +135,13 @@ describe('RuleScheduler', () => {
         room: {
           id: 'room-1',
           code: '31-04',
+          rentalType: 'SHARED',
           building: {
             id: 'building-1',
             name: 'LK01-31',
           },
         },
+        memberCount: 2,
       },
     ]);
 
@@ -131,6 +156,8 @@ describe('RuleScheduler', () => {
         contractCode: 'CTR-001',
         roomCode: '31-04',
         buildingName: 'LK01-31',
+        roomRentalTypeLabel: 'Phòng ghép',
+        roomMemberCount: 2,
       }),
     );
   });

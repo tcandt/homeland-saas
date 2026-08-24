@@ -80,6 +80,7 @@ export default function RoomDetailDrawer({ roomId, onClose, onOpenRoomModal, onD
   const { primaryStatus, warnings, paymentStatus, tempResidenceStatus, remainingContractDays, currentOccupants } = roomVM;
   const statusConfig = PRIMARY_STATUS_CONFIG[primaryStatus] || PRIMARY_STATUS_CONFIG.unknown;
   const activeRent = room.contract?.rentPrice && room.contract.rentPrice > 0 ? room.contract.rentPrice : undefined;
+  const rentalTypeLabel = room.rentalType === "shared" ? "Phòng ghép" : "Nguyên căn";
 
   // Compile occupants names list
   const occupantsList: string[] = [];
@@ -157,6 +158,13 @@ export default function RoomDetailDrawer({ roomId, onClose, onOpenRoomModal, onD
               <span className="text-muted font-medium">Tiền đặt cọc:</span>
               <span className="font-semibold text-text">
                 {room.contract?.deposit ? formatMoney(room.contract.deposit) : "Chưa đóng cọc"}
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center text-[13px]">
+              <span className="text-muted font-medium">Kiểu thuê:</span>
+              <span className="font-semibold text-text">
+                {rentalTypeLabel}
               </span>
             </div>
 

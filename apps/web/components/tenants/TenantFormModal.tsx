@@ -35,6 +35,8 @@ const EMPTY_VALUES: FormData = {
   birthDate: "",
   nationality: "Việt Nam",
   address: "",
+  zaloChatId: "",
+  zaloUserId: "",
   status: "ACTIVE",
   notes: "",
 };
@@ -52,6 +54,8 @@ const buildFormPayload = (values: FormData) => {
     birthDate: birthDate || null,
     nationality: values.nationality?.trim() || null,
     address: values.address?.trim() || null,
+    zaloChatId: values.zaloChatId?.trim() || null,
+    zaloUserId: values.zaloUserId?.trim() || null,
     status: values.status || "ACTIVE",
     notes: values.notes?.trim() || null,
   };
@@ -106,6 +110,8 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
         birthDate: tenant.birthDate ? formatBirthDateForDisplay(String(tenant.birthDate)) : "",
         nationality: tenant.nationality || "Việt Nam",
         address: tenant.address || "",
+        zaloChatId: tenant.zaloChatId || "",
+        zaloUserId: tenant.zaloUserId || "",
         status: tenant.status || "ACTIVE",
         notes: tenant.notes || "",
       });
@@ -402,6 +408,26 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
               {...register("address")}
               error={errors.address?.message}
               data-testid="input-address"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-bold text-text">Zalo chat ID</label>
+            <Input
+              placeholder="Dán chat_id từ webhook Bot"
+              {...register("zaloChatId")}
+              error={errors.zaloChatId?.message}
+              data-testid="input-zaloChatId"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-bold text-text">Zalo user ID</label>
+            <Input
+              placeholder="Dán user_id từ webhook Bot"
+              {...register("zaloUserId")}
+              error={errors.zaloUserId?.message}
+              data-testid="input-zaloUserId"
             />
           </div>
 

@@ -131,7 +131,7 @@ test.describe('Notifications Core Regression', () => {
     const cancelBtn = failedRow.getByTestId('notification-queue-cancel-button');
     await cancelBtn.click();
     await adminPage.waitForTimeout(500);
-    await expect(statusBadge).toContainText('FAILED');
+    await expect(statusBadge).toContainText('DEAD_LETTER');
     
     // Store id for cleanup if necessary, but notificationId may not be returned directly. 
     // Usually the API test-only endpoint returns queueItem which has notificationId

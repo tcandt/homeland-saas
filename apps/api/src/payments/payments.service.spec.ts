@@ -5,7 +5,7 @@ import { PaymentsService } from './payments.service';
 
 describe('PaymentsService', () => {
   function createService(prismaOverrides: Record<string, any> = {}) {
-    const prisma = {
+    const basePrisma = {
       appSetting: {
         findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn(),
@@ -13,7 +13,11 @@ describe('PaymentsService', () => {
       paymentWebhookLog: {
         upsert: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findFirst: vi.fn(),
+      },
+      payment: {
+        findFirst: vi.fn().mockResolvedValue(null),
       },
       paymentRequest: {
         findFirst: vi.fn(),
@@ -48,8 +52,15 @@ describe('PaymentsService', () => {
       deposit: {
         findFirst: vi.fn(),
       },
-      ...prismaOverrides,
     };
+    const prisma = Object.fromEntries(
+      Object.entries(basePrisma).map(([key, value]) => [
+        key,
+        typeof value === 'object' && value !== null && typeof prismaOverrides[key] === 'object'
+          ? { ...value, ...prismaOverrides[key] }
+          : (prismaOverrides[key] ?? value),
+      ]),
+    );
 
     const invoicesService = {
       getDetail: vi.fn(),
@@ -92,6 +103,47 @@ describe('PaymentsService', () => {
     const { service } = createService();
 
     await expect(service.handleSePayWebhook({ id: 'txn-1' }, 'Apikey anything')).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('ignores concurrent duplicate SePay webhooks for the same transaction id in the same API process', async () => {
+    let releaseUpsert!: (value: any) => void;
+    const upsertPromise = new Promise((resolve) => {
+      releaseUpsert = resolve;
+    });
+    const { service, prisma } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findUnique: vi.fn(),
+      },
+      paymentWebhookLog: {
+        upsert: vi.fn().mockReturnValue(upsertPromise),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+    });
+
+    const first = service.handleSePayWebhook({
+      id: 'txn-concurrent',
+      code: 'PAY-TENANT-ABC-XYZ',
+      transferType: 'in',
+      transferAmount: 100000,
+    }, 'Apikey db-key');
+    const second = await service.handleSePayWebhook({
+      id: 'txn-concurrent',
+      code: 'PAY-TENANT-ABC-XYZ',
+      transferType: 'in',
+      transferAmount: 100000,
+    }, 'Apikey db-key');
+
+    expect(second).toEqual({ success: true });
+    expect(prisma.paymentWebhookLog.upsert).toHaveBeenCalledTimes(1);
+
+    releaseUpsert({ id: 'log-1', processedAt: null });
+    await first;
   });
 
   it('matches pending payment request by payment code and bank account number', async () => {
@@ -276,7 +328,11 @@ describe('PaymentsService', () => {
     expect(prisma.paymentRequest.update).not.toHaveBeenCalled();
     expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
       where: { id: 'log-1' },
-      data: { processedAt: expect.any(Date) },
+      data: expect.objectContaining({
+        status: 'NEEDS_REVIEW',
+        tenantId: 'tenant-1',
+        processedAt: expect.any(Date),
+      }),
     });
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -371,7 +427,10 @@ describe('PaymentsService', () => {
     expect(invoicesService.pay).not.toHaveBeenCalled();
     expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
       where: { id: 'log-1' },
-      data: { processedAt: expect.any(Date) },
+      data: expect.objectContaining({
+        status: 'IGNORED',
+        processedAt: expect.any(Date),
+      }),
     });
   });
 
@@ -427,7 +486,11 @@ describe('PaymentsService', () => {
     );
     expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
       where: { id: 'log-1' },
-      data: { processedAt: expect.any(Date) },
+      data: expect.objectContaining({
+        status: 'NEEDS_REVIEW',
+        tenantId: 'tenant-1',
+        processedAt: expect.any(Date),
+      }),
     });
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -478,6 +541,95 @@ describe('PaymentsService', () => {
         total: 500000,
         paidAmount: 100000,
         customerId: 'customer-1',
+        customer: { fullName: 'Khach A', phone: '0901000001', zaloChatId: 'zalo-chat-1' },
+        contract: {
+          roomId: 'room-1',
+          room: {
+            buildingId: 'building-1',
+            building: { ownerId: 'owner-a' },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        id: 'invoice-1',
+        tenantId: 'tenant-1',
+        code: 'INV-001',
+        customerId: 'customer-1',
+        total: 500000,
+        paidAmount: 100000,
+        customer: { fullName: 'Khach A', phone: '0901000001', zaloChatId: 'zalo-chat-1' },
+        contract: {
+          roomId: 'room-1',
+          room: {
+            buildingId: 'building-1',
+            building: { ownerId: 'owner-a' },
+          },
+        },
+      });
+
+    await service.sendInvoiceRequestToZalo('invoice-1', 'user-1');
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        channel: 'ZALO',
+        recipient: 'zalo-chat-1',
+        context: expect.objectContaining({
+          customerPhone: '0901000001',
+          zaloChatId: 'zalo-chat-1',
+        }),
+      }),
+    );
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        module: 'Payments',
+        entity: 'PaymentRequestDispatch',
+        entityId: 'request-zalo-1',
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+      }),
+    );
+  });
+
+  it('requires Zalo chat or user id before sending invoice payment request', async () => {
+    const bankAccount = {
+      id: 'bank-owner-a',
+      ownerId: 'owner-a',
+      bankName: 'ACB',
+      accountNumber: '123456789',
+      accountName: 'Owner A',
+      isActive: true,
+      createdAt: new Date('2026-08-09T00:00:00.000Z'),
+    };
+    const { service, invoicesService, communicationService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue({ value: { paymentCodePrefix: 'INV' } }),
+      },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue(bankAccount),
+      },
+      paymentRequest: {
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        create: vi.fn().mockImplementation(({ data }) => Promise.resolve({
+          id: 'request-zalo-2',
+          ...data,
+          status: PaymentRequestStatus.PENDING,
+          provider: PaymentProvider.SEPAY,
+          createdAt: new Date('2026-08-09T00:00:00.000Z'),
+          updatedAt: new Date('2026-08-09T00:00:00.000Z'),
+        })),
+      },
+    });
+    invoicesService.getDetail
+      .mockResolvedValueOnce({
+        id: 'invoice-1',
+        tenantId: 'tenant-1',
+        code: 'INV-001',
+        total: 500000,
+        paidAmount: 100000,
+        customerId: 'customer-1',
         customer: { fullName: 'Khach A', phone: '0901000001' },
         contract: {
           roomId: 'room-1',
@@ -495,24 +647,10 @@ describe('PaymentsService', () => {
         customer: { fullName: 'Khach A', phone: '0901000001' },
       });
 
-    await service.sendInvoiceRequestToZalo('invoice-1', 'user-1');
-
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenantId: 'tenant-1',
-        channel: 'ZALO',
-        recipient: '0901000001',
-      }),
+    await expect(service.sendInvoiceRequestToZalo('invoice-1', 'user-1')).rejects.toThrow(
+      'Khách thuê chưa có Zalo chat ID hoặc user ID',
     );
-    expect(auditService.log).toHaveBeenCalledWith(
-      expect.objectContaining({
-        module: 'Payments',
-        entity: 'PaymentRequestDispatch',
-        entityId: 'request-zalo-1',
-        tenantId: 'tenant-1',
-        userId: 'user-1',
-      }),
-    );
+    expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
   });
 
   it('manually assigns a SePay transaction to an invoice by invoice code', async () => {
@@ -594,10 +732,11 @@ describe('PaymentsService', () => {
     expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 90000, 'SEPAY', 'txn-manual-1', 'user-1');
     expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
       where: { id: 'log-1' },
-      data: {
+      data: expect.objectContaining({
+        status: 'PROCESSED',
         tenantId: 'tenant-1',
         processedAt: expect.any(Date),
-      },
+      }),
     });
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({

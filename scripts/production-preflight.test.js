@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 
 const {
   formatHumanReport,
@@ -15,6 +16,13 @@ const valid = {
   NEXT_PUBLIC_API_URL: 'https://api.homeland.example/api/v1',
   CORS_ORIGINS: 'https://homeland.example,https://admin.homeland.example',
   JWT_SECRET: 'private-jwt-value-with-at-least-32-characters',
+  INTERNAL_API_TOKEN: 'private-internal-token-with-32-characters',
+  API_BODY_LIMIT: '2mb',
+  DOCUMENT_UPLOAD_LIMIT_BYTES: '20971520',
+  STORAGE_DIR: path.resolve('production-storage'),
+  STORAGE_PROVIDER: 'local',
+  COMMUNICATION_IMMEDIATE_DELIVERY: 'false',
+  APP_RUNTIME_ROLE: 'notification-worker',
   ALLOW_REGISTRATION: 'false',
   NEXT_PUBLIC_ALLOW_REGISTRATION: 'false',
   ENABLE_SWAGGER: 'false',
@@ -25,8 +33,22 @@ test('passes a structurally complete production configuration without claiming L
   const result = runProductionPreflight(valid);
   assert.equal(result.configReady, true);
   assert.equal(result.liveReady, false);
-  assert.deepEqual(result.summary, { passed: 11, failed: 0, total: 11 });
+  assert.deepEqual(result.summary, { passed: 20, failed: 0, total: 20 });
   assert.ok(result.manualAcceptance.length >= 7);
+});
+
+test('rejects missing internal token and unsafe request limits', () => {
+  const result = runProductionPreflight({
+    ...valid,
+    INTERNAL_API_TOKEN: 'short',
+    API_BODY_LIMIT: '50mb',
+    DOCUMENT_UPLOAD_LIMIT_BYTES: String(100 * 1024 * 1024),
+    STORAGE_DIR: 'storage',
+    COMMUNICATION_IMMEDIATE_DELIVERY: 'maybe',
+    APP_RUNTIME_ROLE: 'invalid-role',
+  });
+  assert.equal(result.configReady, false);
+  assert.equal(result.summary.failed, 6);
 });
 
 test('rejects development defaults, open registration, Swagger, and disabled sync', () => {
@@ -66,6 +88,44 @@ test('supports an explicit loopback mode for isolated release verification', () 
     CORS_ORIGINS: 'http://127.0.0.1:3100',
   }, { allowLoopback: true });
   assert.equal(result.configReady, true);
+});
+
+test('rejects api-only runtime when immediate delivery is disabled', () => {
+  const result = runProductionPreflight({
+    ...valid,
+    APP_RUNTIME_ROLE: 'api',
+    COMMUNICATION_IMMEDIATE_DELIVERY: 'false',
+  });
+  assert.equal(result.configReady, false);
+  assert.equal(result.checks.find((check) => check.id === 'notification_queue_consumer').status, 'FAIL');
+});
+
+test('requires S3-compatible configuration when object storage mode is enabled', () => {
+  const result = runProductionPreflight({
+    ...valid,
+    STORAGE_PROVIDER: 'r2',
+    STORAGE_DIR: '',
+    S3_ENDPOINT: '',
+    S3_BUCKET: '',
+    S3_ACCESS_KEY_ID: '',
+    S3_SECRET_ACCESS_KEY: '',
+  });
+  assert.equal(result.configReady, false);
+  assert.equal(result.checks.find((check) => check.id === 'object_storage_config').status, 'FAIL');
+});
+
+test('accepts structurally valid S3-compatible configuration for object storage mode', () => {
+  const result = runProductionPreflight({
+    ...valid,
+    STORAGE_PROVIDER: 's3',
+    STORAGE_DIR: '',
+    S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+    S3_BUCKET: 'homeland-production',
+    S3_ACCESS_KEY_ID: 'access-key',
+    S3_SECRET_ACCESS_KEY: 'secret-key',
+  });
+  assert.equal(result.configReady, true);
+  assert.equal(result.checks.find((check) => check.id === 'object_storage_config').status, 'PASS');
 });
 
 test('accepts a same-origin web API path without weakening the public API HTTPS check', () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Phone, Building, CalendarClock, CreditCard, ChevronRight, ShieldAlert, ShieldCheck, Shield, Edit, Trash2 } from "lucide-react";
+import { Phone, Building, MessageCircle, ChevronRight, ShieldAlert, ShieldCheck, Shield, Edit, Trash2 } from "lucide-react";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
@@ -64,6 +64,12 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
                 <div className="flex flex-wrap items-center gap-3">
                   <Badge variant="primary"><Building size={14} className="mr-1.5"/> {tenant.contracts?.[0]?.room?.number || tenant.room || 'Chưa có phòng'}</Badge>
                   <Badge variant="neutral"><Phone size={14} className="mr-1.5"/> {tenant.phone}</Badge>
+                  {(tenant.zaloChatId || tenant.zaloUserId) && (
+                    <Badge variant="neutral">
+                      <MessageCircle size={14} className="mr-1.5" />
+                      {tenant.zaloChatId || tenant.zaloUserId}
+                    </Badge>
+                  )}
                   <RiskBadge risk={tenant.risk} />
                 </div>
               </div>

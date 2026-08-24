@@ -6,6 +6,7 @@ import { AuditService } from '../shared/audit/audit.service';
 import { PaginatedResult } from '@homeland/shared';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { PrismaService } from '../prisma.service';
+import { buildRoomContext } from '../shared/context/room-context';
 
 @Injectable()
 export class DepositsService extends BaseCrudService<Deposit> {
@@ -28,10 +29,16 @@ export class DepositsService extends BaseCrudService<Deposit> {
       customerId: deposit.customerId,
       customerName: deposit.customer?.fullName,
       customerPhone: deposit.customer?.phone,
+      customerZaloChatId: deposit.customer?.zaloChatId,
+      customerZaloUserId: deposit.customer?.zaloUserId,
+      ...buildRoomContext(deposit.room, deposit.contract),
       metadata: {
         code: deposit.code,
         roomCode: deposit.room?.code,
         buildingName: deposit.room?.building?.name,
+        roomRentalType: deposit.room?.rentalType || null,
+        roomRentalTypeLabel: buildRoomContext(deposit.room, deposit.contract).roomRentalTypeLabel,
+        roomMemberCount: buildRoomContext(deposit.room, deposit.contract).roomMemberCount,
         title: `Tạo phiếu đặt cọc ${deposit.code}`,
         message: `Phiếu đặt cọc ${deposit.code} đã được tạo cho phòng ${deposit.room?.code || 'chưa gắn phòng'}.`,
       },
@@ -118,6 +125,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
       customerId: deposit.customerId,
       customerName: deposit.customer?.fullName,
       customerPhone: deposit.customer?.phone,
+      customerZaloChatId: deposit.customer?.zaloChatId,
+      customerZaloUserId: deposit.customer?.zaloUserId,
+      ...buildRoomContext(deposit.room, deposit.contract),
       metadata: { code: deposit.code },
       sourceId: deposit.id,
       sourceType: 'DEPOSIT',
@@ -242,6 +252,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
         customerId: deposit.customerId,
         customerName: deposit.customer?.fullName,
         customerPhone: deposit.customer?.phone,
+        customerZaloChatId: deposit.customer?.zaloChatId,
+        customerZaloUserId: deposit.customer?.zaloUserId,
+        ...buildRoomContext(deposit.room, deposit.contract),
         metadata: {
           code: deposit.code,
           note: normalizedReason,
@@ -264,6 +277,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
         customerId: deposit.customerId,
         customerName: deposit.customer?.fullName,
         customerPhone: deposit.customer?.phone,
+        customerZaloChatId: deposit.customer?.zaloChatId,
+        customerZaloUserId: deposit.customer?.zaloUserId,
+        ...buildRoomContext(deposit.room, deposit.contract),
         metadata: {
           code: deposit.code,
           note: normalizedReason,
@@ -369,6 +385,8 @@ export class DepositsService extends BaseCrudService<Deposit> {
       customerId: deposit.customerId,
       customerName: deposit.customer?.fullName,
       customerPhone: deposit.customer?.phone,
+      customerZaloChatId: deposit.customer?.zaloChatId,
+      customerZaloUserId: deposit.customer?.zaloUserId,
       metadata: {
         code: deposit.code,
         refundSourceType: 'DEPOSIT',
@@ -537,6 +555,8 @@ export class DepositsService extends BaseCrudService<Deposit> {
             customerId: deposit.customerId,
             customerName: deposit.customer?.fullName,
             customerPhone: deposit.customer?.phone,
+            customerZaloChatId: deposit.customer?.zaloChatId,
+            customerZaloUserId: deposit.customer?.zaloUserId,
             metadata: {
               code: deposit.code,
               note: normalizedReason,
@@ -564,6 +584,8 @@ export class DepositsService extends BaseCrudService<Deposit> {
           customerId: deposit.customerId,
           customerName: deposit.customer?.fullName,
           customerPhone: deposit.customer?.phone,
+          customerZaloChatId: deposit.customer?.zaloChatId,
+          customerZaloUserId: deposit.customer?.zaloUserId,
           metadata: {
             code: deposit.code,
             note: normalizedReason,
@@ -620,6 +642,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
         customerId: deposit.customerId,
         customerName: deposit.customer?.fullName,
         customerPhone: deposit.customer?.phone,
+        customerZaloChatId: deposit.customer?.zaloChatId,
+        customerZaloUserId: deposit.customer?.zaloUserId,
+        ...buildRoomContext(deposit.room, deposit.contract),
         metadata: {
           code: deposit.code,
           note: reason,

@@ -9,6 +9,8 @@ export interface DomainEventInterface {
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
+  customerZaloChatId?: string | null;
+  customerZaloUserId?: string | null;
   paymentProvider?: string;
   paymentRef?: string;
 }

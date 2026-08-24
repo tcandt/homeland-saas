@@ -20,6 +20,7 @@ export class ExcelExportProvider {
     // Style the header row
     worksheet.getRow(1).font = { bold: true };
     
-    return await workbook.xlsx.writeBuffer() as Buffer;
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
   }
 }

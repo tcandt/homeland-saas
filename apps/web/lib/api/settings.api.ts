@@ -31,6 +31,14 @@ export const settingsApi = {
     return apiClient.post<{ success: true; recipient: string; result: any }>('/notifications/zalo/test', payload);
   },
 
+  testEmail: (payload: { recipient: string; title?: string; message?: string }) => {
+    return apiClient.post<{ success: true; recipient: string; result: any }>('/notifications/email/test', payload);
+  },
+
+  testTelegram: (payload: { recipient?: string; title?: string; message?: string }) => {
+    return apiClient.post<{ success: true; recipient: string | null; result: any }>('/notifications/telegram/test', payload);
+  },
+
   uploadAsset: async (file: File, params: { folder: string; purpose?: string; scope?: SettingsScope }) => {
     const formData = new FormData();
     formData.append('file', file);

@@ -12,6 +12,7 @@ describe('CommunicationScheduler', () => {
     prisma = {
       notificationQueue: {
         findMany: vi.fn().mockResolvedValue([]),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
     };
 
@@ -22,7 +23,7 @@ describe('CommunicationScheduler', () => {
     scheduler = new CommunicationScheduler(prisma as PrismaService, communicationService as CommunicationService);
   });
 
-  it('retries failed queue items that are due for retry', async () => {
+  it('processes queued and failed queue items that are due for delivery', async () => {
     prisma.notificationQueue.findMany.mockResolvedValueOnce([
       { id: 'queue-1' },
       { id: 'queue-2' },
@@ -31,14 +32,32 @@ describe('CommunicationScheduler', () => {
     const result = await scheduler.retryFailedQueueItems();
 
     expect(result.checked).toBe(2);
+    expect(result.recovered).toBe(0);
+    expect(prisma.notificationQueue.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: 'SENDING' }),
+      data: expect.objectContaining({ status: 'FAILED' }),
+    }));
     expect(prisma.notificationQueue.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        status: 'FAILED',
-        retryCount: { lt: 3 },
+        OR: expect.arrayContaining([
+          { status: 'QUEUED' },
+          expect.objectContaining({
+            status: { in: ['FAILED', 'RETRYING'] },
+            retryCount: { lt: 3 },
+          }),
+        ]),
       }),
       take: 50,
     }));
     expect(communicationService.processQueueItem).toHaveBeenNthCalledWith(1, 'queue-1');
     expect(communicationService.processQueueItem).toHaveBeenNthCalledWith(2, 'queue-2');
+  });
+
+  it('reports stale SENDING queue recovery count', async () => {
+    prisma.notificationQueue.updateMany.mockResolvedValueOnce({ count: 3 });
+
+    const result = await scheduler.retryFailedQueueItems();
+
+    expect(result.recovered).toBe(3);
   });
 });

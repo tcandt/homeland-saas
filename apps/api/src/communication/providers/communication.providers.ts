@@ -58,6 +58,23 @@ function looksLikePhoneNumber(value: string) {
   return /^(\+?84|0)\d{8,11}$/.test(normalized);
 }
 
+async function postJsonWithTimeout(url: string, body: Record<string, any>, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const responseBody = await response.json().catch(() => ({}));
+    return { response, body: responseBody };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 @Injectable()
 export class InAppProvider implements CommunicationProvider {
   channel = NotificationChannel.IN_APP;
@@ -84,8 +101,43 @@ export class ConsoleProvider implements CommunicationProvider {
 
 @Injectable() export class EmailProvider implements CommunicationProvider {
   channel = NotificationChannel.EMAIL;
+  private readonly transporters = new Map<string, { fingerprint: string; transporter: nodemailer.Transporter }>();
 
   constructor(private readonly prisma: PrismaService) {}
+
+  private getTransporter(tenantId: string, settings: Record<string, any>) {
+    const fingerprint = JSON.stringify({
+      host: settings.smtpHost,
+      port: Number(settings.smtpPort || 587),
+      secure: Boolean(settings.smtpSecure),
+      user: settings.smtpUser || '',
+      pass: settings.smtpPassword || '',
+    });
+    const cached = this.transporters.get(tenantId);
+    if (cached?.fingerprint === fingerprint) return cached.transporter;
+    cached?.transporter.close?.();
+
+    const transporter = nodemailer.createTransport({
+      host: String(settings.smtpHost || '').trim(),
+      port: Number(settings.smtpPort || 587),
+      secure: Boolean(settings.smtpSecure),
+      pool: settings.smtpPool !== false,
+      maxConnections: Number(settings.smtpMaxConnections || 3),
+      maxMessages: Number(settings.smtpMaxMessages || 100),
+      connectionTimeout: Number(settings.smtpConnectionTimeoutMs || 10000),
+      greetingTimeout: Number(settings.smtpGreetingTimeoutMs || 10000),
+      socketTimeout: Number(settings.smtpSocketTimeoutMs || 15000),
+      auth: settings.smtpUser
+        ? {
+            user: settings.smtpUser,
+            pass: settings.smtpPassword || '',
+          }
+        : undefined,
+    } as any);
+
+    this.transporters.set(tenantId, { fingerprint, transporter });
+    return transporter;
+  }
 
   async send(payload: ProviderPayload): Promise<any> {
     if (payload?.testMode === 'FAIL_PROVIDER') {
@@ -96,24 +148,13 @@ export class ConsoleProvider implements CommunicationProvider {
     assertEnabled(settings, 'Email');
 
     const host = String(settings.smtpHost || '').trim();
-    const port = Number(settings.smtpPort || 587);
     const recipient = resolveRecipient(payload, ['email', 'customerEmail', 'userEmail']);
 
     if (!host || !recipient) {
       throw new Error('Email provider is not configured');
     }
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: Boolean(settings.smtpSecure),
-      auth: settings.smtpUser
-        ? {
-            user: settings.smtpUser,
-            pass: settings.smtpPassword || '',
-          }
-        : undefined,
-    });
+    const transporter = this.getTransporter(payload.tenantId!, settings);
 
     const fromName = settings.fromName || 'HomeLand';
     const fromEmail = settings.fromEmail || settings.smtpUser;
@@ -142,22 +183,22 @@ export class ConsoleProvider implements CommunicationProvider {
 
     const botToken = String(settings.botToken || '').trim();
     const chatId = resolveRecipient(payload, ['telegramChatId', 'chatId']) || String(settings.defaultChatId || '').trim();
+    const timeoutMs = Number(settings.providerTimeoutMs || 10000);
 
     if (!botToken || !chatId) {
       throw new Error('Telegram provider is not configured');
     }
 
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const { response, body } = await postJsonWithTimeout(
+      `https://api.telegram.org/bot${botToken}/sendMessage`,
+      {
         chat_id: chatId,
         text: [payload.title, payload.message].filter(Boolean).join('\n\n'),
         parse_mode: settings.parseMode || undefined,
         disable_web_page_preview: settings.disableWebPreview ?? true,
-      }),
-    });
-    const body = await response.json().catch(() => ({}));
+      },
+      timeoutMs,
+    );
 
     if (!response.ok || body?.ok === false) {
       throw new Error(body?.description || `Telegram send failed with ${response.status}`);
@@ -180,6 +221,7 @@ export class ConsoleProvider implements CommunicationProvider {
     const botToken = String(settings.botToken || '').trim();
     const apiBase = String(settings.apiBaseUrl || this.defaultApiBase).trim().replace(/\/+$/, '');
     const recipient = resolveRecipient(payload, ['zaloChatId', 'customerZaloChatId', 'chatId', 'zaloUserId', 'customerZaloUserId']);
+    const timeoutMs = Number(settings.providerTimeoutMs || 10000);
 
     if (!botToken || !recipient) {
       throw new Error('Zalo provider is not configured');
@@ -188,17 +230,14 @@ export class ConsoleProvider implements CommunicationProvider {
       throw new Error('Zalo Bot requires chat_id or user_id. Current recipient looks like a phone number.');
     }
 
-    const response = await fetch(`${apiBase}/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const { response, body } = await postJsonWithTimeout(
+      `${apiBase}/bot${botToken}/sendMessage`,
+      {
         chat_id: recipient,
         text: [payload.title, payload.message].filter(Boolean).join('\n\n'),
-      }),
-    });
-    const body = await response.json().catch(() => ({}));
+      },
+      timeoutMs,
+    );
 
     if (!response.ok || body?.ok === false || body?.error) {
       throw new Error(body?.message || body?.error_name || `Zalo send failed with ${response.status}`);

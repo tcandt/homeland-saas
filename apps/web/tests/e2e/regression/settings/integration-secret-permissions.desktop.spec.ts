@@ -9,9 +9,9 @@ const settingsByKey: Record<string, Record<string, unknown>> = {
   },
   "zalo-provider": {
     enabled: true,
-    officialAccountId: "oa-1",
-    accessToken: "zalo-token",
-    appSecret: "zalo-secret",
+    baseUrl: "https://homeland.ductinh.one",
+    botToken: "zalo-bot-token",
+    webhookSecret: "zalo-secret",
   },
   "email-provider": {
     enabled: true,
@@ -61,8 +61,8 @@ test.describe("Integration Secret Permissions Desktop Regression", () => {
 
       const value = { ...(settingsByKey[key] || {}) };
       delete value.webhookApiKey;
-      delete value.accessToken;
-      delete value.appSecret;
+      delete value.botToken;
+      delete value.webhookSecret;
       delete value.smtpPassword;
       delete value.botToken;
 
@@ -85,8 +85,8 @@ test.describe("Integration Secret Permissions Desktop Regression", () => {
 
     const main = admin.page.locator("main");
     const secretFields = main.getByTestId("integration-secret-field");
-    await expect(secretFields).toHaveCount(6);
-    for (let index = 0; index < 6; index += 1) {
+    await expect(secretFields).toHaveCount(5);
+    for (let index = 0; index < 5; index += 1) {
       await expect(secretFields.nth(index)).toBeDisabled();
       await expect(secretFields.nth(index)).toHaveValue("");
     }

@@ -41,7 +41,7 @@ Nếu bất kỳ bước nào sai, dừng promote production. Không sửa trự
 
 1. Xác nhận staging đạt và backup trước deploy còn sử dụng được.
 2. Phê duyệt GitHub environment `production` bằng người có thẩm quyền.
-3. Deploy đúng immutable image tag đã chạy trên staging, không deploy tag chưa nghiệm thu.
+3. Deploy đúng immutable image tag đã chạy trên staging, không deploy tag chưa nghiệm thu. Với bundle VPS hiện tại, ưu tiên `deploy/public-production/docker-compose.registry-production.yml` và truyền rõ `API_TAG`/`WEB_TAG`.
 4. Nếu có migration mới trên database đã baseline, chạy `prisma migrate deploy` đúng một lần từ artifact đã duyệt hoặc khởi động một lần với `RUN_DB_MIGRATIONS=true`, sau đó trả cờ về `false`. Không dùng `db push`, `--force-reset` hoặc seed production trong deploy thường lệ. Database rỗng phải theo [DATABASE_BASELINE.md](./DATABASE_BASELINE.md); không chạy thẳng chuỗi migration lịch sử hiện tại.
 5. Kiểm tra health/readiness/build-info trước khi mở traffic đầy đủ.
 6. Smoke read-only bốn persona: `admin`, `adminA`, `adminB`, `manager`.
@@ -49,10 +49,18 @@ Nếu bất kỳ bước nào sai, dừng promote production. Không sửa trự
 8. Kiểm tra Hunonic, notification queue, lỗi 5xx và dashboard tài chính.
 9. Ghi thời gian deploy, SHA, image tag, migration, người duyệt và kết quả smoke.
 
+Ví dụ rollout trên VPS:
+
+```bash
+docker login ghcr.io
+docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.registry-production.yml pull
+docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.registry-production.yml up -d
+```
+
 ## Rollback ứng dụng
 
 - Dừng rollout khi health/readiness lỗi, 5xx tăng, sai owner/bank, ghi nhận tiền trùng hoặc số liệu quyết toán sai.
-- Chuyển `API_TAG`/`WEB_TAG` về immutable tag trước đó rồi khởi động lại service theo runbook máy chủ.
+- Chuyển `API_TAG`/`WEB_TAG` về immutable tag trước đó rồi `pull` + khởi động lại service theo runbook máy chủ.
 - Không dùng `git reset --hard` trên máy production và không tự rollback schema bằng thao tác phá dữ liệu.
 - Nếu code cũ không tương thích migration mới, chặn write, giữ traffic ở maintenance và chuẩn bị migration forward-fix đã review.
 - Restore database chỉ theo [BACKUP.md](./BACKUP.md), sau phê duyệt sự cố và thử trên môi trường cô lập trước.

@@ -1,3 +1,5 @@
+import { isValidAppRuntimeRole, resolveAppRuntimeRole } from './runtime-mode';
+
 const INSECURE_JWT_SECRETS = new Set([
   'fallback_secret_for_dev_only',
   'homeland_super_secret_key_change_in_production',
@@ -34,6 +36,31 @@ export function validateEnvironment(config: Record<string, unknown>) {
   }
   if (appUrl.protocol !== 'https:' && !isLoopbackHost(appUrl.hostname)) {
     throw new Error('APP_URL must use HTTPS outside loopback environments.');
+  }
+
+  const runtimeRole = resolveAppRuntimeRole(config);
+  if (!isValidAppRuntimeRole(runtimeRole)) {
+    throw new Error('APP_RUNTIME_ROLE must be one of: all, api, notification-worker.');
+  }
+
+  const storageProvider = stringValue(config.STORAGE_PROVIDER || 'local').toLowerCase() || 'local';
+  if (!['local', 's3', 'r2'].includes(storageProvider)) {
+    throw new Error('STORAGE_PROVIDER must be one of: local, s3, r2.');
+  }
+  if (storageProvider === 'local') {
+    const storageDir = stringValue(config.STORAGE_DIR);
+    if (!storageDir) {
+      throw new Error('STORAGE_DIR must be set in production when STORAGE_PROVIDER=local.');
+    }
+  } else {
+    const s3Endpoint = stringValue(config.S3_ENDPOINT);
+    const s3Bucket = stringValue(config.S3_BUCKET);
+    const s3AccessKeyId = stringValue(config.S3_ACCESS_KEY_ID);
+    const s3SecretAccessKey = stringValue(config.S3_SECRET_ACCESS_KEY);
+    if (!s3Endpoint || !s3Bucket || !s3AccessKeyId || !s3SecretAccessKey) {
+      throw new Error('S3 object storage configuration is incomplete for STORAGE_PROVIDER=s3/r2.');
+    }
+    parseAbsoluteUrl('S3_ENDPOINT', s3Endpoint);
   }
 
   return config;

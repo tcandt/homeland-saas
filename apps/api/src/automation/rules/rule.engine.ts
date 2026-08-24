@@ -67,13 +67,16 @@ export class RuleEngine {
         
         // Execute dynamic action
         if (ruleName === 'invoice.due_soon.3_days') {
+          const roomLabel = context.roomCode
+            ? `phòng ${context.roomCode}${context.roomRentalTypeLabel ? ` (${context.roomRentalTypeLabel})` : ''}`
+            : 'phòng thuê';
           await this.communicationService.dispatch({
              tenantId,
              userId: context.customerId,
              templateCode: 'SYSTEM_ALERT',
              context: {
                title: `Hoa don ${context.invoiceCode || ''} sap den han`.trim(),
-               message: `Hoa don ${context.invoiceCode || ''} se den han vao ${context.dueDate ? new Date(context.dueDate).toLocaleDateString('vi-VN') : 'thoi gian sap toi'}. So tien con lai: ${Number(context.remainingAmount || 0).toLocaleString('vi-VN')} VND.`,
+               message: `Hoa don ${context.invoiceCode || ''} cua ${roomLabel} se den han vao ${context.dueDate ? new Date(context.dueDate).toLocaleDateString('vi-VN') : 'thoi gian sap toi'}. So tien con lai: ${Number(context.remainingAmount || 0).toLocaleString('vi-VN')} VND.`,
              }
           });
         } else if (ruleName === 'invoice.overdue.7_days') {
@@ -84,13 +87,16 @@ export class RuleEngine {
              context
           });
         } else if (ruleName === 'contract.expiring.30_days') {
+          const roomLabel = context.roomCode
+            ? `phòng ${context.roomCode}${context.roomRentalTypeLabel ? ` (${context.roomRentalTypeLabel})` : ''}`
+            : 'phong thue';
           await this.communicationService.dispatch({
              tenantId,
              userId: context.customerId,
              templateCode: 'SYSTEM_ALERT',
              context: {
                title: `Hop dong ${context.contractCode || ''} sap het han`.trim(),
-               message: `Hop dong ${context.contractCode || ''} cua phong ${context.roomCode || ''} se het han vao ${context.endDate ? new Date(context.endDate).toLocaleDateString('vi-VN') : 'thoi gian sap toi'}.`,
+               message: `Hop dong ${context.contractCode || ''} cua ${roomLabel} se het han vao ${context.endDate ? new Date(context.endDate).toLocaleDateString('vi-VN') : 'thoi gian sap toi'}.`,
              }
           });
         }

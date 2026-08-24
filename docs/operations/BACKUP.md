@@ -31,6 +31,121 @@ Get-FileHash "homeland-$stamp.dump" -Algorithm SHA256
 
 Sau đó mã hóa và chuyển file tới off-host storage có retention/immutable policy. Không xóa bản cũ ngoài chính sách retention đã phê duyệt.
 
+## Script backup production
+
+Repo co script an toan, khong destructive:
+
+```bash
+node scripts/production-backup.js \
+  --env-file .env.public-production \
+  --output-dir .codex-backups/production \
+  --storage-dir storage
+```
+
+Script se:
+
+- Nap env file vao process, khong in secret.
+- Tao thu muc theo timestamp.
+- Chay `pg_dump --format=custom --no-owner --no-acl`.
+- Copy env file vao backup bundle neu co `--env-file`.
+- Copy local storage neu thu muc ton tai.
+- Tinh SHA256 cho dump/env/storage manifest.
+- Ghi `manifest.json` va `.codex-backups/production/latest-manifest.json`.
+
+Neu da cau hinh `BACKUP_RCLONE_DEST`, script se goi:
+
+```bash
+rclone copy <backup-dir> <BACKUP_RCLONE_DEST>/<backup-id>
+```
+
+`BACKUP_MANIFEST_PATH` cua API nen tro toi `.codex-backups/production/latest-manifest.json` de Prometheus co metric `backup_age_seconds` va `backup_last_success`.
+
+## Retention report va cleanup local
+
+Repo co them script retention report:
+
+```bash
+node scripts/production-backup-retention.js \
+  --output-dir .codex-backups/production \
+  --keep-daily 7 \
+  --keep-weekly 4 \
+  --keep-monthly 12
+```
+
+Mac dinh script chi:
+
+- Doc tat ca thu muc backup co `manifest.json`.
+- Xep lop giu lai theo policy daily/weekly/monthly.
+- Ghi `.codex-backups/production/latest-retention-report.json`.
+- Bao backup nao co the xoa, backup nao dang duoc giu, backup thanh cong off-host gan nhat.
+
+Chi khi them `--apply`, script moi xoa cac backup local da bi danh dau `prunable`. Khuyen nghi production chay dry-run hang ngay, review report/alert truoc, sau do moi bat `--apply` bang scheduler rieng co approval van hanh.
+
+API co the doc them:
+
+- `BACKUP_RETENTION_REPORT_PATH=.codex-backups/production/latest-retention-report.json`
+
+de Prometheus xuat:
+
+- `backup_off_host_last_success`
+- `backup_retention_local_copies`
+- `backup_retention_prunable_copies`
+
+## Chu trinh backup hieu luc cho cron/systemd
+
+De tranh scheduler production phai tu noi nhieu command roi mat log/trang thai, repo co them wrapper:
+
+```bash
+node scripts/production-backup-cycle.js \
+  --env-file .env.public-production \
+  --output-dir .codex-backups/production \
+  --storage-dir /srv/homeland/storage \
+  --keep-daily 7 \
+  --keep-weekly 4 \
+  --keep-monthly 12 \
+  --max-age-hours 24 \
+  --require-off-host
+```
+
+Script nay se chay theo thu tu:
+
+1. `production-backup.js`
+2. `production-backup-retention.js`
+3. `production-restore-check.js`
+
+Ket qua tra ve mot JSON tong hop de cron/systemd, log shipper hoac alerting parser doc duoc ngay. Khi muon cho phep xoa local backup da het retention, them `--apply-retention`.
+
+Vi du cron:
+
+```cron
+15 1 * * * cd /srv/homeland && node scripts/production-backup-cycle.js --env-file .env.public-production --output-dir .codex-backups/production --storage-dir /srv/homeland/storage --require-off-host >> /var/log/homeland-backup-cycle.log 2>&1
+```
+
+## Kiem tra backup truoc update
+
+Truoc khi deploy/migrate production, chay:
+
+```bash
+npm run restore-check:prod -- \
+  --manifest .codex-backups/production/latest-manifest.json \
+  --max-age-hours 24 \
+  --require-off-host
+```
+
+Script se:
+
+- Xac minh manifest moi nhat co `SUCCESS`.
+- Xac minh backup khong qua nguong tuoi da chon.
+- Kiem tra file dump/env/storage manifest va SHA256.
+- Kiem tra off-host location neu dung `--require-off-host`.
+- Goi `pg_restore --list` de dam bao dump doc duoc, tru khi dung `--skip-pg-restore-list`.
+
+Khi chay dry-run khong co database, chi de test script:
+
+```bash
+node scripts/production-backup.js --skip-db --storage-dir storage
+```
+
 ## Backup attachment
 
 - Chụp snapshot hoặc export object storage nhất quán với thời điểm database dump.
@@ -51,6 +166,56 @@ Restore drill không được trỏ vào database đang vận hành.
 7. Mở ngẫu nhiên attachment/chứng từ từ bản restore.
 8. Ghi thời gian restore thực tế, lỗi phát sinh và RTO đạt được.
 9. Dọn môi trường tạm chỉ sau phê duyệt riêng; không tự động xóa.
+
+Repo co script restore drill co guard an toan. Database dich phai co ten chua `restore`, `test`, `drill`, `tmp` hoac `scratch`, va phai xac nhan dung ten database bang `--confirm-target-db`.
+
+```bash
+npm run restore-drill:prod -- \
+  --manifest .codex-backups/production/latest-manifest.json \
+  --max-age-hours 24 \
+  --require-off-host \
+  --database-url "$RESTORE_DRILL_DATABASE_URL" \
+  --confirm-target-db homeland_restore_drill
+```
+
+Script se chay restore precheck, restore dump vao database tam bang `pg_restore --clean --if-exists --no-owner --no-acl`, sau do chay `prisma migrate status` tren database restore. Khong dung script nay voi database `homeland`, `postgres`, `production` hoac `prod`.
+
+## Audit rollout object storage
+
+Sau khi migrate local file len R2/S3 bang `storage-migrate-to-object-store.js`, chay them audit de biet con lai bao nhieu local ref, bao nhieu ref da len `s3://`, va local file nao con thieu:
+
+```bash
+node scripts/storage-audit.js \
+  --env-file .env.public-production \
+  --storage-dir /srv/homeland/storage
+```
+
+Audit nay khong sua du lieu. No dung de xac nhan rollout object storage truoc khi xoa local storage cu hoac bat lifecycle policy.
+
+## Lifecycle va versioning cho R2/S3
+
+Object storage phase khong duoc xem la hoan tat neu bucket chua bat versioning va chua co lifecycle rule cho non-current version / incomplete multipart upload.
+
+Repo co script scaffold policy:
+
+```bash
+node scripts/generate-object-storage-lifecycle-policy.js \
+  --provider r2 \
+  --bucket homeland-production \
+  --noncurrent-days 30 \
+  --abort-multipart-days 7
+```
+
+Script nay khong goi provider API. No sinh JSON mau de copy vao Cloudflare R2 hoac AWS S3 console/terraform.
+
+Thu tu rollout khuyen nghi:
+
+1. Bat versioning tren bucket.
+2. Ap dung lifecycle rule cho non-current version va incomplete multipart upload.
+3. Chay `npm run storage:audit:prod` de lay baseline local/s3 refs.
+4. Chay `npm run storage:migrate:prod -- --env-file .env.public-production --apply`.
+5. Chay lai `npm run storage:audit:prod` va dam bao local refs con lai da duoc giai trinh.
+6. Chi khi audit sach va backup off-host PASS moi xem xet don dep local storage cu.
 
 ## Restore khi có sự cố
 

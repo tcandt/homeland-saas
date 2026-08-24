@@ -79,6 +79,7 @@ export default function AutomationCommandCenter() {
   const { data: rules, error: rulesErr, mutate: mutateRules } = useSWR('/api/v1/automation/rules', fetcher);
   const { data: executions, error: executionsErr, mutate: mutateExecutions } = useSWR('/api/v1/automation/executions', fetcher, { refreshInterval: 2000 });
   const { data: queue, error: queueErr, mutate: mutateQueue } = useSWR('/api/v1/notifications/queue', fetcher, { refreshInterval: 2000 });
+  const queueRows = Array.isArray(queue) ? queue : Array.isArray(queue?.rows) ? queue.rows : [];
 
   const runWorkflow = async (name: string) => {
     try {
@@ -338,7 +339,7 @@ export default function AutomationCommandCenter() {
                 <CardDescription>Queue items processed by the system.</CardDescription>
               </CardHeader>
               <CardContent>
-                {queue && queue.length > 0 ? (
+                {queueRows.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse" data-testid="jobs-queue-table">
                       <thead>
@@ -351,7 +352,7 @@ export default function AutomationCommandCenter() {
                         </tr>
                       </thead>
                       <tbody>
-                        {queue.map((q: any, i: number) => (
+                        {queueRows.map((q: any, i: number) => (
                           <tr key={i} data-testid="queue-row" className="border-b border-border text-sm hover:bg-surface/50">
                             <td className="py-3 px-4 font-bold text-text">{q.channel}</td>
                             <td className="py-3 px-4 text-xs text-muted max-w-[250px] truncate">{JSON.stringify(q.payload)}</td>

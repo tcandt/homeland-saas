@@ -1,0 +1,156 @@
+{
+  "annotations": { "list": [] },
+  "description": "HomeLand PMS - Operations dashboard for queue, backup, SePay, and Hunonic monitoring",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Notification Worker Heartbeat Age",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "notification_worker_heartbeat_age_seconds", "legendFormat": "Heartbeat age" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 180, "color": "yellow" },
+              { "value": 300, "color": "red" }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "stat",
+      "title": "Oldest Pending Queue Item Age",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "notification_queue_oldest_age_seconds", "legendFormat": "Oldest queue age" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 300, "color": "yellow" },
+              { "value": 900, "color": "red" }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "stat",
+      "title": "Backup Age",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "backup_age_seconds", "legendFormat": "Backup age" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 43200, "color": "yellow" },
+              { "value": 93600, "color": "red" }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "stat",
+      "title": "Hunonic Oldest Latest Sync Age",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "hunonic_sync_oldest_age_seconds", "legendFormat": "Hunonic sync age" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 3600, "color": "yellow" },
+              { "value": 7200, "color": "red" }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Notification Queue by Status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(notification_queue_items) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "SePay Webhook Status",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(payment_webhook_logs{provider=\"SEPAY\"}) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "SePay Reconciliation Issues",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(sepay_reconciliation_audit_issues) by (type, severity)",
+          "legendFormat": "{{severity}} {{type}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Hunonic Latest Sync Status by Tenant Count",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(hunonic_sync_latest_status) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Backup Retention Local vs Prunable",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "backup_retention_local_copies", "legendFormat": "retained" },
+        { "expr": "backup_retention_prunable_copies", "legendFormat": "prunable" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Hunonic Enabled, Missing Logs, and Backup Off-Host",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        { "expr": "hunonic_sync_enabled_tenants", "legendFormat": "Hunonic enabled tenants" },
+        { "expr": "hunonic_sync_missing_tenants", "legendFormat": "Hunonic missing logs" },
+        { "expr": "backup_off_host_last_success", "legendFormat": "Backup off-host latest success" }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["homeland", "operations", "alerts"],
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "title": "HomeLand PMS - Operations Dashboard",
+  "uid": "homeland-operations",
+  "version": 1
+}

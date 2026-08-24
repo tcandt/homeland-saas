@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { CreditCard, LockKeyhole } from "lucide-react";
+import { CreditCard, Link2, LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import toast from "react-hot-toast";
 
 type SePaySettings = {
   enabled: boolean;
@@ -47,6 +48,12 @@ export default function SettingsSePayIntegration() {
     setWebhookApiKeyTouched(false);
   };
 
+  const copyText = async (value: string, label: string) => {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    toast.success(`Đã copy ${label}`);
+  };
+
   return (
     <div className="flex h-full flex-col gap-[16px]">
       <Card className="flex h-full flex-col gap-[14px] border-[#6366f1]/15 p-[16px]">
@@ -64,9 +71,17 @@ export default function SettingsSePayIntegration() {
 
         <div className="flex flex-col gap-[8px]">
           <div className="text-[12px] font-bold uppercase tracking-wide text-muted">Webhook endpoint</div>
-          <div className="rounded-[12px] border border-border bg-background px-[14px] py-[12px]">
-            <div className="break-all text-[13px] font-bold text-text">{webhookUrl}</div>
-          </div>
+          <button
+            type="button"
+            onClick={() => copyText(webhookUrl, "webhook URL")}
+            className="flex items-center gap-[10px] rounded-[12px] border border-border bg-background px-[14px] py-[12px] text-left transition-colors hover:border-[#6366f1]/35 hover:bg-[#6366f1]/5"
+            title="Nhấp để sao chép webhook URL"
+          >
+            <Link2 size={14} className="shrink-0 text-muted" />
+            <div className="min-w-0">
+              <div className="text-[13px] font-bold text-text break-all">{webhookUrl}</div>
+            </div>
+          </button>
         </div>
 
         <div className="grid grid-cols-1 gap-[12px] lg:grid-cols-2">

@@ -43,9 +43,10 @@ mkdir -p "$UPDATE_ROOT/releases" "$workspace_path/.codex-backups/system-update"
 stamp="$(date +%Y%m%d-%H%M%S)"
 safe_version="$(echo "$TARGET_VERSION" | sed -E 's/[^0-9A-Za-z_.-]/_/g')"
 release_path="$UPDATE_ROOT/releases/$stamp-$safe_version"
-backup_path="$workspace_path/.codex-backups/system-update/$stamp-before-$safe_version"
+backup_output_root="${SYSTEM_UPDATE_BACKUP_OUTPUT_DIR:-$workspace_path/.codex-backups/system-update}"
+backup_path="$backup_output_root/$stamp-before-$safe_version"
 manifest_path="$UPDATE_ROOT/last-install-manifest.json"
-env_path="$workspace_path/.env"
+env_path="${SYSTEM_UPDATE_ENV_FILE:-$workspace_path/.env}"
 
 if [[ -e "$release_path" ]]; then
   echo "Release path already exists: $release_path" >&2
@@ -69,17 +70,36 @@ cat > "$backup_path/metadata.json" <<JSON
 }
 JSON
 
-database_backup=""
-database_url="$(env_value "$env_path" DATABASE_URL || true)"
-pg_dump_bin="${SYSTEM_UPDATE_PG_DUMP_PATH:-pg_dump}"
-if [[ -n "$database_url" ]] && command -v "$pg_dump_bin" >/dev/null 2>&1; then
-  step BACKING_UP 28 "Creating database backup."
-  database_backup="$backup_path/database.dump"
-  "$pg_dump_bin" "$database_url" -F c -f "$database_backup"
-  step BACKING_UP 35 "Database backup created."
-else
-  step BACKING_UP 35 "Database backup skipped; DATABASE_URL or pg_dump unavailable."
+storage_dir="${SYSTEM_UPDATE_STORAGE_DIR:-$(env_value "$env_path" STORAGE_DIR || true)}"
+if [[ -z "$storage_dir" ]]; then
+  storage_dir="$workspace_path/storage"
 fi
+
+step BACKING_UP 28 "Creating production backup bundle."
+node "$workspace_path/scripts/production-backup.js" \
+  --env-file "$env_path" \
+  --output-dir "$backup_output_root" \
+  --storage-dir "$storage_dir"
+backup_manifest="$backup_output_root/latest-manifest.json"
+backup_bundle_path="$(node -e "const fs=require('fs'),path=require('path'); const manifest=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(path.join(path.dirname(process.argv[1]), manifest.id || ''))" "$backup_manifest")"
+
+restore_check_args=(
+  "$workspace_path/scripts/production-restore-check.js"
+  --manifest "$backup_manifest"
+  --max-age-hours "${SYSTEM_UPDATE_BACKUP_MAX_AGE_HOURS:-24}"
+)
+if [[ "${SYSTEM_UPDATE_REQUIRE_OFF_HOST:-false}" == "true" ]]; then
+  restore_check_args+=(--require-off-host)
+fi
+if [[ -n "${SYSTEM_UPDATE_PG_RESTORE_PATH:-}" ]]; then
+  restore_check_args+=(--pg-restore "$SYSTEM_UPDATE_PG_RESTORE_PATH")
+fi
+if [[ "${SYSTEM_UPDATE_SKIP_PG_RESTORE_LIST:-false}" == "true" ]]; then
+  restore_check_args+=(--skip-pg-restore-list)
+fi
+
+step BACKING_UP 35 "Verifying backup manifest and dump readability."
+node "${restore_check_args[@]}"
 
 step DOWNLOADING 42 "Cloning target source into isolated release directory."
 git clone --no-checkout "$REPOSITORY" "$release_path"
@@ -104,6 +124,11 @@ node "$release_path/scripts/check-mojibake.js"
 
 switched="false"
 restart_requested="false"
+restart_exit_code="null"
+auto_rollback_performed="false"
+rollback_restart_exit_code="null"
+runner_exit_code=0
+final_status="DONE"
 if [[ "$ALLOW_SWITCH" == "true" || "${SYSTEM_UPDATE_ALLOW_SWITCH:-false}" == "true" ]]; then
   step SWITCHING 90 "Writing active version manifest."
   switched="true"
@@ -111,14 +136,47 @@ if [[ "$ALLOW_SWITCH" == "true" || "${SYSTEM_UPDATE_ALLOW_SWITCH:-false}" == "tr
 {
   "releasePath": "$release_path",
   "targetVersion": "$TARGET_VERSION",
-  "backupPath": "$backup_path",
+  "previousReleasePath": "$workspace_path",
+  "previousVersion": "$current_version",
+  "backupPath": "$backup_bundle_path",
   "activatedAt": "$(date -Iseconds)"
 }
 JSON
   if [[ -n "${SYSTEM_UPDATE_RESTART_COMMAND:-}" ]]; then
     step RESTARTING 94 "Restart command configured; running service restart."
-    bash -lc "$SYSTEM_UPDATE_RESTART_COMMAND"
     restart_requested="true"
+    set +e
+    bash -lc "$SYSTEM_UPDATE_RESTART_COMMAND"
+    restart_exit_code="$?"
+    set -e
+    if [[ "$restart_exit_code" != "0" ]]; then
+      final_status="FAILED_RESTART"
+      runner_exit_code=1
+      if [[ "${SYSTEM_UPDATE_AUTO_ROLLBACK:-true}" == "true" ]]; then
+        step RESTARTING 97 "Restart/health failed; rolling back active manifest to previous release."
+        auto_rollback_performed="true"
+        cat > "$UPDATE_ROOT/current.json" <<JSON
+{
+  "releasePath": "$workspace_path",
+  "targetVersion": "$current_version",
+  "rolledBackFrom": "$TARGET_VERSION",
+  "backupPath": "$backup_bundle_path",
+  "activatedAt": "$(date -Iseconds)"
+}
+JSON
+        set +e
+        bash -lc "$SYSTEM_UPDATE_RESTART_COMMAND"
+        rollback_restart_exit_code="$?"
+        set -e
+        if [[ "$rollback_restart_exit_code" == "0" ]]; then
+          final_status="ROLLED_BACK_AFTER_FAILED_RESTART"
+        else
+          final_status="ROLLBACK_RESTART_FAILED"
+        fi
+      else
+        step RESTARTING 97 "Restart/health failed; auto rollback is disabled."
+      fi
+    fi
   else
     step RESTARTING 94 "No restart command configured; service manager must restart manually."
   fi
@@ -133,13 +191,23 @@ cat > "$manifest_path" <<JSON
   "targetVersion": "$TARGET_VERSION",
   "previousReleasePath": "$workspace_path",
   "releasePath": "$release_path",
-  "backupPath": "$backup_path",
-  "databaseBackup": "$database_backup",
+  "backupPath": "$backup_bundle_path",
+  "systemMetadataBackupPath": "$backup_path",
+  "backupManifest": "$backup_manifest",
   "switched": $switched,
   "restartRequested": $restart_requested,
+  "restartExitCode": $restart_exit_code,
+  "autoRollbackPerformed": $auto_rollback_performed,
+  "rollbackRestartExitCode": $rollback_restart_exit_code,
+  "status": "$final_status",
   "finishedAt": "$(date -Iseconds)"
 }
 JSON
 
-step DONE 100 "Update runner completed."
+if [[ "$runner_exit_code" == "0" ]]; then
+  step DONE 100 "Update runner completed."
+else
+  step FAILED 100 "Update runner failed; app rollback attempted according to manifest."
+fi
 echo "SYSTEM_UPDATE_MANIFEST $manifest_path"
+exit "$runner_exit_code"

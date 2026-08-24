@@ -1,0 +1,9 @@
+DO $$
+BEGIN
+  CREATE TYPE "RoomRentalType" AS ENUM ('WHOLE', 'SHARED');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE "Room"
+ADD COLUMN IF NOT EXISTS "rentalType" "RoomRentalType" NOT NULL DEFAULT 'WHOLE';

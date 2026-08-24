@@ -9,6 +9,13 @@ const toOptionalNumber = (value: unknown): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const mapApiRentalTypeToUi = (value: unknown): "whole" | "shared" => {
+  if (typeof value !== "string") return "whole";
+  const normalized = value.toUpperCase();
+  if (normalized === "SHARED") return "shared";
+  return "whole";
+};
+
 // Map API building to UI building
 export const adaptBuilding = (apiBuilding: any): Building => {
   return {
@@ -147,7 +154,7 @@ export const adaptRoom = (apiRoom: any): Room => {
     code: apiRoom.code,
     number: apiRoom.name || apiRoom.code,
     type: "1PN",
-    rentalType: "whole",
+    rentalType: mapApiRentalTypeToUi(apiRoom.rentalType),
     price: activeRent,
     status: uiStatus,
     monthlyPrice: activeRent,

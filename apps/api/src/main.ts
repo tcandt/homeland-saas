@@ -8,12 +8,23 @@ import { ClsService } from 'nestjs-cls';
 import { MetricsInterceptor } from './metrics/metrics.interceptor';
 import { ConfigService } from '@nestjs/config';
 import { configuredCorsOrigins } from './shared/config/environment.validation';
+import { resolveAppRuntimeRole, shouldExposeHttpServer } from './shared/config/runtime-mode';
 
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './shared/interceptors/response.interceptor';
 import { GlobalExceptionFilter } from './shared/exceptions/global-exception.filter';
 
 async function bootstrap() {
+  const runtimeRole = resolveAppRuntimeRole();
+  if (!shouldExposeHttpServer()) {
+    const app = await NestFactory.createApplicationContext(AppModule, { bufferLogs: true });
+    app.enableShutdownHooks();
+    app.useLogger(app.get(Logger));
+    console.log(`HomeLand runtime role '${runtimeRole}' started without HTTP server.`);
+    await new Promise(() => undefined);
+    return;
+  }
+
   const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
   app.enableShutdownHooks();
 
@@ -28,8 +39,9 @@ async function bootstrap() {
   });
 
   const express = require('express');
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  const bodyLimit = process.env.API_BODY_LIMIT || '2mb';
+  app.use(express.json({ limit: bodyLimit }));
+  app.use(express.urlencoded({ limit: bodyLimit, extended: true }));
 
   // 3. CORS & Security
   app.enableCors({
@@ -71,7 +83,7 @@ async function bootstrap() {
   // 6. Start server
   const port = process.env.PORT || 3001;
   await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}/api/v1`);
+  console.log(`Application is running on: http://localhost:${port}/api/v1 (role=${runtimeRole})`);
   if (swaggerEnabled) console.log(`Swagger Docs available at: http://localhost:${port}/api/docs`);
 }
 bootstrap();

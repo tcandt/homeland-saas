@@ -101,6 +101,10 @@ export const financeAdapter = {
     return await financeApi.getSePayReconciliation(params);
   },
 
+  getSePayReconciliationAudit: async (params?: Record<string, any>) => {
+    return await financeApi.getSePayReconciliationAudit(params);
+  },
+
   getExpenses: async (params?: Record<string, any>) => {
     return await financeApi.getExpenses(params);
   }

@@ -51,6 +51,7 @@ export class ContractsController {
       endDate: new Date(input.endDate),
       monthlyRent: input.rentAmount,
       depositMoney: input.depositAmount,
+      memberCount: input.memberCount ?? 1,
       signedAt: input.signedAt ? new Date(input.signedAt) : undefined,
       firstPaymentDate: input.firstPaymentDate ? new Date(input.firstPaymentDate) : undefined,
       purpose: input.purpose,

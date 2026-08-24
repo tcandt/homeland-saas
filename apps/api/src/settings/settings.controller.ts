@@ -1,16 +1,17 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors, BadRequestException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors, BadRequestException, UseGuards, Inject } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { SettingScope } from '@prisma/client';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { Public } from '../shared/decorators/public.decorator';
 import { SettingsService } from './settings.service';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { LocalStorageProvider } from '../documents/providers/storage/local-storage.provider';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../shared/guards/permissions.guard';
 import { Readable } from 'stream';
 import type { Response } from 'express';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
+import { STORAGE_PROVIDER, StorageProvider } from '../documents/interfaces/storage-provider.interface';
+import { inferMimeTypeFromPath, normalizeStorageReference } from '../documents/providers/storage/storage-path.util';
 
 function parseScope(scope?: string): SettingScope {
   return scope === 'USER' ? SettingScope.USER : SettingScope.TENANT;
@@ -23,7 +24,7 @@ function parseScope(scope?: string): SettingScope {
 export class SettingsController {
   constructor(
     private readonly settingsService: SettingsService,
-    private readonly storageProvider: LocalStorageProvider,
+    @Inject(STORAGE_PROVIDER) private readonly storageProvider: StorageProvider,
   ) {}
 
   @Get('file')
@@ -34,20 +35,14 @@ export class SettingsController {
     @Query('path') path: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const normalizedPath = normalizeStoragePath(path || '');
+    const normalizedPath = normalizeStorageReference(path || '');
     if (!normalizedPath) {
       throw new BadRequestException('Missing file path');
     }
 
     const buffer = await this.storageProvider.read(normalizedPath);
     const fileName = normalizedPath.split('/').pop() || 'asset';
-    const mimeType = fileName.endsWith('.png')
-      ? 'image/png'
-      : fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')
-        ? 'image/jpeg'
-        : fileName.endsWith('.svg')
-          ? 'image/svg+xml'
-          : 'image/webp';
+    const mimeType = inferMimeTypeFromPath(fileName);
 
     res.set({
       'Content-Type': mimeType,
@@ -130,26 +125,4 @@ export class SettingsController {
       folder,
     };
   }
-}
-
-function normalizeStoragePath(value: string) {
-  let normalized = decodeURIComponent(value || '').trim();
-  if (!normalized) return '';
-
-  const legacyPrefix = '/api/v1/settings/file?path=';
-  const storagePrefix = '/api/v1/documents/storage/';
-  const directPrefix = '/documents/storage/';
-
-  if (normalized.startsWith(legacyPrefix)) {
-    normalized = normalized.slice(legacyPrefix.length);
-  }
-  if (normalized.startsWith(storagePrefix)) {
-    normalized = normalized.slice(storagePrefix.length);
-  } else if (normalized.startsWith(directPrefix)) {
-    normalized = normalized.slice(directPrefix.length);
-  }
-  if (normalized.startsWith('/')) {
-    normalized = normalized.slice(1);
-  }
-  return normalized;
 }

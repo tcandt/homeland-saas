@@ -91,7 +91,7 @@ groups:
     interval: 60s
     rules:
       - alert: NotificationQueueBacklog
-        expr: notification_queue_failed_total > 10
+        expr: sum(notification_queue_items{status=~"FAILED|DEAD_LETTER"}) > 10
         for: 5m
         labels:
           severity: warning
@@ -99,6 +99,146 @@ groups:
         annotations:
           summary: "Notification queue failures > 10"
           description: "{{ $value }} notifications have failed to send in the current window."
+
+      - alert: NotificationDeadLetter
+        expr: sum(notification_queue_items{status="DEAD_LETTER"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Notification dead-letter queue is not empty"
+          description: "{{ $value }} notification jobs exhausted retry and require manual handling."
+
+      - alert: NotificationWorkerHeartbeatStale
+        expr: notification_worker_heartbeat_age_seconds > 300
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Notification worker heartbeat is stale"
+          description: "The notification worker heartbeat is older than 5 minutes while queue delivery is expected out-of-process."
+
+      - alert: NotificationQueueOldestPendingStale
+        expr: notification_queue_oldest_age_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Notification queue oldest pending item is stale"
+          description: "The oldest active notification queue item has been pending for {{ $value | humanizeDuration }}."
+
+      - alert: SePayWebhookFailed
+        expr: sum(payment_webhook_logs{provider="SEPAY",status="FAILED"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: finance
+        annotations:
+          summary: "SePay webhook processing failed"
+          description: "{{ $value }} SePay webhook logs are FAILED and may need replay or manual reconciliation."
+
+      - alert: SePayWebhookNeedsReview
+        expr: sum(payment_webhook_logs{provider="SEPAY",status="NEEDS_REVIEW"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+          team: finance
+        annotations:
+          summary: "SePay webhook needs manual review"
+          description: "{{ $value }} SePay webhook logs need review for unmatched, wrong-bank, short or overpaid transactions."
+
+      - alert: SePayCriticalReconciliationIssue
+        expr: sum(sepay_reconciliation_audit_issues{severity="critical"}) > 0
+        for: 10m
+        labels:
+          severity: critical
+          team: finance
+        annotations:
+          summary: "SePay reconciliation has critical cross-service mismatches"
+          description: "{{ $value }} critical SePay reconciliation audit issues are open across request/webhook/source state."
+
+      - alert: SePayRefundPendingStale
+        expr: sum(sepay_reconciliation_audit_issues{type="OVERPAYMENT_REFUND_PENDING_STALE"}) > 0
+        for: 30m
+        labels:
+          severity: warning
+          team: finance
+        annotations:
+          summary: "SePay refund-pending overpayment is stale"
+          description: "{{ $value }} SePay overpayment refund tasks have exceeded the stale threshold."
+
+      - alert: BackupMissingOrFailed
+        expr: backup_last_success == 0
+        for: 10m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Latest backup manifest is missing or failed"
+          description: "The API could not confirm a successful latest backup manifest."
+
+      - alert: BackupOffHostMissing
+        expr: backup_off_host_last_success == 0
+        for: 15m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Latest successful backup is not confirmed off-host"
+          description: "The latest successful backup manifest does not include an off-host location."
+
+      - alert: BackupStale
+        expr: backup_age_seconds > 93600
+        for: 30m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Latest successful backup is stale"
+          description: "Latest successful backup age is {{ $value | humanizeDuration }}, above the 26h threshold."
+
+      - alert: BackupRetentionPrunableGrowing
+        expr: backup_retention_prunable_copies > 10
+        for: 2h
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Local backup copies are accumulating beyond retention"
+          description: "{{ $value }} local backup copies are marked prunable by the latest retention report."
+
+      - alert: HunonicSyncFailed
+        expr: sum(hunonic_sync_latest_status{status="FAILED"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+          team: operations
+        annotations:
+          summary: "Hunonic sync latest status is FAILED"
+          description: "{{ $value }} enabled Hunonic tenants have latest sync status FAILED."
+
+      - alert: HunonicSyncStale
+        expr: hunonic_sync_enabled_tenants > 0 and hunonic_sync_oldest_age_seconds > 7200
+        for: 30m
+        labels:
+          severity: warning
+          team: operations
+        annotations:
+          summary: "Hunonic sync is stale"
+          description: "The oldest latest Hunonic sync observation across enabled tenants is older than 2 hours."
+
+      - alert: HunonicSyncMissingLogs
+        expr: hunonic_sync_missing_tenants > 0
+        for: 30m
+        labels:
+          severity: warning
+          team: operations
+        annotations:
+          summary: "Hunonic enabled tenants are missing sync logs"
+          description: "{{ $value }} enabled Hunonic tenants do not have any sync log yet."
 
       - alert: AIHighErrorRate
         expr: |

@@ -25,6 +25,27 @@ function booleanIsFalse(value) {
   return stringValue(value).toLowerCase() === 'false';
 }
 
+function normalizeRuntimeRole(value) {
+  const normalized = stringValue(value).toLowerCase();
+  return normalized || 'all';
+}
+
+function normalizeStorageProvider(value) {
+  const normalized = stringValue(value).toLowerCase();
+  return normalized || 'local';
+}
+
+function parseSizeBytes(value, fallback) {
+  const raw = stringValue(value).toLowerCase();
+  if (!raw) return fallback;
+  const match = raw.match(/^(\d+(?:\.\d+)?)(b|kb|mb|gb)?$/);
+  if (!match) return NaN;
+  const amount = Number(match[1]);
+  const unit = match[2] || 'b';
+  const multiplier = unit === 'gb' ? 1024 ** 3 : unit === 'mb' ? 1024 ** 2 : unit === 'kb' ? 1024 : 1;
+  return Math.round(amount * multiplier);
+}
+
 function isLoopbackHost(hostname) {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
@@ -124,6 +145,72 @@ function runProductionPreflight(config, options = {}) {
     jwtSecret.length >= 32 && !INSECURE_JWT_SECRETS.has(jwtSecret)
       ? pass('jwt_secret', 'JWT_SECRET meets the minimum production policy.')
       : fail('jwt_secret', 'JWT_SECRET is missing, too short, or uses a documented non-production value.'),
+  );
+
+  const internalToken = stringValue(config.INTERNAL_API_TOKEN);
+  checks.push(
+    internalToken.length >= 32
+      ? pass('internal_api_token', 'INTERNAL_API_TOKEN is configured for metrics/build-info/seed endpoints.')
+      : fail('internal_api_token', 'INTERNAL_API_TOKEN must be set to at least 32 characters.'),
+  );
+
+  const apiBodyLimit = parseSizeBytes(config.API_BODY_LIMIT, 2 * 1024 * 1024);
+  checks.push(
+    Number.isFinite(apiBodyLimit) && apiBodyLimit > 0 && apiBodyLimit <= 5 * 1024 * 1024
+      ? pass('api_body_limit', 'API_BODY_LIMIT is bounded for JSON/urlencoded requests.')
+      : fail('api_body_limit', 'API_BODY_LIMIT must be a positive value no larger than 5mb.'),
+  );
+
+  const documentUploadLimit = parseSizeBytes(config.DOCUMENT_UPLOAD_LIMIT_BYTES, 20 * 1024 * 1024);
+  checks.push(
+    Number.isFinite(documentUploadLimit) && documentUploadLimit > 0 && documentUploadLimit <= 50 * 1024 * 1024
+      ? pass('document_upload_limit', 'DOCUMENT_UPLOAD_LIMIT_BYTES is bounded for document uploads.')
+      : fail('document_upload_limit', 'DOCUMENT_UPLOAD_LIMIT_BYTES must be positive and no larger than 50mb.'),
+  );
+
+  const storageDir = stringValue(config.STORAGE_DIR);
+  const storageProvider = normalizeStorageProvider(config.STORAGE_PROVIDER);
+  checks.push(
+    ['local', 's3', 'r2'].includes(storageProvider)
+      ? pass('storage_provider', 'STORAGE_PROVIDER is valid.')
+      : fail('storage_provider', 'STORAGE_PROVIDER must be one of local, s3, or r2.'),
+  );
+  checks.push(
+    storageProvider !== 'local' || (storageDir && path.isAbsolute(storageDir))
+      ? pass('storage_dir', storageProvider === 'local'
+        ? 'STORAGE_DIR points to an explicit absolute host-mounted storage path.'
+        : 'STORAGE_DIR is optional because object storage is enabled.')
+      : fail('storage_dir', 'STORAGE_DIR must be an explicit absolute path for production attachments when STORAGE_PROVIDER=local.'),
+  );
+  const s3Endpoint = stringValue(config.S3_ENDPOINT);
+  const s3Bucket = stringValue(config.S3_BUCKET);
+  const s3AccessKeyId = stringValue(config.S3_ACCESS_KEY_ID);
+  const s3SecretAccessKey = stringValue(config.S3_SECRET_ACCESS_KEY);
+  const s3Parsed = s3Endpoint ? parseUrl(s3Endpoint, ['http:', 'https:']) : null;
+  checks.push(
+    storageProvider === 'local'
+      ? pass('object_storage_config', 'Object storage configuration is not required for local storage mode.')
+      : (s3Parsed && s3Bucket && s3AccessKeyId && s3SecretAccessKey
+        ? pass('object_storage_config', 'S3/R2 object storage configuration is present and structurally valid.')
+        : fail('object_storage_config', 'S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY are required when STORAGE_PROVIDER=s3/r2.')),
+  );
+
+  const communicationImmediateDelivery = stringValue(config.COMMUNICATION_IMMEDIATE_DELIVERY || 'true').toLowerCase();
+  const runtimeRole = normalizeRuntimeRole(config.APP_RUNTIME_ROLE);
+  checks.push(
+    ['true', 'false'].includes(communicationImmediateDelivery)
+      ? pass('communication_delivery_mode', 'COMMUNICATION_IMMEDIATE_DELIVERY is explicit.')
+      : fail('communication_delivery_mode', 'COMMUNICATION_IMMEDIATE_DELIVERY must be true or false.'),
+  );
+  checks.push(
+    ['all', 'api', 'notification-worker'].includes(runtimeRole)
+      ? pass('app_runtime_role', 'APP_RUNTIME_ROLE is valid.')
+      : fail('app_runtime_role', 'APP_RUNTIME_ROLE must be one of all, api, or notification-worker.'),
+  );
+  checks.push(
+    !(communicationImmediateDelivery === 'false' && runtimeRole === 'api')
+      ? pass('notification_queue_consumer', 'Notification queue has a viable consumer strategy.')
+      : fail('notification_queue_consumer', 'COMMUNICATION_IMMEDIATE_DELIVERY=false cannot be combined with APP_RUNTIME_ROLE=api unless a separate notification-worker process is deployed.'),
   );
   checks.push(
     booleanIsFalse(config.ALLOW_REGISTRATION)

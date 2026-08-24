@@ -76,6 +76,8 @@ describe('CustomersService', () => {
             { fullName: { contains: 'john', mode: 'insensitive' } },
             { phone: { contains: 'john', mode: 'insensitive' } },
             { email: { contains: 'john', mode: 'insensitive' } },
+            { zaloChatId: { contains: 'john', mode: 'insensitive' } },
+            { zaloUserId: { contains: 'john', mode: 'insensitive' } },
           ],
         },
         1,

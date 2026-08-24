@@ -62,6 +62,28 @@ function stopAll(exitCode = 0) {
   process.exit(exitCode);
 }
 
+function runSetupStep(label, command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: process.cwd(),
+      env: { ...rootEnv, ...process.env },
+      shell: false,
+    });
+
+    child.stdout.on('data', (chunk) => prefixOutput(label, process.stdout, chunk));
+    child.stderr.on('data', (chunk) => prefixOutput(label, process.stderr, chunk));
+
+    child.on('exit', (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const reason = signal ? `signal ${signal}` : `code ${code}`;
+      reject(new Error(`${label} stopped with ${reason}`));
+    });
+  });
+}
+
 function start(name, workspace, env = {}) {
   const command = isWindows ? 'cmd.exe' : 'npm';
   const args = isWindows
@@ -91,8 +113,25 @@ function start(name, workspace, env = {}) {
 process.on('SIGINT', () => stopAll(0));
 process.on('SIGTERM', () => stopAll(0));
 
-console.log('[dev] Starting backend on http://localhost:3001');
-start('api', 'api', { PORT: '3001' });
+async function main() {
+  if (isWindows) {
+    console.log('[dev] Syncing Prisma client and shared package before watch mode');
+    await runSetupStep('setup', 'cmd.exe', ['/d', '/s', '/c', 'npm run db:generate']);
+    await runSetupStep('setup', 'cmd.exe', ['/d', '/s', '/c', 'npm run build -w @homeland/shared']);
+  } else {
+    console.log('[dev] Syncing Prisma client and shared package before watch mode');
+    await runSetupStep('setup', 'npm', ['run', 'db:generate']);
+    await runSetupStep('setup', 'npm', ['run', 'build', '-w', '@homeland/shared']);
+  }
 
-console.log('[dev] Starting frontend on http://localhost:3000');
-start('web', 'web', { PORT: '3000' });
+  console.log('[dev] Starting backend on http://localhost:3001');
+  start('api', 'api', { PORT: '3001' });
+
+  console.log('[dev] Starting frontend on http://localhost:3000');
+  start('web', 'web', { PORT: '3000' });
+}
+
+main().catch((error) => {
+  console.error(`[dev] ${error.message}`);
+  stopAll(1);
+});

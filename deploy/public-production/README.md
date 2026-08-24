@@ -19,6 +19,7 @@ The web app calls the API through same-origin `/api/v1`, so a reverse proxy or C
 From the repository root:
 
 ```bash
+cp deploy/public-production/env.public-production.example deploy/public-production/env.public-production
 docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.public-production.yml up -d --build
 ```
 
@@ -65,6 +66,7 @@ Registry mode uses the same command shape with `docker-compose.registry-producti
 - `SYSTEM_UPDATE_MODE=enabled` is set for production release flow.
 - `docker-compose.registry-production.yml` is the preferred production entrypoint when CI already pushed `API_TAG` and `WEB_TAG` to GHCR.
 - Replace `POSTGRES_PASSWORD`, `JWT_SECRET`, `MAINTENANCE_BYPASS_KEY`, and any optional integration secrets before deployment.
+- `deploy/public-production/env.public-production` should stay outside Git; only the `.example` template is committed.
 - For Cloudflare Tunnel, point the tunnel to `http://localhost:49187` on the server.
 
 ## Optional systemd timers

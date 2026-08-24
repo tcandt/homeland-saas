@@ -725,7 +725,7 @@ export class PaymentsService {
               sourceCode: payload.sourceCode,
               logId: payload.logId,
               assignedBy: userId,
-              ...buildRoomContext(deposit.room, deposit.contract),
+              ...buildRoomContext(deposit.room),
             },
           },
         }));

@@ -8,8 +8,8 @@ const {
 } = require('./production-bundle-preflight');
 
 const valid = {
-  APP_VERSION: 'v1.1.3',
-  API_TAG: 'v1.1.3',
+  APP_VERSION: 'v1.1.4',
+  API_TAG: 'v1.1.4',
   WEB_TAG: '64f2666',
   COMMIT_SHA: '64f26661abc1234',
   BUILD_ID: 'public-production',

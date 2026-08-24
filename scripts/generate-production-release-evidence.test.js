@@ -8,8 +8,8 @@ const {
 
 test('builds a release evidence template with immutable tags and rollout checklist', () => {
   const markdown = buildEvidenceMarkdown({
-    APP_VERSION: 'v1.1.3',
-    API_TAG: 'v1.1.3',
+    APP_VERSION: 'v1.1.4',
+    API_TAG: 'v1.1.4',
     WEB_TAG: '64f2666',
     COMMIT_SHA: '64f26661abc1234',
     BUILD_ID: 'public-production',
@@ -20,7 +20,7 @@ test('builds a release evidence template with immutable tags and rollout checkli
   });
 
   assert.match(markdown, /Production Release Evidence/);
-  assert.match(markdown, /API_TAG: v1\.1\.3/);
+  assert.match(markdown, /API_TAG: v1\.1\.4/);
   assert.match(markdown, /WEB_TAG: 64f2666/);
   assert.match(markdown, /bundle-preflight:prod/);
   assert.match(markdown, /documents_production_storage/);

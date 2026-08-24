@@ -1,9 +1,9 @@
 # Production Release Evidence
 
 Date: 2026-08-24
-APP_VERSION: v1.1.3
-API_TAG: v1.1.3
-WEB_TAG: v1.1.3
+APP_VERSION: v1.1.4
+API_TAG: v1.1.4
+WEB_TAG: v1.1.4
 COMMIT_SHA: replace-with-approved-commit-sha
 BUILD_ID: public-production
 BUILD_TIME: 2026-08-24T00:00:00Z

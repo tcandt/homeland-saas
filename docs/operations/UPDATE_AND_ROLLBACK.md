@@ -60,14 +60,14 @@ flowchart TD
 Ví dụ local/PM2:
 
 ```env
-APP_VERSION=v1.1.3
+APP_VERSION=v1.1.4
 SYSTEM_UPDATE_MODE=enabled
 ```
 
 Ví dụ Docker Compose: đặt trong file `.env` cạnh `docker-compose.app.yml`; compose đang truyền `SYSTEM_UPDATE_MODE` vào service `api`.
 
 ```env
-APP_VERSION=v1.1.3
+APP_VERSION=v1.1.4
 SYSTEM_UPDATE_MODE=enabled
 SYSTEM_UPDATE_ALLOW_SWITCH=false
 ```
@@ -104,7 +104,7 @@ Biến môi trường:
 
 | Env | Mặc định | Ý nghĩa |
 | --- | --- | --- |
-| `APP_VERSION` | `unknown` | Version đang chạy để UI hiển thị dạng `v1.1.3`; khi build Docker có thể truyền bằng build arg `APP_VERSION` |
+| `APP_VERSION` | `unknown` | Version đang chạy để UI hiển thị dạng `v1.1.4`; khi build Docker có thể truyền bằng build arg `APP_VERSION` |
 | `SYSTEM_UPDATE_MODE` | `dry-run` | `enabled` mới chạy runner thật |
 | `SYSTEM_UPDATE_ROOT` | `.codex-update` | Nơi lưu release và manifest |
 | `SYSTEM_UPDATE_ENV_FILE` | `<workspace>/.env` | Env file dùng cho backup và copy sang release mới |

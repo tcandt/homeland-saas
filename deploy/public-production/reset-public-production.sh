@@ -17,10 +17,13 @@ echo "==> Starting PostgreSQL and Redis"
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d postgres redis
 
 echo "==> Resetting database schema and seeding fresh production data"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps api sh -lc 'npm run db:reset:prod'
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint sh api -lc 'npm run db:reset:prod'
 
-echo "==> Starting API, notification worker, and web"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build api notification_worker web
+echo "==> Building and starting API and web"
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build api web
+
+echo "==> Starting notification worker"
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d notification_worker
 
 echo "==> Current stack status"
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps

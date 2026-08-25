@@ -28,7 +28,7 @@ services:
 
   api:
     build:
-      context: ../..
+      context: .
       dockerfile: Dockerfile.api
       args:
         COMMIT_SHA: ${COMMIT_SHA:-production}
@@ -115,7 +115,7 @@ services:
 
   web:
     build:
-      context: ../..
+      context: .
       dockerfile: Dockerfile.web
       args:
         COMMIT_SHA: ${COMMIT_SHA:-production}

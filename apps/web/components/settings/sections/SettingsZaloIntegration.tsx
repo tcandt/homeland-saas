@@ -62,6 +62,14 @@ function formatDateTime(value?: string | null) {
   return value ? new Date(value).toLocaleString("vi-VN") : "-";
 }
 
+function formatWebhookReason(value?: string | null) {
+  const code = String(value || "").trim();
+  if (!code) return "OK";
+  if (code === "CHAT_ID_NOT_FOUND") return "Không thấy chat ID";
+  if (code === "SECRET_INVALID_OR_MISSING") return "Sai hoặc thiếu secret";
+  return code;
+}
+
 export default function SettingsZaloIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<ZaloSettings>("zalo-provider", "TENANT", fallback);
   const user = useAuthStore((state) => state.user);
@@ -74,6 +82,7 @@ export default function SettingsZaloIntegration() {
   const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
   const [isGeneratingSetupCode, setIsGeneratingSetupCode] = useState(false);
   const [isClearingAdminGroup, setIsClearingAdminGroup] = useState(false);
+  const [isAutoDetectingAdminGroup, setIsAutoDetectingAdminGroup] = useState(false);
   const [adminSetupCommand, setAdminSetupCommand] = useState("");
 
   const resolvedBaseUrl = useMemo(() => {
@@ -88,6 +97,9 @@ export default function SettingsZaloIntegration() {
     () => resolvedBaseUrl ? `${resolvedBaseUrl}/api/v1/notifications/zalo/webhook` : "",
     [resolvedBaseUrl],
   );
+  const hasAdminGroup = Boolean(String(draft.adminGroupChatId || "").trim());
+  const hasRecentWebhookChat = Boolean(String(draft.lastWebhookChatId || "").trim());
+  const webhookInputValue = draft.lastWebhookPreview?.contentType || (hasRecentWebhookChat ? "application/json" : "N/A");
 
   const copyText = async (value: string, label: string) => {
     if (!value) return;
@@ -208,6 +220,23 @@ export default function SettingsZaloIntegration() {
     }
   };
 
+  const autoDetectAdminGroup = async () => {
+    setIsAutoDetectingAdminGroup(true);
+    try {
+      const result = await settingsApi.autoDetectZaloAdminGroup();
+      setDraft((prev) => ({
+        ...prev,
+        adminGroupChatId: result?.chat?.chatId || prev.adminGroupChatId || "",
+      }));
+      await refreshStatus();
+      toast.success("Đã gán chat gần nhất vào nhóm Admin");
+    } catch (error: any) {
+      toast.error(error?.message || "Chưa lấy được chat gần nhất");
+    } finally {
+      setIsAutoDetectingAdminGroup(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-[20px]">
       <Card className="flex h-full flex-col gap-[14px] border-[#8b5cf6]/15 p-[16px]">
@@ -321,6 +350,15 @@ export default function SettingsZaloIntegration() {
               <Button
                 type="button"
                 variant="outline"
+                onClick={autoDetectAdminGroup}
+                isLoading={isAutoDetectingAdminGroup}
+                className="h-[44px] shrink-0 rounded-[12px] px-[16px] text-[12px] font-bold"
+              >
+                Lấy Chat Gần Nhất
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
                 onClick={clearAdminGroup}
                 isLoading={isClearingAdminGroup}
                 className="h-[44px] shrink-0 rounded-[12px] px-[16px] text-[12px] font-bold"
@@ -336,13 +374,21 @@ export default function SettingsZaloIntegration() {
           </div>
 
           <div className="grid grid-cols-1 gap-[12px] lg:col-span-2 md:grid-cols-2">
-            <Metric label="Webhook Input" value={draft.lastWebhookPreview?.contentType || "N/A"} detail={`Raw ${String(draft.lastWebhookPreview?.rawBodyLength ?? 0)}`} />
-            <Metric label="Trạng thái" value={draft.lastWebhookRejectedReason || "OK"} detail={draft.lastWebhookEventName || "-"} />
+            <Metric label="Webhook Input" value={webhookInputValue} detail={`Raw ${String(draft.lastWebhookPreview?.rawBodyLength ?? 0)}`} />
+            <Metric label="Trạng thái" value={formatWebhookReason(draft.lastWebhookRejectedReason)} detail={draft.lastWebhookEventName || (hasRecentWebhookChat ? "Đã nhận webhook" : "Chưa có webhook chat")} />
           </div>
         </div>
 
         <div className="flex flex-wrap justify-end gap-[10px] border-t border-border/70 pt-[14px]">
-          <Button type="button" variant="outline" onClick={testAdminGroup} isLoading={isTestingAdminGroup} className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={testAdminGroup}
+            isLoading={isTestingAdminGroup}
+            disabled={!hasAdminGroup}
+            title={hasAdminGroup ? "Gửi tin nhắn test tới nhóm Admin" : "Chưa có Admin Group Chat ID"}
+            className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold"
+          >
             Test Admin
           </Button>
           <Button type="button" variant="outline" onClick={connectWebhook} isLoading={isConnectingWebhook} className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold">

@@ -26,7 +26,12 @@ function Copy-PathSafe {
 
   if ($item.PSIsContainer) {
     Ensure-Directory $Destination
-    Copy-Item -LiteralPath (Join-Path $Source "*") -Destination $Destination -Recurse -Force
+    $children = Get-ChildItem -LiteralPath $Source -Force -ErrorAction SilentlyContinue
+    if ($children) {
+      foreach ($child in $children) {
+        Copy-Item -LiteralPath $child.FullName -Destination $Destination -Recurse -Force
+      }
+    }
   } else {
     Copy-Item -LiteralPath $Source -Destination $Destination -Force
   }

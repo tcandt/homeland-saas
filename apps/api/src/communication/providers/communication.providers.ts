@@ -64,6 +64,59 @@ function buildZaloBotBaseUrl(apiBase: string, botToken: string) {
   return `${apiBase}/bot${botToken}`;
 }
 
+function hasOwn(source: Record<string, any>, key: string) {
+  return Object.prototype.hasOwnProperty.call(source, key);
+}
+
+function isExplicitZaloApiFailure(body: any) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  if (body.ok === false) return true;
+  if (body.success === false) return true;
+  if (typeof body.error_code === 'number' && body.error_code !== 0) return true;
+  if (typeof body.err === 'number' && body.err !== 0) return true;
+  if (hasOwn(body, 'error') && body.error && body.error !== 0 && body.error !== '0') return true;
+  return false;
+}
+
+function pickZaloApiErrorMessage(body: any) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return '';
+  const candidates = [
+    body.message,
+    body.error_name,
+    body.error_message,
+    body.description,
+    body.msg,
+    typeof body.error === 'string' ? body.error : '',
+    typeof body.error === 'object' ? body.error?.message : '',
+  ];
+  for (const item of candidates) {
+    if (typeof item === 'string' && item.trim()) return item.trim();
+  }
+  return '';
+}
+
+function extractZaloUpdates(body: any): any[] {
+  const candidates = [
+    body,
+    body?.result,
+    body?.data,
+    body?.updates,
+    body?.result?.updates,
+    body?.result?.data,
+    body?.data?.updates,
+    body?.data?.data,
+    body?.response,
+    body?.response?.data,
+    body?.response?.updates,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  return [];
+}
+
 async function postJsonWithTimeout(url: string, body: Record<string, any>, timeoutMs: number) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -217,12 +270,15 @@ export class ConsoleProvider implements CommunicationProvider {
 @Injectable() export class ZaloProvider implements CommunicationProvider {
   channel = NotificationChannel.ZALO;
   private readonly defaultApiBase = 'https://bot-api.zaloplatforms.com';
+  private readonly logger = new Logger(ZaloProvider.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
-  private async resolveSettings(tenantId?: string) {
+  private async resolveSettings(tenantId?: string, options: { requireEnabled?: boolean } = {}) {
     const settings = await readTenantSetting<any>(this.prisma, tenantId, 'zalo-provider');
-    assertEnabled(settings, 'Zalo');
+    if (options.requireEnabled !== false) {
+      assertEnabled(settings, 'Zalo');
+    }
     const botToken = String(settings.botToken || '').trim();
     const configuredApiBase = String(settings.apiBaseUrl || '').trim();
     const apiBase = (configuredApiBase || this.defaultApiBase).replace(/\/+$/, '');
@@ -231,7 +287,7 @@ export class ConsoleProvider implements CommunicationProvider {
   }
 
   async getMe(tenantId?: string) {
-    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(tenantId);
+    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(tenantId, { requireEnabled: false });
     if (!botToken) throw new Error('Zalo provider is not configured');
 
     const { response, body } = await postJsonWithTimeout(
@@ -249,7 +305,7 @@ export class ConsoleProvider implements CommunicationProvider {
     tenantId: string | undefined,
     payload: { url: string; secretToken: string },
   ) {
-    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(tenantId);
+    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(tenantId, { requireEnabled: false });
     if (!botToken) throw new Error('Zalo provider is not configured');
     if (!payload.url || !payload.secretToken) {
       throw new Error('Missing Zalo webhook URL or secret token');
@@ -268,6 +324,88 @@ export class ConsoleProvider implements CommunicationProvider {
       throw new Error(body?.message || body?.error_name || `Zalo setWebhook failed with ${response.status}`);
     }
     return body;
+  }
+
+  async getWebhookInfo(tenantId?: string) {
+    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(tenantId, { requireEnabled: false });
+    if (!botToken) throw new Error('Zalo provider is not configured');
+
+    const { response, body } = await postJsonWithTimeout(
+      `${buildZaloBotBaseUrl(apiBase, botToken)}/getWebhookInfo`,
+      {},
+      timeoutMs,
+    );
+    if (!response.ok || body?.ok === false || body?.error) {
+      throw new Error(body?.message || body?.error_name || `Zalo getWebhookInfo failed with ${response.status}`);
+    }
+    return body;
+  }
+
+  async deleteWebhook(tenantId?: string) {
+    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(tenantId, { requireEnabled: false });
+    if (!botToken) throw new Error('Zalo provider is not configured');
+
+    const { response, body } = await postJsonWithTimeout(
+      `${buildZaloBotBaseUrl(apiBase, botToken)}/deleteWebhook`,
+      {},
+      timeoutMs,
+    );
+    if (!response.ok || body?.ok === false || body?.error) {
+      throw new Error(body?.message || body?.error_name || `Zalo deleteWebhook failed with ${response.status}`);
+    }
+    return body;
+  }
+
+  async getUpdates(
+    tenantId: string | undefined,
+    payload: { offset?: number; limit?: number; timeout?: number } = {},
+  ) {
+    const { botToken, apiBase, timeoutMs } = await this.resolveSettings(tenantId, { requireEnabled: false });
+    if (!botToken) throw new Error('Zalo provider is not configured');
+
+    const { response, body } = await postJsonWithTimeout(
+      `${buildZaloBotBaseUrl(apiBase, botToken)}/getUpdates`,
+      {
+        ...(payload.offset !== undefined ? { offset: payload.offset } : {}),
+        ...(payload.limit !== undefined ? { limit: payload.limit } : {}),
+        ...(payload.timeout !== undefined ? { timeout: payload.timeout } : {}),
+      },
+      Math.max(timeoutMs, ((payload.timeout || 0) + 5) * 1000),
+    );
+    const updates = extractZaloUpdates(body);
+    if (!response.ok) {
+      throw new Error(pickZaloApiErrorMessage(body) || `Zalo getUpdates failed with ${response.status}`);
+    }
+
+    if (updates.length > 0) {
+      return {
+        ...(body && typeof body === 'object' && !Array.isArray(body) ? body : {}),
+        result: updates,
+      };
+    }
+
+    if (isExplicitZaloApiFailure(body)) {
+      const message = pickZaloApiErrorMessage(body) || `Zalo getUpdates failed with ${response.status}`;
+      this.logger.warn({
+        message: 'Zalo getUpdates returned a non-standard failure payload',
+        tenantId,
+        status: response.status,
+        bodyKeys: body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).slice(0, 12) : [],
+      });
+      throw new Error(message);
+    }
+
+    this.logger.log({
+      message: 'Zalo getUpdates returned an empty or non-standard success payload',
+      tenantId,
+      status: response.status,
+      bodyKeys: body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).slice(0, 12) : [],
+    });
+
+    return {
+      ...(body && typeof body === 'object' && !Array.isArray(body) ? body : {}),
+      result: [],
+    };
   }
 
   async send(payload: ProviderPayload): Promise<any> {

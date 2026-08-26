@@ -10,7 +10,7 @@ import { Throttle } from '@nestjs/throttler';
 import { EmailProvider, TelegramProvider, ZaloProvider } from './providers/communication.providers';
 import { Public } from '../shared/decorators/public.decorator';
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { buildTenantWebhookUrl, extractZaloWebhookChat, mergeRecentZaloWebhookChat, normalizeZaloUpdate } from './adapters/zalo-normalizer';
+import { buildTenantWebhookUrl, extractZaloWebhookChat, isWrappedZaloWebhookPayload, mergeRecentZaloWebhookChat, normalizeZaloUpdate, unwrapZaloWebhookPayload } from './adapters/zalo-normalizer';
 import { ZaloRegistrationService } from './services/zalo-registration.service';
 import {
   buildAdminGroupConnectedMessage,
@@ -319,6 +319,7 @@ export class CommunicationController {
         webhookUrl,
         botTokenConfigured: Boolean(value.botToken),
         webhookSecretConfigured: Boolean(value.webhookSecret),
+        adminGroupChatId: value.adminGroupChatId || null,
         adminGroupChatIdConfigured: Boolean(value.adminGroupChatId),
         adminGroupConnectedAt: value.adminGroupConnectedAt || null,
         adminSetupCodePending: Boolean(value.adminSetupCode && value.adminSetupCodeExpiresAt),
@@ -496,8 +497,10 @@ export class CommunicationController {
 
     const value = (setting.value as any) || {};
     const recentWebhookChats = Array.isArray(value.recentWebhookChats) ? value.recentWebhookChats : [];
-    const detectedChat =
-      recentWebhookChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
+    let detectedChat =
+      recentWebhookChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() === 'group')
+      || recentWebhookChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
+      || recentWebhookChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo')
       || recentWebhookChats[0]
       || (
         value.lastWebhookChatId
@@ -512,12 +515,79 @@ export class CommunicationController {
       )
       || null;
 
+    let nextValue = value;
+    let pollingErrorMessage: string | null = null;
+
+    if (!detectedChat?.chatId && String(value.botToken || '').trim()) {
+      const webhookSecret = String(value.webhookSecret || '').trim();
+      const webhookUrl = buildTenantWebhookUrl(value);
+      let webhookDeleted = false;
+      try {
+        const webhookInfo = await this.zaloProvider.getWebhookInfo(tenantId).catch(() => null);
+        const currentWebhookUrl = String((webhookInfo as any)?.result?.url || (webhookInfo as any)?.url || '').trim();
+        if (currentWebhookUrl) {
+          await this.zaloProvider.deleteWebhook(tenantId);
+          webhookDeleted = true;
+        }
+
+        const updates = await this.zaloProvider.getUpdates(tenantId, { limit: 10, timeout: 8 });
+        const updateItems = Array.isArray((updates as any)?.result)
+          ? (updates as any).result
+          : Array.isArray((updates as any)?.updates)
+            ? (updates as any).updates
+            : [];
+
+        for (const item of updateItems) {
+          const captured = extractZaloWebhookChat(item);
+          if (!captured) continue;
+          nextValue = mergeRecentZaloWebhookChat(nextValue, {
+            ...captured,
+            source: 'zalo',
+          });
+        }
+
+        const polledChats = Array.isArray((nextValue as any)?.recentWebhookChats) ? (nextValue as any).recentWebhookChats : [];
+        detectedChat =
+          polledChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() === 'group')
+          || polledChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
+          || polledChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo')
+          || detectedChat
+          || null;
+      } catch (error: any) {
+        pollingErrorMessage = String(error?.message || error || 'Zalo polling failed');
+        nextValue = {
+          ...nextValue,
+          lastPollingError: pollingErrorMessage,
+          lastPollingAttemptAt: new Date().toISOString(),
+        };
+        this.logger.warn(
+          `Zalo admin group auto-detect polling failed for tenant ${tenantId}: ${pollingErrorMessage}`,
+        );
+      } finally {
+        if (webhookDeleted && webhookSecret && webhookUrl) {
+          try {
+            await this.zaloProvider.setWebhook(tenantId, {
+              url: webhookUrl,
+              secretToken: webhookSecret,
+            });
+          } catch (error: any) {
+            this.logger.error(
+              `Failed to restore Zalo webhook after polling fallback for tenant ${tenantId}: ${String(error?.message || error)}`,
+              error?.stack,
+            );
+          }
+        }
+      }
+    }
+
     if (!detectedChat?.chatId) {
       throw new BadRequestException({
         message: 'ZALO_NO_WEBHOOK_CHAT_AVAILABLE',
         lastWebhookReceivedAt: value.lastWebhookReceivedAt || null,
         lastWebhookEventName: value.lastWebhookEventName || null,
         lastWebhookRejectedReason: value.lastWebhookRejectedReason || null,
+        pollingAttempted: Boolean(String(value.botToken || '').trim()),
+        pollingError: pollingErrorMessage,
       });
     }
 
@@ -525,7 +595,7 @@ export class CommunicationController {
       where: { id: setting.id },
       data: {
         value: {
-          ...value,
+          ...nextValue,
           adminGroupChatId: detectedChat.chatId,
         },
       },
@@ -702,19 +772,21 @@ function buildWebhookPreview(
     secretProvided?: boolean;
   } = {},
 ) {
+  const payload = unwrapZaloWebhookPayload(body);
   return {
     eventName: normalized.eventName || null,
     chatId: normalized.chatId || null,
     chatType: normalized.chatType || 'unknown',
     senderId: normalized.senderId || null,
     hasText: Boolean(normalized.text),
+    payloadWrapped: isWrappedZaloWebhookPayload(body),
     contentType: extra.contentType || null,
     userAgent: extra.userAgent || null,
     rawBodyLength: Number(extra.rawBodyLength || 0),
     secretProvided: Boolean(extra.secretProvided),
     payloadKeys: summarizePayloadKeys(body),
-    messageKeys: summarizePayloadKeys(body?.message),
-    eventKeys: summarizePayloadKeys(body?.event),
-    dataKeys: summarizePayloadKeys(body?.data),
+    messageKeys: summarizePayloadKeys(payload?.message),
+    eventKeys: summarizePayloadKeys(payload?.event),
+    dataKeys: summarizePayloadKeys(payload?.data),
   };
 }

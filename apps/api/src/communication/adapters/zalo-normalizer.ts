@@ -15,11 +15,13 @@ export type ZaloWebhookChat = {
   userId?: string | null;
   displayName?: string | null;
   eventName?: string | null;
+  source?: 'zalo' | 'legacy';
   lastSeenAt: string;
 };
 
 export function normalizeZaloUpdate(raw: any): NormalizedZaloUpdate {
-  const chatId = firstStringValue(raw, [
+  const payload = unwrapZaloWebhookPayload(raw);
+  const chatId = firstStringValue(payload, [
     'message.chat.id',
     'message.chat_id',
     'message.group_id',
@@ -37,61 +39,47 @@ export function normalizeZaloUpdate(raw: any): NormalizedZaloUpdate {
     'threadId',
     'conversation.id',
     'thread.id',
-    'data.message.chat.id',
-    'data.message.group_id',
-    'event.message.chat.id',
-    'event.chat_id',
-    'event.chat.id',
-    'event.group_id',
     'recipient.chat_id',
     'recipient.id',
     'sender.id',
   ]);
 
-  const senderId = firstStringValue(raw, [
+  const senderId = firstStringValue(payload, [
     'message.from.id',
     'from.id',
     'sender.id',
     'sender.user_id',
     'user_id',
     'userId',
-    'data.sender.id',
-    'event.user_id',
   ]);
 
-  const text = firstStringValue(raw, [
+  const text = firstStringValue(payload, [
     'message.text',
     'text',
-    'data.message.text',
-    'event.message.text',
   ]);
 
-  const chatType = firstStringValue(raw, [
+  const chatType = firstStringValue(payload, [
     'message.chat.chat_type',
     'message.chat.type',
     'chat.type',
     'chat.chat_type',
     'conversation.type',
     'thread.type',
-    'data.message.chat.type',
-    'data.message.chat.chat_type',
-    'event.message.chat.type',
-    'event.message.chat.chat_type',
     'event.chat.type',
     'message.type',
     'event.type',
   ]).toLowerCase();
 
-  const inferredChatType = inferChatType(raw, chatType, chatId);
+  const inferredChatType = inferChatType(payload, chatType, chatId);
 
   return {
-    updateId: firstStringValue(raw, ['update_id', 'id']) || null,
+    updateId: firstStringValue(payload, ['update_id', 'id']) || null,
     chatId: chatId || senderId || null,
     chatType: inferredChatType,
     senderId: senderId || null,
     text: text || null,
-    eventName: firstStringValue(raw, ['event_name', 'eventName', 'event', 'type']) || null,
-    displayName: firstStringValue(raw, [
+    eventName: firstStringValue(payload, ['event_name', 'eventName', 'event', 'type']) || null,
+    displayName: firstStringValue(payload, [
       'message.from.display_name',
       'sender.name',
       'sender.display_name',
@@ -99,7 +87,7 @@ export function normalizeZaloUpdate(raw: any): NormalizedZaloUpdate {
       'from.name',
       'user.name',
     ]) || null,
-    raw,
+    raw: payload,
   };
 }
 
@@ -113,6 +101,7 @@ export function extractZaloWebhookChat(raw: any): ZaloWebhookChat | null {
     userId: update.senderId || null,
     displayName: update.displayName || null,
     eventName: update.eventName || null,
+    source: isWrappedZaloWebhookPayload(raw) ? 'zalo' : 'legacy',
     lastSeenAt: new Date().toISOString(),
   };
 }
@@ -180,6 +169,17 @@ function inferChatType(raw: any, chatType: string, chatId: string) {
   }
 
   return 'unknown';
+}
+
+export function unwrapZaloWebhookPayload(raw: any) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.ok === true && raw.result && typeof raw.result === 'object') {
+    return raw.result;
+  }
+  return raw;
+}
+
+export function isWrappedZaloWebhookPayload(raw: any) {
+  return raw && typeof raw === 'object' && !Array.isArray(raw) && raw.ok === true && raw.result && typeof raw.result === 'object';
 }
 
 function getPath(source: any, path: string) {

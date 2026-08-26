@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-$SCRIPT_DIR}"
-ENV_FILE="${ENV_FILE:-$APP_DIR/env.public-production}"
-ENV_TEMPLATE="${ENV_TEMPLATE:-$APP_DIR/env.public-production.example}"
+ENV_FILE="${ENV_FILE:-$APP_DIR/.env.public-production}"
+ENV_TEMPLATE="${ENV_TEMPLATE:-$APP_DIR/.env.public-production.example}"
 COMPOSE_FILE="${COMPOSE_FILE:-$APP_DIR/docker-compose.public-production.yml}"
 RESET_SCRIPT="${RESET_SCRIPT:-$APP_DIR/reset-public-production.sh}"
 DOMAIN="${DOMAIN:-homeland.ductinh.one}"
@@ -106,7 +106,18 @@ run_stack_reset() {
 
 show_summary() {
   log "Checking health"
-  curl -fsS "$API_READY_URL" >/dev/null
+  local attempts=0
+  local max_attempts=20
+  local sleep_seconds=5
+  until curl -fsS "$API_READY_URL" >/dev/null; do
+    attempts=$((attempts + 1))
+    if [[ "$attempts" -ge "$max_attempts" ]]; then
+      echo "API health check failed after $((max_attempts * sleep_seconds)) seconds: $API_READY_URL" >&2
+      docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps || true
+      return 1
+    fi
+    sleep "$sleep_seconds"
+  done
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps
 
   cat <<EOF

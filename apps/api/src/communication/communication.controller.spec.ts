@@ -11,7 +11,14 @@ describe('CommunicationController Zalo webhook', () => {
         update: vi.fn(),
       },
     };
-    const zaloProvider = { send: vi.fn().mockResolvedValue({ success: true }), getMe: vi.fn(), setWebhook: vi.fn() };
+    const zaloProvider = {
+      send: vi.fn().mockResolvedValue({ success: true }),
+      getMe: vi.fn(),
+      setWebhook: vi.fn(),
+      getWebhookInfo: vi.fn(),
+      deleteWebhook: vi.fn(),
+      getUpdates: vi.fn(),
+    };
     const emailProvider = { send: vi.fn().mockResolvedValue({ success: true }) };
     const telegramProvider = { send: vi.fn().mockResolvedValue({ success: true }) };
     const zaloRegistrationService = { handleIncomingMessage: vi.fn().mockResolvedValue({ route: 'ignored' }) };
@@ -203,6 +210,68 @@ describe('CommunicationController Zalo webhook', () => {
     });
   });
 
+  it('captures real Zalo wrapped webhook payloads and extracts the group chat id', async () => {
+    const { controller, prisma, zaloRegistrationService } = createController();
+    prisma.appSetting.findMany.mockResolvedValueOnce([
+      {
+        id: 'setting-1',
+        tenantId: 'tenant-1',
+        value: {
+          enabled: true,
+          webhookSecret: 'expected-secret',
+          recentWebhookChats: [{ chatId: 'group-test-001', chatType: 'group', source: 'legacy' }],
+        },
+      },
+    ]);
+
+    const result = await controller.handleZaloWebhook({ rawBody: '{"ok":true}' }, {
+      ok: true,
+      result: {
+        event_name: 'message',
+        message: {
+          chat: { id: 'real-zalo-group-999', chat_type: 'GROUP' },
+          from: { id: 'user-789', display_name: 'Admin Zalo' },
+          text: '/setadmin A1B2C3D4',
+        },
+      },
+    }, 'expected-secret');
+
+    expect(result).toEqual({ success: true, capturedChat: true });
+    expect(prisma.appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          lastWebhookEventName: 'message',
+          lastWebhookChatId: 'real-zalo-group-999',
+          lastWebhookChatType: 'group',
+          lastWebhookSenderId: 'user-789',
+          lastWebhookRejectedReason: null,
+          lastWebhookPreview: expect.objectContaining({
+            payloadWrapped: true,
+            chatId: 'real-zalo-group-999',
+            senderId: 'user-789',
+          }),
+          recentWebhookChats: expect.arrayContaining([
+            expect.objectContaining({
+              chatId: 'real-zalo-group-999',
+              chatType: 'group',
+              source: 'zalo',
+            }),
+          ]),
+        }),
+      },
+    });
+    expect(zaloRegistrationService.handleIncomingMessage).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        chatId: 'real-zalo-group-999',
+        senderId: 'user-789',
+        eventName: 'message',
+      }),
+      expect.any(Object),
+    );
+  });
+
   it('rejects webhook connect when zalo settings have not been saved yet', async () => {
     const { controller, prisma } = createController();
     prisma.appSetting.findUnique.mockResolvedValueOnce(null);
@@ -241,6 +310,133 @@ describe('CommunicationController Zalo webhook', () => {
           adminGroupChatId: 'group-1',
         },
       },
+    });
+  });
+
+  it('prefers a real Zalo webhook group over legacy test payloads when auto-detecting admin group chat id', async () => {
+    const { controller, prisma } = createController();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({
+      id: 'setting-1',
+      value: {
+        recentWebhookChats: [
+          { chatId: 'group-test-001', chatType: 'group', displayName: 'Curl Test', source: 'legacy' },
+          { chatId: 'real-zalo-group-999', chatType: 'group', displayName: 'Admin Group', source: 'zalo' },
+        ],
+      },
+    });
+
+    const result = await controller.autoDetectAdminGroup({ user: { tenantId: 'tenant-1' } });
+
+    expect(result).toEqual({
+      success: true,
+      chat: { chatId: 'real-zalo-group-999', chatType: 'group', displayName: 'Admin Group', source: 'zalo' },
+    });
+    expect(prisma.appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          adminGroupChatId: 'real-zalo-group-999',
+        }),
+      },
+    });
+  });
+
+  it('falls back to polling updates when webhook history is empty and restores the webhook afterwards', async () => {
+    const { controller, prisma, zaloProvider } = createController();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({
+      id: 'setting-1',
+      value: {
+        botToken: 'bot-token-1',
+        webhookSecret: 'expected-secret',
+        baseUrl: 'https://homeland.ductinh.one',
+        recentWebhookChats: [],
+      },
+    });
+    zaloProvider.getWebhookInfo.mockResolvedValueOnce({
+      ok: true,
+      result: { url: 'https://homeland.ductinh.one/api/v1/notifications/zalo/webhook' },
+    });
+    zaloProvider.deleteWebhook.mockResolvedValueOnce({ ok: true });
+    zaloProvider.getUpdates.mockResolvedValueOnce({
+      ok: true,
+      result: [
+        {
+          ok: true,
+          result: {
+            event_name: 'message',
+            message: {
+              chat: { id: 'group-polled-123', chat_type: 'GROUP' },
+              from: { id: 'user-polled-1', display_name: 'Admin Group' },
+              text: '/id',
+            },
+          },
+        },
+      ],
+    });
+    zaloProvider.setWebhook.mockResolvedValueOnce({ ok: true });
+
+    const result = await controller.autoDetectAdminGroup({ user: { tenantId: 'tenant-1' } });
+
+    expect(result).toEqual({
+      success: true,
+      chat: expect.objectContaining({
+        chatId: 'group-polled-123',
+        chatType: 'group',
+      }),
+    });
+    expect(zaloProvider.deleteWebhook).toHaveBeenCalledOnce();
+    expect(zaloProvider.getUpdates).toHaveBeenCalledWith('tenant-1', { limit: 10, timeout: 8 });
+    expect(zaloProvider.setWebhook).toHaveBeenCalledWith('tenant-1', {
+      url: 'https://homeland.ductinh.one/api/v1/notifications/zalo/webhook',
+      secretToken: 'expected-secret',
+    });
+    expect(prisma.appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          adminGroupChatId: 'group-polled-123',
+          recentWebhookChats: expect.arrayContaining([
+            expect.objectContaining({
+              chatId: 'group-polled-123',
+              source: 'zalo',
+            }),
+          ]),
+        }),
+      },
+    });
+  });
+
+  it('returns a structured bad request instead of a 500 when Zalo polling fails', async () => {
+    const { controller, prisma, zaloProvider } = createController();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({
+      id: 'setting-1',
+      value: {
+        enabled: true,
+        botToken: 'bot-token-1',
+        webhookSecret: 'expected-secret',
+        baseUrl: 'https://homeland.ductinh.one',
+        recentWebhookChats: [],
+      },
+    });
+    zaloProvider.getWebhookInfo.mockResolvedValueOnce({
+      ok: true,
+      result: { url: 'https://homeland.ductinh.one/api/v1/notifications/zalo/webhook' },
+    });
+    zaloProvider.deleteWebhook.mockResolvedValueOnce({ ok: true });
+    zaloProvider.getUpdates.mockRejectedValueOnce(new Error('Zalo getUpdates returned empty body'));
+    zaloProvider.setWebhook.mockResolvedValueOnce({ ok: true });
+
+    await expect(controller.autoDetectAdminGroup({ user: { tenantId: 'tenant-1' } })).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message: 'ZALO_NO_WEBHOOK_CHAT_AVAILABLE',
+        pollingAttempted: true,
+        pollingError: 'Zalo getUpdates returned empty body',
+      }),
+    });
+
+    expect(zaloProvider.setWebhook).toHaveBeenCalledWith('tenant-1', {
+      url: 'https://homeland.ductinh.one/api/v1/notifications/zalo/webhook',
+      secretToken: 'expected-secret',
     });
   });
 

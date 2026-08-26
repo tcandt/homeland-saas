@@ -93,4 +93,57 @@ describe('ZaloProvider', () => {
       }),
     );
   });
+
+  it('allows webhook management calls even when provider toggle is off', async () => {
+    const { provider } = createProvider({
+      enabled: false,
+      botToken: 'bot-token-1',
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: { url: 'https://homeland.ductinh.one/api/v1/notifications/zalo/webhook' } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(provider.getWebhookInfo('tenant-1')).resolves.toEqual({
+      ok: true,
+      result: { url: 'https://homeland.ductinh.one/api/v1/notifications/zalo/webhook' },
+    });
+  });
+
+  it('normalizes non-standard getUpdates success payloads returned by Zalo', async () => {
+    const { provider } = createProvider({
+      enabled: true,
+      botToken: 'bot-token-1',
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          updates: [
+            {
+              event_name: 'message',
+              message: {
+                chat: { id: 'group-zalo-123', chat_type: 'GROUP' },
+                from: { id: 'user-123', display_name: 'Admin' },
+                text: '/id',
+              },
+            },
+          ],
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(provider.getUpdates('tenant-1', { limit: 10, timeout: 8 })).resolves.toEqual(
+      expect.objectContaining({
+        result: [
+          expect.objectContaining({
+            event_name: 'message',
+          }),
+        ],
+      }),
+    );
+  });
 });

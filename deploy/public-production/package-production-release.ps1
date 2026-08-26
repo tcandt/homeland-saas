@@ -104,7 +104,8 @@ Copy-DirectoryContents -Source (Join-Path $SourceRoot "public") -Destination (Jo
 
 $releaseMetaDir = Join-Path $SourceRoot "deploy\public-production"
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "README.md") -Destination (Join-Path $OutputRoot "README.md")
-Copy-PathSafe -Source (Join-Path $releaseMetaDir "env.public-production.example") -Destination (Join-Path $OutputRoot "env.public-production.example")
+Copy-PathSafe -Source (Join-Path $releaseMetaDir ".env.public-production") -Destination (Join-Path $OutputRoot ".env.public-production")
+Copy-PathSafe -Source (Join-Path $releaseMetaDir ".env.public-production.example") -Destination (Join-Path $OutputRoot ".env.public-production.example")
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "docker-compose.public-production.yml") -Destination (Join-Path $OutputRoot "docker-compose.public-production.yml")
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "docker-compose.registry-production.yml") -Destination (Join-Path $OutputRoot "docker-compose.registry-production.yml")
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "reset-public-production.sh") -Destination (Join-Path $OutputRoot "reset-public-production.sh")
@@ -122,7 +123,8 @@ $manifest = [ordered]@{
     "package-lock.json",
     "turbo.json",
     ".env.docker.example",
-    "env.public-production.example",
+    ".env.public-production",
+    ".env.public-production.example",
     "docker-compose.public-production.yml",
     "docker-compose.registry-production.yml",
     "reset-public-production.sh",

@@ -21,8 +21,8 @@ The web app calls the API through same-origin `/api/v1`, so Cloudflare Tunnel on
 For a full wipe-and-rebuild on the VPS:
 
 ```bash
-cp deploy/public-production/env.public-production.example deploy/public-production/env.public-production
-nano deploy/public-production/env.public-production
+cp deploy/public-production/.env.public-production.example deploy/public-production/.env.public-production
+nano deploy/public-production/.env.public-production
 bash deploy/public-production/reset-public-production.sh
 ```
 
@@ -43,7 +43,7 @@ What the reset script does:
 What the Ubuntu setup script does:
 
 1. Installs Docker Engine and Docker Compose plugin if missing.
-2. Copies `env.public-production.example` to `env.public-production` when needed.
+2. Copies `.env.public-production.example` to `.env.public-production` when needed.
 3. Generates strong defaults for `POSTGRES_PASSWORD`, `JWT_SECRET`, `INTERNAL_API_TOKEN`, and `MAINTENANCE_BYPASS_KEY` if still placeholders.
 4. Forces `APP_URL` and `CORS_ORIGINS` to `https://homeland.ductinh.one`.
 5. Runs the full reset script to rebuild PostgreSQL, Redis, API, worker, and web.
@@ -60,15 +60,15 @@ Default seeded login after reset:
 Source-build mode:
 
 ```bash
-docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.public-production.yml up -d --build
+docker compose --env-file deploy/public-production/.env.public-production -f deploy/public-production/docker-compose.public-production.yml up -d --build
 ```
 
 Registry mode:
 
 ```bash
 docker login ghcr.io
-docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.registry-production.yml pull
-docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.registry-production.yml up -d
+docker compose --env-file deploy/public-production/.env.public-production -f deploy/public-production/docker-compose.registry-production.yml pull
+docker compose --env-file deploy/public-production/.env.public-production -f deploy/public-production/docker-compose.registry-production.yml up -d
 ```
 
 ## Required production changes before public exposure
@@ -114,14 +114,14 @@ After deploy:
 curl -i http://localhost:49188/api/v1/health
 curl -i http://localhost:49188/api/v1/health/ready
 curl -I https://homeland.ductinh.one
-docker compose --env-file deploy/public-production/env.public-production -f deploy/public-production/docker-compose.public-production.yml ps
+docker compose --env-file deploy/public-production/.env.public-production -f deploy/public-production/docker-compose.public-production.yml ps
 ```
 
 Optional release checks before shipping:
 
 ```bash
-npm run bundle-preflight:prod -- --env-file deploy/public-production/env.public-production
-npm run release-evidence:prod -- --env-file deploy/public-production/env.public-production
+npm run bundle-preflight:prod -- --env-file deploy/public-production/.env.public-production
+npm run release-evidence:prod -- --env-file deploy/public-production/.env.public-production
 ```
 
 ## Optional systemd timers

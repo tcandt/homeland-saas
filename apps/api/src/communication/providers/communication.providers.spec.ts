@@ -146,4 +146,58 @@ describe('ZaloProvider', () => {
       }),
     );
   });
+
+  it('normalizes a single update object returned by Zalo getUpdates', async () => {
+    const { provider } = createProvider({
+      enabled: true,
+      botToken: 'bot-token-1',
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        result: {
+          event_name: 'message',
+          message: {
+            chat: { id: 'group-zalo-single-123', chat_type: 'GROUP' },
+            from: { id: 'user-123', display_name: 'Admin' },
+            text: '/id',
+          },
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(provider.getUpdates('tenant-1', { limit: 10, timeout: 8 })).resolves.toEqual(
+      expect.objectContaining({
+        result: [
+          expect.objectContaining({
+            event_name: 'message',
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('treats Zalo polling timeout as an empty success result', async () => {
+    const { provider } = createProvider({
+      enabled: true,
+      botToken: 'bot-token-1',
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: false,
+        error_code: 408,
+        description: 'Request timeout',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(provider.getUpdates('tenant-1', { limit: 10, timeout: 8 })).resolves.toEqual(
+      expect.objectContaining({
+        result: [],
+      }),
+    );
+  });
 });

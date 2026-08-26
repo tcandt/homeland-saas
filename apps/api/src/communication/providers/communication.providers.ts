@@ -114,7 +114,28 @@ function extractZaloUpdates(body: any): any[] {
     if (Array.isArray(candidate)) return candidate;
   }
 
+  for (const candidate of candidates) {
+    if (
+      candidate
+      && typeof candidate === 'object'
+      && !Array.isArray(candidate)
+      && (
+        typeof candidate.event_name === 'string'
+        || candidate.message
+        || candidate.chat
+      )
+    ) {
+      return [candidate];
+    }
+  }
+
   return [];
+}
+
+function isPollingTimeout(body: any) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const description = String(body.description || body.message || body.error_name || '').trim().toLowerCase();
+  return Number(body.error_code) === 408 || description === 'request timeout';
 }
 
 async function postJsonWithTimeout(url: string, body: Record<string, any>, timeoutMs: number) {
@@ -381,6 +402,18 @@ export class ConsoleProvider implements CommunicationProvider {
       return {
         ...(body && typeof body === 'object' && !Array.isArray(body) ? body : {}),
         result: updates,
+      };
+    }
+
+    if (isPollingTimeout(body)) {
+      this.logger.log({
+        message: 'Zalo getUpdates returned polling timeout with no pending updates',
+        tenantId,
+        status: response.status,
+      });
+      return {
+        ...(body && typeof body === 'object' && !Array.isArray(body) ? body : {}),
+        result: [],
       };
     }
 

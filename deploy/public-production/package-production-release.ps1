@@ -104,6 +104,7 @@ Copy-DirectoryContents -Source (Join-Path $SourceRoot "public") -Destination (Jo
 
 $releaseMetaDir = Join-Path $SourceRoot "deploy\public-production"
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "README.md") -Destination (Join-Path $OutputRoot "README.md")
+Copy-PathSafe -Source (Join-Path $releaseMetaDir "ZALO_PRODUCTION_WEBHOOK_CHECKLIST.md") -Destination (Join-Path $OutputRoot "ZALO_PRODUCTION_WEBHOOK_CHECKLIST.md")
 Copy-PathSafe -Source (Join-Path $releaseMetaDir ".env.public-production") -Destination (Join-Path $OutputRoot ".env.public-production")
 Copy-PathSafe -Source (Join-Path $releaseMetaDir ".env.public-production.example") -Destination (Join-Path $OutputRoot ".env.public-production.example")
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "docker-compose.public-production.yml") -Destination (Join-Path $OutputRoot "docker-compose.public-production.yml")
@@ -127,6 +128,7 @@ $manifest = [ordered]@{
     ".env.public-production.example",
     "docker-compose.public-production.yml",
     "docker-compose.registry-production.yml",
+    "ZALO_PRODUCTION_WEBHOOK_CHECKLIST.md",
     "reset-public-production.sh",
     "setup-public-production-ubuntu.sh",
     "README.md",

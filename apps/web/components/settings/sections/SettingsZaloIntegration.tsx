@@ -6,7 +6,8 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
-import { Link2, MessageCircle, RefreshCcw } from "lucide-react";
+import { ApiError } from "@/lib/api/client";
+import { AlertCircle, Link2, MessageCircle, RefreshCcw } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { settingsApi } from "@/lib/api/settings.api";
@@ -33,6 +34,8 @@ type ZaloSettings = {
   } | null;
   botTokenConfigured?: boolean;
   webhookSecretConfigured?: boolean;
+  webhookChatAvailable?: boolean;
+  lastPollingError?: string | null;
 };
 
 const fallback: ZaloSettings = {
@@ -67,7 +70,24 @@ function formatWebhookReason(value?: string | null) {
   if (!code) return "OK";
   if (code === "CHAT_ID_NOT_FOUND") return "Không thấy chat ID";
   if (code === "SECRET_INVALID_OR_MISSING") return "Sai hoặc thiếu secret";
+  if (code === "SYNTHETIC_CHAT_ID_IGNORED") return "Bỏ qua chat ID test";
   return code;
+}
+
+function resolveZaloErrorMessage(error: unknown) {
+  if (!(error instanceof ApiError)) {
+    return "Không lấy được trạng thái Zalo.";
+  }
+
+  if (error.code === "AUTH_PASSWORD_CHANGE_REQUIRED") {
+    return "Phiên đăng nhập đang bị chặn bởi yêu cầu đổi mật khẩu. Hãy đổi mật khẩu hoặc bấm 'Bỏ qua lúc này' rồi thử lại.";
+  }
+
+  if (error.code === "ZALO_NO_WEBHOOK_CHAT_AVAILABLE") {
+    return "Production chưa nhận được webhook chat thật từ Zalo group. Hãy nhắn /id hoặc /setadmin CODE trong đúng nhóm rồi refresh lại.";
+  }
+
+  return error.message || "Không lấy được trạng thái Zalo.";
 }
 
 export default function SettingsZaloIntegration() {
@@ -84,6 +104,7 @@ export default function SettingsZaloIntegration() {
   const [isClearingAdminGroup, setIsClearingAdminGroup] = useState(false);
   const [isAutoDetectingAdminGroup, setIsAutoDetectingAdminGroup] = useState(false);
   const [adminSetupCommand, setAdminSetupCommand] = useState("");
+  const [diagnosticMessage, setDiagnosticMessage] = useState("");
 
   const resolvedBaseUrl = useMemo(() => {
     const candidate = draft.baseUrl
@@ -98,7 +119,7 @@ export default function SettingsZaloIntegration() {
     [resolvedBaseUrl],
   );
   const hasAdminGroup = Boolean(String(draft.adminGroupChatId || "").trim());
-  const hasRecentWebhookChat = Boolean(String(draft.lastWebhookChatId || "").trim());
+  const hasRecentWebhookChat = Boolean(draft.webhookChatAvailable);
   const webhookInputValue = draft.lastWebhookPreview?.contentType || (hasRecentWebhookChat ? "application/json" : "N/A");
 
   const copyText = async (value: string, label: string) => {
@@ -111,13 +132,16 @@ export default function SettingsZaloIntegration() {
     setIsRefreshingStatus(true);
     try {
       const result = await settingsApi.getZaloStatus();
+      setDiagnosticMessage("");
       setDraft((prev) => ({
         ...prev,
         ...(result?.status || {}),
       }));
       return result?.status;
     } catch (error: any) {
-      toast.error(error?.message || "Không tải được trạng thái Zalo");
+      const message = resolveZaloErrorMessage(error);
+      setDiagnosticMessage(message);
+      toast.error(message);
       throw error;
     } finally {
       setIsRefreshingStatus(false);
@@ -151,6 +175,7 @@ export default function SettingsZaloIntegration() {
     setIsConnectingWebhook(true);
     try {
       const result = await settingsApi.connectZaloWebhook();
+      setDiagnosticMessage("");
       setDraft((prev) => ({
         ...prev,
         lastWebhookConnectedAt: new Date().toISOString(),
@@ -181,6 +206,7 @@ export default function SettingsZaloIntegration() {
     setIsGeneratingSetupCode(true);
     try {
       const result = await settingsApi.generateZaloAdminGroupSetupCode();
+      setDiagnosticMessage("");
       const command = String(result?.command || "").trim();
       setAdminSetupCommand(command);
       setDraft((prev) => ({
@@ -203,6 +229,7 @@ export default function SettingsZaloIntegration() {
     setIsClearingAdminGroup(true);
     try {
       await settingsApi.clearZaloAdminGroup();
+      setDiagnosticMessage("");
       setAdminSetupCommand("");
       setDraft((prev) => ({
         ...prev,
@@ -224,6 +251,7 @@ export default function SettingsZaloIntegration() {
     setIsAutoDetectingAdminGroup(true);
     try {
       const result = await settingsApi.autoDetectZaloAdminGroup();
+      setDiagnosticMessage("");
       setDraft((prev) => ({
         ...prev,
         adminGroupChatId: result?.chat?.chatId || prev.adminGroupChatId || "",
@@ -231,7 +259,9 @@ export default function SettingsZaloIntegration() {
       await refreshStatus();
       toast.success("Đã gán chat gần nhất vào nhóm Admin");
     } catch (error: any) {
-      toast.error(error?.message || "Chưa lấy được chat gần nhất");
+      const message = resolveZaloErrorMessage(error);
+      setDiagnosticMessage(message);
+      toast.error(message);
     } finally {
       setIsAutoDetectingAdminGroup(false);
     }
@@ -251,6 +281,13 @@ export default function SettingsZaloIntegration() {
             <Switch checked={draft.enabled} onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))} aria-label="Bật Zalo" />
           </div>
         </div>
+
+        {diagnosticMessage && (
+          <div className="flex items-start gap-[10px] rounded-[12px] border border-amber-500/25 bg-amber-500/10 px-[14px] py-[12px] text-[13px] text-amber-100">
+            <AlertCircle size={16} className="mt-[1px] shrink-0 text-amber-300" />
+            <span className="leading-[1.5] text-amber-200">{diagnosticMessage}</span>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-2">
           <div className="flex flex-col gap-[6px] lg:col-span-2">
@@ -375,7 +412,7 @@ export default function SettingsZaloIntegration() {
 
           <div className="grid grid-cols-1 gap-[12px] lg:col-span-2 md:grid-cols-2">
             <Metric label="Webhook Input" value={webhookInputValue} detail={`Raw ${String(draft.lastWebhookPreview?.rawBodyLength ?? 0)}`} />
-            <Metric label="Trạng thái" value={formatWebhookReason(draft.lastWebhookRejectedReason)} detail={draft.lastWebhookEventName || (hasRecentWebhookChat ? "Đã nhận webhook" : "Chưa có webhook chat")} />
+            <Metric label="Trạng thái" value={formatWebhookReason(draft.lastWebhookRejectedReason)} detail={draft.lastPollingError || draft.lastWebhookEventName || (hasRecentWebhookChat ? "Đã nhận webhook" : "Chưa có webhook chat")} />
           </div>
         </div>
 

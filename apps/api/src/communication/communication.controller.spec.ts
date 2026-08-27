@@ -72,7 +72,7 @@ describe('CommunicationController Zalo webhook', () => {
     const result = await controller.handleZaloWebhook({ rawBody: '{"event_name":"message_received"}' }, {
       event_name: 'message_received',
       message: {
-        chat: { id: 'chat-123' },
+        chat: { id: 'tenant-chat-123' },
         from: { id: 'user-456', name: 'Tenant A' },
         text: 'should not be stored',
       },
@@ -83,20 +83,20 @@ describe('CommunicationController Zalo webhook', () => {
       where: { id: 'setting-1' },
       data: {
         value: expect.objectContaining({
-          defaultChatId: 'chat-123',
+          defaultChatId: 'tenant-chat-123',
           lastWebhookEventName: 'message_received',
-          lastWebhookChatId: 'chat-123',
+          lastWebhookChatId: 'tenant-chat-123',
           lastWebhookSenderId: 'user-456',
           lastWebhookRejectedReason: null,
           lastWebhookPreview: expect.objectContaining({
             eventName: 'message_received',
-            chatId: 'chat-123',
+            chatId: 'tenant-chat-123',
             senderId: 'user-456',
             hasText: true,
           }),
           recentWebhookChats: expect.arrayContaining([
             expect.objectContaining({
-              chatId: 'chat-123',
+              chatId: 'tenant-chat-123',
               chatType: 'unknown',
               userId: 'user-456',
               displayName: 'Tenant A',
@@ -110,7 +110,7 @@ describe('CommunicationController Zalo webhook', () => {
     expect(zaloRegistrationService.handleIncomingMessage).toHaveBeenCalledWith(
       'tenant-1',
       expect.objectContaining({
-        chatId: 'chat-123',
+        chatId: 'tenant-chat-123',
         senderId: 'user-456',
         text: 'should not be stored',
         displayName: 'Tenant A',
@@ -119,7 +119,7 @@ describe('CommunicationController Zalo webhook', () => {
       expect.objectContaining({
         enabled: true,
         webhookSecret: 'expected-secret',
-        lastWebhookChatId: 'chat-123',
+        lastWebhookChatId: 'tenant-chat-123',
       }),
     );
   });
@@ -185,7 +185,7 @@ describe('CommunicationController Zalo webhook', () => {
     const result = await controller.handleZaloWebhook({ rawBody: '{"event_name":"message.text.received"}' }, {
       event_name: 'message.text.received',
       message: {
-        chat: { id: 'group-123', chat_type: 'GROUP' },
+        chat: { id: 'zalo-admin-group-123', chat_type: 'GROUP' },
         from: { id: 'user-456', display_name: 'Admin Group Member' },
         text: 'hello bot',
       },
@@ -196,11 +196,11 @@ describe('CommunicationController Zalo webhook', () => {
       where: { id: 'setting-1' },
       data: {
         value: expect.objectContaining({
-          lastWebhookChatId: 'group-123',
+          lastWebhookChatId: 'zalo-admin-group-123',
           lastWebhookChatType: 'group',
           recentWebhookChats: expect.arrayContaining([
             expect.objectContaining({
-              chatId: 'group-123',
+              chatId: 'zalo-admin-group-123',
               chatType: 'group',
               displayName: 'Admin Group Member',
             }),
@@ -229,7 +229,7 @@ describe('CommunicationController Zalo webhook', () => {
       result: {
         event_name: 'message',
         message: {
-          chat: { id: 'real-zalo-group-999', chat_type: 'GROUP' },
+          chat: { id: 'zalo-live-group-999', chat_type: 'GROUP' },
           from: { id: 'user-789', display_name: 'Admin Zalo' },
           text: '/setadmin A1B2C3D4',
         },
@@ -242,18 +242,18 @@ describe('CommunicationController Zalo webhook', () => {
       data: {
         value: expect.objectContaining({
           lastWebhookEventName: 'message',
-          lastWebhookChatId: 'real-zalo-group-999',
+          lastWebhookChatId: 'zalo-live-group-999',
           lastWebhookChatType: 'group',
           lastWebhookSenderId: 'user-789',
           lastWebhookRejectedReason: null,
           lastWebhookPreview: expect.objectContaining({
             payloadWrapped: true,
-            chatId: 'real-zalo-group-999',
+            chatId: 'zalo-live-group-999',
             senderId: 'user-789',
           }),
           recentWebhookChats: expect.arrayContaining([
             expect.objectContaining({
-              chatId: 'real-zalo-group-999',
+              chatId: 'zalo-live-group-999',
               chatType: 'group',
               source: 'zalo',
             }),
@@ -264,11 +264,62 @@ describe('CommunicationController Zalo webhook', () => {
     expect(zaloRegistrationService.handleIncomingMessage).toHaveBeenCalledWith(
       'tenant-1',
       expect.objectContaining({
-        chatId: 'real-zalo-group-999',
+        chatId: 'zalo-live-group-999',
         senderId: 'user-789',
         eventName: 'message',
       }),
       expect.any(Object),
+    );
+  });
+
+  it('ignores synthetic placeholder chat ids so they cannot pollute admin-group detection', async () => {
+    const { controller, prisma, zaloRegistrationService } = createController();
+    prisma.appSetting.findMany.mockResolvedValueOnce([
+      {
+        id: 'setting-1',
+        tenantId: 'tenant-1',
+        value: {
+          enabled: true,
+          webhookSecret: 'expected-secret',
+          recentWebhookChats: [],
+        },
+      },
+    ]);
+
+    const result = await controller.handleZaloWebhook({ rawBody: '{"ok":true}' }, {
+      ok: true,
+      result: {
+        event_name: 'message',
+        message: {
+          chat: { id: 'real-zalo-group-999', chat_type: 'GROUP' },
+          from: { id: 'user-789', display_name: 'Admin Zalo' },
+          text: '/id',
+        },
+      },
+    }, 'expected-secret');
+
+    expect(result).toEqual({ success: true, capturedChat: false });
+    expect(prisma.appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          lastWebhookChatId: null,
+          lastWebhookChatType: null,
+          lastWebhookSenderId: null,
+          lastWebhookRejectedReason: 'SYNTHETIC_CHAT_ID_IGNORED',
+          recentWebhookChats: [],
+        }),
+      },
+    });
+    expect(zaloRegistrationService.handleIncomingMessage).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        chatId: 'real-zalo-group-999',
+      }),
+      expect.objectContaining({
+        lastWebhookChatId: null,
+        lastWebhookRejectedReason: 'SYNTHETIC_CHAT_ID_IGNORED',
+      }),
     );
   });
 
@@ -287,8 +338,8 @@ describe('CommunicationController Zalo webhook', () => {
       id: 'setting-1',
       value: {
         recentWebhookChats: [
-          { chatId: 'group-1', chatType: 'group', displayName: 'Group A' },
-          { chatId: 'private-1', chatType: 'private', displayName: 'Tenant A' },
+          { chatId: 'zalo-group-alpha-1', chatType: 'group', displayName: 'Group A' },
+          { chatId: 'zalo-private-alpha-1', chatType: 'private', displayName: 'Tenant A' },
         ],
       },
     });
@@ -297,17 +348,17 @@ describe('CommunicationController Zalo webhook', () => {
 
     expect(result).toEqual({
       success: true,
-      chat: { chatId: 'group-1', chatType: 'group', displayName: 'Group A' },
+      chat: { chatId: 'zalo-group-alpha-1', chatType: 'group', displayName: 'Group A' },
     });
     expect(prisma.appSetting.update).toHaveBeenCalledWith({
       where: { id: 'setting-1' },
       data: {
         value: {
           recentWebhookChats: [
-            { chatId: 'group-1', chatType: 'group', displayName: 'Group A' },
-            { chatId: 'private-1', chatType: 'private', displayName: 'Tenant A' },
+            { chatId: 'zalo-group-alpha-1', chatType: 'group', displayName: 'Group A' },
+            { chatId: 'zalo-private-alpha-1', chatType: 'private', displayName: 'Tenant A' },
           ],
-          adminGroupChatId: 'group-1',
+          adminGroupChatId: 'zalo-group-alpha-1',
         },
       },
     });
@@ -320,7 +371,7 @@ describe('CommunicationController Zalo webhook', () => {
       value: {
         recentWebhookChats: [
           { chatId: 'group-test-001', chatType: 'group', displayName: 'Curl Test', source: 'legacy' },
-          { chatId: 'real-zalo-group-999', chatType: 'group', displayName: 'Admin Group', source: 'zalo' },
+          { chatId: 'zalo-live-group-999', chatType: 'group', displayName: 'Admin Group', source: 'zalo' },
         ],
       },
     });
@@ -329,13 +380,13 @@ describe('CommunicationController Zalo webhook', () => {
 
     expect(result).toEqual({
       success: true,
-      chat: { chatId: 'real-zalo-group-999', chatType: 'group', displayName: 'Admin Group', source: 'zalo' },
+      chat: { chatId: 'zalo-live-group-999', chatType: 'group', displayName: 'Admin Group', source: 'zalo' },
     });
     expect(prisma.appSetting.update).toHaveBeenCalledWith({
       where: { id: 'setting-1' },
       data: {
         value: expect.objectContaining({
-          adminGroupChatId: 'real-zalo-group-999',
+          adminGroupChatId: 'zalo-live-group-999',
         }),
       },
     });
@@ -365,7 +416,7 @@ describe('CommunicationController Zalo webhook', () => {
           result: {
             event_name: 'message',
             message: {
-              chat: { id: 'group-polled-123', chat_type: 'GROUP' },
+              chat: { id: 'zalo-polled-group-123', chat_type: 'GROUP' },
               from: { id: 'user-polled-1', display_name: 'Admin Group' },
               text: '/id',
             },
@@ -379,8 +430,8 @@ describe('CommunicationController Zalo webhook', () => {
 
     expect(result).toEqual({
       success: true,
-      chat: expect.objectContaining({
-        chatId: 'group-polled-123',
+        chat: expect.objectContaining({
+        chatId: 'zalo-polled-group-123',
         chatType: 'group',
       }),
     });
@@ -394,10 +445,10 @@ describe('CommunicationController Zalo webhook', () => {
       where: { id: 'setting-1' },
       data: {
         value: expect.objectContaining({
-          adminGroupChatId: 'group-polled-123',
+          adminGroupChatId: 'zalo-polled-group-123',
           recentWebhookChats: expect.arrayContaining([
             expect.objectContaining({
-              chatId: 'group-polled-123',
+              chatId: 'zalo-polled-group-123',
               source: 'zalo',
             }),
           ]),
@@ -428,9 +479,12 @@ describe('CommunicationController Zalo webhook', () => {
 
     await expect(controller.autoDetectAdminGroup({ user: { tenantId: 'tenant-1' } })).rejects.toMatchObject({
       response: expect.objectContaining({
+        code: 'ZALO_NO_WEBHOOK_CHAT_AVAILABLE',
         message: 'ZALO_NO_WEBHOOK_CHAT_AVAILABLE',
-        pollingAttempted: true,
-        pollingError: 'Zalo getUpdates returned empty body',
+        details: expect.objectContaining({
+          pollingAttempted: true,
+          pollingError: 'Zalo getUpdates returned empty body',
+        }),
       }),
     });
 
@@ -496,7 +550,7 @@ describe('CommunicationController Zalo webhook', () => {
     prisma.appSetting.findUnique.mockResolvedValueOnce({
       id: 'setting-1',
       value: {
-        lastWebhookChatId: 'group-from-diagnostics',
+        lastWebhookChatId: 'zalo-from-diagnostics',
         lastWebhookChatType: 'group',
         lastWebhookSenderId: 'sender-1',
         lastWebhookEventName: 'message_received',
@@ -509,7 +563,7 @@ describe('CommunicationController Zalo webhook', () => {
     expect(result).toEqual({
       success: true,
       chat: expect.objectContaining({
-        chatId: 'group-from-diagnostics',
+        chatId: 'zalo-from-diagnostics',
         chatType: 'group',
         userId: 'sender-1',
         eventName: 'message_received',
@@ -519,7 +573,7 @@ describe('CommunicationController Zalo webhook', () => {
       where: { id: 'setting-1' },
       data: {
         value: expect.objectContaining({
-          adminGroupChatId: 'group-from-diagnostics',
+          adminGroupChatId: 'zalo-from-diagnostics',
         }),
       },
     });

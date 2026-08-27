@@ -230,14 +230,19 @@ export class CommunicationController {
 
     const normalized = provisionalNormalized;
     const capturedChat = extractZaloWebhookChat(body);
-    const lastWebhookRejectedReason = normalized.chatId ? null : 'CHAT_ID_NOT_FOUND';
+    const persistableCapturedChat = isPersistableZaloWebhookChat(capturedChat) ? capturedChat : null;
+    const lastWebhookRejectedReason = !normalized.chatId
+      ? 'CHAT_ID_NOT_FOUND'
+      : persistableCapturedChat
+        ? null
+        : 'SYNTHETIC_CHAT_ID_IGNORED';
     const nextValue = {
       ...((matched.value as any) || {}),
       lastWebhookReceivedAt: new Date().toISOString(),
       lastWebhookEventName: normalized.eventName || null,
-      lastWebhookChatId: normalized.chatId || null,
-      lastWebhookChatType: normalized.chatType || 'unknown',
-      lastWebhookSenderId: normalized.senderId || null,
+      lastWebhookChatId: persistableCapturedChat?.chatId || null,
+      lastWebhookChatType: persistableCapturedChat?.chatType || null,
+      lastWebhookSenderId: persistableCapturedChat?.userId || null,
       lastWebhookRejectedReason,
       lastWebhookPreview: buildWebhookPreview(body, normalized, {
         contentType: contentTypeHeader,
@@ -246,7 +251,7 @@ export class CommunicationController {
         secretProvided: Boolean(providedSecret),
       }),
     };
-    const mergedValue = capturedChat ? mergeRecentZaloWebhookChat(nextValue, capturedChat) : nextValue;
+    const mergedValue = persistableCapturedChat ? mergeRecentZaloWebhookChat(nextValue, persistableCapturedChat) : nextValue;
 
     this.logger.log({
       message: 'Accepted Zalo webhook',
@@ -281,7 +286,7 @@ export class CommunicationController {
       );
     }
 
-    return { success: true, capturedChat: Boolean(capturedChat) };
+    return { success: true, capturedChat: Boolean(persistableCapturedChat) };
   }
 
   @Public()
@@ -311,7 +316,10 @@ export class CommunicationController {
     });
     const value = (setting?.value as any) || {};
     const webhookUrl = buildTenantWebhookUrl(value);
-    const recentWebhookChats = Array.isArray(value.recentWebhookChats) ? value.recentWebhookChats : [];
+    const recentWebhookChats = sanitizeStoredWebhookChats(value.recentWebhookChats);
+    const safeLastWebhookChatId = normalizePersistableChatId(value.lastWebhookChatId);
+    const hasWebhookEvidence = hasStoredWebhookEvidence(value, recentWebhookChats, safeLastWebhookChatId);
+    const lastWebhookPreview = hasWebhookEvidence ? value.lastWebhookPreview || null : null;
     return {
       success: true,
       status: {
@@ -326,15 +334,17 @@ export class CommunicationController {
         adminSetupCodeExpiresAt: value.adminSetupCodeExpiresAt || null,
         lastWebhookConnectedAt: value.lastWebhookConnectedAt || null,
         lastWebhookStatus: value.lastWebhookStatus || null,
-        lastWebhookReceivedAt: value.lastWebhookReceivedAt || null,
-        lastWebhookEventName: value.lastWebhookEventName || null,
-        lastWebhookChatId: value.lastWebhookChatId || null,
-        lastWebhookChatType: value.lastWebhookChatType || null,
-        lastWebhookSenderId: value.lastWebhookSenderId || null,
-        lastWebhookRejectedReason: value.lastWebhookRejectedReason || null,
-        lastWebhookPreview: value.lastWebhookPreview || null,
-        defaultChatId: value.defaultChatId || null,
-        recentWebhookChats: recentWebhookChats.slice(0, 10),
+        lastWebhookReceivedAt: hasWebhookEvidence ? value.lastWebhookReceivedAt || null : null,
+        lastWebhookEventName: hasWebhookEvidence ? value.lastWebhookEventName || null : null,
+        lastWebhookChatId: hasWebhookEvidence ? safeLastWebhookChatId : null,
+        lastWebhookChatType: hasWebhookEvidence && safeLastWebhookChatId ? value.lastWebhookChatType || null : null,
+        lastWebhookSenderId: hasWebhookEvidence && safeLastWebhookChatId ? value.lastWebhookSenderId || null : null,
+        lastWebhookRejectedReason: hasWebhookEvidence ? value.lastWebhookRejectedReason || null : null,
+        lastWebhookPreview,
+        defaultChatId: hasWebhookEvidence ? normalizePersistableChatId(value.defaultChatId) : null,
+        recentWebhookChats: hasWebhookEvidence ? recentWebhookChats.slice(0, 10) : [],
+        webhookChatAvailable: Boolean(recentWebhookChats.length || safeLastWebhookChatId),
+        lastPollingError: value.lastPollingError || null,
       },
     };
   }
@@ -496,16 +506,16 @@ export class CommunicationController {
     }
 
     const value = (setting.value as any) || {};
-    const recentWebhookChats = Array.isArray(value.recentWebhookChats) ? value.recentWebhookChats : [];
+    const recentWebhookChats = sanitizeStoredWebhookChats(value.recentWebhookChats);
     let detectedChat =
       recentWebhookChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() === 'group')
       || recentWebhookChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
       || recentWebhookChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo')
       || recentWebhookChats[0]
       || (
-        value.lastWebhookChatId
+        normalizePersistableChatId(value.lastWebhookChatId)
           ? {
-              chatId: value.lastWebhookChatId,
+              chatId: normalizePersistableChatId(value.lastWebhookChatId),
               chatType: value.lastWebhookChatType || 'unknown',
               userId: value.lastWebhookSenderId || null,
               eventName: value.lastWebhookEventName || null,
@@ -539,7 +549,7 @@ export class CommunicationController {
 
         for (const item of updateItems) {
           const captured = extractZaloWebhookChat(item);
-          if (!captured) continue;
+          if (!isPersistableZaloWebhookChat(captured)) continue;
           nextValue = mergeRecentZaloWebhookChat(nextValue, {
             ...captured,
             source: 'zalo',
@@ -582,12 +592,15 @@ export class CommunicationController {
 
     if (!detectedChat?.chatId) {
       throw new BadRequestException({
+        code: 'ZALO_NO_WEBHOOK_CHAT_AVAILABLE',
         message: 'ZALO_NO_WEBHOOK_CHAT_AVAILABLE',
-        lastWebhookReceivedAt: value.lastWebhookReceivedAt || null,
-        lastWebhookEventName: value.lastWebhookEventName || null,
-        lastWebhookRejectedReason: value.lastWebhookRejectedReason || null,
-        pollingAttempted: Boolean(String(value.botToken || '').trim()),
-        pollingError: pollingErrorMessage,
+        details: {
+          lastWebhookReceivedAt: value.lastWebhookReceivedAt || null,
+          lastWebhookEventName: value.lastWebhookEventName || null,
+          lastWebhookRejectedReason: value.lastWebhookRejectedReason || null,
+          pollingAttempted: Boolean(String(value.botToken || '').trim()),
+          pollingError: pollingErrorMessage,
+        },
       });
     }
 
@@ -789,4 +802,41 @@ function buildWebhookPreview(
     eventKeys: summarizePayloadKeys(payload?.event),
     dataKeys: summarizePayloadKeys(payload?.data),
   };
+}
+
+function hasStoredWebhookEvidence(value: Record<string, any>, recentWebhookChats: any[], safeLastWebhookChatId?: string | null) {
+  if (recentWebhookChats.length > 0) return true;
+  if (String(safeLastWebhookChatId || '').trim()) return true;
+  if (String(value.lastWebhookReceivedAt || '').trim()) return true;
+  return false;
+}
+
+function sanitizeStoredWebhookChats(chats: any) {
+  if (!Array.isArray(chats)) return [];
+  return chats.filter((chat) => isPersistableZaloWebhookChat(chat));
+}
+
+function isPersistableZaloWebhookChat(chat: any): chat is { chatId: string } {
+  return Boolean(normalizePersistableChatId(chat?.chatId));
+}
+
+function normalizePersistableChatId(chatId: any) {
+  const normalized = String(chatId || '').trim();
+  if (!normalized) return null;
+  if (isSyntheticZaloChatId(normalized)) return null;
+  return normalized;
+}
+
+function isSyntheticZaloChatId(chatId: string) {
+  const normalized = String(chatId || '').trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    /^group-test-/,
+    /^real-zalo-/,
+    /^group-prod-manual-/,
+    /^group-from-diagnostics$/,
+    /^chat-\d+$/,
+    /^group-\d+$/,
+    /^private-\d+$/,
+  ].some((pattern) => pattern.test(normalized));
 }

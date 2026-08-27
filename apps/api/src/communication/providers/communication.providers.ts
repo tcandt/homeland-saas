@@ -78,6 +78,12 @@ function isExplicitZaloApiFailure(body: any) {
   return false;
 }
 
+function assertZaloApiSuccess(response: Response, body: any, action: string) {
+  if (!response.ok || isExplicitZaloApiFailure(body)) {
+    throw new Error(pickZaloApiErrorMessage(body) || `Zalo ${action} failed with ${response.status}`);
+  }
+}
+
 function pickZaloApiErrorMessage(body: any) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return '';
   const candidates = [
@@ -316,9 +322,7 @@ export class ConsoleProvider implements CommunicationProvider {
       {},
       timeoutMs,
     );
-    if (!response.ok || body?.ok === false || body?.error) {
-      throw new Error(body?.message || body?.error_name || `Zalo getMe failed with ${response.status}`);
-    }
+    assertZaloApiSuccess(response, body, 'getMe');
     return body;
   }
 
@@ -340,10 +344,7 @@ export class ConsoleProvider implements CommunicationProvider {
       },
       timeoutMs,
     );
-
-    if (!response.ok || body?.ok === false || body?.error) {
-      throw new Error(body?.message || body?.error_name || `Zalo setWebhook failed with ${response.status}`);
-    }
+    assertZaloApiSuccess(response, body, 'setWebhook');
     return body;
   }
 
@@ -356,9 +357,7 @@ export class ConsoleProvider implements CommunicationProvider {
       {},
       timeoutMs,
     );
-    if (!response.ok || body?.ok === false || body?.error) {
-      throw new Error(body?.message || body?.error_name || `Zalo getWebhookInfo failed with ${response.status}`);
-    }
+    assertZaloApiSuccess(response, body, 'getWebhookInfo');
     return body;
   }
 
@@ -371,9 +370,7 @@ export class ConsoleProvider implements CommunicationProvider {
       {},
       timeoutMs,
     );
-    if (!response.ok || body?.ok === false || body?.error) {
-      throw new Error(body?.message || body?.error_name || `Zalo deleteWebhook failed with ${response.status}`);
-    }
+    assertZaloApiSuccess(response, body, 'deleteWebhook');
     return body;
   }
 
@@ -418,14 +415,7 @@ export class ConsoleProvider implements CommunicationProvider {
     }
 
     if (isExplicitZaloApiFailure(body)) {
-      const message = pickZaloApiErrorMessage(body) || `Zalo getUpdates failed with ${response.status}`;
-      this.logger.warn({
-        message: 'Zalo getUpdates returned a non-standard failure payload',
-        tenantId,
-        status: response.status,
-        bodyKeys: body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).slice(0, 12) : [],
-      });
-      throw new Error(message);
+      throw new Error(pickZaloApiErrorMessage(body) || `Zalo getUpdates failed with ${response.status}`);
     }
 
     this.logger.log({
@@ -460,10 +450,7 @@ export class ConsoleProvider implements CommunicationProvider {
       },
       timeoutMs,
     );
-
-    if (!response.ok || body?.ok === false || body?.error) {
-      throw new Error(body?.message || body?.error_name || `Zalo send failed with ${response.status}`);
-    }
+    assertZaloApiSuccess(response, body, 'send');
 
     return { success: true, zaloResponse: body };
   }
@@ -493,10 +480,7 @@ export class ConsoleProvider implements CommunicationProvider {
       },
       timeoutMs,
     );
-
-    if (!response.ok || body?.ok === false || body?.error) {
-      throw new Error(body?.message || body?.error_name || `Zalo sendPhoto failed with ${response.status}`);
-    }
+    assertZaloApiSuccess(response, body, 'sendPhoto');
 
     return { success: true, zaloResponse: body };
   }

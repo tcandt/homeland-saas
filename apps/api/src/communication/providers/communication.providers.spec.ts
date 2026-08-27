@@ -46,6 +46,34 @@ describe('ZaloProvider', () => {
     );
   });
 
+  it('accepts non-standard successful sendMessage bodies when Zalo returns HTTP 200', async () => {
+    const { provider } = createProvider({
+      enabled: true,
+      botToken: 'bot-token-1',
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        error: 0,
+        message: 'Success',
+        data: { message_id: 'msg-200' },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(provider.send({
+      tenantId: 'tenant-1',
+      recipient: 'group-chat-1',
+      title: 'Test',
+      message: 'Hello',
+      context: {},
+    })).resolves.toEqual(
+      expect.objectContaining({
+        success: true,
+      }),
+    );
+  });
+
   it('uses custom apiBaseUrl when explicitly configured', async () => {
     const { provider } = createProvider({
       enabled: true,
@@ -143,6 +171,28 @@ describe('ZaloProvider', () => {
             event_name: 'message',
           }),
         ],
+      }),
+    );
+  });
+
+  it('accepts non-standard successful getUpdates bodies when Zalo returns HTTP 200', async () => {
+    const { provider } = createProvider({
+      enabled: true,
+      botToken: 'bot-token-1',
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        error: 0,
+        message: 'Success',
+        data: [],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(provider.getUpdates('tenant-1', { limit: 20, timeout: 8 })).resolves.toEqual(
+      expect.objectContaining({
+        result: [],
       }),
     );
   });

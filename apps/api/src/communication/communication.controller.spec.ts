@@ -210,6 +210,51 @@ describe('CommunicationController Zalo webhook', () => {
     });
   });
 
+  it('captures chat ids from nested data payloads returned by Zalo polling or webhook variants', async () => {
+    const { controller, prisma } = createController();
+    prisma.appSetting.findMany.mockResolvedValueOnce([
+      {
+        id: 'setting-1',
+        tenantId: 'tenant-1',
+        value: {
+          enabled: true,
+          webhookSecret: 'expected-secret',
+        },
+      },
+    ]);
+
+    const result = await controller.handleZaloWebhook({ rawBody: '{"event_name":"message"}' }, {
+      event_name: 'message',
+      data: {
+        message: {
+          conversation_id: 'zalo-group-data-123',
+          chat: { chat_type: 'GROUP' },
+          from: { id: 'user-data-1', display_name: 'Admin Data' },
+          text: '/id',
+        },
+      },
+    }, 'expected-secret');
+
+    expect(result).toEqual({ success: true, capturedChat: true });
+    expect(prisma.appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          lastWebhookChatId: 'zalo-group-data-123',
+          lastWebhookChatType: 'group',
+          lastWebhookSenderId: 'user-data-1',
+          recentWebhookChats: expect.arrayContaining([
+            expect.objectContaining({
+              chatId: 'zalo-group-data-123',
+              chatType: 'group',
+              displayName: 'Admin Data',
+            }),
+          ]),
+        }),
+      },
+    });
+  });
+
   it('captures real Zalo wrapped webhook payloads and extracts the group chat id', async () => {
     const { controller, prisma, zaloRegistrationService } = createController();
     prisma.appSetting.findMany.mockResolvedValueOnce([
@@ -436,7 +481,7 @@ describe('CommunicationController Zalo webhook', () => {
       }),
     });
     expect(zaloProvider.deleteWebhook).toHaveBeenCalledOnce();
-    expect(zaloProvider.getUpdates).toHaveBeenCalledWith('tenant-1', { limit: 10, timeout: 8 });
+    expect(zaloProvider.getUpdates).toHaveBeenCalledWith('tenant-1', { limit: 20, timeout: 8 });
     expect(zaloProvider.setWebhook).toHaveBeenCalledWith('tenant-1', {
       url: 'https://homeland.ductinh.one/api/v1/notifications/zalo/webhook',
       secretToken: 'expected-secret',
@@ -484,6 +529,7 @@ describe('CommunicationController Zalo webhook', () => {
         details: expect.objectContaining({
           pollingAttempted: true,
           pollingError: 'Zalo getUpdates returned empty body',
+          pollingAttempts: 1,
         }),
       }),
     });

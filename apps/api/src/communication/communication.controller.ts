@@ -532,43 +532,74 @@ export class CommunicationController {
       const webhookSecret = String(value.webhookSecret || '').trim();
       const webhookUrl = buildTenantWebhookUrl(value);
       let webhookDeleted = false;
+      let pollingAttemptCount = 0;
       try {
         const webhookInfo = await this.zaloProvider.getWebhookInfo(tenantId).catch(() => null);
         const currentWebhookUrl = String((webhookInfo as any)?.result?.url || (webhookInfo as any)?.url || '').trim();
         if (currentWebhookUrl) {
           await this.zaloProvider.deleteWebhook(tenantId);
           webhookDeleted = true;
+          await sleep(1200);
         }
 
-        const updates = await this.zaloProvider.getUpdates(tenantId, { limit: 10, timeout: 8 });
-        const updateItems = Array.isArray((updates as any)?.result)
-          ? (updates as any).result
-          : Array.isArray((updates as any)?.updates)
-            ? (updates as any).updates
-            : [];
-
-        for (const item of updateItems) {
-          const captured = extractZaloWebhookChat(item);
-          if (!isPersistableZaloWebhookChat(captured)) continue;
-          nextValue = mergeRecentZaloWebhookChat(nextValue, {
-            ...captured,
-            source: 'zalo',
+        const deadlineAt = Date.now() + 25000;
+        let offset: number | undefined;
+        while (!detectedChat?.chatId && Date.now() < deadlineAt) {
+          pollingAttemptCount += 1;
+          const remainingSeconds = Math.max(1, Math.min(8, Math.ceil((deadlineAt - Date.now()) / 1000)));
+          const updates = await this.zaloProvider.getUpdates(tenantId, {
+            limit: 20,
+            timeout: remainingSeconds,
+            ...(offset !== undefined ? { offset } : {}),
           });
-        }
+          const updateItems = Array.isArray((updates as any)?.result)
+            ? (updates as any).result
+            : Array.isArray((updates as any)?.updates)
+              ? (updates as any).updates
+              : [];
 
-        const polledChats = Array.isArray((nextValue as any)?.recentWebhookChats) ? (nextValue as any).recentWebhookChats : [];
-        detectedChat =
-          polledChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() === 'group')
-          || polledChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
-          || polledChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo')
-          || detectedChat
-          || null;
+          for (const item of updateItems) {
+            const captured = extractZaloWebhookChat(item);
+            const nextOffset = getNextZaloUpdateOffset(item);
+            if (nextOffset !== null) {
+              offset = nextOffset;
+            }
+            if (!isPersistableZaloWebhookChat(captured)) continue;
+            nextValue = mergeRecentZaloWebhookChat(nextValue, {
+              ...captured,
+              source: 'zalo',
+            });
+          }
+
+          const polledChats = Array.isArray((nextValue as any)?.recentWebhookChats) ? (nextValue as any).recentWebhookChats : [];
+          detectedChat =
+            polledChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() === 'group')
+            || polledChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
+            || polledChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo')
+            || detectedChat
+            || null;
+
+          if (detectedChat?.chatId) {
+            break;
+          }
+
+          if (Date.now() < deadlineAt) {
+            await sleep(800);
+          }
+        }
+        nextValue = {
+          ...nextValue,
+          lastPollingError: null,
+          lastPollingAttemptAt: new Date().toISOString(),
+          lastPollingAttemptCount: pollingAttemptCount,
+        };
       } catch (error: any) {
         pollingErrorMessage = String(error?.message || error || 'Zalo polling failed');
         nextValue = {
           ...nextValue,
           lastPollingError: pollingErrorMessage,
           lastPollingAttemptAt: new Date().toISOString(),
+          lastPollingAttemptCount: pollingAttemptCount,
         };
         this.logger.warn(
           `Zalo admin group auto-detect polling failed for tenant ${tenantId}: ${pollingErrorMessage}`,
@@ -600,6 +631,9 @@ export class CommunicationController {
           lastWebhookRejectedReason: value.lastWebhookRejectedReason || null,
           pollingAttempted: Boolean(String(value.botToken || '').trim()),
           pollingError: pollingErrorMessage,
+          pollingAttempts: typeof (nextValue as any)?.lastPollingAttemptCount === 'number'
+            ? (nextValue as any).lastPollingAttemptCount
+            : null,
         },
       });
     }
@@ -839,4 +873,18 @@ function isSyntheticZaloChatId(chatId: string) {
     /^group-\d+$/,
     /^private-\d+$/,
   ].some((pattern) => pattern.test(normalized));
+}
+
+function getNextZaloUpdateOffset(item: any) {
+  const rawId = item?.update_id ?? item?.updateId ?? item?.id ?? item?.result?.update_id ?? item?.result?.updateId ?? item?.result?.id;
+  const normalized = Number(rawId);
+  if (!Number.isFinite(normalized)) return null;
+  return normalized + 1;
+}
+
+function sleep(ms: number) {
+  if (process.env.NODE_ENV === 'test') {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

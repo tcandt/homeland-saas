@@ -173,6 +173,13 @@ describe('ZaloRegistrationService', () => {
 
   it('replies with the current chat id when receiving /id', async () => {
     const { service, zaloProvider, prisma } = createService();
+    (prisma as any).appSetting = {
+      findUnique: vi.fn().mockResolvedValue({
+        id: 'setting-1',
+        value: {},
+      }),
+      update: vi.fn().mockResolvedValue({}),
+    };
 
     const result = await service.handleIncomingMessage(
       'tenant-1',
@@ -189,13 +196,68 @@ describe('ZaloRegistrationService', () => {
       {},
     );
 
-    expect(result).toEqual({ route: 'command', action: 'chat_id_echo' });
+    expect(result).toEqual({ route: 'command', action: 'admin_group_auto_connected', chatId: 'group-123' });
     expect(prisma.room.findFirst).not.toHaveBeenCalled();
+    expect((prisma as any).appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          adminGroupChatId: 'group-123',
+          lastWebhookChatId: 'group-123',
+        }),
+      },
+    });
     expect(zaloProvider.send).toHaveBeenCalledWith(
       expect.objectContaining({
         recipient: 'group-123',
         title: 'HomeLand - Chat ID',
         message: expect.stringContaining('Chat ID: group-123'),
+      }),
+    );
+  });
+
+  it('auto-binds admin group from /id even when chat type is unknown but chat id differs from sender id', async () => {
+    const { service, zaloProvider, prisma } = createService();
+    (prisma as any).appSetting = {
+      findUnique: vi.fn().mockResolvedValue({
+        id: 'setting-1',
+        value: {},
+      }),
+      update: vi.fn().mockResolvedValue({}),
+    };
+
+    const result = await service.handleIncomingMessage(
+      'tenant-1',
+      {
+        chatId: '998877665544332211',
+        senderId: '1122334455',
+        text: '/id',
+        chatType: 'unknown',
+        eventName: 'message',
+        updateId: 'update-2',
+        displayName: 'Admin Group',
+        raw: {},
+      },
+      {},
+    );
+
+    expect(result).toEqual({
+      route: 'command',
+      action: 'admin_group_auto_connected',
+      chatId: '998877665544332211',
+    });
+    expect((prisma as any).appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          adminGroupChatId: '998877665544332211',
+          lastWebhookChatId: '998877665544332211',
+        }),
+      },
+    });
+    expect(zaloProvider.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: '998877665544332211',
       }),
     );
   });
@@ -224,7 +286,7 @@ describe('ZaloRegistrationService', () => {
       },
       {
         adminSetupCode: 'A91F72BC',
-        adminSetupCodeExpiresAt: '2026-08-24T17:00:00.000Z',
+        adminSetupCodeExpiresAt: '2026-08-29T17:00:00.000Z',
       },
     );
 

@@ -31,6 +31,7 @@ export class ZaloRegistrationService {
 
     const command = String(update.text || '').trim();
     if (isChatIdCommand(command)) {
+      const autoBindResult = await this.tryAutoBindAdminGroupFromChatCommand(tenantId, update, settingsValue);
       await this.sendCustomerMessage(
         tenantId,
         update.chatId,
@@ -42,7 +43,7 @@ export class ZaloRegistrationService {
           `Chat type: ${update.chatType || 'unknown'}`,
         ].join('\n'),
       );
-      return { route: 'command', action: 'chat_id_echo' };
+      return autoBindResult || { route: 'command', action: 'chat_id_echo' };
     }
 
     const adminGroupSetupResult = await this.trySetAdminGroup(tenantId, update, settingsValue);
@@ -298,6 +299,7 @@ export class ZaloRegistrationService {
       adminGroupConnectedAt: new Date().toISOString(),
       adminSetupCode: null,
       adminSetupCodeExpiresAt: null,
+      adminSetupCodePending: null,
       lastWebhookChatId: update.chatId,
       lastWebhookChatType: update.chatType || 'unknown',
       lastWebhookSenderId: update.senderId || null,
@@ -339,6 +341,66 @@ export class ZaloRegistrationService {
       chatId: update.chatId,
     };
   }
+
+  private async tryAutoBindAdminGroupFromChatCommand(
+    tenantId: string,
+    update: NormalizedZaloUpdate,
+    settingsValue: any,
+  ) {
+    if (!isAdminGroupCandidate(update)) return null;
+
+    const configuredAdminGroupChatId = String(settingsValue?.adminGroupChatId || '').trim();
+    if (configuredAdminGroupChatId === update.chatId) {
+      return { route: 'command', action: 'chat_id_echo' };
+    }
+    if (configuredAdminGroupChatId) return null;
+
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+
+    if (!setting?.id) return null;
+
+    const currentValue = ((setting.value as any) || {});
+    const nextValue = {
+      ...currentValue,
+      adminGroupChatId: update.chatId,
+      adminGroupConnectedAt: new Date().toISOString(),
+      adminSetupCode: null,
+      adminSetupCodeExpiresAt: null,
+      adminSetupCodePending: null,
+      lastWebhookChatId: update.chatId,
+      lastWebhookChatType: update.chatType || 'group',
+      lastWebhookSenderId: update.senderId || null,
+      lastWebhookEventName: update.eventName || 'chat_id_echo',
+      lastWebhookReceivedAt: new Date().toISOString(),
+    };
+
+    await this.prisma.appSetting.update({
+      where: { id: setting.id },
+      data: { value: nextValue },
+    });
+
+    this.logger.log({
+      message: 'Auto-bound Zalo admin group from /id command',
+      tenantId,
+      chatId: update.chatId,
+      senderId: update.senderId || null,
+    });
+
+    return {
+      route: 'command',
+      action: 'admin_group_auto_connected',
+      chatId: update.chatId,
+    };
+  }
 }
 
 function parseRegisterCommand(text: string): RegisterCommand | null {
@@ -373,6 +435,15 @@ function phoneMatches(source: string | null | undefined, expected: string | null
 function isChatIdCommand(text: string) {
   const normalized = String(text || '').trim().toLowerCase();
   return normalized === '/id' || normalized === '/chatid' || normalized === 'chatid';
+}
+
+function isAdminGroupCandidate(update: NormalizedZaloUpdate) {
+  if (!update.chatId) return false;
+  if (update.chatType === 'group') return true;
+  if (update.chatType === 'private') return false;
+
+  const senderId = String(update.senderId || '').trim();
+  return Boolean(senderId) && senderId !== update.chatId;
 }
 
 function parseSetAdminCommand(text: string | null | undefined) {

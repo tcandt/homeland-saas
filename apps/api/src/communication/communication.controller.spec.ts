@@ -398,13 +398,17 @@ describe('CommunicationController Zalo webhook', () => {
     expect(prisma.appSetting.update).toHaveBeenCalledWith({
       where: { id: 'setting-1' },
       data: {
-        value: {
+        value: expect.objectContaining({
           recentWebhookChats: [
             { chatId: 'zalo-group-alpha-1', chatType: 'group', displayName: 'Group A' },
             { chatId: 'zalo-private-alpha-1', chatType: 'private', displayName: 'Tenant A' },
           ],
           adminGroupChatId: 'zalo-group-alpha-1',
-        },
+          adminGroupConnectedAt: expect.any(String),
+          adminSetupCode: null,
+          adminSetupCodeExpiresAt: null,
+          adminSetupCodePending: null,
+        }),
       },
     });
   });

@@ -320,6 +320,7 @@ export class CommunicationController {
     const safeLastWebhookChatId = normalizePersistableChatId(value.lastWebhookChatId);
     const hasWebhookEvidence = hasStoredWebhookEvidence(value, recentWebhookChats, safeLastWebhookChatId);
     const lastWebhookPreview = hasWebhookEvidence ? value.lastWebhookPreview || null : null;
+    const adminSetupCodePending = hasPendingSetupCode(value);
     return {
       success: true,
       status: {
@@ -330,8 +331,8 @@ export class CommunicationController {
         adminGroupChatId: value.adminGroupChatId || null,
         adminGroupChatIdConfigured: Boolean(value.adminGroupChatId),
         adminGroupConnectedAt: value.adminGroupConnectedAt || null,
-        adminSetupCodePending: Boolean(value.adminSetupCode && value.adminSetupCodeExpiresAt),
-        adminSetupCodeExpiresAt: value.adminSetupCodeExpiresAt || null,
+        adminSetupCodePending,
+        adminSetupCodeExpiresAt: adminSetupCodePending ? value.adminSetupCodeExpiresAt || null : null,
         lastWebhookConnectedAt: value.lastWebhookConnectedAt || null,
         lastWebhookStatus: value.lastWebhookStatus || null,
         lastWebhookReceivedAt: hasWebhookEvidence ? value.lastWebhookReceivedAt || null : null,
@@ -480,6 +481,7 @@ export class CommunicationController {
           adminGroupConnectedAt: null,
           adminSetupCode: null,
           adminSetupCodeExpiresAt: null,
+          adminSetupCodePending: null,
         },
       },
     });
@@ -644,6 +646,10 @@ export class CommunicationController {
         value: {
           ...nextValue,
           adminGroupChatId: detectedChat.chatId,
+          adminGroupConnectedAt: new Date().toISOString(),
+          adminSetupCode: null,
+          adminSetupCodeExpiresAt: null,
+          adminSetupCodePending: null,
         },
       },
     });
@@ -887,4 +893,12 @@ function sleep(ms: number) {
     return Promise.resolve();
   }
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hasPendingSetupCode(value: Record<string, any>) {
+  const code = String(value?.adminSetupCode || '').trim();
+  const expiresAt = String(value?.adminSetupCodeExpiresAt || '').trim();
+  if (!code || !expiresAt) return false;
+  const expiresAtMs = new Date(expiresAt).getTime();
+  return Number.isFinite(expiresAtMs) && expiresAtMs > Date.now();
 }

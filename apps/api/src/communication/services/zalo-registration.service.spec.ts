@@ -112,7 +112,7 @@ describe('ZaloRegistrationService', () => {
       expect.objectContaining({
         recipient: 'chat-123',
         title: 'HomeLand - Đăng ký Zalo Bot',
-        message: expect.stringContaining('DK <SĐT> <PHÒNG>'),
+        message: expect.stringContaining('DK <SĐT> <MÃ PHÒNG>'),
       }),
     );
   });
@@ -159,7 +159,7 @@ describe('ZaloRegistrationService', () => {
       1,
       expect.objectContaining({
         recipient: 'chat-123',
-        message: expect.stringContaining('SĐT chưa được ghi nhận'),
+        message: expect.stringContaining('chưa được ghi nhận trong hợp đồng'),
       }),
     );
     expect(zaloProvider.send).toHaveBeenNthCalledWith(

@@ -58,7 +58,7 @@ export class ZaloRegistrationService {
 
     const parsed = parseRegisterCommand(command);
     if (!parsed) {
-      if (/^\s*dk\b/i.test(update.text)) {
+      if (/(?:^|\s)dk\b/i.test(update.text || '')) {
         await this.sendCustomerMessage(
           tenantId,
           update.chatId,
@@ -66,9 +66,10 @@ export class ZaloRegistrationService {
           [
             'Cú pháp đăng ký chưa đúng.',
             'Vui lòng nhắn theo mẫu:',
-            'DK <SĐT> <PHÒNG>',
+            'DK <SĐT> <MÃ PHÒNG>',
             '',
-            'Ví dụ: DK 0567867889 31.06',
+            'Ví dụ: DK 0567867889 LK31.06',
+            'hoặc: DK 0567867889 31.06',
           ].join('\n'),
         );
         return { route: 'customer', action: 'syntax_error' };
@@ -86,7 +87,7 @@ export class ZaloRegistrationService {
     command: RegisterCommand,
     settingsValue: any,
   ) {
-    const room = await this.prisma.room.findFirst({
+    let room = await this.prisma.room.findFirst({
       where: {
         tenantId,
         code: command.roomNumber,
@@ -126,17 +127,63 @@ export class ZaloRegistrationService {
     });
 
     if (!room) {
+      const allRooms = await this.prisma.room.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+        },
+        include: {
+          building: true,
+          roommates: {
+            where: { deletedAt: null },
+            select: {
+              id: true,
+              fullName: true,
+              phone: true,
+              zaloChatId: true,
+              zaloUserId: true,
+            },
+          },
+          contracts: {
+            where: {
+              deletedAt: null,
+              status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+            },
+            include: {
+              customer: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  phone: true,
+                  zaloChatId: true,
+                  zaloUserId: true,
+                },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+      });
+
+      room = matchFlexibleRoom(allRooms, command.roomNumber);
+    }
+
+    const roomLabel = room
+      ? `${room.building?.name || room.building?.code ? `Tòa ${room.building?.name || room.building?.code} - ` : ''}Phòng ${room.name || room.code}`
+      : command.roomNumber;
+
+    if (!room) {
       await this.sendCustomerMessage(
         tenantId,
         update.chatId,
         'HomeLand - Đăng ký Zalo Bot',
-        `Không thể đăng ký.\nKhông tìm thấy phòng ${command.roomNumber}.`,
+        `Không thể đăng ký.\nKhông tìm thấy phòng tương ứng với "${command.roomNumber}".\nVui lòng kiểm tra lại mã phòng hoặc tòa nhà (Ví dụ: LK31.06 hoặc 31.06).`,
       );
       await this.sendAdminMessage(
         tenantId,
         settingsValue,
         'HomeLand - Đăng ký Bot thất bại',
-        `Đăng ký Bot thất bại\nPhòng: ${command.roomNumber}\nSĐT: ${command.primaryPhone}\nLý do: ROOM_NOT_FOUND`,
+        `Đăng ký Bot thất bại\nPhòng nhập: ${command.roomNumber}\nSĐT: ${command.primaryPhone}\nLý do: ROOM_NOT_FOUND`,
       );
       return { ok: false, code: 'ROOM_NOT_FOUND' };
     }
@@ -147,7 +194,7 @@ export class ZaloRegistrationService {
         tenantId,
         update.chatId,
         'HomeLand - Đăng ký Zalo Bot',
-        `Không thể đăng ký.\nPhòng ${command.roomNumber} không có hợp đồng đang hoạt động.`,
+        `Không thể đăng ký.\n${roomLabel} hiện không có hợp đồng đang hoạt động.`,
       );
       return { ok: false, code: 'NO_ACTIVE_CONTRACT', roomId: room.id };
     }
@@ -166,13 +213,13 @@ export class ZaloRegistrationService {
         tenantId,
         update.chatId,
         'HomeLand - Đăng ký Zalo Bot',
-        `Không thể xác minh đăng ký.\nSĐT chưa được ghi nhận cho phòng ${command.roomNumber}.`,
+        `Không thể xác minh đăng ký.\nSĐT ${command.primaryPhone} chưa được ghi nhận trong hợp đồng của ${roomLabel}.`,
       );
       await this.sendAdminMessage(
         tenantId,
         settingsValue,
         'HomeLand - Đăng ký Bot cần kiểm tra',
-        `Đăng ký Bot cần kiểm tra\nPhòng: ${command.roomNumber}\nSĐT: ${command.primaryPhone}\nLý do: PHONE_NOT_IN_CONTRACT`,
+        `Đăng ký Bot cần kiểm tra\n${roomLabel}\nSĐT: ${command.primaryPhone}\nLý do: PHONE_NOT_IN_CONTRACT`,
       );
       return { ok: false, code: 'PHONE_NOT_IN_CONTRACT', roomId: room.id };
     }
@@ -192,10 +239,11 @@ export class ZaloRegistrationService {
       'HomeLand - Đăng ký thành công',
       [
         'HomeLand - Đăng ký thành công',
-        `Phòng: ${command.roomNumber}`,
+        `Khách hàng: ${matchedCustomer.fullName || 'Quý khách'}`,
+        `Căn hộ: ${roomLabel}`,
         `SĐT: ${command.primaryPhone}`,
         '',
-        'Tài khoản Zalo này sẽ nhận thông báo liên quan đến hợp đồng và thanh toán.',
+        'Tài khoản Zalo này sẽ nhận thông báo tự động liên quan đến hợp đồng và hóa đơn thanh toán.',
       ].join('\n'),
     );
 
@@ -205,7 +253,8 @@ export class ZaloRegistrationService {
       'HomeLand - Khách đã đăng ký Zalo Bot',
       [
         'Khách đã đăng ký Zalo Bot',
-        `Phòng: ${command.roomNumber}`,
+        `Khách hàng: ${matchedCustomer.fullName || 'N/A'}`,
+        `Căn hộ: ${roomLabel}`,
         `SĐT: ${command.primaryPhone}`,
         `Chat ID: ${update.chatId}`,
       ].join('\n'),
@@ -404,7 +453,8 @@ export class ZaloRegistrationService {
 }
 
 function parseRegisterCommand(text: string): RegisterCommand | null {
-  const match = text.match(/^DK\s+([\d,\s+.-]+)\s+([A-Za-z0-9._-]+)$/i);
+  const cleanText = String(text || '').trim();
+  const match = cleanText.match(/(?:^|\s)DK\s+([\d,\s+.-]+?)\s+([A-Za-z0-9._\s-]+)$/i);
   if (!match) return null;
 
   const phones = match[1]
@@ -420,6 +470,98 @@ function parseRegisterCommand(text: string): RegisterCommand | null {
     secondaryPhones: phones.slice(1),
     roomNumber,
   };
+}
+
+function cleanAlphanumeric(s: any): string {
+  return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function extractTokens(s: any): { clean: string; parts: string[]; numbers: string[] } {
+  const clean = String(s || '').toUpperCase().trim();
+  const parts = clean.split(/[^A-Z0-9]+/).filter(Boolean);
+  const numbers = clean.match(/\d+/g) || [];
+  return { clean, parts, numbers };
+}
+
+export function matchFlexibleRoom(rooms: any[], query: string): any | null {
+  if (!Array.isArray(rooms) || !rooms.length || !query) return null;
+
+  const queryClean = cleanAlphanumeric(query);
+  const { numbers: qNumbers } = extractTokens(query);
+
+  // 1. Direct match on room code or name
+  for (const r of rooms) {
+    if (cleanAlphanumeric(r.code) === queryClean || cleanAlphanumeric(r.name) === queryClean) {
+      return r;
+    }
+  }
+
+  // 2. Direct match on building code/name + room code/name
+  for (const r of rooms) {
+    const bCodeClean = cleanAlphanumeric(r.building?.code);
+    const rCodeClean = cleanAlphanumeric(r.code);
+    if (cleanAlphanumeric(bCodeClean + rCodeClean) === queryClean) {
+      return r;
+    }
+    // Also without leading zeros in building (e.g. LK0131 -> LK31)
+    const bShort = bCodeClean.replace(/0+(\d+)/g, '$1');
+    if (cleanAlphanumeric(bShort + rCodeClean) === queryClean) {
+      return r;
+    }
+  }
+
+  // 3. Match building + room numbers
+  let bestMatch = null;
+  let highestScore = 0;
+
+  for (const r of rooms) {
+    const bTokens = extractTokens(r.building?.code + ' ' + (r.building?.name || ''));
+    const rTokens = extractTokens(r.code + ' ' + (r.name || ''));
+
+    let score = 0;
+    const allRoomNumbers = [...bTokens.numbers, ...rTokens.numbers];
+
+    if (qNumbers.length > 0) {
+      const matchedNumbers = qNumbers.filter((qn) => {
+        const qnNum = parseInt(qn, 10);
+        return allRoomNumbers.some((rn) => parseInt(rn, 10) === qnNum || rn === qn);
+      });
+      if (matchedNumbers.length === qNumbers.length) {
+        score += 10 * matchedNumbers.length;
+      }
+    }
+
+    const combined = cleanAlphanumeric(
+      (r.building?.code || '') + ' ' + (r.building?.name || '') + ' ' + (r.code || '') + ' ' + (r.name || ''),
+    );
+    if (combined.includes(queryClean)) {
+      score += 20;
+    }
+
+    if (qNumbers.length >= 2) {
+      const [bNum, rNum] = [parseInt(qNumbers[0], 10), parseInt(qNumbers[1], 10)];
+      const bHas = bTokens.numbers.some((n) => parseInt(n, 10) === bNum);
+      const rHas = rTokens.numbers.some((n) => parseInt(n, 10) === rNum || parseInt(n, 10) === (bNum * 100 + rNum));
+      if (bHas && rHas) {
+        score += 50;
+      }
+    } else if (qNumbers.length === 1 && qNumbers[0].length === 4) {
+      const bNum = parseInt(qNumbers[0].slice(0, 2), 10);
+      const rNum = parseInt(qNumbers[0].slice(2), 10);
+      const bHas = bTokens.numbers.some((n) => parseInt(n, 10) === bNum);
+      const rHas = rTokens.numbers.some((n) => parseInt(n, 10) === rNum || parseInt(n, 10) === parseInt(qNumbers[0], 10));
+      if (bHas && rHas) {
+        score += 45;
+      }
+    }
+
+    if (score > highestScore) {
+      highestScore = score;
+      bestMatch = r;
+    }
+  }
+
+  return highestScore >= 20 ? bestMatch : null;
 }
 
 function normalizePhone(phone: string) {

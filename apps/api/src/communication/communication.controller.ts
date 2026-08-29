@@ -524,11 +524,11 @@ export class CommunicationController {
     let detectedChat =
       recentWebhookChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() === 'group')
       || recentWebhookChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
-      || recentWebhookChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo')
-      || recentWebhookChats[0]
-      || previewWebhookChat
+      || recentWebhookChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() !== 'private')
+      || recentWebhookChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() !== 'private')
+      || (!value.lastWebhookRejectedReason && previewWebhookChat && String(previewWebhookChat.chatType || '').toLowerCase() !== 'private' ? previewWebhookChat : null)
       || (
-        normalizePersistableChatId(value.lastWebhookChatId)
+        !value.lastWebhookRejectedReason && normalizePersistableChatId(value.lastWebhookChatId) && String(value.lastWebhookChatType || '').toLowerCase() !== 'private'
           ? {
               chatId: normalizePersistableChatId(value.lastWebhookChatId),
               chatType: value.lastWebhookChatType || 'unknown',
@@ -590,7 +590,8 @@ export class CommunicationController {
           detectedChat =
             polledChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() === 'group')
             || polledChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
-            || polledChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo')
+            || polledChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() !== 'private')
+            || polledChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() !== 'private')
             || detectedChat
             || null;
 
@@ -666,6 +667,19 @@ export class CommunicationController {
         },
       },
     });
+
+    try {
+      await this.zaloProvider.send({
+        tenantId,
+        title: '✅ KẾT NỐI THÀNH CÔNG',
+        message: 'Nhóm này đã được kết nối và chọn làm Admin Group cho hệ thống HomeLand.',
+        zaloChatId: detectedChat.chatId,
+      });
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to send setup confirmation to Zalo group ${detectedChat.chatId}: ${error?.message || error}`,
+      );
+    }
 
     return {
       success: true,

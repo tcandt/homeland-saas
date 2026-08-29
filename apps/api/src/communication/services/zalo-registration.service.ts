@@ -441,13 +441,11 @@ function isAdminGroupCandidate(update: NormalizedZaloUpdate) {
   if (!update.chatId) return false;
   if (update.chatType === 'group') return true;
   if (update.chatType === 'private') return false;
-
-  const senderId = String(update.senderId || '').trim();
-  return Boolean(senderId) && senderId !== update.chatId;
+  return true;
 }
 
 function parseSetAdminCommand(text: string | null | undefined) {
-  const match = String(text || '').trim().match(/^\/setadmin(?:@\S+)?\s+(.+)$/i);
+  const match = String(text || '').trim().match(/(?:^|\s)\/setadmin(?:@\S+)?\s+(\S+)/i);
   if (!match) return null;
   const setupCode = String(match[1] || '').trim();
   if (!setupCode) return null;

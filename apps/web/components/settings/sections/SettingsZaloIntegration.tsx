@@ -98,6 +98,7 @@ export default function SettingsZaloIntegration() {
   const [secretTouched, setSecretTouched] = useState({ botToken: false });
   const [isGeneratingSecret, setIsGeneratingSecret] = useState(false);
   const [isTestingAdminGroup, setIsTestingAdminGroup] = useState(false);
+  const [isTestingBot, setIsTestingBot] = useState(false);
   const [isConnectingWebhook, setIsConnectingWebhook] = useState(false);
   const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
   const [isGeneratingSetupCode, setIsGeneratingSetupCode] = useState(false);
@@ -199,6 +200,21 @@ export default function SettingsZaloIntegration() {
       toast.error(error?.message || "Không gửi được tin nhắn test");
     } finally {
       setIsTestingAdminGroup(false);
+    }
+  };
+
+  const testZaloBot = async () => {
+    setIsTestingBot(true);
+    try {
+      const response = await settingsApi.testZaloBot();
+      const botData = response?.result?.result || response?.result?.data || response?.result || {};
+      const botName = botData.first_name || botData.name || botData.username || "Bot";
+      const botId = botData.id || botData.oa_id || "N/A";
+      toast.success(`Kết nối thành công: ${botName} (${botId})`);
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể kết nối với Bot. Vui lòng kiểm tra Token.");
+    } finally {
+      setIsTestingBot(false);
     }
   };
 
@@ -309,6 +325,10 @@ export default function SettingsZaloIntegration() {
               value={draft.baseUrl}
               onChange={(event) => setDraft((prev) => ({ ...prev, baseUrl: event.target.value }))}
               placeholder="https://homeland.example.com"
+              autoComplete="new-password"
+              name="zalo_base_url_random"
+              data-lpignore="true"
+              data-1p-ignore="true"
             />
           </div>
 
@@ -343,7 +363,7 @@ export default function SettingsZaloIntegration() {
           <div className="flex flex-col gap-[6px]">
             <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Bot Token</label>
             <Input
-              type="password"
+              type="text"
               value={draft.botToken}
               onChange={(event) => {
                 setSecretTouched((prev) => ({ ...prev, botToken: true }));
@@ -352,6 +372,21 @@ export default function SettingsZaloIntegration() {
               placeholder={canEditSecrets ? "Bot Token" : "Chỉ admin@homeland.vn được chỉnh sửa"}
               disabled={!canEditSecrets}
               data-testid="integration-secret-field"
+              autoComplete="new-password"
+              name="zalo_bot_token_random"
+              data-lpignore="true"
+              data-1p-ignore="true"
+            />
+          </div>
+
+          <div className="flex flex-col gap-[6px] lg:col-span-2">
+            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Admin Group Chat ID</label>
+            <Input
+              type="text"
+              value={draft.adminGroupChatId || ""}
+              onChange={(event) => setDraft((prev) => ({ ...prev, adminGroupChatId: event.target.value }))}
+              placeholder="Nhập Chat ID hoặc lấy tự động qua Get ChatID bên dưới"
+              autoComplete="off"
             />
           </div>
 
@@ -382,7 +417,7 @@ export default function SettingsZaloIntegration() {
                 isLoading={isGeneratingSetupCode}
                 className="h-[44px] shrink-0 rounded-[12px] px-[16px] text-[12px] font-bold"
               >
-                Generate Group Connect Code
+                Generate
               </Button>
               <Button
                 type="button"
@@ -391,7 +426,7 @@ export default function SettingsZaloIntegration() {
                 isLoading={isAutoDetectingAdminGroup}
                 className="h-[44px] shrink-0 rounded-[12px] px-[16px] text-[12px] font-bold"
               >
-                Lấy Chat Gần Nhất
+                Get ChatID
               </Button>
               <Button
                 type="button"
@@ -400,7 +435,7 @@ export default function SettingsZaloIntegration() {
                 isLoading={isClearingAdminGroup}
                 className="h-[44px] shrink-0 rounded-[12px] px-[16px] text-[12px] font-bold"
               >
-                Clear Admin Group
+                Clear Messages
               </Button>
             </div>
             <div className="mt-[6px] text-[12px] text-muted">
@@ -427,6 +462,17 @@ export default function SettingsZaloIntegration() {
             className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold"
           >
             Test Admin
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={testZaloBot}
+            isLoading={isTestingBot}
+            disabled={!draft.botToken && !secretTouched.botToken}
+            title="Kiểm tra kết nối Bot"
+            className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold"
+          >
+            Test Bot
           </Button>
           <Button type="button" variant="outline" onClick={connectWebhook} isLoading={isConnectingWebhook} className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold">
             Connect

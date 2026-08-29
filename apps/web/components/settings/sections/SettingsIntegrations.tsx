@@ -8,6 +8,7 @@ import SettingsSePayIntegration from "./SettingsSePayIntegration";
 import SettingsZaloIntegration from "./SettingsZaloIntegration";
 import SettingsEmailIntegration from "./SettingsEmailIntegration";
 import SettingsTelegramIntegration from "./SettingsTelegramIntegration";
+import SettingsHunonicIntegration from "./SettingsHunonicIntegration";
 import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
 
 type IntegrationCategory = "all" | "payment" | "messaging" | "iot";
@@ -157,39 +158,15 @@ export default function SettingsIntegrations() {
           </button>
         ))}
       </div>
-
-      {visiblePanelIds.has("hunonic") && (
-        <button
-          type="button"
-          onClick={() => router.replace("/settings?section=hunonic", { scroll: false })}
-          className="group flex w-full items-center justify-between gap-[14px] rounded-[8px] border border-emerald-500/20 bg-card p-[16px] text-left shadow-sm transition hover:border-emerald-500/40 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-        >
-          <span className="flex min-w-0 items-start gap-[12px]">
-            <span className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-[8px] bg-emerald-500/10 text-emerald-600">
-              <PlugZap size={19} />
-            </span>
-            <span className="min-w-0">
-              <span className="flex flex-wrap items-center gap-[8px]">
-                <span className="text-[15px] font-black text-text">Điện Hunonic</span>
-                <span className={`rounded-[6px] px-[8px] py-[3px] text-[10px] font-black ${isHunonicSaved ? "bg-success/10 text-success" : "bg-warning/10 text-warning"}`}>
-                  {isHunonicSaved ? "ĐÃ LƯU CẤU HÌNH" : "CHƯA LƯU CẤU HÌNH"}
-                </span>
-              </span>
-              <span className="mt-[4px] block text-[12px] font-medium leading-[18px] text-muted">
-                Công tơ điện, giá điện, lịch sử chỉ số và đối soát theo phòng.
-              </span>
-            </span>
-          </span>
-          <span className="flex h-[34px] shrink-0 items-center gap-[6px] rounded-[7px] bg-emerald-500/10 px-[10px] text-[11px] font-black text-emerald-700 transition group-hover:bg-emerald-600 group-hover:text-white">
-            Mở <ArrowRight size={14} />
-          </span>
-        </button>
-      )}
-
-      {(visiblePanelIds.has("sepay") || visiblePanelIds.has("zalo") || visiblePanelIds.has("email") || visiblePanelIds.has("telegram")) && (
+      {(visiblePanelIds.has("sepay") ||
+        visiblePanelIds.has("zalo") ||
+        visiblePanelIds.has("email") ||
+        visiblePanelIds.has("telegram") ||
+        visiblePanelIds.has("hunonic")) && (
         <div className="grid grid-cols-1 auto-rows-fr gap-[16px] xl:grid-cols-2 items-stretch">
           {visiblePanelIds.has("sepay") && <SettingsSePayIntegration />}
           {visiblePanelIds.has("zalo") && <SettingsZaloIntegration />}
+          {visiblePanelIds.has("hunonic") && <SettingsHunonicIntegration />}
           {visiblePanelIds.has("email") && <SettingsEmailIntegration />}
           {visiblePanelIds.has("telegram") && <SettingsTelegramIntegration />}
         </div>

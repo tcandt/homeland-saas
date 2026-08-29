@@ -93,6 +93,7 @@ type ColumnKey =
   | "room"
   | "device"
   | "status"
+  | "rateMode"
   | "power"
   | "energy"
   | "cost"
@@ -103,6 +104,7 @@ const defaultVisibleColumns: Record<ColumnKey, boolean> = {
   room: true,
   device: true,
   status: true,
+  rateMode: true,
   power: true,
   energy: true,
   cost: true,
@@ -113,11 +115,12 @@ const defaultVisibleColumns: Record<ColumnKey, boolean> = {
 const columnLabels: Record<ColumnKey, string> = {
   room: "Phòng / Căn hộ",
   device: "Công tơ / Thiết bị",
-  status: "Trạng thái kết nối",
+  status: "Trạng thái",
+  rateMode: "Phương thức tính giá",
   power: "Công suất (W)",
-  energy: "Điện tiêu thụ (kWh)",
-  cost: "Tiền điện tạm tính",
-  lastSync: "Cập nhật gần nhất",
+  energy: "Tiêu thụ tháng (kWh)",
+  cost: "Tiền tạm tính",
+  lastSync: "Cập nhật",
   actions: "Thao tác",
 };
 
@@ -200,6 +203,19 @@ export default function ElectricityManagementPage() {
   const rawOverview = overviewRes as any;
   const overview = rawOverview?.data || rawOverview || {};
   const meters: any[] = Array.isArray(overview.meters) ? overview.meters : [];
+
+  const rawRates = (ratesRes as any)?.data || (ratesRes as any)?.rows || ratesRes || [];
+  const ratesList: any[] = Array.isArray(rawRates) ? rawRates : Array.isArray(rawRates.rows) ? rawRates.rows : [];
+  const rateByRoomKey = useMemo(() => {
+    const map = new Map<string, any>();
+    ratesList.forEach((r: any) => {
+      if (r.id) map.set(r.id, r);
+      if (r.buildingCode && r.roomCode) {
+        map.set(`${r.buildingCode}::${r.roomCode}`, r);
+      }
+    });
+    return map;
+  }, [ratesList]);
 
   const buildings: string[] = useMemo(() => {
     const list = new Set<string>();
@@ -363,6 +379,7 @@ export default function ElectricityManagementPage() {
       "Tên công tơ",
       "Mã MAC/Device",
       "Trạng thái",
+      "Phương thức giá",
       "Công suất tức thời (W)",
       "Điện tiêu thụ tháng (kWh)",
       "Tiền điện tạm tính (VNĐ)",
@@ -374,6 +391,10 @@ export default function ElectricityManagementPage() {
       const energyKwh = Number(m.energyMonthKwh || m.totalKwh || m.currentKwh || 0);
       const cost = Number(m.moneyMonthVnd || m.estimatedCost || m.amount || 0);
       const powerW = Number(m.powerCurrentW || 0);
+      const rateInfo = rateByRoomKey.get(m.id) || rateByRoomKey.get(`${m.buildingCode}::${m.roomCode}`);
+      const isCustomRate = rateInfo?.currentMode === "custom" || m.rateMode === "custom";
+      const customPrice = rateInfo?.customRateVnd || m.customRateVnd || 3500;
+      const rateLabel = isCustomRate ? `Tự thiết lập (${customPrice}đ/kWh)` : "Bậc thang EVN";
 
       return [
         `"${m.roomCode || ""}"`,
@@ -381,6 +402,7 @@ export default function ElectricityManagementPage() {
         `"${m.displayName || m.deviceName || m.name || ""}"`,
         `"${m.providerDeviceId || m.mac || m.deviceId || ""}"`,
         `"${isOnline ? "Online" : "Offline"}"`,
+        `"${rateLabel}"`,
         powerW,
         energyKwh,
         cost,
@@ -459,38 +481,37 @@ export default function ElectricityManagementPage() {
           </div>
         </div>
 
-        {/* TOOLBAR DUY NHẤT: Hợp nhất Toàn bộ Search, Filter, Buttons trên 1 DÒNG GỌN ĐẸP */}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card p-2.5 shadow-sm">
-          {/* Bên trái: Ô tìm kiếm thông minh */}
-          <div className="relative min-w-[200px] flex-1 sm:max-w-xs md:max-w-sm">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm phòng (31.06), tòa nhà, MAC..."
-              className="h-8.5 w-full rounded-xl border border-border bg-background pl-8.5 pr-7 text-xs text-text placeholder-muted focus:border-primary focus:outline-none"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-text"
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
+        {/* TOOLBAR RỘNG RÃI, THOÁNG ĐÃNG: Bố cục 2 nhóm rõ ràng, không bị bí bách */}
+        <div className="flex flex-col gap-2.5 rounded-2xl border border-border bg-card p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+          {/* Nhóm trái: Ô tìm kiếm rộng rãi + Dropdowns bộ lọc */}
+          <div className="flex flex-wrap items-center gap-2 flex-1">
+            <div className="relative min-w-[240px] flex-1 sm:max-w-xs md:max-w-sm">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm theo phòng (31.06), tòa nhà, MAC..."
+                className="h-9 w-full rounded-xl border border-border bg-background pl-9 pr-8 text-xs text-text placeholder-muted focus:border-primary focus:outline-none shadow-sm"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
 
-          {/* Bên phải: Các Filter và Buttons hành động tối giản */}
-          <div className="flex flex-wrap items-center gap-1.5 ml-auto">
             {/* Lọc Tòa nhà */}
             <select
               value={selectedBuilding}
               onChange={(e) => setSelectedBuilding(e.target.value)}
-              className="h-8.5 rounded-xl border border-border bg-background px-2.5 text-xs font-bold text-text outline-none focus:border-primary"
+              className="h-9 rounded-xl border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary shadow-sm"
             >
-              <option value="ALL">Tất cả tòa ({buildings.length})</option>
+              <option value="ALL">Tất cả tòa nhà ({buildings.length})</option>
               {buildings.map((b) => (
                 <option key={b} value={b}>
                   Tòa {b}
@@ -502,13 +523,16 @@ export default function ElectricityManagementPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="h-8.5 rounded-xl border border-border bg-background px-2.5 text-xs font-bold text-text outline-none focus:border-primary"
+              className="h-9 rounded-xl border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary shadow-sm"
             >
               <option value="ALL">Trạng thái: Tất cả</option>
               <option value="ONLINE">Đang Online</option>
               <option value="OFFLINE">Đang Offline</option>
             </select>
+          </div>
 
+          {/* Nhóm phải: Các nút Thao tác & View mode switch */}
+          <div className="flex flex-wrap items-center gap-1.5 justify-end">
             {/* Nút Đồng bộ */}
             <Button
               type="button"
@@ -516,10 +540,10 @@ export default function ElectricityManagementPage() {
               size="sm"
               onClick={handleSync}
               isLoading={isSyncing}
-              className="h-8.5 rounded-xl px-2.5 text-xs font-bold shadow-none"
+              className="h-9 rounded-xl px-3 text-xs font-bold shadow-sm"
               title="Đồng bộ số liệu từ Hunonic"
             >
-              <RefreshCcw size={12} className="mr-1 text-emerald-600" /> Đồng bộ
+              <RefreshCcw size={13} className="mr-1.5 text-emerald-600" /> Đồng bộ
             </Button>
 
             {/* Nút Chốt kỳ */}
@@ -528,10 +552,10 @@ export default function ElectricityManagementPage() {
               variant="outline"
               size="sm"
               onClick={() => setIsLockModalOpen(true)}
-              className="h-8.5 rounded-xl px-2.5 text-xs font-bold shadow-none"
+              className="h-9 rounded-xl px-3 text-xs font-bold shadow-sm"
               title="Chốt kỳ số điện"
             >
-              <Lock size={12} className="mr-1 text-amber-500" /> Chốt kỳ
+              <Lock size={13} className="mr-1.5 text-amber-500" /> Chốt kỳ
             </Button>
 
             {/* Nút Xuất Excel */}
@@ -540,10 +564,10 @@ export default function ElectricityManagementPage() {
               variant="outline"
               size="sm"
               onClick={handleExportCsv}
-              className="h-8.5 rounded-xl px-2.5 text-xs font-bold shadow-none"
+              className="h-9 rounded-xl px-3 text-xs font-bold shadow-sm"
               title="Xuất file CSV"
             >
-              <Download size={12} className="mr-1 text-primary" /> Xuất Excel
+              <Download size={13} className="mr-1.5 text-primary" /> Xuất Excel
             </Button>
 
             {/* Nút Tùy chọn Ẩn/Hiện Cột */}
@@ -553,16 +577,16 @@ export default function ElectricityManagementPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setIsColumnDropdownOpen(!isColumnDropdownOpen)}
-                className={`h-8.5 rounded-xl px-2.5 text-xs font-bold shadow-none ${
+                className={`h-9 rounded-xl px-3 text-xs font-bold shadow-sm ${
                   isColumnDropdownOpen ? "border-primary bg-primary/5 text-primary" : ""
                 }`}
                 title="Tùy chỉnh cột hiển thị"
               >
-                <Columns size={12} className="mr-1" /> Cột <ChevronDown size={11} className="ml-0.5 opacity-60" />
+                <Columns size={13} className="mr-1.5" /> Cột <ChevronDown size={11} className="ml-1 opacity-60" />
               </Button>
 
               {isColumnDropdownOpen && (
-                <div className="absolute right-0 top-full mt-1.5 z-40 w-48 rounded-xl border border-border bg-card p-2 shadow-xl animate-in fade-in zoom-in-95">
+                <div className="absolute right-0 top-full mt-1.5 z-40 w-52 rounded-xl border border-border bg-card p-2 shadow-xl animate-in fade-in zoom-in-95">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-muted px-2 py-1 border-b border-border/60">
                     Cột hiển thị
                   </div>
@@ -570,7 +594,7 @@ export default function ElectricityManagementPage() {
                     {(Object.keys(columnLabels) as ColumnKey[]).map((colKey) => (
                       <label
                         key={colKey}
-                        className="flex items-center gap-2 px-2 py-1 rounded-lg text-xs font-medium text-text hover:bg-muted/20 cursor-pointer"
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-text hover:bg-muted/20 cursor-pointer"
                       >
                         <input
                           type="checkbox"
@@ -592,34 +616,34 @@ export default function ElectricityManagementPage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8.5 rounded-xl px-2.5 text-xs font-bold shadow-none border-border"
+                className="h-9 rounded-xl px-3 text-xs font-bold shadow-sm border-border"
                 title="Cài đặt kết nối Hunonic"
               >
-                <Settings2 size={12} className="mr-1" /> Cài đặt
+                <Settings2 size={13} className="mr-1.5" /> Cài đặt
               </Button>
             </Link>
 
             {/* View Mode Toggle */}
-            <div className="flex items-center rounded-xl border border-border bg-background p-0.5">
+            <div className="flex items-center rounded-xl border border-border bg-background p-0.5 shadow-sm">
               <button
                 type="button"
                 onClick={() => setViewMode("table")}
-                className={`flex h-7.5 w-7.5 items-center justify-center rounded-lg text-xs transition ${
+                className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs transition ${
                   viewMode === "table" ? "bg-primary text-white shadow-sm" : "text-muted hover:text-text"
                 }`}
-                title="Dạng bảng"
+                title="Dạng danh sách bảng"
               >
-                <LayoutList size={14} />
+                <LayoutList size={15} />
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode("grid")}
-                className={`flex h-7.5 w-7.5 items-center justify-center rounded-lg text-xs transition ${
+                className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs transition ${
                   viewMode === "grid" ? "bg-primary text-white shadow-sm" : "text-muted hover:text-text"
                 }`}
-                title="Dạng thẻ"
+                title="Dạng thẻ lưới"
               >
-                <LayoutGrid size={14} />
+                <LayoutGrid size={15} />
               </button>
             </div>
           </div>
@@ -675,7 +699,7 @@ export default function ElectricityManagementPage() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-border bg-muted/20 text-[11px] font-bold uppercase tracking-wider text-muted">
-                    <th className="py-2.5 px-3 w-8 text-center">
+                    <th className="py-2.5 px-3 w-8 text-center" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={isAllSelected}
@@ -689,6 +713,7 @@ export default function ElectricityManagementPage() {
                     {visibleColumns.room && <th className="py-2.5 px-3">Phòng / Tòa</th>}
                     {visibleColumns.device && <th className="py-2.5 px-3">Công tơ / Thiết bị</th>}
                     {visibleColumns.status && <th className="py-2.5 px-3 text-center">Trạng thái</th>}
+                    {visibleColumns.rateMode && <th className="py-2.5 px-3">Phương thức tính giá</th>}
                     {visibleColumns.power && <th className="py-2.5 px-3 text-right">Công suất</th>}
                     {visibleColumns.energy && <th className="py-2.5 px-3 text-right">Tiêu thụ tháng</th>}
                     {visibleColumns.cost && <th className="py-2.5 px-3 text-right">Tạm tính</th>}
@@ -699,7 +724,7 @@ export default function ElectricityManagementPage() {
                 <tbody className="divide-y divide-border">
                   {filteredMeters.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-muted">
+                      <td colSpan={10} className="py-12 text-center text-muted">
                         <PlugZap size={32} className="mx-auto text-muted/30 mb-2" />
                         <div className="font-bold text-xs text-text">Không tìm thấy công tơ nào</div>
                         <div className="text-[11px] mt-0.5 text-muted">Thử thay đổi bộ lọc hoặc bấm Đồng bộ.</div>
@@ -715,14 +740,25 @@ export default function ElectricityManagementPage() {
                       const powerW = Number(meter.powerCurrentW || 0);
                       const isActionOpen = openActionRowId === meterId;
 
+                      const rateInfo = rateByRoomKey.get(meter.id) || rateByRoomKey.get(`${meter.buildingCode}::${meter.roomCode}`);
+                      const isCustomRate = rateInfo?.currentMode === "custom" || meter.rateMode === "custom";
+                      const customPrice = rateInfo?.customRateVnd || meter.customRateVnd || 3500;
+
                       return (
                         <tr
                           key={meterId}
-                          className={`transition-colors ${
-                            isSelected ? "bg-primary/5" : "hover:bg-muted/10"
+                          onClick={(e) => {
+                            const target = e.target as HTMLElement;
+                            if (target.closest("button") || target.closest("select") || target.closest("input") || target.closest("a")) {
+                              return;
+                            }
+                            toggleSelectMeter(meterId);
+                          }}
+                          className={`transition-colors cursor-pointer select-none ${
+                            isSelected ? "bg-primary/10 border-l-2 border-primary" : "hover:bg-muted/10"
                           }`}
                         >
-                          <td className="py-2 px-3 text-center">
+                          <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
                               checked={isSelected}
@@ -768,6 +804,20 @@ export default function ElectricityManagementPage() {
                             </td>
                           )}
 
+                          {visibleColumns.rateMode && (
+                            <td className="py-2 px-3">
+                              {isCustomRate ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                  <Zap size={10} /> Tự thiết lập ({formatCurrency(customPrice)}/kWh)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                                  <Bolt size={10} /> Bậc thang EVN
+                                </span>
+                              )}
+                            </td>
+                          )}
+
                           {visibleColumns.power && (
                             <td className="py-2 px-3 text-right font-mono font-bold text-muted">
                               {formatWatts(powerW)}
@@ -793,7 +843,7 @@ export default function ElectricityManagementPage() {
                           )}
 
                           {visibleColumns.actions && (
-                            <td className="py-2 px-3 text-center relative">
+                            <td className="py-2 px-3 text-center relative" onClick={(e) => e.stopPropagation()}>
                               <button
                                 type="button"
                                 onClick={() => setOpenActionRowId(isActionOpen ? null : meterId)}
@@ -870,11 +920,21 @@ export default function ElectricityManagementPage() {
                 const energyKwh = Number(meter.energyMonthKwh || meter.totalKwh || meter.currentKwh || 0);
                 const cost = Number(meter.moneyMonthVnd || meter.estimatedCost || meter.amount || 0);
                 const powerW = Number(meter.powerCurrentW || 0);
+                const rateInfo = rateByRoomKey.get(meter.id) || rateByRoomKey.get(`${meter.buildingCode}::${meter.roomCode}`);
+                const isCustomRate = rateInfo?.currentMode === "custom" || meter.rateMode === "custom";
+                const customPrice = rateInfo?.customRateVnd || meter.customRateVnd || 3500;
 
                 return (
                   <Card
                     key={meterId}
-                    className={`p-3 transition-all relative flex flex-col justify-between gap-2.5 ${
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      if (target.closest("button") || target.closest("select") || target.closest("input") || target.closest("a")) {
+                        return;
+                      }
+                      toggleSelectMeter(meterId);
+                    }}
+                    className={`p-3 transition-all relative flex flex-col justify-between gap-2.5 cursor-pointer select-none ${
                       isSelected
                         ? "border-primary ring-2 ring-primary/20 bg-primary/5"
                         : "border-border hover:border-primary/40 bg-card"
@@ -886,6 +946,7 @@ export default function ElectricityManagementPage() {
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleSelectMeter(meterId)}
+                          onClick={(e) => e.stopPropagation()}
                           className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer mt-0.5"
                         />
                         <div>
@@ -910,6 +971,12 @@ export default function ElectricityManagementPage() {
 
                     <div className="rounded-xl border border-border/70 bg-background/50 p-2 space-y-1.5 text-xs">
                       <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-muted">Phương thức:</span>
+                        <span className="font-bold text-[10px] text-text">
+                          {isCustomRate ? `Tự lập (${customPrice}đ)` : "Bậc thang EVN"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
                         <span className="text-[10px] text-muted">Công suất:</span>
                         <span className="font-mono font-bold text-text">{formatWatts(powerW)}</span>
                       </div>
@@ -925,7 +992,7 @@ export default function ElectricityManagementPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 pt-0.5">
+                    <div className="flex items-center gap-1.5 pt-0.5" onClick={(e) => e.stopPropagation()}>
                       <Button
                         type="button"
                         variant="outline"

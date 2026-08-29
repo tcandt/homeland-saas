@@ -1,10 +1,24 @@
 "use client";
 
 import React, { useState } from "react";
-import { Bot, LockKeyhole, Send, ShieldCheck } from "lucide-react";
+import {
+  AlertCircle,
+  Bot,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Info,
+  LockKeyhole,
+  MessageSquare,
+  Send,
+  Settings2,
+  ShieldCheck,
+  Zap,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 import { useAuthStore } from "@/lib/auth/auth-store";
@@ -29,118 +43,328 @@ const fallback: TelegramSettings = {
   note: "",
 };
 
+function shortSecret(value?: string) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "Chưa cấu hình";
+  if (normalized.length <= 8) return "••••••••";
+  return `${normalized.slice(0, 4)}••••${normalized.slice(-4)}`;
+}
+
 export default function SettingsTelegramIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<TelegramSettings>("telegram-provider", "TENANT", fallback);
   const user = useAuthStore((state) => state.user);
-  const [botTokenTouched, setBotTokenTouched] = useState(false);
-  const [testRecipient, setTestRecipient] = useState("");
-  const [isTesting, setIsTesting] = useState(false);
   const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
-  const saveTelegram = async () => {
-    const payload: Partial<TelegramSettings> = { ...draft };
-    if (!canEditSecrets || !botTokenTouched) delete payload.botToken;
-    await save(payload as TelegramSettings);
-    setBotTokenTouched(false);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [configDraft, setConfigDraft] = useState<TelegramSettings>(fallback);
+  const [botTokenTouched, setBotTokenTouched] = useState(false);
+  const [showBotToken, setShowBotToken] = useState(false);
+  const [testRecipient, setTestRecipient] = useState("");
+  const [isTesting, setIsTesting] = useState(false);
+
+  const openConfigModal = () => {
+    setConfigDraft({
+      ...draft,
+      botToken: draft.botToken || "",
+    });
+    setShowBotToken(false);
+    setIsConfigModalOpen(true);
+  };
+
+  const closeConfigModal = () => {
+    setIsConfigModalOpen(false);
+  };
+
+  const saveConfigModal = async () => {
+    const isTokenChanged = configDraft.botToken !== (draft.botToken || "");
+    const payload: Partial<TelegramSettings> = { ...configDraft };
+    if (!canEditSecrets || !isTokenChanged) delete payload.botToken;
+
+    try {
+      setDraft(configDraft);
+      await save(payload as TelegramSettings);
+      setBotTokenTouched(false);
+      setIsConfigModalOpen(false);
+      toast.success("Đã cập nhật cấu hình Telegram thành công!");
+    } catch (error: any) {
+      toast.error(error?.message || "Lỗi khi lưu cấu hình Telegram");
+    }
   };
 
   const testTelegram = async () => {
+    const recipient = testRecipient.trim() || configDraft.defaultChatId || draft.defaultChatId;
+    if (!recipient) {
+      toast.error("Vui lòng nhập Chat ID nhận test hoặc cấu hình Default Chat ID");
+      return;
+    }
+
     setIsTesting(true);
     try {
       await settingsApi.testTelegram({
-        recipient: testRecipient.trim() || undefined,
-        title: "HomeLand Telegram test",
-        message: `HomeLand test Telegram at ${new Date().toLocaleString("vi-VN")}`,
+        recipient,
+        title: "HomeLand - Thử nghiệm Telegram Bot",
+        message: `🤖 <b>HomeLand Notification Test</b>\nTin nhắn thử nghiệm gửi từ hệ thống lúc <code>${new Date().toLocaleString("vi-VN")}</code>.\nCấu hình Telegram Bot hoạt động tốt!`,
       });
-      toast.success("Đã gửi Telegram test");
+      toast.success(`Đã gửi tin nhắn test tới Chat ID: ${recipient}`);
     } catch (error: any) {
-      toast.error(error?.message || "Không gửi được Telegram test");
+      toast.error(error?.message || "Không gửi được tin nhắn test. Vui lòng kiểm tra Bot Token và Chat ID.");
     } finally {
       setIsTesting(false);
     }
   };
 
   return (
-    <Card className="p-[20px] flex flex-col gap-[18px] border-[#22c55e]/15">
-      <div className="flex items-start justify-between gap-[16px]">
-        <div>
-          <div className="flex items-center gap-[8px] text-[#22c55e] text-[12px] font-black uppercase tracking-[0.16em]">
-            <Bot size={14} /> Telegram Bot
+    <div className="flex h-full flex-col gap-4">
+      <Card className="flex h-full flex-col gap-4 border-emerald-500/20 shadow-sm p-4 sm:p-5">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 pb-2 border-b border-border/60">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+                <Bot size={16} />
+              </div>
+              <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                Telegram Bot
+              </span>
+              {draft.enabled ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Đang bật
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-500/10 text-slate-500 border border-slate-500/20">
+                  Đang tắt
+                </span>
+              )}
+            </div>
+            <h3 className="text-lg font-black text-text">Cấu hình gửi Telegram</h3>
+            <p className="text-xs text-muted">
+              Lưu bot token và chat mặc định để gửi cảnh báo tự động tới nhóm vận hành hoặc từng chat cụ thể.
+            </p>
           </div>
-          <h3 className="mt-[8px] text-[18px] font-black text-text">Cấu hình Telegram</h3>
-          <p className="mt-[6px] text-[13px] text-muted max-w-[720px]">
-            Lưu bot token và chat mặc định để gửi cảnh báo tự động tới nhóm vận hành hoặc từng chat cụ thể.
-          </p>
-        </div>
-        <div className="flex items-center gap-[10px] rounded-full border border-border px-[12px] py-[8px] bg-background">
-          <span className="text-[12px] font-bold text-muted">Bật Telegram</span>
-          <Switch checked={draft.enabled} onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-[16px]">
-        <div className="flex flex-col gap-[6px]">
-          <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Bot token</label>
-          <Input
-            type="password"
-            value={draft.botToken}
-            onChange={(event) => {
-              setBotTokenTouched(true);
-              setDraft((prev) => ({ ...prev, botToken: event.target.value }));
-            }}
-            placeholder={canEditSecrets ? "Để trống để giữ nguyên bot token" : "Chỉ admin@homeland.vn được chỉnh sửa"}
-            disabled={!canEditSecrets}
-            data-testid="integration-secret-field"
-          />
-        </div>
-        <div className="flex flex-col gap-[6px]">
-          <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Default chat ID</label>
-          <Input value={draft.defaultChatId} onChange={(event) => setDraft((prev) => ({ ...prev, defaultChatId: event.target.value }))} placeholder="-100..." />
-        </div>
-        <div className="flex flex-col gap-[6px]">
-          <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Parse mode</label>
-          <Input value={draft.parseMode} onChange={(event) => setDraft((prev) => ({ ...prev, parseMode: event.target.value as TelegramSettings["parseMode"] }))} placeholder="HTML hoặc MarkdownV2" />
-        </div>
-        <div className="flex items-center gap-[10px] h-[40px] rounded-xl border border-border px-[12px] self-end">
-          <Send size={14} className="text-[#22c55e]" />
-          <span className="text-[12px] font-bold text-muted flex-1">Tắt preview link</span>
-          <Switch checked={draft.disableWebPreview} onChange={(event) => setDraft((prev) => ({ ...prev, disableWebPreview: event.target.checked }))} />
-        </div>
-        <div className="flex flex-col gap-[6px] lg:col-span-2">
-          <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Ghi chú vận hành</label>
-          <Input value={draft.note} onChange={(event) => setDraft((prev) => ({ ...prev, note: event.target.value }))} />
-        </div>
-        <div className="flex flex-col gap-[6px] lg:col-span-2">
-          <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Chat ID nhận test</label>
-          <Input value={testRecipient} onChange={(event) => setTestRecipient(event.target.value)} placeholder="Để trống để dùng default chat ID" />
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-border bg-background p-[16px] flex items-start gap-[12px]">
-        <ShieldCheck size={18} className="text-[#22c55e] mt-[2px]" />
-        <div>
-          <div className="font-black text-text">Recipient linh hoạt</div>
-          <div className="text-[13px] text-muted mt-[4px]">
-            Nếu notification có recipient hoặc telegramChatId trong payload thì hệ thống dùng giá trị đó; nếu không sẽ dùng default chat ID.
+          <div className="flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 shadow-sm">
+            <Switch
+              checked={draft.enabled}
+              onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))}
+              aria-label="Bật Telegram"
+            />
           </div>
         </div>
-      </div>
 
-      {!canEditSecrets && (
-        <div className="flex items-start gap-[9px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[11px] text-[12px] font-medium leading-[18px] text-muted">
-          <LockKeyhole size={15} className="mt-[1px] shrink-0 text-warning" aria-hidden="true" />
-          Bot token chỉ được chỉnh sửa bởi admin@homeland.vn.
+        {/* Section: HỢP NHẤT TOÀN BỘ CẤU HÌNH VÀO 1 BOX TINH GỌN */}
+        <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
+              <MessageSquare size={14} className="text-emerald-600" /> Tích hợp Telegram Bot
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={openConfigModal}
+              className="h-8 rounded-xl px-3 text-xs font-bold text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/5 hover:border-emerald-500"
+            >
+              <Settings2 size={13} className="mr-1.5" /> Thiết lập cấu hình
+            </Button>
+          </div>
+
+          {/* Consolidated Summary Grid */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Bot Token</div>
+              <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                {draft.botToken ? shortSecret(draft.botToken) : <span className="text-muted font-normal">Chưa cấu hình</span>}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3 cursor-pointer hover:border-emerald-500/40 transition" onClick={openConfigModal}>
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Default Chat ID</div>
+              <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                {draft.defaultChatId || <span className="text-muted font-normal">Chưa cấu hình</span>}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Định dạng (Parse)</div>
+              <div className="mt-1 text-xs font-bold text-text truncate">
+                {draft.parseMode ? draft.parseMode : "HTML (Mặc định)"}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Tắt Preview Link</div>
+              <div className="mt-1 text-xs font-bold text-text truncate">
+                {draft.disableWebPreview ? (
+                  <span className="text-emerald-600 dark:text-emerald-400">Đang bật</span>
+                ) : (
+                  <span className="text-slate-500">Đang tắt</span>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3 col-span-2 sm:col-span-1">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Ghi chú vận hành</div>
+              <div className="mt-1 text-xs font-bold text-text truncate">
+                {draft.note || "Thông báo hệ thống"}
+              </div>
+            </div>
+          </div>
         </div>
-      )}
 
-      <div className="flex justify-end gap-[10px]">
-        <Button type="button" variant="outline" onClick={testTelegram} className="h-[44px] px-[20px] rounded-[12px] font-bold text-[14px]" isLoading={isTesting}>
-          Gửi thử Telegram
-        </Button>
-        <Button type="button" onClick={saveTelegram} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
-          Lưu Telegram
-        </Button>
-      </div>
-    </Card>
+        {/* Footer Link chỉ dẫn */}
+        <div className="mt-auto border-t border-border/60 pt-3 flex items-center justify-between">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <ShieldCheck size={13} /> Telegram Bot API • Hỗ trợ Chat ID nhóm & cá nhân
+          </span>
+          <span className="text-[11px] text-muted">
+            {draft.defaultChatId ? "Đã gán nhóm mặc định" : "Chưa cấu hình nhóm"}
+          </span>
+        </div>
+      </Card>
+
+      {/* POPUP MODAL: THIẾT LẬP TOÀN BỘ CẤU HÌNH TELEGRAM BOT */}
+      <Modal
+        isOpen={isConfigModalOpen}
+        onClose={closeConfigModal}
+        title="Thiết lập cấu hình Telegram Bot"
+        maxWidth="max-w-[720px]"
+        footer={
+          <div className="flex flex-wrap items-center justify-between gap-2.5 w-full">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={testTelegram}
+                isLoading={isTesting}
+                className="h-10 rounded-xl px-3.5 text-xs font-bold"
+              >
+                <Send size={14} className="mr-1.5 text-emerald-600" /> Gửi thử Telegram
+              </Button>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <Button type="button" variant="outline" onClick={closeConfigModal}>
+                Hủy bỏ
+              </Button>
+              <Button type="button" onClick={saveConfigModal} className="bg-primary text-white font-bold">
+                Lưu cấu hình
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          {/* Nhóm 1: Bot Token */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wider">
+              <Bot size={14} /> 1. Telegram Bot Token
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Bot Token (Lấy từ @BotFather)</label>
+              <div className="relative">
+                <Input
+                  type={showBotToken ? "text" : "password"}
+                  value={configDraft.botToken}
+                  onChange={(event) => {
+                    setBotTokenTouched(true);
+                    setConfigDraft((prev) => ({ ...prev, botToken: event.target.value }));
+                  }}
+                  placeholder={canEditSecrets ? "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ" : "Chỉ admin@homeland.vn được sửa"}
+                  disabled={!canEditSecrets}
+                  className="pr-10 text-xs font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowBotToken(!showBotToken)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                >
+                  {showBotToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              <span className="text-[11px] text-muted">Nhắn tin với @BotFather trên Telegram để tạo bot và lấy mã token.</span>
+            </div>
+          </div>
+
+          {/* Nhóm 2: Chat ID mặc định & Định dạng */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wider">
+              <MessageSquare size={14} /> 2. Nhóm nhận tin & Định dạng tin nhắn
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-text">Default Chat ID</label>
+                <Input
+                  value={configDraft.defaultChatId}
+                  onChange={(event) => setConfigDraft((prev) => ({ ...prev, defaultChatId: event.target.value }))}
+                  placeholder="-100... hoặc Chat ID người nhận"
+                  className="h-10 text-xs font-mono"
+                />
+                <span className="text-[11px] text-muted">Nhóm Supergroup có tiền tố <code>-100...</code>.</span>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-text">Định dạng tin nhắn (Parse Mode)</label>
+                <select
+                  value={configDraft.parseMode || ""}
+                  onChange={(event) =>
+                    setConfigDraft((prev) => ({
+                      ...prev,
+                      parseMode: event.target.value as TelegramSettings["parseMode"],
+                    }))
+                  }
+                  className="h-10 w-full rounded-xl border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="">HTML (Khuyến nghị)</option>
+                  <option value="MarkdownV2">MarkdownV2</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="pt-1">
+              <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background px-3.5 py-2.5 cursor-pointer hover:border-emerald-500/40 transition">
+                <div>
+                  <div className="text-xs font-bold text-text">Tắt xem trước liên kết (Disable Web Preview)</div>
+                  <div className="text-[11px] text-muted">Không hiển thị khung xem trước URL trong nội dung tin nhắn.</div>
+                </div>
+                <Switch
+                  checked={configDraft.disableWebPreview}
+                  onChange={(event) =>
+                    setConfigDraft((prev) => ({ ...prev, disableWebPreview: event.target.checked }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Nhóm 3: Ghi chú & Thử nghiệm */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wider">
+              <Send size={14} /> 3. Ghi chú & Thử nghiệm gửi tin
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Ghi chú vận hành</label>
+              <Input
+                value={configDraft.note}
+                onChange={(event) => setConfigDraft((prev) => ({ ...prev, note: event.target.value }))}
+                placeholder="Ví dụ: Nhóm Ban Quản Lý & Vận Hành"
+                className="h-10 text-xs font-bold"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Chat ID nhận thử nghiệm (Test Chat ID)</label>
+              <Input
+                value={testRecipient}
+                onChange={(event) => setTestRecipient(event.target.value)}
+                placeholder="Để trống sẽ gửi tới Default Chat ID"
+                className="h-10 text-xs font-mono"
+              />
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </div>
   );
 }

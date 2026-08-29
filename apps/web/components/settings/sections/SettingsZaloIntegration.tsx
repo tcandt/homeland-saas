@@ -506,13 +506,58 @@ export default function SettingsZaloIntegration() {
         title="Thiết lập cấu hình Zalo Provider & Webhook"
         maxWidth="max-w-[720px]"
         footer={
-          <div className="flex items-center justify-end gap-2.5">
-            <Button type="button" variant="outline" onClick={closeConfigModal}>
-              Hủy bỏ
-            </Button>
-            <Button type="button" onClick={saveConfigModal} className="bg-primary text-white font-bold">
-              Lưu cấu hình
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2.5 w-full">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={testAdminGroup}
+                isLoading={isTestingAdminGroup}
+                disabled={!hasAdminGroup}
+                className="h-10 rounded-xl px-3 text-xs font-bold"
+              >
+                <Send size={13} className="mr-1.5 text-purple-600" /> Test Admin
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={testZaloBot}
+                isLoading={isTestingBot}
+                disabled={!draft.botToken}
+                className="h-10 rounded-xl px-3 text-xs font-bold"
+              >
+                <Bot size={13} className="mr-1.5" /> Test Bot
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={connectWebhook}
+                isLoading={isConnectingWebhook}
+                className="h-10 rounded-xl px-3 text-xs font-bold"
+              >
+                <Link2 size={13} className="mr-1.5 text-primary" /> Connect
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={refreshStatus}
+                isLoading={isRefreshingStatus}
+                className="h-10 rounded-xl px-3 text-xs font-bold"
+              >
+                <RefreshCcw size={13} className="mr-1.5" /> Làm mới
+              </Button>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <Button type="button" variant="outline" onClick={closeConfigModal}>
+                Hủy bỏ
+              </Button>
+              <Button type="button" onClick={saveConfigModal} className="bg-primary text-white font-bold">
+                Lưu cấu hình
+              </Button>
+            </div>
           </div>
         }
       >
@@ -692,57 +737,6 @@ export default function SettingsZaloIntegration() {
                   ? `Mã kết nối có hiệu lực đến: ${formatDateTime(configDraft.adminSetupCodeExpiresAt)}`
                   : "Thêm Bot vào nhóm Admin ➔ Gửi lệnh /setadmin CODE hoặc /id ➔ Bấm Get ChatID"}
               </div>
-            </div>
-          </div>
-
-          {/* Nhóm 4: Công cụ kiểm tra & Thao tác kết nối */}
-          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-purple-600 uppercase tracking-wider">
-              <Zap size={14} /> 4. Kiểm tra kết nối & Thao tác
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={testAdminGroup}
-                isLoading={isTestingAdminGroup}
-                disabled={!hasAdminGroup}
-                className="h-10 rounded-xl px-3 text-xs font-bold"
-              >
-                <Send size={13} className="mr-1.5 text-purple-600" /> Test Admin
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={testZaloBot}
-                isLoading={isTestingBot}
-                disabled={!draft.botToken}
-                className="h-10 rounded-xl px-3 text-xs font-bold"
-              >
-                <Bot size={13} className="mr-1.5" /> Test Bot
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={connectWebhook}
-                isLoading={isConnectingWebhook}
-                className="h-10 rounded-xl px-3 text-xs font-bold"
-              >
-                <Link2 size={13} className="mr-1.5 text-primary" /> Connect Webhook
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={refreshStatus}
-                isLoading={isRefreshingStatus}
-                className="h-10 rounded-xl px-3 text-xs font-bold"
-              >
-                <RefreshCcw size={13} className="mr-1.5" /> Làm mới
-              </Button>
             </div>
           </div>
         </div>

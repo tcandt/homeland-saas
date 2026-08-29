@@ -556,13 +556,34 @@ export default function SettingsSePayIntegration() {
         title="Thiết lập cấu hình SePay Gateway"
         maxWidth="max-w-[760px]"
         footer={
-          <div className="flex items-center justify-end gap-2.5">
-            <Button type="button" variant="outline" onClick={closeConfigModal}>
-              Hủy bỏ
-            </Button>
-            <Button type="button" onClick={saveConfigModal} className="bg-primary text-white font-bold">
-              Lưu cấu hình
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2.5 w-full">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={openQrModal}
+                className="h-10 rounded-xl px-3.5 text-xs font-bold"
+              >
+                <QrCode size={14} className="mr-1.5 text-primary" /> Test QR
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => mutateAdminConfig()}
+                isLoading={isLoadingAdminConfig}
+                className="h-10 rounded-xl px-3.5 text-xs font-bold"
+              >
+                <RefreshCcw size={14} className="mr-1.5" /> Làm mới
+              </Button>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <Button type="button" variant="outline" onClick={closeConfigModal}>
+                Hủy bỏ
+              </Button>
+              <Button type="button" onClick={saveConfigModal} className="bg-primary text-white font-bold">
+                Lưu cấu hình
+              </Button>
+            </div>
           </div>
         }
       >
@@ -783,35 +804,6 @@ export default function SettingsSePayIntegration() {
                   }
                 />
               </label>
-            </div>
-          </div>
-
-          {/* Nhóm 5: Công cụ kiểm tra (Test QR & Refresh) */}
-          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
-                <QrCode size={14} /> 5. Công cụ kiểm tra & Làm mới
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={openQrModal}
-                className="h-10 rounded-xl px-4 text-xs font-bold"
-              >
-                <QrCode size={14} className="mr-1.5 text-primary" /> Mở công cụ Test QR
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => mutateAdminConfig()}
-                isLoading={isLoadingAdminConfig}
-                className="h-10 rounded-xl px-4 text-xs font-bold"
-              >
-                <RefreshCcw size={14} className="mr-1.5" /> Làm mới trạng thái
-              </Button>
             </div>
           </div>
         </div>

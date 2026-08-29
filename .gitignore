@@ -83,6 +83,7 @@ apps/web/tests/e2e/acceptance/screenshots/
 deploy/public-production/env.public-production
 deploy/public-testing/env.public-testing
 deploy/public-production/release/
+deploy/public-production/release.tgz
 
 # local document fixtures and restore experiments
 tai-lieu/

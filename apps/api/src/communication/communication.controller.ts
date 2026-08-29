@@ -318,7 +318,8 @@ export class CommunicationController {
     const webhookUrl = buildTenantWebhookUrl(value);
     const recentWebhookChats = sanitizeStoredWebhookChats(value.recentWebhookChats);
     const safeLastWebhookChatId = normalizePersistableChatId(value.lastWebhookChatId);
-    const hasWebhookEvidence = hasStoredWebhookEvidence(value, recentWebhookChats, safeLastWebhookChatId);
+    const safeLastWebhookPreviewChatId = normalizePersistableChatId(value.lastWebhookPreview?.chatId);
+    const hasWebhookEvidence = hasStoredWebhookEvidence(value, recentWebhookChats, safeLastWebhookChatId) || Boolean(safeLastWebhookPreviewChatId);
     const lastWebhookPreview = hasWebhookEvidence ? value.lastWebhookPreview || null : null;
     const adminSetupCodePending = hasPendingSetupCode(value);
     return {
@@ -344,7 +345,7 @@ export class CommunicationController {
         lastWebhookPreview,
         defaultChatId: hasWebhookEvidence ? normalizePersistableChatId(value.defaultChatId) : null,
         recentWebhookChats: hasWebhookEvidence ? recentWebhookChats.slice(0, 10) : [],
-        webhookChatAvailable: Boolean(recentWebhookChats.length || safeLastWebhookChatId),
+        webhookChatAvailable: Boolean(recentWebhookChats.length || safeLastWebhookChatId || safeLastWebhookPreviewChatId),
         lastPollingError: value.lastPollingError || null,
       },
     };
@@ -509,11 +510,23 @@ export class CommunicationController {
 
     const value = (setting.value as any) || {};
     const recentWebhookChats = sanitizeStoredWebhookChats(value.recentWebhookChats);
+    const previewWebhookChat = normalizePersistableChatId(value.lastWebhookPreview?.chatId)
+      ? {
+          chatId: normalizePersistableChatId(value.lastWebhookPreview?.chatId),
+          chatType: value.lastWebhookPreview?.chatType || 'unknown',
+          userId: value.lastWebhookPreview?.senderId || null,
+          eventName: value.lastWebhookPreview?.eventName || null,
+          displayName: value.lastWebhookPreview?.displayName || null,
+          lastSeenAt: value.lastWebhookReceivedAt || new Date().toISOString(),
+          source: 'zalo',
+        }
+      : null;
     let detectedChat =
       recentWebhookChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo' && String(chat?.chatType || '').toLowerCase() === 'group')
       || recentWebhookChats.find((chat: any) => String(chat?.chatType || '').toLowerCase() === 'group')
       || recentWebhookChats.find((chat: any) => String(chat?.source || '').toLowerCase() === 'zalo')
       || recentWebhookChats[0]
+      || previewWebhookChat
       || (
         normalizePersistableChatId(value.lastWebhookChatId)
           ? {

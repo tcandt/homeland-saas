@@ -255,6 +255,48 @@ describe('CommunicationController Zalo webhook', () => {
     });
   });
 
+  it('captures chat ids from conversation.id payloads returned by Zalo variants', async () => {
+    const { controller, prisma } = createController();
+    prisma.appSetting.findMany.mockResolvedValueOnce([
+      {
+        id: 'setting-1',
+        tenantId: 'tenant-1',
+        value: {
+          enabled: true,
+          webhookSecret: 'expected-secret',
+        },
+      },
+    ]);
+
+    const result = await controller.handleZaloWebhook({ rawBody: '{"event_name":"message"}' }, {
+      event_name: 'message',
+      message: {
+        conversation: { id: 'zalo-conversation-321', type: 'GROUP' },
+        from: { id: 'user-conv-1', display_name: 'Admin Conv' },
+        text: '/id',
+      },
+    }, 'expected-secret');
+
+    expect(result).toEqual({ success: true, capturedChat: true });
+    expect(prisma.appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          lastWebhookChatId: 'zalo-conversation-321',
+          lastWebhookChatType: 'group',
+          lastWebhookSenderId: 'user-conv-1',
+          recentWebhookChats: expect.arrayContaining([
+            expect.objectContaining({
+              chatId: 'zalo-conversation-321',
+              chatType: 'group',
+              displayName: 'Admin Conv',
+            }),
+          ]),
+        }),
+      },
+    });
+  });
+
   it('captures real Zalo wrapped webhook payloads and extracts the group chat id', async () => {
     const { controller, prisma, zaloRegistrationService } = createController();
     prisma.appSetting.findMany.mockResolvedValueOnce([
@@ -624,6 +666,42 @@ describe('CommunicationController Zalo webhook', () => {
       data: {
         value: expect.objectContaining({
           adminGroupChatId: 'zalo-from-diagnostics',
+        }),
+      },
+    });
+  });
+
+  it('falls back to the latest webhook preview when history is empty and no stored chat id exists', async () => {
+    const { controller, prisma } = createController();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({
+      id: 'setting-1',
+      value: {
+        lastWebhookPreview: {
+          chatId: 'zalo-preview-group-555',
+          chatType: 'group',
+          senderId: 'sender-preview-1',
+          eventName: 'message',
+        },
+        lastWebhookReceivedAt: '2026-08-24T09:19:40.280Z',
+      },
+    });
+
+    const result = await controller.autoDetectAdminGroup({ user: { tenantId: 'tenant-1' } });
+
+    expect(result).toEqual({
+      success: true,
+      chat: expect.objectContaining({
+        chatId: 'zalo-preview-group-555',
+        chatType: 'group',
+        userId: 'sender-preview-1',
+        eventName: 'message',
+      }),
+    });
+    expect(prisma.appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          adminGroupChatId: 'zalo-preview-group-555',
         }),
       },
     });

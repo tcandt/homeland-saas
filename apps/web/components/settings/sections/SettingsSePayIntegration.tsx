@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import {
   AlertCircle,
+  Building2,
   Check,
   CheckCircle2,
   Copy,
@@ -11,10 +12,8 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  HelpCircle,
   Info,
   Link2,
-  LockKeyhole,
   Pencil,
   Plus,
   QrCode,
@@ -146,8 +145,6 @@ export default function SettingsSePayIntegration() {
   // Modal states
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState<SePaySettings>(fallback);
-  const [webhookApiKeyTouched, setWebhookApiKeyTouched] = useState(false);
-  const [hmacSecretTouched, setHmacSecretTouched] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showHmacSecret, setShowHmacSecret] = useState(false);
 
@@ -324,22 +321,6 @@ export default function SettingsSePayIntegration() {
     }
   };
 
-  const saveAll = async () => {
-    const payload: Partial<SePaySettings> = { ...draft };
-    if (!canEditSecrets || !webhookApiKeyTouched) delete payload.webhookApiKey;
-    if (!canEditSecrets || !hmacSecretTouched) delete payload.hmacSecret;
-    try {
-      await save(payload as SePaySettings);
-      await saveBankDefaults(bankDefaultsDraft);
-      setWebhookApiKeyTouched(false);
-      setHmacSecretTouched(false);
-      await mutateAdminConfig();
-      toast.success("Đã lưu cấu hình SePay thành công!");
-    } catch (error: any) {
-      toast.error(error?.message || "Lỗi lưu cấu hình");
-    }
-  };
-
   const openQrModal = () => {
     setPreview(null);
     setIsQrModalOpen(true);
@@ -433,47 +414,11 @@ export default function SettingsSePayIntegration() {
     }
   };
 
-  const actionBar = (
-    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-      <div className="flex items-center gap-2 text-xs text-muted">
-        <a
-          href="https://developer.sepay.vn/vi/sepay-webhooks"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-        >
-          <ExternalLink size={12} /> Tài liệu SePay Webhooks
-        </a>
-      </div>
-      <div className="flex flex-wrap items-center justify-end gap-2.5">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={openQrModal}
-          className="h-10 rounded-xl px-4 text-xs font-bold shadow-sm"
-        >
-          <QrCode size={14} className="mr-1.5 text-primary" /> Test QR
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => mutateAdminConfig()}
-          isLoading={isLoadingAdminConfig}
-          className="h-10 rounded-xl px-4 text-xs font-bold shadow-sm"
-        >
-          <RefreshCcw size={14} className="mr-1.5" /> Làm mới
-        </Button>
-        <Button
-          type="button"
-          onClick={saveAll}
-          className="h-10 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-sm hover:opacity-90 transition-all"
-          isLoading={isSaving}
-        >
-          Lưu cấu hình
-        </Button>
-      </div>
-    </div>
-  );
+  const primaryOwnerBankSummary = useMemo(() => {
+    if (ownerRows.length === 0) return "Chưa có chủ nhà";
+    const totalBanks = ownerRows.reduce((acc: number, owner: any) => acc + (owner.bankAccounts?.length || 0), 0);
+    return `${ownerRows.length} Chủ nhà • ${totalBanks} tài khoản`;
+  }, [ownerRows]);
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -512,15 +457,125 @@ export default function SettingsSePayIntegration() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3.5">
-          {/* Section 1: Tài khoản nhận tiền theo Chủ nhà */}
-          <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3">
+        {/* Section: HỢP NHẤT TOÀN BỘ CẤU HÌNH VÀ TÀI KHOẢN VÀO 1 BOX TINH GỌN */}
+        <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
+              <Link2 size={14} className="text-primary" /> Tích hợp Webhook & Cấu hình SePay
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={openConfigModal}
+              className="h-8 rounded-xl px-3 text-xs font-bold text-primary border-primary/30 hover:bg-primary/5 hover:border-primary"
+            >
+              <Settings2 size={13} className="mr-1.5" /> Thiết lập cấu hình
+            </Button>
+          </div>
+
+          {/* Webhook URL preview box */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center justify-between overflow-hidden rounded-xl border border-border bg-card px-3.5 py-2.5">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase font-bold text-muted tracking-wider">Webhook URL hoàn chỉnh (Dán vào SePay)</div>
+                <div className="truncate text-xs font-mono font-bold text-text mt-0.5 select-all">{webhookUrl}</div>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => copyText(webhookUrl, "Webhook URL")}
+              className="h-12 px-3.5 shrink-0 rounded-xl text-xs font-bold shadow-sm"
+            >
+              {copiedUrl ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
+              <span className="ml-1.5 hidden sm:inline">{copiedUrl ? "Đã sao chép" : "Sao chép URL"}</span>
+            </Button>
+          </div>
+
+          {/* Consolidated Summary Grid */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="rounded-xl border border-border bg-card p-3 cursor-pointer hover:border-primary/40 transition" onClick={openConfigModal}>
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted flex items-center justify-between">
+                <span>Tài khoản nhận</span>
+                <CreditCard size={12} className="text-primary" />
+              </div>
+              <div className="mt-1 text-xs font-black text-text truncate">
+                {primaryOwnerBankSummary}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Xác thực (Auth)</div>
+              <div className="mt-1 text-xs font-black text-text truncate">
+                {getAuthModeLabel(draft.authMode)}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Khóa bí mật (Secret)</div>
+              <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                {draft.hmacSecret ? "HMAC: Đã cài" : draft.webhookApiKey ? "API Key: Đã cài" : <span className="text-muted font-normal">Chưa cấu hình</span>}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Tiền tố mã (Prefix)</div>
+              <div className="mt-1 text-xs font-mono font-black text-primary truncate">
+                {draft.paymentCodePrefix || "PAY"}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3 col-span-2 sm:col-span-1">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Trạng thái Webhook</div>
+              <div className="mt-1">{getStatusBadge(status?.lastWebhookStatus)}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Link chỉ dẫn */}
+        <div className="mt-auto border-t border-border/60 pt-3 flex items-center justify-between">
+          <a
+            href="https://developer.sepay.vn/vi/sepay-webhooks"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <ExternalLink size={12} /> Tài liệu SePay Webhooks
+          </a>
+          <span className="text-[11px] text-muted">
+            {status?.lastWebhookAt ? `Nhận gần nhất: ${formatDateTime(status?.lastWebhookAt)}` : "Chưa có biến động"}
+          </span>
+        </div>
+      </Card>
+
+      {/* POPUP MODAL: THIẾT LẬP TOÀN BỘ CẤU HÌNH SEPAY & TÀI KHOẢN NHẬN TIỀN */}
+      <Modal
+        isOpen={isConfigModalOpen}
+        onClose={closeConfigModal}
+        title="Thiết lập cấu hình SePay Gateway"
+        maxWidth="max-w-[760px]"
+        footer={
+          <div className="flex items-center justify-end gap-2.5">
+            <Button type="button" variant="outline" onClick={closeConfigModal}>
+              Hủy bỏ
+            </Button>
+            <Button type="button" onClick={saveConfigModal} className="bg-primary text-white font-bold">
+              Lưu cấu hình
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          {/* Nhóm 1: Tài khoản nhận tiền theo Chủ nhà */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
-                <CreditCard size={14} className="text-primary" /> Tài khoản nhận tiền theo Chủ nhà (Owner)
+              <div className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
+                <CreditCard size={14} /> 1. Tài khoản nhận tiền theo Chủ nhà (Owner)
               </div>
               <span className="text-[11px] text-muted">{ownerRows.length} chủ nhà</span>
             </div>
+
             <div className="space-y-2">
               {ownerRows.map((owner: any) => {
                 const ownerBanks = owner.bankAccounts || [];
@@ -530,13 +585,11 @@ export default function SettingsSePayIntegration() {
                   ownerBanks.find((bank: any) => bank.isActive) ||
                   ownerBanks[0];
                 return (
-                  <button
+                  <div
                     key={owner.id}
-                    type="button"
-                    onClick={() => openOwnerModal(owner.id)}
-                    className="flex w-full flex-col gap-2 rounded-xl border border-border/80 bg-card p-3 text-left transition-all hover:border-primary/50 hover:shadow-sm md:flex-row md:items-center md:justify-between"
+                    className="flex flex-col gap-2 rounded-xl border border-border/80 bg-background p-3 text-left md:flex-row md:items-center md:justify-between"
                   >
-                    <div className="min-w-0 md:w-1/4">
+                    <div className="min-w-0 md:w-1/3">
                       <div className="text-xs font-black text-text truncate">{owner.name}</div>
                       <div className="mt-0.5 text-[11px] text-muted truncate">
                         {(owner.buildings || []).map((building: any) => building.code).join(", ") || "Chưa gắn tòa"}
@@ -554,120 +607,26 @@ export default function SettingsSePayIntegration() {
                       <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-black text-primary">
                         {ownerBanks.length} bank
                       </span>
-                      <span className="text-xs font-bold text-primary underline-offset-2 hover:underline">
-                        Thiết lập
-                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openOwnerModal(owner.id)}
+                        className="h-8 rounded-lg px-2.5 text-xs font-bold text-primary"
+                      >
+                        Quản lý
+                      </Button>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
           </div>
 
-          {/* Section 2: GỘP CHUNG - Cấu hình tích hợp Webhook & Tham số SePay */}
-          <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3.5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
-                <Link2 size={14} className="text-primary" /> Tích hợp Webhook & Cấu hình SePay
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={openConfigModal}
-                className="h-8 rounded-xl px-3 text-xs font-bold text-primary border-primary/30 hover:bg-primary/5 hover:border-primary"
-              >
-                <Settings2 size={13} className="mr-1.5" /> Thiết lập cấu hình
-              </Button>
-            </div>
-
-            {/* Webhook URL preview box */}
-            <div className="flex items-center gap-2">
-              <div className="flex-1 flex items-center justify-between overflow-hidden rounded-xl border border-border bg-card px-3.5 py-2.5">
-                <div className="min-w-0">
-                  <div className="text-[10px] uppercase font-bold text-muted tracking-wider">Webhook URL hoàn chỉnh (Dán vào SePay)</div>
-                  <div className="truncate text-xs font-mono font-bold text-text mt-0.5 select-all">{webhookUrl}</div>
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => copyText(webhookUrl, "Webhook URL")}
-                className="h-12 px-3.5 shrink-0 rounded-xl text-xs font-bold shadow-sm"
-              >
-                {copiedUrl ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
-                <span className="ml-1.5 hidden sm:inline">{copiedUrl ? "Đã sao chép" : "Sao chép URL"}</span>
-              </Button>
-            </div>
-
-            {/* Consolidated Summary Grid */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Xác thực (Auth)</div>
-                <div className="mt-1 text-xs font-black text-text truncate">
-                  {getAuthModeLabel(draft.authMode)}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Khóa bí mật (Secret)</div>
-                <div className="mt-1 text-xs font-mono font-bold text-text truncate">
-                  {draft.hmacSecret ? "HMAC: Đã cài" : draft.webhookApiKey ? "API Key: Đã cài" : <span className="text-muted font-normal">Chưa cấu hình</span>}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Tiền tố mã (Prefix)</div>
-                <div className="mt-1 text-xs font-mono font-black text-primary truncate">
-                  {draft.paymentCodePrefix || "PAY"}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Báo qua Zalo</div>
-                <div className="mt-1 text-xs font-bold text-text truncate">
-                  {draft.sendPaymentResultToZalo ? (
-                    <span className="text-emerald-600 dark:text-emerald-400">Đang bật</span>
-                  ) : (
-                    <span className="text-muted">Đang tắt</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border bg-card p-3 col-span-2 sm:col-span-1">
-                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Trạng thái Webhook</div>
-                <div className="mt-1">{getStatusBadge(status?.lastWebhookStatus)}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Action Bar Footer */}
-        <div className="mt-auto border-t border-border/60 pt-3">{actionBar}</div>
-      </Card>
-
-      {/* POPUP MODAL: THIẾT LẬP TOÀN BỘ CẤU HÌNH SEPAY & WEBHOOK */}
-      <Modal
-        isOpen={isConfigModalOpen}
-        onClose={closeConfigModal}
-        title="Thiết lập cấu hình SePay & Webhook"
-        maxWidth="max-w-[680px]"
-        footer={
-          <div className="flex items-center justify-end gap-2.5">
-            <Button type="button" variant="outline" onClick={closeConfigModal}>
-              Hủy bỏ
-            </Button>
-            <Button type="button" onClick={saveConfigModal} className="bg-primary text-white font-bold">
-              Lưu cấu hình
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
-          {/* Nhóm 1: Webhook Endpoint */}
+          {/* Nhóm 2: Webhook Endpoint */}
           <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
             <div className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
-              <Link2 size={14} /> 1. Webhook Endpoint
+              <Link2 size={14} /> 2. Webhook Endpoint
             </div>
 
             <div className="space-y-1">
@@ -707,10 +666,10 @@ export default function SettingsSePayIntegration() {
             </div>
           </div>
 
-          {/* Nhóm 2: Phương thức xác thực & Khóa bảo mật */}
+          {/* Nhóm 3: Phương thức xác thực & Khóa bảo mật */}
           <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
             <div className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
-              <ShieldCheck size={14} /> 2. Xác thực & Khóa bảo mật (Secret)
+              <ShieldCheck size={14} /> 3. Xác thực & Khóa bảo mật (Secret)
             </div>
 
             <div className="space-y-1">
@@ -778,10 +737,10 @@ export default function SettingsSePayIntegration() {
             </div>
           </div>
 
-          {/* Nhóm 3: Tham số thanh toán & Zalo Notification */}
+          {/* Nhóm 4: Tham số thanh toán & Zalo */}
           <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
             <div className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
-              <Zap size={14} /> 3. Tham số mã thanh toán & Thông báo
+              <Zap size={14} /> 4. Tham số mã thanh toán & Thông báo
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -824,6 +783,35 @@ export default function SettingsSePayIntegration() {
                   }
                 />
               </label>
+            </div>
+          </div>
+
+          {/* Nhóm 5: Công cụ kiểm tra (Test QR & Refresh) */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
+                <QrCode size={14} /> 5. Công cụ kiểm tra & Làm mới
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={openQrModal}
+                className="h-10 rounded-xl px-4 text-xs font-bold"
+              >
+                <QrCode size={14} className="mr-1.5 text-primary" /> Mở công cụ Test QR
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => mutateAdminConfig()}
+                isLoading={isLoadingAdminConfig}
+                className="h-10 rounded-xl px-4 text-xs font-bold"
+              >
+                <RefreshCcw size={14} className="mr-1.5" /> Làm mới trạng thái
+              </Button>
             </div>
           </div>
         </div>
@@ -903,8 +891,9 @@ export default function SettingsSePayIntegration() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-black ${bank.isActive ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800"
-                          }`}
+                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-black ${
+                          bank.isActive ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800"
+                        }`}
                       >
                         {bank.isActive ? "Đang hoạt động" : "Đã tạm dừng"}
                       </span>
@@ -1029,16 +1018,18 @@ export default function SettingsSePayIntegration() {
               <button
                 type="button"
                 onClick={() => setTestMode("room")}
-                className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${testMode === "room" ? "bg-primary text-white shadow-sm" : "bg-transparent text-muted hover:text-text"
-                  }`}
+                className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
+                  testMode === "room" ? "bg-primary text-white shadow-sm" : "bg-transparent text-muted hover:text-text"
+                }`}
               >
                 Theo phòng
               </button>
               <button
                 type="button"
                 onClick={() => setTestMode("account")}
-                className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${testMode === "account" ? "bg-primary text-white shadow-sm" : "bg-transparent text-muted hover:text-text"
-                  }`}
+                className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
+                  testMode === "account" ? "bg-primary text-white shadow-sm" : "bg-transparent text-muted hover:text-text"
+                }`}
               >
                 Theo tài khoản ngân hàng
               </button>

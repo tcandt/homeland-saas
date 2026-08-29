@@ -1,4 +1,4 @@
-﻿import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { AuditAction, JournalSourceType, PaymentProvider, PaymentRequestStatus, PaymentSourceType, Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
@@ -50,7 +50,7 @@ type PaymentRequestResponse = {
   updatedAt: Date;
 };
 
-type SePayAuthMode = 'apiKey' | 'hmac' | 'dual';
+type SePayAuthMode = 'apiKey' | 'hmac' | 'dual' | 'none';
 type SePayRoutingAssignment = {
   id?: string;
   roomId: string;
@@ -291,6 +291,7 @@ export class PaymentsService {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'hmac') return 'hmac';
     if (normalized === 'dual') return 'dual';
+    if (normalized === 'none') return 'none';
     return 'apiKey';
   }
 
@@ -308,10 +309,12 @@ export class PaymentsService {
 
   private verifySePayHmac(secret: string, timestamp: string, rawBody: string, signature: string) {
     if (!secret || !timestamp || !rawBody || !signature) return false;
+    const cleanSignature = String(signature).replace(/^sha256=/i, '').trim().toLowerCase();
     const expected = createHmac('sha256', secret)
       .update(`${timestamp}.${rawBody}`)
-      .digest('hex');
-    return this.constantTimeEquals(expected, signature);
+      .digest('hex')
+      .toLowerCase();
+    return this.constantTimeEquals(expected, cleanSignature);
   }
 
   private async resolveOwnerDefaultBankAccountId(tenantId: string, ownerId?: string | null) {
@@ -1779,6 +1782,7 @@ export class PaymentsService {
     const roomLabel = preview.roomCode ? `${preview.roomCode}${preview.buildingName ? ` • ${preview.buildingName}` : ''}` : 'Không gắn phòng';
 
     const builtCaption = [
+      `QR test SePay • ${roomLabel}`,
       `${preview.bankName} - ${preview.bankAccountNumber}`,
       `${preview.bankAccountName || '-'}`,
       `So tien: ${Math.round(preview.amount).toLocaleString('vi-VN')} đ`,
@@ -1858,18 +1862,29 @@ export class PaymentsService {
     const authMatched = webhookSettings.some((setting) => {
       const config = (setting.value as any) || {};
       const authMode = this.normalizeSePayAuthMode(config.authMode);
+      if (authMode === 'none') return true;
+
       const apiKey = String(config.webhookApiKey || '').trim();
       const hmacSecret = String(config.hmacSecret || '').trim();
-      const apiKeyOk = Boolean(apiKey) && String(headers.authorization || '').trim() === `Apikey ${apiKey}`;
+      const rawAuth = String(headers.authorization || '').trim();
+      const apiKeyOk =
+        Boolean(apiKey) &&
+        (rawAuth === `Apikey ${apiKey}` ||
+          rawAuth === `ApiKey ${apiKey}` ||
+          rawAuth === `apikey ${apiKey}` ||
+          rawAuth === `Bearer ${apiKey}` ||
+          rawAuth === apiKey);
+
       const timestamp = String(headers.timestamp || '').trim();
       const rawBody = String(headers.rawBody || '').trim();
       const signature = String(headers.signature || '').trim();
-      const hmacOk = Boolean(hmacSecret)
-        && Boolean(timestamp)
-        && Boolean(rawBody)
-        && Boolean(signature)
-        && this.verifySePayTimestamp(timestamp)
-        && this.verifySePayHmac(hmacSecret, timestamp, rawBody, signature);
+      const hmacOk =
+        Boolean(hmacSecret) &&
+        Boolean(timestamp) &&
+        Boolean(rawBody) &&
+        Boolean(signature) &&
+        this.verifySePayTimestamp(timestamp) &&
+        this.verifySePayHmac(hmacSecret, timestamp, rawBody, signature);
 
       if (authMode === 'hmac') return hmacOk;
       if (authMode === 'dual') return apiKeyOk || hmacOk;

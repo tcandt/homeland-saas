@@ -245,19 +245,41 @@ export default function SettingsHunonicIntegration() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-3 cursor-pointer hover:border-emerald-500/40 transition" onClick={openConfigModal}>
-              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Tài khoản Hunonic</div>
-              <div className="mt-1 text-xs font-mono font-bold text-text truncate">
-                {draft.username || <span className="text-muted font-normal">Chưa cấu hình</span>}
+            {draft.mode === "website" ? (
+              <div className="rounded-xl border border-border bg-card p-3 cursor-pointer hover:border-emerald-500/40 transition" onClick={openConfigModal}>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Bearer Token</div>
+                <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                  {draft.websiteToken ? shortSecret(draft.websiteToken) : <span className="text-muted font-normal">Chưa cấu hình</span>}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-card p-3 cursor-pointer hover:border-emerald-500/40 transition" onClick={openConfigModal}>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Tài khoản Hunonic</div>
+                <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                  {draft.username || <span className="text-muted font-normal">Chưa cấu hình</span>}
+                </div>
+              </div>
+            )}
 
-            <div className="rounded-xl border border-border bg-card p-3">
-              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Trạng thái Token</div>
-              <div className="mt-1 text-xs font-mono font-bold text-text truncate">
-                {draft.websiteToken ? shortSecret(draft.websiteToken) : draft.password ? "Mật khẩu: Đã cài" : <span className="text-muted font-normal">Chưa cấu hình</span>}
+            {draft.mode === "website" ? (
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Cookie Session</div>
+                <div className="mt-1 text-xs font-bold text-text truncate">
+                  {draft.websiteCookie ? (
+                    <span className="text-emerald-600 dark:text-emerald-400">Đã cấu hình</span>
+                  ) : (
+                    <span className="text-muted font-normal">Chưa cấu hình</span>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Mật khẩu API</div>
+                <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                  {draft.password ? "••••••••" : <span className="text-muted font-normal">Chưa cấu hình</span>}
+                </div>
+              </div>
+            )}
 
             <div className="rounded-xl border border-border bg-card p-3">
               <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Số công tơ</div>
@@ -330,10 +352,10 @@ export default function SettingsHunonicIntegration() {
         }
       >
         <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
-          {/* Nhóm 1: Chế độ kết nối & Tài khoản */}
+          {/* Nhóm 1: Chọn Chế độ kết nối */}
           <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
             <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wider">
-              <Server size={14} /> 1. Chế độ kết nối & Tài khoản Hunonic
+              <Server size={14} /> 1. Chế độ kết nối Hunonic
             </div>
 
             <div className="space-y-1">
@@ -348,112 +370,158 @@ export default function SettingsHunonicIntegration() {
                 }
                 className="h-10 w-full rounded-xl border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
               >
-                <option value="website">Website Session (Khuyến nghị cho Web Portal)</option>
-                <option value="mobile">Mobile / Hunonic Pro API v2</option>
+                <option value="website">Website Session (Dùng Token / Cookie từ Web Portal)</option>
+                <option value="mobile">Mobile / Hunonic Pro API v2 (Dùng SĐT & Mật khẩu)</option>
               </select>
+              <span className="text-[11px] text-muted">
+                {configDraft.mode === "website"
+                  ? "Chế độ Website Session kết nối trực tiếp qua Session Cookie hoặc Bearer Token lấy từ web.hunonic.com."
+                  : "Chế độ Mobile kết nối qua API Hunonic Pro bằng Số điện thoại và Mật khẩu đăng nhập."}
+              </span>
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* Nhóm 2A: Nếu chọn Mobile API -> Hiển thị Tài khoản & Mật khẩu */}
+          {configDraft.mode === "mobile" && (
+            <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wider">
+                <Smartphone size={14} /> 2. Tài khoản & Mật khẩu Mobile API
+              </div>
+
               <div className="space-y-1">
-                <label className="text-xs font-bold text-text">Số điện thoại / Username</label>
+                <label className="text-xs font-bold text-text">Mobile API Base URL</label>
                 <Input
-                  value={configDraft.username}
-                  onChange={(event) => setConfigDraft((prev) => ({ ...prev, username: event.target.value }))}
-                  placeholder="0987654321"
+                  value={configDraft.baseUrl}
+                  onChange={(event) => setConfigDraft((prev) => ({ ...prev, baseUrl: event.target.value }))}
+                  placeholder="https://api.hunonicpro.com/v2"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  className="h-10 text-xs font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-text">Số điện thoại / Username Hunonic</label>
+                  <Input
+                    value={configDraft.username}
+                    onChange={(event) => setConfigDraft((prev) => ({ ...prev, username: event.target.value }))}
+                    placeholder="0987654321"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    name="hunonic_mobile_username_input"
+                    className="h-10 text-xs font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-text">Mật khẩu tài khoản</label>
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      value={configDraft.password}
+                      onChange={(event) => {
+                        setSecretTouched((prev) => ({ ...prev, password: true }));
+                        setConfigDraft((prev) => ({ ...prev, password: event.target.value }));
+                      }}
+                      placeholder={canEditSecrets ? "Nhập mật khẩu" : "Chỉ admin@homeland.vn được sửa"}
+                      disabled={!canEditSecrets}
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      name="hunonic_mobile_password_input"
+                      className="pr-10 text-xs font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                    >
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Nhóm 2B: Nếu chọn Website Session -> Hiển thị Base URL, Bearer Token, Cookie Session */}
+          {configDraft.mode === "website" && (
+            <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wider">
+                <ShieldCheck size={14} /> 2. Token & Cookies từ Web Portal
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-text">Website Base URL</label>
+                <Input
+                  value={configDraft.websiteBaseUrl}
+                  onChange={(event) => setConfigDraft((prev) => ({ ...prev, websiteBaseUrl: event.target.value }))}
+                  placeholder="https://web.hunonic.com/api/api/hun-api"
+                  autoComplete="off"
+                  data-lpignore="true"
                   className="h-10 text-xs font-mono"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-text">Mật khẩu tài khoản</label>
+                <label className="text-xs font-bold text-text">Website Bearer Token (Tùy chọn ghi đè)</label>
                 <div className="relative">
                   <Input
-                    type={showPassword ? "text" : "password"}
-                    value={configDraft.password}
+                    type={showWebsiteToken ? "text" : "password"}
+                    value={configDraft.websiteToken}
                     onChange={(event) => {
-                      setSecretTouched((prev) => ({ ...prev, password: true }));
-                      setConfigDraft((prev) => ({ ...prev, password: event.target.value }));
+                      setSecretTouched((prev) => ({ ...prev, websiteToken: true }));
+                      setConfigDraft((prev) => ({ ...prev, websiteToken: event.target.value }));
                     }}
-                    placeholder={canEditSecrets ? "Nhập mật khẩu" : "Chỉ admin@homeland.vn được sửa"}
+                    placeholder={canEditSecrets ? "Bearer Token từ web.hunonic.com" : "Chỉ admin@homeland.vn được sửa"}
                     disabled={!canEditSecrets}
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
                     className="pr-10 text-xs font-mono"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
+                    onClick={() => setShowWebsiteToken(!showWebsiteToken)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
                   >
-                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    {showWebsiteToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-text">Website Cookie Session</label>
+                <div className="relative">
+                  <Input
+                    type={showWebsiteCookie ? "text" : "password"}
+                    value={configDraft.websiteCookie}
+                    onChange={(event) => {
+                      setSecretTouched((prev) => ({ ...prev, websiteCookie: true }));
+                      setConfigDraft((prev) => ({ ...prev, websiteCookie: event.target.value }));
+                    }}
+                    placeholder={canEditSecrets ? "Cookie session từ trình duyệt web.hunonic.com" : "Chỉ admin@homeland.vn được sửa"}
+                    disabled={!canEditSecrets}
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    className="pr-10 text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowWebsiteCookie(!showWebsiteCookie)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                  >
+                    {showWebsiteCookie ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Nhóm 2: Token & Cookies */}
-          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wider">
-              <ShieldCheck size={14} /> 2. Token & Thông tin Web API
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-text">Website Base URL</label>
-              <Input
-                value={configDraft.websiteBaseUrl}
-                onChange={(event) => setConfigDraft((prev) => ({ ...prev, websiteBaseUrl: event.target.value }))}
-                placeholder="https://web.hunonic.com/api/api/hun-api"
-                className="h-10 text-xs font-mono"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-text">Website Bearer Token (Tùy chọn ghi đè)</label>
-              <div className="relative">
-                <Input
-                  type={showWebsiteToken ? "text" : "password"}
-                  value={configDraft.websiteToken}
-                  onChange={(event) => {
-                    setSecretTouched((prev) => ({ ...prev, websiteToken: true }));
-                    setConfigDraft((prev) => ({ ...prev, websiteToken: event.target.value }));
-                  }}
-                  placeholder={canEditSecrets ? "Bearer Token từ web.hunonic.com" : "Chỉ admin@homeland.vn được sửa"}
-                  disabled={!canEditSecrets}
-                  className="pr-10 text-xs font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowWebsiteToken(!showWebsiteToken)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
-                >
-                  {showWebsiteToken ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-text">Website Cookie Session</label>
-              <div className="relative">
-                <Input
-                  type={showWebsiteCookie ? "text" : "password"}
-                  value={configDraft.websiteCookie}
-                  onChange={(event) => {
-                    setSecretTouched((prev) => ({ ...prev, websiteCookie: true }));
-                    setConfigDraft((prev) => ({ ...prev, websiteCookie: event.target.value }));
-                  }}
-                  placeholder={canEditSecrets ? "Cookie session từ trình duyệt" : "Chỉ admin@homeland.vn được sửa"}
-                  disabled={!canEditSecrets}
-                  className="pr-10 text-xs font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowWebsiteCookie(!showWebsiteCookie)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
-                >
-                  {showWebsiteCookie ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Nhóm 3: Chu kỳ đồng bộ & Thời gian lưu trữ */}
           <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">

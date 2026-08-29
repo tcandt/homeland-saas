@@ -69,9 +69,17 @@ export default function SettingsEmailIntegration() {
   const [isTesting, setIsTesting] = useState(false);
 
   const openConfigModal = () => {
+    const current = draft || fallback;
     setConfigDraft({
-      ...draft,
-      smtpPassword: draft.smtpPassword || "",
+      enabled: Boolean(current.enabled),
+      smtpHost: current.smtpHost || "",
+      smtpPort: Number(current.smtpPort || 587),
+      smtpSecure: Boolean(current.smtpSecure),
+      smtpUser: current.smtpUser || "",
+      smtpPassword: current.smtpPassword || "",
+      fromName: current.fromName || "",
+      fromEmail: current.fromEmail || "",
+      sendHtml: current.sendHtml ?? true,
     });
     setShowPassword(false);
     setIsConfigModalOpen(true);

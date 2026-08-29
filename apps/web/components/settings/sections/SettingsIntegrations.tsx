@@ -2,8 +2,8 @@
 
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, CircleOff, Database, PlugZap, Search, ShieldCheck } from "lucide-react";
-import { Input } from "@/components/ui/Input";
+import { useAuthStore } from "@/lib/auth/auth-store";
+import { ArrowRight, CircleOff, Database, PlugZap, Search, ShieldCheck, X } from "lucide-react";
 import SettingsSePayIntegration from "./SettingsSePayIntegration";
 import SettingsZaloIntegration from "./SettingsZaloIntegration";
 import SettingsEmailIntegration from "./SettingsEmailIntegration";
@@ -20,10 +20,10 @@ const categories: Array<{ id: IntegrationCategory; label: string }> = [
 ];
 
 const panelMetadata = [
-  { id: "sepay", category: "payment" as const, keywords: "sepay thanh toán qr webhook ngân hàng" },
-  { id: "zalo", category: "messaging" as const, keywords: "zalo tin nhắn thông báo hóa đơn" },
-  { id: "email", category: "messaging" as const, keywords: "email smtp thư điện tử thông báo" },
-  { id: "telegram", category: "messaging" as const, keywords: "telegram bot nhóm vận hành cảnh báo" },
+  { id: "sepay", category: "payment" as const, keywords: "sepay thanh toán qr webhook ngân hàng bank đối soát" },
+  { id: "zalo", category: "messaging" as const, keywords: "zalo tin nhắn thông báo hóa đơn bot oa" },
+  { id: "email", category: "messaging" as const, keywords: "email smtp thư điện tử thông báo mail" },
+  { id: "telegram", category: "messaging" as const, keywords: "telegram bot nhóm vận hành cảnh báo chat" },
   { id: "hunonic", category: "iot" as const, keywords: "hunonic điện công tơ iot chỉ số" },
 ];
 
@@ -35,6 +35,7 @@ function hasSavedRecord(updatedAt?: string) {
 
 export default function SettingsIntegrations() {
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<IntegrationCategory>("all");
   const sepay = useSettingsSectionQuery<Record<string, unknown>>("sepay", "TENANT");
@@ -46,13 +47,25 @@ export default function SettingsIntegrations() {
   const savedCount = settingsQueries.filter((item) => hasSavedRecord(item.data?.updatedAt)).length;
   const enabledCount = settingsQueries.filter((item) => item.data?.value?.enabled === true).length;
   const isHunonicSaved = hasSavedRecord(hunonic.data?.updatedAt);
-  const normalizedQuery = query.trim().toLocaleLowerCase("vi-VN");
+
+  // If query was auto-filled by browser password manager with current user email, ignore it
+  const userEmail = (user?.email || "").trim().toLowerCase();
+  const normalizedQuery = useMemo(() => {
+    const raw = query.trim().toLocaleLowerCase("vi-VN");
+    if (userEmail && raw === userEmail) return "";
+    return raw;
+  }, [query, userEmail]);
+
   const visiblePanelIds = useMemo(() => {
-    return new Set(panelMetadata.filter((panel) => {
-      const matchesCategory = activeCategory === "all" || panel.category === activeCategory;
-      const matchesSearch = !normalizedQuery || panel.keywords.includes(normalizedQuery);
-      return matchesCategory && matchesSearch;
-    }).map((panel) => panel.id));
+    return new Set(
+      panelMetadata
+        .filter((panel) => {
+          const matchesCategory = activeCategory === "all" || panel.category === activeCategory;
+          const matchesSearch = !normalizedQuery || panel.keywords.includes(normalizedQuery);
+          return matchesCategory && matchesSearch;
+        })
+        .map((panel) => panel.id),
+    );
   }, [activeCategory, normalizedQuery]);
   const hasVisiblePanels = visiblePanelIds.size > 0;
 
@@ -66,14 +79,34 @@ export default function SettingsIntegrations() {
           </p>
         </div>
         <div className="relative w-full shrink-0 md:w-[300px]">
-          <Search size={14} className="absolute left-[12px] top-1/2 -translate-y-1/2 text-muted" />
-          <Input
+          <Search size={14} className="absolute left-[12px] top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+          <input
+            type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Tìm SePay, Zalo, Email..."
             aria-label="Tìm tích hợp"
-            className="h-[36px] w-full rounded-[8px] border border-border bg-background pl-[34px] pr-[12px] text-[13px] text-text placeholder-muted transition-colors focus:border-primary focus:outline-none"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck="false"
+            name="integration_search_filter_query_random"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-form-type="other"
+            data-bwignore="true"
+            className="h-[36px] w-full rounded-[8px] border border-border bg-background pl-[34px] pr-[32px] text-[13px] text-text placeholder-muted transition-colors focus:border-primary focus:outline-none"
           />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="absolute right-[10px] top-1/2 -translate-y-1/2 text-muted hover:text-text"
+              aria-label="Xóa tìm kiếm"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
       </div>
 

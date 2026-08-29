@@ -63,9 +63,14 @@ export default function SettingsTelegramIntegration() {
   const [isTesting, setIsTesting] = useState(false);
 
   const openConfigModal = () => {
+    const current = draft || fallback;
     setConfigDraft({
-      ...draft,
-      botToken: draft.botToken || "",
+      enabled: Boolean(current.enabled),
+      botToken: current.botToken || "",
+      defaultChatId: current.defaultChatId || "",
+      parseMode: current.parseMode || "",
+      disableWebPreview: current.disableWebPreview ?? true,
+      note: current.note || "",
     });
     setShowBotToken(false);
     setIsConfigModalOpen(true);

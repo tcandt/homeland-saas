@@ -262,6 +262,51 @@ describe('ZaloRegistrationService', () => {
     );
   });
 
+  it('accepts /id commands with a bot mention when auto-binding admin group', async () => {
+    const { service, zaloProvider, prisma } = createService();
+    (prisma as any).appSetting = {
+      findUnique: vi.fn().mockResolvedValue({
+        id: 'setting-1',
+        value: {},
+      }),
+      update: vi.fn().mockResolvedValue({}),
+    };
+
+    const result = await service.handleIncomingMessage(
+      'tenant-1',
+      {
+        chatId: 'group-with-mention-123',
+        senderId: 'sender-456',
+        text: '/id@HomeLandBot',
+        chatType: 'group',
+        eventName: 'message',
+        updateId: 'update-3',
+        displayName: 'Admin Group',
+        raw: {},
+      },
+      {},
+    );
+
+    expect(result).toEqual({
+      route: 'command',
+      action: 'admin_group_auto_connected',
+      chatId: 'group-with-mention-123',
+    });
+    expect((prisma as any).appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          adminGroupChatId: 'group-with-mention-123',
+        }),
+      },
+    });
+    expect(zaloProvider.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: 'group-with-mention-123',
+      }),
+    );
+  });
+
   it('binds the admin group when receiving /setadmin with a valid setup code', async () => {
     const { service, zaloProvider, prisma } = createService();
     (prisma as any).appSetting = {
@@ -310,6 +355,58 @@ describe('ZaloRegistrationService', () => {
         recipient: 'group-123',
         title: 'HomeLand - Admin Bot Connected',
         message: expect.stringContaining('Bot Admin đã kết nối'),
+      }),
+    );
+  });
+
+  it('binds the admin group when receiving /setadmin with a bot mention and valid setup code', async () => {
+    const { service, zaloProvider, prisma } = createService();
+    (prisma as any).appSetting = {
+      findUnique: vi.fn().mockResolvedValue({
+        id: 'setting-1',
+        value: {},
+      }),
+      update: vi.fn().mockResolvedValue({}),
+    };
+
+    const result = await service.handleIncomingMessage(
+      'tenant-1',
+      {
+        updateId: 'u-1',
+        chatId: 'group-123',
+        chatType: 'group',
+        senderId: 'sender-456',
+        text: '/setadmin@HomeLandBot A91F72BC',
+        eventName: 'message.text.received',
+        displayName: 'Admin',
+        raw: {},
+      },
+      {
+        adminSetupCode: 'A91F72BC',
+        adminSetupCodeExpiresAt: '2026-08-29T17:00:00.000Z',
+      },
+    );
+
+    expect(result).toEqual({
+      route: 'command',
+      action: 'admin_group_connected',
+      chatId: 'group-123',
+    });
+    expect((prisma as any).appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          adminGroupChatId: 'group-123',
+          adminSetupCode: null,
+          adminSetupCodeExpiresAt: null,
+          adminSetupCodePending: null,
+        }),
+      },
+    });
+    expect(zaloProvider.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: 'group-123',
+        title: 'HomeLand - Admin Bot Connected',
       }),
     );
   });

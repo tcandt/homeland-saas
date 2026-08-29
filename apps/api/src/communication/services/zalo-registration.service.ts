@@ -433,7 +433,7 @@ function phoneMatches(source: string | null | undefined, expected: string | null
 }
 
 function isChatIdCommand(text: string) {
-  const normalized = String(text || '').trim().toLowerCase();
+  const normalized = normalizeCommandKeyword(text);
   return normalized === '/id' || normalized === '/chatid' || normalized === 'chatid';
 }
 
@@ -447,11 +447,17 @@ function isAdminGroupCandidate(update: NormalizedZaloUpdate) {
 }
 
 function parseSetAdminCommand(text: string | null | undefined) {
-  const match = String(text || '').trim().match(/^\/setadmin\s+(.+)$/i);
+  const match = String(text || '').trim().match(/^\/setadmin(?:@\S+)?\s+(.+)$/i);
   if (!match) return null;
   const setupCode = String(match[1] || '').trim();
   if (!setupCode) return null;
   return { setupCode };
+}
+
+function normalizeCommandKeyword(text: string | null | undefined) {
+  const normalized = String(text || '').trim().toLowerCase();
+  const firstToken = normalized.split(/\s+/)[0] || '';
+  return firstToken.replace(/@\S+$/, '');
 }
 
 function buildComparablePhones(value: string | null | undefined) {

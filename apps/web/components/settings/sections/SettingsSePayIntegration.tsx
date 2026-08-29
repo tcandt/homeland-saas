@@ -20,8 +20,10 @@ import {
   QrCode,
   RefreshCcw,
   Send,
+  Settings2,
   ShieldCheck,
   Star,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -114,8 +116,8 @@ function formatCurrency(value?: number | string | null) {
 function shortSecret(value?: string) {
   const normalized = String(value || "").trim();
   if (!normalized) return "Chưa cấu hình";
-  if (normalized.length <= 14) return "••••••••••••";
-  return `${normalized.slice(0, 4)}••••••••${normalized.slice(-4)}`;
+  if (normalized.length <= 8) return "••••••••";
+  return `${normalized.slice(0, 4)}••••${normalized.slice(-4)}`;
 }
 
 function normalizeWebhookBaseUrl(value?: string | null) {
@@ -141,13 +143,15 @@ export default function SettingsSePayIntegration() {
   const owners = useSWR(["finance-owners-for-sepay"], () => financeApi.getOwners(), { revalidateOnFocus: false });
   const user = useAuthStore((state) => state.user);
 
+  // Modal states
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [configDraft, setConfigDraft] = useState<SePaySettings>(fallback);
   const [webhookApiKeyTouched, setWebhookApiKeyTouched] = useState(false);
   const [hmacSecretTouched, setHmacSecretTouched] = useState(false);
-  const [isSecretModalOpen, setIsSecretModalOpen] = useState(false);
-  const [secretDraft, setSecretDraft] = useState({ webhookApiKey: "", hmacSecret: "" });
   const [showApiKey, setShowApiKey] = useState(false);
   const [showHmacSecret, setShowHmacSecret] = useState(false);
 
+  // Test QR states
   const [isTestingQr, setIsTestingQr] = useState(false);
   const [isSendingQr, setIsSendingQr] = useState(false);
   const [testAmount, setTestAmount] = useState("10000");
@@ -158,6 +162,7 @@ export default function SettingsSePayIntegration() {
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [preview, setPreview] = useState<any>(null);
 
+  // Owner banks states
   const [activeOwnerId, setActiveOwnerId] = useState<string | null>(null);
   const [ownerDefaultBankId, setOwnerDefaultBankId] = useState("");
   const [isSavingOwnerDefault, setIsSavingOwnerDefault] = useState(false);
@@ -192,6 +197,11 @@ export default function SettingsSePayIntegration() {
   const webhookUrl = useMemo(() => {
     return `${effectiveWebhookBaseUrl.replace(/\/$/, "")}/payments/sepay/webhook`;
   }, [effectiveWebhookBaseUrl]);
+
+  const modalWebhookUrl = useMemo(() => {
+    const base = normalizeWebhookBaseUrl(configDraft.webhookBaseUrl) || (typeof window !== "undefined" ? window.location.origin : "");
+    return `${base.replace(/\/$/, "")}/payments/sepay/webhook`;
+  }, [configDraft.webhookBaseUrl]);
 
   const activeRoom = rooms.find((room: any) => room.id === selectedRoomId) || null;
   const activeBank = bankAccounts.find((bank: any) => bank.id === selectedBankAccountId) || null;
@@ -271,6 +281,49 @@ export default function SettingsSePayIntegration() {
     }
   };
 
+  const copyText = async (value: string, label: string) => {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+    toast.success(`Đã sao chép ${label}`);
+  };
+
+  // Open Unified Config Modal
+  const openConfigModal = () => {
+    setConfigDraft({
+      ...draft,
+      webhookApiKey: draft.webhookApiKey || "",
+      hmacSecret: draft.hmacSecret || "",
+    });
+    setShowApiKey(false);
+    setShowHmacSecret(false);
+    setIsConfigModalOpen(true);
+  };
+
+  const closeConfigModal = () => {
+    setIsConfigModalOpen(false);
+  };
+
+  const saveConfigModal = async () => {
+    const isApiKeyChanged = configDraft.webhookApiKey !== (draft.webhookApiKey || "");
+    const isHmacChanged = configDraft.hmacSecret !== (draft.hmacSecret || "");
+
+    const payload: Partial<SePaySettings> = { ...configDraft };
+    if (!canEditSecrets || !isApiKeyChanged) delete payload.webhookApiKey;
+    if (!canEditSecrets || !isHmacChanged) delete payload.hmacSecret;
+
+    try {
+      setDraft(configDraft);
+      await save(payload as SePaySettings);
+      await mutateAdminConfig();
+      setIsConfigModalOpen(false);
+      toast.success("Đã cập nhật cấu hình SePay thành công!");
+    } catch (error: any) {
+      toast.error(error?.message || "Lỗi khi lưu cấu hình");
+    }
+  };
+
   const saveAll = async () => {
     const payload: Partial<SePaySettings> = { ...draft };
     if (!canEditSecrets || !webhookApiKeyTouched) delete payload.webhookApiKey;
@@ -285,41 +338,6 @@ export default function SettingsSePayIntegration() {
     } catch (error: any) {
       toast.error(error?.message || "Lỗi lưu cấu hình");
     }
-  };
-
-  const copyText = async (value: string, label: string) => {
-    if (!value) return;
-    await navigator.clipboard.writeText(value);
-    setCopiedUrl(true);
-    setTimeout(() => setCopiedUrl(false), 2000);
-    toast.success(`Đã sao chép ${label}`);
-  };
-
-  const openSecretModal = () => {
-    setSecretDraft({
-      webhookApiKey: draft.webhookApiKey || "",
-      hmacSecret: draft.hmacSecret || "",
-    });
-    setShowApiKey(false);
-    setShowHmacSecret(false);
-    setIsSecretModalOpen(true);
-  };
-
-  const closeSecretModal = () => {
-    setIsSecretModalOpen(false);
-  };
-
-  const saveSecretModal = () => {
-    if (!canEditSecrets) return;
-    setWebhookApiKeyTouched(secretDraft.webhookApiKey !== (draft.webhookApiKey || ""));
-    setHmacSecretTouched(secretDraft.hmacSecret !== (draft.hmacSecret || ""));
-    setDraft((prev) => ({
-      ...prev,
-      webhookApiKey: secretDraft.webhookApiKey,
-      hmacSecret: secretDraft.hmacSecret,
-    }));
-    setIsSecretModalOpen(false);
-    toast.success("Đã cập nhật Secret (hãy bấm Lưu để áp dụng)");
   };
 
   const openQrModal = () => {
@@ -368,37 +386,51 @@ export default function SettingsSePayIntegration() {
   const getStatusBadge = (webhookStatus?: string | null) => {
     if (!webhookStatus) {
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:text-slate-400">
-          Chưa có
+        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:text-slate-400">
+          Chưa có giao dịch
         </span>
       );
     }
     if (webhookStatus === "PROCESSED") {
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-          <CheckCircle2 size={12} /> Thành công
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+          <CheckCircle2 size={12} /> Hoạt động tốt
         </span>
       );
     }
     if (webhookStatus === "NEEDS_REVIEW") {
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
           <AlertCircle size={12} /> Cần đối soát
         </span>
       );
     }
     if (webhookStatus === "FAILED") {
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:text-rose-400">
+        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:text-rose-400">
           <AlertCircle size={12} /> Lỗi
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-400">
+      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-400">
         {webhookStatus}
       </span>
     );
+  };
+
+  const getAuthModeLabel = (mode?: string) => {
+    switch (mode) {
+      case "hmac":
+        return "HMAC-SHA256";
+      case "dual":
+        return "Dual (API Key & HMAC)";
+      case "none":
+        return "Không xác thực";
+      case "apiKey":
+      default:
+        return "API Key";
+    }
   };
 
   const actionBar = (
@@ -482,7 +514,7 @@ export default function SettingsSePayIntegration() {
         </div>
 
         <div className="flex flex-col gap-3.5">
-          {/* Section 1: Tài khoản nhận tiền */}
+          {/* Section 1: Tài khoản nhận tiền theo Chủ nhà */}
           <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
@@ -533,150 +565,79 @@ export default function SettingsSePayIntegration() {
             </div>
           </div>
 
-          {/* Section 2: Webhook Endpoint */}
-          <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3">
-            <div className="flex items-center justify-between">
+          {/* Section 2: GỘP CHUNG - Cấu hình tích hợp Webhook & Tham số SePay */}
+          <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3.5">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
-                <Link2 size={14} className="text-primary" /> Webhook Endpoint (Nhận thông báo SePay)
+                <Link2 size={14} className="text-primary" /> Tích hợp Webhook & Cấu hình SePay
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={openConfigModal}
+                className="h-8 rounded-xl px-3 text-xs font-bold text-primary border-primary/30 hover:bg-primary/5 hover:border-primary"
+              >
+                <Settings2 size={13} className="mr-1.5" /> Thiết lập cấu hình
+              </Button>
             </div>
 
-            <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-[240px_minmax(0,1fr)]">
-              <div>
-                <label className="text-[11px] font-semibold text-muted block mb-1">Base URL (Tùy chọn)</label>
-                <Input
-                  value={draft.webhookBaseUrl || ""}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, webhookBaseUrl: event.target.value }))}
-                  placeholder={typeof window !== "undefined" ? window.location.origin : "https://homeland.ductinh.one"}
-                  className="h-10 text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-muted block mb-1">Webhook URL hoàn chỉnh (Dán vào SePay)</label>
-                <div className="flex items-center gap-1.5">
-                  <div className="flex-1 flex items-center justify-between overflow-hidden rounded-xl border border-border bg-card px-3 py-2">
-                    <span className="truncate text-xs font-mono font-medium text-text select-all">{webhookUrl}</span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => copyText(webhookUrl, "Webhook URL")}
-                    className="h-10 px-3 shrink-0 rounded-xl text-xs font-bold"
-                  >
-                    {copiedUrl ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                    <span className="ml-1.5 hidden sm:inline">{copiedUrl ? "Đã copy" : "Copy"}</span>
-                  </Button>
+            {/* Webhook URL preview box */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 flex items-center justify-between overflow-hidden rounded-xl border border-border bg-card px-3.5 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase font-bold text-muted tracking-wider">Webhook URL hoàn chỉnh (Dán vào SePay)</div>
+                  <div className="truncate text-xs font-mono font-bold text-text mt-0.5 select-all">{webhookUrl}</div>
                 </div>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => copyText(webhookUrl, "Webhook URL")}
+                className="h-12 px-3.5 shrink-0 rounded-xl text-xs font-bold shadow-sm"
+              >
+                {copiedUrl ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
+                <span className="ml-1.5 hidden sm:inline">{copiedUrl ? "Đã sao chép" : "Sao chép URL"}</span>
+              </Button>
             </div>
 
-            <div className="text-[11px] text-muted flex items-center gap-1.5">
-              <Info size={13} className="shrink-0 text-primary" />
-              <span>SePay yêu cầu endpoint phản hồi HTTP <strong>200 OK</strong> kèm body <code>{"{\"success\": true}"}</code> trong vòng 30s.</span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 pt-1">
+            {/* Consolidated Summary Grid */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[11px] uppercase font-bold tracking-wider text-muted">Phương thức xác thực</div>
-                <div className="mt-1 text-xs font-black text-text uppercase">
-                  {draft.authMode === "none" ? "Không xác thực" : draft.authMode || "apiKey"}
+                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Xác thực (Auth)</div>
+                <div className="mt-1 text-xs font-black text-text truncate">
+                  {getAuthModeLabel(draft.authMode)}
                 </div>
               </div>
+
               <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[11px] uppercase font-bold tracking-wider text-muted">Trạng thái Webhook</div>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Khóa bí mật (Secret)</div>
+                <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                  {draft.hmacSecret ? "HMAC: Đã cài" : draft.webhookApiKey ? "API Key: Đã cài" : <span className="text-muted font-normal">Chưa cấu hình</span>}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Tiền tố mã (Prefix)</div>
+                <div className="mt-1 text-xs font-mono font-black text-primary truncate">
+                  {draft.paymentCodePrefix || "PAY"}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Báo qua Zalo</div>
+                <div className="mt-1 text-xs font-bold text-text truncate">
+                  {draft.sendPaymentResultToZalo ? (
+                    <span className="text-emerald-600 dark:text-emerald-400">Đang bật</span>
+                  ) : (
+                    <span className="text-muted">Đang tắt</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-card p-3 col-span-2 sm:col-span-1">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Trạng thái Webhook</div>
                 <div className="mt-1">{getStatusBadge(status?.lastWebhookStatus)}</div>
-              </div>
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[11px] uppercase font-bold tracking-wider text-muted">Giao dịch gần nhất</div>
-                <div className="mt-1 text-xs font-black text-text">{formatDateTime(status?.lastWebhookAt)}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3: Secret & Chữ ký */}
-          <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[160px_minmax(0,1fr)_minmax(0,1fr)_120px] md:items-center">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
-                <ShieldCheck size={14} className="text-primary" /> Bảo mật & Khóa
-              </div>
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[11px] uppercase font-bold tracking-wider text-muted">API Key</div>
-                <div className="mt-1 truncate text-xs font-mono font-bold text-text">
-                  {draft.webhookApiKey ? shortSecret(draft.webhookApiKey) : <span className="text-muted font-normal">Chưa cấu hình</span>}
-                </div>
-              </div>
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[11px] uppercase font-bold tracking-wider text-muted">HMAC-SHA256 Secret</div>
-                <div className="mt-1 truncate text-xs font-mono font-bold text-text">
-                  {draft.hmacSecret ? shortSecret(draft.hmacSecret) : <span className="text-muted font-normal">Chưa cấu hình</span>}
-                </div>
-              </div>
-              <div className="md:text-right">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={openSecretModal}
-                  className="w-full md:w-auto rounded-xl text-xs font-bold"
-                >
-                  <LockKeyhole size={13} className="mr-1.5 text-primary" />
-                  {canEditSecrets ? "Thiết lập Secret" : "Khóa"}
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 4: Cấu hình chính */}
-          <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3">
-            <div className="text-xs font-bold uppercase tracking-wider text-muted">Cấu hình tham số thanh toán</div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <label className="text-[11px] font-semibold text-muted block mb-1">Xác thực Webhook</label>
-                <select
-                  value={draft.authMode || "apiKey"}
-                  onChange={(event) =>
-                    setDraft((prev) => ({ ...prev, authMode: event.target.value as SePaySettings["authMode"] }))
-                  }
-                  className="h-10 w-full rounded-xl border border-border bg-card px-3 text-xs font-bold text-text focus:outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  <option value="apiKey">API Key (Authorization: Apikey)</option>
-                  <option value="hmac">HMAC-SHA256 (Khuyến nghị)</option>
-                  <option value="dual">Dual (Cả API Key & HMAC)</option>
-                  <option value="none">Không xác thực (Thử nghiệm)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-muted block mb-1">Tiền tố mã thanh toán (Prefix)</label>
-                <Input
-                  value={draft.paymentCodePrefix}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, paymentCodePrefix: event.target.value }))}
-                  placeholder="Ví dụ: PAY hoặc HL"
-                  className="h-10 text-xs font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-muted block mb-1">Template xác nhận</label>
-                <Input
-                  value={draft.invoicePaidTemplateCode}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, invoicePaidTemplateCode: event.target.value }))}
-                  placeholder="Mã template tin nhắn"
-                  className="h-10 text-xs"
-                />
-              </div>
-
-              <div className="flex flex-col justify-end">
-                <label className="flex h-10 items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 cursor-pointer">
-                  <div className="text-xs font-bold text-text">Báo khách qua Zalo</div>
-                  <Switch
-                    checked={draft.sendPaymentResultToZalo}
-                    onChange={(event) =>
-                      setDraft((prev) => ({ ...prev, sendPaymentResultToZalo: event.target.checked }))
-                    }
-                  />
-                </label>
               </div>
             </div>
           </div>
@@ -686,83 +647,185 @@ export default function SettingsSePayIntegration() {
         <div className="mt-auto border-t border-border/60 pt-3">{actionBar}</div>
       </Card>
 
-      {/* Modal: Cấu hình Secret */}
+      {/* POPUP MODAL: THIẾT LẬP TOÀN BỘ CẤU HÌNH SEPAY & WEBHOOK */}
       <Modal
-        isOpen={isSecretModalOpen}
-        onClose={closeSecretModal}
-        title="Thiết lập Secret SePay"
-        maxWidth="max-w-[620px]"
+        isOpen={isConfigModalOpen}
+        onClose={closeConfigModal}
+        title="Thiết lập cấu hình SePay & Webhook"
+        maxWidth="max-w-[680px]"
         footer={
-          <div className="flex items-center justify-end gap-2">
-            <Button type="button" variant="outline" onClick={closeSecretModal}>
-              Hủy
+          <div className="flex items-center justify-end gap-2.5">
+            <Button type="button" variant="outline" onClick={closeConfigModal}>
+              Hủy bỏ
             </Button>
-            <Button type="button" onClick={saveSecretModal} disabled={!canEditSecrets}>
-              Lưu thay đổi
+            <Button type="button" onClick={saveConfigModal} className="bg-primary text-white font-bold">
+              Lưu cấu hình
             </Button>
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="rounded-xl border border-blue-500/20 bg-blue-50/50 dark:bg-blue-950/30 p-3 text-xs text-blue-900 dark:text-blue-200">
-            <div className="flex items-start gap-2">
-              <Info size={16} className="text-blue-500 shrink-0 mt-0.5" />
-              <div>
-                Sao chép <strong>API Key</strong> hoặc <strong>HMAC Secret</strong> từ trang cấu hình Webhook của SePay (
-                <a href="https://my.sepay.vn" target="_blank" rel="noreferrer" className="underline font-bold">
-                  my.sepay.vn
-                </a>
-                ) và dán vào đây.
+        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          {/* Nhóm 1: Webhook Endpoint */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
+              <Link2 size={14} /> 1. Webhook Endpoint
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Base URL (Tùy chọn ghi đè domain)</label>
+              <Input
+                value={configDraft.webhookBaseUrl || ""}
+                onChange={(event) => setConfigDraft((prev) => ({ ...prev, webhookBaseUrl: event.target.value }))}
+                placeholder={typeof window !== "undefined" ? window.location.origin : "https://homeland.ductinh.one"}
+                className="h-10 text-xs font-mono"
+              />
+              <span className="text-[11px] text-muted">Để trống sẽ tự động lấy domain hiện tại.</span>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Webhook URL hoàn chỉnh (Dán vào SePay)</label>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  value={modalWebhookUrl}
+                  readOnly
+                  className="h-10 text-xs font-mono bg-background/50 font-semibold select-all"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copyText(modalWebhookUrl, "Webhook URL")}
+                  className="h-10 px-3 shrink-0 rounded-xl text-xs font-bold"
+                >
+                  <Copy size={13} className="mr-1" /> Copy
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-blue-50/50 dark:bg-blue-950/30 border border-blue-500/20 p-2.5 text-[11px] text-blue-900 dark:text-blue-200 flex items-start gap-2">
+              <Info size={14} className="text-blue-500 shrink-0 mt-0.5" />
+              <span>SePay yêu cầu endpoint phản hồi HTTP <strong>200 OK</strong> kèm body <code>{"{\"success\": true}"}</code> trong 30 giây.</span>
+            </div>
+          </div>
+
+          {/* Nhóm 2: Phương thức xác thực & Khóa bảo mật */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
+              <ShieldCheck size={14} /> 2. Xác thực & Khóa bảo mật (Secret)
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Phương thức xác thực Webhook</label>
+              <select
+                value={configDraft.authMode || "apiKey"}
+                onChange={(event) =>
+                  setConfigDraft((prev) => ({ ...prev, authMode: event.target.value as SePaySettings["authMode"] }))
+                }
+                className="h-10 w-full rounded-xl border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="apiKey">API Key (Header: Authorization: Apikey &lt;key&gt;)</option>
+                <option value="hmac">HMAC-SHA256 (Khuyến nghị bảo mật cao nhất)</option>
+                <option value="dual">Dual (Chấp nhận cả API Key hoặc HMAC)</option>
+                <option value="none">Không xác thực (Chỉ dùng test nội bộ)</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-text">Webhook API Key</label>
+                <div className="relative">
+                  <Input
+                    type={showApiKey ? "text" : "password"}
+                    value={configDraft.webhookApiKey}
+                    onChange={(event) =>
+                      setConfigDraft((prev) => ({ ...prev, webhookApiKey: event.target.value }))
+                    }
+                    placeholder="Nhập API key"
+                    disabled={!canEditSecrets}
+                    className="pr-10 text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                  >
+                    {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-text">HMAC Secret</label>
+                <div className="relative">
+                  <Input
+                    type={showHmacSecret ? "text" : "password"}
+                    value={configDraft.hmacSecret}
+                    onChange={(event) =>
+                      setConfigDraft((prev) => ({ ...prev, hmacSecret: event.target.value }))
+                    }
+                    placeholder="Nhập HMAC Secret"
+                    disabled={!canEditSecrets}
+                    className="pr-10 text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowHmacSecret(!showHmacSecret)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                  >
+                    {showHmacSecret ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="space-y-3">
-            <label className="block space-y-1">
-              <span className="text-xs font-bold text-text">Webhook API Key</span>
-              <div className="relative">
-                <Input
-                  type={showApiKey ? "text" : "password"}
-                  value={secretDraft.webhookApiKey}
-                  onChange={(event) =>
-                    setSecretDraft((prev) => ({ ...prev, webhookApiKey: event.target.value }))
-                  }
-                  placeholder="Nhập API key từ SePay"
-                  disabled={!canEditSecrets}
-                  className="pr-10 text-xs font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
-                >
-                  {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </label>
+          {/* Nhóm 3: Tham số thanh toán & Zalo Notification */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
+              <Zap size={14} /> 3. Tham số mã thanh toán & Thông báo
+            </div>
 
-            <label className="block space-y-1">
-              <span className="text-xs font-bold text-text">HMAC Secret (Khuyến nghị dùng để chống giả mạo)</span>
-              <div className="relative">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-text">Tiền tố mã thanh toán (Prefix)</label>
                 <Input
-                  type={showHmacSecret ? "text" : "password"}
-                  value={secretDraft.hmacSecret}
+                  value={configDraft.paymentCodePrefix}
                   onChange={(event) =>
-                    setSecretDraft((prev) => ({ ...prev, hmacSecret: event.target.value }))
+                    setConfigDraft((prev) => ({ ...prev, paymentCodePrefix: event.target.value.toUpperCase() }))
                   }
-                  placeholder="Nhập HMAC Secret từ SePay"
-                  disabled={!canEditSecrets}
-                  className="pr-10 text-xs font-mono"
+                  placeholder="Ví dụ: PAY hoặc HL"
+                  className="h-10 text-xs font-bold uppercase font-mono"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowHmacSecret(!showHmacSecret)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
-                >
-                  {showHmacSecret ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+                <span className="text-[11px] text-muted">Cần khớp với cấu hình mã thanh toán trên SePay.</span>
               </div>
-            </label>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-text">Mã template xác nhận</label>
+                <Input
+                  value={configDraft.invoicePaidTemplateCode}
+                  onChange={(event) =>
+                    setConfigDraft((prev) => ({ ...prev, invoicePaidTemplateCode: event.target.value }))
+                  }
+                  placeholder="INVOICE_PAID"
+                  className="h-10 text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="pt-1">
+              <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background px-3.5 py-2.5 cursor-pointer hover:border-primary/40 transition">
+                <div>
+                  <div className="text-xs font-bold text-text">Tự động gửi thông báo qua Zalo</div>
+                  <div className="text-[11px] text-muted">Gửi xác nhận thanh toán thành công tới Zalo khách hàng khi tiền vào.</div>
+                </div>
+                <Switch
+                  checked={configDraft.sendPaymentResultToZalo}
+                  onChange={(event) =>
+                    setConfigDraft((prev) => ({ ...prev, sendPaymentResultToZalo: event.target.checked }))
+                  }
+                />
+              </label>
+            </div>
           </div>
         </div>
       </Modal>

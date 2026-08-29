@@ -6,6 +6,7 @@ describe('ZaloRegistrationService', () => {
     const prisma = {
       room: {
         findFirst: vi.fn(),
+        findMany: vi.fn(),
       },
       customer: {
         update: vi.fn(),
@@ -88,6 +89,146 @@ describe('ZaloRegistrationService', () => {
     );
   });
 
+  it('binds chat id to multiple phone numbers for room and notifies customer + admin', async () => {
+    const { service, prisma, zaloProvider } = createService();
+    prisma.room.findFirst.mockResolvedValueOnce({
+      id: 'room-1',
+      code: 'PN 31-06',
+      building: { code: 'LK01.31', name: 'Tòa nhà LK01.31' },
+      contracts: [
+        {
+          id: 'contract-1',
+          customer: {
+            id: 'customer-1',
+            fullName: 'Nguyen Van A',
+            phone: '0567867889',
+            zaloUserId: null,
+          },
+        },
+      ],
+      roommates: [
+        {
+          id: 'customer-2',
+          fullName: 'Tran Thi B',
+          phone: '0329484353',
+          zaloUserId: null,
+        },
+      ],
+    });
+
+    const result = await service.handleIncomingMessage(
+      'tenant-1',
+      {
+        updateId: 'u-1',
+        chatId: 'chat-123',
+        chatType: 'private',
+        senderId: 'sender-456',
+        text: 'DK 0567867889,0329484353 31.06',
+        eventName: 'message_received',
+        displayName: 'Nguyen Van A',
+        raw: {},
+      },
+      { adminGroupChatId: 'admin-group-1' },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      customerIds: ['customer-1', 'customer-2'],
+      roomId: 'room-1',
+      contractId: 'contract-1',
+    });
+    expect(prisma.customer.update).toHaveBeenCalledTimes(2);
+    expect(prisma.customer.update).toHaveBeenCalledWith({
+      where: { id: 'customer-1' },
+      data: {
+        zaloChatId: 'chat-123',
+        zaloUserId: 'sender-456',
+        zaloPhone: '0567867889',
+      },
+    });
+    expect(prisma.customer.update).toHaveBeenCalledWith({
+      where: { id: 'customer-2' },
+      data: {
+        zaloChatId: 'chat-123',
+        zaloUserId: 'sender-456',
+        zaloPhone: '0329484353',
+      },
+    });
+    expect(zaloProvider.send).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        recipient: 'chat-123',
+        title: 'HomeLand - Đăng ký thành công',
+        message: expect.stringContaining('0567867889, 0329484353'),
+      }),
+    );
+  });
+
+  it('unregisters Zalo notifications when receiving HUY command with phone and room', async () => {
+    const { service, prisma, zaloProvider } = createService();
+    prisma.room.findFirst.mockResolvedValueOnce({
+      id: 'room-1',
+      code: 'PN 31-06',
+      building: { code: 'LK01.31', name: 'Tòa LK01.31' },
+      contracts: [
+        {
+          id: 'contract-1',
+          customer: {
+            id: 'customer-1',
+            fullName: 'Nguyen Van A',
+            phone: '0567867889',
+            zaloChatId: 'chat-123',
+            zaloUserId: 'sender-456',
+          },
+        },
+      ],
+      roommates: [],
+    });
+
+    const result = await service.handleIncomingMessage(
+      'tenant-1',
+      {
+        updateId: 'u-1',
+        chatId: 'chat-123',
+        chatType: 'private',
+        senderId: 'sender-456',
+        text: 'HUY 0567867889 LK31.06',
+        eventName: 'message_received',
+        displayName: 'Nguyen Van A',
+        raw: {},
+      },
+      { adminGroupChatId: 'admin-group-1' },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: 'unregistered',
+      customerIds: ['customer-1'],
+    });
+    expect(prisma.customer.update).toHaveBeenCalledWith({
+      where: { id: 'customer-1' },
+      data: {
+        zaloChatId: null,
+        zaloUserId: null,
+        zaloPhone: null,
+      },
+    });
+    expect(zaloProvider.send).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        recipient: 'chat-123',
+        title: 'HomeLand - Hủy nhận thông báo',
+      }),
+    );
+    expect(zaloProvider.send).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        recipient: 'admin-group-1',
+        title: 'HomeLand - Khách đã hủy nhận thông báo Zalo',
+      }),
+    );
+  });
+
   it('replies with syntax help when a DK message is malformed', async () => {
     const { service, zaloProvider, prisma } = createService();
 
@@ -159,7 +300,7 @@ describe('ZaloRegistrationService', () => {
       1,
       expect.objectContaining({
         recipient: 'chat-123',
-        message: expect.stringContaining('chưa được ghi nhận trong hợp đồng'),
+        message: expect.stringContaining('Thông tin đăng ký không chính xác'),
       }),
     );
     expect(zaloProvider.send).toHaveBeenNthCalledWith(
@@ -313,6 +454,7 @@ describe('ZaloRegistrationService', () => {
       findUnique: vi.fn().mockResolvedValue({
         id: 'setting-1',
         value: {},
+        updatedAt: new Date(),
       }),
       update: vi.fn().mockResolvedValue({}),
     };

@@ -384,6 +384,20 @@ export class ContractsService extends BaseCrudService<Contract> {
         data: { status: targetStatus },
       });
 
+      if (contract.customerId && tx.customer?.updateMany) {
+        await tx.customer.updateMany({
+          where: {
+            id: contract.customerId,
+            contracts: { none: { status: ContractStatus.ACTIVE, id: { not: contract.id } } },
+          },
+          data: {
+            zaloChatId: null,
+            zaloUserId: null,
+            zaloPhone: null,
+          },
+        });
+      }
+
       const updatedRoom = await tx.room.update({
         where: { id: contract.roomId },
         data: { status: settlement.roomTurnoverStatus },

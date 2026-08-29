@@ -6,8 +6,14 @@ import { NormalizedZaloUpdate } from '../adapters/zalo-normalizer';
 import { buildAdminGroupConnectedMessage } from './admin-zalo-message-builder';
 
 type RegisterCommand = {
+  phones: string[];
   primaryPhone: string;
   secondaryPhones: string[];
+  roomNumber: string;
+};
+
+type UnregisterCommand = {
+  phones: string[];
   roomNumber: string;
 };
 
@@ -56,6 +62,29 @@ export class ZaloRegistrationService {
       return { route: 'admin', action: 'ignored' };
     }
 
+    // 1. Check Unregister command (HUY)
+    const unregisterParsed = parseUnregisterCommand(command);
+    if (unregisterParsed) {
+      return this.unregisterCustomerZalo(tenantId, update, unregisterParsed, settingsValue);
+    }
+    if (/(?:^|\s)huy\b/i.test(update.text || '')) {
+      await this.sendCustomerMessage(
+        tenantId,
+        update.chatId,
+        'HomeLand - Hủy nhận thông báo Zalo',
+        [
+          'Cú pháp hủy chưa đúng.',
+          'Vui lòng nhắn theo mẫu:',
+          'HUY <SĐT> <MÃ PHÒNG>',
+          '',
+          'Ví dụ: HUY 0567867889 LK31.06',
+          'hoặc: HUY 0567867889 31.06',
+        ].join('\n'),
+      );
+      return { route: 'customer', action: 'syntax_error' };
+    }
+
+    // 2. Check Register command (DK)
     const parsed = parseRegisterCommand(command);
     if (!parsed) {
       if (/(?:^|\s)dk\b/i.test(update.text || '')) {
@@ -69,7 +98,7 @@ export class ZaloRegistrationService {
             'DK <SĐT> <MÃ PHÒNG>',
             '',
             'Ví dụ: DK 0567867889 LK31.06',
-            'hoặc: DK 0567867889 31.06',
+            'hoặc: DK 0567867889,0329484353 31.06',
           ].join('\n'),
         );
         return { route: 'customer', action: 'syntax_error' };
@@ -81,16 +110,11 @@ export class ZaloRegistrationService {
     return this.registerCustomerZalo(tenantId, update, parsed, settingsValue);
   }
 
-  private async registerCustomerZalo(
-    tenantId: string,
-    update: NormalizedZaloUpdate,
-    command: RegisterCommand,
-    settingsValue: any,
-  ) {
+  private async findRoom(tenantId: string, roomQuery: string) {
     let room = await this.prisma.room.findFirst({
       where: {
         tenantId,
-        code: command.roomNumber,
+        code: roomQuery,
         deletedAt: null,
       },
       include: {
@@ -165,28 +189,41 @@ export class ZaloRegistrationService {
         },
       });
 
-      room = matchFlexibleRoom(allRooms, command.roomNumber);
+      room = matchFlexibleRoom(allRooms, roomQuery);
     }
 
-    const roomLabel = room
-      ? `${room.building?.name || room.building?.code ? `Tòa ${room.building?.name || room.building?.code} - ` : ''}Phòng ${room.name || room.code}`
-      : command.roomNumber;
+    return room;
+  }
+
+  private async registerCustomerZalo(
+    tenantId: string,
+    update: NormalizedZaloUpdate,
+    command: RegisterCommand,
+    settingsValue: any,
+  ) {
+    const room = await this.findRoom(tenantId, command.roomNumber);
 
     if (!room) {
       await this.sendCustomerMessage(
         tenantId,
         update.chatId,
         'HomeLand - Đăng ký Zalo Bot',
-        `Không thể đăng ký.\nKhông tìm thấy phòng tương ứng với "${command.roomNumber}".\nVui lòng kiểm tra lại mã phòng hoặc tòa nhà (Ví dụ: LK31.06 hoặc 31.06).`,
+        [
+          'Thông tin đăng ký không chính xác.',
+          `Không tìm thấy căn hộ tương ứng với "${command.roomNumber}".`,
+          'Vui lòng kiểm tra lại Số điện thoại và Mã phòng trong hợp đồng.',
+        ].join('\n'),
       );
       await this.sendAdminMessage(
         tenantId,
         settingsValue,
         'HomeLand - Đăng ký Bot thất bại',
-        `Đăng ký Bot thất bại\nPhòng nhập: ${command.roomNumber}\nSĐT: ${command.primaryPhone}\nLý do: ROOM_NOT_FOUND`,
+        `Đăng ký Bot thất bại\nPhòng nhập: ${command.roomNumber}\nSĐT: ${command.phones.join(', ')}\nLý do: ROOM_NOT_FOUND`,
       );
       return { ok: false, code: 'ROOM_NOT_FOUND' };
     }
+
+    const roomLabel = `${room.building?.name || room.building?.code ? `Tòa ${room.building?.name || room.building?.code} - ` : ''}Phòng ${room.name || room.code}`;
 
     const contracts = Array.isArray(room.contracts) ? room.contracts : [];
     if (contracts.length === 0) {
@@ -194,56 +231,89 @@ export class ZaloRegistrationService {
         tenantId,
         update.chatId,
         'HomeLand - Đăng ký Zalo Bot',
-        `Không thể đăng ký.\n${roomLabel} hiện không có hợp đồng đang hoạt động.`,
+        [
+          'Thông tin đăng ký không chính xác.',
+          `${roomLabel} hiện không có hợp đồng đang hoạt động.`,
+        ].join('\n'),
       );
       return { ok: false, code: 'NO_ACTIVE_CONTRACT', roomId: room.id };
     }
 
-    const matchedContract = contracts.find((contract) =>
-      phoneMatches(contract.customer?.phone, command.primaryPhone),
-    ) || null;
-    const matchedRoommate = matchedContract
-      ? null
-      : (Array.isArray(room.roommates) ? room.roommates.find((customer) => phoneMatches(customer.phone, command.primaryPhone)) : null) || null;
-    const matchedCustomer = matchedContract?.customer || matchedRoommate || null;
-    const primaryContract = matchedContract || contracts[0] || null;
+    // Collect all customers from active contracts and roommates
+    const potentialCustomers: Array<{
+      id: string;
+      fullName: string | null;
+      phone: string | null;
+      zaloChatId: string | null;
+      zaloUserId: string | null;
+      contractId?: string;
+    }> = [];
 
-    if (!matchedCustomer) {
+    for (const contract of contracts) {
+      if (contract.customer) {
+        potentialCustomers.push({
+          ...contract.customer,
+          contractId: contract.id,
+        });
+      }
+    }
+    if (Array.isArray(room.roommates)) {
+      for (const rm of room.roommates) {
+        potentialCustomers.push(rm);
+      }
+    }
+
+    // Match all customers that match any phone in command.phones
+    const matchedCustomers = potentialCustomers.filter((cust) =>
+      command.phones.some((phone) => phoneMatches(cust.phone, phone)),
+    );
+
+    if (matchedCustomers.length === 0) {
       await this.sendCustomerMessage(
         tenantId,
         update.chatId,
         'HomeLand - Đăng ký Zalo Bot',
-        `Không thể xác minh đăng ký.\nSĐT ${command.primaryPhone} chưa được ghi nhận trong hợp đồng của ${roomLabel}.`,
+        [
+          'Thông tin đăng ký không chính xác.',
+          `Số điện thoại (${command.phones.join(', ')}) chưa được ghi nhận trong hợp đồng của ${roomLabel}.`,
+          'Vui lòng kiểm tra lại Số điện thoại và Mã phòng trong hợp đồng.',
+        ].join('\n'),
       );
       await this.sendAdminMessage(
         tenantId,
         settingsValue,
         'HomeLand - Đăng ký Bot cần kiểm tra',
-        `Đăng ký Bot cần kiểm tra\n${roomLabel}\nSĐT: ${command.primaryPhone}\nLý do: PHONE_NOT_IN_CONTRACT`,
+        `Đăng ký Bot cần kiểm tra\n${roomLabel}\nSĐT: ${command.phones.join(', ')}\nLý do: PHONE_NOT_IN_CONTRACT`,
       );
       return { ok: false, code: 'PHONE_NOT_IN_CONTRACT', roomId: room.id };
     }
 
-    await this.prisma.customer.update({
-      where: { id: matchedCustomer.id },
-      data: {
-        zaloChatId: update.chatId,
-        zaloUserId: update.senderId || matchedCustomer.zaloUserId || null,
-        zaloPhone: command.primaryPhone,
-      },
-    });
+    // Update all matched customers
+    for (const cust of matchedCustomers) {
+      await this.prisma.customer.update({
+        where: { id: cust.id },
+        data: {
+          zaloChatId: update.chatId,
+          zaloUserId: update.senderId || cust.zaloUserId || null,
+          zaloPhone: cust.phone || command.primaryPhone,
+        },
+      });
+    }
+
+    const matchedNames = Array.from(new Set(matchedCustomers.map((c) => c.fullName).filter(Boolean))).join(', ') || 'Quý khách';
+    const matchedPhones = Array.from(new Set(matchedCustomers.map((c) => c.phone).filter(Boolean))).join(', ') || command.phones.join(', ');
 
     await this.sendCustomerMessage(
       tenantId,
       update.chatId,
       'HomeLand - Đăng ký thành công',
       [
-        'HomeLand - Đăng ký thành công',
-        `Khách hàng: ${matchedCustomer.fullName || 'Quý khách'}`,
+        'HomeLand - Đăng ký nhận thông tin thành công',
+        `Khách hàng: ${matchedNames}`,
         `Căn hộ: ${roomLabel}`,
-        `SĐT: ${command.primaryPhone}`,
+        `SĐT nhận tin: ${matchedPhones}`,
         '',
-        'Tài khoản Zalo này sẽ nhận thông báo tự động liên quan đến hợp đồng và hóa đơn thanh toán.',
+        'Tài khoản Zalo này đã được kích hoạt nhận thông báo tự động (hóa đơn, tiền phòng, hợp đồng).',
       ].join('\n'),
     );
 
@@ -253,28 +323,140 @@ export class ZaloRegistrationService {
       'HomeLand - Khách đã đăng ký Zalo Bot',
       [
         'Khách đã đăng ký Zalo Bot',
-        `Khách hàng: ${matchedCustomer.fullName || 'N/A'}`,
+        `Khách hàng: ${matchedNames}`,
         `Căn hộ: ${roomLabel}`,
-        `SĐT: ${command.primaryPhone}`,
+        `SĐT: ${matchedPhones}`,
         `Chat ID: ${update.chatId}`,
       ].join('\n'),
     );
 
     this.logger.log({
-      message: 'Bound Zalo chat to customer',
+      message: 'Bound Zalo chat to customer(s)',
       tenantId,
-      customerId: matchedCustomer.id,
-      contractId: primaryContract?.id || null,
+      customerIds: matchedCustomers.map((c) => c.id),
       roomId: room.id,
       chatId: update.chatId,
     });
 
     return {
       ok: true,
-      customerId: matchedCustomer.id,
+      customerIds: matchedCustomers.map((c) => c.id),
+      customerId: matchedCustomers[0].id,
       roomId: room.id,
-      contractId: primaryContract?.id || null,
+      contractId: matchedCustomers[0].contractId || contracts[0]?.id || null,
       roomCode: room.code,
+    };
+  }
+
+  private async unregisterCustomerZalo(
+    tenantId: string,
+    update: NormalizedZaloUpdate,
+    command: UnregisterCommand,
+    settingsValue: any,
+  ) {
+    const room = await this.findRoom(tenantId, command.roomNumber);
+
+    if (!room) {
+      await this.sendCustomerMessage(
+        tenantId,
+        update.chatId,
+        'HomeLand - Hủy nhận thông báo Zalo',
+        [
+          'Thông tin hủy không chính xác.',
+          `Không tìm thấy căn hộ tương ứng với "${command.roomNumber}".`,
+        ].join('\n'),
+      );
+      return { ok: false, code: 'ROOM_NOT_FOUND' };
+    }
+
+    const roomLabel = `${room.building?.name || room.building?.code ? `Tòa ${room.building?.name || room.building?.code} - ` : ''}Phòng ${room.name || room.code}`;
+
+    const contracts = Array.isArray(room.contracts) ? room.contracts : [];
+    const potentialCustomers: Array<{
+      id: string;
+      fullName: string | null;
+      phone: string | null;
+      zaloChatId: string | null;
+      zaloUserId: string | null;
+    }> = [];
+
+    for (const contract of contracts) {
+      if (contract.customer) potentialCustomers.push(contract.customer);
+    }
+    if (Array.isArray(room.roommates)) {
+      for (const rm of room.roommates) potentialCustomers.push(rm);
+    }
+
+    // Match customers by phone or by current chatId
+    const matchedCustomers = potentialCustomers.filter((cust) =>
+      command.phones.some((phone) => phoneMatches(cust.phone, phone)) || cust.zaloChatId === update.chatId,
+    );
+
+    if (matchedCustomers.length === 0) {
+      await this.sendCustomerMessage(
+        tenantId,
+        update.chatId,
+        'HomeLand - Hủy nhận thông báo Zalo',
+        [
+          'Thông tin hủy không chính xác.',
+          `Số điện thoại (${command.phones.join(', ')}) không khớp với thông tin đã đăng ký của ${roomLabel}.`,
+        ].join('\n'),
+      );
+      return { ok: false, code: 'PHONE_NOT_MATCHED' };
+    }
+
+    for (const cust of matchedCustomers) {
+      await this.prisma.customer.update({
+        where: { id: cust.id },
+        data: {
+          zaloChatId: null,
+          zaloUserId: null,
+          zaloPhone: null,
+        },
+      });
+    }
+
+    const unregNames = Array.from(new Set(matchedCustomers.map((c) => c.fullName).filter(Boolean))).join(', ') || 'Quý khách';
+    const unregPhones = Array.from(new Set(matchedCustomers.map((c) => c.phone).filter(Boolean))).join(', ') || command.phones.join(', ');
+
+    await this.sendCustomerMessage(
+      tenantId,
+      update.chatId,
+      'HomeLand - Hủy nhận thông báo',
+      [
+        'HomeLand - Hủy nhận thông báo thành công',
+        `Đã hủy nhận thông báo Zalo cho căn hộ: ${roomLabel}`,
+        `Khách hàng: ${unregNames}`,
+        `SĐT hủy: ${unregPhones}`,
+      ].join('\n'),
+    );
+
+    await this.sendAdminMessage(
+      tenantId,
+      settingsValue,
+      'HomeLand - Khách đã hủy nhận thông báo Zalo',
+      [
+        'Khách đã hủy nhận thông báo Zalo',
+        `Khách hàng: ${unregNames}`,
+        `Căn hộ: ${roomLabel}`,
+        `SĐT: ${unregPhones}`,
+        `Chat ID: ${update.chatId}`,
+      ].join('\n'),
+    );
+
+    this.logger.log({
+      message: 'Unbound Zalo chat from customer(s)',
+      tenantId,
+      customerIds: matchedCustomers.map((c) => c.id),
+      roomId: room.id,
+      chatId: update.chatId,
+    });
+
+    return {
+      ok: true,
+      action: 'unregistered',
+      customerIds: matchedCustomers.map((c) => c.id),
+      roomId: room.id,
     };
   }
 
@@ -457,8 +639,9 @@ function parseRegisterCommand(text: string): RegisterCommand | null {
   const match = cleanText.match(/(?:^|\s)DK\s+([\d,\s+.-]+?)\s+([A-Za-z0-9._\s-]+)$/i);
   if (!match) return null;
 
-  const phones = match[1]
-    .split(',')
+  const rawPhones = match[1];
+  const phones = rawPhones
+    .split(/[,;\s]+/)
     .map(normalizePhone)
     .filter(Boolean);
   const roomNumber = String(match[2] || '').trim();
@@ -466,8 +649,29 @@ function parseRegisterCommand(text: string): RegisterCommand | null {
   if (!phones.length || !roomNumber) return null;
 
   return {
+    phones,
     primaryPhone: phones[0],
     secondaryPhones: phones.slice(1),
+    roomNumber,
+  };
+}
+
+function parseUnregisterCommand(text: string): UnregisterCommand | null {
+  const cleanText = String(text || '').trim();
+  const match = cleanText.match(/(?:^|\s)HUY\s+([\d,\s+.-]+?)\s+([A-Za-z0-9._\s-]+)$/i);
+  if (!match) return null;
+
+  const rawPhones = match[1];
+  const phones = rawPhones
+    .split(/[,;\s]+/)
+    .map(normalizePhone)
+    .filter(Boolean);
+  const roomNumber = String(match[2] || '').trim();
+
+  if (!phones.length || !roomNumber) return null;
+
+  return {
+    phones,
     roomNumber,
   };
 }

@@ -118,6 +118,20 @@ export default function SettingsTelegramIntegration() {
     }
   };
 
+  const handleToggleEnabled = async (enabled: boolean) => {
+    const nextDraft = { ...draft, enabled };
+    setDraft(nextDraft);
+    try {
+      const payload: Partial<TelegramSettings> = { ...nextDraft };
+      if (!draft.botToken) delete payload.botToken;
+      await save(payload as TelegramSettings);
+      toast.success(enabled ? "Đã bật Telegram Bot" : "Đã tắt Telegram Bot");
+    } catch (error: any) {
+      setDraft(draft);
+      toast.error(error?.message || "Lỗi khi lưu trạng thái Telegram");
+    }
+  };
+
   return (
     <div className="flex h-full flex-col gap-4">
       <Card className="flex h-full flex-col gap-4 border-emerald-500/20 shadow-sm p-4 sm:p-5">
@@ -150,7 +164,7 @@ export default function SettingsTelegramIntegration() {
           <div className="flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 shadow-sm">
             <Switch
               checked={draft.enabled}
-              onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))}
+              onChange={(event) => handleToggleEnabled(event.target.checked)}
               aria-label="Bật Telegram"
             />
           </div>

@@ -179,6 +179,26 @@ export default function SettingsHunonicIntegration() {
     }
   };
 
+  const handleToggleEnabled = async (enabled: boolean) => {
+    const nextDraft = { ...draft, enabled };
+    setDraft(nextDraft);
+    try {
+      const payload: HunonicSettingsPayload = { ...nextDraft };
+      delete payload.passwordConfigured;
+      delete payload.websiteTokenConfigured;
+      delete payload.websiteCookieConfigured;
+      if (!draft.password) delete payload.password;
+      if (!draft.websiteToken) delete payload.websiteToken;
+      if (!draft.websiteCookie) delete payload.websiteCookie;
+
+      await save(payload as Required<HunonicSettingsPayload>);
+      toast.success(enabled ? "Đã bật tích hợp Hunonic" : "Đã tắt tích hợp Hunonic");
+    } catch (error: any) {
+      setDraft(draft);
+      toast.error(error?.message || "Lỗi khi lưu trạng thái Hunonic");
+    }
+  };
+
   return (
     <div className="flex h-full flex-col gap-4">
       <Card className="flex h-full flex-col gap-4 border-emerald-500/20 shadow-sm p-4 sm:p-5">
@@ -211,7 +231,7 @@ export default function SettingsHunonicIntegration() {
           <div className="flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 shadow-sm">
             <Switch
               checked={draft.enabled}
-              onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))}
+              onChange={(event) => handleToggleEnabled(event.target.checked)}
               aria-label="Bật Hunonic"
             />
           </div>

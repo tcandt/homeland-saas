@@ -135,6 +135,20 @@ export default function SettingsEmailIntegration() {
     ? draft.fromName ? `${draft.fromName} <${draft.fromEmail}>` : draft.fromEmail
     : "Chưa cấu hình";
 
+  const handleToggleEnabled = async (enabled: boolean) => {
+    const nextDraft = { ...draft, enabled };
+    setDraft(nextDraft);
+    try {
+      const payload: Partial<EmailSettings> = { ...nextDraft };
+      if (!draft.smtpPassword) delete payload.smtpPassword;
+      await save(payload as EmailSettings);
+      toast.success(enabled ? "Đã bật Email SMTP" : "Đã tắt Email SMTP");
+    } catch (error: any) {
+      setDraft(draft);
+      toast.error(error?.message || "Lỗi khi lưu trạng thái Email");
+    }
+  };
+
   return (
     <div className="flex h-full flex-col gap-4">
       <Card className="flex h-full flex-col gap-4 border-sky-500/20 shadow-sm p-4 sm:p-5">
@@ -167,7 +181,7 @@ export default function SettingsEmailIntegration() {
           <div className="flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 shadow-sm">
             <Switch
               checked={draft.enabled}
-              onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))}
+              onChange={(event) => handleToggleEnabled(event.target.checked)}
               aria-label="Bật Email"
             />
           </div>

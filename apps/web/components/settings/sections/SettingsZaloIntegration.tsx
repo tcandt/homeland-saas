@@ -4,10 +4,30 @@ import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 import { ApiError } from "@/lib/api/client";
-import { AlertCircle, Link2, MessageCircle, RefreshCcw } from "lucide-react";
+import {
+  AlertCircle,
+  Bot,
+  Check,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Info,
+  Link2,
+  LockKeyhole,
+  MessageCircle,
+  RefreshCcw,
+  Send,
+  Settings2,
+  ShieldCheck,
+  Users,
+  Zap,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { settingsApi } from "@/lib/api/settings.api";
@@ -62,16 +82,19 @@ function generateSecret() {
 }
 
 function formatDateTime(value?: string | null) {
-  return value ? new Date(value).toLocaleString("vi-VN") : "-";
+  if (!value) return "-";
+  try {
+    return new Date(value).toLocaleString("vi-VN");
+  } catch {
+    return value;
+  }
 }
 
-function formatWebhookReason(value?: string | null) {
-  const code = String(value || "").trim();
-  if (!code) return "OK";
-  if (code === "CHAT_ID_NOT_FOUND") return "Không thấy chat ID";
-  if (code === "SECRET_INVALID_OR_MISSING") return "Sai hoặc thiếu secret";
-  if (code === "SYNTHETIC_CHAT_ID_IGNORED") return "Bỏ qua chat ID test";
-  return code;
+function shortSecret(value?: string) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "Chưa cấu hình";
+  if (normalized.length <= 8) return "••••••••";
+  return `${normalized.slice(0, 4)}••••${normalized.slice(-4)}`;
 }
 
 function resolveZaloErrorMessage(error: unknown) {
@@ -95,7 +118,14 @@ export default function SettingsZaloIntegration() {
   const user = useAuthStore((state) => state.user);
   const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
+  // Modal & Edit Draft States
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [configDraft, setConfigDraft] = useState<ZaloSettings>(fallback);
   const [secretTouched, setSecretTouched] = useState({ botToken: false });
+  const [showBotToken, setShowBotToken] = useState(false);
+  const [showWebhookSecret, setShowWebhookSecret] = useState(false);
+
+  // Actions & Loading States
   const [isGeneratingSecret, setIsGeneratingSecret] = useState(false);
   const [isTestingAdminGroup, setIsTestingAdminGroup] = useState(false);
   const [isTestingBot, setIsTestingBot] = useState(false);
@@ -106,27 +136,37 @@ export default function SettingsZaloIntegration() {
   const [isAutoDetectingAdminGroup, setIsAutoDetectingAdminGroup] = useState(false);
   const [adminSetupCommand, setAdminSetupCommand] = useState("");
   const [diagnosticMessage, setDiagnosticMessage] = useState("");
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const resolvedBaseUrl = useMemo(() => {
-    const candidate = draft.baseUrl
-      || (typeof window !== "undefined" ? window.location.origin : "")
-      || process.env.NEXT_PUBLIC_SITE_URL
-      || "https://homeland.ductinh.one";
+    const candidate =
+      draft.baseUrl ||
+      (typeof window !== "undefined" ? window.location.origin : "") ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      "https://homeland.ductinh.one";
     return normalizeBaseUrl(candidate);
   }, [draft.baseUrl]);
 
   const webhookUrl = useMemo(
-    () => resolvedBaseUrl ? `${resolvedBaseUrl}/api/v1/notifications/zalo/webhook` : "",
+    () => (resolvedBaseUrl ? `${resolvedBaseUrl}/api/v1/notifications/zalo/webhook` : ""),
     [resolvedBaseUrl],
   );
+
+  const modalWebhookUrl = useMemo(() => {
+    const base =
+      normalizeBaseUrl(configDraft.baseUrl) ||
+      (typeof window !== "undefined" ? window.location.origin : "https://homeland.ductinh.one");
+    return `${base}/api/v1/notifications/zalo/webhook`;
+  }, [configDraft.baseUrl]);
+
   const hasAdminGroup = Boolean(String(draft.adminGroupChatId || "").trim());
-  const hasRecentWebhookChat = Boolean(draft.webhookChatAvailable);
-  const webhookInputValue = draft.lastWebhookPreview?.contentType || (hasRecentWebhookChat ? "application/json" : "N/A");
 
   const copyText = async (value: string, label: string) => {
     if (!value) return;
     await navigator.clipboard.writeText(value);
-    toast.success(`Đã copy ${label}`);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+    toast.success(`Đã sao chép ${label}`);
   };
 
   const refreshStatus = async () => {
@@ -138,6 +178,7 @@ export default function SettingsZaloIntegration() {
         ...prev,
         ...(result?.status || {}),
       }));
+      toast.success("Đã làm mới trạng thái Zalo");
       return result?.status;
     } catch (error: any) {
       const message = resolveZaloErrorMessage(error);
@@ -149,27 +190,57 @@ export default function SettingsZaloIntegration() {
     }
   };
 
+  const openConfigModal = () => {
+    setConfigDraft({
+      ...draft,
+      botToken: draft.botToken || "",
+      webhookSecret: draft.webhookSecret || "",
+    });
+    setShowBotToken(false);
+    setShowWebhookSecret(false);
+    setIsConfigModalOpen(true);
+  };
+
+  const closeConfigModal = () => {
+    setIsConfigModalOpen(false);
+  };
+
+  const saveConfigModal = async () => {
+    const payload: Partial<ZaloSettings> = { ...configDraft };
+    if (!canEditSecrets || !secretTouched.botToken) delete payload.botToken;
+    delete payload.botTokenConfigured;
+    delete payload.webhookSecretConfigured;
+
+    try {
+      setDraft(configDraft);
+      await save(payload as ZaloSettings);
+      setSecretTouched({ botToken: false });
+      setIsConfigModalOpen(false);
+      toast.success("Đã cập nhật cấu hình Zalo thành công!");
+    } catch (error: any) {
+      toast.error(error?.message || "Lỗi khi lưu cấu hình Zalo");
+    }
+  };
+
   const saveZalo = async () => {
     const payload: Partial<ZaloSettings> = { ...draft };
     if (!canEditSecrets || !secretTouched.botToken) delete payload.botToken;
     delete payload.botTokenConfigured;
     delete payload.webhookSecretConfigured;
-    await save(payload as ZaloSettings);
-    setSecretTouched({ botToken: false });
+    try {
+      await save(payload as ZaloSettings);
+      setSecretTouched({ botToken: false });
+      toast.success("Đã lưu cấu hình Zalo thành công!");
+    } catch (error: any) {
+      toast.error(error?.message || "Lỗi lưu cấu hình");
+    }
   };
 
-  const regenerateWebhookSecret = async () => {
+  const regenerateWebhookSecret = () => {
     if (!canEditSecrets) return;
     const webhookSecret = generateSecret();
-    const nextValue = { ...draft, webhookSecret };
-    setIsGeneratingSecret(true);
-    setDraft(nextValue);
-    try {
-      await save(nextValue);
-      toast.success("Đã tạo Secret mới");
-    } finally {
-      setIsGeneratingSecret(false);
-    }
+    setConfigDraft((prev) => ({ ...prev, webhookSecret }));
+    toast.success("Đã tạo Secret mới (hãy bấm Lưu để áp dụng)");
   };
 
   const connectWebhook = async () => {
@@ -183,9 +254,9 @@ export default function SettingsZaloIntegration() {
         lastWebhookStatus: "CONNECTED",
       }));
       await refreshStatus();
-      toast.success(`Đã connect: ${result.webhookUrl}`);
+      toast.success(`Đã kết nối webhook thành công!`);
     } catch (error: any) {
-      toast.error(error?.message || "Không connect được webhook");
+      toast.error(error?.message || "Không kết nối được webhook");
     } finally {
       setIsConnectingWebhook(false);
     }
@@ -195,7 +266,7 @@ export default function SettingsZaloIntegration() {
     setIsTestingAdminGroup(true);
     try {
       await settingsApi.testZaloAdminGroup();
-      toast.success("Đã gửi tin nhắn test");
+      toast.success("Đã gửi tin nhắn test tới nhóm Admin");
     } catch (error: any) {
       toast.error(error?.message || "Không gửi được tin nhắn test");
     } finally {
@@ -210,7 +281,7 @@ export default function SettingsZaloIntegration() {
       const botData = response?.result?.result || response?.result?.data || response?.result || {};
       const botName = botData.first_name || botData.name || botData.username || "Bot";
       const botId = botData.id || botData.oa_id || "N/A";
-      toast.success(`Kết nối thành công: ${botName} (${botId})`);
+      toast.success(`Kết nối thành công: ${botName} (ID: ${botId})`);
     } catch (error: any) {
       toast.error(error?.message || "Không thể kết nối với Bot. Vui lòng kiểm tra Token.");
     } finally {
@@ -225,6 +296,11 @@ export default function SettingsZaloIntegration() {
       setDiagnosticMessage("");
       const command = String(result?.command || "").trim();
       setAdminSetupCommand(command);
+      setConfigDraft((prev) => ({
+        ...prev,
+        adminSetupCodePending: true,
+        adminSetupCodeExpiresAt: result?.expiresAt || null,
+      }));
       setDraft((prev) => ({
         ...prev,
         adminSetupCodePending: true,
@@ -233,7 +309,7 @@ export default function SettingsZaloIntegration() {
       if (command) {
         await navigator.clipboard.writeText(command);
       }
-      toast.success("Đã tạo lệnh kết nối");
+      toast.success("Đã tạo lệnh kết nối và copy vào clipboard");
     } catch (error: any) {
       toast.error(error?.message || "Không tạo được mã kết nối");
     } finally {
@@ -247,6 +323,13 @@ export default function SettingsZaloIntegration() {
       await settingsApi.clearZaloAdminGroup();
       setDiagnosticMessage("");
       setAdminSetupCommand("");
+      setConfigDraft((prev) => ({
+        ...prev,
+        adminGroupChatId: "",
+        adminGroupConnectedAt: null,
+        adminSetupCodePending: false,
+        adminSetupCodeExpiresAt: null,
+      }));
       setDraft((prev) => ({
         ...prev,
         adminGroupChatId: "",
@@ -255,7 +338,7 @@ export default function SettingsZaloIntegration() {
         adminSetupCodeExpiresAt: null,
       }));
       await refreshStatus();
-      toast.success("Đã xóa nhóm Admin");
+      toast.success("Đã xóa liên kết nhóm Admin");
     } catch (error: any) {
       toast.error(error?.message || "Không xóa được nhóm Admin");
     } finally {
@@ -268,12 +351,11 @@ export default function SettingsZaloIntegration() {
     try {
       const result = await settingsApi.autoDetectZaloAdminGroup();
       setDiagnosticMessage("");
-      setDraft((prev) => ({
-        ...prev,
-        adminGroupChatId: result?.chat?.chatId || prev.adminGroupChatId || "",
-      }));
+      const newChatId = result?.chat?.chatId || draft.adminGroupChatId || "";
+      setConfigDraft((prev) => ({ ...prev, adminGroupChatId: newChatId }));
+      setDraft((prev) => ({ ...prev, adminGroupChatId: newChatId }));
       await refreshStatus();
-      toast.success("Đã gán chat gần nhất vào nhóm Admin");
+      toast.success("Đã nhận diện và gán nhóm Admin thành công!");
     } catch (error: any) {
       const message = resolveZaloErrorMessage(error);
       setDiagnosticMessage(message);
@@ -283,218 +365,405 @@ export default function SettingsZaloIntegration() {
     }
   };
 
+  const getWebhookStatusBadge = () => {
+    if (draft.lastWebhookStatus === "CONNECTED") {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+          <CheckCircle2 size={12} /> Đã kết nối
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        Chưa kết nối
+      </span>
+    );
+  };
+
+  const actionBar = (
+    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+      <div className="flex items-center gap-2 text-xs text-muted">
+        <span className="inline-flex items-center gap-1 font-medium text-purple-600 dark:text-purple-400">
+          <MessageCircle size={13} /> Zalo Platform Bot API
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2.5">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={testAdminGroup}
+          isLoading={isTestingAdminGroup}
+          disabled={!hasAdminGroup}
+          title={hasAdminGroup ? "Gửi tin nhắn test tới nhóm Admin" : "Chưa có Admin Group Chat ID"}
+          className="h-10 rounded-xl px-4 text-xs font-bold shadow-sm"
+        >
+          <Send size={14} className="mr-1.5 text-purple-600" /> Test Admin
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={testZaloBot}
+          isLoading={isTestingBot}
+          disabled={!draft.botToken}
+          title="Kiểm tra kết nối Bot"
+          className="h-10 rounded-xl px-4 text-xs font-bold shadow-sm"
+        >
+          <Bot size={14} className="mr-1.5" /> Test Bot
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={connectWebhook}
+          isLoading={isConnectingWebhook}
+          className="h-10 rounded-xl px-4 text-xs font-bold shadow-sm"
+        >
+          <Link2 size={14} className="mr-1.5" /> Connect
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={refreshStatus}
+          isLoading={isRefreshingStatus}
+          className="h-10 rounded-xl px-4 text-xs font-bold shadow-sm"
+        >
+          <RefreshCcw size={14} className="mr-1.5" /> Làm mới
+        </Button>
+        <Button
+          type="button"
+          onClick={saveZalo}
+          className="h-10 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-sm hover:opacity-90 transition-all"
+          isLoading={isSaving}
+        >
+          Lưu cấu hình
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex flex-col gap-[20px]">
-      <Card className="flex h-full flex-col gap-[14px] border-[#8b5cf6]/15 p-[16px]">
-        <div className="flex items-start justify-between gap-[16px]">
-          <div>
-            <div className="flex items-center gap-[8px] text-[12px] font-black uppercase tracking-[0.16em] text-[#8b5cf6]">
-              <MessageCircle size={14} /> Zalo Provider
+    <div className="flex h-full flex-col gap-4">
+      <Card className="flex h-full flex-col gap-4 border-purple-500/20 shadow-sm p-4 sm:p-5">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 pb-2 border-b border-border/60">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold text-xs">
+                <MessageCircle size={16} />
+              </div>
+              <span className="text-xs font-black uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                Zalo Provider
+              </span>
+              {draft.enabled ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Đang bật
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-500/10 text-slate-500 border border-slate-500/20">
+                  Đang tắt
+                </span>
+              )}
             </div>
-            <h3 className="mt-[8px] text-[18px] font-black text-text">Cấu hình gửi Zalo</h3>
+            <h3 className="text-lg font-black text-text">Cấu hình gửi Zalo</h3>
+            <p className="text-xs text-muted">
+              Gửi thông báo hợp đồng, hóa đơn, biến động số dư và tiếp nhận đăng ký phòng qua Zalo Bot.
+            </p>
           </div>
-          <div className="flex items-center gap-[10px] rounded-full border border-border bg-background px-[12px] py-[8px]">
-            <Switch checked={draft.enabled} onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))} aria-label="Bật Zalo" />
+          <div className="flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 shadow-sm">
+            <Switch
+              checked={draft.enabled}
+              onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))}
+              aria-label="Bật Zalo"
+            />
           </div>
         </div>
 
         {diagnosticMessage && (
-          <div className="flex items-start gap-[10px] rounded-[12px] border border-amber-500/25 bg-amber-500/10 px-[14px] py-[12px] text-[13px] text-amber-100">
-            <AlertCircle size={16} className="mt-[1px] shrink-0 text-amber-300" />
-            <span className="leading-[1.5] text-amber-200">{diagnosticMessage}</span>
+          <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+            <span className="leading-relaxed">{diagnosticMessage}</span>
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-2">
-          <div className="flex flex-col gap-[6px] lg:col-span-2">
-            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Webhook</label>
-            <button
+        {/* Section: GỘP CHUNG - Cấu hình tích hợp Webhook & Zalo Bot */}
+        <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
+              <Link2 size={14} className="text-purple-600" /> Tích hợp Webhook & Zalo Bot
+            </div>
+            <Button
               type="button"
-              onClick={() => copyText(webhookUrl, "webhook URL")}
-              disabled={!webhookUrl}
-              className="flex w-full items-center gap-[10px] rounded-[12px] border border-border bg-background px-[14px] py-[12px] text-left transition-colors hover:border-[#8b5cf6]/35 hover:bg-[#8b5cf6]/5 disabled:cursor-not-allowed disabled:opacity-60"
+              variant="outline"
+              size="sm"
+              onClick={openConfigModal}
+              className="h-8 rounded-xl px-3 text-xs font-bold text-purple-600 border-purple-500/30 hover:bg-purple-500/5 hover:border-purple-500"
             >
-              <Link2 size={14} className="shrink-0 text-muted" />
-              <span className="min-w-0 break-all text-[13px] font-bold text-text">{webhookUrl || "-"}</span>
-            </button>
+              <Settings2 size={13} className="mr-1.5" /> Thiết lập cấu hình
+            </Button>
           </div>
 
-          <div className="flex flex-col gap-[6px] lg:col-span-2">
-            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Web URL</label>
-            <Input
-              value={draft.baseUrl}
-              onChange={(event) => setDraft((prev) => ({ ...prev, baseUrl: event.target.value }))}
-              placeholder="https://homeland.example.com"
-              autoComplete="new-password"
-              name="zalo_base_url_random"
-              data-lpignore="true"
-              data-1p-ignore="true"
-            />
-          </div>
-
-          <div className="flex flex-col gap-[6px]">
-            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Secret</label>
-            <div className="flex gap-[8px]">
-              <button
-                type="button"
-                onClick={() => copyText(draft.webhookSecret, "Secret")}
-                disabled={!draft.webhookSecret}
-                className="flex min-w-0 flex-1 items-center rounded-[12px] border border-border bg-background px-[14px] py-[12px] text-left transition-colors hover:border-[#8b5cf6]/35 hover:bg-[#8b5cf6]/5 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-bold text-text">
-                  {draft.webhookSecret || "-"}
-                </span>
-              </button>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={regenerateWebhookSecret}
-                disabled={!canEditSecrets}
-                isLoading={isGeneratingSecret}
-                title="Random Secret"
-                aria-label="Random Secret"
-              >
-                <RefreshCcw size={14} />
-              </Button>
+          {/* Webhook URL preview box */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center justify-between overflow-hidden rounded-xl border border-border bg-card px-3.5 py-2.5">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase font-bold text-muted tracking-wider">
+                  Webhook URL hoàn chỉnh (Zalo Bot Webhook)
+                </div>
+                <div className="truncate text-xs font-mono font-bold text-text mt-0.5 select-all">
+                  {webhookUrl || "Chưa có Webhook URL"}
+                </div>
+              </div>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => copyText(webhookUrl, "Webhook URL")}
+              disabled={!webhookUrl}
+              className="h-12 px-3.5 shrink-0 rounded-xl text-xs font-bold shadow-sm"
+            >
+              {copiedUrl ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
+              <span className="ml-1.5 hidden sm:inline">{copiedUrl ? "Đã sao chép" : "Sao chép URL"}</span>
+            </Button>
           </div>
 
-          <div className="flex flex-col gap-[6px]">
-            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Bot Token</label>
-            <Input
-              type="text"
-              value={draft.botToken}
-              onChange={(event) => {
-                setSecretTouched((prev) => ({ ...prev, botToken: true }));
-                setDraft((prev) => ({ ...prev, botToken: event.target.value }));
-              }}
-              placeholder={canEditSecrets ? "Bot Token" : "Chỉ admin@homeland.vn được chỉnh sửa"}
-              disabled={!canEditSecrets}
-              data-testid="integration-secret-field"
-              autoComplete="new-password"
-              name="zalo_bot_token_random"
-              data-lpignore="true"
-              data-1p-ignore="true"
-            />
-          </div>
-
-          <div className="flex flex-col gap-[6px] lg:col-span-2">
-            <label className="text-[12px] font-bold uppercase tracking-wide text-muted">Admin Group Chat ID</label>
-            <Input
-              type="text"
-              value={draft.adminGroupChatId || ""}
-              onChange={(event) => setDraft((prev) => ({ ...prev, adminGroupChatId: event.target.value }))}
-              placeholder="Nhập Chat ID hoặc lấy tự động qua Get ChatID bên dưới"
-              autoComplete="off"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-[12px] lg:col-span-2 md:grid-cols-4">
-            <Metric label="Webhook" value={draft.lastWebhookStatus || "Chưa kết nối"} detail={formatDateTime(draft.lastWebhookConnectedAt)} />
-            <Metric label="Admin Group" value={draft.adminGroupChatId || "-"} detail={draft.adminGroupConnectedAt ? `Connected ${formatDateTime(draft.adminGroupConnectedAt)}` : "Not connected"} mono />
-            <Metric label="Lần nhận gần nhất" value={formatDateTime(draft.lastWebhookReceivedAt)} detail={draft.lastWebhookEventName || draft.lastWebhookRejectedReason || "-"} />
-            <Metric label="Webhook Chat" value={draft.lastWebhookChatId || "-"} detail={(draft.lastWebhookChatType || "unknown").toUpperCase()} mono />
-          </div>
-
-          <div className="rounded-[10px] border border-border bg-background px-[12px] py-[10px] lg:col-span-2">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-muted">Connect Admin Group</div>
-            <div className="mt-[8px] flex flex-col gap-[8px] md:flex-row md:items-center">
-              <button
-                type="button"
-                onClick={() => copyText(adminSetupCommand, "lệnh kết nối")}
-                disabled={!adminSetupCommand}
-                className="flex min-w-0 flex-1 items-center rounded-[12px] border border-border bg-background px-[14px] py-[12px] text-left transition-colors hover:border-[#8b5cf6]/35 hover:bg-[#8b5cf6]/5 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-bold text-text">
-                  {adminSetupCommand || "/setadmin CODE"}
-                </span>
-              </button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={generateAdminGroupSetupCode}
-                isLoading={isGeneratingSetupCode}
-                className="h-[44px] shrink-0 rounded-[12px] px-[16px] text-[12px] font-bold"
-              >
-                Generate
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={autoDetectAdminGroup}
-                isLoading={isAutoDetectingAdminGroup}
-                className="h-[44px] shrink-0 rounded-[12px] px-[16px] text-[12px] font-bold"
-              >
-                Get ChatID
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={clearAdminGroup}
-                isLoading={isClearingAdminGroup}
-                className="h-[44px] shrink-0 rounded-[12px] px-[16px] text-[12px] font-bold"
-              >
-                Clear Messages
-              </Button>
+          {/* Consolidated Summary Grid */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Webhook Status</div>
+              <div className="mt-1">{getWebhookStatusBadge()}</div>
             </div>
-            <div className="mt-[6px] text-[12px] text-muted">
-              {draft.adminSetupCodePending && draft.adminSetupCodeExpiresAt
-                ? `Hết hạn ${formatDateTime(draft.adminSetupCodeExpiresAt)}`
-                : "Gửi /setadmin CODE trong nhóm"}
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 gap-[12px] lg:col-span-2 md:grid-cols-2">
-            <Metric label="Webhook Input" value={webhookInputValue} detail={`Raw ${String(draft.lastWebhookPreview?.rawBodyLength ?? 0)}`} />
-            <Metric label="Trạng thái" value={formatWebhookReason(draft.lastWebhookRejectedReason)} detail={draft.lastPollingError || draft.lastWebhookEventName || (hasRecentWebhookChat ? "Đã nhận webhook" : "Chưa có webhook chat")} />
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Admin Group ID</div>
+              <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                {draft.adminGroupChatId ? draft.adminGroupChatId : <span className="text-muted font-normal">Chưa kết nối</span>}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Bot Token</div>
+              <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                {draft.botToken ? shortSecret(draft.botToken) : <span className="text-muted font-normal">Chưa cấu hình</span>}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Webhook Secret</div>
+              <div className="mt-1 text-xs font-mono font-bold text-text truncate">
+                {draft.webhookSecret ? shortSecret(draft.webhookSecret) : <span className="text-muted font-normal">Chưa cấu hình</span>}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3 col-span-2 sm:col-span-1">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Lần nhận gần nhất</div>
+              <div className="mt-1 text-xs font-bold text-text truncate">
+                {formatDateTime(draft.lastWebhookReceivedAt)}
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap justify-end gap-[10px] border-t border-border/70 pt-[14px]">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={testAdminGroup}
-            isLoading={isTestingAdminGroup}
-            disabled={!hasAdminGroup}
-            title={hasAdminGroup ? "Gửi tin nhắn test tới nhóm Admin" : "Chưa có Admin Group Chat ID"}
-            className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold"
-          >
-            Test Admin
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={testZaloBot}
-            isLoading={isTestingBot}
-            disabled={!draft.botToken && !secretTouched.botToken}
-            title="Kiểm tra kết nối Bot"
-            className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold"
-          >
-            Test Bot
-          </Button>
-          <Button type="button" variant="outline" onClick={connectWebhook} isLoading={isConnectingWebhook} className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold">
-            Connect
-          </Button>
-          <Button type="button" variant="outline" onClick={refreshStatus} isLoading={isRefreshingStatus} className="h-[44px] rounded-[12px] px-[16px] text-[13px] font-bold">
-            Refresh
-          </Button>
-          <Button type="button" onClick={saveZalo} className="h-[44px] rounded-[12px] bg-primary px-[24px] text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-primary/90" isLoading={isSaving}>
-            Lưu
-          </Button>
-        </div>
+        {/* Action Bar Footer */}
+        <div className="mt-auto border-t border-border/60 pt-3">{actionBar}</div>
       </Card>
-    </div>
-  );
-}
 
-function Metric({ label, value, detail, mono = false }: { label: string; value: string; detail?: string; mono?: boolean }) {
-  return (
-    <div className="rounded-[10px] border border-border bg-background px-[12px] py-[10px]">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-muted">{label}</div>
-      <div className={`mt-[4px] truncate text-[13px] font-black text-text ${mono ? "font-mono" : ""}`}>{value}</div>
-      <div className="mt-[2px] text-[12px] text-muted">{detail || "-"}</div>
+      {/* POPUP MODAL: THIẾT LẬP TOÀN BỘ CẤU HÌNH ZALO & WEBHOOK */}
+      <Modal
+        isOpen={isConfigModalOpen}
+        onClose={closeConfigModal}
+        title="Thiết lập cấu hình Zalo Provider & Webhook"
+        maxWidth="max-w-[680px]"
+        footer={
+          <div className="flex items-center justify-end gap-2.5">
+            <Button type="button" variant="outline" onClick={closeConfigModal}>
+              Hủy bỏ
+            </Button>
+            <Button type="button" onClick={saveConfigModal} className="bg-primary text-white font-bold">
+              Lưu cấu hình
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          {/* Nhóm 1: Webhook Endpoint & Domain */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-purple-600 uppercase tracking-wider">
+              <Link2 size={14} /> 1. Webhook Endpoint & Domain
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Web URL (Base URL domain công khai)</label>
+              <Input
+                value={configDraft.baseUrl}
+                onChange={(event) => setConfigDraft((prev) => ({ ...prev, baseUrl: event.target.value }))}
+                placeholder="https://homeland.ductinh.one"
+                autoComplete="off"
+                className="h-10 text-xs font-mono"
+              />
+              <span className="text-[11px] text-muted">Domain công khai để Zalo Server gửi webhook tới.</span>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Webhook URL hoàn chỉnh</label>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  value={modalWebhookUrl}
+                  readOnly
+                  className="h-10 text-xs font-mono bg-background/50 font-semibold select-all"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copyText(modalWebhookUrl, "Webhook URL")}
+                  className="h-10 px-3 shrink-0 rounded-xl text-xs font-bold"
+                >
+                  <Copy size={13} className="mr-1" /> Copy
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Nhóm 2: Bot Token & Webhook Secret */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-purple-600 uppercase tracking-wider">
+              <ShieldCheck size={14} /> 2. Thông tin Bot Token & Secret
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Zalo Bot Token</label>
+              <div className="relative">
+                <Input
+                  type={showBotToken ? "text" : "password"}
+                  value={configDraft.botToken}
+                  onChange={(event) => {
+                    setSecretTouched((prev) => ({ ...prev, botToken: true }));
+                    setConfigDraft((prev) => ({ ...prev, botToken: event.target.value }));
+                  }}
+                  placeholder={canEditSecrets ? "Dán Bot Token từ Zalo Developer / Bot Platform" : "Chỉ admin@homeland.vn được sửa"}
+                  disabled={!canEditSecrets}
+                  className="pr-10 text-xs font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowBotToken(!showBotToken)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                >
+                  {showBotToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Webhook Secret (Khóa xác thực chữ ký webhook)</label>
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <Input
+                    type={showWebhookSecret ? "text" : "password"}
+                    value={configDraft.webhookSecret}
+                    onChange={(event) =>
+                      setConfigDraft((prev) => ({ ...prev, webhookSecret: event.target.value }))
+                    }
+                    placeholder="Webhook Secret"
+                    disabled={!canEditSecrets}
+                    className="pr-10 text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowWebhookSecret(!showWebhookSecret)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                  >
+                    {showWebhookSecret ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={regenerateWebhookSecret}
+                  disabled={!canEditSecrets}
+                  className="h-10 px-3 shrink-0 rounded-xl text-xs font-bold"
+                  title="Tạo ngẫu nhiên Secret mới"
+                >
+                  <RefreshCcw size={13} className="mr-1" /> Random Secret
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Nhóm 3: Kết nối nhóm Admin (Admin Group) */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-purple-600 uppercase tracking-wider">
+              <Users size={14} /> 3. Kết nối nhóm Zalo Admin
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Admin Group Chat ID</label>
+              <Input
+                type="text"
+                value={configDraft.adminGroupChatId || ""}
+                onChange={(event) =>
+                  setConfigDraft((prev) => ({ ...prev, adminGroupChatId: event.target.value }))
+                }
+                placeholder="Nhập Chat ID hoặc lấy tự động qua Get ChatID bên dưới"
+                className="h-10 text-xs font-mono"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border bg-background p-3 space-y-2.5">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-muted">Công cụ nhận diện nhóm tự động</div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => copyText(adminSetupCommand, "lệnh kết nối")}
+                  disabled={!adminSetupCommand}
+                  className="flex min-w-0 flex-1 items-center rounded-xl border border-border bg-card px-3 py-2 text-left transition hover:border-purple-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs font-bold text-text">
+                    {adminSetupCommand || "/setadmin CODE"}
+                  </span>
+                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={generateAdminGroupSetupCode}
+                    isLoading={isGeneratingSetupCode}
+                    className="h-9 px-3 rounded-xl text-xs font-bold"
+                  >
+                    Generate
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={autoDetectAdminGroup}
+                    isLoading={isAutoDetectingAdminGroup}
+                    className="h-9 px-3 rounded-xl text-xs font-bold"
+                  >
+                    Get ChatID
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={clearAdminGroup}
+                    isLoading={isClearingAdminGroup}
+                    className="h-9 px-3 rounded-xl text-xs font-bold text-rose-600 hover:text-rose-700"
+                  >
+                    Xóa nhóm
+                  </Button>
+                </div>
+              </div>
+              <div className="text-[11px] text-muted">
+                {configDraft.adminSetupCodePending && configDraft.adminSetupCodeExpiresAt
+                  ? `Mã kết nối có hiệu lực đến: ${formatDateTime(configDraft.adminSetupCodeExpiresAt)}`
+                  : "Thêm Bot vào nhóm Admin ➔ Gửi lệnh /setadmin CODE hoặc /id ➔ Bấm Get ChatID"}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

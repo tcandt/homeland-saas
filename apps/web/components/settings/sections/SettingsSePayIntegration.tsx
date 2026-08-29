@@ -505,7 +505,6 @@ export default function SettingsSePayIntegration() {
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 shadow-sm">
-            <span className="text-xs font-medium text-muted hidden sm:inline">Kích hoạt:</span>
             <Switch
               checked={draft.enabled}
               onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))}
@@ -904,9 +903,8 @@ export default function SettingsSePayIntegration() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-black ${
-                          bank.isActive ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800"
-                        }`}
+                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-black ${bank.isActive ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800"
+                          }`}
                       >
                         {bank.isActive ? "Đang hoạt động" : "Đã tạm dừng"}
                       </span>
@@ -1031,18 +1029,16 @@ export default function SettingsSePayIntegration() {
               <button
                 type="button"
                 onClick={() => setTestMode("room")}
-                className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
-                  testMode === "room" ? "bg-primary text-white shadow-sm" : "bg-transparent text-muted hover:text-text"
-                }`}
+                className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${testMode === "room" ? "bg-primary text-white shadow-sm" : "bg-transparent text-muted hover:text-text"
+                  }`}
               >
                 Theo phòng
               </button>
               <button
                 type="button"
                 onClick={() => setTestMode("account")}
-                className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
-                  testMode === "account" ? "bg-primary text-white shadow-sm" : "bg-transparent text-muted hover:text-text"
-                }`}
+                className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${testMode === "account" ? "bg-primary text-white shadow-sm" : "bg-transparent text-muted hover:text-text"
+                  }`}
               >
                 Theo tài khoản ngân hàng
               </button>

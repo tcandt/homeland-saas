@@ -40,30 +40,46 @@ const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { name: string; subject?: s
   INVOICE_ZALO_PAYMENT_REQUEST: {
     name: 'Yêu cầu thanh toán hóa đơn',
     subject: '🧾 Thông báo hóa đơn thanh toán {{invoiceCode}}',
-    body: `Kính gửi anh/chị {{customerName}},
+    body: `📄 *THÔNG BÁO HÓA ĐƠN TIỀN NHÀ*
+Mã hóa đơn: *{{invoiceCode}}*
 
-Hệ thống quản lý tòa nhà gửi thông báo hóa đơn:
-- Mã hóa đơn: {{invoiceCode}}
-- Số tiền cần thanh toán: {{amount}} đ
-- Hạn thanh toán: {{dueDate}}
+Kính gửi anh/chị *{{customerName}}*,
+Hệ thống gửi thông báo chi tiết hóa đơn thanh toán:
 
-Quý khách vui lòng quét mã VietQR hoặc chuyển khoản theo thông tin:
-- Ngân hàng: {{bankName}}
-- Số tài khoản: {{bankAccountNumber}}
-- Nội dung: {{paymentCode}}
+🏢 *Phòng:* {{roomCode}} ({{buildingName}})
+📅 *Kỳ cước:* {{period}}
+⏰ *Hạn thanh toán:* {{dueDate}}
 
-Trân trọng cảm ơn!`,
+📋 *CHI TIẾT KHOẢN MỤC:*
+{{itemsSummary}}
+
+💰 *TỔNG CỘNG: {{amount}} đ*
+
+━━━━━━━━━━━━━━━━━━━━
+💳 *THÔNG TIN THANH TOÁN (SEPAY QR)*
+🏦 *Ngân hàng:* {{bankName}}
+🔢 *Số tài khoản:* {{bankAccountNumber}}
+👤 *Chủ tài khoản:* {{accountHolder}}
+🔖 *Nội dung chuyển khoản:* {{paymentCode}}
+
+*(Quý khách vui lòng quét mã VietQR đính kèm hoặc chuyển khoản đúng nội dung để hệ thống tự động gạch nợ).*`,
   },
   DEPOSIT_ZALO_PAYMENT_REQUEST: {
     name: 'Yêu cầu thanh toán cọc',
     subject: '💰 Thông báo thanh toán cọc {{depositCode}}',
-    body: `Kính gửi anh/chị {{customerName}},
+    body: `💰 *THÔNG BÁO THANH TOÁN TIỀN CỌC*
+Mã cọc: *{{depositCode}}*
 
-Thông báo thanh toán cọc:
-- Số tiền: {{amount}} đ
-- Ngân hàng: {{bankName}}
-- STK: {{bankAccountNumber}}
-- Nội dung: {{paymentCode}}
+Kính gửi anh/chị *{{customerName}}*,
+Thông báo thanh toán cọc phòng {{roomCode}}:
+- Số tiền: *{{amount}} đ*
+
+━━━━━━━━━━━━━━━━━━━━
+💳 *THÔNG TIN CHUYỂN KHOẢN*
+🏦 *Ngân hàng:* {{bankName}}
+🔢 *Số tài khoản:* {{bankAccountNumber}}
+👤 *Chủ tài khoản:* {{accountHolder}}
+🔖 *Nội dung chuyển khoản:* {{paymentCode}}
 
 Trân trọng cảm ơn!`,
   },

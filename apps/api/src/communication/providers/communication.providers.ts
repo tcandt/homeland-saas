@@ -442,15 +442,36 @@ export class ConsoleProvider implements CommunicationProvider {
       throw new Error('Zalo Bot requires chat_id or user_id. Current recipient looks like a phone number.');
     }
 
+    const qrUrl = String(payload.context?.qrUrl || payload.photo || '').trim();
+    const text = [payload.title, payload.message].filter(Boolean).join('\n\n');
+
+    // 1. Send main message
     const { response, body } = await postJsonWithTimeout(
       `${buildZaloBotBaseUrl(apiBase, botToken)}/sendMessage`,
       {
         chat_id: recipient,
-        text: [payload.title, payload.message].filter(Boolean).join('\n\n'),
+        text,
       },
       timeoutMs,
     );
     assertZaloApiSuccess(response, body, 'send');
+
+    // 2. If QR URL is present, send QR photo
+    if (qrUrl) {
+      try {
+        await postJsonWithTimeout(
+          `${buildZaloBotBaseUrl(apiBase, botToken)}/sendPhoto`,
+          {
+            chat_id: recipient,
+            photo: qrUrl,
+            caption: `Mã VietQR thanh toán hóa đơn ${payload.context?.invoiceCode || ''}`,
+          },
+          timeoutMs,
+        );
+      } catch (err) {
+        this.logger.warn(`Failed to send QR photo via Zalo: ${err.message}`);
+      }
+    }
 
     return { success: true, zaloResponse: body };
   }

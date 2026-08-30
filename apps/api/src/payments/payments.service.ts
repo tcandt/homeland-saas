@@ -828,6 +828,45 @@ export class PaymentsService {
     const zaloRecipient = this.resolveZaloRecipient(invoice.customer);
     const request = await this.createInvoiceRequest(invoiceId, userId);
 
+    // Format date in Vietnam timezone dd/MM/yyyy
+    let dueDateFormatted = '--/--/----';
+    if (invoice.dueDate) {
+      const d = new Date(invoice.dueDate);
+      if (!isNaN(d.getTime())) {
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        dueDateFormatted = `${day}/${month}/${year}`;
+      }
+    }
+
+    // Format amount with thousand separators
+    const amountFormatted = new Intl.NumberFormat('vi-VN').format(Number(request.amount));
+
+    // Format item breakdowns with icons
+    const items = (invoice.items || []).map((item: any) => {
+      const amt = Number(item.amount || 0);
+      const isFree = amt === 0;
+      const formattedAmt = isFree ? 'Miễn phí' : `${new Intl.NumberFormat('vi-VN').format(Math.abs(amt))} đ`;
+      const nameLower = (item.name || '').toLowerCase();
+      const icon = nameLower.includes('điện')
+        ? '⚡'
+        : nameLower.includes('nước')
+        ? '💧'
+        : nameLower.includes('wifi') || nameLower.includes('rác') || nameLower.includes('vệ sinh')
+        ? '📶'
+        : nameLower.includes('giảm') || amt < 0
+        ? '🎁'
+        : '🏢';
+      const prefix = amt < 0 ? '-' : '';
+      return `${icon} ${item.name}: ${prefix}${formattedAmt}`;
+    });
+
+    const itemsSummary = items.length > 0 ? items.join('\n') : `🏢 Tiền thuê phòng: ${amountFormatted} đ`;
+    const roomCode = invoice.contract?.room?.code || invoice.contract?.room?.number || (invoice as any)?.room?.number || 'PN';
+    const buildingName = invoice.contract?.room?.building?.name || (invoice as any)?.building?.name || '';
+    const periodStr = invoice.period || (invoice.createdAt ? `Tháng ${String(new Date(invoice.createdAt).getMonth() + 1).padStart(2, '0')}/${new Date(invoice.createdAt).getFullYear()}` : 'Tháng hiện tại');
+
     await this.communicationService.dispatchDirect({
       tenantId: invoice.tenantId,
       channel: NotificationChannel.ZALO,
@@ -840,12 +879,18 @@ export class PaymentsService {
         customerPhone,
         zaloChatId: invoice.customer?.zaloChatId || null,
         zaloUserId: invoice.customer?.zaloUserId || null,
-        amount: Number(request.amount),
+        roomCode,
+        buildingName,
+        period: periodStr,
+        amount: amountFormatted,
+        rawAmount: Number(request.amount),
+        itemsSummary,
         paymentCode: request.paymentCode,
         qrUrl: request.qrUrl,
         bankName: request.bankName,
         bankAccountNumber: request.bankAccountNumber,
-        dueDate: invoice.dueDate,
+        accountHolder: request.bankAccountName || 'HOMELAND MANAGEMENT',
+        dueDate: dueDateFormatted,
         sentAt: new Date(),
         ...buildRoomContext(invoice.contract?.room, invoice.contract),
       },

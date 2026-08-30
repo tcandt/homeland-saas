@@ -25,6 +25,8 @@ type TenantRow = {
   endDate?: string;
   debt: number;
   status: string;
+  statusLabel: string;
+  statusVariant: "success" | "warning" | "error" | "neutral" | "primary";
 };
 
 function formatDate(value?: string) {
@@ -59,22 +61,101 @@ export default function TenantGrid() {
 
   const rows: TenantRow[] = useMemo(() => {
     return customers.map((customer: any) => {
-      const relatedContract = contracts.find((contract: any) => contract.customerId === customer.id || contract.customer?.id === customer.id);
-      const debt = Number(customer.kpis?.totalDebt || relatedContract?.debt || 0);
+      // Find all contracts belonging to this customer
+      const customerContracts: any[] = contracts.filter(
+        (contract: any) =>
+          contract.customerId === customer.id ||
+          contract.customer?.id === customer.id,
+      );
+
+      // Prioritize active contracts first, then pending/draft, then any other
+      const activeContract =
+        customerContracts.find(
+          (c: any) =>
+            c.status === "ACTIVE" ||
+            c.status === "APPROVED" ||
+            c.status === "EXPIRING",
+        ) ||
+        customerContracts.find(
+          (c: any) => c.status === "PENDING_APPROVAL" || c.status === "DRAFT",
+        ) ||
+        customerContracts[0];
+
+      const debt = Number(customer.kpis?.totalDebt || activeContract?.debt || 0);
+      const endDate = activeContract?.endDate;
+      const days = contractDays(endDate);
+
+      // Compute precise rental status based on contract reality
+      let rentalStatus = "NO_CONTRACT";
+      let statusLabel = "Chưa thuê";
+      let statusVariant: "success" | "warning" | "error" | "neutral" | "primary" = "neutral";
+
+      if (activeContract) {
+        if (activeContract.status === "ACTIVE" || activeContract.status === "APPROVED") {
+          if (days > 0 && days <= 30) {
+            rentalStatus = "EXPIRING";
+            statusLabel = "Sắp hết HĐ";
+            statusVariant = "warning";
+          } else if (days === 0 && endDate && new Date(endDate).getTime() < Date.now()) {
+            rentalStatus = "EXPIRED";
+            statusLabel = "Hết hạn HĐ";
+            statusVariant = "error";
+          } else {
+            rentalStatus = "ACTIVE";
+            statusLabel = "Đang thuê";
+            statusVariant = "success";
+          }
+        } else if (activeContract.status === "EXPIRING") {
+          rentalStatus = "EXPIRING";
+          statusLabel = "Sắp hết HĐ";
+          statusVariant = "warning";
+        } else if (activeContract.status === "DRAFT" || activeContract.status === "PENDING_APPROVAL") {
+          rentalStatus = "DRAFT";
+          statusLabel = "Chờ ký HĐ";
+          statusVariant = "primary";
+        } else if (activeContract.status === "EXPIRED") {
+          rentalStatus = "EXPIRED";
+          statusLabel = "Hết hạn HĐ";
+          statusVariant = "error";
+        } else if (activeContract.status === "TERMINATED" || activeContract.status === "CANCELLED") {
+          rentalStatus = "TERMINATED";
+          statusLabel = "Đã trả phòng";
+          statusVariant = "neutral";
+        }
+      } else if (customer.rooms && customer.rooms.length > 0) {
+        rentalStatus = "ACTIVE";
+        statusLabel = "Ở ghép";
+        statusVariant = "success";
+      }
+
       return {
         id: customer.id,
         source: customer,
         fullName: customer.fullName || customer.name || "Khách thuê",
-        avatar: customer.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(customer.fullName || customer.name || "Khách")}`,
+        avatar:
+          customer.avatar ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            customer.fullName || customer.name || "Khách",
+          )}`,
         type: customer.type || customer.customerType || "Cá nhân",
-        roomLabel: customer.rooms?.[0]?.name || relatedContract?.room?.number || relatedContract?.room?.code || "N/A",
-        buildingName: customer.rooms?.[0]?.building?.name || relatedContract?.room?.building?.name || "Chưa có tòa",
+        roomLabel:
+          customer.rooms?.[0]?.name ||
+          customer.rooms?.[0]?.code ||
+          activeContract?.room?.number ||
+          activeContract?.room?.code ||
+          "N/A",
+        buildingName:
+          customer.rooms?.[0]?.building?.name ||
+          activeContract?.room?.building?.name ||
+          "Chưa có tòa",
         phone: customer.phone || "N/A",
         email: customer.email || "N/A",
-        startDate: relatedContract?.startDate,
-        endDate: relatedContract?.endDate,
+        startDate: activeContract?.startDate,
+        endDate: activeContract?.endDate,
         debt,
-        status: customer.status || relatedContract?.status || "ACTIVE",
+        status: rentalStatus,
+        statusLabel,
+        statusVariant,
       };
     });
   }, [customers, contracts]);
@@ -165,10 +246,6 @@ export default function TenantGrid() {
 }
 
 function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void }) {
-  const days = contractDays(row.endDate);
-  const statusLabel = row.status === "ACTIVE" ? "Đang thuê" : row.status === "EXPIRING" ? "Sắp hết HĐ" : row.status;
-  const statusVariant = row.status === "ACTIVE" ? "success" : row.status === "EXPIRING" ? "warning" : row.debt > 0 ? "error" : "neutral";
-
   return (
     <div onClick={onOpen} className="relative grid min-w-[1060px] cursor-pointer grid-cols-[minmax(220px,1.2fr)_minmax(160px,0.8fr)_minmax(190px,1fr)_minmax(160px,0.8fr)_120px_120px_86px] items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-surface/70">
       <div className="flex min-w-0 items-center gap-3 self-center">
@@ -189,7 +266,9 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
         <div className="truncate text-[12px] font-black text-text">{formatDate(row.startDate)} - {formatDate(row.endDate)}</div>
       </div>
       <div className={`text-[13px] font-black ${row.debt > 0 ? "text-rose-600" : "text-emerald-600"}`}>{formatMoney(row.debt)}</div>
-      <Badge variant={statusVariant as any}>{statusLabel}</Badge>
+      <div>
+        <Badge variant={row.statusVariant as any}>{row.statusLabel}</Badge>
+      </div>
       <div className="relative flex justify-end">
         <button
           type="button"

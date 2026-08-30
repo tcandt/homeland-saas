@@ -68,7 +68,7 @@ export default function TenantSidebar() {
         </div>
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3">
           <div className="relative h-[142px] w-[142px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width={142} height={142} minWidth={142} minHeight={142}>
               <PieChart>
                 <Pie data={visibleChartData} dataKey="value" nameKey="label" innerRadius={44} outerRadius={64} paddingAngle={3} stroke="var(--card)" strokeWidth={5}>
                   {visibleChartData.map((item) => <Cell key={item.label} fill={item.color} />)}

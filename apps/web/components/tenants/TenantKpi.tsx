@@ -53,47 +53,39 @@ export default function TenantKpi() {
   }, [customersData, contractsData]);
 
   return (
-    <div data-testid="tenants-kpi-grid" className="grid grid-cols-2 lg:grid-cols-4 gap-[12px] md:gap-[16px] shrink-0">
+    <div data-testid="tenants-kpi-grid" className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-2.5 shrink-0">
       <KpiCard
         title="Tổng khách thuê"
         value={summary.totalCustomers.toString()}
-        trend={`+${summary.newCustomers} mới`}
-        trendLabel="trong 30 ngày"
+        trend={summary.newCustomers > 0 ? `+${summary.newCustomers} mới` : undefined}
         trendPositive={true}
-        icon={<Users size={18} className="text-[#4f46e5]" />}
-        iconBg="bg-[#4f46e5]/10"
-        blobColor="bg-[#4f46e5]/15"
+        icon={<Users size={16} className="text-indigo-600 dark:text-indigo-400" />}
+        iconBg="bg-indigo-500/10 border border-indigo-500/20"
       />
       <KpiCard
         title="Đang thuê phòng"
         value={summary.activeContractCount.toString()}
-        trend={`${summary.withoutContractCount} khách`}
-        trendLabel="chưa có hợp đồng"
-        icon={<CheckCircle2 size={18} className="text-[#10b981]" />}
-        iconBg="bg-[#10b981]/10"
-        blobColor="bg-[#10b981]/15"
+        trend={summary.withoutContractCount > 0 ? `${summary.withoutContractCount} chưa HĐ` : "Đầy đủ HĐ"}
+        icon={<CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />}
+        iconBg="bg-emerald-500/10 border border-emerald-500/20"
       />
       <KpiCard
         title="Sắp hết hạn HĐ"
         value={summary.expiringContracts.toString()}
         trend={summary.expiringContracts > 0 ? "Cần xử lý" : "Ổn định"}
-        trendLabel={summary.expiringContracts > 0 ? "trong 30 ngày tới" : "không có HĐ sắp hết"}
         highlight={summary.expiringContracts > 0}
-        highlightColor="text-[#f97316]"
-        icon={<CalendarClock size={18} className="text-[#f97316]" />}
-        iconBg="bg-[#f97316]/10"
-        blobColor="bg-[#f97316]/15"
+        highlightColor="text-amber-600 dark:text-amber-400"
+        icon={<CalendarClock size={16} className="text-amber-600 dark:text-amber-400" />}
+        iconBg="bg-amber-500/10 border border-amber-500/20"
       />
       <KpiCard
         title="Tổng công nợ"
         value={formatMoney(summary.overdueDebt)}
         trend={summary.overdueCount > 0 ? `${summary.overdueCount} HĐ nợ` : "Đã thu đủ"}
-        trendLabel={summary.overdueCount > 0 ? "cần theo dõi thu" : "0 đ quá hạn"}
         highlight={summary.overdueDebt > 0}
-        highlightColor="text-[#ef4444]"
-        icon={<AlertTriangle size={18} className={summary.overdueDebt > 0 ? "text-[#ef4444]" : "text-[#10b981]"} />}
-        iconBg={summary.overdueDebt > 0 ? "bg-[#ef4444]/10" : "bg-[#10b981]/10"}
-        blobColor={summary.overdueDebt > 0 ? "bg-[#ef4444]/15" : "bg-[#10b981]/15"}
+        highlightColor="text-rose-600 dark:text-rose-400"
+        icon={<AlertTriangle size={16} className={summary.overdueDebt > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"} />}
+        iconBg={summary.overdueDebt > 0 ? "bg-rose-500/10 border border-rose-500/20" : "bg-emerald-500/10 border border-emerald-500/20"}
       />
     </div>
   );
@@ -103,43 +95,35 @@ function KpiCard({
   title,
   value,
   trend,
-  trendLabel,
   trendPositive,
   icon,
   iconBg,
   highlight,
   highlightColor,
-  blobColor,
 }: any) {
   return (
     <Card
-      className={`relative flex flex-col justify-between overflow-hidden rounded-[16px] md:rounded-[18px] border p-4 md:p-4.5 transition-all hover:shadow-md hover:-translate-y-0.5 z-0 ${
+      className={`flex items-center gap-3 rounded-xl border px-3 py-2 md:px-3.5 md:py-2.5 shadow-sm transition-all hover:border-primary/30 ${
         highlight
-          ? "border-amber-500/30 dark:border-amber-500/20 shadow-sm ring-1 ring-amber-500/10"
-          : "border-border/60 shadow-sm"
+          ? "border-amber-500/30 dark:border-amber-500/20 bg-amber-500/[0.02]"
+          : "border-border/60 bg-card"
       }`}
     >
-      {blobColor && (
-        <div className={`hidden md:block absolute top-0 right-0 w-[90px] h-[90px] ${blobColor} rounded-full blur-[26px] -z-10`} />
-      )}
-
-      <div className="flex items-center gap-2.5 mb-2.5">
-        <div className={`w-[36px] h-[36px] rounded-[11px] flex items-center justify-center shrink-0 ${iconBg}`}>
-          {icon}
-        </div>
-        <span className={`text-[11px] md:text-[12px] font-bold uppercase tracking-wider truncate ${highlight ? highlightColor || "text-amber-600 dark:text-amber-400" : "text-muted"}`}>
-          {title}
-        </span>
+      <div className={`w-8 h-8 md:w-9 md:h-9 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>
+        {icon}
       </div>
 
-      <div className="flex flex-col justify-end">
-        <div className="font-mono font-black text-2xl md:text-[26px] text-text leading-tight mb-1">
-          {value}
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] md:text-[11px] font-bold text-muted uppercase tracking-wider truncate leading-tight mb-0.5">
+          {title}
         </div>
-        <div className="flex items-center gap-1.5 text-[11px] md:text-[12px] truncate">
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono font-black text-lg md:text-xl text-text leading-none">
+            {value}
+          </span>
           {trend && (
             <span
-              className={`font-bold ${
+              className={`text-[10px] md:text-[11px] font-semibold truncate ${
                 trendPositive
                   ? "text-emerald-600 dark:text-emerald-400"
                   : highlight
@@ -150,7 +134,6 @@ function KpiCard({
               {trend}
             </span>
           )}
-          {trendLabel && <span className="text-muted font-medium truncate">{trendLabel}</span>}
         </div>
       </div>
     </Card>

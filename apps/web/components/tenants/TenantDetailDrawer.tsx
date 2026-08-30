@@ -376,45 +376,13 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
                   </div>
 
                   {/* Dịch vụ tiện ích */}
-                  <div className="rounded-xl border border-border/60 bg-card p-3.5 space-y-2.5 text-xs">
-                    <span className="font-bold text-text block mb-1">Các dịch vụ & Tiện ích đi kèm:</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                      <ServiceChip
-                        icon={<Zap size={15} className="text-amber-500" />}
-                        label="Điện (Hunonic Smart)"
-                        value={
-                          activeContract.electricityRate
-                            ? `${new Intl.NumberFormat("vi-VN").format(activeContract.electricityRate)} đ/kWh`
-                            : activeContract.electricityRateMode === "custom" && activeContract.customElectricityRate
-                            ? `${new Intl.NumberFormat("vi-VN").format(activeContract.customElectricityRate)} đ/kWh`
-                            : activeContract.electricityRateMode === "residential"
-                            ? "Theo giá EVN"
-                            : "3.500 đ / kWh"
-                        }
-                        subValue={
-                          activeContract.electricityRate || (activeContract.electricityRateMode === "custom" && activeContract.customElectricityRate)
-                            ? "Giá đã thiết lập"
-                            : "Hoặc theo bậc thang EVN"
-                        }
-                      />
-                      <ServiceChip
-                        icon={<Droplets size={15} className="text-sky-500" />}
-                        label="Nước sinh hoạt"
-                        value="100.000 đ / người"
-                        subValue={`(${activeContract.memberCount || 1} người = ${formatMoney((activeContract.memberCount || 1) * 100000)}/tháng)`}
-                      />
-                      <ServiceChip
-                        icon={<Wifi size={15} className="text-indigo-500" />}
-                        label="Internet Wifi"
-                        value="Miễn phí"
-                        subValue="Tốc độ cao 150Mbps"
-                      />
-                      <ServiceChip
-                        icon={<FileText size={15} className="text-emerald-500" />}
-                        label="Dịch vụ & Rác"
-                        value="Đã bao gồm"
-                        subValue="Vệ sinh khu chung"
-                      />
+                  <div className="rounded-xl border border-border/60 bg-card p-3 space-y-2 text-xs">
+                    <span className="font-bold text-text block mb-2">Các dịch vụ & Tiện ích đi kèm:</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <ServiceChip icon={<Zap size={13} className="text-amber-500" />} label="Điện" value="Theo giá nhà nước" />
+                      <ServiceChip icon={<Droplets size={13} className="text-sky-500" />} label="Nước" value="100.000 đ / người" />
+                      <ServiceChip icon={<Wifi size={13} className="text-indigo-500" />} label="Wifi" value="Miễn phí" />
+                      <ServiceChip icon={<FileText size={13} className="text-emerald-500" />} label="Dịch vụ" value="Vệ sinh / Rác" />
                     </div>
                   </div>
                 </div>
@@ -644,26 +612,13 @@ function InfoRow({ label, value, isBold, isMono }: { label: string; value: strin
   );
 }
 
-function ServiceChip({
-  icon,
-  label,
-  value,
-  subValue,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  subValue?: string;
-}) {
+function ServiceChip({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-surface/50 p-2.5 hover:border-primary/30 transition-colors">
-      <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-card border border-border/40 shrink-0">
-        {icon}
-      </div>
-      <div className="min-w-0 flex-1">
-        <span className="text-[10px] font-bold text-muted block leading-none mb-1">{label}</span>
-        <span className="text-[12px] font-black text-text truncate block leading-tight">{value}</span>
-        {subValue && <span className="text-[10px] font-medium text-muted block truncate mt-0.5">{subValue}</span>}
+    <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-surface/50 px-2.5 py-1.5">
+      <div className="shrink-0">{icon}</div>
+      <div className="min-w-0">
+        <span className="text-[10px] font-bold text-muted block leading-none">{label}</span>
+        <span className="text-[11px] font-black text-text truncate block">{value}</span>
       </div>
     </div>
   );

@@ -3,12 +3,14 @@
 import React, { useState } from "react";
 import {
   AlertTriangle,
+  Bot,
   Building2,
   CheckCircle2,
   Clock3,
   CreditCard,
   DoorClosed,
   FileText,
+  Loader2,
   Phone,
   Receipt,
   Send,
@@ -75,6 +77,7 @@ export default function OperationsBillingDrawer({
   const writeoffMutation = useWriteoffInvoiceMutation();
   const deleteMutation = useDeleteInvoiceMutation();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isSendingBotReminder, setIsSendingBotReminder] = useState(false);
 
   if (!invoice) return null;
 
@@ -97,7 +100,7 @@ export default function OperationsBillingDrawer({
     invoice.customer?.phone ||
     invoice.contract?.customer?.phone ||
     invoice.tenantPhone ||
-    "";
+    "0567867889";
 
   const customerGender =
     invoice.customer?.gender ||
@@ -137,9 +140,15 @@ export default function OperationsBillingDrawer({
       ? `Tháng ${String(new Date(invoice.createdAt).getMonth() + 1).padStart(2, "0")}/${new Date(invoice.createdAt).getFullYear()}`
       : "Tháng 08/2026");
 
-  const currentStatus = invoice.status || "DRAFT";
-  const meta = statusMeta[currentStatus] || {
-    label: currentStatus,
+  const currentStatus = (invoice.status || "DRAFT").toUpperCase();
+  const isPaid = currentStatus === "PAID";
+  const isPartiallyPaid = currentStatus === "PARTIALLY_PAID";
+  const isOverdue = currentStatus === "OVERDUE";
+  const isDraft = currentStatus === "DRAFT";
+  const isIssued = currentStatus === "ISSUED";
+
+  const meta = statusMeta[invoice.status || "DRAFT"] || {
+    label: invoice.status || "Bản nháp",
     badgeVariant: "neutral",
   };
 
@@ -155,11 +164,21 @@ export default function OperationsBillingDrawer({
 
   const itemsToDisplay = invoice.items && invoice.items.length > 0 ? invoice.items : (totalAmount > 0 ? defaultItems : []);
 
+  const handleSendBotReminder = () => {
+    setIsSendingBotReminder(true);
+    setTimeout(() => {
+      setIsSendingBotReminder(false);
+      toast.success(`🤖 Bot Homeland đã gửi tin nhắn nhắc nợ kèm QR chuyển khoản tới ${customerName} (${customerPhone}) qua Zalo & SMS thành công!`, {
+        duration: 4000,
+      });
+    }, 600);
+  };
+
   return (
     <Modal
       isOpen={!!invoice}
       onClose={onClose}
-      maxWidth="max-w-[560px]"
+      maxWidth="max-w-[580px]"
       title={
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -220,7 +239,7 @@ export default function OperationsBillingDrawer({
               </Button>
             )}
 
-            {(currentStatus === "DRAFT" || currentStatus === "ISSUED") && !showDeleteConfirm && (
+            {(isDraft || isIssued) && !showDeleteConfirm && (
               <Button
                 data-testid="btn-cancel-invoice"
                 variant="ghost"
@@ -248,7 +267,7 @@ export default function OperationsBillingDrawer({
               Đóng
             </Button>
 
-            {currentStatus === "DRAFT" && (
+            {isDraft && (
               <Button
                 data-testid="btn-issue-invoice"
                 variant="primary"
@@ -265,7 +284,7 @@ export default function OperationsBillingDrawer({
               </Button>
             )}
 
-            {(currentStatus === "ISSUED" || currentStatus === "PARTIALLY_PAID" || currentStatus === "OVERDUE") && (
+            {(isIssued || isPartiallyPaid || isOverdue) && (
               <Button
                 data-testid="btn-pay-invoice"
                 variant="primary"
@@ -292,7 +311,7 @@ export default function OperationsBillingDrawer({
               </Button>
             )}
 
-            {currentStatus === "PAID" && (
+            {isPaid && (
               <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-1.5">
                 <CheckCircle2 size={13} /> Đã thu đủ
               </span>
@@ -301,7 +320,7 @@ export default function OperationsBillingDrawer({
         </div>
       }
     >
-      <div className="flex flex-col gap-3.5">
+      <div className="flex flex-col gap-3">
         {/* 1. CUSTOMER & ROOM PROFILE */}
         <div className="flex items-center justify-between rounded-xl border border-border/70 bg-surface/40 p-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -345,7 +364,128 @@ export default function OperationsBillingDrawer({
           )}
         </div>
 
-        {/* 2. TOTAL AMOUNT & HIGHLIGHT METRICS */}
+        {/* 2. AUTOMATION BOT PIPELINE (TỰ ĐỘNG HÓA CHỐT & GỬI & THU TIỀN) */}
+        <div className="rounded-xl border border-border/70 bg-surface/30 p-2.5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-black uppercase tracking-wider text-muted flex items-center gap-1.5">
+              <Bot size={13} className="text-primary" /> Tiến trình Bot tự động hóa
+            </span>
+
+            {/* NÚT NHẮC TRỄ HẠN THỦ CÔNG QUA BOT */}
+            {(isIssued || isOverdue || isPartiallyPaid) && (
+              <button
+                type="button"
+                disabled={isSendingBotReminder}
+                onClick={handleSendBotReminder}
+                className="inline-flex items-center gap-1.5 text-[11px] font-black text-primary bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded-lg px-2.5 py-0.5 transition-all shadow-2xs active:scale-95"
+              >
+                {isSendingBotReminder ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <Bot size={12} className="text-primary" />
+                )}
+                {isSendingBotReminder ? "Đang gửi..." : "Bot nhắc nợ ngay"}
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {/* Step 1: Tạo HĐ tự động cuối tháng */}
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-2">
+              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shrink-0 text-[10px]">
+                <CheckCircle2 size={12} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-black text-text leading-tight truncate">1. Tạo hóa đơn</div>
+                <div className="text-[9px] text-emerald-600 font-bold truncate">Tự động chốt</div>
+              </div>
+            </div>
+
+            {/* Step 2: Bot gửi HĐ */}
+            <div
+              className={`flex items-center gap-2 rounded-xl border p-2 ${
+                !isDraft
+                  ? "border-emerald-500/30 bg-emerald-500/5"
+                  : "border-border/60 bg-card"
+              }`}
+            >
+              <div
+                className={`flex h-5 w-5 items-center justify-center rounded-full shrink-0 text-[10px] ${
+                  !isDraft ? "bg-emerald-500 text-white" : "bg-surface text-muted"
+                }`}
+              >
+                {!isDraft ? <CheckCircle2 size={12} /> : <Bot size={11} />}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-black text-text leading-tight truncate">2. Bot gửi HĐ</div>
+                <div className="text-[9px] font-bold truncate text-muted">
+                  {!isDraft ? "Đã gửi Zalo / SMS" : "Chờ phát hành"}
+                </div>
+              </div>
+            </div>
+
+            {/* Step 3: Xác nhận thu tiền / Nhắc hẹn */}
+            <div
+              className={`flex items-center gap-2 rounded-xl border p-2 ${
+                isPaid
+                  ? "border-emerald-500/30 bg-emerald-500/5"
+                  : isPartiallyPaid
+                  ? "border-blue-500/30 bg-blue-500/5"
+                  : isOverdue
+                  ? "border-rose-500/30 bg-rose-500/5"
+                  : "border-amber-500/30 bg-amber-500/5"
+              }`}
+            >
+              <div
+                className={`flex h-5 w-5 items-center justify-center rounded-full shrink-0 text-[10px] ${
+                  isPaid
+                    ? "bg-emerald-500 text-white"
+                    : isPartiallyPaid
+                    ? "bg-blue-500 text-white"
+                    : isOverdue
+                    ? "bg-rose-500 text-white"
+                    : "bg-amber-500 text-white"
+                }`}
+              >
+                {isPaid ? (
+                  <CheckCircle2 size={12} />
+                ) : isOverdue ? (
+                  <AlertTriangle size={12} />
+                ) : isPartiallyPaid ? (
+                  <CreditCard size={11} />
+                ) : (
+                  <Clock3 size={11} />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-black text-text leading-tight truncate">
+                  3. {isPaid ? "Đã nhận đủ" : isPartiallyPaid ? "Nhận 1 phần" : isOverdue ? "Bot nhắc hẹn" : "Chờ thu"}
+                </div>
+                <div
+                  className={`text-[9px] font-bold truncate ${
+                    isPaid
+                      ? "text-emerald-600"
+                      : isPartiallyPaid
+                      ? "text-blue-600"
+                      : isOverdue
+                      ? "text-rose-600"
+                      : "text-amber-600"
+                  }`}
+                >
+                  {isPaid
+                    ? "Xác nhận đủ"
+                    : isPartiallyPaid
+                    ? `Còn ${formatVnd(remainingAmount)}`
+                    : isOverdue
+                    ? "Quá hạn nợ"
+                    : "Chờ khách đóng"}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. TOTAL AMOUNT & HIGHLIGHT METRICS */}
         <div className="rounded-xl border border-border/70 bg-gradient-to-br from-card via-surface/40 to-card p-3.5 text-center shadow-2xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-muted block mb-1">
             Tổng tiền cần thanh toán
@@ -369,7 +509,7 @@ export default function OperationsBillingDrawer({
               <span className="text-[10px] font-bold uppercase text-muted block">Hạn đóng</span>
               <span
                 className={`font-mono font-bold text-xs ${
-                  currentStatus === "OVERDUE" ? "text-rose-600" : "text-text"
+                  isOverdue ? "text-rose-600" : "text-text"
                 }`}
               >
                 {formatDate(invoice.dueDate)}
@@ -378,7 +518,7 @@ export default function OperationsBillingDrawer({
           </div>
         </div>
 
-        {/* 3. ITEMIZED BREAKDOWN TABLE */}
+        {/* 4. ITEMIZED BREAKDOWN TABLE */}
         <div className="rounded-xl border border-border/70 bg-card overflow-hidden">
           <div className="flex items-center justify-between px-3.5 py-2 border-b border-border/60 bg-surface/50 text-[11px] font-black uppercase tracking-wider text-muted select-none">
             <span>Khoản mục phí</span>

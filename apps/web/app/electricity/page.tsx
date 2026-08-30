@@ -331,10 +331,10 @@ export default function ElectricityManagementPage() {
     selectedMeterIds.length > 0 && !isAllSelected && allFilteredIds.some((id) => selectedMeterIds.includes(id));
 
   const toggleSelectAll = () => {
-    if (isAllSelected) {
-      setSelectedMeterIds((prev) => prev.filter((id) => !allFilteredIds.includes(id)));
+    if (selectedMeterIds.length > 0) {
+      setSelectedMeterIds([]);
     } else {
-      setSelectedMeterIds((prev) => Array.from(new Set([...prev, ...allFilteredIds])));
+      setSelectedMeterIds(allFilteredIds);
     }
   };
 
@@ -343,6 +343,81 @@ export default function ElectricityManagementPage() {
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
     );
   };
+
+  // ESC key to clear all selections
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedMeterIds.length > 0) {
+        setSelectedMeterIds([]);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedMeterIds]);
+
+  // Mouse drag selection across rows / cards
+  const [isDraggingSelect, setIsDraggingSelect] = useState(false);
+  const dragActionRef = useRef<"select" | "deselect">("select");
+
+  useEffect(() => {
+    const handleMouseUp = () => {
+      setIsDraggingSelect(false);
+    };
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => window.removeEventListener("mouseup", handleMouseUp);
+  }, []);
+
+  const handleRowMouseDown = (meterId: string, e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (
+      target.closest("button") ||
+      target.closest("select") ||
+      target.closest("a") ||
+      target.closest("input[type='checkbox']") ||
+      target.closest(".no-drag")
+    ) {
+      return;
+    }
+    setIsDraggingSelect(true);
+    const isCurrentlySelected = selectedMeterIds.includes(meterId);
+    if (isCurrentlySelected) {
+      dragActionRef.current = "deselect";
+      setSelectedMeterIds((prev) => prev.filter((id) => id !== meterId));
+    } else {
+      dragActionRef.current = "select";
+      setSelectedMeterIds((prev) => [...prev, meterId]);
+    }
+  };
+
+  const handleRowMouseEnter = (meterId: string) => {
+    if (!isDraggingSelect) return;
+    if (dragActionRef.current === "select") {
+      setSelectedMeterIds((prev) => (prev.includes(meterId) ? prev : [...prev, meterId]));
+    } else {
+      setSelectedMeterIds((prev) => prev.filter((id) => id !== meterId));
+    }
+  };
+
+  const selectedMeters = useMemo(() => {
+    return filteredMeters.filter((m) => {
+      const id = m.id || m.deviceId || m.mac;
+      return selectedMeterIds.includes(id);
+    });
+  }, [filteredMeters, selectedMeterIds]);
+
+  const selectedTotalKwh = useMemo(() => {
+    return selectedMeters.reduce(
+      (sum, m) => sum + Number(m.energyMonthKwh || m.totalKwh || m.currentKwh || 0),
+      0,
+    );
+  }, [selectedMeters]);
+
+  const selectedTotalCost = useMemo(() => {
+    return selectedMeters.reduce(
+      (sum, m) => sum + Number(m.moneyMonthVnd || m.estimatedCost || m.amount || 0),
+      0,
+    );
+  }, [selectedMeters]);
 
   const handleSync = async () => {
     setIsSyncing(true);
@@ -764,49 +839,6 @@ export default function ElectricityManagementPage() {
           </div>
         </div>
 
-        {/* FLOATING BULK ACTIONS BAR: Khi có chọn nhiều công tơ */}
-        {selectedMeterIds.length > 0 && (
-          <div className="sticky top-20 z-30 flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-primary/40 bg-primary/10 backdrop-blur-md p-2.5 px-4 shadow-lg animate-in fade-in slide-in-from-top-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-primary">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white text-[11px]">
-                {selectedMeterIds.length}
-              </span>
-              <span>Đã chọn {selectedMeterIds.length} công tơ</span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => openRateModalForSelection()}
-                className="h-8 rounded-xl bg-primary text-white text-xs font-bold shadow-sm"
-              >
-                <Zap size={12} className="mr-1" /> Đổi giá ({selectedMeterIds.length})
-              </Button>
-
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setIsLockModalOpen(true)}
-                className="h-8 rounded-xl bg-background text-xs font-bold shadow-sm"
-              >
-                <Lock size={12} className="mr-1 text-amber-500" /> Chốt kỳ ({selectedMeterIds.length})
-              </Button>
-
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setSelectedMeterIds([])}
-                className="h-8 rounded-xl text-xs font-bold text-muted hover:text-text"
-              >
-                Bỏ chọn
-              </Button>
-            </div>
-          </div>
-        )}
-
         {/* VIEW MODE: TABLE VIEW */}
         {viewMode === "table" && (
           <Card className="overflow-hidden border-border/80 shadow-sm">
@@ -823,6 +855,7 @@ export default function ElectricityManagementPage() {
                         }}
                         onChange={toggleSelectAll}
                         className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                        title="Chọn tất cả / Bỏ chọn"
                       />
                     </th>
                     {visibleColumns.room && <th className="py-2.5 px-3">Phòng / Tòa</th>}
@@ -869,18 +902,13 @@ export default function ElectricityManagementPage() {
                       return (
                         <tr
                           key={meterId}
-                          onClick={(e) => {
-                            const target = e.target as HTMLElement;
-                            if (target.closest("button") || target.closest("select") || target.closest("input") || target.closest("a")) {
-                              return;
-                            }
-                            toggleSelectMeter(meterId);
-                          }}
+                          onMouseDown={(e) => handleRowMouseDown(meterId, e)}
+                          onMouseEnter={() => handleRowMouseEnter(meterId)}
                           className={`transition-colors cursor-pointer select-none ${
                             isSelected ? "bg-primary/10 border-l-2 border-primary" : "hover:bg-muted/10"
                           }`}
                         >
-                          <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                          <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
                               checked={isSelected}
@@ -1069,13 +1097,8 @@ export default function ElectricityManagementPage() {
                 return (
                   <Card
                     key={meterId}
-                    onClick={(e) => {
-                      const target = e.target as HTMLElement;
-                      if (target.closest("button") || target.closest("select") || target.closest("input") || target.closest("a")) {
-                        return;
-                      }
-                      toggleSelectMeter(meterId);
-                    }}
+                    onMouseDown={(e) => handleRowMouseDown(meterId, e)}
+                    onMouseEnter={() => handleRowMouseEnter(meterId)}
                     className={`p-3 transition-all relative flex flex-col justify-between gap-2.5 cursor-pointer select-none ${
                       isSelected
                         ? "border-primary ring-2 ring-primary/20 bg-primary/5"
@@ -1163,6 +1186,66 @@ export default function ElectricityManagementPage() {
                 );
               })
             )}
+          </div>
+        )}
+
+        {/* FIXED BOTTOM FLOATING ACTIONS BAR: Khi có chọn công tơ */}
+        {selectedMeterIds.length > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col md:flex-row items-center justify-between gap-3 md:gap-6 rounded-2xl border border-primary/40 bg-card/95 backdrop-blur-xl px-5 py-3 shadow-2xl animate-in fade-in slide-in-from-bottom-5 max-w-[95vw] md:max-w-4xl w-full border-t-2 border-t-primary">
+            {/* Left: Số lượng đã chọn & Phím tắt ESC */}
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white text-xs font-black shadow-sm">
+                {selectedMeterIds.length}
+              </span>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-text">
+                <span>
+                  Đã chọn <strong className="text-primary font-black">{selectedMeterIds.length}</strong> công tơ
+                </span>
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-muted font-normal ml-1">
+                  (Nhấn <kbd className="px-1.5 py-0.5 text-[9px] font-mono bg-muted/40 border border-border rounded text-text font-bold">ESC</kbd> để bỏ chọn)
+                </span>
+              </div>
+            </div>
+
+            {/* Center (Vị trí đánh dấu): Tổng kWh & Tổng tiền tạm tính */}
+            <div className="flex items-center gap-3 md:gap-5 text-xs font-bold bg-muted/30 px-4 py-1.5 rounded-xl border border-border/60">
+              <div className="flex items-center gap-1.5">
+                <Zap size={13} className="text-amber-500 fill-amber-500" />
+                <span className="text-muted font-medium">Tổng T{currentMonthNum}:</span>
+                <span className="font-mono font-black text-amber-600 dark:text-amber-400">
+                  {formatKwh(selectedTotalKwh)}
+                </span>
+              </div>
+              <div className="w-[1px] h-3.5 bg-border"></div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted font-medium">Tạm tính:</span>
+                <span className="font-mono font-black text-primary">
+                  {formatCurrency(selectedTotalCost)}
+                </span>
+              </div>
+            </div>
+
+            {/* Right: Thao tác đổi giá & Chốt kỳ */}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => openRateModalForSelection()}
+                className="h-8 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold shadow-sm"
+              >
+                <Zap size={12} className="mr-1" /> Đổi giá ({selectedMeterIds.length})
+              </Button>
+
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setIsLockModalOpen(true)}
+                className="h-8 rounded-xl bg-background hover:bg-muted/10 text-xs font-bold shadow-sm border-border"
+              >
+                <Lock size={12} className="mr-1 text-amber-500" /> Chốt kỳ ({selectedMeterIds.length})
+              </Button>
+            </div>
           </div>
         )}
 

@@ -9,13 +9,14 @@ import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/EmptyState";
 import { ErrorState } from "../ui/ErrorState";
 import { LoadingState } from "../ui/LoadingState";
-import TenantDetailDrawer from "./TenantDetailDrawer";
+import { getTenantAvatar, default as TenantDetailDrawer } from "./TenantDetailDrawer";
 
 type TenantRow = {
   id: string;
   source: any;
   fullName: string;
   avatar: string;
+  gender: string;
   type: string;
   roomLabel: string;
   buildingName: string;
@@ -23,10 +24,20 @@ type TenantRow = {
   email: string;
   startDate?: string;
   endDate?: string;
+  contractDays: number;
   debt: number;
   status: string;
   statusLabel: string;
   statusVariant: "success" | "warning" | "error" | "neutral" | "primary";
+  activeContract: any;
+  contracts: any[];
+  identityNo?: string;
+  birthDate?: string;
+  address?: string;
+  zaloChatId?: string;
+  zaloUserId?: string;
+  emergencyPhone?: string;
+  idImages?: string[];
 };
 
 function formatDate(value?: string) {
@@ -128,15 +139,15 @@ export default function TenantGrid() {
         statusVariant = "success";
       }
 
+      const gender = customer.gender || "Nam";
+      const fullName = customer.fullName || customer.name || "Khách thuê";
+
       return {
         id: customer.id,
         source: customer,
-        fullName: customer.fullName || customer.name || "Khách thuê",
-        avatar:
-          customer.avatar ||
-          `https://ui-avatars.com/api/?name=${encodeURIComponent(
-            customer.fullName || customer.name || "Khách",
-          )}`,
+        fullName,
+        gender,
+        avatar: getTenantAvatar(customer.avatar, fullName, gender),
         type: customer.type || customer.customerType || "Cá nhân",
         roomLabel:
           customer.rooms?.[0]?.name ||
@@ -152,10 +163,20 @@ export default function TenantGrid() {
         email: customer.email || "N/A",
         startDate: activeContract?.startDate,
         endDate: activeContract?.endDate,
+        contractDays: days,
         debt,
         status: rentalStatus,
         statusLabel,
         statusVariant,
+        activeContract,
+        contracts: customerContracts,
+        identityNo: customer.identityNo || customer.citizenId,
+        birthDate: customer.birthDate,
+        address: customer.address,
+        zaloChatId: customer.zaloChatId,
+        zaloUserId: customer.zaloUserId,
+        emergencyPhone: customer.emergencyPhone,
+        idImages: customer.idImages || [],
       };
     });
   }, [customers, contracts]);
@@ -209,7 +230,7 @@ export default function TenantGrid() {
               <TenantTableRow
                 key={row.id}
                 row={row}
-                onOpen={() => setSelectedTenant(row.source)}
+                onOpen={() => setSelectedTenant(row)}
               />
             ))
           )}
@@ -246,12 +267,32 @@ export default function TenantGrid() {
 }
 
 function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void }) {
+  const cleanGender = (row.gender || "").trim().toLowerCase();
+  const isFemale = cleanGender === "female" || cleanGender === "nu" || cleanGender === "nữ" || cleanGender === "gái";
+
   return (
     <div onClick={onOpen} className="relative grid min-w-[1060px] cursor-pointer grid-cols-[minmax(220px,1.2fr)_minmax(160px,0.8fr)_minmax(190px,1fr)_minmax(160px,0.8fr)_120px_120px_86px] items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-surface/70">
       <div className="flex min-w-0 items-center gap-3 self-center">
-        <img src={row.avatar} alt="" className="h-10 w-10 shrink-0 rounded-full border border-border object-cover" />
+        <div className="relative shrink-0">
+          <img
+            src={row.avatar}
+            alt=""
+            className={`h-10 w-10 shrink-0 rounded-full border-2 object-cover ${
+              isFemale ? "border-rose-400/80 bg-rose-50" : "border-sky-400/80 bg-sky-50"
+            }`}
+          />
+          <span
+            className={`absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black text-white shadow-sm ${
+              isFemale ? "bg-rose-500" : "bg-sky-500"
+            }`}
+            title={isFemale ? "Nữ" : "Nam"}
+          >
+            {isFemale ? "♀" : "♂"}
+          </span>
+        </div>
         <div className="min-w-0">
           <div className="truncate text-[13px] font-black text-text">{row.fullName}</div>
+          <div className="text-[11px] font-medium text-muted">{isFemale ? "Nữ" : "Nam"}</div>
         </div>
       </div>
       <div className="min-w-0">

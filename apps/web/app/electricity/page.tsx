@@ -1436,7 +1436,7 @@ export default function ElectricityManagementPage() {
                     className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
                     <option value="all">Tất cả tòa nhà</option>
-                    {(buildings.length > 0 ? buildings.map((b: any) => b.code) : ["LK01-31", "LK01-32"]).map((bCode: string) => (
+                    {(buildings.length > 0 ? buildings : ["LK01-31", "LK01-32"]).map((bCode: string) => (
                       <option key={bCode} value={bCode}>
                         Tòa {bCode}
                       </option>

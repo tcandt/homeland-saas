@@ -18,6 +18,7 @@ type HunonicSettings = {
   syncIntervalMinutes?: number;
   retentionYears?: number;
   managedBuildingCodes?: string[];
+  autoLockPreviousMonth?: boolean;
   lockedPeriods?: HunonicLockedPeriod[];
   appliedElectricityRates?: Record<string, HunonicAppliedElectricityRate>;
 };
@@ -35,6 +36,7 @@ type HunonicAppliedElectricityRate = {
 type HunonicLockedPeriod = {
   buildingCode: string;
   roomCode: string;
+  displayName?: string;
   period: string;
   lockedAt?: string;
   note?: string;
@@ -81,7 +83,6 @@ export class HunonicService {
 
   async getOverview(tenantId: string) {
     const settings = await this.getSettings(tenantId);
-    const lockedPeriods = normalizeLockedPeriods(settings.lockedPeriods);
     const managedBuildingCodes = await this.getManagedBuildingCodes(tenantId);
     const rawMappings = await this.prismaAny.hunonicMeterMapping.findMany({
       where: { tenantId, buildingCode: { in: managedBuildingCodes } },
@@ -98,6 +99,49 @@ export class HunonicService {
       where: { tenantId },
       orderBy: { startedAt: 'desc' },
     });
+
+    let lockedPeriods = normalizeLockedPeriods(settings.lockedPeriods);
+
+    // Auto-lock previous month if enabled (default: true)
+    if (settings.autoLockPreviousMonth !== false && mappings.length > 0) {
+      const now = new Date();
+      const currentPeriod = getReadingPeriod(now);
+      const prevPeriod = getPreviousPeriod(currentPeriod);
+      const lockedMap = new Map(lockedPeriods.map((item) => [lockedPeriodKey(item), item]));
+      let hasNewAutoLock = false;
+
+      for (const mapping of mappings) {
+        const raw = mapping.raw || {};
+        const rootExtra = typeof raw.root_extra === 'string' ? parseJsonObject(raw.root_extra) : raw.root_extra || {};
+        const dataExtra = typeof raw.data_extra === 'string' ? parseJsonObject(raw.data_extra) : raw.data_extra || {};
+        const prevKwh = Number(rootExtra.power_of_prev_month ?? dataExtra.power_of_prev_month ?? 0);
+        const prevVnd = Number(rootExtra.money_of_prev_month ?? dataExtra.money_of_prev_month ?? 0);
+
+        if (prevKwh > 0 || prevVnd > 0) {
+          const row: HunonicLockedPeriod = {
+            buildingCode: mapping.buildingCode,
+            roomCode: mapping.roomCode,
+            period: prevPeriod,
+            lockedAt: new Date().toISOString(),
+            note: 'Tự động chốt kỳ tháng trước',
+          };
+          const key = lockedPeriodKey(row);
+          if (!lockedMap.has(key)) {
+            lockedMap.set(key, row);
+            hasNewAutoLock = true;
+          }
+        }
+      }
+
+      if (hasNewAutoLock) {
+        lockedPeriods = Array.from(lockedMap.values()).sort(compareLockedPeriods);
+        settings.lockedPeriods = lockedPeriods;
+        await this.saveSettings(tenantId, {
+          ...settings,
+          lockedPeriods,
+        });
+      }
+    }
 
     return {
       managedBuildingCodes,
@@ -674,6 +718,7 @@ export class HunonicService {
       const roomIndex = createRoomIndex(buildings);
       let readingsSaved = 0;
       const mappingByProviderMeterId = new Map<string, any>();
+      const autoLockRows: HunonicLockedPeriod[] = [];
 
       for (const meter of dashboard.electric_meters) {
         const fixed = resolveFixedRoomMapping(meter);
@@ -695,15 +740,70 @@ export class HunonicService {
         );
         mappingByProviderMeterId.set(providerMeterId, { mapping, roomId: roomMatch?.roomId, meter, fixed });
 
+        const currentPeriod = getReadingPeriod(readingAt);
         const upserted = await this.upsertMonthlyReading(
           tenantId,
           mapping,
           roomMatch?.roomId,
-          getReadingPeriod(readingAt),
+          currentPeriod,
           readingAt,
           meter,
         );
         if (upserted) readingsSaved += 1;
+
+        // Auto-save and auto-lock previous month reading when available
+        const prevPeriod = getPreviousPeriod(currentPeriod);
+        if (meter.energy_prev_month_kwh !== null || meter.money_prev_month_vnd !== null) {
+          const prevReadingAt = getPeriodReadingAt(prevPeriod);
+          const prevMeter: HunonicElectricMeter = {
+            ...meter,
+            energy_month_kwh: meter.energy_prev_month_kwh,
+            money_month_vnd: meter.money_prev_month_vnd,
+            current_month: prevPeriod,
+          };
+          const upsertedPrev = await this.upsertMonthlyReading(
+            tenantId,
+            mapping,
+            roomMatch?.roomId,
+            prevPeriod,
+            prevReadingAt,
+            prevMeter,
+          );
+          if (upsertedPrev) readingsSaved += 1;
+
+          if (settings.autoLockPreviousMonth !== false) {
+            autoLockRows.push({
+              buildingCode: fixed.buildingCode,
+              roomCode: fixed.roomCode,
+              displayName: fixed.displayName,
+              period: prevPeriod,
+              lockedAt: new Date().toISOString(),
+              note: 'Tự động chốt kỳ tháng trước',
+            });
+          }
+        }
+      }
+
+      if (autoLockRows.length > 0) {
+        const currentLocked = normalizeLockedPeriods(settings.lockedPeriods);
+        const lockedMap = new Map(currentLocked.map((item) => [lockedPeriodKey(item), item]));
+        let hasNewLock = false;
+
+        for (const row of autoLockRows) {
+          const key = lockedPeriodKey(row);
+          if (!lockedMap.has(key)) {
+            lockedMap.set(key, row);
+            hasNewLock = true;
+          }
+        }
+
+        if (hasNewLock) {
+          const nextSettings: HunonicSettings = {
+            ...settings,
+            lockedPeriods: Array.from(lockedMap.values()).sort(compareLockedPeriods),
+          };
+          await this.saveSettings(tenantId, nextSettings);
+        }
       }
 
       for (const point of backfill?.history || []) {
@@ -1162,6 +1262,24 @@ function mapReading(reading: any) {
 function getReadingPeriod(readingAt: Date) {
   const date = Number.isNaN(readingAt.getTime()) ? new Date() : readingAt;
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getPreviousPeriod(period: string) {
+  const [yearStr, monthStr] = period.split('-');
+  let year = parseInt(yearStr, 10);
+  let month = parseInt(monthStr, 10);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    const now = new Date();
+    year = now.getFullYear();
+    month = now.getMonth() + 1;
+  }
+  if (month === 1) {
+    year -= 1;
+    month = 12;
+  } else {
+    month -= 1;
+  }
+  return `${year}-${String(month).padStart(2, '0')}`;
 }
 
 function getPeriodReadingAt(period: string) {

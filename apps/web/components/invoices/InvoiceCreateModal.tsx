@@ -317,14 +317,26 @@ export default function InvoiceCreateModal({
 
       if (sendZaloBot && payMethod === "QR_TRANSFER" && invoiceId) {
         try {
-          await sendZaloMutation.mutateAsync(invoiceId);
-        } catch (e) {
-          // ignore
+          console.log("🚀 [ZaloBot] Đang gửi hóa đơn qua Bot Zalo...", {
+            invoiceId,
+            customerName: activeRecipient?.fullName,
+            customerPhone: activeRecipient?.phone,
+            zaloChatId: (activeRecipient as any)?.zaloChatId,
+          });
+          const zaloRes = await sendZaloMutation.mutateAsync(invoiceId);
+          console.log("✅ [ZaloBot] Phản hồi gửi thành công:", zaloRes);
+          toast.success(
+            `🤖 Bot Zalo đã gửi hóa đơn & mã VietQR tới ${activeRecipient.fullName} thành công!`,
+            { duration: 5000 }
+          );
+        } catch (e: any) {
+          console.error("❌ [ZaloBot] Lỗi gửi hóa đơn qua Bot Zalo:", e);
+          const errorMsg =
+            e?.response?.data?.message ||
+            e?.message ||
+            `Khách thuê ${activeRecipient.fullName} chưa liên kết Zalo ID với Bot.`;
+          toast.error(errorMsg, { duration: 6000 });
         }
-        toast.success(
-          `🤖 Bot Zalo đã gửi hóa đơn & mã VietQR tới ${activeRecipient.fullName} (${activeRecipient.phone})!`,
-          { duration: 5000 }
-        );
       } else {
         toast.success("Tạo hóa đơn thành công!");
       }

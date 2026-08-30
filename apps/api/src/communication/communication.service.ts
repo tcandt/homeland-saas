@@ -36,6 +36,39 @@ function normalizeDispatchContext(context: any) {
   };
 }
 
+const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { name: string; subject?: string; body: string }> = {
+  INVOICE_ZALO_PAYMENT_REQUEST: {
+    name: 'Yêu cầu thanh toán hóa đơn',
+    subject: '🧾 Thông báo hóa đơn thanh toán {{invoiceCode}}',
+    body: `Kính gửi anh/chị {{customerName}},
+
+Hệ thống quản lý tòa nhà gửi thông báo hóa đơn:
+- Mã hóa đơn: {{invoiceCode}}
+- Số tiền cần thanh toán: {{amount}} đ
+- Hạn thanh toán: {{dueDate}}
+
+Quý khách vui lòng quét mã VietQR hoặc chuyển khoản theo thông tin:
+- Ngân hàng: {{bankName}}
+- Số tài khoản: {{bankAccountNumber}}
+- Nội dung: {{paymentCode}}
+
+Trân trọng cảm ơn!`,
+  },
+  DEPOSIT_ZALO_PAYMENT_REQUEST: {
+    name: 'Yêu cầu thanh toán cọc',
+    subject: '💰 Thông báo thanh toán cọc {{depositCode}}',
+    body: `Kính gửi anh/chị {{customerName}},
+
+Thông báo thanh toán cọc:
+- Số tiền: {{amount}} đ
+- Ngân hàng: {{bankName}}
+- STK: {{bankAccountNumber}}
+- Nội dung: {{paymentCode}}
+
+Trân trọng cảm ơn!`,
+  },
+};
+
 @Injectable()
 export class CommunicationService {
   private readonly logger = new Logger(CommunicationService.name);
@@ -54,14 +87,29 @@ export class CommunicationService {
   async dispatch(payload: CommunicationPayload): Promise<DispatchResult | null> {
     const context = normalizeDispatchContext(payload.context);
 
-    // 1. Fetch template
-    const template = await this.prisma.notificationTemplate.findUnique({
+    // 1. Fetch template or use default system template
+    let template = await this.prisma.notificationTemplate.findUnique({
       where: { tenantId_code: { tenantId: payload.tenantId, code: payload.templateCode } }
     });
 
     if (!template) {
-      this.logger.error(`Template not found: ${payload.templateCode}`);
-      return null;
+      const defaultTpl = DEFAULT_NOTIFICATION_TEMPLATES[payload.templateCode];
+      if (defaultTpl) {
+        template = {
+          id: 'default',
+          tenantId: payload.tenantId,
+          code: payload.templateCode,
+          name: defaultTpl.name,
+          subject: defaultTpl.subject || defaultTpl.name,
+          body: defaultTpl.body,
+          type: 'SYSTEM' as any,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any;
+      } else {
+        this.logger.error(`Template not found: ${payload.templateCode}`);
+        return null;
+      }
     }
 
     // 2. Fetch User Preferences (Fallback to IN_APP and CONSOLE if none)

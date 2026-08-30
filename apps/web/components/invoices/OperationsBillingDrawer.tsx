@@ -239,15 +239,25 @@ export default function OperationsBillingDrawer({
     if (!invoice?.id) return;
     setIsSendingBotReminder(true);
     try {
-      await sendZaloMutation.mutateAsync(invoice.id);
+      console.log("🚀 [ZaloBot] Đang gửi thông báo nhắc nợ qua Bot Zalo...", {
+        invoiceId: invoice.id,
+        invoiceCode,
+        customerName,
+        customerPhone,
+        amountToPay,
+      });
+      const res = await sendZaloMutation.mutateAsync(invoice.id);
+      console.log("✅ [ZaloBot] Phản hồi nhắc nợ thành công:", res);
       toast.success(
-        `🤖 Bot Zalo đã gửi thông báo nhắc nợ kèm VietQR tới ${customerName} (${customerPhone}) thành công!`,
+        `🤖 Bot Zalo đã gửi thông báo nhắc nợ kèm VietQR tới ${customerName} thành công!`,
         { duration: 5000 }
       );
     } catch (err: any) {
+      console.error("❌ [ZaloBot] Lỗi gửi nhắc nợ qua Bot Zalo:", err);
       const errorMsg =
+        err?.response?.data?.message ||
         err?.message ||
-        `Khách thuê ${customerName} chưa liên kết Zalo ID với Bot. Vui lòng gửi link Bot Zalo để khách bấm Bắt đầu.`;
+        `Khách thuê ${customerName} chưa liên kết Zalo ID với Bot.`;
       toast.error(errorMsg, { duration: 6000 });
     } finally {
       setIsSendingBotReminder(false);

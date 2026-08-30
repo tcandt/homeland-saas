@@ -37,6 +37,7 @@ import {
   useCancelInvoiceMutation,
   useWriteoffInvoiceMutation,
 } from "@/lib/queries/invoices.queries";
+import { useSendInvoicePaymentToZaloMutation } from "@/lib/queries/payments.queries";
 import { useDeleteInvoiceMutation } from "@/lib/mutations/invoices.mutations";
 import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
@@ -113,6 +114,7 @@ export default function OperationsBillingDrawer({
   const cancelMutation = useCancelInvoiceMutation();
   const writeoffMutation = useWriteoffInvoiceMutation();
   const deleteMutation = useDeleteInvoiceMutation();
+  const sendZaloMutation = useSendInvoicePaymentToZaloMutation();
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isSendingBotReminder, setIsSendingBotReminder] = useState(false);
@@ -233,15 +235,23 @@ export default function OperationsBillingDrawer({
 
   const itemsToDisplay = invoice.items && invoice.items.length > 0 ? invoice.items : defaultItems;
 
-  const handleSendBotReminder = () => {
+  const handleSendBotReminder = async () => {
+    if (!invoice?.id) return;
     setIsSendingBotReminder(true);
-    setTimeout(() => {
-      setIsSendingBotReminder(false);
+    try {
+      await sendZaloMutation.mutateAsync(invoice.id);
       toast.success(
-        `🤖 Bot Homeland đã gửi tin nhắn nhắc nợ kèm QR chuyển khoản tới ${customerName} (${customerPhone}) qua Zalo & SMS thành công!`,
-        { duration: 4000 }
+        `🤖 Bot Zalo đã gửi thông báo nhắc nợ kèm VietQR tới ${customerName} (${customerPhone}) thành công!`,
+        { duration: 5000 }
       );
-    }, 600);
+    } catch (err: any) {
+      const errorMsg =
+        err?.message ||
+        `Khách thuê ${customerName} chưa liên kết Zalo ID với Bot. Vui lòng gửi link Bot Zalo để khách bấm Bắt đầu.`;
+      toast.error(errorMsg, { duration: 6000 });
+    } finally {
+      setIsSendingBotReminder(false);
+    }
   };
 
   const handleConfirmPayment = () => {

@@ -88,6 +88,10 @@ function isMeterOnline(meter: any): boolean {
   return false;
 }
 
+const now = new Date();
+const currentMonthNum = now.getMonth() + 1;
+const prevMonthNum = currentMonthNum === 1 ? 12 : currentMonthNum - 1;
+
 // Column Visibility keys
 type ColumnKey =
   | "room"
@@ -95,6 +99,7 @@ type ColumnKey =
   | "status"
   | "rateMode"
   | "power"
+  | "prevMonth"
   | "energy"
   | "cost"
   | "lastSync"
@@ -102,10 +107,11 @@ type ColumnKey =
 
 const defaultVisibleColumns: Record<ColumnKey, boolean> = {
   room: true,
-  device: true,
+  device: false,
   status: true,
   rateMode: true,
-  power: true,
+  power: false,
+  prevMonth: true,
   energy: true,
   cost: true,
   lastSync: true,
@@ -118,8 +124,9 @@ const columnLabels: Record<ColumnKey, string> = {
   status: "Trạng thái",
   rateMode: "Phương thức tính giá",
   power: "Công suất (W)",
-  energy: "Tiêu thụ tháng (kWh)",
-  cost: "Tiền tạm tính",
+  prevMonth: `Tổng tháng trước (T${prevMonthNum})`,
+  energy: `Tiêu thụ T${currentMonthNum} (kWh)`,
+  cost: `Tạm tính T${currentMonthNum}`,
   lastSync: "Cập nhật",
   actions: "Thao tác",
 };
@@ -723,8 +730,9 @@ export default function ElectricityManagementPage() {
                     {visibleColumns.status && <th className="py-2.5 px-3 text-center">Trạng thái</th>}
                     {visibleColumns.rateMode && <th className="py-2.5 px-3">Phương thức tính giá</th>}
                     {visibleColumns.power && <th className="py-2.5 px-3 text-right">Công suất</th>}
-                    {visibleColumns.energy && <th className="py-2.5 px-3 text-right">Tiêu thụ tháng</th>}
-                    {visibleColumns.cost && <th className="py-2.5 px-3 text-right">Tạm tính</th>}
+                    {visibleColumns.prevMonth && <th className="py-2.5 px-3 text-right">Tổng T{prevMonthNum}</th>}
+                    {visibleColumns.energy && <th className="py-2.5 px-3 text-right">Tiêu thụ T{currentMonthNum}</th>}
+                    {visibleColumns.cost && <th className="py-2.5 px-3 text-right">Tạm tính T{currentMonthNum}</th>}
                     {visibleColumns.lastSync && <th className="py-2.5 px-3 text-center">Cập nhật</th>}
                     {visibleColumns.actions && <th className="py-2.5 px-3 w-12 text-center">Thao tác</th>}
                   </tr>
@@ -835,6 +843,19 @@ export default function ElectricityManagementPage() {
                           {visibleColumns.power && (
                             <td className="py-2 px-3 text-right font-mono font-bold text-muted">
                               {formatWatts(powerW)}
+                            </td>
+                          )}
+
+                          {visibleColumns.prevMonth && (
+                            <td className="py-2 px-3 text-right">
+                              <div className="font-mono font-bold text-slate-600 dark:text-slate-300">
+                                {formatKwh(Number(meter.energyPrevMonthKwh || 0))}
+                              </div>
+                              {Number(meter.moneyPrevMonthVnd || 0) > 0 && (
+                                <div className="text-[10px] text-muted font-medium">
+                                  {formatCurrency(Number(meter.moneyPrevMonthVnd || 0))}
+                                </div>
+                              )}
                             </td>
                           )}
 
@@ -997,18 +1018,22 @@ export default function ElectricityManagementPage() {
                           {isCustomRate ? `Tự lập (${customPrice}đ)` : "Bậc thang EVN"}
                         </span>
                       </div>
+                      {Number(meter.energyPrevMonthKwh || 0) > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-muted">Tổng T{prevMonthNum}:</span>
+                          <span className="font-mono font-bold text-slate-600 dark:text-slate-300">
+                            {formatKwh(Number(meter.energyPrevMonthKwh || 0))}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted">Công suất:</span>
-                        <span className="font-mono font-bold text-text">{formatWatts(powerW)}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted">Tiêu thụ tháng:</span>
+                        <span className="text-[10px] text-muted">Tiêu thụ T{currentMonthNum}:</span>
                         <span className="font-mono font-black text-amber-600 dark:text-amber-400">
                           {formatKwh(energyKwh)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between pt-1 border-t border-border/40">
-                        <span className="text-[10px] text-muted font-bold">Tạm tính:</span>
+                        <span className="text-[10px] text-muted font-bold">Tạm tính T{currentMonthNum}:</span>
                         <span className="font-black text-primary text-xs">{formatCurrency(cost)}</span>
                       </div>
                     </div>

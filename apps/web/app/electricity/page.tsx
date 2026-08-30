@@ -184,12 +184,14 @@ export default function ElectricityManagementPage() {
   const [historyTab, setHistoryTab] = useState<"readings" | "sync_logs">("readings");
   const [historySearch, setHistorySearch] = useState("");
   const [historyBuilding, setHistoryBuilding] = useState("all");
-  const [historyYear, setHistoryYear] = useState<string>("all");
-  const [historyMonth, setHistoryMonth] = useState<string>("all");
+  const [historyYear, setHistoryYear] = useState<string>("");
+  const [historyMonth, setHistoryMonth] = useState<string>("");
   const [historyPage, setHistoryPage] = useState(1);
 
+  const hasSelectedMonthYear = Boolean(historyYear && historyMonth);
+
   const { data: historyDataRes, isLoading: isLoadingHistoryData } = useSWR(
-    isHistoryModalOpen
+    isHistoryModalOpen && (historyTab === "sync_logs" || hasSelectedMonthYear)
       ? [
           "hunonic-history-full",
           historyTab,
@@ -205,8 +207,8 @@ export default function ElectricityManagementPage() {
         ? hunonicApi.history({
             search: historySearch || undefined,
             buildingCode: historyBuilding !== "all" ? historyBuilding : undefined,
-            year: historyYear !== "all" ? historyYear : undefined,
-            month: historyMonth !== "all" ? historyMonth : undefined,
+            year: historyYear || undefined,
+            month: historyMonth || undefined,
             page: historyPage,
             limit: 20,
           })
@@ -1411,7 +1413,7 @@ export default function ElectricityManagementPage() {
             {/* Filter Toolbar (Áp dụng cho tab Chỉ số theo kỳ) */}
             {historyTab === "readings" && (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 bg-muted/10 p-2.5 rounded-xl border border-border/60">
-                {/* Search */}
+                {/* 1. Search */}
                 <div className="relative">
                   <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
                   <Input
@@ -1425,7 +1427,7 @@ export default function ElectricityManagementPage() {
                   />
                 </div>
 
-                {/* Tòa nhà */}
+                {/* 2. Tòa nhà */}
                 <div>
                   <select
                     value={historyBuilding}
@@ -1444,7 +1446,26 @@ export default function ElectricityManagementPage() {
                   </select>
                 </div>
 
-                {/* Năm */}
+                {/* 3. Tháng */}
+                <div>
+                  <select
+                    value={historyMonth}
+                    onChange={(e) => {
+                      setHistoryMonth(e.target.value);
+                      setHistoryPage(1);
+                    }}
+                    className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
+                  >
+                    <option value="">-- Chọn tháng --</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={String(m)}>
+                        Tháng {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 4. Năm */}
                 <div>
                   <select
                     value={historyYear}
@@ -1454,28 +1475,10 @@ export default function ElectricityManagementPage() {
                     }}
                     className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
-                    <option value="all">Tất cả năm</option>
+                    <option value="">-- Chọn năm --</option>
                     {[2026, 2025, 2024].map((y) => (
                       <option key={y} value={String(y)}>
                         Năm {y}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Tháng */}
-                <div>
-                  <select
-                    value={historyMonth}
-                    onChange={(e) => {
-                      setHistoryMonth(e.target.value)}
-                    }
-                    className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
-                  >
-                    <option value="all">Tất cả tháng</option>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                      <option key={m} value={String(m)}>
-                        Tháng {m}
                       </option>
                     ))}
                   </select>
@@ -1499,7 +1502,21 @@ export default function ElectricityManagementPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {isLoadingHistoryData ? (
+                      {!hasSelectedMonthYear ? (
+                        <tr>
+                          <td colSpan={6} className="py-16 text-center text-muted">
+                            <div className="flex flex-col items-center justify-center space-y-2">
+                              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-1">
+                                <Calendar size={22} />
+                              </div>
+                              <div className="font-bold text-sm text-text">Vui lòng chọn Tháng và Năm</div>
+                              <div className="text-xs text-muted max-w-sm">
+                                Dữ liệu lịch sử sẽ tự động hiển thị khi bạn chọn tháng và năm từ bộ lọc phía trên.
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : isLoadingHistoryData ? (
                         <tr>
                           <td colSpan={6} className="py-12 text-center text-muted">
                             <RefreshCcw size={20} className="mx-auto animate-spin text-primary mb-2" />
@@ -1520,8 +1537,8 @@ export default function ElectricityManagementPage() {
                             <tr>
                               <td colSpan={6} className="py-12 text-center text-muted">
                                 <PlugZap size={28} className="mx-auto text-muted/30 mb-2" />
-                                <div className="font-bold text-xs text-text">Chưa có bản ghi lịch sử nào phù hợp</div>
-                                <div className="text-[11px] mt-0.5 text-muted">Hãy thay đổi bộ lọc tìm kiếm hoặc năm/tháng.</div>
+                                <div className="font-bold text-xs text-text">Không có bản ghi nào trong kỳ {historyMonth && historyYear ? `Tháng ${historyMonth}/${historyYear}` : ''}</div>
+                                <div className="text-[11px] mt-0.5 text-muted">Hãy thay đổi bộ lọc tìm kiếm hoặc tháng/năm khác.</div>
                               </td>
                             </tr>
                           );

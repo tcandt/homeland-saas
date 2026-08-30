@@ -420,7 +420,9 @@ function normalizeElectricMeter({ home, room, device }: { home: any; room: any; 
 }
 
 function normalizeElectricityRates(value: any) {
-  return arrayOf(value).map((rate) => ({
+  if (!value) return [];
+  const array = Array.isArray(value) ? value : typeof value === 'object' ? [value] : [];
+  return array.map((rate) => ({
     id: String(rate.id || ''),
     minRate: numberOrNull(rate.min_rate),
     maxRate: numberOrNull(rate.max_rate),

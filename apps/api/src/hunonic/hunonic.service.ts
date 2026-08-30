@@ -88,6 +88,7 @@ export class HunonicService {
       include: {
         room: { select: { id: true, code: true, name: true, status: true } },
         building: { select: { id: true, code: true, name: true } },
+        readings: { orderBy: { readingAt: 'desc' }, take: 1 },
       },
       orderBy: [{ buildingCode: 'asc' }, { roomCode: 'asc' }],
     });
@@ -110,10 +111,16 @@ export class HunonicService {
       lockedPeriods,
       meters: mappings.map((mapping: any) => {
         const cachedRate = getCachedElectricityRate(settings, mapping.providerRootId || mapping.providerMeterId, mapping);
+        const raw = mapping.raw || {};
+        const dataExtra = typeof raw.data_extra === 'string' ? parseJsonObject(raw.data_extra) : raw.data_extra || {};
+        const activeGroup = dataExtra.electricity_group_id ?? raw.electricity_group_id;
+        const isCustom = activeGroup === '1' || cachedRate?.mode === 'custom';
+        const customPrice = getActiveCustomUnitRate(mapping) || cachedRate?.customRateVnd;
+
         return {
           ...mapMeterMapping(mapping),
-          rateMode: cachedRate?.mode || 'residential',
-          customRateVnd: cachedRate?.customRateVnd || null,
+          rateMode: isCustom ? 'custom' : 'residential',
+          customRateVnd: isCustom ? (customPrice || 3967) : null,
         };
       }),
     };
@@ -1099,6 +1106,22 @@ function dateTimeValue(value: Date | string | null | undefined) {
 }
 
 function mapMeterMapping(mapping: any) {
+  const raw = mapping.raw || {};
+  const dataExtra = typeof raw.data_extra === 'string' ? parseJsonObject(raw.data_extra) : raw.data_extra || {};
+  const rootExtra = typeof raw.root_extra === 'string' ? parseJsonObject(raw.root_extra) : raw.root_extra || {};
+  const valueObj = typeof raw.value === 'string' ? parseJsonObject(raw.value) : raw.value || {};
+
+  const rawPower =
+    mapping.readings?.[0]?.powerCurrentW ??
+    dataExtra.power_current ??
+    dataExtra.power ??
+    dataExtra.p ??
+    rootExtra.power_current ??
+    rootExtra.power ??
+    valueObj.power ??
+    valueObj.power_current ??
+    raw.power_current;
+
   return {
     id: mapping.id,
     buildingId: mapping.buildingId,
@@ -1108,7 +1131,7 @@ function mapMeterMapping(mapping: any) {
     displayName: mapping.displayName,
     deviceName: mapping.deviceName,
     status: mapping.lastStatus,
-    powerCurrentW: Number(mapping.readings?.[0]?.powerCurrentW || 0),
+    powerCurrentW: Number(rawPower || 0),
     energyMonthKwh: Number(mapping.lastReadingKwh || 0),
     moneyMonthVnd: Number(mapping.lastAmountVnd || 0),
     lastSyncedAt: mapping.lastSyncedAt,
@@ -1246,10 +1269,14 @@ function mergeAppliedElectricityRates(
   return next;
 }
 
-function getActiveCustomUnitRate(meter?: HunonicElectricMeter) {
-  const raw = meter?.raw as any;
-  const rootExtra = parseJsonObject(raw?.root_extra);
-  const dataExtra = parseJsonObject(raw?.data_extra);
+function getActiveCustomUnitRate(meter?: any, custom?: { rates?: Array<{ price: number | null }> }) {
+  if (custom?.rates?.[0]?.price) {
+    const p = Number(custom.rates[0].price);
+    if (Number.isFinite(p) && p > 0) return Math.round(p);
+  }
+  const raw = (meter?.raw || meter) as any;
+  const rootExtra = typeof raw?.root_extra === 'string' ? parseJsonObject(raw?.root_extra) : raw?.root_extra || {};
+  const dataExtra = typeof raw?.data_extra === 'string' ? parseJsonObject(raw?.data_extra) : raw?.data_extra || {};
   const candidates = [
     rootExtra?.rate,
     rootExtra?.price,
@@ -1273,10 +1300,19 @@ function getActiveCustomUnitRate(meter?: HunonicElectricMeter) {
 }
 
 function firstRatePrice(value: unknown) {
+  if (!value) return null;
+  if (typeof value === 'object' && !Array.isArray(value) && (value as any).price) {
+    const p = Number((value as any).price);
+    return Number.isFinite(p) && p > 0 ? p : null;
+  }
   const rates = Array.isArray(value) ? value : parseJsonObject(value);
+  if (typeof rates === 'object' && !Array.isArray(rates) && (rates as any).price) {
+    const p = Number((rates as any).price);
+    return Number.isFinite(p) && p > 0 ? p : null;
+  }
   if (!Array.isArray(rates)) return null;
   const rate = rates.find((item) => Number(item?.price) > 0);
-  return rate?.price ?? null;
+  return rate?.price ? Number(rate.price) : null;
 }
 
 function parseJsonObject(value: unknown): any {

@@ -6,6 +6,7 @@ import {
   Banknote,
   Bot,
   Building2,
+  Calendar,
   CheckCircle2,
   Clock3,
   CreditCard,
@@ -22,6 +23,8 @@ import {
   ShieldCheck,
   Smartphone,
   User,
+  UserCheck,
+  UserPlus,
   Users,
   Wallet,
   Wifi,
@@ -33,6 +36,7 @@ import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { useRoomsQuery } from "@/lib/queries/rooms.queries";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
+import { useCustomersQuery } from "@/lib/queries/customers.queries";
 import { useCreateInvoiceMutation } from "@/lib/mutations/invoices.mutations";
 import { useIssueInvoiceMutation, usePayInvoiceMutation } from "@/lib/queries/invoices.queries";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
@@ -44,6 +48,16 @@ interface InvoiceCreateModalProps {
   defaultRoomId?: string;
 }
 
+// Helpers for formatted currency input
+function parseCurrency(val: string): number {
+  return Number(val.replace(/\D/g, "")) || 0;
+}
+
+function formatCurrencyInput(val: number): string {
+  if (val === 0) return "0";
+  return val.toLocaleString("vi-VN");
+}
+
 export default function InvoiceCreateModal({
   isOpen,
   onClose,
@@ -52,18 +66,24 @@ export default function InvoiceCreateModal({
   const { data: rooms = [] } = useRoomsQuery({ limit: 100 });
   const { data: contractsData } = useContractsQuery({ limit: 100 });
   const contracts = contractsData?.data || [];
+  const { data: customersData } = useCustomersQuery({ limit: 100 });
+  const allCustomers = customersData?.data || [];
 
   const createMutation = useCreateInvoiceMutation();
   const issueMutation = useIssueInvoiceMutation();
   const payMutation = usePayInvoiceMutation();
 
-  // 1. Room & Tenant Selection
+  // 1. Room Selection
   const [selectedRoomId, setSelectedRoomId] = useState<string>(defaultRoomId || "");
-  const [selectedRecipientId, setSelectedRecipientId] = useState<string>("REPRESENTATIVE");
+
+  // 2. Recipient Selection (Representative vs Roommate)
+  const [recipientType, setRecipientType] = useState<"REPRESENTATIVE" | "ROOMMATE">("REPRESENTATIVE");
+  const [selectedRoommateId, setSelectedRoommateId] = useState<string>("");
   const [customRecipientName, setCustomRecipientName] = useState<string>("");
   const [customRecipientPhone, setCustomRecipientPhone] = useState<string>("");
 
-  // 2. Fee Line Items (All fees can be included together in one invoice)
+  // 3. Line Items (2 Columns)
+  // Column 1
   const [includeRent, setIncludeRent] = useState<boolean>(true);
   const [roomRent, setRoomRent] = useState<number>(4500000);
 
@@ -73,6 +93,7 @@ export default function InvoiceCreateModal({
   const [includeHoldingDeposit, setIncludeHoldingDeposit] = useState<boolean>(false);
   const [holdingDeposit, setHoldingDeposit] = useState<number>(1000000);
 
+  // Column 2
   const [includeElectricity, setIncludeElectricity] = useState<boolean>(true);
   const [electricityAmount, setElectricityAmount] = useState<number>(0);
 
@@ -80,26 +101,25 @@ export default function InvoiceCreateModal({
   const [waterPeopleCount, setWaterPeopleCount] = useState<number>(1);
   const [waterUnitPrice, setWaterUnitPrice] = useState<number>(100000);
 
-  const [includeService, setIncludeService] = useState<boolean>(false);
+  const [wifiFree, setWifiFree] = useState<boolean>(true);
   const [serviceFee, setServiceFee] = useState<number>(0);
 
   const [discountAmount, setDiscountAmount] = useState<number>(0);
 
-  // 3. Period & Due Date
-  const currentMonth = new Date().getMonth() + 1;
-  const currentYear = new Date().getFullYear();
-  const [period, setPeriod] = useState<string>(`Tháng ${String(currentMonth).padStart(2, "0")}/${currentYear}`);
+  // 4. Period & Due Date (Date format dd/mm/yyyy)
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [periodDate, setPeriodDate] = useState<string>(todayStr);
   const [dueDate, setDueDate] = useState<string>(
     new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10)
   );
 
-  // 4. Payment Method & Zalo Bot
+  // 5. Payment & Bot
   const [payMethod, setPayMethod] = useState<"QR_TRANSFER" | "CASH">("QR_TRANSFER");
   const [isCashCollected, setIsCashCollected] = useState<boolean>(false);
   const [sendZaloBot, setSendZaloBot] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Find Room & Contract
+  // Room & Contract lookup
   const selectedRoom = useMemo(() => {
     return rooms.find((r: any) => r.id === selectedRoomId);
   }, [rooms, selectedRoomId]);
@@ -113,32 +133,65 @@ export default function InvoiceCreateModal({
     );
   }, [contracts, selectedRoomId]);
 
-  // Representative & Roommates
+  // Representative
   const representative = useMemo(() => {
-    return activeContract?.customer || { fullName: "Nguyễn Đức Tính", phone: "0567867889", gender: "MALE" };
+    return (
+      activeContract?.customer || {
+        id: "rep-1",
+        fullName: "Nguyễn Đức Tính",
+        phone: "0567867889",
+        gender: "MALE",
+      }
+    );
   }, [activeContract]);
 
-  const memberCount = activeContract?.memberCount || 1;
+  // Available Roommates in this Room / Contract
+  const availableRoommates = useMemo(() => {
+    // If contract has coRepresentativeIds or customer list
+    if (activeContract?.coRepresentativeIds && activeContract.coRepresentativeIds.length > 0) {
+      return allCustomers.filter((c: any) => activeContract.coRepresentativeIds.includes(c.id));
+    }
+    // Fallback list for demo/roommates
+    return [
+      { id: "roommate-1", fullName: "Trần Thị Mai (Khách ghép 1)", phone: "0912345678", gender: "FEMALE" },
+      { id: "roommate-2", fullName: "Lê Văn Hùng (Khách ghép 2)", phone: "0987654321", gender: "MALE" },
+    ];
+  }, [activeContract, allCustomers]);
 
-  // Auto-fill defaults when Room is selected
+  // Auto update values when Room changes
   useEffect(() => {
     if (selectedRoom) {
       const defaultRent = selectedRoom.price || activeContract?.monthlyRent || 4500000;
       setRoomRent(defaultRent);
       setContractDeposit(defaultRent);
-      setWaterPeopleCount(memberCount);
+      setWaterPeopleCount(activeContract?.memberCount || 1);
 
-      if (representative) {
-        setCustomRecipientName(representative.fullName || representative.name || "");
-        setCustomRecipientPhone(representative.phone || "");
+      if (recipientType === "REPRESENTATIVE") {
+        setCustomRecipientName(representative?.fullName || "");
+        setCustomRecipientPhone(representative?.phone || "");
       }
     }
-  }, [selectedRoom, activeContract, representative, memberCount]);
+  }, [selectedRoom, activeContract, representative, recipientType]);
 
-  // Water Calculation
+  // When switching recipient type or selecting a roommate
+  useEffect(() => {
+    if (recipientType === "REPRESENTATIVE") {
+      setCustomRecipientName(representative?.fullName || "Nguyễn Đức Tính");
+      setCustomRecipientPhone(representative?.phone || "0567867889");
+    } else if (recipientType === "ROOMMATE") {
+      const found = availableRoommates.find((r: any) => r.id === selectedRoommateId) || availableRoommates[0];
+      if (found) {
+        setSelectedRoommateId(found.id);
+        setCustomRecipientName(found.fullName);
+        setCustomRecipientPhone(found.phone);
+      }
+    }
+  }, [recipientType, selectedRoommateId, representative, availableRoommates]);
+
+  // Calculations
   const waterTotal = includeWater ? waterUnitPrice * waterPeopleCount : 0;
+  const actualServiceFee = wifiFree ? 0 : serviceFee;
 
-  // Grand Total Calculation
   const grandTotal = useMemo(() => {
     let sum = 0;
     if (includeRent) sum += roomRent;
@@ -146,7 +199,7 @@ export default function InvoiceCreateModal({
     if (includeHoldingDeposit) sum += holdingDeposit;
     if (includeElectricity) sum += electricityAmount;
     if (includeWater) sum += waterTotal;
-    if (includeService) sum += serviceFee;
+    sum += actualServiceFee;
     return Math.max(0, sum - discountAmount);
   }, [
     includeRent,
@@ -159,8 +212,7 @@ export default function InvoiceCreateModal({
     electricityAmount,
     includeWater,
     waterTotal,
-    includeService,
-    serviceFee,
+    actualServiceFee,
     discountAmount,
   ]);
 
@@ -176,7 +228,6 @@ export default function InvoiceCreateModal({
 
     setIsSubmitting(true);
     try {
-      // Build clean itemized breakdown
       const items: any[] = [];
       if (includeRent && roomRent > 0) {
         items.push({ name: "Tiền thuê phòng", type: "RENT", amount: roomRent, quantity: 1 });
@@ -193,23 +244,27 @@ export default function InvoiceCreateModal({
       if (includeWater && waterTotal > 0) {
         items.push({ name: `Tiền nước sinh hoạt (${waterPeopleCount} người × 100k)`, type: "UTILITY_WATER", amount: waterTotal, quantity: waterPeopleCount });
       }
-      if (includeService && serviceFee > 0) {
+      if (wifiFree) {
+        items.push({ name: "Wifi & Dịch vụ tiện ích (Miễn phí)", type: "SERVICE", amount: 0, quantity: 1 });
+      } else if (serviceFee > 0) {
         items.push({ name: "Wifi & Dịch vụ tiện ích", type: "SERVICE", amount: serviceFee, quantity: 1 });
       }
       if (discountAmount > 0) {
         items.push({ name: "Khấu trừ / Giảm giá", type: "DISCOUNT", amount: -discountAmount, quantity: 1 });
       }
 
+      const periodStr = `Tháng ${periodDate.slice(5, 7)}/${periodDate.slice(0, 4)}`;
+
       const payload = {
         roomId: selectedRoomId,
         contractId: activeContract?.id || "",
         customerId: customerId,
-        period: period,
+        period: periodStr,
         dueDate: dueDate,
         totalAmount: grandTotal,
         paidAmount: isCashCollected ? grandTotal : 0,
         status: isCashCollected ? "PAID" : "UNPAID",
-        notes: `Hóa đơn ${period} - Khách: ${customRecipientName} (${customRecipientPhone})`,
+        notes: `Hóa đơn ${periodStr} - ${recipientType === "ROOMMATE" ? "Khách ghép" : "Đại diện"}: ${customRecipientName} (${customRecipientPhone})`,
         items: items,
       };
 
@@ -249,14 +304,18 @@ export default function InvoiceCreateModal({
     }
   };
 
-  const isFemale = representative?.gender === "FEMALE" || representative?.gender === "Nữ";
-  const avatarUrl = getTenantAvatar(representative?.avatar, representative?.fullName, representative?.gender);
+  const isFemale =
+    recipientType === "ROOMMATE"
+      ? availableRoommates.find((r: any) => r.id === selectedRoommateId)?.gender === "FEMALE"
+      : representative?.gender === "FEMALE" || representative?.gender === "Nữ";
+
+  const avatarUrl = getTenantAvatar(undefined, customRecipientName, isFemale ? "FEMALE" : "MALE");
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="max-w-[640px]"
+      maxWidth="max-w-[680px]"
       title={
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -264,13 +323,13 @@ export default function InvoiceCreateModal({
           </div>
           <div>
             <h2 className="text-base font-black text-text leading-tight">Lập hóa đơn thanh toán</h2>
-            <span className="text-[11px] font-bold text-muted">Tùy chỉnh khoản thu & phát hành qua Bot Zalo</span>
+            <span className="text-[11px] font-bold text-muted">Tùy chỉnh khoản thu 2 cột & phát hành qua Bot Zalo</span>
           </div>
         </div>
       }
       footer={
         <div className="flex w-full items-center justify-between gap-2">
-          <Button variant="ghost" size="sm" className="rounded-xl font-bold" onClick={onClose}>
+          <Button variant="ghost" size="sm" className="rounded-xl font-bold text-xs" onClick={onClose}>
             Hủy
           </Button>
 
@@ -311,8 +370,8 @@ export default function InvoiceCreateModal({
       }
     >
       <div className="flex flex-col gap-3 max-h-[75vh] overflow-y-auto pr-1">
-        {/* 1. CHỌN PHÒNG & XÁC NHẬN KHÁCH THUÊ */}
-        <div className="rounded-2xl border border-border/70 bg-surface/40 p-3.5 flex flex-col gap-3">
+        {/* 1. CHỌN PHÒNG & NGƯỜI NHẬN HÓA ĐƠN */}
+        <div className="rounded-2xl border border-border/70 bg-surface/40 p-3 flex flex-col gap-2.5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Select Room */}
             <div>
@@ -324,7 +383,7 @@ export default function InvoiceCreateModal({
                 onChange={(e) => setSelectedRoomId(e.target.value)}
                 className="w-full h-9.5 px-3 rounded-xl border border-border bg-card text-xs font-bold text-text outline-none focus:border-primary transition"
               >
-                <option value="">-- Chọn phòng thanh toán --</option>
+                <option value="">-- Chọn phòng --</option>
                 {rooms.map((room: any) => (
                   <option key={room.id} value={room.id}>
                     {room.building?.name || room.building?.code || "Tòa LK01.31"} • Phòng {room.code || room.name}
@@ -333,43 +392,57 @@ export default function InvoiceCreateModal({
               </select>
             </div>
 
-            {/* Recipient Role */}
+            {/* Recipient Mode: Nguyên căn (Đại diện) vs Khách ghép */}
             <div>
               <label className="text-[11px] font-black uppercase tracking-wider text-muted block mb-1">
-                Người nhận hóa đơn
+                Hình thức nhận hóa đơn
               </label>
               <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-0.5 h-9.5">
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedRecipientId("REPRESENTATIVE");
-                    setCustomRecipientName(representative?.fullName || "Nguyễn Đức Tính");
-                    setCustomRecipientPhone(representative?.phone || "0567867889");
-                  }}
-                  className={`flex-1 flex items-center justify-center gap-1 rounded-lg text-[11px] font-bold h-full transition ${
-                    selectedRecipientId === "REPRESENTATIVE"
+                  onClick={() => setRecipientType("REPRESENTATIVE")}
+                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg text-[11px] font-bold h-full transition ${
+                    recipientType === "REPRESENTATIVE"
                       ? "bg-primary text-white shadow-2xs"
                       : "text-muted hover:text-text"
                   }`}
                 >
-                  <User size={12} /> Đại diện HĐ
+                  <UserCheck size={13} /> Đại diện HĐ (Nguyên căn)
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSelectedRecipientId("ROOMMATE")}
-                  className={`flex-1 flex items-center justify-center gap-1 rounded-lg text-[11px] font-bold h-full transition ${
-                    selectedRecipientId === "ROOMMATE"
+                  onClick={() => setRecipientType("ROOMMATE")}
+                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg text-[11px] font-bold h-full transition ${
+                    recipientType === "ROOMMATE"
                       ? "bg-primary text-white shadow-2xs"
                       : "text-muted hover:text-text"
                   }`}
                 >
-                  <Users size={12} /> Khách thuê ghép
+                  <Users size={13} /> Khách thuê ghép
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Tenant Contact Information Card */}
+          {/* If Roommate Mode: Dropdown to pick roommate in this room */}
+          {recipientType === "ROOMMATE" && (
+            <div className="rounded-xl bg-card border border-primary/20 p-2.5 flex items-center gap-2">
+              <span className="text-xs font-bold text-muted whitespace-nowrap">Chọn khách ghép:</span>
+              <select
+                value={selectedRoommateId}
+                onChange={(e) => setSelectedRoommateId(e.target.value)}
+                className="flex-1 h-8 px-2.5 rounded-lg border border-border bg-surface text-xs font-bold text-text outline-none focus:border-primary"
+              >
+                {availableRoommates.map((rm: any) => (
+                  <option key={rm.id} value={rm.id}>
+                    {rm.fullName} ({rm.phone})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Tenant Contact Card */}
           {selectedRoomId && (
             <div className="flex items-center justify-between rounded-xl bg-card border border-border/60 p-2.5">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -412,245 +485,246 @@ export default function InvoiceCreateModal({
               </div>
 
               <div className="text-right shrink-0">
-                <Badge variant="neutral" className="text-[10px]">
-                  {selectedRoom?.code ? `Phòng ${selectedRoom.code}` : "Đang thuê"}
+                <Badge variant={recipientType === "ROOMMATE" ? "warning" : "primary"} className="text-[10px]">
+                  {recipientType === "ROOMMATE" ? "Khách ghép" : "Đại diện hợp đồng"}
                 </Badge>
               </div>
             </div>
           )}
         </div>
 
-        {/* 2. BẢNG KÊ CÁC KHOẢN PHÍ THANH TOÁN (HỢP NHẤT TOÀN DIỆN) */}
-        <div className="rounded-2xl border border-border/70 bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-3.5 py-2.5 bg-surface/60 border-b border-border/60 text-[11px] font-black uppercase tracking-wider text-muted select-none">
-            <span>Khoản mục thu tiền</span>
-            <span>Số tiền (VNĐ)</span>
-          </div>
+        {/* 2. KHOẢN MỤC THU TIỀN (2 CỘT GỌN ĐẸP) */}
+        <div className="rounded-2xl border border-border/70 bg-card p-3 flex flex-col gap-2.5">
+          <span className="text-[11px] font-black uppercase tracking-wider text-muted flex items-center gap-1.5 border-b border-border/60 pb-2">
+            <Receipt size={14} className="text-primary" /> Khoản mục thu tiền
+          </span>
 
-          <div className="divide-y divide-border/40 p-1 text-xs">
-            {/* Item 1: Tiền thuê phòng */}
-            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
-              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
-                <input
-                  type="checkbox"
-                  checked={includeRent}
-                  onChange={(e) => setIncludeRent(e.target.checked)}
-                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                />
-                <Building2 size={14} className="text-indigo-500 shrink-0" />
-                <div className="min-w-0">
-                  <span className="font-bold text-text block leading-tight">Tiền thuê phòng</span>
-                  <span className="text-[10px] text-muted">Định kỳ hàng tháng</span>
-                </div>
-              </label>
-              {includeRent ? (
-                <input
-                  type="number"
-                  value={roomRent}
-                  onChange={(e) => setRoomRent(Number(e.target.value) || 0)}
-                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
-                />
-              ) : (
-                <span className="text-muted italic text-[11px]">Không thu</span>
-              )}
-            </div>
-
-            {/* Item 2: Tiền đặt cọc hợp đồng */}
-            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
-              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
-                <input
-                  type="checkbox"
-                  checked={includeContractDeposit}
-                  onChange={(e) => setIncludeContractDeposit(e.target.checked)}
-                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                />
-                <ShieldCheck size={14} className="text-indigo-600 shrink-0" />
-                <div className="min-w-0">
-                  <span className="font-bold text-text block leading-tight">Tiền cọc hợp đồng</span>
-                  <span className="text-[10px] text-muted">Bảo chứng tài sản (hoàn cọc khi trả phòng)</span>
-                </div>
-              </label>
-              {includeContractDeposit ? (
-                <input
-                  type="number"
-                  value={contractDeposit}
-                  onChange={(e) => setContractDeposit(Number(e.target.value) || 0)}
-                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
-                />
-              ) : (
-                <span className="text-muted italic text-[11px]">Không thu</span>
-              )}
-            </div>
-
-            {/* Item 3: Tiền cọc giữ phòng */}
-            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
-              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
-                <input
-                  type="checkbox"
-                  checked={includeHoldingDeposit}
-                  onChange={(e) => setIncludeHoldingDeposit(e.target.checked)}
-                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                />
-                <Wallet size={14} className="text-amber-500 shrink-0" />
-                <div className="min-w-0">
-                  <span className="font-bold text-text block leading-tight">Cọc giữ phòng</span>
-                  <span className="text-[10px] text-muted">Khoản cọc trước khi vào ở</span>
-                </div>
-              </label>
-              {includeHoldingDeposit ? (
-                <input
-                  type="number"
-                  value={holdingDeposit}
-                  onChange={(e) => setHoldingDeposit(Number(e.target.value) || 0)}
-                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
-                />
-              ) : (
-                <span className="text-muted italic text-[11px]">Không thu</span>
-              )}
-            </div>
-
-            {/* Item 4: Tiền điện (EVN) */}
-            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
-              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
-                <input
-                  type="checkbox"
-                  checked={includeElectricity}
-                  onChange={(e) => setIncludeElectricity(e.target.checked)}
-                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                />
-                <Zap size={14} className="text-amber-500 shrink-0" />
-                <div className="min-w-0">
-                  <span className="font-bold text-text block leading-tight">Tiền điện</span>
-                  <span className="text-[10px] text-muted">Theo chỉ số EVN - Giá nhà nước</span>
-                </div>
-              </label>
-              {includeElectricity ? (
-                <input
-                  type="number"
-                  value={electricityAmount}
-                  onChange={(e) => setElectricityAmount(Number(e.target.value) || 0)}
-                  placeholder="0 đ"
-                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
-                />
-              ) : (
-                <span className="text-muted italic text-[11px]">Không thu</span>
-              )}
-            </div>
-
-            {/* Item 5: Tiền nước (100k / người) */}
-            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
-              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
-                <input
-                  type="checkbox"
-                  checked={includeWater}
-                  onChange={(e) => setIncludeWater(e.target.checked)}
-                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                />
-                <Droplets size={14} className="text-sky-500 shrink-0" />
-                <div className="min-w-0">
-                  <span className="font-bold text-text block leading-tight">
-                    Tiền nước ({waterPeopleCount} người × 100k)
-                  </span>
-                  <span className="text-[10px] text-muted">100.000 đ / người / tháng</span>
-                </div>
-              </label>
-
-              {includeWater ? (
-                <div className="flex items-center gap-1.5">
-                  <div className="flex items-center gap-1 bg-surface border border-border rounded-lg px-1.5 h-8">
-                    <Users size={11} className="text-muted" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
+            {/* ====== CỘT 1 ====== */}
+            <div className="flex flex-col gap-2">
+              {/* 1. Tiền thuê phòng */}
+              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
                     <input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={waterPeopleCount}
-                      onChange={(e) => setWaterPeopleCount(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-6 font-mono font-bold text-xs text-text bg-transparent text-center outline-none"
+                      type="checkbox"
+                      checked={includeRent}
+                      onChange={(e) => setIncludeRent(e.target.checked)}
+                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
                     />
-                    <span className="text-[10px] text-muted">người</span>
+                    <Building2 size={14} className="text-indigo-500" /> Tiền thuê phòng
+                  </label>
+                </div>
+                {includeRent && (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formatCurrencyInput(roomRent)}
+                      onChange={(e) => setRoomRent(parseCurrency(e.target.value))}
+                      placeholder="0"
+                      className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-card font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
+                    />
+                    <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
                   </div>
-                  <span className="font-mono font-bold text-xs text-text w-24 text-right">
-                    {formatVnd(waterTotal)}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-muted italic text-[11px]">Không thu</span>
-              )}
-            </div>
-
-            {/* Item 6: Wifi & Dịch vụ khác */}
-            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
-              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
-                <input
-                  type="checkbox"
-                  checked={includeService}
-                  onChange={(e) => setIncludeService(e.target.checked)}
-                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                />
-                <Wifi size={14} className="text-emerald-500 shrink-0" />
-                <div className="min-w-0">
-                  <span className="font-bold text-text block leading-tight">Wifi & Dịch vụ khác</span>
-                  <span className="text-[10px] text-muted">Vệ sinh / Rác / Thang máy</span>
-                </div>
-              </label>
-              {includeService ? (
-                <input
-                  type="number"
-                  value={serviceFee}
-                  onChange={(e) => setServiceFee(Number(e.target.value) || 0)}
-                  placeholder="0 đ"
-                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
-                />
-              ) : (
-                <span className="text-emerald-600 font-bold text-[11px]">Miễn phí</span>
-              )}
-            </div>
-
-            {/* Item 7: Khấu trừ / Giảm giá */}
-            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <Minus size={14} className="text-rose-500 shrink-0" />
-                <span className="font-bold text-muted">Khấu trừ / Giảm giá (nếu có)</span>
+                )}
               </div>
-              <input
-                type="number"
-                value={discountAmount}
-                onChange={(e) => setDiscountAmount(Number(e.target.value) || 0)}
-                placeholder="0 đ"
-                className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-rose-600 outline-none focus:border-rose-500"
-              />
+
+              {/* 2. Tiền cọc hợp đồng */}
+              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
+                    <input
+                      type="checkbox"
+                      checked={includeContractDeposit}
+                      onChange={(e) => setIncludeContractDeposit(e.target.checked)}
+                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                    />
+                    <ShieldCheck size={14} className="text-indigo-600" /> Tiền cọc hợp đồng
+                  </label>
+                </div>
+                {includeContractDeposit && (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formatCurrencyInput(contractDeposit)}
+                      onChange={(e) => setContractDeposit(parseCurrency(e.target.value))}
+                      placeholder="0"
+                      className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-card font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
+                    />
+                    <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Cọc giữ phòng */}
+              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
+                    <input
+                      type="checkbox"
+                      checked={includeHoldingDeposit}
+                      onChange={(e) => setIncludeHoldingDeposit(e.target.checked)}
+                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                    />
+                    <Wallet size={14} className="text-amber-500" /> Cọc giữ phòng
+                  </label>
+                </div>
+                {includeHoldingDeposit && (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formatCurrencyInput(holdingDeposit)}
+                      onChange={(e) => setHoldingDeposit(parseCurrency(e.target.value))}
+                      placeholder="0"
+                      className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-card font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
+                    />
+                    <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ====== CỘT 2 ====== */}
+            <div className="flex flex-col gap-2">
+              {/* 4. Tiền điện */}
+              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
+                    <input
+                      type="checkbox"
+                      checked={includeElectricity}
+                      onChange={(e) => setIncludeElectricity(e.target.checked)}
+                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                    />
+                    <Zap size={14} className="text-amber-500" /> Tiền điện EVN
+                  </label>
+                </div>
+                {includeElectricity && (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formatCurrencyInput(electricityAmount)}
+                      onChange={(e) => setElectricityAmount(parseCurrency(e.target.value))}
+                      placeholder="0"
+                      className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-card font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
+                    />
+                    <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 5. Tiền nước (100k / người) */}
+              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
+                    <input
+                      type="checkbox"
+                      checked={includeWater}
+                      onChange={(e) => setIncludeWater(e.target.checked)}
+                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                    />
+                    <Droplets size={14} className="text-sky-500" /> Tiền nước (100k/người)
+                  </label>
+                </div>
+                {includeWater && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 bg-card border border-border rounded-lg px-2 h-8">
+                      <Users size={11} className="text-muted" />
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={waterPeopleCount}
+                        onChange={(e) => setWaterPeopleCount(Math.max(1, Number(e.target.value) || 1))}
+                        className="w-6 font-mono font-bold text-xs text-text bg-transparent text-center outline-none"
+                      />
+                      <span className="text-[10px] text-muted">người</span>
+                    </div>
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        readOnly
+                        value={formatCurrencyInput(waterTotal)}
+                        className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none cursor-default"
+                      />
+                      <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 6. Wifi (Checkbox Miễn phí) & Khấu trừ */}
+              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-2">
+                {/* Wifi Free Checkbox */}
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
+                    <input
+                      type="checkbox"
+                      checked={wifiFree}
+                      onChange={(e) => setWifiFree(e.target.checked)}
+                      className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
+                    />
+                    <Wifi size={14} className="text-emerald-500" /> Wifi (Miễn phí)
+                  </label>
+                  <span className="text-[11px] font-bold text-emerald-600">0 đ</span>
+                </div>
+
+                {/* Discount field */}
+                <div className="flex items-center justify-between pt-1 border-t border-border/40">
+                  <span className="text-[11px] font-bold text-muted flex items-center gap-1">
+                    <Minus size={11} className="text-rose-500" /> Giảm giá
+                  </span>
+                  <div className="relative w-28">
+                    <input
+                      type="text"
+                      value={formatCurrencyInput(discountAmount)}
+                      onChange={(e) => setDiscountAmount(parseCurrency(e.target.value))}
+                      placeholder="0"
+                      className="w-full h-7 px-2 pr-5 rounded-md border border-border bg-card font-mono font-bold text-right text-[11px] text-rose-600 outline-none focus:border-rose-500"
+                    />
+                    <span className="absolute right-1.5 top-1.5 text-[10px] text-rose-500 font-bold">đ</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* 3. TỔNG CỘNG & KỲ HẠN THANH TOÁN */}
+        {/* 3. TỔNG CỘNG & NGÀY THÁNG KỲ CƯỚC / HẠN ĐÓNG */}
         <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 via-card to-primary/5 p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs">
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-muted block">
-              Tổng tiền thanh toán
+              Tổng tiền hóa đơn
             </span>
             <span className="font-mono text-2xl font-black text-primary leading-tight">
               {formatVnd(grandTotal)}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {/* Kỳ cước (Ô nhập ngày tháng năm) */}
             <div>
-              <span className="text-[10px] font-bold text-muted block">Kỳ cước</span>
+              <label className="text-[10px] font-black uppercase text-muted block mb-0.5 flex items-center gap-1">
+                <Calendar size={11} className="text-primary" /> Kỳ cước
+              </label>
               <input
-                type="text"
-                value={period}
-                onChange={(e) => setPeriod(e.target.value)}
-                className="h-8 px-2 w-28 rounded-lg border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary"
+                type="date"
+                value={periodDate}
+                onChange={(e) => setPeriodDate(e.target.value)}
+                className="h-8.5 px-2.5 rounded-xl border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary shadow-2xs"
               />
             </div>
+
+            {/* Hạn đóng (Ô nhập ngày tháng năm) */}
             <div>
-              <span className="text-[10px] font-bold text-muted block">Hạn đóng</span>
+              <label className="text-[10px] font-black uppercase text-muted block mb-0.5 flex items-center gap-1">
+                <Clock3 size={11} className="text-amber-500" /> Hạn đóng
+              </label>
               <input
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="h-8 px-2 rounded-lg border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary"
+                className="h-8.5 px-2.5 rounded-xl border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary shadow-2xs"
               />
             </div>
           </div>

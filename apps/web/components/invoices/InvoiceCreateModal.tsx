@@ -13,6 +13,8 @@ import {
   Droplets,
   FileText,
   Loader2,
+  Minus,
+  Phone,
   Plus,
   QrCode,
   Receipt,
@@ -33,9 +35,8 @@ import { useRoomsQuery } from "@/lib/queries/rooms.queries";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
 import { useCreateInvoiceMutation } from "@/lib/mutations/invoices.mutations";
 import { useIssueInvoiceMutation, usePayInvoiceMutation } from "@/lib/queries/invoices.queries";
+import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 import toast from "react-hot-toast";
-
-export type InvoiceCategory = "MONTHLY_RENT" | "DEPOSIT_RESERVATION" | "DEPOSIT_CONTRACT";
 
 interface InvoiceCreateModalProps {
   isOpen: boolean;
@@ -56,26 +57,35 @@ export default function InvoiceCreateModal({
   const issueMutation = useIssueInvoiceMutation();
   const payMutation = usePayInvoiceMutation();
 
-  // Category
-  const [category, setCategory] = useState<InvoiceCategory>("MONTHLY_RENT");
-
-  // Room & Tenant selection
+  // 1. Room & Tenant Selection
   const [selectedRoomId, setSelectedRoomId] = useState<string>(defaultRoomId || "");
-  const [tenantType, setTenantType] = useState<"REPRESENTATIVE" | "ROOMMATE">("REPRESENTATIVE");
-  const [customTenantName, setCustomTenantName] = useState<string>("");
-  const [customTenantPhone, setCustomTenantPhone] = useState<string>("");
+  const [selectedRecipientId, setSelectedRecipientId] = useState<string>("REPRESENTATIVE");
+  const [customRecipientName, setCustomRecipientName] = useState<string>("");
+  const [customRecipientPhone, setCustomRecipientPhone] = useState<string>("");
 
-  // Amounts
+  // 2. Fee Line Items (All fees can be included together in one invoice)
+  const [includeRent, setIncludeRent] = useState<boolean>(true);
   const [roomRent, setRoomRent] = useState<number>(4500000);
-  const [reservationDeposit, setReservationDeposit] = useState<number>(0);
-  const [contractDeposit, setContractDeposit] = useState<number>(0);
+
+  const [includeContractDeposit, setIncludeContractDeposit] = useState<boolean>(false);
+  const [contractDeposit, setContractDeposit] = useState<number>(4500000);
+
+  const [includeHoldingDeposit, setIncludeHoldingDeposit] = useState<boolean>(false);
+  const [holdingDeposit, setHoldingDeposit] = useState<number>(1000000);
+
+  const [includeElectricity, setIncludeElectricity] = useState<boolean>(true);
   const [electricityAmount, setElectricityAmount] = useState<number>(0);
-  const [waterPerPerson, setWaterPerPerson] = useState<number>(100000);
-  const [peopleCount, setPeopleCount] = useState<number>(1);
+
+  const [includeWater, setIncludeWater] = useState<boolean>(true);
+  const [waterPeopleCount, setWaterPeopleCount] = useState<number>(1);
+  const [waterUnitPrice, setWaterUnitPrice] = useState<number>(100000);
+
+  const [includeService, setIncludeService] = useState<boolean>(false);
   const [serviceFee, setServiceFee] = useState<number>(0);
+
   const [discountAmount, setDiscountAmount] = useState<number>(0);
 
-  // Period & Due Date
+  // 3. Period & Due Date
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
   const [period, setPeriod] = useState<string>(`Tháng ${String(currentMonth).padStart(2, "0")}/${currentYear}`);
@@ -83,13 +93,13 @@ export default function InvoiceCreateModal({
     new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10)
   );
 
-  // Payment Method & Bot
+  // 4. Payment Method & Zalo Bot
   const [payMethod, setPayMethod] = useState<"QR_TRANSFER" | "CASH">("QR_TRANSFER");
   const [isCashCollected, setIsCashCollected] = useState<boolean>(false);
   const [sendZaloBot, setSendZaloBot] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Auto-fill when Room is selected
+  // Find Room & Contract
   const selectedRoom = useMemo(() => {
     return rooms.find((r: any) => r.id === selectedRoomId);
   }, [rooms, selectedRoomId]);
@@ -103,51 +113,58 @@ export default function InvoiceCreateModal({
     );
   }, [contracts, selectedRoomId]);
 
-  // Update defaults when room changes
+  // Representative & Roommates
+  const representative = useMemo(() => {
+    return activeContract?.customer || { fullName: "Nguyễn Đức Tính", phone: "0567867889", gender: "MALE" };
+  }, [activeContract]);
+
+  const memberCount = activeContract?.memberCount || 1;
+
+  // Auto-fill defaults when Room is selected
   useEffect(() => {
     if (selectedRoom) {
       const defaultRent = selectedRoom.price || activeContract?.monthlyRent || 4500000;
-      if (category === "MONTHLY_RENT") {
-        setRoomRent(defaultRent);
-      } else if (category === "DEPOSIT_RESERVATION") {
-        setReservationDeposit(1000000);
-        setRoomRent(0);
-      } else if (category === "DEPOSIT_CONTRACT") {
-        setContractDeposit(defaultRent);
-        setRoomRent(0);
-      }
+      setRoomRent(defaultRent);
+      setContractDeposit(defaultRent);
+      setWaterPeopleCount(memberCount);
 
-      if (activeContract?.customer) {
-        setCustomTenantName(activeContract.customer.fullName || activeContract.customer.name || "");
-        setCustomTenantPhone(activeContract.customer.phone || "");
+      if (representative) {
+        setCustomRecipientName(representative.fullName || representative.name || "");
+        setCustomRecipientPhone(representative.phone || "");
       }
     }
-  }, [selectedRoom, activeContract, category]);
+  }, [selectedRoom, activeContract, representative, memberCount]);
 
-  // Calculated Water Total
-  const waterTotal = waterPerPerson * peopleCount;
+  // Water Calculation
+  const waterTotal = includeWater ? waterUnitPrice * waterPeopleCount : 0;
 
-  // Calculated Grand Total
+  // Grand Total Calculation
   const grandTotal = useMemo(() => {
-    let sub = 0;
-    if (category === "MONTHLY_RENT") {
-      sub = roomRent + electricityAmount + waterTotal + serviceFee;
-    } else if (category === "DEPOSIT_RESERVATION") {
-      sub = reservationDeposit;
-    } else if (category === "DEPOSIT_CONTRACT") {
-      sub = contractDeposit;
-    }
-    return Math.max(0, sub - discountAmount);
+    let sum = 0;
+    if (includeRent) sum += roomRent;
+    if (includeContractDeposit) sum += contractDeposit;
+    if (includeHoldingDeposit) sum += holdingDeposit;
+    if (includeElectricity) sum += electricityAmount;
+    if (includeWater) sum += waterTotal;
+    if (includeService) sum += serviceFee;
+    return Math.max(0, sum - discountAmount);
   }, [
-    category,
+    includeRent,
     roomRent,
-    electricityAmount,
-    waterTotal,
-    serviceFee,
-    reservationDeposit,
+    includeContractDeposit,
     contractDeposit,
+    includeHoldingDeposit,
+    holdingDeposit,
+    includeElectricity,
+    electricityAmount,
+    includeWater,
+    waterTotal,
+    includeService,
+    serviceFee,
     discountAmount,
   ]);
+
+  const formatVnd = (val: number) => `${Number(val || 0).toLocaleString("vi-VN")} đ`;
 
   const handleCreate = async (autoIssue = true) => {
     if (!selectedRoomId) {
@@ -155,25 +172,32 @@ export default function InvoiceCreateModal({
       return;
     }
 
-    const customerId = activeContract?.customerId || activeContract?.customer?.id;
-    if (!customerId) {
-      toast.error("Phòng chưa có hợp đồng/khách thuê hợp lệ");
-      return;
-    }
+    const customerId = activeContract?.customerId || activeContract?.customer?.id || representative?.id || "default";
 
     setIsSubmitting(true);
     try {
-      // Build items array
+      // Build clean itemized breakdown
       const items: any[] = [];
-      if (category === "MONTHLY_RENT") {
-        if (roomRent > 0) items.push({ name: "Tiền thuê phòng", type: "RENT", amount: roomRent, quantity: 1 });
-        if (electricityAmount > 0) items.push({ name: "Tiền điện (Theo chỉ số EVN)", type: "UTILITY_ELECTRICITY", amount: electricityAmount, quantity: 1 });
-        if (waterTotal > 0) items.push({ name: `Tiền nước sinh hoạt (${peopleCount} người)`, type: "UTILITY_WATER", amount: waterTotal, quantity: peopleCount });
-        if (serviceFee > 0) items.push({ name: "Wifi & Dịch vụ tiện ích", type: "SERVICE", amount: serviceFee, quantity: 1 });
-      } else if (category === "DEPOSIT_RESERVATION") {
-        items.push({ name: "Tiền cọc giữ phòng (Khóa phòng)", type: "RENT", amount: reservationDeposit, quantity: 1 });
-      } else if (category === "DEPOSIT_CONTRACT") {
-        items.push({ name: "Tiền đặt cọc hợp đồng thuê", type: "RENT", amount: contractDeposit, quantity: 1 });
+      if (includeRent && roomRent > 0) {
+        items.push({ name: "Tiền thuê phòng", type: "RENT", amount: roomRent, quantity: 1 });
+      }
+      if (includeContractDeposit && contractDeposit > 0) {
+        items.push({ name: "Tiền đặt cọc hợp đồng (Bảo chứng tài sản)", type: "RENT", amount: contractDeposit, quantity: 1 });
+      }
+      if (includeHoldingDeposit && holdingDeposit > 0) {
+        items.push({ name: "Tiền cọc giữ chỗ phòng", type: "RENT", amount: holdingDeposit, quantity: 1 });
+      }
+      if (includeElectricity && electricityAmount > 0) {
+        items.push({ name: "Tiền điện (Theo chỉ số EVN - Giá nhà nước)", type: "UTILITY_ELECTRICITY", amount: electricityAmount, quantity: 1 });
+      }
+      if (includeWater && waterTotal > 0) {
+        items.push({ name: `Tiền nước sinh hoạt (${waterPeopleCount} người × 100k)`, type: "UTILITY_WATER", amount: waterTotal, quantity: waterPeopleCount });
+      }
+      if (includeService && serviceFee > 0) {
+        items.push({ name: "Wifi & Dịch vụ tiện ích", type: "SERVICE", amount: serviceFee, quantity: 1 });
+      }
+      if (discountAmount > 0) {
+        items.push({ name: "Khấu trừ / Giảm giá", type: "DISCOUNT", amount: -discountAmount, quantity: 1 });
       }
 
       const payload = {
@@ -185,7 +209,7 @@ export default function InvoiceCreateModal({
         totalAmount: grandTotal,
         paidAmount: isCashCollected ? grandTotal : 0,
         status: isCashCollected ? "PAID" : "UNPAID",
-        notes: `Hóa đơn ${category === "MONTHLY_RENT" ? "tiền phòng định kỳ" : category === "DEPOSIT_RESERVATION" ? "cọc giữ phòng" : "cọc hợp đồng"} - Khách: ${customTenantName}`,
+        notes: `Hóa đơn ${period} - Khách: ${customRecipientName} (${customRecipientPhone})`,
         items: items,
       };
 
@@ -196,7 +220,7 @@ export default function InvoiceCreateModal({
         try {
           await issueMutation.mutateAsync(invoiceId);
         } catch (e) {
-          // ignore if already issued
+          // ignore
         }
       }
 
@@ -208,9 +232,9 @@ export default function InvoiceCreateModal({
         }
       }
 
-      if (sendZaloBot) {
+      if (sendZaloBot && payMethod === "QR_TRANSFER") {
         toast.success(
-          `🤖 Bot Zalo đã tự động gửi hóa đơn & mã VietQR tới khách thuê ${customTenantName} (${customTenantPhone})!`,
+          `🤖 Bot Zalo đã gửi hóa đơn & mã VietQR tới ${customRecipientName} (${customRecipientPhone})!`,
           { duration: 5000 }
         );
       } else {
@@ -225,21 +249,22 @@ export default function InvoiceCreateModal({
     }
   };
 
-  const formatVnd = (val: number) => `${Number(val || 0).toLocaleString("vi-VN")} đ`;
+  const isFemale = representative?.gender === "FEMALE" || representative?.gender === "Nữ";
+  const avatarUrl = getTenantAvatar(representative?.avatar, representative?.fullName, representative?.gender);
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="max-w-[620px]"
+      maxWidth="max-w-[640px]"
       title={
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <Receipt size={17} />
           </div>
           <div>
-            <h2 className="text-base font-black text-text leading-tight">Tạo hóa đơn mới</h2>
-            <span className="text-xs font-bold text-muted">Lập hóa đơn thủ công & phát hành qua Bot</span>
+            <h2 className="text-base font-black text-text leading-tight">Lập hóa đơn thanh toán</h2>
+            <span className="text-[11px] font-bold text-muted">Tùy chỉnh khoản thu & phát hành qua Bot Zalo</span>
           </div>
         </div>
       }
@@ -253,7 +278,7 @@ export default function InvoiceCreateModal({
             <Button
               variant="outline"
               size="sm"
-              className="rounded-xl font-bold"
+              className="rounded-xl font-bold text-xs"
               onClick={() => handleCreate(false)}
               disabled={isSubmitting}
             >
@@ -263,15 +288,15 @@ export default function InvoiceCreateModal({
             <Button
               variant="primary"
               size="sm"
-              className="rounded-xl font-black bg-primary hover:bg-primary/90 text-white shadow-xs px-4"
+              className="rounded-xl font-black bg-primary hover:bg-primary/90 text-white shadow-xs px-4 text-xs"
               onClick={() => handleCreate(true)}
               disabled={isSubmitting}
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 size={14} className="mr-1.5 animate-spin" /> Đang tạo...
+                  <Loader2 size={14} className="mr-1.5 animate-spin" /> Đang xử lý...
                 </>
-              ) : sendZaloBot ? (
+              ) : sendZaloBot && payMethod === "QR_TRANSFER" ? (
                 <>
                   <Bot size={14} className="mr-1.5" /> Tạo & Gửi Zalo Bot
                 </>
@@ -285,247 +310,324 @@ export default function InvoiceCreateModal({
         </div>
       }
     >
-      <div className="flex flex-col gap-3.5 max-h-[75vh] overflow-y-auto pr-1">
-        {/* 1. CHỌN LOẠI HÓA ĐƠN (3 LOẠI TIỀN CỐT LÕI) */}
-        <div>
-          <label className="text-xs font-bold text-muted uppercase tracking-wider block mb-1.5">
-            Loại hóa đơn thanh toán
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => setCategory("MONTHLY_RENT")}
-              className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all ${
-                category === "MONTHLY_RENT"
-                  ? "border-primary bg-primary/10 text-primary shadow-xs"
-                  : "border-border bg-card text-muted hover:text-text hover:border-border/80"
-              }`}
-            >
-              <Building2 size={16} className="mb-1" />
-              <span className="text-xs font-black">Tiền phòng & Dịch vụ</span>
-              <span className="text-[10px] text-muted font-medium">Định kỳ hàng tháng</span>
-            </button>
+      <div className="flex flex-col gap-3 max-h-[75vh] overflow-y-auto pr-1">
+        {/* 1. CHỌN PHÒNG & XÁC NHẬN KHÁCH THUÊ */}
+        <div className="rounded-2xl border border-border/70 bg-surface/40 p-3.5 flex flex-col gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Select Room */}
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-muted block mb-1">
+                Phòng / Căn hộ <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={selectedRoomId}
+                onChange={(e) => setSelectedRoomId(e.target.value)}
+                className="w-full h-9.5 px-3 rounded-xl border border-border bg-card text-xs font-bold text-text outline-none focus:border-primary transition"
+              >
+                <option value="">-- Chọn phòng thanh toán --</option>
+                {rooms.map((room: any) => (
+                  <option key={room.id} value={room.id}>
+                    {room.building?.name || room.building?.code || "Tòa LK01.31"} • Phòng {room.code || room.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => setCategory("DEPOSIT_RESERVATION")}
-              className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all ${
-                category === "DEPOSIT_RESERVATION"
-                  ? "border-amber-500 bg-amber-500/10 text-amber-600 shadow-xs"
-                  : "border-border bg-card text-muted hover:text-text hover:border-border/80"
-              }`}
-            >
-              <Wallet size={16} className="mb-1" />
-              <span className="text-xs font-black">Cọc giữ phòng</span>
-              <span className="text-[10px] text-muted font-medium">Trước khi vào ở</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setCategory("DEPOSIT_CONTRACT")}
-              className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all ${
-                category === "DEPOSIT_CONTRACT"
-                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-600 shadow-xs"
-                  : "border-border bg-card text-muted hover:text-text hover:border-border/80"
-              }`}
-            >
-              <ShieldCheck size={16} className="mb-1" />
-              <span className="text-xs font-black">Cọc hợp đồng</span>
-              <span className="text-[10px] text-muted font-medium">Bảo chứng tài sản</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 2. CHỌN PHÒNG & KHÁCH THUÊ */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 rounded-xl border border-border/70 bg-surface/30 p-3">
-          {/* Room Selector */}
-          <div>
-            <label className="text-xs font-bold text-muted block mb-1">
-              Phòng / Căn hộ <span className="text-rose-500">*</span>
-            </label>
-            <select
-              value={selectedRoomId}
-              onChange={(e) => setSelectedRoomId(e.target.value)}
-              className="w-full h-9 px-2.5 rounded-xl border border-border bg-card text-xs font-bold text-text outline-none focus:border-primary"
-            >
-              <option value="">-- Chọn phòng --</option>
-              {rooms.map((room: any) => (
-                <option key={room.id} value={room.id}>
-                  {room.building?.name || room.building?.code || "Tòa LK01.31"} • Phòng {room.code || room.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Tenant Target (Đại diện HĐ vs Khách ghép) */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-bold text-muted">Khách nhận hóa đơn</label>
-              <div className="flex items-center gap-1.5 text-[10px] font-bold">
+            {/* Recipient Role */}
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-muted block mb-1">
+                Người nhận hóa đơn
+              </label>
+              <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-0.5 h-9.5">
                 <button
                   type="button"
-                  onClick={() => setTenantType("REPRESENTATIVE")}
-                  className={`px-1.5 py-0.5 rounded-md ${
-                    tenantType === "REPRESENTATIVE" ? "bg-primary text-white" : "text-muted hover:text-text"
+                  onClick={() => {
+                    setSelectedRecipientId("REPRESENTATIVE");
+                    setCustomRecipientName(representative?.fullName || "Nguyễn Đức Tính");
+                    setCustomRecipientPhone(representative?.phone || "0567867889");
+                  }}
+                  className={`flex-1 flex items-center justify-center gap-1 rounded-lg text-[11px] font-bold h-full transition ${
+                    selectedRecipientId === "REPRESENTATIVE"
+                      ? "bg-primary text-white shadow-2xs"
+                      : "text-muted hover:text-text"
                   }`}
                 >
-                  Đại diện HĐ
+                  <User size={12} /> Đại diện HĐ
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTenantType("ROOMMATE")}
-                  className={`px-1.5 py-0.5 rounded-md ${
-                    tenantType === "ROOMMATE" ? "bg-primary text-white" : "text-muted hover:text-text"
+                  onClick={() => setSelectedRecipientId("ROOMMATE")}
+                  className={`flex-1 flex items-center justify-center gap-1 rounded-lg text-[11px] font-bold h-full transition ${
+                    selectedRecipientId === "ROOMMATE"
+                      ? "bg-primary text-white shadow-2xs"
+                      : "text-muted hover:text-text"
                   }`}
                 >
-                  Khách thuê ghép
+                  <Users size={12} /> Khách thuê ghép
                 </button>
               </div>
             </div>
-
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={customTenantName}
-                onChange={(e) => setCustomTenantName(e.target.value)}
-                placeholder="Tên khách nhận HĐ..."
-                className="w-full h-9 px-2.5 rounded-xl border border-border bg-card text-xs font-bold text-text outline-none focus:border-primary"
-              />
-              <input
-                type="text"
-                value={customTenantPhone}
-                onChange={(e) => setCustomTenantPhone(e.target.value)}
-                placeholder="SĐT Zalo..."
-                className="w-28 h-9 px-2 rounded-xl border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary shrink-0"
-              />
-            </div>
           </div>
+
+          {/* Tenant Contact Information Card */}
+          {selectedRoomId && (
+            <div className="flex items-center justify-between rounded-xl bg-card border border-border/60 p-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="relative shrink-0">
+                  <img
+                    src={avatarUrl}
+                    alt={customRecipientName}
+                    className={`h-9 w-9 rounded-xl object-cover border shadow-2xs ${
+                      isFemale ? "border-pink-300 bg-pink-50" : "border-sky-300 bg-sky-50"
+                    }`}
+                  />
+                  <span
+                    className={`absolute -bottom-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-black text-white ${
+                      isFemale ? "bg-rose-500" : "bg-sky-600"
+                    }`}
+                  >
+                    {isFemale ? "♀" : "♂"}
+                  </span>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <input
+                    type="text"
+                    value={customRecipientName}
+                    onChange={(e) => setCustomRecipientName(e.target.value)}
+                    placeholder="Họ và tên khách..."
+                    className="font-black text-xs text-text bg-transparent border-b border-dashed border-border focus:border-primary outline-none w-full"
+                  />
+                  <div className="flex items-center gap-1 text-[11px] text-muted font-mono mt-0.5">
+                    <Phone size={10} className="text-emerald-500" />
+                    <input
+                      type="text"
+                      value={customRecipientPhone}
+                      onChange={(e) => setCustomRecipientPhone(e.target.value)}
+                      placeholder="SĐT Zalo..."
+                      className="bg-transparent border-b border-dashed border-border focus:border-primary outline-none w-28"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-right shrink-0">
+                <Badge variant="neutral" className="text-[10px]">
+                  {selectedRoom?.code ? `Phòng ${selectedRoom.code}` : "Đang thuê"}
+                </Badge>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* 3. NHẬP CÁC KHOẢN TIỀN (THEO LOẠI HÓA ĐƠN) */}
-        <div className="rounded-xl border border-border/70 bg-card p-3.5 flex flex-col gap-2.5">
-          <span className="text-xs font-black uppercase tracking-wider text-muted flex items-center gap-1.5 border-b border-border/60 pb-2">
-            <Receipt size={14} className="text-primary" /> Chi tiết các khoản phí thanh toán
-          </span>
+        {/* 2. BẢNG KÊ CÁC KHOẢN PHÍ THANH TOÁN (HỢP NHẤT TOÀN DIỆN) */}
+        <div className="rounded-2xl border border-border/70 bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-3.5 py-2.5 bg-surface/60 border-b border-border/60 text-[11px] font-black uppercase tracking-wider text-muted select-none">
+            <span>Khoản mục thu tiền</span>
+            <span>Số tiền (VNĐ)</span>
+          </div>
 
-          {/* If Monthly Rent */}
-          {category === "MONTHLY_RENT" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-              {/* Tiền phòng */}
-              <div>
-                <label className="font-bold text-text block mb-1 flex items-center gap-1.5">
-                  <Building2 size={13} className="text-indigo-500" /> Tiền thuê phòng (VNĐ)
-                </label>
+          <div className="divide-y divide-border/40 p-1 text-xs">
+            {/* Item 1: Tiền thuê phòng */}
+            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
+              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
+                <input
+                  type="checkbox"
+                  checked={includeRent}
+                  onChange={(e) => setIncludeRent(e.target.checked)}
+                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                />
+                <Building2 size={14} className="text-indigo-500 shrink-0" />
+                <div className="min-w-0">
+                  <span className="font-bold text-text block leading-tight">Tiền thuê phòng</span>
+                  <span className="text-[10px] text-muted">Định kỳ hàng tháng</span>
+                </div>
+              </label>
+              {includeRent ? (
                 <input
                   type="number"
                   value={roomRent}
                   onChange={(e) => setRoomRent(Number(e.target.value) || 0)}
-                  className="w-full h-9 px-3 rounded-xl border border-border bg-surface font-mono font-bold text-text outline-none focus:border-primary"
+                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
                 />
-              </div>
+              ) : (
+                <span className="text-muted italic text-[11px]">Không thu</span>
+              )}
+            </div>
 
-              {/* Tiền điện */}
-              <div>
-                <label className="font-bold text-text block mb-1 flex items-center gap-1.5">
-                  <Zap size={13} className="text-amber-500" /> Tiền điện EVN (VNĐ)
-                </label>
+            {/* Item 2: Tiền đặt cọc hợp đồng */}
+            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
+              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
+                <input
+                  type="checkbox"
+                  checked={includeContractDeposit}
+                  onChange={(e) => setIncludeContractDeposit(e.target.checked)}
+                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                />
+                <ShieldCheck size={14} className="text-indigo-600 shrink-0" />
+                <div className="min-w-0">
+                  <span className="font-bold text-text block leading-tight">Tiền cọc hợp đồng</span>
+                  <span className="text-[10px] text-muted">Bảo chứng tài sản (hoàn cọc khi trả phòng)</span>
+                </div>
+              </label>
+              {includeContractDeposit ? (
+                <input
+                  type="number"
+                  value={contractDeposit}
+                  onChange={(e) => setContractDeposit(Number(e.target.value) || 0)}
+                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
+                />
+              ) : (
+                <span className="text-muted italic text-[11px]">Không thu</span>
+              )}
+            </div>
+
+            {/* Item 3: Tiền cọc giữ phòng */}
+            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
+              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
+                <input
+                  type="checkbox"
+                  checked={includeHoldingDeposit}
+                  onChange={(e) => setIncludeHoldingDeposit(e.target.checked)}
+                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                />
+                <Wallet size={14} className="text-amber-500 shrink-0" />
+                <div className="min-w-0">
+                  <span className="font-bold text-text block leading-tight">Cọc giữ phòng</span>
+                  <span className="text-[10px] text-muted">Khoản cọc trước khi vào ở</span>
+                </div>
+              </label>
+              {includeHoldingDeposit ? (
+                <input
+                  type="number"
+                  value={holdingDeposit}
+                  onChange={(e) => setHoldingDeposit(Number(e.target.value) || 0)}
+                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
+                />
+              ) : (
+                <span className="text-muted italic text-[11px]">Không thu</span>
+              )}
+            </div>
+
+            {/* Item 4: Tiền điện (EVN) */}
+            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
+              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
+                <input
+                  type="checkbox"
+                  checked={includeElectricity}
+                  onChange={(e) => setIncludeElectricity(e.target.checked)}
+                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                />
+                <Zap size={14} className="text-amber-500 shrink-0" />
+                <div className="min-w-0">
+                  <span className="font-bold text-text block leading-tight">Tiền điện</span>
+                  <span className="text-[10px] text-muted">Theo chỉ số EVN - Giá nhà nước</span>
+                </div>
+              </label>
+              {includeElectricity ? (
                 <input
                   type="number"
                   value={electricityAmount}
                   onChange={(e) => setElectricityAmount(Number(e.target.value) || 0)}
-                  placeholder="Tính theo giá nhà nước..."
-                  className="w-full h-9 px-3 rounded-xl border border-border bg-surface font-mono font-bold text-text outline-none focus:border-primary"
+                  placeholder="0 đ"
+                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
                 />
-              </div>
+              ) : (
+                <span className="text-muted italic text-[11px]">Không thu</span>
+              )}
+            </div>
 
-              {/* Tiền nước (100k / người) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-bold text-text flex items-center gap-1.5">
-                    <Droplets size={13} className="text-sky-500" /> Tiền nước ({formatVnd(waterTotal)})
-                  </label>
-                  <span className="text-[10px] text-muted">100.000 đ / người</span>
+            {/* Item 5: Tiền nước (100k / người) */}
+            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
+              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
+                <input
+                  type="checkbox"
+                  checked={includeWater}
+                  onChange={(e) => setIncludeWater(e.target.checked)}
+                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                />
+                <Droplets size={14} className="text-sky-500 shrink-0" />
+                <div className="min-w-0">
+                  <span className="font-bold text-text block leading-tight">
+                    Tiền nước ({waterPeopleCount} người × 100k)
+                  </span>
+                  <span className="text-[10px] text-muted">100.000 đ / người / tháng</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 bg-surface border border-border rounded-xl px-2 h-9">
-                    <Users size={13} className="text-muted" />
-                    <span className="text-[11px] font-bold text-muted">Số người:</span>
+              </label>
+
+              {includeWater ? (
+                <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1 bg-surface border border-border rounded-lg px-1.5 h-8">
+                    <Users size={11} className="text-muted" />
                     <input
                       type="number"
                       min={1}
                       max={10}
-                      value={peopleCount}
-                      onChange={(e) => setPeopleCount(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-10 bg-transparent font-mono font-black text-xs text-text outline-none text-center"
+                      value={waterPeopleCount}
+                      onChange={(e) => setWaterPeopleCount(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-6 font-mono font-bold text-xs text-text bg-transparent text-center outline-none"
                     />
+                    <span className="text-[10px] text-muted">người</span>
                   </div>
-                  <input
-                    type="number"
-                    value={waterTotal}
-                    onChange={(e) => setWaterPerPerson(Math.round((Number(e.target.value) || 0) / peopleCount))}
-                    className="flex-1 h-9 px-3 rounded-xl border border-border bg-surface font-mono font-bold text-text outline-none focus:border-primary"
-                  />
+                  <span className="font-mono font-bold text-xs text-text w-24 text-right">
+                    {formatVnd(waterTotal)}
+                  </span>
                 </div>
-              </div>
+              ) : (
+                <span className="text-muted italic text-[11px]">Không thu</span>
+              )}
+            </div>
 
-              {/* Wifi & Tiện ích */}
-              <div>
-                <label className="font-bold text-text block mb-1 flex items-center gap-1.5">
-                  <Wifi size={13} className="text-emerald-500" /> Wifi & Dịch vụ (VNĐ)
-                </label>
+            {/* Item 6: Wifi & Dịch vụ khác */}
+            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
+              <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
+                <input
+                  type="checkbox"
+                  checked={includeService}
+                  onChange={(e) => setIncludeService(e.target.checked)}
+                  className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                />
+                <Wifi size={14} className="text-emerald-500 shrink-0" />
+                <div className="min-w-0">
+                  <span className="font-bold text-text block leading-tight">Wifi & Dịch vụ khác</span>
+                  <span className="text-[10px] text-muted">Vệ sinh / Rác / Thang máy</span>
+                </div>
+              </label>
+              {includeService ? (
                 <input
                   type="number"
                   value={serviceFee}
                   onChange={(e) => setServiceFee(Number(e.target.value) || 0)}
-                  placeholder="0 đ (Miễn phí)"
-                  className="w-full h-9 px-3 rounded-xl border border-border bg-surface font-mono font-bold text-text outline-none focus:border-primary"
+                  placeholder="0 đ"
+                  className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
                 />
+              ) : (
+                <span className="text-emerald-600 font-bold text-[11px]">Miễn phí</span>
+              )}
+            </div>
+
+            {/* Item 7: Khấu trừ / Giảm giá */}
+            <div className="flex items-center justify-between py-2 px-2.5 hover:bg-surface/30 rounded-xl transition">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <Minus size={14} className="text-rose-500 shrink-0" />
+                <span className="font-bold text-muted">Khấu trừ / Giảm giá (nếu có)</span>
               </div>
-            </div>
-          )}
-
-          {/* If Holding Deposit */}
-          {category === "DEPOSIT_RESERVATION" && (
-            <div>
-              <label className="font-bold text-text block mb-1 flex items-center gap-1.5 text-xs">
-                <Wallet size={13} className="text-amber-500" /> Số tiền cọc giữ chỗ phòng (VNĐ)
-              </label>
               <input
                 type="number"
-                value={reservationDeposit}
-                onChange={(e) => setReservationDeposit(Number(e.target.value) || 0)}
-                className="w-full h-9 px-3 rounded-xl border border-border bg-surface font-mono font-bold text-text outline-none focus:border-primary"
+                value={discountAmount}
+                onChange={(e) => setDiscountAmount(Number(e.target.value) || 0)}
+                placeholder="0 đ"
+                className="w-32 h-8 px-2 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-rose-600 outline-none focus:border-rose-500"
               />
-              <span className="text-[11px] text-muted mt-1 block">
-                Khoản cọc tạm thời giữ chỗ trước khi ký hợp đồng. Có thể khấu trừ vào cọc hợp đồng khi vào ở.
-              </span>
             </div>
-          )}
-
-          {/* If Contract Deposit */}
-          {category === "DEPOSIT_CONTRACT" && (
-            <div>
-              <label className="font-bold text-text block mb-1 flex items-center gap-1.5 text-xs">
-                <ShieldCheck size={13} className="text-indigo-500" /> Số tiền đặt cọc hợp đồng (VNĐ)
-              </label>
-              <input
-                type="number"
-                value={contractDeposit}
-                onChange={(e) => setContractDeposit(Number(e.target.value) || 0)}
-                className="w-full h-9 px-3 rounded-xl border border-border bg-surface font-mono font-bold text-text outline-none focus:border-primary"
-              />
-              <span className="text-[11px] text-muted mt-1 block">
-                Tiền cọc bảo chứng trách nhiệm tài sản, tự động chuyển vào biên bản quyết toán hoàn cọc khi trả phòng.
-              </span>
-            </div>
-          )}
+          </div>
         </div>
 
-        {/* 4. TOTAL HERO BLOCK */}
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 flex items-center justify-between">
+        {/* 3. TỔNG CỘNG & KỲ HẠN THANH TOÁN */}
+        <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 via-card to-primary/5 p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs">
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-muted block">
-              Tổng tiền hóa đơn
+              Tổng tiền thanh toán
             </span>
             <span className="font-mono text-2xl font-black text-primary leading-tight">
               {formatVnd(grandTotal)}
@@ -539,7 +641,7 @@ export default function InvoiceCreateModal({
                 type="text"
                 value={period}
                 onChange={(e) => setPeriod(e.target.value)}
-                className="h-8 px-2 w-28 rounded-lg border border-border bg-card font-mono text-xs font-bold text-text"
+                className="h-8 px-2 w-28 rounded-lg border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary"
               />
             </div>
             <div>
@@ -548,15 +650,17 @@ export default function InvoiceCreateModal({
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="h-8 px-2 rounded-lg border border-border bg-card font-mono text-xs font-bold text-text"
+                className="h-8 px-2 rounded-lg border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary"
               />
             </div>
           </div>
         </div>
 
-        {/* 5. PHƯƠNG THỨC THANH TOÁN & BOT ZALO */}
-        <div className="rounded-xl border border-border/70 bg-surface/30 p-3 flex flex-col gap-2.5 text-xs">
-          <label className="font-bold text-muted block">Phương thức thanh toán & Thông báo</label>
+        {/* 4. PHƯƠNG THỨC THANH TOÁN & GỬI BOT ZALO */}
+        <div className="rounded-2xl border border-border/70 bg-surface/30 p-3 flex flex-col gap-2 text-xs">
+          <label className="font-black text-muted uppercase tracking-wider text-[10px] block">
+            Phương thức thanh toán & Thông báo
+          </label>
 
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -584,12 +688,12 @@ export default function InvoiceCreateModal({
             </button>
           </div>
 
-          {/* Sub options for QR vs Cash */}
+          {/* Sub options */}
           {payMethod === "QR_TRANSFER" && (
-            <div className="flex items-center justify-between p-2 rounded-xl bg-card border border-border/60">
+            <label className="flex items-center justify-between p-2.5 rounded-xl bg-card border border-border/60 cursor-pointer">
               <div className="flex items-center gap-2">
                 <Bot size={15} className="text-primary" />
-                <span className="font-bold text-text">Tự động gửi QR & Hóa đơn qua Bot Zalo</span>
+                <span className="font-bold text-text text-xs">Tự động gửi QR & Hóa đơn qua Bot Zalo</span>
               </div>
               <input
                 type="checkbox"
@@ -597,14 +701,14 @@ export default function InvoiceCreateModal({
                 onChange={(e) => setSendZaloBot(e.target.checked)}
                 className="h-4 w-4 rounded text-primary focus:ring-primary cursor-pointer"
               />
-            </div>
+            </label>
           )}
 
           {payMethod === "CASH" && (
-            <div className="flex items-center justify-between p-2 rounded-xl bg-card border border-border/60">
+            <label className="flex items-center justify-between p-2.5 rounded-xl bg-card border border-border/60 cursor-pointer">
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={15} className="text-emerald-500" />
-                <span className="font-bold text-text">Khách đã nộp đủ tiền mặt ngay lúc này (Gạch nợ)</span>
+                <span className="font-bold text-text text-xs">Khách đã nộp đủ tiền mặt ngay lúc này (Gạch nợ)</span>
               </div>
               <input
                 type="checkbox"
@@ -612,7 +716,7 @@ export default function InvoiceCreateModal({
                 onChange={(e) => setIsCashCollected(e.target.checked)}
                 className="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
               />
-            </div>
+            </label>
           )}
         </div>
       </div>

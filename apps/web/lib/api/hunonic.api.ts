@@ -50,5 +50,6 @@ export const hunonicApi = {
   unlockPeriods: (rows: HunonicLockedPeriodRow[]) => apiClient.post('/hunonic/history/unlock', { rows }),
   roomElectricity: (roomId: string) => apiClient.get(`/hunonic/rooms/${roomId}/electricity`),
   sync: () => apiClient.post('/hunonic/sync'),
+  syncLogs: (params?: { page?: number; limit?: number }) => apiClient.get('/hunonic/sync-logs', { params }),
   test: (settings: HunonicSettingsPayload) => apiClient.post('/hunonic/test', settings),
 };

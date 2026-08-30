@@ -14,6 +14,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Clock,
   Columns,
@@ -179,16 +180,51 @@ export default function ElectricityManagementPage() {
 
   // History modal state
   const [selectedRoomHistory, setSelectedRoomHistory] = useState<any | null>(null);
-  const [historyYear, setHistoryYear] = useState<string>(String(new Date().getFullYear()));
-  const [historyMonth, setHistoryMonth] = useState<string>(String(new Date().getMonth() + 1));
-  const { data: historyRes, isLoading: isLoadingHistory } = useSWR(
-    selectedRoomHistory ? ["hunonic-history", selectedRoomHistory.roomId, historyYear, historyMonth] : null,
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [historyTab, setHistoryTab] = useState<"readings" | "sync_logs">("readings");
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyBuilding, setHistoryBuilding] = useState("all");
+  const [historyYear, setHistoryYear] = useState<string>("all");
+  const [historyMonth, setHistoryMonth] = useState<string>("all");
+  const [historyPage, setHistoryPage] = useState(1);
+
+  const { data: historyDataRes, isLoading: isLoadingHistoryData } = useSWR(
+    isHistoryModalOpen
+      ? [
+          "hunonic-history-full",
+          historyTab,
+          historySearch,
+          historyBuilding,
+          historyYear,
+          historyMonth,
+          historyPage,
+        ]
+      : null,
+    () =>
+      historyTab === "readings"
+        ? hunonicApi.history({
+            search: historySearch || undefined,
+            buildingCode: historyBuilding !== "all" ? historyBuilding : undefined,
+            year: historyYear !== "all" ? historyYear : undefined,
+            month: historyMonth !== "all" ? historyMonth : undefined,
+            page: historyPage,
+            limit: 20,
+          })
+        : hunonicApi.syncLogs({
+            page: historyPage,
+            limit: 20,
+          }),
+    { revalidateOnFocus: false },
+  );
+
+  const { data: roomHistoryRes, isLoading: isLoadingRoomHistory } = useSWR(
+    selectedRoomHistory ? ["hunonic-room-history", selectedRoomHistory.roomId, historyYear, historyMonth] : null,
     () =>
       hunonicApi.history({
         roomCode: selectedRoomHistory?.roomCode,
         buildingCode: selectedRoomHistory?.buildingCode,
-        year: historyYear,
-        month: historyMonth,
+        year: historyYear !== "all" ? historyYear : undefined,
+        month: historyMonth !== "all" ? historyMonth : undefined,
       }),
     { revalidateOnFocus: false },
   );
@@ -437,6 +473,66 @@ export default function ElectricityManagementPage() {
     toast.success("Đã xuất file báo cáo CSV thành công!");
   };
 
+  const handleExportHistoryCsv = () => {
+    if (historyTab === "readings") {
+      const raw = historyDataRes as any;
+      const historyPayload = raw?.data || raw || {};
+      const rows: any[] = Array.isArray(historyPayload.monthlyRows) ? historyPayload.monthlyRows : [];
+      if (rows.length === 0) {
+        toast.error("Không có dữ liệu lịch sử để xuất");
+        return;
+      }
+      const headers = ["Kỳ", "Tòa nhà", "Phòng", "Tên hiển thị", "Công tơ", "Tiêu thụ (kWh)", "Tạm tính (VNĐ)", "Trạng thái chốt"];
+      const csvRows = rows.map((r) => [
+        `"${r.period || ""}"`,
+        `"${r.buildingCode || ""}"`,
+        `"${r.roomCode || ""}"`,
+        `"${r.displayName || ""}"`,
+        `"${r.deviceName || ""}"`,
+        r.energyMonthKwh || 0,
+        r.moneyMonthVnd || 0,
+        `"${r.isLocked ? "Đã chốt" : "Chưa chốt"}"`,
+      ]);
+      const csvContent = "\uFEFF" + [headers.join(","), ...csvRows.map((e) => e.join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `lich-su-chi-so-dien-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success("Đã xuất file lịch sử chỉ số thành công!");
+    } else {
+      const raw = historyDataRes as any;
+      const syncLogsPayload = raw?.data || raw || {};
+      const logs: any[] = Array.isArray(syncLogsPayload.logs) ? syncLogsPayload.logs : [];
+      if (logs.length === 0) {
+        toast.error("Không có nhật ký đồng bộ để xuất");
+        return;
+      }
+      const headers = ["Thời gian bắt đầu", "Thời gian kết thúc", "Trạng thái", "Công tơ quét được", "Chỉ số đã lưu", "Nội dung chi tiết"];
+      const csvRows = logs.map((l) => [
+        `"${formatDateTime(l.startedAt)}"`,
+        `"${formatDateTime(l.finishedAt)}"`,
+        `"${l.status === "SUCCESS" ? "Thành công" : "Thất bại"}"`,
+        l.metersFound || 0,
+        l.readingsSaved || 0,
+        `"${(l.message || l.error || "").replace(/"/g, '""')}"`,
+      ]);
+      const csvContent = "\uFEFF" + [headers.join(","), ...csvRows.map((e) => e.join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `nhat-ky-dong-bo-hunonic-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success("Đã xuất file nhật ký đồng bộ thành công!");
+    }
+  };
+
   const toggleColumnVisibility = (key: ColumnKey) => {
     setVisibleColumns((prev) => ({
       ...prev,
@@ -625,18 +721,20 @@ export default function ElectricityManagementPage() {
               )}
             </div>
 
-            {/* Nút Cài đặt */}
-            <Link href="/settings?section=integrations">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9 rounded-xl px-3 text-xs font-bold shadow-sm border-border"
-                title="Cài đặt kết nối Hunonic"
-              >
-                <Settings2 size={13} className="mr-1.5" /> Cài đặt
-              </Button>
-            </Link>
+            {/* Nút Lịch sử */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setIsHistoryModalOpen(true);
+                setHistoryPage(1);
+              }}
+              className="h-9 rounded-xl px-3 text-xs font-bold shadow-sm border-border hover:border-primary/50 text-text"
+              title="Xem lịch sử chỉ số & nhật ký đồng bộ"
+            >
+              <History size={13} className="mr-1.5 text-primary" /> Lịch sử
+            </Button>
 
             {/* View Mode Toggle */}
             <div className="flex items-center rounded-xl border border-border bg-background p-0.5 shadow-sm">
@@ -1202,12 +1300,372 @@ export default function ElectricityManagementPage() {
           </div>
         </Modal>
 
-        {/* MODAL: Lịch sử chỉ số điện */}
+        {/* MODAL: Toàn bộ Lịch sử chỉ số & Nhật ký đồng bộ Hunonic */}
+        <Modal
+          isOpen={isHistoryModalOpen}
+          onClose={() => setIsHistoryModalOpen(false)}
+          title="Lịch sử chỉ số & nhật ký đồng bộ Hunonic"
+          maxWidth="max-w-[1000px]"
+          footer={
+            <div className="flex items-center justify-between w-full">
+              <div className="text-xs text-muted">
+                {historyTab === "readings" ? (
+                  <span>
+                    Tổng cộng: <b>{(historyDataRes as any)?.data?.summary?.totalReadings ?? (historyDataRes as any)?.summary?.totalReadings ?? (historyDataRes as any)?.data?.monthlyRows?.length ?? (historyDataRes as any)?.monthlyRows?.length ?? 0}</b> bản ghi chỉ số
+                  </span>
+                ) : (
+                  <span>
+                    Tổng cộng: <b>{(historyDataRes as any)?.data?.pagination?.total ?? (historyDataRes as any)?.pagination?.total ?? (historyDataRes as any)?.data?.logs?.length ?? (historyDataRes as any)?.logs?.length ?? 0}</b> lượt đồng bộ
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Pagination buttons */}
+                {((historyDataRes as any)?.data?.pagination?.totalPages || (historyDataRes as any)?.pagination?.totalPages || 1) > 1 && (
+                  <div className="flex items-center gap-1 mr-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={historyPage <= 1}
+                      onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                      className="h-8 w-8 p-0 rounded-lg"
+                    >
+                      <ChevronLeft size={14} />
+                    </Button>
+                    <span className="text-xs font-bold px-1.5">
+                      {historyPage} / {(historyDataRes as any)?.data?.pagination?.totalPages || (historyDataRes as any)?.pagination?.totalPages || 1}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={historyPage >= ((historyDataRes as any)?.data?.pagination?.totalPages || (historyDataRes as any)?.pagination?.totalPages || 1)}
+                      onClick={() => setHistoryPage((p) => p + 1)}
+                      className="h-8 w-8 p-0 rounded-lg"
+                    >
+                      <ChevronRight size={14} />
+                    </Button>
+                  </div>
+                )}
+
+                <Button type="button" variant="outline" onClick={() => setIsHistoryModalOpen(false)}>
+                  Đóng
+                </Button>
+              </div>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            {/* Header Tabs Switcher */}
+            <div className="flex items-center justify-between border-b border-border pb-2.5">
+              <div className="flex items-center gap-1.5 bg-muted/20 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryTab("readings");
+                    setHistoryPage(1);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    historyTab === "readings"
+                      ? "bg-primary text-white shadow-sm"
+                      : "text-muted hover:text-text"
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Activity size={13} /> Chỉ số điện theo kỳ
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryTab("sync_logs");
+                    setHistoryPage(1);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    historyTab === "sync_logs"
+                      ? "bg-primary text-white shadow-sm"
+                      : "text-muted hover:text-text"
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <RefreshCcw size={13} /> Nhật ký đồng bộ Hunonic
+                  </span>
+                </button>
+              </div>
+
+              {/* Nút Xuất Excel */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleExportHistoryCsv}
+                className="h-8 rounded-xl px-3 text-xs font-bold text-primary border-primary/30 hover:bg-primary/10 shadow-none"
+              >
+                <Download size={13} className="mr-1.5" /> Xuất Excel
+              </Button>
+            </div>
+
+            {/* Filter Toolbar (Áp dụng cho tab Chỉ số theo kỳ) */}
+            {historyTab === "readings" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 bg-muted/10 p-2.5 rounded-xl border border-border/60">
+                {/* Search */}
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+                  <Input
+                    value={historySearch}
+                    onChange={(e) => {
+                      setHistorySearch(e.target.value);
+                      setHistoryPage(1);
+                    }}
+                    placeholder="Tìm phòng, công tơ..."
+                    className="h-8 pl-8 text-xs font-medium"
+                  />
+                </div>
+
+                {/* Tòa nhà */}
+                <div>
+                  <select
+                    value={historyBuilding}
+                    onChange={(e) => {
+                      setHistoryBuilding(e.target.value);
+                      setHistoryPage(1);
+                    }}
+                    className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
+                  >
+                    <option value="all">Tất cả tòa nhà</option>
+                    {(buildings.length > 0 ? buildings.map((b: any) => b.code) : ["LK01-31", "LK01-32"]).map((bCode: string) => (
+                      <option key={bCode} value={bCode}>
+                        Tòa {bCode}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Năm */}
+                <div>
+                  <select
+                    value={historyYear}
+                    onChange={(e) => {
+                      setHistoryYear(e.target.value);
+                      setHistoryPage(1);
+                    }}
+                    className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
+                  >
+                    <option value="all">Tất cả năm</option>
+                    {[2026, 2025, 2024].map((y) => (
+                      <option key={y} value={String(y)}>
+                        Năm {y}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Tháng */}
+                <div>
+                  <select
+                    value={historyMonth}
+                    onChange={(e) => {
+                      setHistoryMonth(e.target.value)}
+                    }
+                    className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
+                  >
+                    <option value="all">Tất cả tháng</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={String(m)}>
+                        Tháng {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT 1: CHỈ SỐ ĐIỆN THEO KỲ */}
+            {historyTab === "readings" && (
+              <div className="rounded-xl border border-border overflow-hidden min-h-[300px]">
+                <div className="overflow-x-auto max-h-[460px]">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-muted/30 text-[10px] font-bold text-muted uppercase sticky top-0 bg-background z-10 border-b border-border">
+                      <tr>
+                        <th className="py-2.5 px-3">Kỳ (Tháng)</th>
+                        <th className="py-2.5 px-3">Phòng / Tòa</th>
+                        <th className="py-2.5 px-3">Tên thiết bị / MAC</th>
+                        <th className="py-2.5 px-3 text-right">Tiêu thụ (kWh)</th>
+                        <th className="py-2.5 px-3 text-right">Tạm tính (VNĐ)</th>
+                        <th className="py-2.5 px-3 text-center">Trạng thái chốt</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {isLoadingHistoryData ? (
+                        <tr>
+                          <td colSpan={6} className="py-12 text-center text-muted">
+                            <RefreshCcw size={20} className="mx-auto animate-spin text-primary mb-2" />
+                            <div className="font-bold text-xs">Đang tải lịch sử chỉ số...</div>
+                          </td>
+                        </tr>
+                      ) : (() => {
+                        const raw = historyDataRes as any;
+                        const historyPayload = raw?.data || raw || {};
+                        const monthlyRows: any[] = Array.isArray(historyPayload.monthlyRows)
+                          ? historyPayload.monthlyRows
+                          : Array.isArray(historyPayload.readings)
+                            ? historyPayload.readings
+                            : [];
+
+                        if (monthlyRows.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={6} className="py-12 text-center text-muted">
+                                <PlugZap size={28} className="mx-auto text-muted/30 mb-2" />
+                                <div className="font-bold text-xs text-text">Chưa có bản ghi lịch sử nào phù hợp</div>
+                                <div className="text-[11px] mt-0.5 text-muted">Hãy thay đổi bộ lọc tìm kiếm hoặc năm/tháng.</div>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return monthlyRows.map((r: any, idx: number) => {
+                          const isLocked = r.isLocked || r.status === "LOCKED";
+                          return (
+                            <tr key={idx} className="hover:bg-muted/10 transition-colors">
+                              <td className="py-2 px-3 font-mono font-bold text-text text-xs">
+                                {r.period || r.currentMonth || "-"}
+                              </td>
+                              <td className="py-2 px-3">
+                                <div className="font-black text-text text-xs">
+                                  {r.roomCode ? `Phòng ${r.roomCode}` : r.displayName || "-"}
+                                </div>
+                                <div className="text-[10px] text-muted font-medium">
+                                  {r.buildingCode ? `Tòa ${r.buildingCode}` : "-"}
+                                </div>
+                              </td>
+                              <td className="py-2 px-3">
+                                <div className="font-bold text-text truncate max-w-[180px]">
+                                  {r.displayName || r.deviceName || "Công tơ"}
+                                </div>
+                                <div className="text-[10px] font-mono text-muted">
+                                  {r.providerMeterId || r.deviceId || "-"}
+                                </div>
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono font-black text-amber-600 dark:text-amber-400">
+                                {formatKwh(r.energyMonthKwh || r.totalKwh || 0)}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-primary">
+                                {formatCurrency(r.moneyMonthVnd || r.estimatedCost || 0)}
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                {isLocked ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                    <Lock size={10} /> Đã chốt
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                    <CheckCircle2 size={10} /> Tự động ghi nhận
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT 2: NHẬT KÝ ĐỒNG BỘ HUNONIC */}
+            {historyTab === "sync_logs" && (
+              <div className="rounded-xl border border-border overflow-hidden min-h-[300px]">
+                <div className="overflow-x-auto max-h-[460px]">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-muted/30 text-[10px] font-bold text-muted uppercase sticky top-0 bg-background z-10 border-b border-border">
+                      <tr>
+                        <th className="py-2.5 px-3">Thời gian</th>
+                        <th className="py-2.5 px-3 text-center">Trạng thái</th>
+                        <th className="py-2.5 px-3 text-right">Công tơ tìm thấy</th>
+                        <th className="py-2.5 px-3 text-right">Chỉ số đã lưu</th>
+                        <th className="py-2.5 px-3">Nội dung chi tiết</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {isLoadingHistoryData ? (
+                        <tr>
+                          <td colSpan={5} className="py-12 text-center text-muted">
+                            <RefreshCcw size={20} className="mx-auto animate-spin text-primary mb-2" />
+                            <div className="font-bold text-xs">Đang tải nhật ký đồng bộ...</div>
+                          </td>
+                        </tr>
+                      ) : (() => {
+                        const raw = historyDataRes as any;
+                        const syncLogsPayload = raw?.data || raw || {};
+                        const logs: any[] = Array.isArray(syncLogsPayload.logs) ? syncLogsPayload.logs : [];
+
+                        if (logs.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={5} className="py-12 text-center text-muted">
+                                <PlugZap size={28} className="mx-auto text-muted/30 mb-2" />
+                                <div className="font-bold text-xs text-text">Chưa có nhật ký đồng bộ nào</div>
+                                <div className="text-[11px] mt-0.5 text-muted">Bấm nút "Đồng bộ" trên thanh công cụ để thực hiện quét dữ liệu mới.</div>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return logs.map((log: any) => {
+                          const isSuccess = log.status === "SUCCESS";
+                          return (
+                            <tr key={log.id} className="hover:bg-muted/10 transition-colors">
+                              <td className="py-2.5 px-3 font-mono text-xs whitespace-nowrap">
+                                <div className="font-bold text-text">{formatDateTime(log.startedAt)}</div>
+                                {log.finishedAt && (
+                                  <div className="text-[10px] text-muted">
+                                    Hoàn thành: {formatDateTime(log.finishedAt)}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                {isSuccess ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                    <CheckCircle2 size={11} /> Thành công
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                                    <AlertCircle size={11} /> Thất bại
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-text">
+                                {log.metersFound ?? 0}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                {log.readingsSaved ?? 0}
+                              </td>
+                              <td className="py-2.5 px-3 text-xs text-muted max-w-[340px] truncate">
+                                {log.message || log.error || "-"}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </Modal>
+
+        {/* MODAL: Lịch sử chỉ số điện riêng từng phòng (Khi bấm Lịch sử ở hàng/card) */}
         <Modal
           isOpen={Boolean(selectedRoomHistory)}
           onClose={() => setSelectedRoomHistory(null)}
-          title={`Lịch sử chỉ số điện • Phòng ${selectedRoomHistory?.roomCode || ""}`}
-          maxWidth="max-w-[700px]"
+          title={`Lịch sử chỉ số • Phòng ${selectedRoomHistory?.roomCode || ""}`}
+          maxWidth="max-w-[720px]"
           footer={
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setSelectedRoomHistory(null)}>
@@ -1218,7 +1676,7 @@ export default function ElectricityManagementPage() {
         >
           {selectedRoomHistory && (
             <div className="space-y-3.5">
-              <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-border bg-card p-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-border bg-card p-3">
                 <div>
                   <div className="text-xs font-black text-text">
                     Phòng {selectedRoomHistory.roomCode} • Tòa {selectedRoomHistory.buildingCode}
@@ -1233,8 +1691,9 @@ export default function ElectricityManagementPage() {
                   <select
                     value={historyMonth}
                     onChange={(e) => setHistoryMonth(e.target.value)}
-                    className="h-7.5 rounded-lg border border-border bg-background px-2 text-xs font-bold text-text"
+                    className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
+                    <option value="all">Tất cả tháng</option>
                     {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                       <option key={m} value={String(m)}>
                         Tháng {m}
@@ -1245,9 +1704,10 @@ export default function ElectricityManagementPage() {
                   <select
                     value={historyYear}
                     onChange={(e) => setHistoryYear(e.target.value)}
-                    className="h-7.5 rounded-lg border border-border bg-background px-2 text-xs font-bold text-text"
+                    className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
-                    {[2024, 2025, 2026, 2027].map((y) => (
+                    <option value="all">Tất cả năm</option>
+                    {[2026, 2025, 2024].map((y) => (
                       <option key={y} value={String(y)}>
                         Năm {y}
                       </option>
@@ -1260,14 +1720,14 @@ export default function ElectricityManagementPage() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-muted/30 text-[10px] font-bold text-muted uppercase">
                     <tr>
-                      <th className="py-2 px-3">Thời gian ghi</th>
-                      <th className="py-2 px-3 text-right">Công suất (W)</th>
-                      <th className="py-2 px-3 text-right">Tiêu thụ tháng (kWh)</th>
-                      <th className="py-2 px-3 text-center">Trạng thái chốt</th>
+                      <th className="py-2.5 px-3">Thời gian ghi</th>
+                      <th className="py-2.5 px-3 text-right">Công suất (W)</th>
+                      <th className="py-2.5 px-3 text-right">Tiêu thụ tháng (kWh)</th>
+                      <th className="py-2.5 px-3 text-center">Trạng thái chốt</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {isLoadingHistory ? (
+                    {isLoadingRoomHistory ? (
                       <tr>
                         <td colSpan={4} className="py-6 text-center text-muted">
                           Đang tải lịch sử chỉ số...
@@ -1275,16 +1735,16 @@ export default function ElectricityManagementPage() {
                       </tr>
                     ) : (
                       <tr>
-                        <td className="py-2 px-3 font-mono text-[11px]">
+                        <td className="py-2.5 px-3 font-mono text-[11px]">
                           {formatDateTime(selectedRoomHistory.lastSyncedAt || selectedRoomHistory.lastReadingAt || new Date().toISOString())}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-text">
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-text">
                           {formatWatts(selectedRoomHistory.powerCurrentW)}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono font-black text-amber-600 dark:text-amber-400">
+                        <td className="py-2.5 px-3 text-right font-mono font-black text-amber-600 dark:text-amber-400">
                           {formatKwh(selectedRoomHistory.energyMonthKwh || selectedRoomHistory.totalKwh || selectedRoomHistory.currentKwh)}
                         </td>
-                        <td className="py-2 px-3 text-center">
+                        <td className="py-2.5 px-3 text-center">
                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                             <CheckCircle2 size={11} /> Tự động
                           </span>

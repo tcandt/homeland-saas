@@ -550,6 +550,29 @@ export class HunonicService {
     };
   }
 
+  async getSyncLogs(tenantId: string, query?: { limit?: string; page?: string }) {
+    const page = Math.max(1, Number(query?.page || 1));
+    const limit = Math.max(1, Math.min(100, Number(query?.limit || 30)));
+    const [total, logs] = await Promise.all([
+      this.prismaAny.hunonicSyncLog.count({ where: { tenantId } }),
+      this.prismaAny.hunonicSyncLog.findMany({
+        where: { tenantId },
+        orderBy: { startedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+    ]);
+    return {
+      logs,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
+  }
+
   async lockPeriods(tenantId: string, input: HunonicLockPeriodsInput) {
     const rows = Array.isArray(input?.rows) ? input.rows : [];
     if (rows.length === 0) {

@@ -91,6 +91,16 @@ export class HunonicController {
     return this.hunonicService.syncTenant(tenantId, undefined, { backfillMonths: 6 });
   }
 
+  @Get('sync-logs')
+  @RequirePermissions('setting.read')
+  @ApiOperation({ summary: 'Get Hunonic sync logs history' })
+  syncLogs(
+    @Query() query: any,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
+    return this.hunonicService.getSyncLogs(tenantId, query || {});
+  }
+
   @Post('test')
   @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Test Hunonic credentials without saving readings' })

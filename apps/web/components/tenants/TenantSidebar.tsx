@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { AlertTriangle, Bell, CalendarClock, UserPlus, Users } from "lucide-react";
+import { AlertTriangle, Bell, CalendarClock, FileText, UserPlus, Users } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
 import { useCustomersQuery } from "@/lib/queries/customers.queries";
@@ -99,11 +99,11 @@ export default function TenantSidebar() {
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-[15px] font-black text-text">Cần xử lý</h2>
         </div>
-        <div className="grid gap-1">
+        <div className="grid gap-1.5">
           <SidebarMetric icon={<CalendarClock size={14} />} label="Sắp hết hạn hợp đồng" value={summary.expiring} tone="text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20" />
           <SidebarMetric icon={<AlertTriangle size={14} />} label="Công nợ quá hạn" value={summary.debt} tone="text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20" />
-          <SidebarMetric icon={<Users size={14} />} label="Khách mới cần duyệt hồ sơ" value={summary.newCustomers.length} tone="text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" />
-          <SidebarMetric icon={<Bell size={14} />} label="Rủi ro cao cần theo dõi" value={summary.highRisk} tone="text-primary bg-primary/10 border border-primary/20" />
+          <SidebarMetric icon={<Users size={14} />} label="Khách mới (30 ngày)" value={summary.newCustomers.length} tone="text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" />
+          <SidebarMetric icon={<FileText size={14} />} label="Chưa ký hợp đồng" value={summary.inactive} tone="text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 border border-indigo-500/20" />
         </div>
       </Card>
 

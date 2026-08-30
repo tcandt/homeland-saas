@@ -2,7 +2,6 @@
 
 import AppShell from "@/components/layout/AppShell";
 import TenantKpi from "@/components/tenants/TenantKpi";
-import TenantInsights from "@/components/tenants/TenantInsights";
 import TenantFilters from "@/components/tenants/TenantFilters";
 import TenantGrid from "@/components/tenants/TenantGrid";
 import TenantSidebar from "@/components/tenants/TenantSidebar";
@@ -16,10 +15,9 @@ export default function TenantsPage() {
           <TenantsMobileFlow />
         </div>
 
-        <div className="hidden min-h-full w-full grid-cols-1 gap-2 p-2 md:grid md:p-3 2xl:h-full 2xl:min-h-0 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
-          <div className="flex min-w-0 flex-col gap-2 2xl:min-h-0">
+        <div className="hidden min-h-full w-full grid-cols-1 gap-2.5 p-2 md:grid md:p-3 2xl:h-full 2xl:min-h-0 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
+          <div className="flex min-w-0 flex-col gap-2.5 2xl:min-h-0">
             <TenantKpi />
-            <TenantInsights />
             <TenantFilters />
             <TenantGrid />
           </div>

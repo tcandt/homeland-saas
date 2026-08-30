@@ -68,9 +68,9 @@ export default function InvoiceCreateModal({
   onClose,
   defaultRoomId,
 }: InvoiceCreateModalProps) {
-  const { data: rooms = [] } = useRoomsQuery({ limit: 200 });
-  const { data: contractsData } = useContractsQuery({ limit: 200 });
-  const contracts = contractsData?.data || [];
+  const { data: rooms = [] } = useRoomsQuery({ limit: 100 });
+  const { data: contractsData } = useContractsQuery({ limit: 100 });
+  const contracts = Array.isArray(contractsData?.data) ? contractsData.data : Array.isArray(contractsData) ? contractsData : [];
 
   const createMutation = useCreateInvoiceMutation();
   const issueMutation = useIssueInvoiceMutation();

@@ -7,6 +7,7 @@ import {
   Bot,
   Building2,
   Calendar,
+  Check,
   CheckCircle2,
   Clock3,
   CreditCard,
@@ -22,9 +23,9 @@ import {
   Send,
   ShieldCheck,
   Smartphone,
+  Sparkles,
   User,
   UserCheck,
-  UserPlus,
   Users,
   Wallet,
   Wifi,
@@ -48,7 +49,7 @@ interface InvoiceCreateModalProps {
   defaultRoomId?: string;
 }
 
-// Helpers for formatted currency input
+// Currency formatters
 function parseCurrency(val: string): number {
   return Number(val.replace(/\D/g, "")) || 0;
 }
@@ -56,6 +57,10 @@ function parseCurrency(val: string): number {
 function formatCurrencyInput(val: number): string {
   if (val === 0) return "0";
   return val.toLocaleString("vi-VN");
+}
+
+function formatVnd(val: number): string {
+  return `${Number(val || 0).toLocaleString("vi-VN")} đ`;
 }
 
 export default function InvoiceCreateModal({
@@ -82,18 +87,16 @@ export default function InvoiceCreateModal({
   const [customRecipientName, setCustomRecipientName] = useState<string>("");
   const [customRecipientPhone, setCustomRecipientPhone] = useState<string>("");
 
-  // 3. Line Items (2 Columns)
-  // Column 1
+  // 3. Line Items
   const [includeRent, setIncludeRent] = useState<boolean>(true);
-  const [roomRent, setRoomRent] = useState<number>(4500000);
+  const [roomRent, setRoomRent] = useState<number>(4000000);
 
   const [includeContractDeposit, setIncludeContractDeposit] = useState<boolean>(false);
-  const [contractDeposit, setContractDeposit] = useState<number>(4500000);
+  const [contractDeposit, setContractDeposit] = useState<number>(4000000);
 
   const [includeHoldingDeposit, setIncludeHoldingDeposit] = useState<boolean>(false);
   const [holdingDeposit, setHoldingDeposit] = useState<number>(1000000);
 
-  // Column 2
   const [includeElectricity, setIncludeElectricity] = useState<boolean>(true);
   const [electricityAmount, setElectricityAmount] = useState<number>(0);
 
@@ -106,11 +109,16 @@ export default function InvoiceCreateModal({
 
   const [discountAmount, setDiscountAmount] = useState<number>(0);
 
-  // 4. Period & Due Date (Date format dd/mm/yyyy)
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const [periodDate, setPeriodDate] = useState<string>(todayStr);
-  const [dueDate, setDueDate] = useState<string>(
-    new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10)
+  // 4. Period & Due Date
+  const currentMonth = new Date().getMonth() + 1;
+  const currentYear = new Date().getFullYear();
+  const [periodMonth, setPeriodMonth] = useState<number>(currentMonth);
+  const [periodYear, setPeriodYear] = useState<number>(currentYear);
+
+  // Default due date: 5 days from now formatted as dd/mm/yyyy
+  const dueDefault = new Date(Date.now() + 5 * 86400000);
+  const [dueDay, setDueDay] = useState<string>(
+    `${String(dueDefault.getDate()).padStart(2, "0")}/${String(dueDefault.getMonth() + 1).padStart(2, "0")}/${dueDefault.getFullYear()}`
   );
 
   // 5. Payment & Bot
@@ -119,7 +127,7 @@ export default function InvoiceCreateModal({
   const [sendZaloBot, setSendZaloBot] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Room & Contract lookup
+  // Lookup Room & Contract
   const selectedRoom = useMemo(() => {
     return rooms.find((r: any) => r.id === selectedRoomId);
   }, [rooms, selectedRoomId]);
@@ -147,33 +155,31 @@ export default function InvoiceCreateModal({
 
   // Available Roommates in this Room / Contract
   const availableRoommates = useMemo(() => {
-    // If contract has coRepresentativeIds or customer list
     if (activeContract?.coRepresentativeIds && activeContract.coRepresentativeIds.length > 0) {
       return allCustomers.filter((c: any) => activeContract.coRepresentativeIds.includes(c.id));
     }
-    // Fallback list for demo/roommates
     return [
       { id: "roommate-1", fullName: "Trần Thị Mai (Khách ghép 1)", phone: "0912345678", gender: "FEMALE" },
       { id: "roommate-2", fullName: "Lê Văn Hùng (Khách ghép 2)", phone: "0987654321", gender: "MALE" },
     ];
   }, [activeContract, allCustomers]);
 
-  // Auto update values when Room changes
+  // Auto update when Room changes
   useEffect(() => {
     if (selectedRoom) {
-      const defaultRent = selectedRoom.price || activeContract?.monthlyRent || 4500000;
+      const defaultRent = selectedRoom.price || activeContract?.monthlyRent || 4000000;
       setRoomRent(defaultRent);
       setContractDeposit(defaultRent);
       setWaterPeopleCount(activeContract?.memberCount || 1);
 
       if (recipientType === "REPRESENTATIVE") {
-        setCustomRecipientName(representative?.fullName || "");
-        setCustomRecipientPhone(representative?.phone || "");
+        setCustomRecipientName(representative?.fullName || "Nguyễn Đức Tính");
+        setCustomRecipientPhone(representative?.phone || "0567867889");
       }
     }
   }, [selectedRoom, activeContract, representative, recipientType]);
 
-  // When switching recipient type or selecting a roommate
+  // When switching recipient type
   useEffect(() => {
     if (recipientType === "REPRESENTATIVE") {
       setCustomRecipientName(representative?.fullName || "Nguyễn Đức Tính");
@@ -216,8 +222,6 @@ export default function InvoiceCreateModal({
     discountAmount,
   ]);
 
-  const formatVnd = (val: number) => `${Number(val || 0).toLocaleString("vi-VN")} đ`;
-
   const handleCreate = async (autoIssue = true) => {
     if (!selectedRoomId) {
       toast.error("Vui lòng chọn Phòng tạo hóa đơn");
@@ -239,13 +243,13 @@ export default function InvoiceCreateModal({
         items.push({ name: "Tiền cọc giữ chỗ phòng", type: "RENT", amount: holdingDeposit, quantity: 1 });
       }
       if (includeElectricity && electricityAmount > 0) {
-        items.push({ name: "Tiền điện (Theo chỉ số EVN - Giá nhà nước)", type: "UTILITY_ELECTRICITY", amount: electricityAmount, quantity: 1 });
+        items.push({ name: "Tiền điện EVN (Giá nhà nước)", type: "UTILITY_ELECTRICITY", amount: electricityAmount, quantity: 1 });
       }
       if (includeWater && waterTotal > 0) {
         items.push({ name: `Tiền nước sinh hoạt (${waterPeopleCount} người × 100k)`, type: "UTILITY_WATER", amount: waterTotal, quantity: waterPeopleCount });
       }
       if (wifiFree) {
-        items.push({ name: "Wifi & Dịch vụ tiện ích (Miễn phí)", type: "SERVICE", amount: 0, quantity: 1 });
+        items.push({ name: "Wifi & Tiện ích (Miễn phí)", type: "SERVICE", amount: 0, quantity: 1 });
       } else if (serviceFee > 0) {
         items.push({ name: "Wifi & Dịch vụ tiện ích", type: "SERVICE", amount: serviceFee, quantity: 1 });
       }
@@ -253,14 +257,18 @@ export default function InvoiceCreateModal({
         items.push({ name: "Khấu trừ / Giảm giá", type: "DISCOUNT", amount: -discountAmount, quantity: 1 });
       }
 
-      const periodStr = `Tháng ${periodDate.slice(5, 7)}/${periodDate.slice(0, 4)}`;
+      const periodStr = `Tháng ${String(periodMonth).padStart(2, "0")}/${periodYear}`;
+
+      // Convert dd/mm/yyyy to Date
+      const parts = dueDay.split("/");
+      const dueIso = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().slice(0, 10);
 
       const payload = {
         roomId: selectedRoomId,
         contractId: activeContract?.id || "",
         customerId: customerId,
         period: periodStr,
-        dueDate: dueDate,
+        dueDate: dueIso,
         totalAmount: grandTotal,
         paidAmount: isCashCollected ? grandTotal : 0,
         status: isCashCollected ? "PAID" : "UNPAID",
@@ -315,15 +323,15 @@ export default function InvoiceCreateModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="max-w-[680px]"
+      maxWidth="max-w-[620px]"
       title={
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <Receipt size={17} />
           </div>
           <div>
-            <h2 className="text-base font-black text-text leading-tight">Lập hóa đơn thanh toán</h2>
-            <span className="text-[11px] font-bold text-muted">Tùy chỉnh khoản thu 2 cột & phát hành qua Bot Zalo</span>
+            <h2 className="text-sm font-black text-text leading-tight">Lập hóa đơn thanh toán</h2>
+            <span className="text-[11px] text-muted font-medium">Chọn khoản thu và phát hành qua Bot Zalo</span>
           </div>
         </div>
       }
@@ -341,7 +349,7 @@ export default function InvoiceCreateModal({
               onClick={() => handleCreate(false)}
               disabled={isSubmitting}
             >
-              Lưu bản nháp
+              Lưu nháp
             </Button>
 
             <Button
@@ -353,7 +361,7 @@ export default function InvoiceCreateModal({
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 size={14} className="mr-1.5 animate-spin" /> Đang xử lý...
+                  <Loader2 size={14} className="mr-1.5 animate-spin" /> Đang tạo...
                 </>
               ) : sendZaloBot && payMethod === "QR_TRANSFER" ? (
                 <>
@@ -369,320 +377,296 @@ export default function InvoiceCreateModal({
         </div>
       }
     >
-      <div className="flex flex-col gap-3 max-h-[75vh] overflow-y-auto pr-1">
+      <div className="flex flex-col gap-3 max-h-[75vh] overflow-y-auto pr-1 text-xs">
         {/* 1. CHỌN PHÒNG & NGƯỜI NHẬN HÓA ĐƠN */}
-        <div className="rounded-2xl border border-border/70 bg-surface/40 p-3 flex flex-col gap-2.5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Select Room */}
-            <div>
-              <label className="text-[11px] font-black uppercase tracking-wider text-muted block mb-1">
+        <div className="rounded-xl border border-border/80 bg-surface/30 p-2.5 flex flex-col gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {/* Room Selector */}
+            <div className="flex-1">
+              <label className="text-[10px] font-black uppercase tracking-wider text-muted block mb-1">
                 Phòng / Căn hộ <span className="text-rose-500">*</span>
               </label>
               <select
                 value={selectedRoomId}
                 onChange={(e) => setSelectedRoomId(e.target.value)}
-                className="w-full h-9.5 px-3 rounded-xl border border-border bg-card text-xs font-bold text-text outline-none focus:border-primary transition"
+                className="w-full h-8.5 px-2.5 rounded-lg border border-border bg-card text-xs font-bold text-text outline-none focus:border-primary"
               >
                 <option value="">-- Chọn phòng --</option>
                 {rooms.map((room: any) => (
                   <option key={room.id} value={room.id}>
-                    {room.building?.name || room.building?.code || "Tòa LK01.31"} • Phòng {room.code || room.name}
+                    {room.building?.name || room.building?.code || "Tòa LK01.31"} • {room.code || room.name}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Recipient Mode: Nguyên căn (Đại diện) vs Khách ghép */}
-            <div>
-              <label className="text-[11px] font-black uppercase tracking-wider text-muted block mb-1">
-                Hình thức nhận hóa đơn
+            {/* Recipient Mode Toggle */}
+            <div className="sm:w-60">
+              <label className="text-[10px] font-black uppercase tracking-wider text-muted block mb-1">
+                Người nhận
               </label>
-              <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-0.5 h-9.5">
+              <div className="flex items-center gap-1 bg-card border border-border rounded-lg p-0.5 h-8.5">
                 <button
                   type="button"
                   onClick={() => setRecipientType("REPRESENTATIVE")}
-                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg text-[11px] font-bold h-full transition ${
+                  className={`flex-1 flex items-center justify-center gap-1 rounded-md text-[11px] font-bold h-full transition ${
                     recipientType === "REPRESENTATIVE"
                       ? "bg-primary text-white shadow-2xs"
                       : "text-muted hover:text-text"
                   }`}
                 >
-                  <UserCheck size={13} /> Đại diện HĐ (Nguyên căn)
+                  <UserCheck size={12} /> Nguyên căn
                 </button>
                 <button
                   type="button"
                   onClick={() => setRecipientType("ROOMMATE")}
-                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg text-[11px] font-bold h-full transition ${
+                  className={`flex-1 flex items-center justify-center gap-1 rounded-md text-[11px] font-bold h-full transition ${
                     recipientType === "ROOMMATE"
                       ? "bg-primary text-white shadow-2xs"
                       : "text-muted hover:text-text"
                   }`}
                 >
-                  <Users size={13} /> Khách thuê ghép
+                  <Users size={12} /> Thuê ghép
                 </button>
               </div>
             </div>
           </div>
 
-          {/* If Roommate Mode: Dropdown to pick roommate in this room */}
-          {recipientType === "ROOMMATE" && (
-            <div className="rounded-xl bg-card border border-primary/20 p-2.5 flex items-center gap-2">
-              <span className="text-xs font-bold text-muted whitespace-nowrap">Chọn khách ghép:</span>
-              <select
-                value={selectedRoommateId}
-                onChange={(e) => setSelectedRoommateId(e.target.value)}
-                className="flex-1 h-8 px-2.5 rounded-lg border border-border bg-surface text-xs font-bold text-text outline-none focus:border-primary"
-              >
-                {availableRoommates.map((rm: any) => (
-                  <option key={rm.id} value={rm.id}>
-                    {rm.fullName} ({rm.phone})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Tenant Contact Card */}
+          {/* Tenant details */}
           {selectedRoomId && (
-            <div className="flex items-center justify-between rounded-xl bg-card border border-border/60 p-2.5">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="relative shrink-0">
-                  <img
-                    src={avatarUrl}
-                    alt={customRecipientName}
-                    className={`h-9 w-9 rounded-xl object-cover border shadow-2xs ${
-                      isFemale ? "border-pink-300 bg-pink-50" : "border-sky-300 bg-sky-50"
-                    }`}
-                  />
-                  <span
-                    className={`absolute -bottom-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-black text-white ${
-                      isFemale ? "bg-rose-500" : "bg-sky-600"
-                    }`}
-                  >
-                    {isFemale ? "♀" : "♂"}
-                  </span>
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <input
-                    type="text"
-                    value={customRecipientName}
-                    onChange={(e) => setCustomRecipientName(e.target.value)}
-                    placeholder="Họ và tên khách..."
-                    className="font-black text-xs text-text bg-transparent border-b border-dashed border-border focus:border-primary outline-none w-full"
-                  />
-                  <div className="flex items-center gap-1 text-[11px] text-muted font-mono mt-0.5">
-                    <Phone size={10} className="text-emerald-500" />
-                    <input
-                      type="text"
-                      value={customRecipientPhone}
-                      onChange={(e) => setCustomRecipientPhone(e.target.value)}
-                      placeholder="SĐT Zalo..."
-                      className="bg-transparent border-b border-dashed border-border focus:border-primary outline-none w-28"
-                    />
+            <div className="flex items-center justify-between rounded-lg bg-card border border-border/60 px-2.5 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <img
+                  src={avatarUrl}
+                  alt={customRecipientName}
+                  className={`h-7 w-7 rounded-lg object-cover border ${
+                    isFemale ? "border-pink-300 bg-pink-50" : "border-sky-300 bg-sky-50"
+                  }`}
+                />
+                <div className="min-w-0">
+                  <div className="font-black text-text text-xs truncate">{customRecipientName || "Chưa có tên"}</div>
+                  <div className="flex items-center gap-1 text-[11px] text-muted font-mono">
+                    <Phone size={10} className="text-emerald-500 shrink-0" />
+                    <span>{customRecipientPhone || "0567867889"}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="text-right shrink-0">
-                <Badge variant={recipientType === "ROOMMATE" ? "warning" : "primary"} className="text-[10px]">
-                  {recipientType === "ROOMMATE" ? "Khách ghép" : "Đại diện hợp đồng"}
+              {recipientType === "ROOMMATE" ? (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[10px] text-muted font-bold">Chọn:</span>
+                  <select
+                    value={selectedRoommateId}
+                    onChange={(e) => setSelectedRoommateId(e.target.value)}
+                    className="h-7 px-2 rounded-md border border-primary/30 bg-primary/5 text-[11px] font-bold text-primary outline-none"
+                  >
+                    {availableRoommates.map((rm: any) => (
+                      <option key={rm.id} value={rm.id}>
+                        {rm.fullName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <Badge variant="primary" className="text-[10px] py-0.5 px-2">
+                  Đại diện HĐ
                 </Badge>
-              </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* 2. KHOẢN MỤC THU TIỀN (2 CỘT GỌN ĐẸP) */}
-        <div className="rounded-2xl border border-border/70 bg-card p-3 flex flex-col gap-2.5">
-          <span className="text-[11px] font-black uppercase tracking-wider text-muted flex items-center gap-1.5 border-b border-border/60 pb-2">
-            <Receipt size={14} className="text-primary" /> Khoản mục thu tiền
-          </span>
+        {/* 2. KHOẢN MỤC THU TIỀN (BỐ TRÍ 2 CỘT GỌN ĐẸP, SẠCH SẼ) */}
+        <div className="rounded-xl border border-border/80 bg-card p-3 flex flex-col gap-2">
+          <div className="flex items-center justify-between border-b border-border/50 pb-1.5 text-[10px] font-black uppercase tracking-wider text-muted">
+            <span>Khoản mục thu tiền</span>
+            <span>Số tiền (VNĐ)</span>
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
-            {/* ====== CỘT 1 ====== */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+            {/* CỘT 1: PHÒNG & CỌC */}
             <div className="flex flex-col gap-2">
               {/* 1. Tiền thuê phòng */}
-              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
-                    <input
-                      type="checkbox"
-                      checked={includeRent}
-                      onChange={(e) => setIncludeRent(e.target.checked)}
-                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                    />
-                    <Building2 size={14} className="text-indigo-500" /> Tiền thuê phòng
-                  </label>
+              <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={includeRent}
+                    onChange={(e) => setIncludeRent(e.target.checked)}
+                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                  />
+                  <Building2 size={13} className="text-indigo-500 shrink-0" />
+                  <span className="truncate">Tiền phòng</span>
+                </label>
+                <div className="relative w-28 shrink-0">
+                  <input
+                    type="text"
+                    disabled={!includeRent}
+                    value={includeRent ? formatCurrencyInput(roomRent) : "0"}
+                    onChange={(e) => setRoomRent(parseCurrency(e.target.value))}
+                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
+                      includeRent
+                        ? "border-border bg-surface text-text focus:border-primary"
+                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
+                    }`}
+                  />
+                  <span className="absolute right-1.5 top-1.5 text-[10px] text-muted font-bold">đ</span>
                 </div>
-                {includeRent && (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={formatCurrencyInput(roomRent)}
-                      onChange={(e) => setRoomRent(parseCurrency(e.target.value))}
-                      placeholder="0"
-                      className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-card font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
-                    />
-                    <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
-                  </div>
-                )}
               </div>
 
               {/* 2. Tiền cọc hợp đồng */}
-              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
-                    <input
-                      type="checkbox"
-                      checked={includeContractDeposit}
-                      onChange={(e) => setIncludeContractDeposit(e.target.checked)}
-                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                    />
-                    <ShieldCheck size={14} className="text-indigo-600" /> Tiền cọc hợp đồng
-                  </label>
+              <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={includeContractDeposit}
+                    onChange={(e) => setIncludeContractDeposit(e.target.checked)}
+                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                  />
+                  <ShieldCheck size={13} className="text-indigo-600 shrink-0" />
+                  <span className="truncate">Cọc hợp đồng</span>
+                </label>
+                <div className="relative w-28 shrink-0">
+                  <input
+                    type="text"
+                    disabled={!includeContractDeposit}
+                    value={includeContractDeposit ? formatCurrencyInput(contractDeposit) : "0"}
+                    onChange={(e) => setContractDeposit(parseCurrency(e.target.value))}
+                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
+                      includeContractDeposit
+                        ? "border-border bg-surface text-text focus:border-primary"
+                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
+                    }`}
+                  />
+                  <span className="absolute right-1.5 top-1.5 text-[10px] text-muted font-bold">đ</span>
                 </div>
-                {includeContractDeposit && (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={formatCurrencyInput(contractDeposit)}
-                      onChange={(e) => setContractDeposit(parseCurrency(e.target.value))}
-                      placeholder="0"
-                      className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-card font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
-                    />
-                    <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
-                  </div>
-                )}
               </div>
 
               {/* 3. Cọc giữ phòng */}
-              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
-                    <input
-                      type="checkbox"
-                      checked={includeHoldingDeposit}
-                      onChange={(e) => setIncludeHoldingDeposit(e.target.checked)}
-                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                    />
-                    <Wallet size={14} className="text-amber-500" /> Cọc giữ phòng
-                  </label>
+              <div className="flex items-center justify-between gap-2 py-1">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={includeHoldingDeposit}
+                    onChange={(e) => setIncludeHoldingDeposit(e.target.checked)}
+                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                  />
+                  <Wallet size={13} className="text-amber-500 shrink-0" />
+                  <span className="truncate">Cọc giữ phòng</span>
+                </label>
+                <div className="relative w-28 shrink-0">
+                  <input
+                    type="text"
+                    disabled={!includeHoldingDeposit}
+                    value={includeHoldingDeposit ? formatCurrencyInput(holdingDeposit) : "0"}
+                    onChange={(e) => setHoldingDeposit(parseCurrency(e.target.value))}
+                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
+                      includeHoldingDeposit
+                        ? "border-border bg-surface text-text focus:border-primary"
+                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
+                    }`}
+                  />
+                  <span className="absolute right-1.5 top-1.5 text-[10px] text-muted font-bold">đ</span>
                 </div>
-                {includeHoldingDeposit && (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={formatCurrencyInput(holdingDeposit)}
-                      onChange={(e) => setHoldingDeposit(parseCurrency(e.target.value))}
-                      placeholder="0"
-                      className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-card font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
-                    />
-                    <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
-                  </div>
-                )}
               </div>
             </div>
 
-            {/* ====== CỘT 2 ====== */}
+            {/* CỘT 2: ĐIỆN, NƯỚC, WIFI & GIẢM GIÁ */}
             <div className="flex flex-col gap-2">
               {/* 4. Tiền điện */}
-              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
-                    <input
-                      type="checkbox"
-                      checked={includeElectricity}
-                      onChange={(e) => setIncludeElectricity(e.target.checked)}
-                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                    />
-                    <Zap size={14} className="text-amber-500" /> Tiền điện EVN
-                  </label>
+              <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={includeElectricity}
+                    onChange={(e) => setIncludeElectricity(e.target.checked)}
+                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                  />
+                  <Zap size={13} className="text-amber-500 shrink-0" />
+                  <span className="truncate">Tiền điện</span>
+                </label>
+                <div className="relative w-28 shrink-0">
+                  <input
+                    type="text"
+                    disabled={!includeElectricity}
+                    value={includeElectricity ? formatCurrencyInput(electricityAmount) : "0"}
+                    onChange={(e) => setElectricityAmount(parseCurrency(e.target.value))}
+                    placeholder="0"
+                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
+                      includeElectricity
+                        ? "border-border bg-surface text-text focus:border-primary"
+                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
+                    }`}
+                  />
+                  <span className="absolute right-1.5 top-1.5 text-[10px] text-muted font-bold">đ</span>
                 </div>
-                {includeElectricity && (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={formatCurrencyInput(electricityAmount)}
-                      onChange={(e) => setElectricityAmount(parseCurrency(e.target.value))}
-                      placeholder="0"
-                      className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-card font-mono font-bold text-right text-xs text-text outline-none focus:border-primary"
-                    />
-                    <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
-                  </div>
-                )}
               </div>
 
-              {/* 5. Tiền nước (100k / người) */}
-              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
-                    <input
-                      type="checkbox"
-                      checked={includeWater}
-                      onChange={(e) => setIncludeWater(e.target.checked)}
-                      className="rounded text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                    />
-                    <Droplets size={14} className="text-sky-500" /> Tiền nước (100k/người)
-                  </label>
-                </div>
-                {includeWater && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1 bg-card border border-border rounded-lg px-2 h-8">
-                      <Users size={11} className="text-muted" />
+              {/* 5. Tiền nước (100k/người) */}
+              <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={includeWater}
+                    onChange={(e) => setIncludeWater(e.target.checked)}
+                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                  />
+                  <Droplets size={13} className="text-sky-500 shrink-0" />
+                  <span className="truncate">Nước (100k/ng)</span>
+                </label>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {includeWater && (
+                    <div className="flex items-center bg-surface border border-border rounded px-1 h-6">
                       <input
                         type="number"
                         min={1}
                         max={10}
                         value={waterPeopleCount}
                         onChange={(e) => setWaterPeopleCount(Math.max(1, Number(e.target.value) || 1))}
-                        className="w-6 font-mono font-bold text-xs text-text bg-transparent text-center outline-none"
+                        className="w-4 font-mono font-bold text-[11px] text-text bg-transparent text-center outline-none"
                       />
-                      <span className="text-[10px] text-muted">người</span>
+                      <span className="text-[9px] text-muted">ng</span>
                     </div>
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        readOnly
-                        value={formatCurrencyInput(waterTotal)}
-                        className="w-full h-8 px-2.5 pr-7 rounded-lg border border-border bg-surface font-mono font-bold text-right text-xs text-text outline-none cursor-default"
-                      />
-                      <span className="absolute right-2.5 top-2 text-[11px] text-muted font-bold">đ</span>
-                    </div>
+                  )}
+                  <div className="relative w-20">
+                    <input
+                      type="text"
+                      readOnly
+                      value={includeWater ? formatCurrencyInput(waterTotal) : "0"}
+                      className="w-full h-7 px-1.5 pr-4 rounded-md border border-transparent bg-transparent text-right font-mono font-bold text-xs text-text outline-none"
+                    />
+                    <span className="absolute right-1 top-1.5 text-[10px] text-muted font-bold">đ</span>
                   </div>
-                )}
+                </div>
               </div>
 
-              {/* 6. Wifi (Checkbox Miễn phí) & Khấu trừ */}
-              <div className="rounded-xl border border-border/60 bg-surface/30 p-2.5 flex flex-col gap-2">
-                {/* Wifi Free Checkbox */}
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-text">
-                    <input
-                      type="checkbox"
-                      checked={wifiFree}
-                      onChange={(e) => setWifiFree(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
-                    />
-                    <Wifi size={14} className="text-emerald-500" /> Wifi (Miễn phí)
-                  </label>
-                  <span className="text-[11px] font-bold text-emerald-600">0 đ</span>
-                </div>
+              {/* 6. Wifi Free & Giảm giá */}
+              <div className="flex items-center justify-between gap-2 py-1">
+                {/* Wifi Free */}
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none">
+                  <input
+                    type="checkbox"
+                    checked={wifiFree}
+                    onChange={(e) => setWifiFree(e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 cursor-pointer"
+                  />
+                  <Wifi size={13} className="text-emerald-500 shrink-0" />
+                  <span className="text-emerald-600 text-[11px]">Wifi (Free)</span>
+                </label>
 
-                {/* Discount field */}
-                <div className="flex items-center justify-between pt-1 border-t border-border/40">
-                  <span className="text-[11px] font-bold text-muted flex items-center gap-1">
-                    <Minus size={11} className="text-rose-500" /> Giảm giá
-                  </span>
-                  <div className="relative w-28">
+                {/* Discount */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="text-[10px] text-rose-500 font-bold">Giảm:</span>
+                  <div className="relative w-20">
                     <input
                       type="text"
                       value={formatCurrencyInput(discountAmount)}
                       onChange={(e) => setDiscountAmount(parseCurrency(e.target.value))}
                       placeholder="0"
-                      className="w-full h-7 px-2 pr-5 rounded-md border border-border bg-card font-mono font-bold text-right text-[11px] text-rose-600 outline-none focus:border-rose-500"
+                      className="w-full h-7 px-1.5 pr-4 rounded-md border border-border bg-surface text-right font-mono font-bold text-[11px] text-rose-600 outline-none focus:border-rose-500"
                     />
-                    <span className="absolute right-1.5 top-1.5 text-[10px] text-rose-500 font-bold">đ</span>
+                    <span className="absolute right-1 top-1.5 text-[10px] text-rose-500 font-bold">đ</span>
                   </div>
                 </div>
               </div>
@@ -690,105 +674,113 @@ export default function InvoiceCreateModal({
           </div>
         </div>
 
-        {/* 3. TỔNG CỘNG & NGÀY THÁNG KỲ CƯỚC / HẠN ĐÓNG */}
-        <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 via-card to-primary/5 p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs">
+        {/* 3. TỔNG CỘNG & KỲ CƯỚC / HẠN ĐÓNG (GỌN GÀNG, ĐẸP) */}
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-muted block">
-              Tổng tiền hóa đơn
+              Tổng tiền thanh toán
             </span>
-            <span className="font-mono text-2xl font-black text-primary leading-tight">
+            <span className="font-mono text-xl font-black text-primary leading-tight">
               {formatVnd(grandTotal)}
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Kỳ cước (Ô nhập ngày tháng năm) */}
+          <div className="flex items-center gap-2 text-xs">
+            {/* Month & Year for Period */}
             <div>
-              <label className="text-[10px] font-black uppercase text-muted block mb-0.5 flex items-center gap-1">
-                <Calendar size={11} className="text-primary" /> Kỳ cước
-              </label>
-              <input
-                type="date"
-                value={periodDate}
-                onChange={(e) => setPeriodDate(e.target.value)}
-                className="h-8.5 px-2.5 rounded-xl border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary shadow-2xs"
-              />
+              <label className="text-[10px] font-black uppercase text-muted block mb-0.5">Kỳ cước</label>
+              <div className="flex items-center gap-1 bg-card border border-border rounded-lg px-2 h-7.5">
+                <span className="text-[11px] font-bold text-muted">Tháng</span>
+                <select
+                  value={periodMonth}
+                  onChange={(e) => setPeriodMonth(Number(e.target.value))}
+                  className="bg-transparent font-mono font-bold text-xs text-text outline-none"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <option key={m} value={m}>
+                      {String(m).padStart(2, "0")}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-muted">/</span>
+                <input
+                  type="number"
+                  value={periodYear}
+                  onChange={(e) => setPeriodYear(Number(e.target.value))}
+                  className="w-10 bg-transparent font-mono font-bold text-xs text-text outline-none"
+                />
+              </div>
             </div>
 
-            {/* Hạn đóng (Ô nhập ngày tháng năm) */}
+            {/* Due Date (DD/MM/YYYY text input) */}
             <div>
-              <label className="text-[10px] font-black uppercase text-muted block mb-0.5 flex items-center gap-1">
-                <Clock3 size={11} className="text-amber-500" /> Hạn đóng
-              </label>
+              <label className="text-[10px] font-black uppercase text-muted block mb-0.5">Hạn đóng</label>
               <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="h-8.5 px-2.5 rounded-xl border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary shadow-2xs"
+                type="text"
+                value={dueDay}
+                onChange={(e) => setDueDay(e.target.value)}
+                placeholder="dd/mm/yyyy"
+                className="h-7.5 px-2 w-24 rounded-lg border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary text-center"
               />
             </div>
           </div>
         </div>
 
-        {/* 4. PHƯƠNG THỨC THANH TOÁN & GỬI BOT ZALO */}
-        <div className="rounded-2xl border border-border/70 bg-surface/30 p-3 flex flex-col gap-2 text-xs">
-          <label className="font-black text-muted uppercase tracking-wider text-[10px] block">
-            Phương thức thanh toán & Thông báo
-          </label>
-
+        {/* 4. PHƯƠNG THỨC THANH TOÁN */}
+        <div className="rounded-xl border border-border/80 bg-surface/30 p-2.5 flex flex-col gap-2">
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => setPayMethod("QR_TRANSFER")}
-              className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border font-bold transition-all ${
+              className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border font-bold text-xs transition ${
                 payMethod === "QR_TRANSFER"
                   ? "border-primary bg-primary/10 text-primary shadow-2xs"
                   : "border-border bg-card text-muted hover:text-text"
               }`}
             >
-              <QrCode size={14} /> Chuyển khoản VietQR (Bot gửi)
+              <QrCode size={13} /> Chuyển khoản QR (VietQR)
             </button>
 
             <button
               type="button"
               onClick={() => setPayMethod("CASH")}
-              className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border font-bold transition-all ${
+              className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border font-bold text-xs transition ${
                 payMethod === "CASH"
                   ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 shadow-2xs"
                   : "border-border bg-card text-muted hover:text-text"
               }`}
             >
-              <Banknote size={14} /> Thu tiền mặt trực tiếp
+              <Banknote size={13} /> Thu tiền mặt
             </button>
           </div>
 
           {/* Sub options */}
           {payMethod === "QR_TRANSFER" && (
-            <label className="flex items-center justify-between p-2.5 rounded-xl bg-card border border-border/60 cursor-pointer">
-              <div className="flex items-center gap-2">
-                <Bot size={15} className="text-primary" />
-                <span className="font-bold text-text text-xs">Tự động gửi QR & Hóa đơn qua Bot Zalo</span>
+            <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-card border border-border/60 cursor-pointer">
+              <div className="flex items-center gap-1.5">
+                <Bot size={13} className="text-primary" />
+                <span className="font-bold text-text text-[11px]">Tự động gửi QR & Hóa đơn qua Bot Zalo</span>
               </div>
               <input
                 type="checkbox"
                 checked={sendZaloBot}
                 onChange={(e) => setSendZaloBot(e.target.checked)}
-                className="h-4 w-4 rounded text-primary focus:ring-primary cursor-pointer"
+                className="h-3.5 w-3.5 rounded text-primary focus:ring-primary cursor-pointer"
               />
             </label>
           )}
 
           {payMethod === "CASH" && (
-            <label className="flex items-center justify-between p-2.5 rounded-xl bg-card border border-border/60 cursor-pointer">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 size={15} className="text-emerald-500" />
-                <span className="font-bold text-text text-xs">Khách đã nộp đủ tiền mặt ngay lúc này (Gạch nợ)</span>
+            <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-card border border-border/60 cursor-pointer">
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 size={13} className="text-emerald-500" />
+                <span className="font-bold text-text text-[11px]">Khách đã nộp tiền mặt ngay (Gạch nợ)</span>
               </div>
               <input
                 type="checkbox"
                 checked={isCashCollected}
                 onChange={(e) => setIsCashCollected(e.target.checked)}
-                className="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                className="h-3.5 w-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
               />
             </label>
           )}

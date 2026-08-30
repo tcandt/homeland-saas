@@ -24,6 +24,14 @@ export class CustomersController {
     return this.customersService.listCustomers(page, limit, search, status, sort, order);
   }
 
+  @Post('cleanup')
+  @RequirePermissions('customer.delete')
+  @ApiOperation({ summary: 'Auto cleanup expired and inactive customers older than 30 days' })
+  cleanup(@Query('days') days?: string) {
+    const daysThreshold = days ? parseInt(days, 10) : 30;
+    return this.customersService.cleanupExpiredAndInactiveCustomers(daysThreshold);
+  }
+
   @Get(':id')
   @RequirePermissions('customer.read')
   @ApiOperation({ summary: 'Get customer details' })

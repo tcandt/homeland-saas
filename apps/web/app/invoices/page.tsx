@@ -12,6 +12,7 @@ import {
   Eye,
   FileText,
   Filter,
+  Plus,
   Receipt,
   Search,
   WalletCards,
@@ -21,6 +22,7 @@ import {
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import AppShell from "@/components/layout/AppShell";
 import OperationsBillingDrawer from "@/components/invoices/OperationsBillingDrawer";
+import InvoiceCreateModal from "@/components/invoices/InvoiceCreateModal";
 import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { Card } from "@/components/ui/Card";
@@ -85,6 +87,7 @@ export default function InvoicesPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const { data, isLoading, isError } = useInvoicesQuery({ limit: 100 });
   const invoices = (data as any)?.data || [];
 
@@ -262,6 +265,14 @@ export default function InvoicesPage() {
                       <X size={13} /> Xóa lọc
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white px-3.5 py-1.5 text-xs font-black shadow-xs transition-colors shrink-0"
+                  >
+                    <Plus size={14} /> Tạo hóa đơn
+                  </button>
                 </div>
               </div>
             </Card>
@@ -443,6 +454,13 @@ export default function InvoicesPage() {
         <OperationsBillingDrawer
           invoice={selectedInvoice}
           onClose={() => setSelectedInvoice(null)}
+        />
+      )}
+
+      {isCreateModalOpen && (
+        <InvoiceCreateModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
         />
       )}
     </AppShell>

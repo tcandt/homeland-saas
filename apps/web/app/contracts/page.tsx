@@ -3,7 +3,6 @@
 import AppShell from "@/components/layout/AppShell";
 import ContractsMobileFlow from "@/components/contracts/ContractsMobileFlow";
 import OperationsContractFilters from "@/components/contracts/OperationsContractFilters";
-import OperationsContractInsights from "@/components/contracts/OperationsContractInsights";
 import OperationsContractKpi from "@/components/contracts/OperationsContractKpi";
 import OperationsContractList from "@/components/contracts/OperationsContractList";
 import OperationsContractSidebar from "@/components/contracts/OperationsContractSidebar";
@@ -21,10 +20,9 @@ export default function ContractsPage() {
           <ContractsMobileFlow />
         </div>
 
-        <div className="hidden min-h-full w-full grid-cols-1 gap-2 p-2 md:grid md:p-3 2xl:h-full 2xl:min-h-0 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
-          <div className="flex min-w-0 flex-col gap-2 2xl:min-h-0">
+        <div className="hidden min-h-full w-full grid-cols-1 gap-2.5 p-2 md:grid md:p-3 2xl:h-full 2xl:min-h-0 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
+          <div className="flex min-w-0 flex-col gap-2.5 2xl:min-h-0">
             <OperationsContractKpi />
-            <OperationsContractInsights />
             <OperationsContractFilters />
             <OperationsContractList />
           </div>

@@ -68,7 +68,7 @@ export default function OperationsContractSidebar() {
         </div>
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4">
           <div className="relative h-[172px] w-[172px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={172} minHeight={172}>
               <PieChart>
                 <Pie data={visibleChartData} dataKey="value" nameKey="label" innerRadius={55} outerRadius={79} paddingAngle={3} stroke="var(--card)" strokeWidth={5}>
                   {visibleChartData.map((item) => (

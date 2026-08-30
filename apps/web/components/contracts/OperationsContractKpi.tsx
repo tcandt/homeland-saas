@@ -1,59 +1,115 @@
-import React from "react";
-import { FileText, FileCheck, Clock, PenTool, AlertTriangle, FileX } from "lucide-react";
+"use client";
+
+import React, { useMemo } from "react";
+import { FileText, CheckCircle2, CalendarClock, AlertTriangle } from "lucide-react";
 import { Card } from "../ui/Card";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
 
 export default function OperationsContractKpi() {
-  const { data } = useContractsQuery();
-  const contracts = (data as any)?.data || [];
+  const { data } = useContractsQuery({ limit: 100 });
+  const contracts = (data as any)?.data || (data as any)?.items || [];
 
-  const totalCount = contracts.length;
-  const activeCount = contracts.filter((c: any) => c.status === "ACTIVE").length;
-  
-  const expiringCount = contracts.filter((c: any) => {
-    if (c.status === "EXPIRING") return true;
-    if (c.status !== "ACTIVE") return false;
-    const end = new Date(c.endDate).getTime();
-    const now = new Date().getTime();
-    const daysLeft = (end - now) / (1000 * 3600 * 24);
-    return daysLeft >= 0 && daysLeft <= 30;
-  }).length;
+  const summary = useMemo(() => {
+    const total = contracts.length;
+    const active = contracts.filter((c: any) => c.status === "ACTIVE" || c.status === "APPROVED").length;
 
-  const pendingSignCount = contracts.filter((c: any) => c.status === "DRAFT" || c.status === "PENDING_APPROVAL" || c.status === "APPROVED").length;
-  const debtCount = contracts.filter((c: any) => Number(c.debt) > 0).length;
-  const terminatedCount = contracts.filter((c: any) => c.status === "TERMINATED" || c.status === "EXPIRED").length;
+    const expiring = contracts.filter((c: any) => {
+      if (c.status === "EXPIRING") return true;
+      if (!c.endDate || c.status !== "ACTIVE") return false;
+      const daysLeft = (new Date(c.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+      return daysLeft >= 0 && daysLeft <= 30;
+    }).length;
 
-  const kpis = [
-    { label: "Tổng hợp đồng", value: totalCount.toString(), unit: "", icon: FileText, color: "text-[#6366f1]", bg: "bg-[#6366f1]/10", border: "border-[#6366f1]/20" },
-    { label: "Đang hiệu lực", value: activeCount.toString(), unit: "", icon: FileCheck, color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10", border: "border-[#8b5cf6]/20" },
-    { label: "Sắp hết hạn", value: expiringCount.toString(), unit: "", icon: Clock, color: "text-[#f97316]", bg: "bg-[#f97316]/10", border: "border-[#f97316]/20" },
-    { label: "Chờ ký", value: pendingSignCount.toString(), unit: "", icon: PenTool, color: "text-[#0ea5e9]", bg: "bg-[#0ea5e9]/10", border: "border-[#0ea5e9]/20" },
-    { label: "Có công nợ", value: debtCount.toString(), unit: "", icon: AlertTriangle, color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20" },
-    { label: "Đã chấm dứt", value: terminatedCount.toString(), unit: "", icon: FileX, color: "text-muted", bg: "bg-black/5 dark:bg-white/5", border: "border-border" },
-  ];
+    const pending = contracts.filter((c: any) => ["DRAFT", "PENDING_APPROVAL"].includes(c.status)).length;
+    const debt = contracts.filter((c: any) => Number(c.debt || 0) > 0 && c.status !== "TERMINATED").length;
+
+    return { total, active, expiring, pending, debt };
+  }, [contracts]);
 
   return (
-    <div data-testid="contracts-kpi-grid" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-[16px]">
-      {kpis.map((kpi, idx) => (
-        <Card 
-          key={idx} 
-          className="p-[16px] flex flex-col justify-center gap-[8px] h-[80px] md:h-[90px] shadow-sm hover:shadow-md hover:-translate-y-[2px] transition-all cursor-pointer relative overflow-hidden group"
-        >
-          <div className="flex items-center justify-between z-10">
-            <span className="font-bold text-[12px] md:text-[13px] text-muted uppercase tracking-wide group-hover:text-text transition-colors">{kpi.label}</span>
-            <div className={`w-[28px] h-[28px] rounded-full flex items-center justify-center ${kpi.bg}`}>
-              <kpi.icon size={14} className={kpi.color} />
-            </div>
-          </div>
-          <div className="flex items-end gap-[6px] z-10">
-            <span className="font-black text-[24px] md:text-[28px] text-text leading-none">{kpi.value}</span>
-            {kpi.unit && <span className={`text-[12px] font-bold mb-[2px] ${kpi.color}`}>{kpi.unit}</span>}
-          </div>
-          
-          {/* Subtle gradient background effect on hover */}
-          <div className={`absolute -right-4 -bottom-4 w-16 h-16 rounded-full blur-xl opacity-0 group-hover:opacity-20 transition-opacity duration-300 ${kpi.bg.replace('/10', '')}`} />
-        </Card>
-      ))}
+    <div data-testid="contracts-kpi-grid" className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-2.5 shrink-0">
+      <KpiCard
+        title="Tổng hợp đồng"
+        value={summary.total.toString()}
+        trend={summary.active > 0 ? `${summary.active} đang hiệu lực` : undefined}
+        trendPositive={true}
+        icon={<FileText size={16} className="text-indigo-600 dark:text-indigo-400" />}
+        iconBg="bg-indigo-500/10 border border-indigo-500/20"
+      />
+      <KpiCard
+        title="Đang hiệu lực"
+        value={summary.active.toString()}
+        trend={summary.pending > 0 ? `${summary.pending} chờ ký/duyệt` : "Hoạt động tốt"}
+        icon={<CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />}
+        iconBg="bg-emerald-500/10 border border-emerald-500/20"
+      />
+      <KpiCard
+        title="Sắp hết hạn HĐ"
+        value={summary.expiring.toString()}
+        trend={summary.expiring > 0 ? "Cần xử lý tái ký" : "Ổn định"}
+        highlight={summary.expiring > 0}
+        highlightColor="text-amber-600 dark:text-amber-400"
+        icon={<CalendarClock size={16} className="text-amber-600 dark:text-amber-400" />}
+        iconBg="bg-amber-500/10 border border-amber-500/20"
+      />
+      <KpiCard
+        title="Có công nợ"
+        value={summary.debt.toString()}
+        trend={summary.debt > 0 ? "Cần thu hồi nợ" : "Đã thanh toán đủ"}
+        highlight={summary.debt > 0}
+        highlightColor="text-rose-600 dark:text-rose-400"
+        icon={<AlertTriangle size={16} className={summary.debt > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"} />}
+        iconBg={summary.debt > 0 ? "bg-rose-500/10 border border-rose-500/20" : "bg-emerald-500/10 border border-emerald-500/20"}
+      />
     </div>
+  );
+}
+
+function KpiCard({
+  title,
+  value,
+  trend,
+  trendPositive,
+  icon,
+  iconBg,
+  highlight,
+  highlightColor,
+}: any) {
+  return (
+    <Card
+      className={`flex items-center gap-3 rounded-xl border px-3 py-2 md:px-3.5 md:py-2.5 shadow-sm transition-all hover:border-primary/30 ${
+        highlight
+          ? "border-amber-500/30 dark:border-amber-500/20 bg-amber-500/[0.02]"
+          : "border-border/60 bg-card"
+      }`}
+    >
+      <div className={`w-8 h-8 md:w-9 md:h-9 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>
+        {icon}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] md:text-[11px] font-bold text-muted uppercase tracking-wider truncate leading-tight mb-0.5">
+          {title}
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono font-black text-lg md:text-xl text-text leading-none">
+            {value}
+          </span>
+          {trend && (
+            <span
+              className={`text-[10px] md:text-[11px] font-semibold truncate ${
+                trendPositive
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : highlight
+                  ? highlightColor || "text-amber-600 dark:text-amber-400"
+                  : "text-muted"
+              }`}
+            >
+              {trend}
+            </span>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }

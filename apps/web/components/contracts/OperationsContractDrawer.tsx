@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { DocumentScannerModal } from "../common/DocumentScannerModal";
 import { renderAsync } from "docx-preview";
-import { CheckCircle2, FileText, CalendarClock, Download, Trash2, Link as LinkIcon, History, ShieldCheck, User, X, Upload, Save, Clock3, Loader2 } from "lucide-react";
+import { CheckCircle2, FileText, CalendarClock, Download, Trash2, Link as LinkIcon, History, ShieldCheck, User, X, Upload, Save, Clock3, Loader2, Zap, Droplets, Wifi } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
@@ -32,7 +32,11 @@ import { customersApi } from "../../lib/api/customers.api";
 function formatDate(value?: string | null) {
   if (!value) return "Chưa có";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Chưa có" : date.toLocaleString("vi-VN");
+  if (Number.isNaN(date.getTime())) return "Chưa có";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 function formatCurrency(value?: number | null) {
@@ -894,6 +898,41 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                   <span className="text-[14px] font-black text-rose-500">
                     {Number(detailContract.debt || 0).toLocaleString("vi-VN")}đ
                   </span>
+                </div>
+              </div>
+
+              {/* Dịch vụ tiện ích */}
+              <div className="rounded-xl border border-border/60 bg-surface/50 p-2.5 space-y-1.5 text-xs">
+                <span className="font-bold text-muted block text-[10px] uppercase tracking-wider">Dịch vụ & Tiện ích đi kèm</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card px-2.5 py-1.5">
+                    <Zap size={13} className="text-amber-500 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold text-muted block leading-none">Điện</span>
+                      <span className="text-[11px] font-black text-text truncate block">Giá nhà nước</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card px-2.5 py-1.5">
+                    <Droplets size={13} className="text-sky-500 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold text-muted block leading-none">Nước</span>
+                      <span className="text-[11px] font-black text-text truncate block">100.000 đ / người</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card px-2.5 py-1.5">
+                    <Wifi size={13} className="text-indigo-500 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold text-muted block leading-none">Wifi</span>
+                      <span className="text-[11px] font-black text-text truncate block">Miễn phí</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card px-2.5 py-1.5">
+                    <FileText size={13} className="text-emerald-500 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold text-muted block leading-none">Dịch vụ</span>
+                      <span className="text-[11px] font-black text-text truncate block">Vệ sinh / Rác</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </Card>

@@ -456,6 +456,57 @@ export class HunonicService {
     const limit = clampNumber(Number(query.limit || 25), 5, 200);
     const dateRange = resolveHistoryDateRange(query);
     const search = String(query.search || '').trim();
+
+    // Auto-backfill previous month readings from mappings if not yet saved
+    const rawMappingsForBackfill = await this.prismaAny.hunonicMeterMapping.findMany({
+      where: { tenantId, buildingCode: { in: managedBuildingCodes } },
+      select: {
+        id: true,
+        buildingCode: true,
+        roomCode: true,
+        displayName: true,
+        deviceName: true,
+        roomId: true,
+        raw: true,
+        lastStatus: true,
+      },
+    });
+
+    const now = new Date();
+    const currentPeriod = getReadingPeriod(now);
+    const prevPeriod = getPreviousPeriod(currentPeriod);
+
+    for (const m of rawMappingsForBackfill) {
+      const raw = m.raw || {};
+      const rootExtra = typeof raw.root_extra === 'string' ? parseJsonObject(raw.root_extra) : raw.root_extra || {};
+      const dataExtra = typeof raw.data_extra === 'string' ? parseJsonObject(raw.data_extra) : raw.data_extra || {};
+      const prevKwh = Number(rootExtra.power_of_prev_month ?? dataExtra.power_of_prev_month ?? 0);
+      const prevVnd = Number(rootExtra.money_of_prev_month ?? dataExtra.money_of_prev_month ?? 0);
+
+      if (prevKwh > 0 || prevVnd > 0) {
+        const existingPrev = await this.prismaAny.hunonicMeterReading.findFirst({
+          where: { tenantId, meterMappingId: m.id, currentMonth: prevPeriod },
+        });
+        if (!existingPrev) {
+          const prevDate = getPeriodReadingAt(prevPeriod);
+          await this.prismaAny.hunonicMeterReading.create({
+            data: {
+              tenantId,
+              meterMappingId: m.id,
+              roomId: m.roomId,
+              readingAt: prevDate,
+              status: m.lastStatus || 'on',
+              powerCurrentW: 0,
+              energyMonthKwh: prevKwh,
+              moneyMonthVnd: prevVnd,
+              currentMonth: prevPeriod,
+              raw: sanitizeRaw(raw),
+            },
+          });
+        }
+      }
+    }
+
     const relationFilter: any = {
       buildingCode: query.buildingCode && query.buildingCode !== 'all'
         ? { in: buildingCodeVariants(query.buildingCode) }
@@ -474,12 +525,44 @@ export class HunonicService {
       ];
     }
 
+    const targetPeriod = (query.year && query.year !== 'all' && query.month && query.month !== 'all')
+      ? `${query.year}-${String(query.month).padStart(2, '0')}`
+      : null;
+
+    const timeFilter = targetPeriod
+      ? {
+          OR: [
+            { currentMonth: targetPeriod },
+            {
+              readingAt: {
+                gte: dateRange.from,
+                lte: dateRange.to,
+              },
+            },
+          ],
+        }
+      : query.year && query.year !== 'all'
+        ? {
+            OR: [
+              { currentMonth: { startsWith: `${query.year}-` } },
+              {
+                readingAt: {
+                  gte: dateRange.from,
+                  lte: dateRange.to,
+                },
+              },
+            ],
+          }
+        : {
+            readingAt: {
+              gte: dateRange.from,
+              lte: dateRange.to,
+            },
+          };
+
     const where = {
       tenantId,
-      readingAt: {
-        gte: dateRange.from,
-        lte: dateRange.to,
-      },
+      ...timeFilter,
       meterMapping: relationFilter,
     };
 
@@ -1510,10 +1593,23 @@ function buildMonthlyRows(
   for (const reading of readings) {
     const mapping = reading.meterMapping;
     if (!mapping) continue;
-    const date = new Date(reading.readingAt);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    const period = `${year}-${String(month).padStart(2, '0')}`;
+
+    let year: number;
+    let month: number;
+    let period: string;
+
+    if (reading.currentMonth && /^\d{4}-\d{2}$/.test(reading.currentMonth)) {
+      period = reading.currentMonth;
+      const parts = period.split('-');
+      year = Number(parts[0]);
+      month = Number(parts[1]);
+    } else {
+      const date = new Date(reading.readingAt);
+      year = date.getFullYear();
+      month = date.getMonth() + 1;
+      period = `${year}-${String(month).padStart(2, '0')}`;
+    }
+
     const key = `${canonicalRoomKey(mapping.buildingCode, mapping.roomCode)}:${year}:${month}`;
     if (!latestByRoomMonth.has(key)) {
       const periodKey = lockedPeriodKey({ buildingCode: mapping.buildingCode, roomCode: mapping.roomCode, period });

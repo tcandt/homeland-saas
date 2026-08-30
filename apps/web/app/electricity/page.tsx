@@ -204,14 +204,22 @@ export default function ElectricityManagementPage() {
   const overview = rawOverview?.data || rawOverview || {};
   const meters: any[] = Array.isArray(overview.meters) ? overview.meters : [];
 
-  const rawRates = (ratesRes as any)?.data || (ratesRes as any)?.rows || ratesRes || [];
-  const ratesList: any[] = Array.isArray(rawRates) ? rawRates : Array.isArray(rawRates.rows) ? rawRates.rows : [];
+  const rawRates = (ratesRes as any)?.data || ratesRes || {};
+  const ratesList: any[] = Array.isArray(rawRates?.rows)
+    ? rawRates.rows
+    : Array.isArray(rawRates)
+      ? rawRates
+      : [];
+
   const rateByRoomKey = useMemo(() => {
     const map = new Map<string, any>();
     ratesList.forEach((r: any) => {
       if (r.id) map.set(r.id, r);
+      if (r.providerRootId) map.set(r.providerRootId, r);
+      if (r.providerMeterId) map.set(r.providerMeterId, r);
       if (r.buildingCode && r.roomCode) {
         map.set(`${r.buildingCode}::${r.roomCode}`, r);
+        map.set(`${r.buildingCode}:${r.roomCode}`, r);
       }
     });
     return map;
@@ -738,11 +746,17 @@ export default function ElectricityManagementPage() {
                       const energyKwh = Number(meter.energyMonthKwh || meter.totalKwh || meter.currentKwh || 0);
                       const cost = Number(meter.moneyMonthVnd || meter.estimatedCost || meter.amount || 0);
                       const powerW = Number(meter.powerCurrentW || 0);
-                      const isActionOpen = openActionRowId === meterId;
+                      const rateInfo =
+                        rateByRoomKey.get(meter.id) ||
+                        rateByRoomKey.get(meter.providerRootId) ||
+                        rateByRoomKey.get(meter.providerMeterId) ||
+                        rateByRoomKey.get(`${meter.buildingCode}::${meter.roomCode}`) ||
+                        rateByRoomKey.get(`${meter.buildingCode}:${meter.roomCode}`);
 
-                      const rateInfo = rateByRoomKey.get(meter.id) || rateByRoomKey.get(`${meter.buildingCode}::${meter.roomCode}`);
-                      const isCustomRate = rateInfo?.currentMode === "custom" || meter.rateMode === "custom";
+                      const currentMode = rateInfo?.currentMode || meter.rateMode || "residential";
+                      const isCustomRate = currentMode === "custom";
                       const customPrice = rateInfo?.customRateVnd || meter.customRateVnd || 3500;
+                      const isActionOpen = openActionRowId === meterId;
 
                       return (
                         <tr
@@ -920,8 +934,15 @@ export default function ElectricityManagementPage() {
                 const energyKwh = Number(meter.energyMonthKwh || meter.totalKwh || meter.currentKwh || 0);
                 const cost = Number(meter.moneyMonthVnd || meter.estimatedCost || meter.amount || 0);
                 const powerW = Number(meter.powerCurrentW || 0);
-                const rateInfo = rateByRoomKey.get(meter.id) || rateByRoomKey.get(`${meter.buildingCode}::${meter.roomCode}`);
-                const isCustomRate = rateInfo?.currentMode === "custom" || meter.rateMode === "custom";
+                const rateInfo =
+                  rateByRoomKey.get(meter.id) ||
+                  rateByRoomKey.get(meter.providerRootId) ||
+                  rateByRoomKey.get(meter.providerMeterId) ||
+                  rateByRoomKey.get(`${meter.buildingCode}::${meter.roomCode}`) ||
+                  rateByRoomKey.get(`${meter.buildingCode}:${meter.roomCode}`);
+
+                const currentMode = rateInfo?.currentMode || meter.rateMode || "residential";
+                const isCustomRate = currentMode === "custom";
                 const customPrice = rateInfo?.customRateVnd || meter.customRateVnd || 3500;
 
                 return (

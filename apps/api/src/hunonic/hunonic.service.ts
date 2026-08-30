@@ -108,7 +108,14 @@ export class HunonicService {
       },
       latestLog,
       lockedPeriods,
-      meters: mappings.map(mapMeterMapping),
+      meters: mappings.map((mapping: any) => {
+        const cachedRate = getCachedElectricityRate(settings, mapping.providerRootId || mapping.providerMeterId, mapping);
+        return {
+          ...mapMeterMapping(mapping),
+          rateMode: cachedRate?.mode || 'residential',
+          customRateVnd: cachedRate?.customRateVnd || null,
+        };
+      }),
     };
   }
 
@@ -138,7 +145,7 @@ export class HunonicService {
         const groups = await provider.fetchElectricityRateGroups(rootId);
         const custom = groups.find((group) => group.id === '1' || normalizeText(group.name).includes('tu thiet lap'));
         const residential = groups.find((group) => group.id === '2' || normalizeText(group.name).includes('sinh hoat'));
-        const resolvedRate = resolveElectricityRateState({ settings, rootId, mapping, mobileMeter, custom });
+        const resolvedRate = resolveElectricityRateState({ settings, rootId, mapping, mobileMeter, groups, custom });
         rows.push({
           id: mapping.id,
           buildingCode: mapping.buildingCode,
@@ -378,7 +385,7 @@ export class HunonicService {
     const groups = await provider.fetchElectricityRateGroups(rootId);
     const custom = groups.find((group) => group.id === '1' || normalizeText(group.name).includes('tu thiet lap'));
     const residential = groups.find((group) => group.id === '2' || normalizeText(group.name).includes('sinh hoat'));
-    const resolvedRate = resolveElectricityRateState({ settings, rootId, mapping, mobileMeter, custom });
+    const resolvedRate = resolveElectricityRateState({ settings, rootId, mapping, mobileMeter, groups, custom });
 
     return {
       meterId: mapping.id,
@@ -1148,11 +1155,38 @@ function monthlyPointToMeter(base: HunonicElectricMeter, point: HunonicMonthlyHi
   };
 }
 
-function getActiveElectricityGroupId(meter?: HunonicElectricMeter) {
+function getActiveElectricityGroupId(meter?: HunonicElectricMeter, groups?: any[]) {
   const raw = meter?.raw as any;
   const rootExtra = parseJsonObject(raw?.root_extra);
   const dataExtra = parseJsonObject(raw?.data_extra);
-  const groupId = dataExtra?.electricity_group_id ?? rootExtra?.electricity_group_id ?? raw?.electricity_group_id;
+  const value = parseJsonObject(raw?.value);
+
+  // Check from groups array if any group has active indicator from Hunonic API
+  if (Array.isArray(groups)) {
+    const activeGroup = groups.find((g: any) => {
+      const gRaw = g?.raw || {};
+      return (
+        g.is_active === 1 || g.is_active === true || g.is_active === '1' ||
+        g.selected === 1 || g.selected === true || g.selected === '1' ||
+        g.is_check === 1 || g.is_check === true || g.is_check === '1' ||
+        g.checked === 1 || g.checked === true || g.checked === '1' ||
+        g.active === 1 || g.active === true || g.active === '1' ||
+        g.status === 1 || g.status === '1' ||
+        gRaw.is_active === 1 || gRaw.selected === 1 || gRaw.is_check === 1 || gRaw.status === 1
+      );
+    });
+    if (activeGroup?.id) return String(activeGroup.id);
+  }
+
+  const groupId =
+    dataExtra?.electricity_group_id ??
+    rootExtra?.electricity_group_id ??
+    value?.electricity_group_id ??
+    raw?.electricity_group_id ??
+    rootExtra?.group_id ??
+    dataExtra?.group_id ??
+    raw?.group_id;
+
   return groupId === null || groupId === undefined || groupId === '' ? null : String(groupId);
 }
 
@@ -1161,24 +1195,32 @@ function resolveElectricityRateState({
   rootId,
   mapping,
   mobileMeter,
+  groups,
   custom,
 }: {
   settings: HunonicSettings;
   rootId: string;
   mapping: any;
   mobileMeter?: HunonicElectricMeter;
+  groups?: any[];
   custom?: { rates?: Array<{ price: number | null }> };
 }) {
-  const activeGroupId = getActiveElectricityGroupId(mobileMeter);
+  const activeGroupId = getActiveElectricityGroupId(mobileMeter, groups);
   const cachedRate = getCachedElectricityRate(settings, rootId, mapping);
-  const currentMode = activeGroupId === '1'
-    ? 'custom'
-    : activeGroupId === '2'
-      ? 'residential'
-      : cachedRate?.mode
-        || (custom?.rates?.length ? 'custom' : 'residential');
+
+  let currentMode: HunonicElectricityRateMode = 'residential';
+  if (activeGroupId === '1') {
+    currentMode = 'custom';
+  } else if (activeGroupId === '2') {
+    currentMode = 'residential';
+  } else if (cachedRate?.mode) {
+    currentMode = cachedRate.mode;
+  } else {
+    currentMode = 'residential';
+  }
+
   const customRateVnd = currentMode === 'custom'
-    ? getActiveCustomUnitRate(mobileMeter) || cachedRate?.customRateVnd || custom?.rates?.[0]?.price || null
+    ? getActiveCustomUnitRate(mobileMeter) || cachedRate?.customRateVnd || custom?.rates?.[0]?.price || 3500
     : null;
 
   return { currentMode, customRateVnd };

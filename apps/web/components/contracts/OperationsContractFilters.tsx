@@ -1,22 +1,18 @@
 "use client";
 
 import React from "react";
-import { Filter, X } from "lucide-react";
+import { Plus, X, FileText, CheckCircle2, Clock3, AlertTriangle, FileX } from "lucide-react";
 import { useContractsStore } from "@/lib/hooks/useContractsStore";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { SearchInput } from "../ui/SearchInput";
 
-const statusOptions = [
-  { value: "", label: "Tất cả trạng thái" },
-  { value: "DRAFT", label: "Bản nháp" },
-  { value: "PENDING_APPROVAL", label: "Chờ duyệt" },
-  { value: "APPROVED", label: "Đã duyệt" },
-  { value: "ACTIVE", label: "Đang hiệu lực" },
-  { value: "EXPIRING", label: "Sắp hết hạn" },
-  { value: "EXPIRED", label: "Đã hết hạn" },
-  { value: "TERMINATED", label: "Đã chấm dứt" },
-  { value: "CANCELLED", label: "Đã hủy" },
+const quickStatusTabs = [
+  { id: "", label: "Tất cả", icon: FileText },
+  { id: "ACTIVE", label: "Đang hiệu lực", icon: CheckCircle2, activeClass: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30" },
+  { id: "EXPIRING", label: "Sắp hết hạn", icon: Clock3, activeClass: "bg-amber-500/10 text-amber-600 border-amber-500/30" },
+  { id: "PENDING_APPROVAL", label: "Chờ ký / duyệt", icon: FileText, activeClass: "bg-indigo-500/10 text-indigo-600 border-indigo-500/30" },
+  { id: "TERMINATED", label: "Đã kết thúc", icon: FileX, activeClass: "bg-slate-500/10 text-slate-600 border-slate-500/30" },
 ];
 
 export default function OperationsContractFilters() {
@@ -31,38 +27,49 @@ export default function OperationsContractFilters() {
   return (
     <Card
       data-testid="contracts-filter-bar"
-      className="flex flex-col gap-3 rounded-[16px] border-border/40 p-3 shadow-[0_1px_2px_rgba(16,24,40,0.03)]"
+      className="flex flex-col gap-2.5 rounded-2xl border-border/60 p-3 shadow-xs"
     >
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="min-w-0 flex-1 lg:max-w-[520px]">
-            <SearchInput
-              value={search}
-              placeholder="Tìm theo mã HĐ, tên khách, số phòng, tòa nhà..."
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-10 rounded-xl border-[#dbe3ef] bg-card text-[13px] font-semibold"
-            />
-          </div>
-
-          <div className="relative min-w-[210px] shrink-0">
-            <Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <select
-              aria-label="Lọc trạng thái hợp đồng"
-              value={status}
-              onChange={(event) => setStatus(event.target.value)}
-              className="h-10 w-full appearance-none rounded-xl border border-slate-200/80 bg-card pl-9 pr-8 text-[13px] font-bold text-text outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-white/10"
-            >
-              {statusOptions.map((option) => (
-                <option key={option.value || "all"} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </div>
+      <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+        {/* Search input */}
+        <div className="min-w-0 flex-1 lg:max-w-[480px]">
+          <SearchInput
+            value={search}
+            placeholder="Tìm theo mã HĐ, tên khách, số phòng, tòa nhà..."
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-9.5 rounded-xl border-border bg-card text-[13px] font-semibold"
+          />
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Quick Filter Status Tabs */}
+        <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto">
+          {quickStatusTabs.map((tab) => {
+            const isSelected = status === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setStatus(tab.id)}
+                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all shrink-0 ${
+                  isSelected
+                    ? tab.activeClass || "bg-primary/10 text-primary border-primary/30 shadow-2xs"
+                    : "border-border bg-card text-muted hover:border-border/80 hover:text-text"
+                }`}
+              >
+                <Icon size={13} />
+                {tab.label}
+              </button>
+            );
+          })}
+
           {hasFilters && (
-            <Button variant="ghost" onClick={clearFilters} className="h-10 shrink-0 px-3 text-muted hover:text-text">
-              <X size={14} className="mr-1.5" /> Xóa lọc
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearFilters}
+              className="h-8 px-2.5 text-xs text-muted hover:text-text rounded-xl"
+            >
+              <X size={13} className="mr-1" /> Xóa lọc
             </Button>
           )}
         </div>

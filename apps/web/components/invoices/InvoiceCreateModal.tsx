@@ -49,7 +49,7 @@ interface InvoiceCreateModalProps {
   defaultRoomId?: string;
 }
 
-// Helpers for formatted currency input
+// Formatters for thousand-separator inputs
 function parseCurrency(val: string): number {
   return Number(val.replace(/\D/g, "")) || 0;
 }
@@ -83,11 +83,70 @@ export default function InvoiceCreateModal({
   // 2. Recipient Selection (Representative vs Roommate)
   const [recipientType, setRecipientType] = useState<"REPRESENTATIVE" | "ROOMMATE">("REPRESENTATIVE");
   const [selectedRoommateId, setSelectedRoommateId] = useState<string>("");
-  const [customRecipientName, setCustomRecipientName] = useState<string>("");
-  const [customRecipientPhone, setCustomRecipientPhone] = useState<string>("");
 
-  // 3. Line Items (2 Columns, 3 items each)
-  // Column 1
+  // Lookup Room & Contract from real data
+  const selectedRoom = useMemo(() => {
+    return rooms.find((r: any) => r.id === selectedRoomId) || null;
+  }, [rooms, selectedRoomId]);
+
+  const activeContract = useMemo(() => {
+    if (!selectedRoomId) return null;
+    return contracts.find(
+      (c: any) =>
+        (c.roomId === selectedRoomId || c.room?.id === selectedRoomId) &&
+        ["ACTIVE", "APPROVED", "DRAFT", "EXPIRING"].includes(c.status)
+    ) || null;
+  }, [contracts, selectedRoomId]);
+
+  // Real representative from room/contract
+  const representative = useMemo(() => {
+    if (!selectedRoom) return null;
+    if (selectedRoom.tenant && (selectedRoom.tenant.name || selectedRoom.tenant.fullName)) {
+      return {
+        id: selectedRoom.tenant.id,
+        fullName: selectedRoom.tenant.name || selectedRoom.tenant.fullName,
+        phone: selectedRoom.tenant.phone || "",
+        gender: selectedRoom.tenant.gender || "MALE",
+      };
+    }
+    if (activeContract?.customer) {
+      return {
+        id: activeContract.customer.id,
+        fullName: activeContract.customer.fullName || activeContract.customer.name,
+        phone: activeContract.customer.phone || "",
+        gender: activeContract.customer.gender || "MALE",
+      };
+    }
+    return null;
+  }, [selectedRoom, activeContract]);
+
+  // Real roommates from selected room
+  const availableRoommates = useMemo(() => {
+    if (!selectedRoom) return [];
+    const shared = selectedRoom.sharedTenants || [];
+    return shared
+      .filter((t: any) => (t.name || t.fullName) && (t.name || t.fullName) !== representative?.fullName)
+      .map((t: any) => ({
+        id: t.id || t.name,
+        fullName: t.name || t.fullName,
+        phone: t.phone || "",
+        gender: t.gender || "MALE",
+      }));
+  }, [selectedRoom, representative]);
+
+  const hasValidTenant = !!representative;
+
+  // Active recipient currently selected
+  const activeRecipient = useMemo(() => {
+    if (!hasValidTenant) return null;
+    if (recipientType === "ROOMMATE" && availableRoommates.length > 0) {
+      return availableRoommates.find((r: any) => r.id === selectedRoommateId) || availableRoommates[0];
+    }
+    return representative;
+  }, [hasValidTenant, recipientType, availableRoommates, selectedRoommateId, representative]);
+
+  // 3. Line Items
+  // Column 1: Phòng & Cọc
   const [includeRent, setIncludeRent] = useState<boolean>(true);
   const [roomRent, setRoomRent] = useState<number>(0);
 
@@ -97,7 +156,7 @@ export default function InvoiceCreateModal({
   const [includeHoldingDeposit, setIncludeHoldingDeposit] = useState<boolean>(false);
   const [holdingDeposit, setHoldingDeposit] = useState<number>(0);
 
-  // Column 2
+  // Column 2: Điện, Nước, Giảm giá
   const [includeElectricity, setIncludeElectricity] = useState<boolean>(true);
   const [electricityAmount, setElectricityAmount] = useState<number>(0);
 
@@ -126,53 +185,6 @@ export default function InvoiceCreateModal({
   const [sendZaloBot, setSendZaloBot] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Real room & contract lookup
-  const selectedRoom = useMemo(() => {
-    return rooms.find((r: any) => r.id === selectedRoomId);
-  }, [rooms, selectedRoomId]);
-
-  const activeContract = useMemo(() => {
-    if (!selectedRoomId) return null;
-    return contracts.find(
-      (c: any) =>
-        (c.roomId === selectedRoomId || c.room?.id === selectedRoomId) &&
-        ["ACTIVE", "APPROVED", "DRAFT", "EXPIRING"].includes(c.status)
-    );
-  }, [contracts, selectedRoomId]);
-
-  // Real representative
-  const representative = useMemo(() => {
-    if (selectedRoom?.tenant) {
-      return {
-        id: selectedRoom.tenant.id,
-        fullName: selectedRoom.tenant.name,
-        phone: selectedRoom.tenant.phone,
-        gender: selectedRoom.tenant.gender,
-      };
-    }
-    if (activeContract?.customer) {
-      return {
-        id: activeContract.customer.id,
-        fullName: activeContract.customer.fullName || activeContract.customer.name,
-        phone: activeContract.customer.phone,
-        gender: activeContract.customer.gender,
-      };
-    }
-    return null;
-  }, [selectedRoom, activeContract]);
-
-  // Real roommates from selected room
-  const availableRoommates = useMemo(() => {
-    if (!selectedRoom) return [];
-    const shared = selectedRoom.sharedTenants || [];
-    return shared.map((t: any) => ({
-      id: t.id || t.name,
-      fullName: t.name || t.fullName,
-      phone: t.phone || "",
-      gender: t.gender || "MALE",
-    }));
-  }, [selectedRoom]);
-
   // Auto update when Room changes
   useEffect(() => {
     if (selectedRoom) {
@@ -180,36 +192,25 @@ export default function InvoiceCreateModal({
       setRoomRent(defaultRent);
       setContractDeposit(Number(activeContract?.depositMoney) || defaultRent);
       setWaterPeopleCount(Number(activeContract?.memberCount) || (selectedRoom.sharedTenants?.length ? selectedRoom.sharedTenants.length + 1 : 1));
+      setElectricityAmount(0);
+      setHoldingDeposit(0);
+      setDiscountAmount(0);
 
-      if (recipientType === "REPRESENTATIVE") {
-        setCustomRecipientName(representative?.fullName || "");
-        setCustomRecipientPhone(representative?.phone || "");
+      if (availableRoommates.length > 0) {
+        setSelectedRoommateId(availableRoommates[0].id);
+      } else {
+        setSelectedRoommateId("");
+        setRecipientType("REPRESENTATIVE");
       }
     } else {
       setRoomRent(0);
       setContractDeposit(0);
       setHoldingDeposit(0);
-      setCustomRecipientName("");
-      setCustomRecipientPhone("");
+      setElectricityAmount(0);
+      setDiscountAmount(0);
+      setSelectedRoommateId("");
     }
-  }, [selectedRoom, activeContract, representative, recipientType]);
-
-  // When switching recipient type
-  useEffect(() => {
-    if (recipientType === "REPRESENTATIVE") {
-      setCustomRecipientName(representative?.fullName || "");
-      setCustomRecipientPhone(representative?.phone || "");
-    } else if (recipientType === "ROOMMATE") {
-      if (availableRoommates.length > 0) {
-        const found = availableRoommates.find((r: any) => r.id === selectedRoommateId) || availableRoommates[0];
-        if (found) {
-          setSelectedRoommateId(found.id);
-          setCustomRecipientName(found.fullName);
-          setCustomRecipientPhone(found.phone);
-        }
-      }
-    }
-  }, [recipientType, selectedRoommateId, representative, availableRoommates]);
+  }, [selectedRoomId, selectedRoom, activeContract, availableRoommates.length]);
 
   // Calculations
   const waterTotal = includeWater ? waterUnitPrice * waterPeopleCount : 0;
@@ -243,9 +244,14 @@ export default function InvoiceCreateModal({
       return;
     }
 
+    if (!hasValidTenant || !activeRecipient) {
+      toast.error("Phòng chưa có thông tin khách thuê hợp lệ");
+      return;
+    }
+
     const customerId = activeContract?.customerId || activeContract?.customer?.id || representative?.id;
     if (!customerId) {
-      toast.error("Phòng chưa có thông tin khách thuê hợp lệ");
+      toast.error("Không tìm thấy thông tin khách hàng hợp lệ");
       return;
     }
 
@@ -286,7 +292,7 @@ export default function InvoiceCreateModal({
         totalAmount: grandTotal,
         paidAmount: isCashCollected ? grandTotal : 0,
         status: isCashCollected ? "PAID" : "UNPAID",
-        notes: `Hóa đơn ${periodStr} - ${recipientType === "ROOMMATE" ? "Khách ghép" : "Đại diện"}: ${customRecipientName} (${customRecipientPhone})`,
+        notes: `Hóa đơn ${periodStr} - ${recipientType === "ROOMMATE" ? "Khách ghép" : "Đại diện"}: ${activeRecipient.fullName} (${activeRecipient.phone})`,
         items: items,
       };
 
@@ -316,7 +322,7 @@ export default function InvoiceCreateModal({
           // ignore
         }
         toast.success(
-          `🤖 Bot Zalo đã gửi hóa đơn & mã VietQR tới ${customRecipientName} (${customRecipientPhone})!`,
+          `🤖 Bot Zalo đã gửi hóa đơn & mã VietQR tới ${activeRecipient.fullName} (${activeRecipient.phone})!`,
           { duration: 5000 }
         );
       } else {
@@ -331,12 +337,8 @@ export default function InvoiceCreateModal({
     }
   };
 
-  const isFemale =
-    recipientType === "ROOMMATE"
-      ? availableRoommates.find((r: any) => r.id === selectedRoommateId)?.gender === "FEMALE"
-      : representative?.gender === "FEMALE" || representative?.gender === "Nữ";
-
-  const avatarUrl = getTenantAvatar(undefined, customRecipientName || "Khách thuê", isFemale ? "FEMALE" : "MALE");
+  const isFemale = activeRecipient?.gender === "FEMALE" || activeRecipient?.gender === "Nữ";
+  const avatarUrl = getTenantAvatar(undefined, activeRecipient?.fullName || "Khách thuê", isFemale ? "FEMALE" : "MALE");
 
   return (
     <Modal
@@ -366,7 +368,7 @@ export default function InvoiceCreateModal({
               size="sm"
               className="rounded-xl font-bold text-xs"
               onClick={() => handleCreate(false)}
-              disabled={isSubmitting}
+              disabled={!hasValidTenant || isSubmitting}
             >
               Lưu nháp
             </Button>
@@ -374,9 +376,13 @@ export default function InvoiceCreateModal({
             <Button
               variant="primary"
               size="sm"
-              className="rounded-xl font-black bg-primary hover:bg-primary/90 text-white shadow-xs px-4 text-xs"
+              className={`rounded-xl font-black text-white shadow-xs px-4 text-xs transition ${
+                !hasValidTenant
+                  ? "bg-muted/40 cursor-not-allowed opacity-60 text-text/50"
+                  : "bg-primary hover:bg-primary/90"
+              }`}
               onClick={() => handleCreate(true)}
-              disabled={isSubmitting}
+              disabled={!hasValidTenant || isSubmitting}
             >
               {isSubmitting ? (
                 <>
@@ -414,7 +420,9 @@ export default function InvoiceCreateModal({
                 {rooms.map((room: any) => {
                   const bName = room.buildingName || room.building?.name || room.building?.code || "";
                   const rCode = room.code || room.name || `Phòng ${room.id?.slice(0, 5)}`;
-                  const label = bName ? `${bName} • ${rCode}` : rCode;
+                  const tenantName = room.tenant?.name || room.tenant?.fullName;
+                  const isOccupied = !!tenantName;
+                  const label = `${bName ? `${bName} • ` : ""}${rCode} ${isOccupied ? `(${tenantName})` : "— [Phòng trống]"}`;
                   return (
                     <option key={room.id} value={room.id}>
                       {label}
@@ -432,23 +440,25 @@ export default function InvoiceCreateModal({
               <div className="flex items-center gap-1 bg-card border border-border rounded-lg p-0.5 h-8.5">
                 <button
                   type="button"
+                  disabled={!hasValidTenant}
                   onClick={() => setRecipientType("REPRESENTATIVE")}
                   className={`flex-1 flex items-center justify-center gap-1 rounded-md text-[11px] font-bold h-full transition ${
                     recipientType === "REPRESENTATIVE"
                       ? "bg-primary text-white shadow-2xs"
                       : "text-muted hover:text-text"
-                  }`}
+                  } ${!hasValidTenant ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
                   <UserCheck size={12} /> Nguyên căn
                 </button>
                 <button
                   type="button"
+                  disabled={!hasValidTenant || availableRoommates.length === 0}
                   onClick={() => setRecipientType("ROOMMATE")}
                   className={`flex-1 flex items-center justify-center gap-1 rounded-md text-[11px] font-bold h-full transition ${
                     recipientType === "ROOMMATE"
                       ? "bg-primary text-white shadow-2xs"
                       : "text-muted hover:text-text"
-                  }`}
+                  } ${!hasValidTenant || availableRoommates.length === 0 ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
                   <Users size={12} /> Thuê ghép
                 </button>
@@ -456,60 +466,74 @@ export default function InvoiceCreateModal({
             </div>
           </div>
 
-          {/* Tenant details card */}
-          {selectedRoomId && (
-            <div className="flex items-center justify-between rounded-lg bg-card border border-border/60 px-2.5 py-2">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <img
-                  src={avatarUrl}
-                  alt={customRecipientName || "Khách"}
-                  className={`h-7.5 w-7.5 rounded-lg object-cover border ${
-                    isFemale ? "border-pink-300 bg-pink-50" : "border-sky-300 bg-sky-50"
-                  }`}
-                />
-                <div className="min-w-0">
-                  <div className="font-black text-text text-xs truncate">
-                    {customRecipientName || (representative ? representative.fullName : "Chưa gán khách thuê")}
-                  </div>
-                  <div className="flex items-center gap-1 text-[11px] text-muted font-mono">
-                    <Phone size={10} className="text-emerald-500 shrink-0" />
-                    <span>{customRecipientPhone || (representative ? representative.phone : "Chưa có SĐT")}</span>
+          {/* Tenant details card or Empty Warning */}
+          {selectedRoomId ? (
+            hasValidTenant && activeRecipient ? (
+              <div className="flex items-center justify-between rounded-lg bg-card border border-border/60 p-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <img
+                    src={avatarUrl}
+                    alt={activeRecipient.fullName}
+                    className={`h-8 w-8 min-w-[32px] min-h-[32px] max-w-[32px] max-h-[32px] rounded-lg object-cover border shrink-0 ${
+                      isFemale ? "border-pink-300 bg-pink-50" : "border-sky-300 bg-sky-50"
+                    }`}
+                  />
+                  <div className="min-w-0">
+                    <div className="font-black text-text text-xs truncate">
+                      {activeRecipient.fullName}
+                    </div>
+                    <div className="flex items-center gap-1 text-[11px] text-muted font-mono">
+                      <Phone size={10} className="text-emerald-500 shrink-0" />
+                      <span>{activeRecipient.phone || "Chưa có SĐT"}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {recipientType === "ROOMMATE" ? (
-                availableRoommates.length > 0 ? (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] text-muted font-bold">Khách ghép:</span>
-                    <select
-                      value={selectedRoommateId}
-                      onChange={(e) => setSelectedRoommateId(e.target.value)}
-                      className="h-7 px-2 rounded-md border border-primary/30 bg-primary/5 text-[11px] font-bold text-primary outline-none"
-                    >
-                      {availableRoommates.map((rm: any) => (
-                        <option key={rm.id} value={rm.id}>
-                          {rm.fullName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                {recipientType === "ROOMMATE" ? (
+                  availableRoommates.length > 0 ? (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] text-muted font-bold">Khách ghép:</span>
+                      <select
+                        value={selectedRoommateId}
+                        onChange={(e) => setSelectedRoommateId(e.target.value)}
+                        className="h-7 px-2 rounded-md border border-primary/30 bg-primary/5 text-[11px] font-bold text-primary outline-none"
+                      >
+                        {availableRoommates.map((rm: any) => (
+                          <option key={rm.id} value={rm.id}>
+                            {rm.fullName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">
+                      Phòng 1 người
+                    </span>
+                  )
                 ) : (
-                  <span className="text-[10px] text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">
-                    Phòng 1 người
+                  <Badge variant="primary" className="text-[10px] py-0.5 px-2">
+                    Đại diện HĐ
+                  </Badge>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-2 text-amber-700">
+                <AlertTriangle size={15} className="shrink-0 text-amber-600" />
+                <div className="text-xs">
+                  <span className="font-bold">Phòng chưa có khách thuê:</span>
+                  <span className="ml-1 text-[11px] text-amber-800">
+                    Phòng hiện đang trống hoặc chưa có hợp đồng hiệu lực. Vui lòng chọn phòng đang có khách thuê để tạo hóa đơn.
                   </span>
-                )
-              ) : (
-                <Badge variant="primary" className="text-[10px] py-0.5 px-2">
-                  Đại diện HĐ
-                </Badge>
-              )}
-            </div>
-          )}
+                </div>
+              </div>
+            )
+          ) : null}
         </div>
 
-        {/* 2. KHOẢN MỤC THU TIỀN (2 CỘT RỘNG RÃI, KHÔNG CHE KHUẤT TEXT) */}
-        <div className="rounded-xl border border-border/80 bg-card p-3 flex flex-col gap-2">
+        {/* 2. KHOẢN MỤC THU TIỀN */}
+        <div className={`rounded-xl border border-border/80 bg-card p-3 flex flex-col gap-2 transition ${
+          !hasValidTenant && selectedRoomId ? "opacity-40 pointer-events-none" : ""
+        }`}>
           <div className="flex items-center justify-between border-b border-border/50 pb-1.5 text-[10px] font-black uppercase tracking-wider text-muted select-none">
             <span>Khoản mục thu tiền</span>
             <span>Số tiền (VNĐ)</span>
@@ -634,7 +658,7 @@ export default function InvoiceCreateModal({
                 </div>
               </div>
 
-              {/* 5. Tiền nước (Rõ ràng, không bị ẩn số người, không có nút spinner) */}
+              {/* 5. Tiền nước */}
               <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
                 <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
                   <input
@@ -675,7 +699,7 @@ export default function InvoiceCreateModal({
                 </div>
               </div>
 
-              {/* 6. Giảm giá (Gọn gàng, loại bỏ chữ Khấu trừ) */}
+              {/* 6. Giảm giá */}
               <div className="flex items-center justify-between gap-2 py-1">
                 <label className="flex items-center gap-1.5 cursor-pointer font-bold text-rose-600 select-none shrink-0">
                   <input
@@ -708,8 +732,10 @@ export default function InvoiceCreateModal({
           </div>
         </div>
 
-        {/* 3. TỔNG CỘNG & KỲ CƯỚC / HẠN ĐÓNG (CĂN GIỮA, KHÔNG BỊ CHE) */}
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        {/* 3. TỔNG CỘNG & KỲ CƯỚC / HẠN ĐÓNG */}
+        <div className={`rounded-xl border border-primary/30 bg-primary/5 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 transition ${
+          !hasValidTenant && selectedRoomId ? "opacity-40 pointer-events-none" : ""
+        }`}>
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-muted block">
               Tổng tiền thanh toán
@@ -764,7 +790,9 @@ export default function InvoiceCreateModal({
         </div>
 
         {/* 4. PHƯƠNG THỨC THANH TOÁN */}
-        <div className="rounded-xl border border-border/80 bg-surface/30 p-2.5 flex flex-col gap-2">
+        <div className={`rounded-xl border border-border/80 bg-surface/30 p-2.5 flex flex-col gap-2 transition ${
+          !hasValidTenant && selectedRoomId ? "opacity-40 pointer-events-none" : ""
+        }`}>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"

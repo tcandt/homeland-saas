@@ -40,18 +40,34 @@ export class InvoicesController {
   @Post()
   @RequirePermissions('invoice.create')
   @ApiOperation({ summary: 'Create DRAFT invoice' })
-  create(@Body() body: any, @CurrentUser('id') userId: string) {
+  create(
+    @Body() body: any,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
     const input = CreateInvoiceSchema.parse(body);
+    const rawItems: any[] = Array.isArray(body.items) ? body.items : [];
+
+    const itemsData = rawItems.map((item) => ({
+      tenantId: tenantId,
+      type: item.type || 'RENT',
+      description: item.name || item.description || 'Khoản thu',
+      quantity: Number(item.quantity) || 1,
+      unitPrice: Number(item.unitPrice || item.amount) || 0,
+      amount: Number(item.amount) || 0,
+    }));
+
     const data: any = {
       customerId: input.customerId,
       contractId: input.contractId,
       code: `INV-${Date.now()}`,
       dueDate: new Date(input.dueDate),
-      subtotal: input.totalAmount, // To be properly calculated when items are added
+      subtotal: input.totalAmount,
       total: input.totalAmount,
       paidAmount: input.paidAmount || 0,
       discount: 0,
       creditAmount: 0,
+      ...(itemsData.length > 0 ? { items: { create: itemsData } } : {}),
     };
     return this.invoicesService.create(data, userId, 'Invoices');
   }

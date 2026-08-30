@@ -12,6 +12,7 @@ export const CreateInvoiceSchema = z.object({
   paidAmount: z.number().min(0).default(0),
   status: InvoiceStatusEnum.default('UNPAID'),
   notes: z.string().optional().nullable(),
+  items: z.array(z.any()).optional(),
 });
 
 export const UpdateInvoiceSchema = CreateInvoiceSchema.partial();

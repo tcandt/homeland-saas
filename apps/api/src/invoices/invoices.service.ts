@@ -101,9 +101,13 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       throw new BadRequestException(`Cannot issue invoice in ${invoice.status} status.`);
     }
 
-    // Recalculate total to be safe
-    const subtotal = invoice.items.reduce((sum, item) => sum + Number(item.amount), 0);
-    const total = subtotal - Number(invoice.discount);
+    // Recalculate total safely
+    const subtotalFromItems = invoice.items && invoice.items.length > 0
+      ? invoice.items.reduce((sum, item) => sum + Number(item.amount), 0)
+      : Number(invoice.subtotal) || Number(invoice.total) || 0;
+
+    const discount = Number(invoice.discount) || 0;
+    const total = subtotalFromItems > 0 ? subtotalFromItems - discount : Number(invoice.total) || 0;
 
     if (total <= 0) {
       throw new BadRequestException('Invoice total must be strictly positive to be issued.');
@@ -113,8 +117,8 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       where: { id },
       data: {
         status: InvoiceStatus.ISSUED,
-        subtotal,
-        total,
+        subtotal: subtotalFromItems > 0 ? subtotalFromItems : total,
+        total: total,
       }
     });
 

@@ -112,7 +112,7 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
   const address = rawCustomer.address || "Chưa cập nhật";
   const nationality = rawCustomer.nationality || "Việt Nam";
   const emergencyPhone = rawCustomer.emergencyPhone || "Chưa có";
-  const zaloId = rawCustomer.zaloChatId || rawCustomer.zaloUserId || phone;
+  const zaloId = rawCustomer.zaloChatId || rawCustomer.zaloUserId || "Chưa liên kết";
   const code = tenant.code || rawCustomer.code || `KH-${phone.slice(-4) || tenant.id.slice(0, 6)}`;
 
   // Contract & Room fields
@@ -315,7 +315,7 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
                   <InfoRow label="Số điện thoại chính" value={phone} isMono />
                   <InfoRow label="SĐT khẩn cấp (Người thân)" value={emergencyPhone} isMono />
                   <InfoRow label="Email" value={email} />
-                  <InfoRow label="Zalo liên hệ" value={zaloId} isMono />
+                  <InfoRow label="Zalo ID" value={zaloId} isMono />
                   <InfoRow label="Địa chỉ thường trú (Quê quán)" value={address} />
                 </div>
               </div>

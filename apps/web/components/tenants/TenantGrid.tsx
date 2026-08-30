@@ -272,8 +272,8 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
   const isFemale = cleanGender === "female" || cleanGender === "nu" || cleanGender === "nữ" || cleanGender === "gái";
 
   const hasPhone = row.phone && row.phone !== "N/A" && row.phone.trim() !== "";
-  const hasEmail = row.email && row.email !== "N/A" && row.email.includes("@");
-  const hasZalo = !!(row.zaloChatId || row.zaloUserId || (row.source as any)?.zaloPhone || hasPhone);
+  const hasEmail = !!(row.email && row.email !== "N/A" && row.email.includes("@"));
+  const hasZalo = !!(row.zaloChatId || row.zaloUserId || (row.source as any)?.zaloUserId || (row.source as any)?.zaloChatId);
   const hasTelegram = !!((row.source as any)?.telegramChatId || (row.source as any)?.telegramId || (row.source as any)?.telegramUsername);
 
   return (
@@ -312,7 +312,7 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
       {/* Cột Kênh thông báo / Đăng ký */}
       <div className="flex flex-wrap items-center gap-1 min-w-0">
         {hasZalo && (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 border border-blue-500/20" title={`Zalo: ${row.phone}`}>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 border border-blue-500/20" title="Đã liên kết Zalo ID">
             <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span> Zalo
           </span>
         )}
@@ -322,13 +322,13 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
           </span>
         )}
         {hasTelegram && (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/10 text-sky-600 border border-sky-500/20" title="Telegram">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/10 text-sky-600 border border-sky-500/20" title="Đã liên kết Telegram">
             <span className="h-1.5 w-1.5 rounded-full bg-sky-500"></span> Telegram
           </span>
         )}
         {!hasZalo && !hasEmail && !hasTelegram && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-surface text-muted/60 border border-border/60">
-            N/A
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface text-muted/70 border border-border/60">
+            Chưa đăng ký
           </span>
         )}
       </div>

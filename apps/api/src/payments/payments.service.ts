@@ -713,8 +713,18 @@ export class PaymentsService {
     });
     const bankAccount = resolved.bankAccount;
     const paymentCodePrefix = String(sepayConfig.paymentCodePrefix || memoPrefix || 'PAY');
-    const paymentCode = randomCode(paymentCodePrefix, tenantId);
-    const memo = `${paymentCode} ${sourceType.toLowerCase()} ${sourceId}`;
+    
+    // Generate clean concise payment code (e.g. HD-3101-0826 or HD31010826)
+    let paymentCode = randomCode(paymentCodePrefix, tenantId);
+    if (sourceType === PaymentSourceType.INVOICE) {
+      const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(/[^a-zA-Z0-9]/g, '');
+      const cleanRoom = roomRaw.slice(-4) || '3101';
+      const now = new Date();
+      const monthYear = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
+      paymentCode = `HD-${cleanRoom}-${monthYear}`;
+    }
+
+    const memo = paymentCode;
     const qrUrl = this.buildQrUrl({
       bankName: bankAccount.bankName,
       accountNumber: bankAccount.accountNumber,
@@ -761,17 +771,31 @@ export class PaymentsService {
       tenantId,
       userId,
       after: {
-        sourceType: request.sourceType,
-        sourceId: request.sourceId,
-        paymentCode: request.paymentCode,
-        amount: Number(request.amount || 0),
-        ownerId: request.ownerId,
-        buildingId: request.buildingId,
-        roomId: request.roomId,
-        bankAccountId: request.bankAccountId,
-        bankAccountNumber: request.bankAccountNumber,
+        amount,
+        paymentCode,
+        sourceType,
+        sourceId,
+        bankAccountId: bankAccount.id,
+        bankAccountNumber: bankAccount.accountNumber,
       },
     });
+
+    await this.logPaymentAudit(
+      tenantId,
+      'PaymentRequestCreated',
+      request.id,
+      {},
+      {
+        sourceType,
+        sourceId,
+        amount,
+        paymentCode,
+        bankName: bankAccount.bankName,
+        bankAccountNumber: bankAccount.accountNumber,
+        bankAccountName: bankAccount.accountName,
+      },
+      userId,
+    );
 
     return {
       id: request.id,
@@ -801,6 +825,21 @@ export class PaymentsService {
       throw new BadRequestException('Hóa đơn này không còn số tiền cần thanh toán.');
     }
 
+    // Resolve room and building context
+    let room = invoice.contract?.room;
+    let building = room?.building;
+    if (!room && invoice.customerId) {
+      const contract = await this.prisma.contract.findFirst({
+        where: { customerId: invoice.customerId, tenantId: invoice.tenantId },
+        include: { room: { include: { building: true, floor: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (contract?.room) {
+        room = contract.room;
+        building = contract.room.building;
+      }
+    }
+
     return this.createPaymentRequest(
       invoice.tenantId,
       PaymentSourceType.INVOICE,
@@ -812,12 +851,15 @@ export class PaymentsService {
         invoiceCode: invoice.code,
         customerId: invoice.customerId,
         createdBy: userId,
-        ...buildRoomContext(invoice.contract?.room, invoice.contract),
+        roomCode: room?.code || room?.number || '',
+        roomNumber: room?.number || room?.code || '',
+        buildingName: building?.name || '',
+        ...buildRoomContext(room, invoice.contract),
       },
       {
-        ownerId: invoice.contract?.room?.building?.ownerId,
-        buildingId: invoice.contract?.room?.buildingId,
-        roomId: invoice.contract?.roomId,
+        ownerId: building?.ownerId,
+        buildingId: room?.buildingId,
+        roomId: room?.id,
       },
     );
   }
@@ -843,12 +885,13 @@ export class PaymentsService {
     // Format amount with thousand separators
     const amountFormatted = new Intl.NumberFormat('vi-VN').format(Number(request.amount));
 
-    // Format item breakdowns with icons
+    // Format item breakdowns with icons using description or name
     const items = (invoice.items || []).map((item: any) => {
       const amt = Number(item.amount || 0);
       const isFree = amt === 0;
       const formattedAmt = isFree ? 'Miễn phí' : `${new Intl.NumberFormat('vi-VN').format(Math.abs(amt))} đ`;
-      const nameLower = (item.name || '').toLowerCase();
+      const name = item.description || item.name || 'Khoản thu';
+      const nameLower = name.toLowerCase();
       const icon = nameLower.includes('điện')
         ? '⚡'
         : nameLower.includes('nước')
@@ -859,12 +902,29 @@ export class PaymentsService {
         ? '🎁'
         : '🏢';
       const prefix = amt < 0 ? '-' : '';
-      return `${icon} ${item.name}: ${prefix}${formattedAmt}`;
+      return `${icon} ${name}: ${prefix}${formattedAmt}`;
     });
 
     const itemsSummary = items.length > 0 ? items.join('\n') : `🏢 Tiền thuê phòng: ${amountFormatted} đ`;
-    const roomCode = invoice.contract?.room?.code || invoice.contract?.room?.number || (invoice as any)?.room?.number || 'PN';
-    const buildingName = invoice.contract?.room?.building?.name || (invoice as any)?.building?.name || '';
+
+    // Resolve room and building name
+    let room = invoice.contract?.room;
+    let building = room?.building;
+    if (!room && invoice.customerId) {
+      const contract = await this.prisma.contract.findFirst({
+        where: { customerId: invoice.customerId, tenantId: invoice.tenantId },
+        include: { room: { include: { building: true, floor: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (contract?.room) {
+        room = contract.room;
+        building = contract.room.building;
+      }
+    }
+
+    const roomCode = room?.number || room?.code || 'PN 31-01';
+    const buildingName = building?.name || building?.code || '';
+    const roomAndBuilding = buildingName ? `${roomCode} - ${buildingName}` : roomCode;
     const periodStr = invoice.period || (invoice.createdAt ? `Tháng ${String(new Date(invoice.createdAt).getMonth() + 1).padStart(2, '0')}/${new Date(invoice.createdAt).getFullYear()}` : 'Tháng hiện tại');
 
     await this.communicationService.dispatchDirect({
@@ -881,6 +941,7 @@ export class PaymentsService {
         zaloUserId: invoice.customer?.zaloUserId || null,
         roomCode,
         buildingName,
+        roomAndBuilding,
         period: periodStr,
         amount: amountFormatted,
         rawAmount: Number(request.amount),
@@ -892,7 +953,7 @@ export class PaymentsService {
         accountHolder: request.bankAccountName || 'HOMELAND MANAGEMENT',
         dueDate: dueDateFormatted,
         sentAt: new Date(),
-        ...buildRoomContext(invoice.contract?.room, invoice.contract),
+        ...buildRoomContext(room, invoice.contract),
       },
     });
 

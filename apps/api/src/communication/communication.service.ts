@@ -39,47 +39,42 @@ function normalizeDispatchContext(context: any) {
 const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { name: string; subject?: string; body: string }> = {
   INVOICE_ZALO_PAYMENT_REQUEST: {
     name: 'Yêu cầu thanh toán hóa đơn',
-    subject: '🧾 Thông báo hóa đơn thanh toán {{invoiceCode}}',
-    body: `📄 *THÔNG BÁO HÓA ĐƠN TIỀN NHÀ*
-Mã hóa đơn: *{{invoiceCode}}*
+    subject: '🧾 Thông báo hóa đơn {{invoiceCode}}',
+    body: `🧾 HÓA ĐƠN TIỀN NHÀ ({{period}})
+Mã HĐ: {{invoiceCode}}
 
-Kính gửi anh/chị *{{customerName}}*,
-Hệ thống gửi thông báo chi tiết hóa đơn thanh toán:
+Kính gửi: {{customerName}}
+🏢 Phòng: {{roomAndBuilding}}
+⏰ Hạn đóng: {{dueDate}}
 
-🏢 *Phòng:* {{roomCode}} ({{buildingName}})
-📅 *Kỳ cước:* {{period}}
-⏰ *Hạn thanh toán:* {{dueDate}}
-
-📋 *CHI TIẾT KHOẢN MỤC:*
+📋 CHI TIẾT KHOẢN THU:
 {{itemsSummary}}
 
-💰 *TỔNG CỘNG: {{amount}} đ*
+👉 TỔNG TIỀN: {{amount}} đ
 
-━━━━━━━━━━━━━━━━━━━━
-💳 *THÔNG TIN THANH TOÁN (SEPAY QR)*
-🏦 *Ngân hàng:* {{bankName}}
-🔢 *Số tài khoản:* {{bankAccountNumber}}
-👤 *Chủ tài khoản:* {{accountHolder}}
-🔖 *Nội dung chuyển khoản:* {{paymentCode}}
+💳 THÔNG TIN THANH TOÁN:
+🏦 Ngân hàng: {{bankName}}
+🔢 STK: {{bankAccountNumber}}
+👤 Chủ TK: {{accountHolder}}
+🔖 Nội dung CK: {{paymentCode}}
 
-*(Quý khách vui lòng quét mã VietQR đính kèm hoặc chuyển khoản đúng nội dung để hệ thống tự động gạch nợ).*`,
+(Quý khách quét mã QR đính kèm để thanh toán nhanh)`,
   },
   DEPOSIT_ZALO_PAYMENT_REQUEST: {
     name: 'Yêu cầu thanh toán cọc',
     subject: '💰 Thông báo thanh toán cọc {{depositCode}}',
-    body: `💰 *THÔNG BÁO THANH TOÁN TIỀN CỌC*
-Mã cọc: *{{depositCode}}*
+    body: `💰 THÔNG BÁO TIỀN CỌC
+Mã cọc: {{depositCode}}
 
-Kính gửi anh/chị *{{customerName}}*,
-Thông báo thanh toán cọc phòng {{roomCode}}:
-- Số tiền: *{{amount}} đ*
+Kính gửi: {{customerName}}
+Phòng: {{roomCode}}
+Số tiền: {{amount}} đ
 
-━━━━━━━━━━━━━━━━━━━━
-💳 *THÔNG TIN CHUYỂN KHOẢN*
-🏦 *Ngân hàng:* {{bankName}}
-🔢 *Số tài khoản:* {{bankAccountNumber}}
-👤 *Chủ tài khoản:* {{accountHolder}}
-🔖 *Nội dung chuyển khoản:* {{paymentCode}}
+💳 THÔNG TIN CHUYỂN KHOẢN:
+🏦 Ngân hàng: {{bankName}}
+🔢 STK: {{bankAccountNumber}}
+👤 Chủ TK: {{accountHolder}}
+🔖 Nội dung CK: {{paymentCode}}
 
 Trân trọng cảm ơn!`,
   },

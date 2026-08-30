@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Users, FileSignature, CalendarClock, AlertCircle } from "lucide-react";
+import { Users, CalendarClock, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Card } from "../ui/Card";
 import { useCustomersQuery } from "@/lib/queries/customers.queries";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
@@ -53,53 +53,105 @@ export default function TenantKpi() {
   }, [customersData, contractsData]);
 
   return (
-    <div data-testid="tenants-kpi-grid" className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 shrink-0">
+    <div data-testid="tenants-kpi-grid" className="grid grid-cols-2 lg:grid-cols-4 gap-[12px] md:gap-[16px] shrink-0">
       <KpiCard
-        icon={<Users size={18} className="text-indigo-600 dark:text-indigo-400" />}
-        iconBg="bg-indigo-500/10 border border-indigo-500/20"
+        title="Tổng khách thuê"
         value={summary.totalCustomers.toString()}
-        label="Tổng khách thuê"
-        subText={summary.newCustomers > 0 ? `+${summary.newCustomers} khách mới (30 ngày)` : "Khách hàng hệ thống"}
-        subColor="text-indigo-600 dark:text-indigo-400"
+        trend={`+${summary.newCustomers} mới`}
+        trendLabel="trong 30 ngày"
+        trendPositive={true}
+        icon={<Users size={18} className="text-[#4f46e5]" />}
+        iconBg="bg-[#4f46e5]/10"
+        blobColor="bg-[#4f46e5]/15"
       />
       <KpiCard
-        icon={<FileSignature size={18} className="text-emerald-600 dark:text-emerald-400" />}
-        iconBg="bg-emerald-500/10 border border-emerald-500/20"
+        title="Đang thuê phòng"
         value={summary.activeContractCount.toString()}
-        label="Đang thuê (HĐ hiệu lực)"
-        subText={`${summary.withoutContractCount} khách chưa thuê`}
-        subColor="text-muted"
+        trend={`${summary.withoutContractCount} khách`}
+        trendLabel="chưa có hợp đồng"
+        icon={<CheckCircle2 size={18} className="text-[#10b981]" />}
+        iconBg="bg-[#10b981]/10"
+        blobColor="bg-[#10b981]/15"
       />
       <KpiCard
-        icon={<CalendarClock size={18} className="text-amber-600 dark:text-amber-400" />}
-        iconBg="bg-amber-500/10 border border-amber-500/20"
+        title="Sắp hết hạn HĐ"
         value={summary.expiringContracts.toString()}
-        label="Sắp hết hạn HĐ"
-        subText={summary.expiringContracts > 0 ? "Cần xử lý trong 30 ngày" : "Không có hợp đồng sắp hết"}
-        subColor={summary.expiringContracts > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted"}
+        trend={summary.expiringContracts > 0 ? "Cần xử lý" : "Ổn định"}
+        trendLabel={summary.expiringContracts > 0 ? "trong 30 ngày tới" : "không có HĐ sắp hết"}
+        highlight={summary.expiringContracts > 0}
+        highlightColor="text-[#f97316]"
+        icon={<CalendarClock size={18} className="text-[#f97316]" />}
+        iconBg="bg-[#f97316]/10"
+        blobColor="bg-[#f97316]/15"
       />
       <KpiCard
-        icon={<AlertCircle size={18} className={summary.overdueDebt > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"} />}
-        iconBg={summary.overdueDebt > 0 ? "bg-rose-500/10 border border-rose-500/20" : "bg-emerald-500/10 border border-emerald-500/20"}
+        title="Tổng công nợ"
         value={formatMoney(summary.overdueDebt)}
-        label="Tổng công nợ"
-        subText={summary.overdueCount > 0 ? `${summary.overdueCount} hợp đồng có nợ` : "Tất cả đã thanh toán đủ"}
-        subColor={summary.overdueDebt > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}
+        trend={summary.overdueCount > 0 ? `${summary.overdueCount} HĐ nợ` : "Đã thu đủ"}
+        trendLabel={summary.overdueCount > 0 ? "cần theo dõi thu" : "0 đ quá hạn"}
+        highlight={summary.overdueDebt > 0}
+        highlightColor="text-[#ef4444]"
+        icon={<AlertTriangle size={18} className={summary.overdueDebt > 0 ? "text-[#ef4444]" : "text-[#10b981]"} />}
+        iconBg={summary.overdueDebt > 0 ? "bg-[#ef4444]/10" : "bg-[#10b981]/10"}
+        blobColor={summary.overdueDebt > 0 ? "bg-[#ef4444]/15" : "bg-[#10b981]/15"}
       />
     </div>
   );
 }
 
-function KpiCard({ icon, iconBg, value, label, subText, subColor }: any) {
+function KpiCard({
+  title,
+  value,
+  trend,
+  trendLabel,
+  trendPositive,
+  icon,
+  iconBg,
+  highlight,
+  highlightColor,
+  blobColor,
+}: any) {
   return (
-    <Card className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-border/60 bg-card p-3.5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <span className="text-[11px] font-bold text-muted uppercase tracking-wider truncate">{label}</span>
-        <div className={`flex h-8 w-8 items-center justify-center rounded-xl shrink-0 ${iconBg}`}>{icon}</div>
+    <Card
+      className={`relative flex flex-col justify-between overflow-hidden rounded-[16px] md:rounded-[18px] border p-4 md:p-4.5 transition-all hover:shadow-md hover:-translate-y-0.5 z-0 ${
+        highlight
+          ? "border-amber-500/30 dark:border-amber-500/20 shadow-sm ring-1 ring-amber-500/10"
+          : "border-border/60 shadow-sm"
+      }`}
+    >
+      {blobColor && (
+        <div className={`hidden md:block absolute top-0 right-0 w-[90px] h-[90px] ${blobColor} rounded-full blur-[26px] -z-10`} />
+      )}
+
+      <div className="flex items-center gap-2.5 mb-2.5">
+        <div className={`w-[36px] h-[36px] rounded-[11px] flex items-center justify-center shrink-0 ${iconBg}`}>
+          {icon}
+        </div>
+        <span className={`text-[11px] md:text-[12px] font-bold uppercase tracking-wider truncate ${highlight ? highlightColor || "text-amber-600 dark:text-amber-400" : "text-muted"}`}>
+          {title}
+        </span>
       </div>
-      <div>
-        <div className="font-mono font-black text-xl md:text-2xl text-text leading-tight">{value}</div>
-        {subText && <div className={`text-[11px] font-semibold truncate mt-1 ${subColor || "text-muted"}`}>{subText}</div>}
+
+      <div className="flex flex-col justify-end">
+        <div className="font-mono font-black text-2xl md:text-[26px] text-text leading-tight mb-1">
+          {value}
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] md:text-[12px] truncate">
+          {trend && (
+            <span
+              className={`font-bold ${
+                trendPositive
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : highlight
+                  ? highlightColor || "text-amber-600 dark:text-amber-400"
+                  : "text-muted"
+              }`}
+            >
+              {trend}
+            </span>
+          )}
+          {trendLabel && <span className="text-muted font-medium truncate">{trendLabel}</span>}
+        </div>
       </div>
     </Card>
   );

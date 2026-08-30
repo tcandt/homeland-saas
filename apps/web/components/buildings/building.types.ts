@@ -99,6 +99,8 @@ export interface Room {
   sharedTenants?: SharedTenant[];
   notes?: string;
   attachments?: RoomAttachment[];
+  building?: any;
+  buildingName?: string;
   layout?: { x: number; y: number; width: number; height: number };
 }
 

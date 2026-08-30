@@ -163,6 +163,8 @@ export const adaptRoom = (apiRoom: any): Room => {
     bedCount: toOptionalNumber(apiRoom.bedCount),
     images: apiRoom.images && apiRoom.images.length > 0 ? apiRoom.images : [],
     notes: apiRoom.notes,
+    building: apiRoom.building,
+    buildingName: apiRoom.building?.name || apiRoom.building?.code || apiRoom.buildingCode || "",
     tenant,
     roommates: [],
     contract,

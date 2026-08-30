@@ -14,6 +14,7 @@ import {
   DoorClosed,
   Droplets,
   FileText,
+  Gift,
   Loader2,
   Minus,
   Phone,
@@ -23,12 +24,11 @@ import {
   Send,
   ShieldCheck,
   Smartphone,
-  Sparkles,
+  Tag,
   User,
   UserCheck,
   Users,
   Wallet,
-  Wifi,
   X,
   Zap,
 } from "lucide-react";
@@ -37,9 +37,9 @@ import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { useRoomsQuery } from "@/lib/queries/rooms.queries";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
-import { useCustomersQuery } from "@/lib/queries/customers.queries";
 import { useCreateInvoiceMutation } from "@/lib/mutations/invoices.mutations";
 import { useIssueInvoiceMutation, usePayInvoiceMutation } from "@/lib/queries/invoices.queries";
+import { useSendInvoicePaymentToZaloMutation } from "@/lib/queries/payments.queries";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 import toast from "react-hot-toast";
 
@@ -49,7 +49,7 @@ interface InvoiceCreateModalProps {
   defaultRoomId?: string;
 }
 
-// Currency formatters
+// Helpers for formatted currency input
 function parseCurrency(val: string): number {
   return Number(val.replace(/\D/g, "")) || 0;
 }
@@ -68,15 +68,14 @@ export default function InvoiceCreateModal({
   onClose,
   defaultRoomId,
 }: InvoiceCreateModalProps) {
-  const { data: rooms = [] } = useRoomsQuery({ limit: 100 });
-  const { data: contractsData } = useContractsQuery({ limit: 100 });
+  const { data: rooms = [] } = useRoomsQuery({ limit: 200 });
+  const { data: contractsData } = useContractsQuery({ limit: 200 });
   const contracts = contractsData?.data || [];
-  const { data: customersData } = useCustomersQuery({ limit: 100 });
-  const allCustomers = customersData?.data || [];
 
   const createMutation = useCreateInvoiceMutation();
   const issueMutation = useIssueInvoiceMutation();
   const payMutation = usePayInvoiceMutation();
+  const sendZaloMutation = useSendInvoicePaymentToZaloMutation();
 
   // 1. Room Selection
   const [selectedRoomId, setSelectedRoomId] = useState<string>(defaultRoomId || "");
@@ -87,29 +86,29 @@ export default function InvoiceCreateModal({
   const [customRecipientName, setCustomRecipientName] = useState<string>("");
   const [customRecipientPhone, setCustomRecipientPhone] = useState<string>("");
 
-  // 3. Line Items
+  // 3. Line Items (2 Columns, 3 items each)
+  // Column 1
   const [includeRent, setIncludeRent] = useState<boolean>(true);
-  const [roomRent, setRoomRent] = useState<number>(4000000);
+  const [roomRent, setRoomRent] = useState<number>(0);
 
   const [includeContractDeposit, setIncludeContractDeposit] = useState<boolean>(false);
-  const [contractDeposit, setContractDeposit] = useState<number>(4000000);
+  const [contractDeposit, setContractDeposit] = useState<number>(0);
 
   const [includeHoldingDeposit, setIncludeHoldingDeposit] = useState<boolean>(false);
-  const [holdingDeposit, setHoldingDeposit] = useState<number>(1000000);
+  const [holdingDeposit, setHoldingDeposit] = useState<number>(0);
 
+  // Column 2
   const [includeElectricity, setIncludeElectricity] = useState<boolean>(true);
   const [electricityAmount, setElectricityAmount] = useState<number>(0);
 
   const [includeWater, setIncludeWater] = useState<boolean>(true);
   const [waterPeopleCount, setWaterPeopleCount] = useState<number>(1);
-  const [waterUnitPrice, setWaterUnitPrice] = useState<number>(100000);
+  const [waterUnitPrice] = useState<number>(100000); // 100k/person
 
-  const [wifiFree, setWifiFree] = useState<boolean>(true);
-  const [serviceFee, setServiceFee] = useState<number>(0);
-
+  const [includeDiscount, setIncludeDiscount] = useState<boolean>(false);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
 
-  // 4. Period & Due Date
+  // 4. Period & Due Date (Vietnamese format)
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
   const [periodMonth, setPeriodMonth] = useState<number>(currentMonth);
@@ -127,7 +126,7 @@ export default function InvoiceCreateModal({
   const [sendZaloBot, setSendZaloBot] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Lookup Room & Contract
+  // Real room & contract lookup
   const selectedRoom = useMemo(() => {
     return rooms.find((r: any) => r.id === selectedRoomId);
   }, [rooms, selectedRoomId]);
@@ -137,66 +136,84 @@ export default function InvoiceCreateModal({
     return contracts.find(
       (c: any) =>
         (c.roomId === selectedRoomId || c.room?.id === selectedRoomId) &&
-        ["ACTIVE", "APPROVED", "DRAFT"].includes(c.status)
+        ["ACTIVE", "APPROVED", "DRAFT", "EXPIRING"].includes(c.status)
     );
   }, [contracts, selectedRoomId]);
 
-  // Representative
+  // Real representative
   const representative = useMemo(() => {
-    return (
-      activeContract?.customer || {
-        id: "rep-1",
-        fullName: "Nguyễn Đức Tính",
-        phone: "0567867889",
-        gender: "MALE",
-      }
-    );
-  }, [activeContract]);
-
-  // Available Roommates in this Room / Contract
-  const availableRoommates = useMemo(() => {
-    if (activeContract?.coRepresentativeIds && activeContract.coRepresentativeIds.length > 0) {
-      return allCustomers.filter((c: any) => activeContract.coRepresentativeIds.includes(c.id));
+    if (selectedRoom?.tenant) {
+      return {
+        id: selectedRoom.tenant.id,
+        fullName: selectedRoom.tenant.name,
+        phone: selectedRoom.tenant.phone,
+        gender: selectedRoom.tenant.gender,
+      };
     }
-    return [
-      { id: "roommate-1", fullName: "Trần Thị Mai (Khách ghép 1)", phone: "0912345678", gender: "FEMALE" },
-      { id: "roommate-2", fullName: "Lê Văn Hùng (Khách ghép 2)", phone: "0987654321", gender: "MALE" },
-    ];
-  }, [activeContract, allCustomers]);
+    if (activeContract?.customer) {
+      return {
+        id: activeContract.customer.id,
+        fullName: activeContract.customer.fullName || activeContract.customer.name,
+        phone: activeContract.customer.phone,
+        gender: activeContract.customer.gender,
+      };
+    }
+    return null;
+  }, [selectedRoom, activeContract]);
+
+  // Real roommates from selected room
+  const availableRoommates = useMemo(() => {
+    if (!selectedRoom) return [];
+    const shared = selectedRoom.sharedTenants || [];
+    return shared.map((t: any) => ({
+      id: t.id || t.name,
+      fullName: t.name || t.fullName,
+      phone: t.phone || "",
+      gender: t.gender || "MALE",
+    }));
+  }, [selectedRoom]);
 
   // Auto update when Room changes
   useEffect(() => {
     if (selectedRoom) {
-      const defaultRent = selectedRoom.price || activeContract?.monthlyRent || 4000000;
+      const defaultRent = selectedRoom.price || selectedRoom.monthlyPrice || Number(activeContract?.monthlyRent) || 0;
       setRoomRent(defaultRent);
-      setContractDeposit(defaultRent);
-      setWaterPeopleCount(activeContract?.memberCount || 1);
+      setContractDeposit(Number(activeContract?.depositMoney) || defaultRent);
+      setWaterPeopleCount(Number(activeContract?.memberCount) || (selectedRoom.sharedTenants?.length ? selectedRoom.sharedTenants.length + 1 : 1));
 
       if (recipientType === "REPRESENTATIVE") {
-        setCustomRecipientName(representative?.fullName || "Nguyễn Đức Tính");
-        setCustomRecipientPhone(representative?.phone || "0567867889");
+        setCustomRecipientName(representative?.fullName || "");
+        setCustomRecipientPhone(representative?.phone || "");
       }
+    } else {
+      setRoomRent(0);
+      setContractDeposit(0);
+      setHoldingDeposit(0);
+      setCustomRecipientName("");
+      setCustomRecipientPhone("");
     }
   }, [selectedRoom, activeContract, representative, recipientType]);
 
   // When switching recipient type
   useEffect(() => {
     if (recipientType === "REPRESENTATIVE") {
-      setCustomRecipientName(representative?.fullName || "Nguyễn Đức Tính");
-      setCustomRecipientPhone(representative?.phone || "0567867889");
+      setCustomRecipientName(representative?.fullName || "");
+      setCustomRecipientPhone(representative?.phone || "");
     } else if (recipientType === "ROOMMATE") {
-      const found = availableRoommates.find((r: any) => r.id === selectedRoommateId) || availableRoommates[0];
-      if (found) {
-        setSelectedRoommateId(found.id);
-        setCustomRecipientName(found.fullName);
-        setCustomRecipientPhone(found.phone);
+      if (availableRoommates.length > 0) {
+        const found = availableRoommates.find((r: any) => r.id === selectedRoommateId) || availableRoommates[0];
+        if (found) {
+          setSelectedRoommateId(found.id);
+          setCustomRecipientName(found.fullName);
+          setCustomRecipientPhone(found.phone);
+        }
       }
     }
   }, [recipientType, selectedRoommateId, representative, availableRoommates]);
 
   // Calculations
   const waterTotal = includeWater ? waterUnitPrice * waterPeopleCount : 0;
-  const actualServiceFee = wifiFree ? 0 : serviceFee;
+  const actualDiscount = includeDiscount ? discountAmount : 0;
 
   const grandTotal = useMemo(() => {
     let sum = 0;
@@ -205,8 +222,7 @@ export default function InvoiceCreateModal({
     if (includeHoldingDeposit) sum += holdingDeposit;
     if (includeElectricity) sum += electricityAmount;
     if (includeWater) sum += waterTotal;
-    sum += actualServiceFee;
-    return Math.max(0, sum - discountAmount);
+    return Math.max(0, sum - actualDiscount);
   }, [
     includeRent,
     roomRent,
@@ -218,8 +234,7 @@ export default function InvoiceCreateModal({
     electricityAmount,
     includeWater,
     waterTotal,
-    actualServiceFee,
-    discountAmount,
+    actualDiscount,
   ]);
 
   const handleCreate = async (autoIssue = true) => {
@@ -228,7 +243,11 @@ export default function InvoiceCreateModal({
       return;
     }
 
-    const customerId = activeContract?.customerId || activeContract?.customer?.id || representative?.id || "default";
+    const customerId = activeContract?.customerId || activeContract?.customer?.id || representative?.id;
+    if (!customerId) {
+      toast.error("Phòng chưa có thông tin khách thuê hợp lệ");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -237,29 +256,24 @@ export default function InvoiceCreateModal({
         items.push({ name: "Tiền thuê phòng", type: "RENT", amount: roomRent, quantity: 1 });
       }
       if (includeContractDeposit && contractDeposit > 0) {
-        items.push({ name: "Tiền đặt cọc hợp đồng (Bảo chứng tài sản)", type: "RENT", amount: contractDeposit, quantity: 1 });
+        items.push({ name: "Tiền đặt cọc hợp đồng", type: "RENT", amount: contractDeposit, quantity: 1 });
       }
       if (includeHoldingDeposit && holdingDeposit > 0) {
         items.push({ name: "Tiền cọc giữ chỗ phòng", type: "RENT", amount: holdingDeposit, quantity: 1 });
       }
       if (includeElectricity && electricityAmount > 0) {
-        items.push({ name: "Tiền điện EVN (Giá nhà nước)", type: "UTILITY_ELECTRICITY", amount: electricityAmount, quantity: 1 });
+        items.push({ name: "Tiền điện", type: "UTILITY_ELECTRICITY", amount: electricityAmount, quantity: 1 });
       }
       if (includeWater && waterTotal > 0) {
-        items.push({ name: `Tiền nước sinh hoạt (${waterPeopleCount} người × 100k)`, type: "UTILITY_WATER", amount: waterTotal, quantity: waterPeopleCount });
+        items.push({ name: `Tiền nước (${waterPeopleCount} người)`, type: "UTILITY_WATER", amount: waterTotal, quantity: waterPeopleCount });
       }
-      if (wifiFree) {
-        items.push({ name: "Wifi & Tiện ích (Miễn phí)", type: "SERVICE", amount: 0, quantity: 1 });
-      } else if (serviceFee > 0) {
-        items.push({ name: "Wifi & Dịch vụ tiện ích", type: "SERVICE", amount: serviceFee, quantity: 1 });
-      }
-      if (discountAmount > 0) {
-        items.push({ name: "Khấu trừ / Giảm giá", type: "DISCOUNT", amount: -discountAmount, quantity: 1 });
+      if (includeDiscount && discountAmount > 0) {
+        items.push({ name: "Giảm giá", type: "DISCOUNT", amount: -discountAmount, quantity: 1 });
       }
 
       const periodStr = `Tháng ${String(periodMonth).padStart(2, "0")}/${periodYear}`;
 
-      // Convert dd/mm/yyyy to Date
+      // Convert dd/mm/yyyy to ISO
       const parts = dueDay.split("/");
       const dueIso = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().slice(0, 10);
 
@@ -295,7 +309,12 @@ export default function InvoiceCreateModal({
         }
       }
 
-      if (sendZaloBot && payMethod === "QR_TRANSFER") {
+      if (sendZaloBot && payMethod === "QR_TRANSFER" && invoiceId) {
+        try {
+          await sendZaloMutation.mutateAsync(invoiceId);
+        } catch (e) {
+          // ignore
+        }
         toast.success(
           `🤖 Bot Zalo đã gửi hóa đơn & mã VietQR tới ${customRecipientName} (${customRecipientPhone})!`,
           { duration: 5000 }
@@ -317,15 +336,15 @@ export default function InvoiceCreateModal({
       ? availableRoommates.find((r: any) => r.id === selectedRoommateId)?.gender === "FEMALE"
       : representative?.gender === "FEMALE" || representative?.gender === "Nữ";
 
-  const avatarUrl = getTenantAvatar(undefined, customRecipientName, isFemale ? "FEMALE" : "MALE");
+  const avatarUrl = getTenantAvatar(undefined, customRecipientName || "Khách thuê", isFemale ? "FEMALE" : "MALE");
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="max-w-[620px]"
+      maxWidth="max-w-[660px]"
       title={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <Receipt size={17} />
           </div>
@@ -361,7 +380,7 @@ export default function InvoiceCreateModal({
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 size={14} className="mr-1.5 animate-spin" /> Đang tạo...
+                  <Loader2 size={14} className="mr-1.5 animate-spin" /> Đang xử lý...
                 </>
               ) : sendZaloBot && payMethod === "QR_TRANSFER" ? (
                 <>
@@ -391,19 +410,24 @@ export default function InvoiceCreateModal({
                 onChange={(e) => setSelectedRoomId(e.target.value)}
                 className="w-full h-8.5 px-2.5 rounded-lg border border-border bg-card text-xs font-bold text-text outline-none focus:border-primary"
               >
-                <option value="">-- Chọn phòng --</option>
-                {rooms.map((room: any) => (
-                  <option key={room.id} value={room.id}>
-                    {room.building?.name || room.building?.code || "Tòa LK01.31"} • {room.code || room.name}
-                  </option>
-                ))}
+                <option value="">-- Chọn phòng thanh toán --</option>
+                {rooms.map((room: any) => {
+                  const bName = room.buildingName || room.building?.name || room.building?.code || "";
+                  const rCode = room.code || room.name || `Phòng ${room.id?.slice(0, 5)}`;
+                  const label = bName ? `${bName} • ${rCode}` : rCode;
+                  return (
+                    <option key={room.id} value={room.id}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
             {/* Recipient Mode Toggle */}
             <div className="sm:w-60">
               <label className="text-[10px] font-black uppercase tracking-wider text-muted block mb-1">
-                Người nhận
+                Hình thức nhận
               </label>
               <div className="flex items-center gap-1 bg-card border border-border rounded-lg p-0.5 h-8.5">
                 <button
@@ -432,41 +456,49 @@ export default function InvoiceCreateModal({
             </div>
           </div>
 
-          {/* Tenant details */}
+          {/* Tenant details card */}
           {selectedRoomId && (
             <div className="flex items-center justify-between rounded-lg bg-card border border-border/60 px-2.5 py-2">
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <img
                   src={avatarUrl}
-                  alt={customRecipientName}
-                  className={`h-7 w-7 rounded-lg object-cover border ${
+                  alt={customRecipientName || "Khách"}
+                  className={`h-7.5 w-7.5 rounded-lg object-cover border ${
                     isFemale ? "border-pink-300 bg-pink-50" : "border-sky-300 bg-sky-50"
                   }`}
                 />
                 <div className="min-w-0">
-                  <div className="font-black text-text text-xs truncate">{customRecipientName || "Chưa có tên"}</div>
+                  <div className="font-black text-text text-xs truncate">
+                    {customRecipientName || (representative ? representative.fullName : "Chưa gán khách thuê")}
+                  </div>
                   <div className="flex items-center gap-1 text-[11px] text-muted font-mono">
                     <Phone size={10} className="text-emerald-500 shrink-0" />
-                    <span>{customRecipientPhone || "0567867889"}</span>
+                    <span>{customRecipientPhone || (representative ? representative.phone : "Chưa có SĐT")}</span>
                   </div>
                 </div>
               </div>
 
               {recipientType === "ROOMMATE" ? (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-[10px] text-muted font-bold">Chọn:</span>
-                  <select
-                    value={selectedRoommateId}
-                    onChange={(e) => setSelectedRoommateId(e.target.value)}
-                    className="h-7 px-2 rounded-md border border-primary/30 bg-primary/5 text-[11px] font-bold text-primary outline-none"
-                  >
-                    {availableRoommates.map((rm: any) => (
-                      <option key={rm.id} value={rm.id}>
-                        {rm.fullName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                availableRoommates.length > 0 ? (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] text-muted font-bold">Khách ghép:</span>
+                    <select
+                      value={selectedRoommateId}
+                      onChange={(e) => setSelectedRoommateId(e.target.value)}
+                      className="h-7 px-2 rounded-md border border-primary/30 bg-primary/5 text-[11px] font-bold text-primary outline-none"
+                    >
+                      {availableRoommates.map((rm: any) => (
+                        <option key={rm.id} value={rm.id}>
+                          {rm.fullName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <span className="text-[10px] text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">
+                    Phòng 1 người
+                  </span>
+                )
               ) : (
                 <Badge variant="primary" className="text-[10px] py-0.5 px-2">
                   Đại diện HĐ
@@ -476,19 +508,19 @@ export default function InvoiceCreateModal({
           )}
         </div>
 
-        {/* 2. KHOẢN MỤC THU TIỀN (BỐ TRÍ 2 CỘT GỌN ĐẸP, SẠCH SẼ) */}
+        {/* 2. KHOẢN MỤC THU TIỀN (2 CỘT RỘNG RÃI, KHÔNG CHE KHUẤT TEXT) */}
         <div className="rounded-xl border border-border/80 bg-card p-3 flex flex-col gap-2">
-          <div className="flex items-center justify-between border-b border-border/50 pb-1.5 text-[10px] font-black uppercase tracking-wider text-muted">
+          <div className="flex items-center justify-between border-b border-border/50 pb-1.5 text-[10px] font-black uppercase tracking-wider text-muted select-none">
             <span>Khoản mục thu tiền</span>
             <span>Số tiền (VNĐ)</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2">
             {/* CỘT 1: PHÒNG & CỌC */}
             <div className="flex flex-col gap-2">
               {/* 1. Tiền thuê phòng */}
               <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
                   <input
                     type="checkbox"
                     checked={includeRent}
@@ -496,9 +528,9 @@ export default function InvoiceCreateModal({
                     className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
                   />
                   <Building2 size={13} className="text-indigo-500 shrink-0" />
-                  <span className="truncate">Tiền phòng</span>
+                  <span className="whitespace-nowrap">Tiền phòng</span>
                 </label>
-                <div className="relative w-28 shrink-0">
+                <div className="relative w-32 shrink-0">
                   <input
                     type="text"
                     disabled={!includeRent}
@@ -516,7 +548,7 @@ export default function InvoiceCreateModal({
 
               {/* 2. Tiền cọc hợp đồng */}
               <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
                   <input
                     type="checkbox"
                     checked={includeContractDeposit}
@@ -524,9 +556,9 @@ export default function InvoiceCreateModal({
                     className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
                   />
                   <ShieldCheck size={13} className="text-indigo-600 shrink-0" />
-                  <span className="truncate">Cọc hợp đồng</span>
+                  <span className="whitespace-nowrap">Cọc hợp đồng</span>
                 </label>
-                <div className="relative w-28 shrink-0">
+                <div className="relative w-32 shrink-0">
                   <input
                     type="text"
                     disabled={!includeContractDeposit}
@@ -544,7 +576,7 @@ export default function InvoiceCreateModal({
 
               {/* 3. Cọc giữ phòng */}
               <div className="flex items-center justify-between gap-2 py-1">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
                   <input
                     type="checkbox"
                     checked={includeHoldingDeposit}
@@ -552,9 +584,9 @@ export default function InvoiceCreateModal({
                     className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
                   />
                   <Wallet size={13} className="text-amber-500 shrink-0" />
-                  <span className="truncate">Cọc giữ phòng</span>
+                  <span className="whitespace-nowrap">Cọc giữ phòng</span>
                 </label>
-                <div className="relative w-28 shrink-0">
+                <div className="relative w-32 shrink-0">
                   <input
                     type="text"
                     disabled={!includeHoldingDeposit}
@@ -571,11 +603,11 @@ export default function InvoiceCreateModal({
               </div>
             </div>
 
-            {/* CỘT 2: ĐIỆN, NƯỚC, WIFI & GIẢM GIÁ */}
+            {/* CỘT 2: ĐIỆN, NƯỚC, GIẢM GIÁ */}
             <div className="flex flex-col gap-2">
               {/* 4. Tiền điện */}
               <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
                   <input
                     type="checkbox"
                     checked={includeElectricity}
@@ -583,9 +615,9 @@ export default function InvoiceCreateModal({
                     className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
                   />
                   <Zap size={13} className="text-amber-500 shrink-0" />
-                  <span className="truncate">Tiền điện</span>
+                  <span className="whitespace-nowrap">Tiền điện</span>
                 </label>
-                <div className="relative w-28 shrink-0">
+                <div className="relative w-32 shrink-0">
                   <input
                     type="text"
                     disabled={!includeElectricity}
@@ -602,9 +634,9 @@ export default function InvoiceCreateModal({
                 </div>
               </div>
 
-              {/* 5. Tiền nước (100k/người) */}
+              {/* 5. Tiền nước (Rõ ràng, không bị ẩn số người, không có nút spinner) */}
               <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none min-w-0">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
                   <input
                     type="checkbox"
                     checked={includeWater}
@@ -612,70 +644,72 @@ export default function InvoiceCreateModal({
                     className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
                   />
                   <Droplets size={13} className="text-sky-500 shrink-0" />
-                  <span className="truncate">Nước (100k/ng)</span>
+                  <span className="whitespace-nowrap">Tiền nước</span>
                 </label>
 
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   {includeWater && (
-                    <div className="flex items-center bg-surface border border-border rounded px-1 h-6">
+                    <div className="flex items-center bg-surface border border-border/80 rounded px-1.5 h-7">
+                      <Users size={11} className="text-muted mr-1" />
                       <input
-                        type="number"
-                        min={1}
-                        max={10}
+                        type="text"
                         value={waterPeopleCount}
-                        onChange={(e) => setWaterPeopleCount(Math.max(1, Number(e.target.value) || 1))}
-                        className="w-4 font-mono font-bold text-[11px] text-text bg-transparent text-center outline-none"
+                        onChange={(e) => {
+                          const val = Number(e.target.value.replace(/\D/g, "")) || 1;
+                          setWaterPeopleCount(Math.max(1, Math.min(20, val)));
+                        }}
+                        className="w-5 font-mono font-black text-xs text-text bg-transparent text-center outline-none"
                       />
-                      <span className="text-[9px] text-muted">ng</span>
+                      <span className="text-[10px] text-muted font-bold ml-0.5">người</span>
                     </div>
                   )}
-                  <div className="relative w-20">
+                  <div className="relative w-24">
                     <input
                       type="text"
                       readOnly
                       value={includeWater ? formatCurrencyInput(waterTotal) : "0"}
-                      className="w-full h-7 px-1.5 pr-4 rounded-md border border-transparent bg-transparent text-right font-mono font-bold text-xs text-text outline-none"
+                      className="w-full h-7 px-1 pr-4 rounded-md border border-transparent bg-transparent text-right font-mono font-bold text-xs text-text outline-none"
                     />
                     <span className="absolute right-1 top-1.5 text-[10px] text-muted font-bold">đ</span>
                   </div>
                 </div>
               </div>
 
-              {/* 6. Wifi Free & Giảm giá */}
+              {/* 6. Giảm giá (Gọn gàng, loại bỏ chữ Khấu trừ) */}
               <div className="flex items-center justify-between gap-2 py-1">
-                {/* Wifi Free */}
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none">
+                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-rose-600 select-none shrink-0">
                   <input
                     type="checkbox"
-                    checked={wifiFree}
-                    onChange={(e) => setWifiFree(e.target.checked)}
-                    className="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 cursor-pointer"
+                    checked={includeDiscount}
+                    onChange={(e) => setIncludeDiscount(e.target.checked)}
+                    className="rounded text-rose-600 focus:ring-rose-500 h-3.5 w-3.5 cursor-pointer"
                   />
-                  <Wifi size={13} className="text-emerald-500 shrink-0" />
-                  <span className="text-emerald-600 text-[11px]">Wifi (Free)</span>
+                  <Minus size={13} className="text-rose-500 shrink-0" />
+                  <span className="whitespace-nowrap">Giảm giá</span>
                 </label>
 
-                {/* Discount */}
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-[10px] text-rose-500 font-bold">Giảm:</span>
-                  <div className="relative w-20">
-                    <input
-                      type="text"
-                      value={formatCurrencyInput(discountAmount)}
-                      onChange={(e) => setDiscountAmount(parseCurrency(e.target.value))}
-                      placeholder="0"
-                      className="w-full h-7 px-1.5 pr-4 rounded-md border border-border bg-surface text-right font-mono font-bold text-[11px] text-rose-600 outline-none focus:border-rose-500"
-                    />
-                    <span className="absolute right-1 top-1.5 text-[10px] text-rose-500 font-bold">đ</span>
-                  </div>
+                <div className="relative w-32 shrink-0">
+                  <input
+                    type="text"
+                    disabled={!includeDiscount}
+                    value={includeDiscount ? formatCurrencyInput(discountAmount) : "0"}
+                    onChange={(e) => setDiscountAmount(parseCurrency(e.target.value))}
+                    placeholder="0"
+                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
+                      includeDiscount
+                        ? "border-rose-300 bg-rose-50/30 text-rose-600 focus:border-rose-500"
+                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
+                    }`}
+                  />
+                  <span className="absolute right-1.5 top-1.5 text-[10px] text-rose-500 font-bold">đ</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 3. TỔNG CỘNG & KỲ CƯỚC / HẠN ĐÓNG (GỌN GÀNG, ĐẸP) */}
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+        {/* 3. TỔNG CỘNG & KỲ CƯỚC / HẠN ĐÓNG (CĂN GIỮA, KHÔNG BỊ CHE) */}
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-muted block">
               Tổng tiền thanh toán
@@ -685,16 +719,16 @@ export default function InvoiceCreateModal({
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
-            {/* Month & Year for Period */}
-            <div>
-              <label className="text-[10px] font-black uppercase text-muted block mb-0.5">Kỳ cước</label>
-              <div className="flex items-center gap-1 bg-card border border-border rounded-lg px-2 h-7.5">
+          <div className="flex items-center justify-center sm:justify-end gap-3 text-xs">
+            {/* Kỳ cước */}
+            <div className="flex flex-col items-center sm:items-start">
+              <span className="text-[10px] font-black uppercase text-muted block mb-0.5">Kỳ cước</span>
+              <div className="flex items-center justify-center gap-1 bg-card border border-border rounded-lg px-2.5 h-8">
                 <span className="text-[11px] font-bold text-muted">Tháng</span>
                 <select
                   value={periodMonth}
                   onChange={(e) => setPeriodMonth(Number(e.target.value))}
-                  className="bg-transparent font-mono font-bold text-xs text-text outline-none"
+                  className="bg-transparent font-mono font-black text-xs text-text outline-none cursor-pointer"
                 >
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                     <option key={m} value={m}>
@@ -702,26 +736,29 @@ export default function InvoiceCreateModal({
                     </option>
                   ))}
                 </select>
-                <span className="text-muted">/</span>
+                <span className="text-muted/60">/</span>
                 <input
                   type="number"
                   value={periodYear}
                   onChange={(e) => setPeriodYear(Number(e.target.value))}
-                  className="w-10 bg-transparent font-mono font-bold text-xs text-text outline-none"
+                  className="w-11 bg-transparent font-mono font-black text-xs text-text outline-none text-center"
                 />
               </div>
             </div>
 
-            {/* Due Date (DD/MM/YYYY text input) */}
-            <div>
-              <label className="text-[10px] font-black uppercase text-muted block mb-0.5">Hạn đóng</label>
-              <input
-                type="text"
-                value={dueDay}
-                onChange={(e) => setDueDay(e.target.value)}
-                placeholder="dd/mm/yyyy"
-                className="h-7.5 px-2 w-24 rounded-lg border border-border bg-card font-mono text-xs font-bold text-text outline-none focus:border-primary text-center"
-              />
+            {/* Hạn đóng */}
+            <div className="flex flex-col items-center sm:items-start">
+              <span className="text-[10px] font-black uppercase text-muted block mb-0.5">Hạn đóng</span>
+              <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 h-8">
+                <Calendar size={12} className="text-amber-500 shrink-0" />
+                <input
+                  type="text"
+                  value={dueDay}
+                  onChange={(e) => setDueDay(e.target.value)}
+                  placeholder="dd/mm/yyyy"
+                  className="w-22 bg-transparent font-mono font-black text-xs text-text outline-none text-center"
+                />
+              </div>
             </div>
           </div>
         </div>

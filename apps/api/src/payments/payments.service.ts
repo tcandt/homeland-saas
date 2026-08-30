@@ -207,9 +207,9 @@ export class PaymentsService {
   }
 
   private resolveZaloRecipient(customer: any) {
-    const recipient = String(customer?.zaloChatId || customer?.zaloUserId || '').trim();
+    const recipient = String(customer?.zaloChatId || customer?.zaloUserId || customer?.phone || '').trim();
     if (!recipient) {
-      throw new BadRequestException('Khách thuê chưa có Zalo chat ID hoặc user ID để gửi qua Zalo Bot.');
+      throw new BadRequestException('Khách thuê chưa có số điện thoại hoặc Zalo chat ID để gửi qua Zalo Bot.');
     }
     return recipient;
   }

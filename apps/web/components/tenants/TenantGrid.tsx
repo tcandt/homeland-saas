@@ -210,17 +210,18 @@ export default function TenantGrid() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-x-auto">
-        <div className="grid min-w-[1060px] grid-cols-[minmax(220px,1.2fr)_minmax(160px,0.8fr)_minmax(190px,1fr)_minmax(160px,0.8fr)_120px_120px_86px] gap-3 border-b border-border bg-surface/70 px-4 py-3 text-[11px] font-black uppercase text-muted">
+        <div className="grid min-w-[1140px] grid-cols-[minmax(200px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(170px,1fr)_minmax(140px,0.8fr)_100px_110px_60px] gap-3 border-b border-border bg-surface/70 px-4 py-3 text-[11px] font-black uppercase text-muted">
           <span>Khách thuê</span>
           <span>Phòng / Tòa</span>
           <span>Liên hệ</span>
+          <span>Kênh thông báo</span>
           <span>Hợp đồng</span>
           <span>Công nợ</span>
           <span>Trạng thái</span>
           <span className="text-right">Thao tác</span>
         </div>
 
-        <div className="flex min-w-[1060px] flex-col">
+        <div className="flex min-w-[1140px] flex-col">
           {rows.length === 0 ? (
             <div data-testid="empty-tenants-state" className="p-6">
               <EmptyState title="Không có dữ liệu" message="Không tìm thấy khách hàng nào phù hợp với bộ lọc." />
@@ -270,8 +271,13 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
   const cleanGender = (row.gender || "").trim().toLowerCase();
   const isFemale = cleanGender === "female" || cleanGender === "nu" || cleanGender === "nữ" || cleanGender === "gái";
 
+  const hasPhone = row.phone && row.phone !== "N/A" && row.phone.trim() !== "";
+  const hasEmail = row.email && row.email !== "N/A" && row.email.includes("@");
+  const hasZalo = !!(row.zaloChatId || row.zaloUserId || (row.source as any)?.zaloPhone || hasPhone);
+  const hasTelegram = !!((row.source as any)?.telegramChatId || (row.source as any)?.telegramId || (row.source as any)?.telegramUsername);
+
   return (
-    <div onClick={onOpen} className="relative grid min-w-[1060px] cursor-pointer grid-cols-[minmax(220px,1.2fr)_minmax(160px,0.8fr)_minmax(190px,1fr)_minmax(160px,0.8fr)_120px_120px_86px] items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-surface/70">
+    <div onClick={onOpen} className="relative grid min-w-[1140px] cursor-pointer grid-cols-[minmax(200px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(170px,1fr)_minmax(140px,0.8fr)_100px_110px_60px] items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-surface/70">
       <div className="flex min-w-0 items-center gap-3 self-center">
         <div className="relative shrink-0">
           <img
@@ -302,6 +308,29 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
       <div className="min-w-0">
         <div className="truncate text-[13px] font-bold text-text">{row.phone}</div>
         <div className="mt-1 truncate text-[12px] font-semibold text-muted">{row.email}</div>
+      </div>
+      {/* Cột Kênh thông báo / Đăng ký */}
+      <div className="flex flex-wrap items-center gap-1 min-w-0">
+        {hasZalo && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 border border-blue-500/20" title={`Zalo: ${row.phone}`}>
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span> Zalo
+          </span>
+        )}
+        {hasEmail && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20" title={`Email: ${row.email}`}>
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Email
+          </span>
+        )}
+        {hasTelegram && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/10 text-sky-600 border border-sky-500/20" title="Telegram">
+            <span className="h-1.5 w-1.5 rounded-full bg-sky-500"></span> Telegram
+          </span>
+        )}
+        {!hasZalo && !hasEmail && !hasTelegram && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-surface text-muted/60 border border-border/60">
+            N/A
+          </span>
+        )}
       </div>
       <div className="min-w-0">
         <div className="truncate text-[12px] font-black text-text">{formatDate(row.startDate)} - {formatDate(row.endDate)}</div>

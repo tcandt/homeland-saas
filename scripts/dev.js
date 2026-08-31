@@ -115,13 +115,21 @@ process.on('SIGTERM', () => stopAll(0));
 
 async function main() {
   if (isWindows) {
-    console.log('[dev] Syncing Prisma client and shared package before watch mode');
+    console.log('[dev] Syncing Prisma client and packages before watch mode');
     await runSetupStep('setup', 'cmd.exe', ['/d', '/s', '/c', 'npm run db:generate']);
     await runSetupStep('setup', 'cmd.exe', ['/d', '/s', '/c', 'npm run build -w @homeland/shared']);
+    const apiDist = path.join(process.cwd(), 'apps', 'api', 'dist', 'main.js');
+    if (!fs.existsSync(apiDist)) {
+      await runSetupStep('setup', 'cmd.exe', ['/d', '/s', '/c', 'npm run build -w api']);
+    }
   } else {
-    console.log('[dev] Syncing Prisma client and shared package before watch mode');
+    console.log('[dev] Syncing Prisma client and packages before watch mode');
     await runSetupStep('setup', 'npm', ['run', 'db:generate']);
     await runSetupStep('setup', 'npm', ['run', 'build', '-w', '@homeland/shared']);
+    const apiDist = path.join(process.cwd(), 'apps', 'api', 'dist', 'main.js');
+    if (!fs.existsSync(apiDist)) {
+      await runSetupStep('setup', 'npm', ['run', 'build', '-w', 'api']);
+    }
   }
 
   console.log('[dev] Starting backend on http://localhost:3001');

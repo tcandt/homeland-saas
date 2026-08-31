@@ -219,7 +219,12 @@ export default function ActivitiesPage() {
           <div className="relative flex-1 min-w-[240px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
-              type="text"
+              type="search"
+              name="activity_search_query"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Tìm theo người dùng, email, mã đối tượng, IP..."

@@ -158,10 +158,15 @@ export default function BankTransactionHistory() {
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
         {/* Left search */}
         <div className="relative flex-1 min-w-[240px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           <input
             data-testid="bank-transactions-search"
-            type="text"
+            type="search"
+            name="bank_tx_search_query"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck="false"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Tìm theo nội dung, mã giao dịch, số tài khoản..."

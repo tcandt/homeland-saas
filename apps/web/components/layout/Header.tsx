@@ -345,6 +345,12 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       <div className="hidden md:flex flex-1 max-w-[600px] h-[44px] bg-black/5 dark:bg-white/5 border border-border rounded-[12px] items-center gap-[10px] px-[16px] transition-colors">
         <Search size={18} className="text-muted" />
         <input
+          type="search"
+          name="global_search_query"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           placeholder="Tìm phòng, khách thuê, hợp đồng, hóa đơn..."
           className="border-0 outline-none bg-transparent w-full text-text placeholder:text-muted font-medium text-[14px]"
         />

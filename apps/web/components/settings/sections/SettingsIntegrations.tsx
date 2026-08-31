@@ -172,9 +172,14 @@ export default function SettingsIntegrations() {
 
         {/* Search */}
         <div className="relative w-full sm:w-64 shrink-0">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           <input
-            type="text"
+            type="search"
+            name="integration_search_query"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck="false"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Tìm cổng dịch vụ..."

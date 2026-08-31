@@ -13,6 +13,10 @@ export const SearchInput = React.forwardRef<HTMLInputElement, React.InputHTMLAtt
           ref={ref}
           className={`pl-9 ${className}`}
           type="search"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           {...props}
         />
       </div>

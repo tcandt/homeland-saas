@@ -464,9 +464,14 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
           {/* Unified Filters Row */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[200px]">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <input
-                type="text"
+                type="search"
+                name="expense_search_query"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Tìm mã, nội dung, người chi, nhà cung cấp..."

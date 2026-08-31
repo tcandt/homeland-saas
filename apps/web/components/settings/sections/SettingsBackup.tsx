@@ -414,9 +414,14 @@ export default function SettingsBackup() {
 
           {/* Search Box */}
           <div className="relative min-w-[240px]">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
             <input
-              type="text"
+              type="search"
+              name="backup_search_query"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Tìm theo tên tệp, ghi chú, người tạo..."

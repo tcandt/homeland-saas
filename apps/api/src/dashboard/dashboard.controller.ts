@@ -9,9 +9,6 @@ export class DashboardController {
 
   @Get()
   async getDashboard(@Request() req) {
-    return {
-      success: true,
-      data: await this.dashboardService.getDashboardAggregation(req.user.tenantId)
-    };
+    return this.dashboardService.getDashboardAggregation(req.user.tenantId);
   }
 }

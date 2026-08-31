@@ -94,8 +94,12 @@ async function getSyncedBuildingPortfolio() {
 
 export const dashboardAdapter = {
   async getDashboardData() {
-    const data: any = await apiClient.get("/dashboard");
-    if (!data) throw new Error("Dashboard data is empty");
+    const raw: any = await apiClient.get("/dashboard");
+    if (!raw) throw new Error("Dashboard data is empty");
+
+    const data: any = (raw.data && typeof raw.data === 'object' && (raw.data.hero || raw.data.kpis))
+      ? raw.data
+      : (raw.hero || raw.kpis ? raw : (raw.data || raw));
 
     const kpis = {
       totalRevenue: Number(data.kpis?.totalRevenue || 0),

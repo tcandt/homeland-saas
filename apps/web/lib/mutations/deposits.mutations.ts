@@ -7,6 +7,7 @@ export const useCreateDepositMutation = () => {
     mutationFn: (data: any) => depositsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
     },
   });
 };
@@ -17,6 +18,7 @@ export const useUpdateDepositMutation = () => {
     mutationFn: ({ id, data }: { id: string; data: any }) => depositsApi.update(id, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
     },
   });
@@ -28,6 +30,7 @@ export const useDeleteDepositMutation = () => {
     mutationFn: (id: string) => depositsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
     },
   });
 };
@@ -38,6 +41,7 @@ export const useCollectDepositMutation = () => {
     mutationFn: ({ id, note }: { id: string; note?: string }) => depositsApi.collect(id, note),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
     },
   });
@@ -50,6 +54,7 @@ export const useRefundDepositMutation = () => {
       depositsApi.refund(id, { reason, receiptStatus, attachmentUrls, refundAmount }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
     },
   });
@@ -61,6 +66,7 @@ export const useCompletePendingDepositRefundMutation = () => {
     mutationFn: ({ id, note }: { id: string; note?: string }) => depositsApi.completePendingRefund(id, note),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
     },
   });
@@ -93,6 +99,7 @@ export const useCancelDepositMutation = () => {
       }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
     },
   });
@@ -104,6 +111,7 @@ export const useConvertContractMutation = () => {
     mutationFn: (id: string) => depositsApi.convertToContract(id),
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', id] });
     },
   });

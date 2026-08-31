@@ -1,12 +1,14 @@
 import React from "react";
 import { Coins, ShieldCheck, Clock, AlertTriangle, CheckCircle2, Wallet } from "lucide-react";
-import { useDepositsQuery } from "@/lib/queries/deposits.queries";
+import { useDepositStatsQuery } from "@/lib/queries/deposits.queries";
+import { useDepositStore } from "@/lib/stores/deposit.store";
 import { Card } from "../ui/Card";
 import { Skeleton } from "../ui/Skeleton";
 
 export default function OperationsDepositKpi() {
-  const { data, isLoading } = useDepositsQuery({});
-  const items = data?.data?.items || [];
+  const { buildingFilter } = useDepositStore();
+  const { data: statsData, isLoading } = useDepositStatsQuery(buildingFilter !== 'ALL' ? buildingFilter : undefined);
+  const kpi = statsData?.kpi || {};
 
   if (isLoading) {
     return (
@@ -27,21 +29,12 @@ export default function OperationsDepositKpi() {
     );
   }
 
-  const totalFund = items
-    .filter((d: any) => d.status === "PAID" || d.status === "CONVERTED_TO_CONTRACT")
-    .reduce((sum: number, d: any) => sum + (Number(d.amount) || 0), 0);
-
-  const securityFund = items
-    .filter((d: any) => d.type === "SECURITY" && (d.status === "PAID" || d.status === "CONVERTED_TO_CONTRACT"))
-    .reduce((sum: number, d: any) => sum + (Number(d.amount) || 0), 0);
-
-  const bookingFund = items
-    .filter((d: any) => (d.type === "BOOKING" || d.type === "RESERVATION") && (d.status === "PAID" || d.status === "CONVERTED_TO_CONTRACT"))
-    .reduce((sum: number, d: any) => sum + (Number(d.amount) || 0), 0);
-
-  const refundPendingCount = items.filter((d: any) => d.status === "REFUNDED").length;
-  const refundOverdueCount = items.filter((d: any) => d.status === "REFUNDED" && d.expiredAt && new Date(d.expiredAt).getTime() < new Date().getTime()).length;
-  const refundedCount = items.filter((d: any) => d.status === "REFUNDED").length; // mapped to same for now
+  const totalFund = Number(kpi.totalFund) || 0;
+  const securityFund = Number(kpi.securityFund) || 0;
+  const bookingFund = Number(kpi.bookingFund) || 0;
+  const refundPendingCount = Number(kpi.refundPendingCount) || 0;
+  const refundOverdueCount = Number(kpi.refundOverdueCount) || 0;
+  const refundedCount = Number(kpi.refundedCount) || 0;
 
   const formatMillions = (val: number) => {
     if (val >= 1000000) {

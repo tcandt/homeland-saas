@@ -37,3 +37,14 @@ export const useDepositDetailQuery = (id: string | null) => {
     enabled: !!id,
   });
 };
+
+export const useDepositStatsQuery = (buildingId?: string) => {
+  return useQuery({
+    queryKey: ['deposit-stats', buildingId],
+    queryFn: async () => {
+      const response = await depositsApi.getStats(buildingId);
+      return response;
+    },
+    staleTime: 30000,
+  });
+};

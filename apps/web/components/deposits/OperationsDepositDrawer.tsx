@@ -12,6 +12,7 @@ import {
   Clock3,
   FileText,
   ShieldMinus,
+  QrCode,
 } from "lucide-react";
 import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
 import {
@@ -25,6 +26,7 @@ import { useDepositDetailQuery } from "../../lib/queries/deposits.queries";
 import { Drawer } from "../ui/Drawer";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
+import DepositQrModal from "./DepositQrModal";
 
 type DepositResolutionAction = "REFUND" | "KEEP" | "DEDUCT";
 
@@ -107,6 +109,7 @@ export default function OperationsDepositDrawer({
   const convertMutation = useConvertContractMutation();
   const cancelMutation = useCancelDepositMutation();
   const [refundAttachmentInput, setRefundAttachmentInput] = useState("");
+  const [showQrModal, setShowQrModal] = useState(false);
 
   if (!detailDeposit) return null;
 
@@ -222,8 +225,16 @@ export default function OperationsDepositDrawer({
         </div>
       }
       footer={
-        <div className="flex w-full items-center justify-between">
+        <div className="flex w-full items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-[12px]">
+            <Button
+              type="button"
+              onClick={() => setShowQrModal(true)}
+              variant="outline"
+              className="border-[#0ea5e9]/30 text-[#0ea5e9] hover:bg-[#0ea5e9]/10 font-bold"
+            >
+              <QrCode size={16} className="mr-2" /> Mã VietQR / Gửi Zalo
+            </Button>
             <Button variant="ghost">
               <Printer size={16} className="mr-2 text-muted" /> In phiếu
             </Button>
@@ -551,6 +562,12 @@ export default function OperationsDepositDrawer({
           </Card>
         </div>
       </div>
+
+      <DepositQrModal
+        isOpen={showQrModal}
+        onClose={() => setShowQrModal(false)}
+        deposit={detailDeposit}
+      />
     </Drawer>
   );
 }

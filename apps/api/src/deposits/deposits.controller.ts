@@ -11,6 +11,17 @@ import { CreateDepositSchema, UpdateDepositSchema, CollectDepositSchema, RefundD
 export class DepositsController {
   constructor(private readonly depositsService: DepositsService) {}
 
+  @Get('stats')
+  @RequirePermissions('deposit.read')
+  @ApiOperation({ summary: 'Get deposits KPI & pipeline stats' })
+  @ApiQuery({ name: 'buildingId', required: false })
+  getStats(
+    @CurrentUser('tenantId') tenantId: string,
+    @Query('buildingId') buildingId?: string,
+  ) {
+    return this.depositsService.getDepositStats(tenantId, buildingId);
+  }
+
   @Get()
   @RequirePermissions('deposit.read')
   @ApiOperation({ summary: 'List deposits' })
@@ -19,11 +30,16 @@ export class DepositsController {
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'type', required: false })
-  list(@Query() query: any) {
+  @ApiQuery({ name: 'buildingId', required: false })
+  list(
+    @Query() query: any,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
     const { page, limit, search, sort, order } = PaginationSchema.parse(query);
     const status = query.status;
     const type = query.type;
-    return this.depositsService.listDeposits(page, limit, search, status, type, sort, order);
+    const buildingId = query.buildingId;
+    return this.depositsService.listDeposits(page, limit, search, status, type, sort, order, buildingId, tenantId);
   }
 
   @Get(':id')

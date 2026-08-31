@@ -51,6 +51,137 @@ export class DepositsService extends BaseCrudService<Deposit> {
     return record;
   }
 
+  async getDepositStats(tenantId: string, buildingId?: string) {
+    const where: any = { tenantId, deletedAt: null };
+    if (buildingId && buildingId !== 'ALL') {
+      where.room = { buildingId };
+    }
+
+    const [allDeposits, refundTasks] = await Promise.all([
+      this.prisma.deposit.findMany({
+        where,
+        select: {
+          id: true,
+          amount: true,
+          status: true,
+          type: true,
+          expiredAt: true,
+          updatedAt: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.task.findMany({
+        where: {
+          tenantId,
+          title: { contains: 'Hoàn' },
+          status: { notIn: ['DONE', 'CANCELLED'] },
+        },
+        select: { id: true, title: true, dueDate: true },
+      }).catch(() => []),
+    ]);
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    let totalFund = 0;
+    let securityFund = 0;
+    let bookingFund = 0;
+    let refundedThisMonthCount = 0;
+    let refundedThisMonthAmount = 0;
+
+    const pipelineCounts: Record<string, { count: number; amount: number }> = {
+      DRAFT: { count: 0, amount: 0 },
+      PAID: { count: 0, amount: 0 },
+      CONVERTED_TO_CONTRACT: { count: 0, amount: 0 },
+      REFUNDED: { count: 0, amount: 0 },
+      CANCELLED: { count: 0, amount: 0 },
+    };
+
+    for (const d of allDeposits) {
+      const amt = Number(d.amount) || 0;
+      const st = d.status;
+
+      if (pipelineCounts[st]) {
+        pipelineCounts[st].count++;
+        pipelineCounts[st].amount += amt;
+      } else if (st === 'PENDING') {
+        pipelineCounts.DRAFT.count++;
+        pipelineCounts.DRAFT.amount += amt;
+      }
+
+      if (st === 'PAID' || st === 'CONVERTED_TO_CONTRACT') {
+        totalFund += amt;
+        if (d.type === 'SECURITY') {
+          securityFund += amt;
+        } else {
+          bookingFund += amt;
+        }
+      }
+
+      if (st === 'REFUNDED' && d.updatedAt >= startOfMonth) {
+        refundedThisMonthCount++;
+        refundedThisMonthAmount += amt;
+      }
+    }
+
+    const pendingRefundsCount = refundTasks.length;
+    const overdueRefundsCount = refundTasks.filter((t) => t.dueDate && new Date(t.dueDate) < now).length;
+
+    return {
+      kpi: {
+        totalFund,
+        securityFund,
+        bookingFund,
+        refundPendingCount: pendingRefundsCount || pipelineCounts.REFUNDED.count,
+        refundOverdueCount: overdueRefundsCount,
+        refundedCount: refundedThisMonthCount || pipelineCounts.REFUNDED.count,
+        refundedAmount: refundedThisMonthAmount,
+      },
+      pipeline: [
+        {
+          id: 1,
+          key: 'DRAFT',
+          label: 'Nháp / Chờ thu',
+          count: pipelineCounts.DRAFT.count,
+          amount: pipelineCounts.DRAFT.amount,
+          statuses: ['DRAFT', 'PENDING'],
+        },
+        {
+          id: 2,
+          key: 'PAID',
+          label: 'Đã thu / Giữ cọc',
+          count: pipelineCounts.PAID.count,
+          amount: pipelineCounts.PAID.amount,
+          statuses: ['PAID'],
+        },
+        {
+          id: 3,
+          key: 'CONVERTED_TO_CONTRACT',
+          label: 'Chuyển Hợp đồng',
+          count: pipelineCounts.CONVERTED_TO_CONTRACT.count,
+          amount: pipelineCounts.CONVERTED_TO_CONTRACT.amount,
+          statuses: ['CONVERTED_TO_CONTRACT'],
+        },
+        {
+          id: 4,
+          key: 'REFUNDED',
+          label: 'Hoàn tiền',
+          count: pipelineCounts.REFUNDED.count,
+          amount: pipelineCounts.REFUNDED.amount,
+          statuses: ['REFUNDED'],
+        },
+        {
+          id: 5,
+          key: 'CANCELLED',
+          label: 'Hủy / Phạt cọc',
+          count: pipelineCounts.CANCELLED.count,
+          amount: pipelineCounts.CANCELLED.amount,
+          statuses: ['CANCELLED'],
+        },
+      ],
+    };
+  }
+
   async listDeposits(
     page: number,
     limit: number,
@@ -58,26 +189,34 @@ export class DepositsService extends BaseCrudService<Deposit> {
     status?: string,
     type?: string,
     sort?: string,
-    order?: string
+    order?: string,
+    buildingId?: string,
+    tenantId?: string,
   ): Promise<PaginatedResult<Deposit>> {
     const where: any = {};
+    if (tenantId) where.tenantId = tenantId;
     if (search) {
       where.OR = [
         { code: { contains: search, mode: 'insensitive' } },
         { customer: { fullName: { contains: search, mode: 'insensitive' } } },
+        { customer: { phone: { contains: search, mode: 'insensitive' } } },
         { room: { code: { contains: search, mode: 'insensitive' } } },
       ];
     }
-    if (status) where.status = status;
-    if (type) where.type = type;
+    if (status && status !== 'ALL') where.status = status;
+    if (type && type !== 'ALL') where.type = type;
+    if (buildingId && buildingId !== 'ALL') {
+      where.room = { buildingId };
+    }
 
     const orderBy = { [sort || 'createdAt']: order || 'desc' };
 
     return this.repository.paginate(where, page, limit, orderBy, {
-      customer: { select: { id: true, fullName: true, phone: true } },
+      customer: { select: { id: true, fullName: true, phone: true, zaloChatId: true, zaloUserId: true } },
       room: { 
-        select: { id: true, code: true, name: true, building: { select: { id: true, name: true } } } 
-      }
+        select: { id: true, code: true, name: true, buildingId: true, building: { select: { id: true, name: true } } } 
+      },
+      contract: { select: { id: true, code: true, status: true } },
     });
   }
 

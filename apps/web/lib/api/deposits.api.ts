@@ -44,6 +44,10 @@ export interface DepositListResponse {
 }
 
 export const depositsApi = {
+  getStats: (buildingId?: string) => {
+    return apiClient.get<any>('/deposits/stats', { params: buildingId && buildingId !== 'ALL' ? { buildingId } : undefined });
+  },
+
   list: (params?: any) => {
     return apiClient.get<any>('/deposits', { params });
   },

@@ -12,11 +12,15 @@ describe('DepositsService', () => {
       paginate: vi.fn(),
     };
     const prisma = {
+      deposit: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       receipt: {
         findFirst: vi.fn(),
       },
       task: {
         findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       tx: {
         deposit: {
@@ -606,5 +610,21 @@ describe('DepositsService', () => {
         }),
       }),
     );
+  });
+
+  it('aggregates deposit statistics and pipeline properly', async () => {
+    const { service, prisma } = createService();
+    prisma.deposit.findMany.mockResolvedValue([
+      { id: '1', amount: 5000000, status: 'PAID', type: 'SECURITY', updatedAt: new Date() },
+      { id: '2', amount: 3000000, status: 'PAID', type: 'BOOKING', updatedAt: new Date() },
+      { id: '3', amount: 2000000, status: 'DRAFT', type: 'BOOKING', updatedAt: new Date() },
+      { id: '4', amount: 1000000, status: 'REFUNDED', type: 'BOOKING', updatedAt: new Date() },
+    ]);
+
+    const stats = await service.getDepositStats('tenant-1');
+    expect(stats.kpi.totalFund).toBe(8000000);
+    expect(stats.kpi.securityFund).toBe(5000000);
+    expect(stats.kpi.bookingFund).toBe(3000000);
+    expect(stats.pipeline).toHaveLength(5);
   });
 });

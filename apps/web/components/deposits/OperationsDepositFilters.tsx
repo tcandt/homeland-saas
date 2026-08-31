@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X } from "lucide-react";
+import { X, Building2 } from "lucide-react";
 import { useDepositStore } from "../../lib/stores/deposit.store";
+import { useBuildingsQuery } from "../../lib/queries/buildings.queries";
 import { Card } from "../ui/Card";
 import { SearchInput } from "../ui/SearchInput";
 import { Select } from "../ui/Select";
@@ -10,9 +11,11 @@ import { Button } from "../ui/Button";
 
 export default function OperationsDepositFilters() {
   const { 
-    searchQuery, statusFilter, typeFilter,
-    setSearchQuery, setStatusFilter, setTypeFilter, resetFilters
+    searchQuery, statusFilter, typeFilter, buildingFilter,
+    setSearchQuery, setStatusFilter, setTypeFilter, setBuildingFilter, resetFilters
   } = useDepositStore();
+
+  const { data: buildings = [] } = useBuildingsQuery();
 
   const [localSearch, setLocalSearch] = useState(searchQuery);
 
@@ -24,7 +27,12 @@ export default function OperationsDepositFilters() {
     return () => clearTimeout(handler);
   }, [localSearch, setSearchQuery]);
 
-  const hasFilters = localSearch.length > 0 || statusFilter !== 'ALL' || typeFilter !== 'ALL';
+  const hasFilters = localSearch.length > 0 || statusFilter !== 'ALL' || typeFilter !== 'ALL' || buildingFilter !== 'ALL';
+
+  const buildingOptions = [
+    { label: "Tất cả tòa nhà", value: "ALL" },
+    ...buildings.map((b: any) => ({ label: b.name, value: b.id })),
+  ];
 
   const typeOptions = [
     { label: "Loại cọc (Tất cả)", value: "ALL" },
@@ -49,13 +57,23 @@ export default function OperationsDepositFilters() {
         {/* Search */}
         <SearchInput 
           placeholder="Tìm mã phiếu, khách, sđt..." 
-          className="w-full md:w-[280px] xl:w-[320px]"
+          className="w-full md:w-[260px] xl:w-[280px]"
           value={localSearch}
           onChange={(e) => setLocalSearch(e.target.value)}
         />
 
-        {/* Filters */}
-        <div className="w-[160px]">
+        {/* Building Filter */}
+        <div className="w-[180px]">
+          <Select 
+            aria-label="Filter by building"
+            options={buildingOptions}
+            value={buildingFilter}
+            onChange={(e) => setBuildingFilter(e.target.value)}
+          />
+        </div>
+
+        {/* Type Filter */}
+        <div className="w-[150px]">
           <Select 
             aria-label="Filter by deposit type"
             options={typeOptions}
@@ -64,7 +82,8 @@ export default function OperationsDepositFilters() {
           />
         </div>
 
-        <div className="w-[180px]">
+        {/* Status Filter */}
+        <div className="w-[160px]">
           <Select 
             aria-label="Filter by deposit status"
             options={statusOptions}

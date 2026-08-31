@@ -275,11 +275,17 @@ export class ConsoleProvider implements CommunicationProvider {
       throw new Error('Telegram provider is not configured');
     }
 
+    const title = (payload.title || '').trim();
+    const message = (payload.message || '').trim();
+    const text = message
+      ? (title && !message.startsWith(title) ? `${title}\n\n${message}` : message)
+      : title;
+
     const { response, body } = await postJsonWithTimeout(
       `https://api.telegram.org/bot${botToken}/sendMessage`,
       {
         chat_id: chatId,
-        text: [payload.title, payload.message].filter(Boolean).join('\n\n'),
+        text,
         parse_mode: settings.parseMode || undefined,
         disable_web_page_preview: settings.disableWebPreview ?? true,
       },
@@ -443,7 +449,11 @@ export class ConsoleProvider implements CommunicationProvider {
     }
 
     const qrUrl = String(payload.context?.qrUrl || payload.photo || '').trim();
-    const text = [payload.title, payload.message].filter(Boolean).join('\n\n');
+    const title = (payload.title || '').trim();
+    const message = (payload.message || '').trim();
+    const text = message
+      ? (title && !message.startsWith(title) ? `${title}\n\n${message}` : message)
+      : title;
 
     // 1. Send main message
     const { response, body } = await postJsonWithTimeout(

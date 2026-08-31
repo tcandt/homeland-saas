@@ -776,14 +776,20 @@ export class PaymentsService {
       };
     }
 
-    // Generate clean concise payment code (e.g. HD-3101-0826 or HD31010826)
+    // Generate clean concise payment code (e.g. HD31010826 or COC31010826)
     let paymentCode = randomCode(paymentCodePrefix, tenantId);
     if (sourceType === PaymentSourceType.INVOICE) {
       const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(/[^a-zA-Z0-9]/g, '');
       const cleanRoom = roomRaw.slice(-4) || '3101';
       const now = new Date();
       const monthYear = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
-      paymentCode = `HD-${cleanRoom}-${monthYear}`;
+      paymentCode = `HD${cleanRoom}${monthYear}`;
+    } else if (sourceType === PaymentSourceType.DEPOSIT) {
+      const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(/[^a-zA-Z0-9]/g, '');
+      const cleanRoom = roomRaw.slice(-4) || '3101';
+      const now = new Date();
+      const monthYear = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
+      paymentCode = `COC${cleanRoom}${monthYear}`;
     }
 
     // Ensure paymentCode is unique for this tenant
@@ -792,10 +798,10 @@ export class PaymentsService {
     });
     if (existingCode) {
       let counter = 1;
-      let candidateCode = `${paymentCode}-${counter}`;
+      let candidateCode = `${paymentCode}${counter}`;
       while (await this.prisma.paymentRequest.findUnique({ where: { tenantId_paymentCode: { tenantId, paymentCode: candidateCode } } })) {
         counter++;
-        candidateCode = `${paymentCode}-${counter}`;
+        candidateCode = `${paymentCode}${counter}`;
       }
       paymentCode = candidateCode;
     }

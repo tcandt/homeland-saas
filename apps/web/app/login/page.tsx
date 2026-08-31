@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import AuthLayout from "@/components/auth/AuthLayout";
 import AuthCard from "@/components/auth/AuthCard";
 import AuthInput from "@/components/auth/AuthInput";
@@ -13,10 +14,10 @@ import { getLoginErrorMessage } from "@/lib/auth/login-errors";
 import { clearPasswordChangePromptDeferral } from "@/lib/auth/password-change-prompt";
 import { requestLoginVersionCheck } from "@/lib/system-update/login-version-check";
 import { saveMobileLoginCredentials } from "@/lib/auth/mobile-session-recovery";
-
 import toast from "react-hot-toast";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [emailOrPhone, setEmailOrPhone] = useState("");
@@ -31,6 +32,7 @@ export default function LoginPage() {
     try {
       const response = await authApi.login({ emailOrPhone, password });
       toast.success("Đăng nhập thành công! Đang chuyển tới trang quản lý...", {
+        id: "login-toast",
         duration: 2500,
       });
       setSession({
@@ -41,9 +43,7 @@ export default function LoginPage() {
       saveMobileLoginCredentials(emailOrPhone, password);
       clearPasswordChangePromptDeferral(response.user.id);
       requestLoginVersionCheck(response.user.id);
-      setTimeout(() => {
-        window.location.href = "/";
-      }, 600);
+      router.replace("/");
     } catch (err: any) {
       setLoading(false);
       if (err instanceof ApiError) {

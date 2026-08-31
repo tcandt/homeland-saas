@@ -94,55 +94,55 @@ async function getSyncedBuildingPortfolio() {
 
 export const dashboardAdapter = {
   async getDashboardData() {
-    const [dashboardResult, portfolio] = await Promise.all([
-      apiClient.get("/dashboard"),
-      getSyncedBuildingPortfolio(),
-    ]);
-    const data: any = dashboardResult;
+    const data: any = await apiClient.get("/dashboard");
     if (!data) throw new Error("Dashboard data is empty");
 
-    const portfolioHasRooms = Number(portfolio?.occupancy?.totalRooms || 0) > 0;
     const kpis = {
-      ...(data.kpis || {}),
-      totalRevenue: Number(data.kpis?.totalRevenue || 0) || Number(portfolio?.monthlyRevenue || 0),
-      netProfit: Number(data.kpis?.netProfit || 0) || Number(portfolio?.monthlyRevenue || 0),
-      netCashFlow: Number(data.kpis?.netCashFlow || 0) || Number(portfolio?.monthlyRevenue || 0),
+      totalRevenue: Number(data.kpis?.totalRevenue || 0),
+      totalExpense: Number(data.kpis?.totalExpense || 0),
+      netProfit: Number(data.kpis?.netProfit || 0),
+      netCashFlow: Number(data.kpis?.netCashFlow || 0),
+      totalDebt: Number(data.kpis?.totalDebt || 0),
+      depositHeld: Number(data.kpis?.depositHeld || 0),
     };
-    const occupancy = portfolioHasRooms
-      ? { ...(data.occupancy || {}), ...portfolio?.occupancy }
-      : data.occupancy || {};
-    const buildingHealth = portfolio?.buildingHealth?.length ? portfolio.buildingHealth : data.buildingHealth || [];
+
+    const totalRooms = Number(data.occupancy?.totalRooms || 0);
+    const occupiedRooms = Number(data.occupancy?.occupiedRooms || data.occupancy?.rented || 0);
+    const rate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : Number(data.occupancy?.rate || 0);
+
+    const occupancy = {
+      rate,
+      totalRooms,
+      occupiedRooms,
+      rented: occupiedRooms,
+      available: Number(data.occupancy?.available || 0),
+      maintenance: Number(data.occupancy?.maintenance || 0),
+      reserved: Number(data.occupancy?.reserved || 0),
+      ...data.occupancy,
+    };
+
+    const buildingHealth = data.buildingHealth || [];
     const revenueHistory = (data.revenueHistory || []).some((item: any) => Number(item.revenue || 0) > 0)
       ? data.revenueHistory
-      : (Number(kpis.totalRevenue || 0) > 0 ? buildRecentMonths(Number(kpis.totalRevenue || 0)) : data.revenueHistory || []);
-    const recentActivity = (data.recentActivity || []).length > 0
-      ? data.recentActivity
-      : buildingHealth
-        .filter((building: any) => building.layoutStatus !== "pending")
-        .slice(0, 4)
-        .map((building: any) => ({
-          time: "now",
-          title: `Đồng bộ tòa nhà ${building.code}`,
-          desc: `${building.occupied}/${building.rooms} phòng đã thuê`,
-          amount: building.monthlyRevenue ? formatVnd(building.monthlyRevenue) : "",
-          amountColor: "text-primary",
-        }));
+      : (kpis.totalRevenue > 0 ? buildRecentMonths(kpis.totalRevenue) : data.revenueHistory || []);
+
+    const recentActivity = data.recentActivity || [];
 
     return {
       ...data,
       hero: {
         tasksCount: data.hero?.tasksCount || 0,
-        debt: formatVnd(kpis.totalDebt || 0),
+        debt: formatVnd(kpis.totalDebt),
         expiringContracts: data.hero?.expiringContracts || 0,
         cleaningRooms: data.hero?.cleaningRooms || 0,
         maintenanceRooms: data.hero?.maintenanceRooms || 0,
       },
       alerts: data.alerts || [],
       kpis: [
-        { label: "Doanh thu tháng này", value: formatVnd(kpis.totalRevenue || 0), trend: "", positive: true, icon: "green" },
-        { label: "Lợi nhuận ròng", value: formatVnd(kpis.netProfit || 0), trend: "", positive: Number(kpis.netProfit || 0) >= 0, icon: "blue" },
-        { label: "Tỷ lệ lấp đầy", value: `${Number(occupancy.rate || 0).toFixed(0)}%`, trend: "", positive: true, icon: "purple" },
-        { label: "Dòng tiền ròng", value: formatVnd(kpis.netCashFlow || 0), trend: "", positive: Number(kpis.netCashFlow || 0) >= 0, icon: "orange" },
+        { label: "Doanh thu tháng này", value: formatVnd(kpis.totalRevenue), trend: "", positive: true, icon: "green" },
+        { label: "Lợi nhuận ròng", value: formatVnd(kpis.netProfit), trend: "", positive: kpis.netProfit >= 0, icon: "blue" },
+        { label: "Tỷ lệ lấp đầy", value: `${occupancy.rate}%`, trend: "", positive: true, icon: "purple" },
+        { label: "Dòng tiền ròng", value: formatVnd(kpis.netCashFlow), trend: "", positive: kpis.netCashFlow >= 0, icon: "orange" },
       ],
       kpisRaw: kpis,
       revenueHistory,
@@ -152,14 +152,7 @@ export const dashboardAdapter = {
       recentActivity,
       cashFlowForecast: data.cashFlowForecast || [],
       insights: data.insights || [],
-      occupancy: {
-        rate: 0,
-        rented: 0,
-        available: 0,
-        maintenance: 0,
-        reserved: 0,
-        ...occupancy,
-      },
+      occupancy,
     };
   },
 };

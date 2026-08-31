@@ -14,6 +14,8 @@ import { clearPasswordChangePromptDeferral } from "@/lib/auth/password-change-pr
 import { requestLoginVersionCheck } from "@/lib/system-update/login-version-check";
 import { saveMobileLoginCredentials } from "@/lib/auth/mobile-session-recovery";
 
+import toast from "react-hot-toast";
+
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -28,6 +30,9 @@ export default function LoginPage() {
 
     try {
       const response = await authApi.login({ emailOrPhone, password });
+      toast.success("Đăng nhập thành công! Đang chuyển tới trang quản lý...", {
+        duration: 2500,
+      });
       setSession({
         user: response.user,
         accessToken: response.accessToken,
@@ -36,7 +41,9 @@ export default function LoginPage() {
       saveMobileLoginCredentials(emailOrPhone, password);
       clearPasswordChangePromptDeferral(response.user.id);
       requestLoginVersionCheck(response.user.id);
-      window.location.href = "/";
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 600);
     } catch (err: any) {
       setLoading(false);
       if (err instanceof ApiError) {

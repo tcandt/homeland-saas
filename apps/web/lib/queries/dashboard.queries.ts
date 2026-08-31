@@ -10,5 +10,6 @@ export function useDashboardQuery() {
   return useQuery({
     queryKey: dashboardKeys.data(),
     queryFn: () => dashboardAdapter.getDashboardData(),
+    staleTime: 60 * 1000,
   });
 }

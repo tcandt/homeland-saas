@@ -113,6 +113,34 @@ function start(name, workspace, env = {}) {
 process.on('SIGINT', () => stopAll(0));
 process.on('SIGTERM', () => stopAll(0));
 
+const http = require('http');
+
+function waitForBackendReady(port = 3001, timeoutMs = 30000) {
+  const start = Date.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      const req = http.get(`http://127.0.0.1:${port}/api/v1/health`, (res) => {
+        if (res.statusCode === 200) {
+          resolve(true);
+        } else if (Date.now() - start < timeoutMs) {
+          setTimeout(check, 500);
+        } else {
+          resolve(false);
+        }
+      });
+      req.on('error', () => {
+        if (Date.now() - start < timeoutMs) {
+          setTimeout(check, 500);
+        } else {
+          resolve(false);
+        }
+      });
+      req.end();
+    };
+    check();
+  });
+}
+
 async function main() {
   if (isWindows) {
     console.log('[dev] Syncing Prisma client and packages before watch mode');
@@ -134,6 +162,10 @@ async function main() {
 
   console.log('[dev] Starting backend on http://localhost:3001');
   start('api', 'api', { PORT: '3001' });
+
+  console.log('[dev] Waiting for backend API to be ready before starting frontend...');
+  await waitForBackendReady(3001, 30000);
+  console.log('[dev] Backend API is ready!');
 
   console.log('[dev] Starting frontend on http://localhost:3000');
   start('web', 'web', { PORT: '3000' });

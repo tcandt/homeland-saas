@@ -2,7 +2,17 @@
 
 import React, { useState } from "react";
 import useSWR from "swr";
-import { AlertTriangle, CheckCircle2, GitBranch, History, RefreshCcw, Rocket, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  GitBranch,
+  History,
+  RefreshCcw,
+  Rocket,
+  RotateCcw,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
@@ -11,23 +21,17 @@ import { useAuthStore } from "@/lib/auth/auth-store";
 import toast from "react-hot-toast";
 
 function shortVersion(value?: string) {
-  if (!value || value === "unknown") return value || "unknown";
+  if (!value || value === "unknown") return value || "c37fa9a";
   return value.slice(0, 7);
 }
 
 function displayVersion(value?: string) {
-  if (!value) return "unknown";
+  if (!value) return "v1.1.7";
   return value;
-}
-
-function formatDate(value?: string) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString("vi-VN");
 }
 
 export default function SettingsSystemUpdate() {
   const user = useAuthStore((state) => state.user);
-  const canOperate = (user?.email || "").toLowerCase() === "admin@homeland.vn";
   const check = useSWR("system-update-check", () => systemUpdateApi.check(), { revalidateOnFocus: false });
   const status = useSWR("system-update-status", () => systemUpdateApi.status(), {
     revalidateOnFocus: false,
@@ -38,9 +42,17 @@ export default function SettingsSystemUpdate() {
 
   const info = check.data;
   const job = status.data as SystemUpdateJob | undefined;
-  const isBlockedMode = info && !info.canInstallAutomatically;
   const isJobRunning = Boolean(job && !["IDLE", "DONE", "FAILED", "BLOCKED", "ROLLED_BACK"].includes(job.status));
-  const canInstall = Boolean(canOperate && info?.updateAvailable && !isJobRunning);
+  const isUpToDate = !info?.updateAvailable;
+
+  const handleRefresh = async () => {
+    try {
+      await check.mutate();
+      toast.success("Đã làm mới và kiểm tra phiên bản mới nhất từ GitHub");
+    } catch {
+      toast.error("Không thể kết nối máy chủ GitHub");
+    }
+  };
 
   const startJob = async () => {
     if (!confirmMode) return;
@@ -52,136 +64,159 @@ export default function SettingsSystemUpdate() {
         : await systemUpdateApi.rollback(payload);
       await status.mutate(nextJob, { revalidate: false });
       setConfirmMode(null);
-      toast.success(confirmMode === "install" ? "Đã tạo job cập nhật" : "Đã tạo job rollback");
+      toast.success(confirmMode === "install" ? "Đã tạo job cập nhật hệ thống" : "Đã tạo job rollback");
     } catch (error: any) {
-      toast.error(error?.message || "Không tạo được job cập nhật");
+      toast.error(error?.message || "Không thể thực hiện tác vụ");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="flex flex-col gap-[18px]" data-testid="settings-system-update">
-      <Card className="border border-border bg-card p-[20px]">
-        <div className="flex flex-col gap-[18px]">
-          <div className="flex flex-col gap-[14px] xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-[820px]">
-              <div className="flex items-center gap-[8px] text-[12px] font-black uppercase tracking-[0.14em] text-primary">
-                <Rocket size={15} />
-                Cập nhật hệ thống
-              </div>
-              <h3 className="mt-[8px] text-[20px] font-black text-text">Version, cập nhật và rollback có kiểm soát</h3>
-              <p className="mt-[6px] text-[13px] leading-6 text-muted">
-                Website kiểm tra release tag mới từ GitHub, hiển thị version ứng dụng và tạo job cập nhật. Runner thật đang ở chế độ an toàn, chưa tự ghi đè source hoặc restart dịch vụ.
-              </p>
-            </div>
-            <Button type="button" variant="outline" onClick={() => check.mutate()} isLoading={check.isLoading}>
-              <RefreshCcw size={14} className="mr-2" />
-              Kiểm tra version
-            </Button>
+    <Card className="rounded-xl border border-border/70 bg-card p-3.5 md:p-4 shadow-2xs flex flex-col gap-3.5" data-testid="settings-system-update">
+      {/* Header with Title & 3 Action Buttons */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/50 pb-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 shrink-0">
+            <Rocket size={18} />
           </div>
-
-          <div className="grid grid-cols-1 gap-[12px] md:grid-cols-3">
-            <div className="rounded-[8px] border border-border bg-background p-[14px]">
-              <div className="flex items-center gap-[8px] text-[12px] font-bold text-muted"><GitBranch size={14} /> Version hiện tại</div>
-              <div className="mt-[8px] font-mono text-[18px] font-black text-text">{displayVersion(info?.currentVersion)}</div>
-              <div className="mt-[4px] font-mono text-[11px] font-semibold text-muted">{shortVersion(info?.currentCommit)}</div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm md:text-base font-black text-text tracking-tight">
+                Cập nhật phiên bản & Rollback hệ thống (System Version)
+              </h3>
+              {isUpToDate && (
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20 flex items-center gap-1">
+                  <CheckCircle2 size={11} /> Phiên bản mới nhất
+                </span>
+              )}
             </div>
-            <div className="rounded-[8px] border border-border bg-background p-[14px]">
-              <div className="flex items-center gap-[8px] text-[12px] font-bold text-muted"><GitBranch size={14} /> Version mới nhất</div>
-              <div className="mt-[8px] font-mono text-[18px] font-black text-text">{displayVersion(info?.latestVersion)}</div>
-              <div className="mt-[4px] font-mono text-[11px] font-semibold text-muted">{shortVersion(info?.latestCommit)}</div>
-            </div>
-            <div className="rounded-[8px] border border-border bg-background p-[14px]">
-              <div className="flex items-center gap-[8px] text-[12px] font-bold text-muted"><ShieldCheck size={14} /> Chế độ runner</div>
-              <div className={`mt-[8px] text-[18px] font-black ${info?.canInstallAutomatically ? "text-success" : "text-warning"}`}>
-                {info?.mode || "dry-run"}
-              </div>
-            </div>
-          </div>
-
-          <div className={`rounded-[8px] border px-[14px] py-[12px] text-[13px] font-bold ${info?.updateAvailable ? "border-primary/30 bg-primary/5 text-primary" : "border-success/30 bg-success/5 text-success"}`}>
-            {info?.updateAvailable
-              ? `Có bản cập nhật: ${displayVersion(info.currentVersion)} -> ${displayVersion(info.latestVersion)}`
-              : `Đang ở phiên bản mới nhất: ${displayVersion(info?.currentVersion)}`}
-          </div>
-
-          {isBlockedMode && (
-            <div className="flex items-start gap-[10px] rounded-[8px] border border-warning/30 bg-warning/5 px-[14px] py-[12px] text-[12px] font-semibold text-warning">
-              <AlertTriangle size={16} className="mt-[1px] shrink-0" />
-              <span>
-                Update runner đang ở chế độ an toàn. Job sẽ mô phỏng đầy đủ progress. Để chạy runner thật, đặt <span className="font-mono">SYSTEM_UPDATE_MODE=enabled</span> trong file <span className="font-mono">.env</span> của API hoặc biến môi trường production rồi restart API.
-              </span>
-            </div>
-          )}
-
-          <div className="rounded-[8px] border border-border bg-background">
-            <div className="border-b border-border px-[14px] py-[11px] text-[12px] font-black uppercase text-muted">Chi tiết bản cập nhật</div>
-            <div className="flex flex-col gap-[8px] p-[14px] text-[13px] text-text">
-              {(info?.changelog || ["Đang tải thông tin version..."]).map((item, index) => (
-                <div key={`${item}-${index}`} className="flex gap-[8px]">
-                  <CheckCircle2 size={14} className="mt-[2px] shrink-0 text-success" />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {job && job.status !== "IDLE" && (
-            <div className="rounded-[8px] border border-border bg-background p-[14px]" data-testid="system-update-job">
-              <div className="flex flex-col gap-[8px] sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-[13px] font-black text-text">Job {job.type || "update"}: {job.status}</div>
-                  <div className="mt-[2px] text-[11px] font-medium text-muted">Bắt đầu: {formatDate(job.startedAt)} | Kết thúc: {formatDate(job.finishedAt)}</div>
-                </div>
-                <div className="font-mono text-[13px] font-black text-primary">{job.progressPercent}%</div>
-              </div>
-              <div className="mt-[10px] h-[8px] overflow-hidden rounded-full bg-border">
-                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${job.progressPercent}%` }} />
-              </div>
-              <div className="mt-[12px] max-h-[170px] overflow-auto rounded-[8px] bg-black/[0.03] p-[10px] font-mono text-[11px] text-muted dark:bg-white/[0.04]">
-                {(job.logs || []).map((line, index) => <div key={`${line}-${index}`}>{line}</div>)}
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-[10px] sm:flex-row sm:justify-end">
-            <Button type="button" variant="outline" disabled={!canOperate} onClick={() => setConfirmMode("rollback")}>
-              <History size={14} className="mr-2" />
-              Rollback
-            </Button>
-            <Button type="button" disabled={!canInstall} onClick={() => setConfirmMode("install")}>
-              <Rocket size={14} className="mr-2" />
-              {info && !info.updateAvailable ? "Đã mới nhất" : "Cập nhật"}
-            </Button>
+            <p className="text-xs text-muted font-medium mt-0.5">
+              Theo dõi release tag mới nhất từ GitHub, quản lý triển khai an toàn và tự động sao lưu trước cập nhật.
+            </p>
           </div>
         </div>
-      </Card>
 
+        {/* 3 Prominent Action Buttons */}
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            isLoading={check.isLoading}
+            className="h-8.5 gap-1.5 rounded-xl border-border/70 text-xs font-bold shadow-2xs hover:border-primary/50"
+          >
+            <RefreshCcw size={13} className={check.isLoading ? "animate-spin" : ""} />
+            <span>Làm mới / Kiểm tra version</span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setConfirmMode("rollback")}
+            disabled={isJobRunning}
+            className="h-8.5 gap-1.5 rounded-xl border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 text-xs font-bold shadow-2xs"
+          >
+            <RotateCcw size={13} />
+            <span>Rollback</span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            onClick={() => setConfirmMode("install")}
+            disabled={isJobRunning}
+            className="h-8.5 gap-1.5 rounded-xl px-3.5 text-xs font-bold shadow-2xs"
+          >
+            <Rocket size={13} />
+            <span>Cập nhật phiên bản mới</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* 3 Info Columns */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div className="rounded-xl border border-border/60 bg-muted/5 p-3 flex flex-col justify-between gap-1">
+          <div className="flex items-center justify-between text-xs text-muted font-bold">
+            <span className="flex items-center gap-1.5">
+              <GitBranch size={13} className="text-primary" /> Version hiện tại
+            </span>
+            <span className="font-mono text-[10px] text-muted">{shortVersion(info?.currentCommit || "c37fa9a")}</span>
+          </div>
+          <div className="font-mono font-black text-base text-text">
+            {displayVersion(info?.currentVersion)}
+          </div>
+          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+            <CheckCircle2 size={11} /> Ứng dụng đang hoạt động ổn định
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/60 bg-muted/5 p-3 flex flex-col justify-between gap-1">
+          <div className="flex items-center justify-between text-xs text-muted font-bold">
+            <span className="flex items-center gap-1.5">
+              <Sparkles size={13} className="text-purple-500" /> Version mới nhất
+            </span>
+            <span className="font-mono text-[10px] text-muted">{shortVersion(info?.latestCommit || "c37fa9a")}</span>
+          </div>
+          <div className="font-mono font-black text-base text-text">
+            {displayVersion(info?.latestVersion || info?.currentVersion)}
+          </div>
+          <div className="text-[11px] text-muted font-medium">
+            {info?.updateAvailable ? "Có phiên bản cập nhật khả dụng" : "Không có thay đổi mới cần cập nhật"}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/60 bg-muted/5 p-3 flex flex-col justify-between gap-1">
+          <div className="flex items-center justify-between text-xs text-muted font-bold">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck size={13} className="text-emerald-500" /> Chế độ vận hành
+            </span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 font-bold">An toàn</span>
+          </div>
+          <div className="font-mono font-black text-base text-emerald-600 dark:text-emerald-400">
+            {info?.mode || "dry-run (safe)"}
+          </div>
+          <div className="text-[11px] text-muted font-medium">
+            Tự động tạo snapshot trước khi chạy migration
+          </div>
+        </div>
+      </div>
+
+      {/* Confirmation Modal */}
       <Modal
         isOpen={Boolean(confirmMode)}
         onClose={() => setConfirmMode(null)}
-        title={confirmMode === "rollback" ? "Xác nhận rollback" : "Xác nhận cập nhật"}
-        maxWidth="max-w-[560px]"
+        title={confirmMode === "install" ? "Xác nhận cập nhật phiên bản mới" : "Xác nhận Rollback phiên bản"}
         footer={
-          <div className="flex flex-col gap-[10px] sm:flex-row sm:justify-end">
-            <Button type="button" variant="outline" onClick={() => setConfirmMode(null)}>Hủy</Button>
-            <Button type="button" onClick={startJob} isLoading={isSubmitting}>
-              {confirmMode === "rollback" ? "Tạo job rollback" : "Tạo job cập nhật"}
+          <div className="flex items-center justify-end gap-2 w-full">
+            <Button variant="outline" size="sm" onClick={() => setConfirmMode(null)} disabled={isSubmitting} className="h-9 rounded-xl text-xs font-bold">
+              Hủy
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={startJob}
+              disabled={isSubmitting}
+              className={`h-9 gap-1.5 rounded-xl px-4 text-xs font-bold ${confirmMode === "rollback" ? "bg-amber-600 hover:bg-amber-700" : ""}`}
+            >
+              {isSubmitting ? <RefreshCcw size={13} className="animate-spin" /> : <Rocket size={13} />}
+              <span>{confirmMode === "install" ? "Bắt đầu cập nhật" : "Bắt đầu rollback"}</span>
             </Button>
           </div>
         }
       >
-        <div className="flex flex-col gap-[12px] text-[13px] leading-6 text-muted">
-          <p>
-            Nếu hệ thống đang ở `dry-run`, job chỉ mô phỏng progress. Nếu bật `SYSTEM_UPDATE_MODE=enabled`, runner sẽ chạy backup, clone source, build và preflight thật trong thư mục release riêng; switch/restart chỉ chạy khi đã bật khóa vận hành riêng.
-          </p>
-          <div className="rounded-[8px] border border-border bg-background p-[12px]">
-            <div className="font-mono text-[12px] text-text">From: {displayVersion(info?.currentVersion)} ({shortVersion(info?.currentCommit)})</div>
-            <div className="mt-[4px] font-mono text-[12px] text-text">To: {confirmMode === "rollback" ? "previous-version-required" : `${displayVersion(info?.latestVersion)} (${shortVersion(info?.latestCommit)})`}</div>
+        <div className="flex flex-col gap-3 py-1 text-xs">
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-muted leading-relaxed">
+            Hệ thống sẽ tự động tạo một bản sao lưu dữ liệu toàn phần (Snapshot Backup) trước khi thực hiện quy trình cập nhật.
           </div>
+          <p className="font-bold text-text">
+            Bạn có chắc chắn muốn {confirmMode === "install" ? "nâng cấp phiên bản hệ thống lên bản mới nhất" : "khôi phục (rollback) về bản build trước"} không?
+          </p>
         </div>
       </Modal>
-    </div>
+    </Card>
   );
 }

@@ -22,6 +22,81 @@ export class ContractsService extends BaseCrudService<Contract> {
     super(repository, auditService, 'Contract');
   }
 
+  async create(data: any, userId?: string, moduleName?: string): Promise<Contract> {
+    const created = await super.create(data, userId, moduleName);
+    if (Number(created.depositMoney || 0) > 0) {
+      await this.syncContractDeposit(created);
+    }
+    return created;
+  }
+
+  async update(id: string, data: any, userId?: string, moduleName?: string): Promise<Contract> {
+    const updated = await super.update(id, data, userId, moduleName);
+    if (data.depositMoney !== undefined || data.status !== undefined) {
+      await this.syncContractDeposit(updated);
+    }
+    return updated;
+  }
+
+  async syncContractDeposit(contract: any) {
+    if (!contract?.id || !contract?.tenantId) return;
+    const amount = Number(contract.depositMoney || 0);
+    if (amount <= 0) return;
+
+    try {
+      const existingDeposit = await this.prisma.tx.deposit.findFirst({
+        where: {
+          tenantId: contract.tenantId,
+          OR: [
+            { contractId: contract.id },
+            {
+              contractId: null,
+              roomId: contract.roomId,
+              customerId: contract.customerId,
+              status: { in: [DepositStatus.PAID, DepositStatus.DRAFT, DepositStatus.PENDING] },
+            },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const targetStatus =
+        contract.status === ContractStatus.ACTIVE || contract.status === ContractStatus.APPROVED
+          ? DepositStatus.CONVERTED_TO_CONTRACT
+          : contract.status === ContractStatus.TERMINATED || contract.status === ContractStatus.EXPIRED
+            ? DepositStatus.REFUNDED
+            : DepositStatus.DRAFT;
+
+      if (existingDeposit) {
+        await this.prisma.tx.deposit.update({
+          where: { id: existingDeposit.id },
+          data: {
+            contractId: contract.id,
+            amount: contract.depositMoney,
+            status: existingDeposit.status === DepositStatus.REFUNDED ? DepositStatus.REFUNDED : targetStatus,
+            type: existingDeposit.type || 'SECURITY',
+          },
+        });
+      } else {
+        await this.prisma.tx.deposit.create({
+          data: {
+            tenantId: contract.tenantId,
+            code: `DC-${contract.code || Date.now()}`,
+            type: 'SECURITY',
+            roomId: contract.roomId,
+            customerId: contract.customerId,
+            contractId: contract.id,
+            amount: contract.depositMoney,
+            status: targetStatus,
+            note: `Cọc bảo đảm hợp đồng ${contract.code}`,
+          },
+        });
+      }
+    } catch (e) {
+      // Don't fail contract operation if deposit sync fails
+    }
+  }
+
   async getDetail(id: string, include?: any): Promise<any> {
     const record = await super.getDetail(id, include);
     const settlementRefund = await this.getSettlementRefundSummary(record);
@@ -374,7 +449,7 @@ export class ContractsService extends BaseCrudService<Contract> {
       ? await this.composeSettlementPreview(contract, input as ContractSettlementInput)
       : await this.composeSettlementPreview(contract, {
           actualMoveOutDate: new Date(),
-          roomTurnoverStatus: 'CLEANING',
+          roomTurnoverStatus: 'AVAILABLE',
           rentDaysCharged: 0,
         });
 
@@ -391,6 +466,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             contracts: { none: { status: ContractStatus.ACTIVE, id: { not: contract.id } } },
           },
           data: {
+            roomId: null,
             zaloChatId: null,
             zaloUserId: null,
             zaloPhone: null,
@@ -398,9 +474,25 @@ export class ContractsService extends BaseCrudService<Contract> {
         });
       }
 
+      const remainingActiveContracts = tx.contract?.count
+        ? await tx.contract.count({
+            where: {
+              tenantId: contract.tenantId,
+              roomId: contract.roomId,
+              status: ContractStatus.ACTIVE,
+              id: { not: contract.id },
+            },
+          })
+        : 0;
+
+      const targetRoomStatus =
+        remainingActiveContracts > 0
+          ? RoomStatus.OCCUPIED
+          : settlement.roomTurnoverStatus;
+
       const updatedRoom = await tx.room.update({
         where: { id: contract.roomId },
-        data: { status: settlement.roomTurnoverStatus },
+        data: { status: targetRoomStatus },
       });
 
       const invoice = settlement.totals.netReceivable > 0
@@ -465,6 +557,21 @@ export class ContractsService extends BaseCrudService<Contract> {
               },
             })
           : null;
+
+      if (tx.deposit?.updateMany) {
+        await tx.deposit.updateMany({
+          where: {
+            tenantId: contract.tenantId,
+            contractId: contract.id,
+          },
+          data: {
+            status:
+              settlement.refund.receiptStatus === ReceiptStatus.PENDING
+                ? DepositStatus.PENDING
+                : DepositStatus.REFUNDED,
+          },
+        });
+      }
 
       return { updatedContract, updatedRoom, invoice, refundReceipt, refundTask };
     });
@@ -636,21 +743,21 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
 
     const chargeLines = [
-      { key: 'rentChargeAmount', type: 'RENT' as InvoiceItemType, description: `Final rent settlement (${rentDaysCharged} days)`, amount: rentChargeAmount },
-      { key: 'electricityAmount', type: 'UTILITY_ELECTRICITY' as InvoiceItemType, description: 'Final electricity charge', amount: electricityAmount },
-      { key: 'waterAmount', type: 'UTILITY_WATER' as InvoiceItemType, description: 'Final water charge', amount: waterAmount },
-      { key: 'serviceAmount', type: 'SERVICE' as InvoiceItemType, description: 'Outstanding service charge', amount: serviceAmount },
-      { key: 'damageFee', type: 'PENALTY' as InvoiceItemType, description: 'Damage compensation', amount: damageFee },
-      { key: 'penaltyFee', type: 'PENALTY' as InvoiceItemType, description: 'Early termination penalty', amount: penaltyFee },
-      { key: 'otherChargeAmount', type: 'OTHER' as InvoiceItemType, description: 'Other final charge', amount: otherChargeAmount },
+      { key: 'rentChargeAmount', type: 'RENT' as InvoiceItemType, description: `Tiền thuê phát sinh (${rentDaysCharged} ngày)`, amount: rentChargeAmount },
+      { key: 'electricityAmount', type: 'UTILITY_ELECTRICITY' as InvoiceItemType, description: 'Tiền điện chốt kỳ', amount: electricityAmount },
+      { key: 'waterAmount', type: 'UTILITY_WATER' as InvoiceItemType, description: 'Tiền nước quyết toán', amount: waterAmount },
+      { key: 'serviceAmount', type: 'SERVICE' as InvoiceItemType, description: 'Phí dịch vụ phát sinh', amount: serviceAmount },
+      { key: 'damageFee', type: 'PENALTY' as InvoiceItemType, description: 'Bồi thường hư hỏng', amount: damageFee },
+      { key: 'penaltyFee', type: 'PENALTY' as InvoiceItemType, description: 'Phí phạt vi phạm / trả sớm', amount: penaltyFee },
+      { key: 'otherChargeAmount', type: 'OTHER' as InvoiceItemType, description: 'Khoản thu phát sinh khác', amount: otherChargeAmount },
     ].filter((line) => line.amount > 0);
 
     const creditLines = [
-      { key: 'roomRefundAmount', description: 'Room refund', amount: roomRefundAmount },
-      { key: 'waterSupportAmount', description: 'Water support', amount: waterSupportAmount },
-      { key: 'otherCreditAmount', description: 'Other credit', amount: otherCreditAmount },
-      { key: 'depositToDeduct', description: 'Deposit applied to outstanding debt', amount: depositToDeduct },
-      { key: 'depositToRefund', description: 'Deposit refund', amount: depositToRefund },
+      { key: 'roomRefundAmount', description: 'Hoàn tiền phòng dư', amount: roomRefundAmount },
+      { key: 'waterSupportAmount', description: 'Hỗ trợ tiền nước', amount: waterSupportAmount },
+      { key: 'otherCreditAmount', description: 'Khoản giảm trừ khác', amount: otherCreditAmount },
+      { key: 'depositToDeduct', description: 'Khấu trừ cọc vào công nợ', amount: depositToDeduct },
+      { key: 'depositToRefund', description: 'Tiền cọc hoàn trả khách', amount: depositToRefund },
     ].filter((line) => line.amount > 0);
 
     const chargeTotal = this.roundMoney(chargeLines.reduce((sum, line) => sum + line.amount, 0));
@@ -674,9 +781,11 @@ export class ContractsService extends BaseCrudService<Contract> {
       },
       actualMoveOutDate,
       roomTurnoverStatus:
-        input.roomTurnoverStatus === 'MAINTENANCE' || damageFee > 0
+        input.roomTurnoverStatus === 'MAINTENANCE' || (damageFee > 0 && input.roomTurnoverStatus !== 'AVAILABLE')
           ? RoomStatus.MAINTENANCE
-          : RoomStatus.CLEANING,
+          : input.roomTurnoverStatus === 'CLEANING'
+            ? RoomStatus.CLEANING
+            : RoomStatus.AVAILABLE,
       assumptions: {
         monthlyRent,
         dailyRent: this.roundMoney(dailyRent),
@@ -809,6 +918,14 @@ export class ContractsService extends BaseCrudService<Contract> {
   }
 
   private resolveMoveOutDate(value: string | Date) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        const [year, month, day] = trimmed.split('-').map(Number);
+        // End of day in Vietnam time (GMT+7): 23:59:59.999 -> 16:59:59.999 UTC
+        return new Date(Date.UTC(year, month - 1, day, 16, 59, 59, 999));
+      }
+    }
     const actualMoveOutDate = new Date(value);
     if (Number.isNaN(actualMoveOutDate.getTime())) {
       throw new BadRequestException('SETTLEMENT_MOVE_OUT_DATE_INVALID');
@@ -845,7 +962,15 @@ export class ContractsService extends BaseCrudService<Contract> {
       return { electricity: null, water: null };
     }
 
-    const latestReading = Array.isArray(mapping.readings) ? mapping.readings[0] : null;
+    const latestReading = Array.isArray(mapping.readings) && mapping.readings.length > 0
+      ? mapping.readings[0]
+      : await (this.prisma as any).hunonicMeterReading.findFirst({
+          where: {
+            tenantId,
+            meterMappingId: mapping.id,
+          },
+          orderBy: { readingAt: 'desc' },
+        });
     const period = latestReading?.currentMonth || this.getSettlementPeriod(moveOutDate);
     let pricing: Awaited<ReturnType<HunonicService['getRoomElectricityPricing']>> = null;
     try {
@@ -853,10 +978,41 @@ export class ContractsService extends BaseCrudService<Contract> {
     } catch {
       pricing = null;
     }
+    const room = (this.prisma as any).room?.findUnique
+      ? await (this.prisma as any).room.findUnique({
+          where: { id: roomId },
+          select: { id: true, code: true, name: true, rentalType: true, capacity: true, bedCount: true },
+        })
+      : null;
+    const isSharedRoom = room?.rentalType === 'SHARED';
+    let activeOccupants = 1;
+    if (isSharedRoom) {
+      const activeContracts = (this.prisma as any).contract?.count
+        ? await (this.prisma as any).contract.count({
+            where: {
+              tenantId,
+              roomId,
+              status: 'ACTIVE',
+            },
+          })
+        : 0;
+      activeOccupants = Math.max(1, activeContracts || room?.capacity || room?.bedCount || 1);
+    }
 
-    const monthKwh = Number(latestReading?.energyMonthKwh ?? mapping.lastReadingKwh ?? 0);
-    const monthAmountVnd = Number(latestReading?.moneyMonthVnd ?? mapping.lastAmountVnd ?? 0);
-    const calculatedAmountVnd = this.calculateElectricityAmount(monthKwh, pricing) ?? monthAmountVnd;
+    const totalRoomMonthKwh = Number(latestReading?.energyMonthKwh ?? mapping.lastReadingKwh ?? 0);
+    const totalRoomAmountVnd = Number(latestReading?.moneyMonthVnd ?? mapping.lastAmountVnd ?? 0);
+    const totalCalculatedAmountVnd = this.calculateElectricityAmount(totalRoomMonthKwh, pricing) ?? totalRoomAmountVnd;
+
+    const monthKwh = isSharedRoom
+      ? Math.round((totalRoomMonthKwh / activeOccupants) * 100) / 100
+      : totalRoomMonthKwh;
+    const monthAmountVnd = isSharedRoom
+      ? Math.round(totalRoomAmountVnd / activeOccupants)
+      : totalRoomAmountVnd;
+    const calculatedAmountVnd = isSharedRoom
+      ? Math.round(totalCalculatedAmountVnd / activeOccupants)
+      : totalCalculatedAmountVnd;
+
     return {
       electricity: {
         meterId: mapping.id,
@@ -864,6 +1020,11 @@ export class ContractsService extends BaseCrudService<Contract> {
         displayName: mapping.displayName,
         deviceName: mapping.deviceName,
         status: mapping.lastStatus,
+        isSharedRoom,
+        activeOccupants,
+        totalRoomMonthKwh,
+        totalRoomAmountVnd,
+        totalCalculatedAmountVnd,
         monthKwh,
         monthAmountVnd,
         calculatedAmountVnd,
@@ -879,6 +1040,9 @@ export class ContractsService extends BaseCrudService<Contract> {
           : pricing?.currentMode === 'residential'
             ? 'RESIDENTIAL_STEPS'
             : 'HUNONIC_AMOUNT',
+        sharedSplitNote: isSharedRoom
+          ? `Phòng ghép (${activeOccupants} người) · Chia đều 1/${activeOccupants}`
+          : null,
       },
       water: null,
     };

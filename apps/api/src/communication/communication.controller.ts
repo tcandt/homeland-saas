@@ -431,7 +431,7 @@ export class CommunicationController {
           })
         : template === 'update'
         ? buildUpdateAvailableMessage({
-            currentVersion: String(body?.currentVersion || process.env.APP_VERSION || 'v1.1.6'),
+            currentVersion: String(body?.currentVersion || process.env.APP_VERSION || 'v1.1.7'),
             latestVersion: String(body?.latestVersion || 'v1.1.7'),
             checkedAt: new Date(),
           })

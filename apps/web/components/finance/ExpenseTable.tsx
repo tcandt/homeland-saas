@@ -426,19 +426,21 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
 
   return (
     <>
-      <section data-testid="expense-table-root" className="overflow-visible rounded-[16px] border border-border bg-card shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-border bg-card p-[14px] md:p-[18px]">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="hide-scrollbar flex items-center gap-2 overflow-x-auto">
+      <section data-testid="expense-table-root" className="overflow-visible rounded-xl border border-border/70 bg-card shadow-2xs flex flex-col">
+        {/* Top Filter Bar */}
+        <div className="flex flex-col gap-2.5 border-b border-border/60 bg-card p-3">
+          {/* Status Tabs */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="hide-scrollbar flex items-center gap-1.5 overflow-x-auto">
               {statusTabs.map((tab) => (
                 <button
                   key={tab.value || "all"}
                   type="button"
                   onClick={() => setStatus(tab.value)}
-                  className={`h-10 shrink-0 rounded-[12px] px-4 text-[12px] font-black transition-all ${
+                  className={`h-8 shrink-0 rounded-xl px-3 text-xs font-bold transition-all ${
                     status === tab.value
-                      ? "border border-[#8b5cf6]/30 bg-[#8b5cf6]/10 text-[#6d3df8] shadow-[0_8px_20px_rgba(109,61,248,0.14)]"
-                      : "border border-transparent text-muted hover:bg-surface hover:text-text"
+                      ? "border border-primary/30 bg-primary/10 text-primary shadow-2xs"
+                      : "border border-transparent text-muted hover:bg-muted/10 hover:text-text"
                   }`}
                 >
                   {tab.label}
@@ -446,45 +448,108 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
               ))}
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(260px,1fr)_120px_130px_auto_auto] xl:min-w-[860px]">
-              <div className="relative">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Tìm chi phí, phòng, người chi, nhà cung cấp..."
-                  className="pl-9"
-                />
-              </div>
-              <Select value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
-              <Select value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
-              <Button variant="outline" onClick={resetFilters} className="h-10 gap-2 px-3" aria-label="Bộ lọc" data-testid="expense-table-reset-filters">
-                <FilterX size={15} /> Bộ lọc
+            {onCreateExpense && permissions.canCreateExpense && (
+              <Button
+                onClick={onCreateExpense}
+                size="sm"
+                variant="primary"
+                className="h-8 gap-1.5 rounded-xl px-3 text-xs font-bold shadow-2xs"
+                data-testid="expense-table-create-button"
+              >
+                <Plus size={13} /> Thêm chi phí
               </Button>
-              {onCreateExpense && permissions.canCreateExpense && (
-                <Button
-                  onClick={onCreateExpense}
-                  className="h-10 shrink-0 gap-2 bg-[#6d3df8] px-4 text-white shadow-[#6d3df8]/20 hover:bg-[#5b35f5]"
-                  data-testid="expense-table-create-button"
-                >
-                  <Plus size={15} /> Thêm chi phí
-                </Button>
-              )}
-            </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <Select
+          {/* Unified Filters Row */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Tìm mã, nội dung, người chi, nhà cung cấp..."
+                className="h-9 w-full rounded-xl border border-border/70 bg-background pl-8 pr-3 text-xs font-semibold text-text placeholder:text-muted focus:border-primary focus:outline-none transition-colors shadow-2xs"
+              />
+            </div>
+
+            <select
               aria-label="Lọc chi phí theo chủ sở hữu"
               value={ownerId}
               onChange={(event) => {
                 setOwnerId(event.target.value);
                 setBuildingId("");
               }}
-              options={ownerOptions}
-            />
-            <Select aria-label="Lọc chi phí theo tòa nhà" value={buildingId} onChange={(event) => setBuildingId(event.target.value)} options={buildingOptions} />
-            <Select aria-label="Lọc chi phí theo loại chi" value={category} onChange={(event) => setCategory(event.target.value)} options={categoryOptions} />
+              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
+            >
+              {ownerOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              aria-label="Lọc chi phí theo tòa nhà"
+              value={buildingId}
+              onChange={(event) => setBuildingId(event.target.value)}
+              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
+            >
+              {buildingOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              aria-label="Lọc chi phí theo loại chi"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
+            >
+              {categoryOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
+            >
+              {monthOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={year}
+              onChange={(event) => setYear(event.target.value)}
+              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
+            >
+              {yearOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetFilters}
+              className="h-9 gap-1.5 rounded-xl border-border/70 bg-card px-2.5 text-xs font-bold shadow-2xs"
+              aria-label="Bộ lọc"
+              data-testid="expense-table-reset-filters"
+            >
+              <FilterX size={13} /> Xóa lọc
+            </Button>
           </div>
         </div>
 
@@ -546,57 +611,57 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
               ))}
             </div>
 
-            <div className="hidden max-h-[calc(100dvh-500px)] min-h-[280px] overflow-auto xl:block">
-              <table data-testid="expense-table-desktop" className="w-full min-w-[1180px] text-left text-sm">
-                <thead className="sticky top-0 z-10 border-b border-border bg-surface text-[11px] uppercase text-muted shadow-[0_1px_0_var(--border)]">
+            <div className="hidden min-h-[280px] overflow-auto xl:block">
+              <table data-testid="expense-table-desktop" className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 z-10 border-b border-border/70 bg-card text-[10px] uppercase font-black text-muted select-none">
                   <tr>
-                    <th className="w-[130px] px-5 py-3 font-black">Ngày</th>
-                    <th className="px-5 py-3 font-black">Tên chi phí</th>
-                    <th className="w-[150px] px-5 py-3 font-black">Loại chi phí</th>
-                    <th className="w-[110px] px-5 py-3 font-black">Bill</th>
-                    <th className="px-5 py-3 font-black">Chủ / tòa</th>
-                    <th className="px-5 py-3 font-black">Người chi</th>
-                    <th className="px-5 py-3 text-right font-black">Số tiền</th>
-                    <th className="px-5 py-3 font-black">Trạng thái</th>
-                    <th className="px-5 py-3 text-right font-black">Thao tác</th>
+                    <th className="w-[110px] px-3.5 py-2.5">Ngày chi</th>
+                    <th className="px-3.5 py-2.5">Hạng mục & Nội dung</th>
+                    <th className="w-[140px] px-3.5 py-2.5">Loại chi phí</th>
+                    <th className="w-[90px] px-3.5 py-2.5">Chứng từ</th>
+                    <th className="px-3.5 py-2.5">Chủ / Tòa nhà</th>
+                    <th className="px-3.5 py-2.5">Người chi tiền</th>
+                    <th className="px-3.5 py-2.5 text-right">Số tiền (VNĐ)</th>
+                    <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
+                    <th className="w-[60px] px-3.5 py-2.5 text-center">Thao tác</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-border/40">
                   {visibleRows.map((expense: any) => {
                     return (
-                    <tr key={expense.id} className="border-b border-border/70 hover:bg-black/[0.025] dark:hover:bg-white/5">
-                      <td className="px-5 py-4 align-middle">
-                        <div className="text-[13px] font-black text-text">{formatDate(expense.date || expense.createdAt)}</div>
+                    <tr key={expense.id} className="hover:bg-muted/10 transition-colors">
+                      <td className="px-3.5 py-2.5 whitespace-nowrap">
+                        <div className="font-bold text-text">{formatDate(expense.date || expense.createdAt)}</div>
                       </td>
-                      <td className="px-5 py-4 align-middle">
+                      <td className="px-3.5 py-2.5">
                         <div className="min-w-0">
-                          <div className="line-clamp-1 font-black text-text">{getExpenseName(expense)}</div>
-                          <div className="mt-1 text-[12px] font-semibold text-muted">{expense.code}</div>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {expense.vendor && <Badge variant="neutral">{expense.vendor}</Badge>}
-                            {expense.room?.code && <Badge variant="neutral">{expense.room.code}</Badge>}
+                          <div className="line-clamp-1 font-bold text-text leading-tight">{getExpenseName(expense)}</div>
+                          <div className="mt-0.5 text-[10px] font-mono text-muted">{expense.code}</div>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {expense.vendor && <span className="text-[10px] px-1.5 py-0.2 rounded bg-muted/10 text-muted font-medium">{expense.vendor}</span>}
+                            {expense.room?.code && <span className="text-[10px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-bold">{expense.room.code}</span>}
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-4 align-middle">
-                        <Badge variant="neutral">{categoryLabels[expense.category] || expense.category || "Khác"}</Badge>
+                      <td className="px-3.5 py-2.5 whitespace-nowrap">
+                        <span className="text-xs font-bold text-text">{categoryLabels[expense.category] || expense.category || "Khác"}</span>
                       </td>
-                      <td className="px-5 py-4 align-middle">
+                      <td className="px-3.5 py-2.5 whitespace-nowrap">
                         <BillCell expense={expense} uploadBusyId={uploadBusyId} onUpload={uploadBill} onPreview={setPreviewBillUrl} />
                       </td>
-                      <td className="px-5 py-4 align-middle">
+                      <td className="px-3.5 py-2.5">
                         <div className="font-bold text-text">{expense.owner?.name || "Chưa gắn chủ"}</div>
-                        <div className="text-[12px] text-muted">{expense.building?.code || expense.costCenter?.code || "-"}</div>
+                        <div className="text-[10px] text-muted">{expense.building?.code || expense.costCenter?.code || "-"}</div>
                       </td>
-                      <td className="px-5 py-4 align-middle">
+                      <td className="px-3.5 py-2.5">
                         <div className="font-bold text-text">{expense.paidByOwner?.name || expense.paidByName || "-"}</div>
-                        <div className="text-[12px] text-muted">{settlementLabels[expense.settlementStatus] || expense.settlementStatus || "Không hoàn ứng"}</div>
+                        <div className="text-[10px] text-muted">{settlementLabels[expense.settlementStatus] || expense.settlementStatus || "Không hoàn ứng"}</div>
                       </td>
-                      <td className="px-5 py-4 text-right align-middle font-black text-text">{formatMoney(Number(expense.amount))}</td>
-                      <td className="px-5 py-4 align-middle">
+                      <td className="px-3.5 py-2.5 text-right whitespace-nowrap font-mono font-black text-xs text-text">{formatMoney(Number(expense.amount))}</td>
+                      <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
                         <Badge variant={statusVariant[expense.status] || "neutral"}>{statusLabels[expense.status] || expense.status}</Badge>
                       </td>
-                      <td className="px-5 py-4 align-middle">{renderActions(expense)}</td>
+                      <td className="px-3.5 py-2.5 text-center whitespace-nowrap">{renderActions(expense)}</td>
                     </tr>
                     );
                   })}

@@ -52,16 +52,26 @@ export default function TenantsMobileFlow() {
 
   const mappedTenants: TenantData[] = useMemo(() => {
     return customers.map((customer: any) => {
-      const relatedContract = contracts.find((contract: any) => contract.customerId === customer.id || contract.customer?.id === customer.id);
-      const debt = Number(customer.kpis?.totalDebt || relatedContract?.debt || 0);
-      const endDate = relatedContract?.endDate;
+      const activeContract = contracts.find(
+        (contract: any) =>
+          (contract.customerId === customer.id || contract.customer?.id === customer.id) &&
+          (contract.status === "ACTIVE" ||
+            contract.status === "APPROVED" ||
+            contract.status === "EXPIRING" ||
+            contract.status === "PENDING_APPROVAL" ||
+            contract.status === "DRAFT"),
+      );
+      const debt = Number(customer.kpis?.totalDebt || activeContract?.debt || 0);
+      const endDate = activeContract?.endDate;
       const contractDays = endDate ? Math.max(0, Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
 
       return {
         id: customer.id,
         name: customer.fullName || customer.name || "Khách thuê",
         avatar: customer.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(customer.fullName || customer.name || "Khách")}`,
-        room: customer.rooms?.[0]?.name || relatedContract?.room?.number || relatedContract?.room?.code || "N/A",
+        room: activeContract
+          ? (customer.room?.name || customer.rooms?.[0]?.name || activeContract?.room?.number || activeContract?.room?.code || "N/A")
+          : (customer.room?.name || customer.rooms?.[0]?.name || "N/A"),
         contractDays,
         debt,
         phone: customer.phone || "N/A",

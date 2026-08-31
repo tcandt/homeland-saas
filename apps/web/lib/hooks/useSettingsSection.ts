@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import toast from 'react-hot-toast';
 import { settingsApi, SettingsScope } from '@/lib/api/settings.api';
 
-export function useSettingsSection<T extends Record<string, any>>(key: string, scope: SettingsScope = 'TENANT', fallback: T) {
+export function useSettingsSection<T extends Record<string, any>>(
+  key: string,
+  scope: SettingsScope = 'TENANT',
+  fallback: T
+) {
+  const fallbackRef = useRef(fallback);
+  fallbackRef.current = fallback;
+
   const fetchKey = useMemo(() => ['settings-section', key, scope] as const, [key, scope]);
   const { data, isLoading, mutate } = useSWR(fetchKey, () => settingsApi.getSection<T>(key, scope), {
     revalidateOnFocus: false,
@@ -12,13 +19,14 @@ export function useSettingsSection<T extends Record<string, any>>(key: string, s
   const [draft, setDraft] = useState<T>(fallback);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Sync draft only when fetched data value changes
   useEffect(() => {
     if (data?.value) {
-      setDraft({ ...fallback, ...(data.value as T) });
+      setDraft({ ...fallbackRef.current, ...(data.value as T) });
     } else {
-      setDraft(fallback);
+      setDraft(fallbackRef.current);
     }
-  }, [data, fallback]);
+  }, [data?.value]);
 
   const save = async (nextValue?: T) => {
     setIsSaving(true);
@@ -27,7 +35,7 @@ export function useSettingsSection<T extends Record<string, any>>(key: string, s
       const saved = await settingsApi.saveSection(key, payload, scope);
       await mutate(saved, { revalidate: false });
       toast.success('Đã lưu cài đặt');
-      setDraft(saved?.value ? { ...fallback, ...(saved.value as T) } : payload);
+      setDraft(saved?.value ? { ...fallbackRef.current, ...(saved.value as T) } : payload);
       return saved;
     } catch (error: any) {
       toast.error(error?.message || 'Không thể lưu cài đặt');
@@ -38,7 +46,7 @@ export function useSettingsSection<T extends Record<string, any>>(key: string, s
   };
 
   return {
-    data: data?.value ?? fallback,
+    data: data?.value ?? fallbackRef.current,
     draft,
     setDraft,
     isLoading,

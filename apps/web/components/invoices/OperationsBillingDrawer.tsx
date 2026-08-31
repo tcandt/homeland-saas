@@ -811,9 +811,12 @@ export default function OperationsBillingDrawer({
                 </button>
               </div>
               <input
-                type="number"
-                value={customPayAmount}
-                onChange={(e) => setCustomPayAmount(e.target.value)}
+                type="text"
+                value={customPayAmount ? new Intl.NumberFormat("vi-VN").format(Number(customPayAmount)) : ""}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9]/g, "");
+                  setCustomPayAmount(val);
+                }}
                 placeholder="Nhập số tiền..."
                 className="w-full h-10 px-3 rounded-xl border border-border bg-surface font-mono font-black text-sm text-text outline-none focus:border-primary"
               />

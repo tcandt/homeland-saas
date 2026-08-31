@@ -318,11 +318,12 @@ export default function CreateDepositModal({
               </span>
             </label>
             <input
-              type="number"
-              step={100000}
-              min={0}
-              value={amount}
-              onChange={(e) => setAmount(Number(e.target.value) || 0)}
+              type="text"
+              value={amount ? new Intl.NumberFormat("vi-VN").format(amount) : ""}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^0-9]/g, "");
+                setAmount(val ? Number(val) : 0);
+              }}
               className="h-10 px-3 rounded-xl border border-border bg-card text-text text-[14px] font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
             />
           </div>

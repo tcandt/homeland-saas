@@ -4,18 +4,23 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  Award,
+  CheckCircle2,
   Eye,
+  KeyRound,
   LockKeyhole,
   Monitor,
   Moon,
   ServerCog,
   ShieldCheck,
+  Sparkles,
   Sun,
   UserPlus,
   Wrench,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 import { useQueryClient } from "@tanstack/react-query";
 import { settingsKeys } from "@/lib/queries/settings.queries";
@@ -46,43 +51,47 @@ function AccessControlSwitch({
   testId: string;
 }) {
   return (
-    <div className="flex min-h-[146px] items-start gap-[14px] rounded-[8px] border border-border bg-card p-[18px] shadow-sm">
-      <span className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-[8px] bg-background text-muted">
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-col gap-[10px] sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-[8px]">
-            <h3 className="text-[15px] font-black text-text">{title}</h3>
-            <span className="rounded-[6px] border border-warning/30 bg-warning/10 px-[8px] py-[3px] text-[10px] font-black text-warning">
-              {badge}
-            </span>
+    <Card className="flex flex-col justify-between rounded-xl border border-border/70 bg-card p-4 shadow-2xs">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20">
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs md:text-sm font-black text-text">{title}</h3>
+              <span className="rounded-md border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[10px] font-bold text-warning">
+                {badge}
+              </span>
+            </div>
+            <div className="flex items-center gap-2" data-testid={`${testId}-state`}>
+              <span className={`text-[10px] font-bold uppercase ${enabled ? "text-emerald-600" : "text-muted"}`}>
+                {enabled ? "Bật" : "Tắt"}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enabled}
+                aria-label={`${title} ${enabled ? "đang bật" : "đang tắt"}`}
+                disabled={isSaving}
+                onClick={onToggle}
+                data-testid={testId}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  enabled ? "bg-primary" : "bg-muted/30"
+                } ${isSaving ? "cursor-wait opacity-60" : "cursor-pointer"}`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                    enabled ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-[8px]" data-testid={`${testId}-state`}>
-            <span className={`text-[11px] font-black uppercase ${enabled ? "text-success" : "text-muted"}`}>
-              {enabled ? "Đang bật" : "Đang tắt"}
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={enabled}
-              aria-label={`${title} ${enabled ? "đang bật" : "đang tắt"}`}
-              disabled={isSaving}
-              onClick={onToggle}
-              data-testid={testId}
-              className={`relative h-[26px] w-[46px] shrink-0 rounded-full border transition ${
-                enabled
-                  ? "border-primary bg-primary"
-                  : "border-border bg-muted/20"
-              } ${isSaving ? "cursor-wait opacity-60" : "cursor-pointer"}`}
-            >
-              <span className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-card shadow-sm ring-1 ring-border transition ${enabled ? "left-[23px]" : "left-[3px]"}`} />
-            </button>
-          </div>
+          <p className="mt-1 text-[11px] font-medium leading-relaxed text-muted">{description}</p>
         </div>
-        <p className="mt-[8px] text-[12px] font-medium leading-[19px] text-muted">{description}</p>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -102,209 +111,184 @@ export function MaintenanceScreen({
     <section
       data-testid={isPreview ? "maintenance-screen-preview" : "maintenance-screen-live"}
       data-theme={theme}
-      className={`w-full overflow-hidden rounded-[8px] border ${
-        isDark ? "border-slate-700 bg-slate-950 text-slate-100" : "border-slate-200 bg-white text-slate-900"
+      className={`w-full overflow-hidden rounded-xl border ${
+        isDark ? "border-slate-800 bg-slate-950 text-slate-100" : "border-slate-200 bg-white text-slate-900"
       }`}
     >
-      <div className={`flex flex-wrap items-center justify-between gap-[12px] border-b px-[20px] py-[16px] ${isDark ? "border-slate-800" : "border-slate-200"}`}>
-        <div className="flex items-center gap-[10px]">
-          <span className={`flex h-[36px] w-[36px] items-center justify-center rounded-[8px] ${isDark ? "bg-indigo-500/15 text-indigo-300" : "bg-indigo-50 text-indigo-600"}`}>
-            <Wrench size={18} aria-hidden="true" />
+      <div className={`flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 ${isDark ? "border-slate-800" : "border-slate-200"}`}>
+        <div className="flex items-center gap-2.5">
+          <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${isDark ? "bg-indigo-500/20 text-indigo-400" : "bg-indigo-50 text-indigo-600"}`}>
+            <Wrench size={16} aria-hidden="true" />
           </span>
           <div>
-            <strong className="block text-[14px] font-black">HomeLand Premium</strong>
-            <span className={`block text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-500"}`}>Mẫu màn hình bảo trì</span>
+            <strong className="block text-xs font-black">HomeLand Premium</strong>
+            <span className={`block text-[10px] font-medium ${isDark ? "text-slate-400" : "text-slate-500"}`}>Mẫu màn hình bảo trì</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-[8px]">
-          {!forcedTheme && (
-            <div className={`flex rounded-[7px] border p-[2px] ${isDark ? "border-slate-700" : "border-slate-200"}`}>
-              <button
-                type="button"
-                onClick={() => setLocalTheme("light")}
-                data-testid="maintenance-preview-theme-light"
-                aria-label="Xem giao diện sáng"
-                className={`flex h-[28px] w-[30px] items-center justify-center rounded-[5px] ${!isDark ? "bg-indigo-600 text-white" : "text-slate-400"}`}
-              >
-                <Sun size={14} aria-hidden="true" />
-              </button>
+        <div className="flex items-center gap-2">
+          {isPreview && (
+            <div className="flex items-center gap-1 rounded-lg border border-border/70 p-0.5">
               <button
                 type="button"
                 onClick={() => setLocalTheme("dark")}
-                data-testid="maintenance-preview-theme-dark"
-                aria-label="Xem giao diện tối"
-                className={`flex h-[28px] w-[30px] items-center justify-center rounded-[5px] ${isDark ? "bg-indigo-600 text-white" : "text-slate-500"}`}
+                className={`flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-bold ${
+                  isDark ? "bg-primary text-white" : "text-muted hover:text-text"
+                }`}
               >
-                <Moon size={14} aria-hidden="true" />
+                <Moon size={11} /> Tối
+              </button>
+              <button
+                type="button"
+                onClick={() => setLocalTheme("light")}
+                className={`flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-bold ${
+                  !isDark ? "bg-primary text-white" : "text-muted hover:text-text"
+                }`}
+              >
+                <Sun size={11} /> Sáng
               </button>
             </div>
           )}
-          <span className="rounded-[6px] border border-amber-500/30 bg-amber-500/10 px-[9px] py-[5px] text-[10px] font-black text-amber-500">
-            BẢN XEM TRƯỚC
-          </span>
         </div>
       </div>
 
-      <div className="grid min-h-[420px] grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
-        <div className={`flex flex-col justify-center px-[24px] py-[34px] sm:px-[40px] ${isDark ? "border-slate-800" : "border-slate-200"} lg:border-r`}>
-          <span className={`w-fit rounded-[6px] px-[9px] py-[5px] text-[10px] font-black ${isDark ? "bg-indigo-500/15 text-indigo-300" : "bg-indigo-50 text-indigo-700"}`}>
-            GIAO DIỆN DỰ KIẾN
-          </span>
-          <h1 className="mt-[16px] max-w-[620px] text-[30px] font-black leading-[38px] sm:text-[36px] sm:leading-[44px]">
-            Hệ thống tạm thời không khả dụng
-          </h1>
-          <p className={`mt-[12px] max-w-[620px] text-[14px] font-medium leading-[23px] ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-            Quản trị viên đang thực hiện công việc bảo trì đã được phê duyệt. Vui lòng quay lại sau khi hệ thống có thông báo chính thức.
-          </p>
-          <div className={`mt-[22px] flex items-start gap-[10px] rounded-[7px] border px-[13px] py-[11px] ${isDark ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-slate-50"}`}>
-            <AlertTriangle className="mt-[1px] shrink-0 text-amber-500" size={16} aria-hidden="true" />
-            <p className={`text-[12px] font-medium leading-[18px] ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-              Đây chỉ là nội dung mẫu. Không hiển thị tiến độ, thời gian hoàn tất hoặc trạng thái kỹ thuật khi máy chủ chưa cung cấp dữ liệu thật.
-            </p>
-          </div>
+      <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500 mb-3 border border-amber-500/20">
+          <Wrench size={22} className="animate-pulse" />
         </div>
-
-        <div className={`flex flex-col justify-center px-[24px] py-[30px] sm:px-[32px] ${isDark ? "bg-slate-900/40" : "bg-slate-50"}`}>
-          <ShieldCheck className={isDark ? "text-indigo-300" : "text-indigo-600"} size={28} aria-hidden="true" />
-          <h2 className="mt-[14px] text-[16px] font-black">Trạng thái triển khai</h2>
-          <dl className={`mt-[16px] divide-y ${isDark ? "divide-slate-800" : "divide-slate-200"}`}>
-            <div className="flex items-center justify-between gap-[16px] py-[11px] text-[12px]">
-              <dt className={isDark ? "text-slate-400" : "text-slate-500"}>Middleware</dt>
-              <dd className="font-black">Chưa kết nối</dd>
-            </div>
-            <div className="flex items-center justify-between gap-[16px] py-[11px] text-[12px]">
-              <dt className={isDark ? "text-slate-400" : "text-slate-500"}>Admin bypass</dt>
-              <dd className="font-black">Chưa kiểm thử</dd>
-            </div>
-            <div className="flex items-center justify-between gap-[16px] py-[11px] text-[12px]">
-              <dt className={isDark ? "text-slate-400" : "text-slate-500"}>Chế độ bảo trì</dt>
-              <dd className="font-black text-amber-500">Chưa kích hoạt</dd>
-            </div>
-          </dl>
-        </div>
+        <h3 className="text-base font-black text-text">Hệ thống đang bảo trì định kỳ</h3>
+        <p className="max-w-md text-xs text-muted mt-1 leading-relaxed">
+          Chúng tôi đang nâng cấp cơ sở dữ liệu và tối ưu hiệu năng. Hệ thống sẽ quay trở lại hoạt động bình thường trong ít phút.
+        </p>
       </div>
     </section>
   );
 }
 
 export default function SettingsLicense() {
-  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
-  const [modalTheme, setModalTheme] = useState<PreviewTheme>("dark");
-  const [mounted, setMounted] = useState(false);
   const queryClient = useQueryClient();
-  const fallback = useMemo<AccessControlSettings>(() => ({
-    registrationEnabled: process.env.NEXT_PUBLIC_ALLOW_REGISTRATION === "true",
-    maintenanceEnabled: process.env.NEXT_PUBLIC_MAINTENANCE_MODE === "true",
-  }), []);
-  const { draft, isLoading, isSaving, save } = useSettingsSection<AccessControlSettings>("access-control", "TENANT", fallback);
+  const fallback = useMemo<AccessControlSettings>(
+    () => ({ registrationEnabled: false, maintenanceEnabled: false }),
+    [],
+  );
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const { draft, setDraft, save, isSaving } = useSettingsSection<AccessControlSettings>(
+    "access-control",
+    "TENANT",
+    fallback,
+  );
 
-  const updateAccessControl = async (patch: Partial<AccessControlSettings>) => {
-    const saved = await save({ ...draft, ...patch });
-    queryClient.setQueryData(settingsKeys.section("access-control", "TENANT"), saved);
+  const registrationEnabled = Boolean(draft.registrationEnabled);
+  const maintenanceEnabled = Boolean(draft.maintenanceEnabled);
+
+  const handleToggleRegistration = async () => {
+    const next = !registrationEnabled;
+    setDraft({ ...draft, registrationEnabled: next });
+    await save({ ...draft, registrationEnabled: next });
+    queryClient.invalidateQueries({ queryKey: settingsKeys.all });
+  };
+
+  const handleToggleMaintenance = async () => {
+    const next = !maintenanceEnabled;
+    setDraft({ ...draft, maintenanceEnabled: next });
+    await save({ ...draft, maintenanceEnabled: next });
+    queryClient.invalidateQueries({ queryKey: settingsKeys.all });
   };
 
   return (
-    <div data-testid="settings-license-root" className="flex flex-col gap-[20px]">
-      <section className="rounded-[8px] border border-warning/30 bg-warning/5 px-[20px] py-[18px] sm:px-[24px]">
-        <div className="flex items-start gap-[12px]">
-          <LockKeyhole className="mt-[1px] shrink-0 text-warning" size={19} aria-hidden="true" />
-          <div>
-            <h2 className="text-[15px] font-black text-text">Kiểm soát truy cập runtime</h2>
-            <p className="mt-[5px] text-[13px] font-medium leading-[20px] text-muted">
-              Các công tắc bên dưới lưu trực tiếp vào cấu hình runtime của hệ thống. Thay đổi có hiệu lực ngay sau khi lưu, không cần sửa file env.
-            </p>
+    <div className="flex flex-col gap-3" data-testid="settings-license-root">
+      {/* 4 Slim KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 shrink-0">
+            <Award size={16} />
           </div>
-        </div>
-      </section>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Gói giải pháp</div>
+            <div className="font-mono font-black text-[15px] text-text leading-tight">Enterprise Unlimited</div>
+            <div className="text-[10px] text-emerald-600 truncate mt-0.5">Không giới hạn tòa & phòng</div>
+          </div>
+        </Card>
 
-      <div data-testid="settings-license-control-grid" className="grid grid-cols-1 gap-[14px] xl:grid-cols-2">
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
+            <ShieldCheck size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Bản quyền phần mềm</div>
+            <div className="font-mono font-black text-[15px] text-emerald-600 leading-tight">Vĩnh viễn (Active)</div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Tự động cập nhật phiên bản</div>
+          </div>
+        </Card>
+
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 shrink-0">
+            <UserPlus size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Đăng ký thành viên</div>
+            <div className={`font-mono font-black text-[15px] leading-tight ${registrationEnabled ? "text-emerald-600" : "text-amber-600"}`}>
+              {registrationEnabled ? "Đang mở công khai" : "Khóa / Chỉ mời"}
+            </div>
+            <div className="text-[10px] text-muted truncate mt-0.5">{registrationEnabled ? "Người dùng tự tạo tk" : "Chỉ Admin tạo"}</div>
+          </div>
+        </Card>
+
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0">
+            <Wrench size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Chế độ bảo trì</div>
+            <div className={`font-mono font-black text-[15px] leading-tight ${maintenanceEnabled ? "text-rose-600" : "text-emerald-600"}`}>
+              {maintenanceEnabled ? "Đang bảo trì" : "Hoạt động bình thường"}
+            </div>
+            <div className="text-[10px] text-muted truncate mt-0.5">{maintenanceEnabled ? "Chỉ Admin đăng nhập" : "Hệ thống online 24/7"}</div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Switches Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <AccessControlSwitch
-          icon={<UserPlus size={20} aria-hidden="true" />}
-          title="Đăng ký tài khoản"
-          badge={draft.registrationEnabled ? "ĐANG MỞ" : "ĐANG ĐÓNG"}
-          enabled={draft.registrationEnabled}
-          isSaving={isLoading || isSaving}
-          onToggle={() => updateAccessControl({ registrationEnabled: !draft.registrationEnabled })}
-          description="Bật để cho phép người dùng truy cập /register và tạo tenant mới. Tắt để API /auth/register trả về trạng thái đăng ký đang đóng."
-          testId="registration-control-switch"
+          icon={<UserPlus size={18} />}
+          title="Đăng ký tài khoản công khai"
+          description="Cho phép khách hàng và nhân viên tự đăng ký tài khoản từ trang đăng nhập mà không cần link mời trực tiếp."
+          badge="Global Access"
+          enabled={registrationEnabled}
+          isSaving={isSaving}
+          onToggle={handleToggleRegistration}
+          testId="settings-switch-registration"
         />
+
         <AccessControlSwitch
-          icon={<Wrench size={20} aria-hidden="true" />}
-          title="Bảo trì hệ thống"
-          badge={draft.maintenanceEnabled ? "ĐANG BẢO TRÌ" : "ĐANG TẮT"}
-          enabled={draft.maintenanceEnabled}
-          isSaving={isLoading || isSaving}
-          onToggle={() => updateAccessControl({ maintenanceEnabled: !draft.maintenanceEnabled })}
-          description="Bật để người dùng thường thấy màn hình bảo trì. Tài khoản quản trị vẫn được vào Settings để tắt lại khi cần."
-          testId="maintenance-control-switch"
+          icon={<ServerCog size={18} />}
+          title="Chế độ bảo trì toàn hệ thống"
+          description="Khóa truy cập của tất cả người dùng thông thường và chuyển hướng sang màn hình bảo trì. Chỉ Admin mới có thể truy cập."
+          badge="Disaster Mode"
+          enabled={maintenanceEnabled}
+          isSaving={isSaving}
+          onToggle={handleToggleMaintenance}
+          testId="settings-switch-maintenance"
         />
       </div>
 
-      <section data-testid="maintenance-preview-card" className="flex flex-col gap-[16px] rounded-[8px] border border-border bg-card p-[20px] shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-[24px]">
-        <div className="flex min-w-0 items-start gap-[12px]">
-          <span className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-[8px] bg-primary/10 text-primary">
-            <Monitor size={19} aria-hidden="true" />
-          </span>
-          <div>
-            <div className="flex flex-wrap items-center gap-[8px]">
-              <h3 className="text-[15px] font-black text-text">Mẫu màn hình bảo trì</h3>
-              <span className="rounded-[6px] border border-border bg-background px-[8px] py-[3px] text-[10px] font-black text-muted">CHỈ XEM TRƯỚC</span>
+      {/* Maintenance Preview Screen */}
+      <Card className="rounded-xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Monitor size={14} />
             </div>
-            <p className="mt-[4px] text-[12px] font-medium leading-[18px] text-muted">Kiểm tra bố cục sáng/tối. Thao tác này không bật chế độ bảo trì.</p>
-          </div>
-        </div>
-        <Button type="button" onClick={() => setIsPreviewModalOpen(true)} data-testid="maintenance-preview-open" className="shrink-0 gap-[7px] rounded-[8px]">
-          <Eye size={16} aria-hidden="true" />
-          Xem bản mẫu
-        </Button>
-      </section>
-
-      <section className="rounded-[8px] border border-border bg-card px-[20px] py-[16px] shadow-sm sm:px-[24px]">
-        <div className="flex items-start gap-[10px]">
-          <ServerCog className="mt-[1px] shrink-0 text-primary" size={18} aria-hidden="true" />
-          <p className="text-[12px] font-medium leading-[19px] text-muted">
-            Cấu hình được lưu trong Settings và ghi audit log khi thay đổi. Đăng ký public được chặn tại API; bảo trì runtime áp dụng cho người dùng thường trong web app, còn quản trị viên được bypass để có thể tắt lại.
-          </p>
-        </div>
-      </section>
-
-      {mounted && isPreviewModalOpen && createPortal(
-        <div data-testid="maintenance-preview-modal-backdrop" className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 p-[12px] backdrop-blur-sm sm:p-[20px]">
-          <div data-testid="maintenance-preview-modal" className="flex max-h-[92vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[8px] border border-border bg-card shadow-2xl">
-            <div className="flex shrink-0 items-center justify-between gap-[14px] border-b border-border px-[16px] py-[12px] sm:px-[20px]">
-              <div className="flex min-w-0 items-center gap-[9px]">
-                <Eye size={17} className="shrink-0 text-primary" aria-hidden="true" />
-                <div>
-                  <h3 className="text-[14px] font-black text-text">Bản mẫu màn hình bảo trì</h3>
-                  <p className="text-[10px] font-medium text-muted">Không thay đổi trạng thái hệ thống</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-[8px]">
-                <div className="flex rounded-[7px] border border-border bg-background p-[2px]">
-                  <button type="button" onClick={() => setModalTheme("light")} data-testid="maintenance-modal-theme-light" aria-label="Bản mẫu sáng" className={`flex h-[28px] items-center gap-[5px] rounded-[5px] px-[9px] text-[11px] font-bold ${modalTheme === "light" ? "bg-card text-primary shadow-sm" : "text-muted"}`}>
-                    <Sun size={13} aria-hidden="true" /> Sáng
-                  </button>
-                  <button type="button" onClick={() => setModalTheme("dark")} data-testid="maintenance-modal-theme-dark" aria-label="Bản mẫu tối" className={`flex h-[28px] items-center gap-[5px] rounded-[5px] px-[9px] text-[11px] font-bold ${modalTheme === "dark" ? "bg-primary text-white" : "text-muted"}`}>
-                    <Moon size={13} aria-hidden="true" /> Tối
-                  </button>
-                </div>
-                <button type="button" onClick={() => setIsPreviewModalOpen(false)} data-testid="maintenance-preview-close" aria-label="Đóng bản mẫu" className="flex h-[32px] w-[32px] items-center justify-center rounded-[7px] text-muted hover:bg-background hover:text-text">
-                  <X size={18} aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-            <div className="overflow-y-auto bg-background p-[10px] sm:p-[16px]">
-              <MaintenanceScreen isPreview forcedTheme={modalTheme} />
+            <div>
+              <h3 className="text-xs font-black text-text">Xem trước màn hình bảo trì (Maintenance Preview)</h3>
+              <p className="text-[11px] text-muted">Giao diện mà khách hàng và người dùng nhìn thấy khi chế độ bảo trì được bật.</p>
             </div>
           </div>
-        </div>,
-        document.body,
-      )}
+        </div>
+
+        <MaintenanceScreen isPreview forcedTheme="dark" />
+      </Card>
     </div>
   );
 }

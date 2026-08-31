@@ -79,7 +79,7 @@ export default function TenantGrid() {
           contract.customer?.id === customer.id,
       );
 
-      // Prioritize active contracts first, then pending/draft, then any other
+      // Prioritize active contracts first, then pending/draft
       const activeContract =
         customerContracts.find(
           (c: any) =>
@@ -89,8 +89,13 @@ export default function TenantGrid() {
         ) ||
         customerContracts.find(
           (c: any) => c.status === "PENDING_APPROVAL" || c.status === "DRAFT",
-        ) ||
-        customerContracts[0];
+        );
+
+      const latestTerminatedContract = !activeContract
+        ? customerContracts.find(
+            (c: any) => c.status === "TERMINATED" || c.status === "CANCELLED" || c.status === "EXPIRED"
+          )
+        : null;
 
       const debt = Number(customer.kpis?.totalDebt || activeContract?.debt || 0);
       const endDate = activeContract?.endDate;
@@ -124,23 +129,27 @@ export default function TenantGrid() {
           rentalStatus = "DRAFT";
           statusLabel = "Chờ ký HĐ";
           statusVariant = "primary";
-        } else if (activeContract.status === "EXPIRED") {
-          rentalStatus = "EXPIRED";
-          statusLabel = "Hết hạn HĐ";
-          statusVariant = "error";
-        } else if (activeContract.status === "TERMINATED" || activeContract.status === "CANCELLED") {
-          rentalStatus = "TERMINATED";
-          statusLabel = "Đã trả phòng";
-          statusVariant = "neutral";
         }
-      } else if (customer.rooms && customer.rooms.length > 0) {
+      } else if (customer.room || (customer.rooms && customer.rooms.length > 0)) {
         rentalStatus = "ACTIVE";
         statusLabel = "Ở ghép";
         statusVariant = "success";
+      } else if (latestTerminatedContract) {
+        rentalStatus = "TERMINATED";
+        statusLabel = "Đã trả phòng";
+        statusVariant = "neutral";
       }
 
       const gender = customer.gender || "Nam";
       const fullName = customer.fullName || customer.name || "Khách thuê";
+
+      const roomLabel = activeContract
+        ? (activeContract.room?.name || activeContract.room?.code || activeContract.room?.number || "N/A")
+        : (customer.room?.name || customer.room?.code || customer.rooms?.[0]?.name || customer.rooms?.[0]?.code || "N/A");
+
+      const buildingName = activeContract
+        ? (activeContract.room?.building?.name || "Chưa có tòa")
+        : (customer.room?.building?.name || customer.rooms?.[0]?.building?.name || "Chưa có tòa");
 
       return {
         id: customer.id,
@@ -149,16 +158,8 @@ export default function TenantGrid() {
         gender,
         avatar: getTenantAvatar(customer.avatar, fullName, gender),
         type: customer.type || customer.customerType || "Cá nhân",
-        roomLabel:
-          customer.rooms?.[0]?.name ||
-          customer.rooms?.[0]?.code ||
-          activeContract?.room?.number ||
-          activeContract?.room?.code ||
-          "N/A",
-        buildingName:
-          customer.rooms?.[0]?.building?.name ||
-          activeContract?.room?.building?.name ||
-          "Chưa có tòa",
+        roomLabel,
+        buildingName,
         phone: customer.phone || "N/A",
         email: customer.email || "N/A",
         startDate: activeContract?.startDate,
@@ -333,7 +334,9 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
         )}
       </div>
       <div className="min-w-0">
-        <div className="truncate text-[12px] font-black text-text">{formatDate(row.startDate)} - {formatDate(row.endDate)}</div>
+        <div className="truncate text-[12px] font-black text-text">
+          {row.startDate && row.endDate ? `${formatDate(row.startDate)} - ${formatDate(row.endDate)}` : "-- --"}
+        </div>
       </div>
       <div className={`text-[13px] font-black ${row.debt > 0 ? "text-rose-600" : "text-emerald-600"}`}>{formatMoney(row.debt)}</div>
       <div>

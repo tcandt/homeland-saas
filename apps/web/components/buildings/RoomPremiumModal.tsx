@@ -2405,9 +2405,12 @@ export default function RoomPremiumModal({
                 Giá thuê / tháng
               </label>
               <Input
-                type="number"
-                value={contractRent}
-                onChange={(e) => setContractRent(Number(e.target.value))}
+                type="text"
+                value={contractRent ? new Intl.NumberFormat("vi-VN").format(contractRent) : ""}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9]/g, "");
+                  setContractRent(val ? Number(val) : 0);
+                }}
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -2435,9 +2438,12 @@ export default function RoomPremiumModal({
                 Tiền cọc
               </label>
               <Input
-                type="number"
-                value={contractDeposit}
-                onChange={(e) => setContractDeposit(Number(e.target.value))}
+                type="text"
+                value={contractDeposit ? new Intl.NumberFormat("vi-VN").format(contractDeposit) : ""}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9]/g, "");
+                  setContractDeposit(val ? Number(val) : 0);
+                }}
               />
             </div>
           </div>

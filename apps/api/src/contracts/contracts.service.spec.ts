@@ -312,7 +312,7 @@ describe('ContractsService', () => {
       vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
       
       prismaService.tx.contract.update.mockResolvedValue(updatedContract);
-      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.AVAILABLE });
       prismaService.tx.invoice.create = vi.fn();
 
       const result = await service.terminateContract('c1', 'user1');
@@ -325,7 +325,7 @@ describe('ContractsService', () => {
       });
       expect(prismaService.tx.room.update).toHaveBeenCalledWith({
         where: { id: 'r1' },
-        data: { status: RoomStatus.CLEANING },
+        data: { status: RoomStatus.AVAILABLE },
       });
       expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
       
@@ -392,7 +392,7 @@ describe('ContractsService', () => {
               expect.objectContaining({
                 type: 'RENT',
                 amount: 3000,
-                description: 'Final rent settlement (10 days)',
+                description: 'Tiền thuê phát sinh (10 ngày)',
               }),
               expect.objectContaining({
                 type: 'UTILITY_ELECTRICITY',

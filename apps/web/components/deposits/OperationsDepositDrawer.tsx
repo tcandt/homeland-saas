@@ -13,6 +13,16 @@ import {
   FileText,
   ShieldMinus,
   QrCode,
+  User,
+  Home,
+  Bookmark,
+  ShieldCheck,
+  Calendar,
+  AlertCircle,
+  Link as LinkIcon,
+  Info,
+  DollarSign,
+  AlertTriangle,
 } from "lucide-react";
 import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
 import {
@@ -23,9 +33,12 @@ import {
   useCancelDepositMutation,
 } from "../../lib/mutations/deposits.mutations";
 import { useDepositDetailQuery } from "../../lib/queries/deposits.queries";
-import { Drawer } from "../ui/Drawer";
-import { Card } from "../ui/Card";
+import { useToast } from "../ui/ToastContext";
+import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
+import { Input } from "../ui/Input";
+import { Select } from "../ui/Select";
+import { Badge } from "../ui/Badge";
 import DepositQrModal from "./DepositQrModal";
 
 type DepositResolutionAction = "REFUND" | "KEEP" | "DEDUCT";
@@ -55,44 +68,6 @@ function parseAttachmentUrls(input: string) {
     .filter(Boolean);
 }
 
-function promptResolutionAction(): DepositResolutionAction | null {
-  const action = window
-    .prompt(
-      "Chọn cách xử lý cọc đã thu: REFUND = hoàn cọc, KEEP = giữ cọc, DEDUCT = khấu trừ phí.",
-      "REFUND",
-    )
-    ?.trim()
-    .toUpperCase();
-
-  if (!action) return null;
-  if (action === "REFUND" || action === "KEEP" || action === "DEDUCT") return action;
-
-  window.alert("Giá trị không hợp lệ. Chỉ dùng REFUND, KEEP hoặc DEDUCT.");
-  return null;
-}
-
-function promptResolutionAmount(action: DepositResolutionAction, totalAmount: number) {
-  const labels: Record<DepositResolutionAction, string> = {
-    REFUND: "Số tiền hoàn cho khách",
-    KEEP: "Số tiền giữ lại theo chính sách",
-    DEDUCT: "Số tiền khấu trừ từ cọc",
-  };
-
-  const input = window.prompt(
-    `${labels[action]}? Tối đa ${currencyFormatter.format(totalAmount)} VND.`,
-    String(totalAmount),
-  );
-  if (input === null) return null;
-
-  const parsedAmount = Number(String(input).replace(/[^\d.-]/g, "").trim());
-  if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || parsedAmount > totalAmount) {
-    window.alert("Số tiền không hợp lệ.");
-    return null;
-  }
-
-  return parsedAmount;
-}
-
 export default function OperationsDepositDrawer({
   deposit,
   onClose,
@@ -100,6 +75,7 @@ export default function OperationsDepositDrawer({
   deposit: UI_Deposit | null;
   onClose: () => void;
 }) {
+  const { showToast } = useToast();
   const detailQuery = useDepositDetailQuery(deposit?.id ?? null);
   const detailDeposit = detailQuery.data?.data || deposit;
 
@@ -108,8 +84,28 @@ export default function OperationsDepositDrawer({
   const completePendingRefundMutation = useCompletePendingDepositRefundMutation();
   const convertMutation = useConvertContractMutation();
   const cancelMutation = useCancelDepositMutation();
-  const [refundAttachmentInput, setRefundAttachmentInput] = useState("");
+
+  // Sub-modal states
   const [showQrModal, setShowQrModal] = useState(false);
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const [isCompletePendingModalOpen, setIsCompletePendingModalOpen] = useState(false);
+
+  // Form states for Refund Modal
+  const [refundReason, setRefundReason] = useState("");
+  const [refundAmountInput, setRefundAmountInput] = useState("");
+  const [refundReceiptStatus, setRefundReceiptStatus] = useState<"COMPLETED" | "PENDING">("COMPLETED");
+  const [refundAttachmentInput, setRefundAttachmentInput] = useState("");
+
+  // Form states for Cancel Modal
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelResolutionAction, setCancelResolutionAction] = useState<DepositResolutionAction>("KEEP");
+  const [cancelResolutionAmount, setCancelResolutionAmount] = useState("");
+  const [cancelReceiptStatus, setCancelReceiptStatus] = useState<"COMPLETED" | "PENDING">("COMPLETED");
+
+  // Form state for Complete Pending Refund Modal
+  const [completePendingNote, setCompletePendingNote] = useState("");
 
   if (!detailDeposit) return null;
 
@@ -119,455 +115,895 @@ export default function OperationsDepositDrawer({
   const isConverted = detailDeposit.status === "CONVERTED_TO_CONTRACT";
   const isRefunded = detailDeposit.status === "REFUNDED";
   const isCancelled = detailDeposit.status === "CANCELLED";
+  const isDraft = detailDeposit.status === "DRAFT" || detailDeposit.status === "PENDING";
   const refundSummary = detailDeposit.refundSummary;
   const refundPending = !!refundSummary?.pending;
-  const attachmentUrls = parseAttachmentUrls(refundAttachmentInput);
 
-  const typeName =
-    detailDeposit.type === "BOOKING"
-      ? "giữ phòng"
-      : detailDeposit.type === "SECURITY"
-        ? "bảo đảm"
-        : "giữ chỗ";
+  // Check if this deposit belongs to a contract
+  const isContractDeposit =
+    detailDeposit.type === "SECURITY" ||
+    !!detailDeposit.contractId ||
+    !!detailDeposit.contractCode ||
+    isConverted;
 
+  // Only allow standalone refund for room booking/holding deposits
+  const canRefundDirectly = !isContractDeposit && isPaid;
+
+  const getStatusConfig = (status: string) => {
+    switch (status) {
+      case "DRAFT":
+      case "PENDING":
+        return { label: "Chờ thu", variant: "neutral" as const, bg: "bg-sky-500/10 text-sky-600 border-sky-500/20" };
+      case "PAID":
+        return { label: "Đã thu cọc", variant: "success" as const, bg: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" };
+      case "CONVERTED_TO_CONTRACT":
+        return { label: "Đã chuyển HĐ", variant: "primary" as const, bg: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20" };
+      case "REFUNDED":
+        return { label: "Đã hoàn cọc", variant: "warning" as const, bg: "bg-amber-500/10 text-amber-600 border-amber-500/20" };
+      case "CANCELLED":
+        return { label: "Đã hủy", variant: "error" as const, bg: "bg-rose-500/10 text-rose-600 border-rose-500/20" };
+      default:
+        return { label: status, variant: "neutral" as const, bg: "bg-slate-500/10 text-slate-600 border-slate-500/20" };
+    }
+  };
+
+  const getTypeConfig = (type: string) => {
+    switch (type) {
+      case "SECURITY":
+        return { label: "Cọc bảo đảm HĐ", icon: ShieldCheck, color: "text-indigo-600 bg-indigo-500/10 border-indigo-500/20" };
+      case "BOOKING":
+        return { label: "Cọc giữ phòng", icon: Bookmark, color: "text-amber-600 bg-amber-500/10 border-amber-500/20" };
+      case "RESERVATION":
+        return { label: "Phí giữ chỗ", icon: Bookmark, color: "text-sky-600 bg-sky-500/10 border-sky-500/20" };
+      default:
+        return { label: type, icon: Bookmark, color: "text-slate-600 bg-slate-500/10 border-slate-500/20" };
+    }
+  };
+
+  const statusConfig = getStatusConfig(detailDeposit.status);
+  const typeConfig = getTypeConfig(detailDeposit.type);
+
+  // --- Handlers ---
   const handleCollect = () => {
-    collectMutation.mutate({ id: detailDeposit.id });
-  };
-
-  const handleRefundFlow = () => {
-    const reason = window.prompt("Lý do hoàn cọc?");
-    if (!reason) return;
-
-    const amountInput = window.prompt(
-      "Số tiền hoàn lại cho khách? Để trống hoặc 0 để hoàn toàn bộ.",
-      String(amount),
+    collectMutation.mutate(
+      { id: detailDeposit.id },
+      {
+        onSuccess: () => {
+          showToast("Đã xác nhận thu tiền cọc thành công!", "success");
+        },
+        onError: (err: any) => {
+          showToast(err?.response?.data?.message || "Lỗi khi thu tiền cọc", "error");
+        },
+      },
     );
-    const parsedAmount = Number(String(amountInput || "").trim() || amount);
-    const refundAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : amount;
-    const completeNow = window.confirm(
-      "Đã chuyển tiền ngay cho khách? Chọn OK nếu đã hoàn tất, Cancel nếu chỉ tạo phiếu chi để xử lý sau.",
-    );
-
-    refundMutation.mutate({
-      id: detailDeposit.id,
-      reason,
-      receiptStatus: completeNow ? "COMPLETED" : "PENDING",
-      attachmentUrls,
-      refundAmount,
-    });
   };
 
-  const handleCompletePendingRefund = () => {
-    const note = window.prompt("Ghi chú xác nhận hoàn tiền / mã giao dịch?");
-    completePendingRefundMutation.mutate({ id: detailDeposit.id, note: note || undefined });
+  const openRefundModal = () => {
+    setRefundReason("");
+    setRefundAmountInput(String(amount));
+    setRefundReceiptStatus("COMPLETED");
+    setRefundAttachmentInput("");
+    setIsRefundModalOpen(true);
   };
 
-  const handleCancel = () => {
-    const reason = window.prompt("Lý do hủy phiếu cọc?");
-    if (!reason) return;
-
-    if (!isPaid) {
-      cancelMutation.mutate({ id: detailDeposit.id, reason });
+  const submitRefund = () => {
+    if (!refundReason.trim()) {
+      showToast("Vui lòng nhập lý do hoàn cọc", "error");
+      return;
+    }
+    const parsedAmount = Number(refundAmountInput.trim());
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || parsedAmount > amount) {
+      showToast(`Số tiền hoàn không hợp lệ (Tối đa ${amountStr})`, "error");
       return;
     }
 
-    const resolutionAction = promptResolutionAction();
-    if (!resolutionAction) return;
+    const attachmentUrls = parseAttachmentUrls(refundAttachmentInput);
 
-    const resolutionAmount = promptResolutionAmount(resolutionAction, amount);
-    if (resolutionAmount === null) return;
+    refundMutation.mutate(
+      {
+        id: detailDeposit.id,
+        reason: refundReason.trim(),
+        receiptStatus: refundReceiptStatus,
+        attachmentUrls,
+        refundAmount: parsedAmount,
+      },
+      {
+        onSuccess: () => {
+          showToast("Đã tạo lệnh hoàn cọc thành công!", "success");
+          setIsRefundModalOpen(false);
+        },
+        onError: (err: any) => {
+          showToast(err?.response?.data?.message || "Lỗi khi hoàn cọc", "error");
+        },
+      },
+    );
+  };
+
+  const openCancelModal = () => {
+    setCancelReason("");
+    setCancelResolutionAction("KEEP");
+    setCancelResolutionAmount(String(amount));
+    setCancelReceiptStatus("COMPLETED");
+    setIsCancelModalOpen(true);
+  };
+
+  const submitCancel = () => {
+    if (!cancelReason.trim()) {
+      showToast("Vui lòng nhập lý do hủy phiếu cọc", "error");
+      return;
+    }
+
+    if (!isPaid) {
+      cancelMutation.mutate(
+        { id: detailDeposit.id, reason: cancelReason.trim() },
+        {
+          onSuccess: () => {
+            showToast("Đã hủy phiếu cọc thành công!", "success");
+            setIsCancelModalOpen(false);
+          },
+          onError: (err: any) => {
+            showToast(err?.response?.data?.message || "Lỗi khi hủy phiếu cọc", "error");
+          },
+        },
+      );
+      return;
+    }
+
+    const parsedAmount = Number(cancelResolutionAmount.trim());
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || parsedAmount > amount) {
+      showToast(`Số tiền xử lý không hợp lệ (Tối đa ${amountStr})`, "error");
+      return;
+    }
 
     const refundableAmount =
-      resolutionAction === "REFUND" ? resolutionAmount : Math.max(amount - resolutionAmount, 0);
-    const receiptStatus =
-      refundableAmount > 0
-        ? window.confirm(
-            "Phần tiền hoàn lại đã được chi ngay? Chọn OK nếu đã hoàn tất, Cancel nếu cần tạo phiếu chi chờ xử lý.",
-          )
-          ? "COMPLETED"
-          : "PENDING"
-        : undefined;
+      cancelResolutionAction === "REFUND" ? parsedAmount : Math.max(amount - parsedAmount, 0);
 
-    cancelMutation.mutate({
-      id: detailDeposit.id,
-      reason,
-      resolutionAction,
-      resolutionAmount,
-      receiptStatus,
-      attachmentUrls,
+    cancelMutation.mutate(
+      {
+        id: detailDeposit.id,
+        reason: cancelReason.trim(),
+        resolutionAction: cancelResolutionAction,
+        resolutionAmount: parsedAmount,
+        receiptStatus: refundableAmount > 0 ? cancelReceiptStatus : undefined,
+      },
+      {
+        onSuccess: () => {
+          showToast("Đã hủy và xử lý cọc thành công!", "success");
+          setIsCancelModalOpen(false);
+        },
+        onError: (err: any) => {
+          showToast(err?.response?.data?.message || "Lỗi khi xử lý cọc", "error");
+        },
+      },
+    );
+  };
+
+  const openConvertModal = () => {
+    setIsConvertModalOpen(true);
+  };
+
+  const submitConvert = () => {
+    convertMutation.mutate(detailDeposit.id, {
+      onSuccess: () => {
+        showToast("Đã chuyển phiếu cọc thành hợp đồng thành công!", "success");
+        setIsConvertModalOpen(false);
+        onClose();
+      },
+      onError: (err: any) => {
+        showToast(err?.response?.data?.message || "Lỗi khi chuyển hợp đồng", "error");
+      },
     });
   };
 
-  const handleConvert = () => {
-    if (window.confirm("Bạn có chắc muốn chuyển cọc này thành hợp đồng?")) {
-      convertMutation.mutate(detailDeposit.id, {
+  const openCompletePendingModal = () => {
+    setCompletePendingNote("");
+    setIsCompletePendingModalOpen(true);
+  };
+
+  const submitCompletePendingRefund = () => {
+    completePendingRefundMutation.mutate(
+      { id: detailDeposit.id, note: completePendingNote.trim() || undefined },
+      {
         onSuccess: () => {
-          window.alert("Đã chuyển thành hợp đồng thành công.");
-          onClose();
+          showToast("Đã xác nhận hoàn tất phiếu chi hoàn cọc!", "success");
+          setIsCompletePendingModalOpen(false);
         },
-      });
-    }
+        onError: (err: any) => {
+          showToast(err?.response?.data?.message || "Lỗi khi xác nhận hoàn cọc", "error");
+        },
+      },
+    );
   };
 
   return (
-    <Drawer
-      testId="deposit-detail-drawer"
-      closeTestId="deposit-detail-close"
-      isOpen={!!detailDeposit}
-      onClose={onClose}
-      size="xl"
-      title={
-        <div className="flex items-center gap-[12px]">
-          <h2 className="text-[20px] font-black text-text">Chi tiết đặt cọc</h2>
-          <span className="rounded-[6px] border border-[#6366f1]/20 bg-[#6366f1]/10 px-[10px] py-[4px] text-[14px] font-black text-[#6366f1]">
-            {detailDeposit.code}
-          </span>
-        </div>
-      }
-      footer={
-        <div className="flex w-full items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-[12px]">
-            <Button
-              type="button"
-              onClick={() => setShowQrModal(true)}
-              variant="outline"
-              className="border-[#0ea5e9]/30 text-[#0ea5e9] hover:bg-[#0ea5e9]/10 font-bold"
-            >
-              <QrCode size={16} className="mr-2" /> Mã VietQR / Gửi Zalo
-            </Button>
-            <Button variant="ghost">
-              <Printer size={16} className="mr-2 text-muted" /> In phiếu
-            </Button>
+    <>
+      <Modal
+        testId="deposit-detail-modal"
+        isOpen={!!detailDeposit}
+        onClose={onClose}
+        maxWidth="max-w-4xl"
+        title={
+          <div className="flex items-center gap-3">
+            <span className="text-[18px] font-black text-text">Chi tiết phiếu cọc</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-primary/10 border border-primary/20 rounded-lg">
+              <span className="font-mono font-bold text-[11px] text-primary">{detailDeposit.code || detailDeposit.id}</span>
+            </div>
           </div>
-          <div className="flex items-center gap-[12px]">
-            {(detailDeposit.status === "DRAFT" ||
-              detailDeposit.status === "PENDING" ||
-              isPaid) && (
+        }
+        footer={
+          <div className="flex w-full items-center justify-between flex-wrap gap-2.5">
+            <div className="flex items-center gap-2">
               <Button
-                data-testid="deposit-action-cancel"
-                onClick={handleCancel}
-                disabled={cancelMutation.isPending}
+                type="button"
+                onClick={() => setShowQrModal(true)}
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-xl border-sky-500/30 text-sky-600 hover:bg-sky-500/10 font-bold text-xs shadow-2xs"
+              >
+                <QrCode size={14} className="mr-1.5" /> Mã VietQR / Gửi Zalo
+              </Button>
+              <Button
                 variant="ghost"
-                className="text-muted hover:bg-rose-500/10 hover:text-rose-500"
+                size="sm"
+                className="h-9 rounded-xl text-muted hover:text-text font-bold text-xs"
               >
-                {cancelMutation.isPending ? (
-                  <Loader2 size={16} className="mr-2 animate-spin" />
-                ) : isPaid ? (
-                  <ShieldMinus size={16} className="mr-2" />
-                ) : (
-                  <X size={16} className="mr-2" />
-                )}
-                {isPaid ? "Hủy và xử lý cọc" : "Hủy phiếu"}
+                <Printer size={14} className="mr-1.5" /> In phiếu
               </Button>
-            )}
-            {(isConverted || isPaid) && (
-              <Button
-                data-testid="deposit-action-refund"
-                onClick={handleRefundFlow}
-                disabled={refundMutation.isPending}
-                className="bg-rose-500/10 text-rose-500 hover:bg-rose-500/20"
-              >
-                {refundMutation.isPending ? (
-                  <Loader2 size={16} className="mr-2 animate-spin" />
-                ) : (
-                  <RefreshCcw size={16} className="mr-2" />
-                )}
-                Hoàn cọc
-              </Button>
-            )}
-            {refundPending && (
-              <Button
-                data-testid="deposit-action-complete-refund"
-                onClick={handleCompletePendingRefund}
-                disabled={completePendingRefundMutation.isPending}
-                className="bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
-              >
-                {completePendingRefundMutation.isPending ? (
-                  <Loader2 size={16} className="mr-2 animate-spin" />
-                ) : (
-                  <CheckCircle2 size={16} className="mr-2" />
-                )}
-                Xác nhận đã hoàn
-              </Button>
-            )}
-            {(detailDeposit.status === "PENDING" || detailDeposit.status === "DRAFT") && (
-              <Button
-                data-testid="deposit-action-collect"
-                onClick={handleCollect}
-                disabled={collectMutation.isPending}
-                className="bg-[#8b5cf6] text-white hover:bg-[#6366f1]"
-              >
-                {collectMutation.isPending ? (
-                  <Loader2 size={16} className="mr-2 animate-spin" />
-                ) : (
-                  <Banknote size={16} className="mr-2" />
-                )}
-                Thu tiền cọc
-              </Button>
-            )}
-            {isPaid && (
-              <Button
-                data-testid="deposit-action-convert"
-                onClick={handleConvert}
-                disabled={convertMutation.isPending}
-                variant="primary"
-              >
-                {convertMutation.isPending ? (
-                  <Loader2 size={16} className="mr-2 animate-spin" />
-                ) : (
-                  <PenTool size={16} className="mr-2" />
-                )}
-                Lên hợp đồng
-              </Button>
-            )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Nút Hủy cọc (Chỉ cho cọc chưa lên HĐ) */}
+              {isDraft && (
+                <Button
+                  data-testid="deposit-action-cancel"
+                  onClick={openCancelModal}
+                  disabled={cancelMutation.isPending}
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 rounded-xl text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 font-bold text-xs"
+                >
+                  <X size={14} className="mr-1.5" /> Hủy phiếu
+                </Button>
+              )}
+
+              {isPaid && !isContractDeposit && (
+                <Button
+                  data-testid="deposit-action-cancel-paid"
+                  onClick={openCancelModal}
+                  disabled={cancelMutation.isPending}
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 rounded-xl text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 font-bold text-xs"
+                >
+                  <ShieldMinus size={14} className="mr-1.5" /> Hủy & xử lý cọc
+                </Button>
+              )}
+
+              {/* Nút Hoàn cọc (Chỉ bấm được cho cọc giữ phòng trước, không hoàn trực tiếp cọc HĐ) */}
+              {canRefundDirectly && (
+                <Button
+                  data-testid="deposit-action-refund"
+                  onClick={openRefundModal}
+                  disabled={refundMutation.isPending}
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-xl border-amber-500/30 text-amber-600 hover:bg-amber-500/10 font-bold text-xs"
+                >
+                  <RefreshCcw size={14} className="mr-1.5" /> Hoàn cọc giữ phòng
+                </Button>
+              )}
+
+              {/* Nút Xác nhận đã hoàn tiền (khi có phiếu chi chờ duyệt) */}
+              {refundPending && (
+                <Button
+                  data-testid="deposit-action-complete-refund"
+                  onClick={openCompletePendingModal}
+                  disabled={completePendingRefundMutation.isPending}
+                  size="sm"
+                  className="h-9 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-sm"
+                >
+                  <CheckCircle2 size={14} className="mr-1.5" /> Xác nhận đã hoàn tiền
+                </Button>
+              )}
+
+              {/* Nút Thu tiền cọc */}
+              {isDraft && (
+                <Button
+                  data-testid="deposit-action-collect"
+                  onClick={handleCollect}
+                  disabled={collectMutation.isPending}
+                  size="sm"
+                  className="h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
+                >
+                  {collectMutation.isPending ? (
+                    <Loader2 size={14} className="mr-1.5 animate-spin" />
+                  ) : (
+                    <Banknote size={14} className="mr-1.5" />
+                  )}
+                  Thu tiền cọc
+                </Button>
+              )}
+
+              {/* Nút Lên hợp đồng (cho cọc giữ chỗ đã thu tiền) */}
+              {isPaid && !isContractDeposit && (
+                <Button
+                  data-testid="deposit-action-convert"
+                  onClick={openConvertModal}
+                  disabled={convertMutation.isPending}
+                  variant="primary"
+                  size="sm"
+                  className="h-9 rounded-xl font-bold text-xs shadow-sm"
+                >
+                  <PenTool size={14} className="mr-1.5" /> Lên hợp đồng
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-[24px]">
-        <Card className="flex flex-col gap-[16px] p-[20px]">
-          <div className="flex items-start justify-between gap-[16px]">
-            <div className="flex flex-col gap-[8px]">
-              <h3 className="text-[22px] font-black leading-tight text-text">
-                {detailDeposit.customerName}
-              </h3>
-              <div className="flex flex-wrap items-center gap-[8px]">
-                <span className="rounded-[6px] bg-black/5 px-[8px] py-[4px] text-[12px] font-bold dark:bg-white/5">
-                  {detailDeposit.roomCode} · {detailDeposit.buildingName}
+        }
+      >
+        <div className="flex flex-col gap-5">
+          {/* HERO CARD */}
+          <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-primary/5 p-5 md:p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 text-primary font-black text-xl shadow-xs">
+                  {detailDeposit.customerName ? detailDeposit.customerName.slice(0, 2).toUpperCase() : "DC"}
+                </div>
+                <div>
+                  <h3 className="text-lg md:text-xl font-black text-text leading-tight">
+                    {detailDeposit.customerName || "Khách đặt cọc"}
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                    <span className="flex items-center gap-1 text-xs font-semibold text-muted bg-card px-2.5 py-0.5 rounded-lg border border-border/60">
+                      <Home size={12} className="text-primary" />
+                      {detailDeposit.roomCode || "Chưa xếp phòng"} · {detailDeposit.buildingName || "Chưa có tòa"}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md border ${typeConfig.color}`}>
+                      <typeConfig.icon size={11} />
+                      {typeConfig.label}
+                    </span>
+                    <span className={`text-[11px] font-black px-2 py-0.5 rounded-md border uppercase ${statusConfig.bg}`}>
+                      {statusConfig.label}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="sm:text-right text-left flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-border/40">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted block">
+                  Cập nhật gần nhất
                 </span>
-                <span
-                  className={`rounded-[6px] border px-[8px] py-[4px] text-[11px] font-black uppercase ${
-                    detailDeposit.type === "SECURITY"
-                      ? "border-[#8b5cf6]/20 bg-[#8b5cf6]/10 text-[#8b5cf6]"
-                      : "border-[#0ea5e9]/20 bg-[#0ea5e9]/10 text-[#0ea5e9]"
-                  }`}
-                >
-                  Cọc {typeName}
-                </span>
-                <span
-                  data-testid="deposit-status-badge"
-                  className="rounded-[6px] border border-border bg-black/5 px-[8px] py-[4px] text-[11px] font-black uppercase text-muted dark:bg-white/5"
-                >
-                  {detailDeposit.status}
-                </span>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-text mt-0.5">
+                  <Clock3 size={13} className="text-primary" />
+                  {formatDateTime(detailDeposit.updatedAt || detailDeposit.createdAt)}
+                </div>
               </div>
             </div>
-            <div className="flex flex-col items-end gap-[4px] text-right">
-              <span className="text-[12px] font-bold uppercase tracking-wider text-muted">
-                Cập nhật gần nhất
-              </span>
-              <div className="flex items-center gap-[6px] text-[14px] font-black text-text">
-                <Clock3 size={16} className="text-[#6366f1]" />
-                {formatDateTime(detailDeposit.updatedAt || detailDeposit.createdAt)}
+
+            {/* Quick KPI Stat Boxes */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 border-t border-border/60 pt-4 mt-4">
+              <div className="bg-card/80 border border-border/60 rounded-xl p-3 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">
+                  Số tiền cọc
+                </span>
+                <span className="text-base font-black text-text mt-0.5 block">
+                  {amountStr}
+                </span>
+              </div>
+              <div className="bg-card/80 border border-border/60 rounded-xl p-3 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">
+                  Đã thu
+                </span>
+                <span className={`text-base font-black mt-0.5 block ${isPaid || isConverted ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}>
+                  {isPaid || isConverted ? amountStr : "0đ"}
+                </span>
+              </div>
+              <div className="bg-card/80 border border-border/60 rounded-xl p-3 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">
+                  Ngày tạo
+                </span>
+                <span className="text-xs font-bold text-text mt-0.5 block">
+                  {formatDate(detailDeposit.createdAt)}
+                </span>
+              </div>
+              <div className="bg-card/80 border border-border/60 rounded-xl p-3 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">
+                  Hạn giữ cọc
+                </span>
+                <span className="text-xs font-bold text-text mt-0.5 block">
+                  {formatDate(detailDeposit.expiredAt)}
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-[16px] border-t border-border/50 pt-[16px] md:grid-cols-4">
-            <div className="flex flex-col gap-[4px]">
-              <span className="text-[11px] font-bold uppercase text-muted">Số tiền cọc</span>
-              <span className="text-[15px] font-black text-text">{amountStr}</span>
-            </div>
-            <div className="flex flex-col gap-[4px]">
-              <span className="text-[11px] font-bold uppercase text-muted">Đã thu</span>
-              <span className="text-[15px] font-black text-[#8b5cf6]">
-                {isPaid || isConverted ? amountStr : "0đ"}
-              </span>
-            </div>
-            <div className="flex flex-col gap-[4px]">
-              <span className="text-[11px] font-bold uppercase text-muted">Ngày tạo</span>
-              <span className="text-[14px] font-bold text-text">
-                {formatDate(detailDeposit.createdAt)}
-              </span>
-            </div>
-            <div className="flex flex-col gap-[4px]">
-              <span className="text-[11px] font-bold uppercase text-muted">Hạn giữ cọc</span>
-              <span className="text-[14px] font-bold text-text">
-                {formatDate(detailDeposit.expiredAt)}
-              </span>
-            </div>
-          </div>
-        </Card>
+          {/* 2-COLUMN MAIN CONTENT */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Left Card: Chi tiết & Ghi chú */}
+            <div className="rounded-2xl border border-border/70 bg-card p-4 md:p-5 flex flex-col gap-3.5 shadow-2xs">
+              <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-muted border-b border-border/50 pb-2.5">
+                <FileText size={14} className="text-primary" /> Thông tin phiếu cọc
+              </h4>
 
-        <div className="grid grid-cols-1 gap-[24px] lg:grid-cols-2">
-          <Card className="flex flex-col gap-[16px] p-[20px]">
-            <h4 className="flex items-center gap-2 border-b border-border/50 pb-3 text-[15px] font-black text-text">
-              <FileText size={16} className="text-[#6366f1]" /> Ghi chú và trạng thái
-            </h4>
-            <div className="flex flex-col gap-[12px]">
-              <div className="flex items-center justify-between rounded-[10px] bg-black/5 p-[12px] dark:bg-white/5">
-                <span className="text-[13px] font-bold text-muted">Khách hàng</span>
-                <span className="text-[13px] font-semibold text-text">
-                  {detailDeposit.customerPhone}
+              {/* Thông báo nghiệp vụ cọc bảo đảm hợp đồng */}
+              {isContractDeposit && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3 text-xs leading-relaxed text-indigo-700 dark:text-indigo-300">
+                  <Info size={16} className="shrink-0 text-indigo-600 mt-0.5" />
+                  <div>
+                    <span className="font-bold block mb-0.5">
+                      Cọc bảo đảm hợp đồng {detailDeposit.contractCode ? `(${detailDeposit.contractCode})` : ""}
+                    </span>
+                    Khoản tiền cọc này gắn liền với Hợp đồng thuê. Khi thanh lý hợp đồng, hệ thống sẽ tự động tính toán, khấu trừ điện nước/hư hại và hoàn cọc chính xác tại mục <b>Hợp đồng</b>.
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-muted/5 border border-border/40 text-xs">
+                <span className="font-bold text-muted flex items-center gap-1.5">
+                  <User size={13} /> Khách hàng
+                </span>
+                <span className="font-bold text-text font-mono">
+                  {detailDeposit.customerPhone || "Chưa có SĐT"}
                 </span>
               </div>
-              <div className="flex items-center justify-between rounded-[10px] bg-black/5 p-[12px] dark:bg-white/5">
-                <span className="text-[13px] font-bold text-muted">Trạng thái hiện tại</span>
-                <span className="text-[13px] font-black text-text">{detailDeposit.status}</span>
+
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-muted/5 border border-border/40 text-xs">
+                <span className="font-bold text-muted flex items-center gap-1.5">
+                  <Home size={13} /> Phòng gán cọc
+                </span>
+                <span className="font-bold text-text">
+                  {detailDeposit.roomCode || "Chưa gán phòng"}
+                </span>
               </div>
-              <div className="rounded-[10px] bg-black/5 p-[12px] dark:bg-white/5">
-                <div className="mb-[8px] text-[13px] font-bold text-muted">Ghi chú</div>
-                <div className="whitespace-pre-wrap text-[13px] font-semibold text-text">
+
+              {(detailDeposit.contractCode || detailDeposit.contractId) && (
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-indigo-500/5 border border-indigo-500/20 text-xs">
+                  <span className="font-bold text-indigo-600 flex items-center gap-1.5">
+                    <LinkIcon size={13} /> Hợp đồng liên kết
+                  </span>
+                  <span className="font-bold text-indigo-600 font-mono">
+                    {detailDeposit.contractCode || detailDeposit.contractId}
+                  </span>
+                </div>
+              )}
+
+              <div className="p-3 rounded-xl bg-muted/5 border border-border/40">
+                <span className="text-[11px] font-bold text-muted block mb-1">Ghi chú</span>
+                <div className="text-xs font-semibold text-text whitespace-pre-wrap leading-relaxed">
                   {detailDeposit.note || "Không có ghi chú"}
                 </div>
               </div>
-              <div className="flex flex-col gap-[8px] rounded-[10px] bg-black/5 p-[12px] dark:bg-white/5">
-                <span className="text-[13px] font-bold text-muted">Chứng từ hoàn cọc</span>
-                <textarea
-                  value={refundAttachmentInput}
-                  onChange={(event) => setRefundAttachmentInput(event.target.value)}
-                  placeholder="Nhập URL chứng từ, ngăn cách bằng dấu phẩy hoặc xuống dòng"
-                  className="min-h-[84px] rounded-[10px] border border-border bg-card px-3 py-2 text-[13px] text-text outline-none"
-                />
-                <span className="text-[11px] font-medium text-muted">
-                  Được gửi kèm khi tạo phiếu hoàn hoặc hủy cọc có phát sinh hoàn tiền.
-                </span>
-              </div>
-              {refundSummary ? (
-                <div className="flex flex-col gap-[8px] rounded-[10px] border border-amber-500/20 bg-amber-500/10 p-[12px]">
-                  <span className="text-[13px] font-bold text-amber-700">
-                    Theo dõi phiếu hoàn cọc
+
+              {refundSummary && (
+                <div className="flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5">
+                  <span className="text-xs font-black text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                    <AlertCircle size={14} /> Theo dõi phiếu hoàn cọc
                   </span>
-                  <div className="flex items-center justify-between gap-[12px] text-[13px]">
-                    <span className="text-muted">Mã phiếu</span>
-                    <span className="font-black text-text">
-                      {refundSummary.receiptCode || "Chưa có"}
-                    </span>
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <span className="text-muted">Mã phiếu chi:</span>
+                    <span className="font-bold font-mono text-text">{refundSummary.receiptCode || "Chưa có"}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-[12px] text-[13px]">
-                    <span className="text-muted">Trạng thái</span>
-                    <span className="font-black text-text">
-                      {refundSummary.taskStatus || refundSummary.receiptStatus || "-"}
-                    </span>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted">Trạng thái:</span>
+                    <span className="font-bold text-text">{refundSummary.taskStatus || refundSummary.receiptStatus || "-"}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-[12px] text-[13px]">
-                    <span className="text-muted">Số tiền</span>
-                    <span className="font-black text-text">
-                      {formatCurrency(refundSummary.receiptAmount)}
-                    </span>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted">Số tiền hoàn:</span>
+                    <span className="font-black text-amber-700 dark:text-amber-400">{formatCurrency(refundSummary.receiptAmount)}</span>
                   </div>
-                  {refundSummary.receiptDescription ? (
-                    <div className="rounded-[8px] bg-white/60 p-[10px] text-[12px] text-text dark:bg-black/10">
-                      {refundSummary.receiptDescription}
-                    </div>
-                  ) : null}
                 </div>
-              ) : null}
+              )}
             </div>
-          </Card>
 
-          <Card className="flex flex-col gap-[16px] p-[20px]">
-            <h4 className="flex items-center gap-2 border-b border-border/50 pb-3 text-[15px] font-black text-text">
-              <RefreshCcw size={16} className="text-[#f97316]" /> Mốc xử lý
-            </h4>
-            <div className="relative mt-[8px] flex flex-col gap-[0px]">
-              <div className="absolute bottom-[20px] left-[15px] top-[10px] w-[2px] bg-border" />
+            {/* Right Card: Lifecycle Timeline */}
+            <div className="rounded-2xl border border-border/70 bg-card p-4 md:p-5 flex flex-col gap-3.5 shadow-2xs">
+              <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-muted border-b border-border/50 pb-2.5">
+                <RefreshCcw size={14} className="text-primary" /> Mốc xử lý phiếu cọc
+              </h4>
 
-              <div className="relative z-10 flex gap-[16px] pb-[24px]">
-                <div className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full border-[4px] border-card bg-[#8b5cf6]">
-                  <CheckCircle2 size={14} className="text-white" />
-                </div>
-                <div className="flex flex-col gap-[4px] pt-[6px]">
-                  <span className="text-[13px] font-bold leading-none text-text">
-                    Tạo phiếu cọc
-                  </span>
-                  <span className="text-[11px] text-muted">
-                    {formatDateTime(detailDeposit.createdAt)}
-                  </span>
-                </div>
-              </div>
+              <div className="relative mt-2 flex flex-col gap-0 pl-1">
+                {/* Vertical connecting line */}
+                <div className="absolute bottom-5 left-[19px] top-3 w-[2px] bg-border/80" />
 
-              <div className="relative z-10 flex gap-[16px] pb-[24px]">
-                <div
-                  className={`flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full border-[4px] border-card ${
-                    isPaid || isConverted ? "bg-[#8b5cf6]" : "bg-black/10 dark:bg-white/10"
-                  }`}
-                >
-                  {isPaid || isConverted ? (
-                    <CheckCircle2 size={14} className="text-white" />
-                  ) : (
-                    <div className="h-[8px] w-[8px] rounded-full bg-muted" />
-                  )}
+                {/* Step 1: Tạo cọc */}
+                <div className="relative z-10 flex gap-3.5 pb-6">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-card bg-emerald-600 text-white shadow-xs">
+                    <CheckCircle2 size={14} />
+                  </div>
+                  <div className="flex flex-col pt-0.5">
+                    <span className="text-xs font-black text-text leading-tight">
+                      Tạo phiếu cọc
+                    </span>
+                    <span className="text-[11px] text-muted mt-0.5">
+                      {formatDateTime(detailDeposit.createdAt)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-[4px] pt-[6px]">
-                  <span
-                    className={`text-[13px] font-bold leading-none ${
-                      isPaid || isConverted ? "text-text" : "text-muted"
+
+                {/* Step 2: Thu tiền */}
+                <div className="relative z-10 flex gap-3.5 pb-6">
+                  <div
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-card shadow-xs ${
+                      isPaid || isConverted
+                        ? "bg-emerald-600 text-white"
+                        : "bg-muted/20 border-border text-muted"
                     }`}
                   >
-                    Đã thu / đã xác nhận
-                  </span>
-                  <span className="text-[11px] text-muted">
-                    {isPaid || isConverted
-                      ? `${amountStr} · ${formatDateTime(detailDeposit.updatedAt)}`
-                      : "Chưa thu"}
-                  </span>
+                    {isPaid || isConverted ? (
+                      <CheckCircle2 size={14} />
+                    ) : (
+                      <div className="h-2 w-2 rounded-full bg-muted/40" />
+                    )}
+                  </div>
+                  <div className="flex flex-col pt-0.5">
+                    <span
+                      className={`text-xs font-black leading-tight ${
+                        isPaid || isConverted ? "text-text" : "text-muted"
+                      }`}
+                    >
+                      Đã thu tiền / Xác nhận cọc
+                    </span>
+                    <span className="text-[11px] text-muted mt-0.5">
+                      {isPaid || isConverted
+                        ? `${amountStr} · ${formatDateTime(detailDeposit.updatedAt)}`
+                        : "Chưa thu tiền"}
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <div className="relative z-10 flex gap-[16px] pb-[24px]">
-                <div
-                  className={`flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full border-[4px] border-card ${
-                    isConverted ? "bg-[#8b5cf6]" : "bg-black/10 dark:bg-white/10"
-                  }`}
-                >
-                  {isConverted ? (
-                    <CheckCircle2 size={14} className="text-white" />
-                  ) : (
-                    <div className="h-[8px] w-[8px] rounded-full bg-muted" />
-                  )}
-                </div>
-                <div className="flex flex-col gap-[4px] pt-[6px]">
-                  <span
-                    className={`text-[13px] font-bold leading-none ${
-                      isConverted ? "text-text" : "text-muted"
+                {/* Step 3: Lên hợp đồng */}
+                <div className="relative z-10 flex gap-3.5 pb-6">
+                  <div
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-card shadow-xs ${
+                      isConverted
+                        ? "bg-indigo-600 text-white"
+                        : "bg-muted/20 border-border text-muted"
                     }`}
                   >
-                    Chuyển thành hợp đồng
-                  </span>
-                  <span className="text-[11px] text-muted">
-                    {isConverted ? "Đã chuyển thành hợp đồng" : "Chưa chuyển"}
-                  </span>
+                    {isConverted ? (
+                      <CheckCircle2 size={14} />
+                    ) : (
+                      <div className="h-2 w-2 rounded-full bg-muted/40" />
+                    )}
+                  </div>
+                  <div className="flex flex-col pt-0.5">
+                    <span
+                      className={`text-xs font-black leading-tight ${
+                        isConverted ? "text-indigo-600 dark:text-indigo-400" : "text-muted"
+                      }`}
+                    >
+                      Chuyển thành hợp đồng
+                    </span>
+                    <span className="text-[11px] text-muted mt-0.5">
+                      {isConverted ? "Đã liên kết với hợp đồng thuê" : "Chưa chuyển thành HĐ"}
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <div className="relative z-10 flex gap-[16px]">
-                <div
-                  className={`flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full border-[4px] border-card ${
-                    isRefunded || isCancelled ? "bg-rose-500" : "bg-black/10 dark:bg-white/10"
-                  }`}
-                >
-                  {isRefunded || isCancelled ? (
-                    <RefreshCcw size={14} className="text-white" />
-                  ) : (
-                    <div className="h-[8px] w-[8px] rounded-full bg-muted" />
-                  )}
-                </div>
-                <div className="flex flex-col gap-[4px] pt-[6px]">
-                  <span
-                    className={`text-[13px] font-bold leading-none ${
-                      isRefunded || isCancelled ? "text-rose-500" : "text-muted"
+                {/* Step 4: Hoàn cọc / Hủy */}
+                <div className="relative z-10 flex gap-3.5">
+                  <div
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-card shadow-xs ${
+                      isRefunded
+                        ? "bg-amber-500 text-white"
+                        : isCancelled
+                          ? "bg-rose-500 text-white"
+                          : "bg-muted/20 border-border text-muted"
                     }`}
                   >
-                    Hoàn tiền / hủy phiếu
-                  </span>
-                  <span className="text-[11px] text-muted">
-                    {isRefunded || isCancelled
-                      ? formatDateTime(detailDeposit.updatedAt)
-                      : "Chưa xử lý"}
-                  </span>
+                    {isRefunded || isCancelled ? (
+                      <RefreshCcw size={14} />
+                    ) : (
+                      <div className="h-2 w-2 rounded-full bg-muted/40" />
+                    )}
+                  </div>
+                  <div className="flex flex-col pt-0.5">
+                    <span
+                      className={`text-xs font-black leading-tight ${
+                        isRefunded
+                          ? "text-amber-600 dark:text-amber-400"
+                          : isCancelled
+                            ? "text-rose-500"
+                            : "text-muted"
+                      }`}
+                    >
+                      {isRefunded ? "Đã hoàn cọc" : isCancelled ? "Đã hủy phiếu cọc" : "Hoàn tiền / Hủy phiếu"}
+                    </span>
+                    <span className="text-[11px] text-muted mt-0.5">
+                      {isRefunded || isCancelled
+                        ? formatDateTime(detailDeposit.updatedAt)
+                        : "Chưa hoàn / Chưa hủy"}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-          </Card>
+          </div>
         </div>
-      </div>
+      </Modal>
+
+      {/* --- SUB-MODAL 1: XÁC NHẬN HOÀN CỌC GIỮ PHÒNG --- */}
+      <Modal
+        isOpen={isRefundModalOpen}
+        onClose={() => {
+          if (refundMutation.isPending) return;
+          setIsRefundModalOpen(false);
+        }}
+        maxWidth="max-w-md"
+        title="Hoàn tiền cọc giữ phòng"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsRefundModalOpen(false)}
+              disabled={refundMutation.isPending}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              size="sm"
+              className="bg-amber-500 hover:bg-amber-600 text-white font-bold"
+              onClick={submitRefund}
+              isLoading={refundMutation.isPending}
+            >
+              Xác nhận hoàn cọc
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs">
+            <span className="text-muted font-bold">Số tiền cọc gốc:</span>
+            <span className="font-black text-amber-700 dark:text-amber-400 text-sm">{amountStr}</span>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-text block mb-1">
+              Số tiền hoàn lại cho khách (VNĐ) <span className="text-rose-500">*</span>
+            </label>
+            <Input
+              type="number"
+              min="1000"
+              max={amount}
+              value={refundAmountInput}
+              onChange={(e) => setRefundAmountInput(e.target.value)}
+              placeholder="Nhập số tiền hoàn lại..."
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-text block mb-1">
+              Lý do hoàn cọc <span className="text-rose-500">*</span>
+            </label>
+            <textarea
+              value={refundReason}
+              onChange={(e) => setRefundReason(e.target.value)}
+              placeholder="Ví dụ: Khách đổi kế hoạch không thuê nữa / hoàn lại theo thỏa thuận..."
+              className="w-full min-h-[75px] rounded-xl border border-border bg-card p-3 text-xs text-text outline-none focus:border-primary transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-text block mb-1">
+              Hình thức chi tiền
+            </label>
+            <Select
+              value={refundReceiptStatus}
+              onChange={(e) => setRefundReceiptStatus(e.target.value as any)}
+              options={[
+                { label: "Đã chi tiền ngay cho khách (Phiếu chi Hoàn tất)", value: "COMPLETED" },
+                { label: "Tạo phiếu chi chờ thủ quỹ duyệt chuyển tiền (Phiếu chi Chờ xử lý)", value: "PENDING" },
+              ]}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-text block mb-1">
+              Chứng từ / Link biên nhận (nếu có)
+            </label>
+            <Input
+              value={refundAttachmentInput}
+              onChange={(e) => setRefundAttachmentInput(e.target.value)}
+              placeholder="Nhập link ảnh giao dịch / biên lai chuyển khoản..."
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* --- SUB-MODAL 2: HỦY PHIẾU CỌC --- */}
+      <Modal
+        isOpen={isCancelModalOpen}
+        onClose={() => {
+          if (cancelMutation.isPending) return;
+          setIsCancelModalOpen(false);
+        }}
+        maxWidth="max-w-md"
+        title="Hủy phiếu đặt cọc"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsCancelModalOpen(false)}
+              disabled={cancelMutation.isPending}
+            >
+              Đóng
+            </Button>
+            <Button
+              size="sm"
+              className="bg-rose-500 hover:bg-rose-600 text-white font-bold"
+              onClick={submitCancel}
+              isLoading={cancelMutation.isPending}
+            >
+              Xác nhận hủy phiếu
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
+            <AlertTriangle size={15} className="shrink-0 mt-0.5 text-rose-500" />
+            <div>
+              Hành động hủy phiếu đặt cọc <b>{detailDeposit.code}</b> không thể hoàn tác.
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-text block mb-1">
+              Lý do hủy phiếu <span className="text-rose-500">*</span>
+            </label>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Nhập lý do hủy phiếu đặt cọc..."
+              className="w-full min-h-[75px] rounded-xl border border-border bg-card p-3 text-xs text-text outline-none focus:border-primary transition-colors"
+            />
+          </div>
+
+          {isPaid && (
+            <>
+              <div>
+                <label className="text-xs font-bold text-text block mb-1">
+                  Cách xử lý tiền cọc đã thu ({amountStr})
+                </label>
+                <Select
+                  value={cancelResolutionAction}
+                  onChange={(e) => setCancelResolutionAction(e.target.value as any)}
+                  options={[
+                    { label: "Giữ lại toàn bộ cọc (Phạt cọc không hoàn lại)", value: "KEEP" },
+                    { label: "Hoàn lại một phần hoặc toàn bộ tiền cho khách", value: "REFUND" },
+                    { label: "Khấu trừ chi phí giữ phòng", value: "DEDUCT" },
+                  ]}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-text block mb-1">
+                  Số tiền {cancelResolutionAction === "REFUND" ? "hoàn lại" : cancelResolutionAction === "KEEP" ? "giữ lại" : "khấu trừ"} (VNĐ)
+                </label>
+                <Input
+                  type="number"
+                  min="1000"
+                  max={amount}
+                  value={cancelResolutionAmount}
+                  onChange={(e) => setCancelResolutionAmount(e.target.value)}
+                  placeholder="Nhập số tiền..."
+                />
+              </div>
+
+              {cancelResolutionAction === "REFUND" && (
+                <div>
+                  <label className="text-xs font-bold text-text block mb-1">
+                    Hình thức chi tiền hoàn
+                  </label>
+                  <Select
+                    value={cancelReceiptStatus}
+                    onChange={(e) => setCancelReceiptStatus(e.target.value as any)}
+                    options={[
+                      { label: "Đã chi tiền ngay cho khách (Hoàn tất)", value: "COMPLETED" },
+                      { label: "Tạo phiếu chi chờ duyệt (Chờ xử lý)", value: "PENDING" },
+                    ]}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </Modal>
+
+      {/* --- SUB-MODAL 3: CHUYỂN HỢP ĐỒNG --- */}
+      <Modal
+        isOpen={isConvertModalOpen}
+        onClose={() => {
+          if (convertMutation.isPending) return;
+          setIsConvertModalOpen(false);
+        }}
+        maxWidth="max-w-md"
+        title="Lên hợp đồng từ phiếu cọc"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsConvertModalOpen(false)}
+              disabled={convertMutation.isPending}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={submitConvert}
+              isLoading={convertMutation.isPending}
+            >
+              Xác nhận lên hợp đồng
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3 text-xs leading-relaxed">
+          <p className="text-text">
+            Bạn đang chuyển phiếu cọc <b>{detailDeposit.code}</b> của khách hàng <b>{detailDeposit.customerName}</b> ({amountStr}) sang trạng thái <b>Đã lên hợp đồng</b>.
+          </p>
+          <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-300">
+            Số tiền cọc này sẽ được chuyển thành cọc bảo đảm của hợp đồng thuê phòng tương ứng.
+          </div>
+        </div>
+      </Modal>
+
+      {/* --- SUB-MODAL 4: XÁC NHẬN HOÀN TẤT CHI TIỀN HOÀN CỌC --- */}
+      <Modal
+        isOpen={isCompletePendingModalOpen}
+        onClose={() => {
+          if (completePendingRefundMutation.isPending) return;
+          setIsCompletePendingModalOpen(false);
+        }}
+        maxWidth="max-w-md"
+        title="Xác nhận đã chi tiền hoàn cọc"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsCompletePendingModalOpen(false)}
+              disabled={completePendingRefundMutation.isPending}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              onClick={submitCompletePendingRefund}
+              isLoading={completePendingRefundMutation.isPending}
+            >
+              Xác nhận đã chi tiền
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-text leading-relaxed">
+            Xác nhận rằng phiếu chi hoàn cọc cho khách hàng đã được hoàn tất thanh toán.
+          </p>
+          <div>
+            <label className="text-xs font-bold text-text block mb-1">
+              Ghi chú / Mã giao dịch ngân hàng
+            </label>
+            <Input
+              value={completePendingNote}
+              onChange={(e) => setCompletePendingNote(e.target.value)}
+              placeholder="Ví dụ: Đã CK Vietcombank FT123456789..."
+            />
+          </div>
+        </div>
+      </Modal>
 
       <DepositQrModal
         isOpen={showQrModal}
         onClose={() => setShowQrModal(false)}
         deposit={detailDeposit}
       />
-    </Drawer>
+    </>
   );
 }

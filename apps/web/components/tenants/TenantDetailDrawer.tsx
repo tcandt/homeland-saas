@@ -116,7 +116,17 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
   const code = tenant.code || rawCustomer.code || `KH-${phone.slice(-4) || tenant.id.slice(0, 6)}`;
 
   // Contract & Room fields
-  const activeContract = tenant.activeContract || rawCustomer.contracts?.[0] || null;
+  const activeContract =
+    tenant.activeContract ||
+    (rawCustomer.contracts || []).find(
+      (c: any) =>
+        c.status === "ACTIVE" ||
+        c.status === "APPROVED" ||
+        c.status === "EXPIRING" ||
+        c.status === "PENDING_APPROVAL" ||
+        c.status === "DRAFT",
+    ) ||
+    null;
   const hasContract = !!activeContract;
   const roomLabel = tenant.roomLabel || activeContract?.room?.number || activeContract?.room?.code || "Chưa xếp phòng";
   const buildingName = tenant.buildingName || activeContract?.room?.building?.name || "Chưa có tòa";

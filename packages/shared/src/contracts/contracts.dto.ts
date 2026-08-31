@@ -34,7 +34,7 @@ export const UpdateContractSchema = CreateContractSchema.partial();
 
 export const ContractSettlementInputSchema = z.object({
   actualMoveOutDate: z.string().or(z.date()),
-  roomTurnoverStatus: z.enum(['CLEANING', 'MAINTENANCE']).optional(),
+  roomTurnoverStatus: z.enum(['AVAILABLE', 'CLEANING', 'MAINTENANCE']).optional(),
   rentDaysCharged: z.number().min(0).max(31).optional(),
   baseRentAmount: z.number().min(0).optional(),
   electricityAmount: z.number().min(0).optional(),

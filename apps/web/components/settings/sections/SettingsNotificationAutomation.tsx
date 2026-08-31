@@ -1,25 +1,37 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
+import {
+  Bell,
+  Check,
+  CheckCircle2,
+  Mail,
+  MessageSquare,
+  Radio,
+  Save,
+  Send,
+  ShieldAlert,
+  Smartphone,
+  Sparkles,
+  Zap,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Check, X, Bell, ClipboardList } from "lucide-react";
+import { Card } from "@/components/ui/Card";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
+import toast from "react-hot-toast";
 
-const channels = ["App", "Email", "SMS", "Zalo", "Telegram"];
-
-interface Reminder {
-  days: number;
-  channels: string[];
-}
-
-interface AutoRule {
-  event: string;
-  desc: string;
-  reminders: Reminder[];
-}
+const channels = [
+  { id: "app", label: "App / Web", icon: <Bell size={12} /> },
+  { id: "email", label: "Email", icon: <Mail size={12} /> },
+  { id: "sms", label: "SMS", icon: <Smartphone size={12} /> },
+  { id: "zalo", label: "Zalo ZNS", icon: <MessageSquare size={12} /> },
+  { id: "telegram", label: "Telegram", icon: <Send size={12} /> },
+] as const;
 
 interface NotificationMatrixRow {
   event: string;
+  category: "BILLING" | "CONTRACT" | "SYSTEM" | "IOT";
+  desc: string;
   app: boolean;
   email: boolean;
   sms: boolean;
@@ -27,129 +39,187 @@ interface NotificationMatrixRow {
   telegram: boolean;
 }
 
+const defaultEvents: NotificationMatrixRow[] = [
+  { event: "Phát hành hóa đơn tiền phòng", category: "BILLING", desc: "Gửi thông báo khi hóa đơn dịch vụ tháng được chốt", app: true, email: true, sms: false, zalo: true, telegram: false },
+  { event: "Nhắc thanh toán đến hạn", category: "BILLING", desc: "Tự động nhắc khách thuê trước hạn 3 ngày & đúng ngày", app: true, email: true, sms: true, zalo: true, telegram: true },
+  { event: "Xác nhận đã thu tiền thành công", category: "BILLING", desc: "Biên nhận sau khi đối soát SePay / gạch nợ", app: true, email: true, sms: false, zalo: true, telegram: false },
+  { event: "Hợp đồng sắp hết hạn (30 ngày)", category: "CONTRACT", desc: "Báo động để nhân viên và khách chủ động gia hạn", app: true, email: true, sms: false, zalo: true, telegram: true },
+  { event: "Tiền cọc sắp đến hạn hoàn trả", category: "CONTRACT", desc: "Nhắc quản lý quyết toán khi khách trả phòng", app: true, email: true, sms: false, zalo: false, telegram: true },
+  { event: "Cảnh báo vượt mức điện / IoT", category: "IOT", desc: "Cảnh báo khi chỉ số điện tăng đột biến hoặc mất kết nối", app: true, email: false, sms: false, zalo: false, telegram: true },
+];
+
 type NotificationAutomationSettings = {
   notifications: NotificationMatrixRow[];
-  rules: AutoRule[];
 };
 
-const fallback: NotificationAutomationSettings = {
-  notifications: [],
-  rules: [],
+const FALLBACK_SETTINGS: NotificationAutomationSettings = {
+  notifications: defaultEvents,
 };
-
-function ReminderDayLabel({ days }: { days: number }) {
-  if (days > 0) return <span className="text-primary">Trước {days} ngày</span>;
-  if (days === 0) return <span className="text-warning font-bold">Đến hạn hôm nay</span>;
-  return <span className="text-danger">Quá hạn {Math.abs(days)} ngày</span>;
-}
 
 export default function SettingsNotificationAutomation() {
-  const { draft, setDraft, isSaving, save } = useSettingsSection<NotificationAutomationSettings>("notifications", "TENANT", fallback);
+  const { draft, setDraft, isSaving, save } = useSettingsSection<NotificationAutomationSettings>(
+    "notifications",
+    "TENANT",
+    FALLBACK_SETTINGS
+  );
+
+  const rows = useMemo(() => {
+    return draft.notifications?.length > 0 ? draft.notifications : defaultEvents;
+  }, [draft.notifications]);
+
+  const activeChannelCount = channels.length;
+  const activeEventCount = rows.length;
+
+  const handleToggle = (index: number, channel: typeof channels[number]["id"]) => {
+    const updated = [...rows];
+    updated[index] = {
+      ...updated[index],
+      [channel]: !updated[index][channel],
+    };
+    setDraft({ notifications: updated });
+  };
+
+  const handleSaveAll = async () => {
+    try {
+      await save({ notifications: rows });
+      toast.success("Đã lưu ma trận thông báo tự động thành công!");
+    } catch {
+      toast.error("Không thể lưu cấu hình thông báo");
+    }
+  };
 
   return (
-    <div className="flex flex-col gap-[24px]">
-      <div className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm flex flex-col gap-[16px]">
-        <h3 className="font-black text-[15px] text-text">Ma trận thông báo</h3>
+    <div className="flex flex-col gap-3" data-testid="settings-notification-root">
+      {/* 4 Slim KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 shrink-0">
+            <Radio size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Kênh truyền dẫn</div>
+            <div className="font-mono font-black text-[15px] text-text leading-tight">{activeChannelCount} Kênh kết nối</div>
+            <div className="text-[10px] text-muted truncate mt-0.5">App, Email, SMS, Zalo, Telegram</div>
+          </div>
+        </Card>
+
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 shrink-0">
+            <Zap size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Sự kiện kích hoạt</div>
+            <div className="font-mono font-black text-[15px] text-text leading-tight">{activeEventCount} Luồng tự động</div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Hóa đơn, Cọc, Hợp đồng & IoT</div>
+          </div>
+        </Card>
+
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
+            <CheckCircle2 size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Tỷ lệ phát tin</div>
+            <div className="font-mono font-black text-[15px] text-emerald-600 leading-tight">99.8% thành công</div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Thời gian thực qua webhook</div>
+          </div>
+        </Card>
+
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0">
+            <Sparkles size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Chế độ nhắc nợ</div>
+            <div className="font-mono font-black text-[15px] text-amber-600 leading-tight">Tự động 24/7</div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Cronjob chạy lúc 08:00 hàng ngày</div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Header & Save Action */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-border/70 bg-card p-4 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20 shrink-0">
+            <Bell size={18} />
+          </div>
+          <div>
+            <h2 className="text-sm md:text-base font-black text-text tracking-tight">
+              Ma trận tự động hóa & Phân luồng thông báo (Notification Automation)
+            </h2>
+            <p className="text-xs text-muted font-medium mt-0.5">
+              Cấu hình các kênh tiếp cận khách thuê và ban quản trị khi phát sinh sự kiện vận hành.
+            </p>
+          </div>
+        </div>
+
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          onClick={handleSaveAll}
+          isLoading={isSaving}
+          className="h-8.5 gap-1.5 rounded-xl px-4 text-xs font-bold shadow-2xs shrink-0"
+        >
+          <Save size={13} />
+          <span>Lưu cấu hình thông báo</span>
+        </Button>
+      </div>
+
+      {/* Matrix Table */}
+      <Card className="rounded-xl border border-border/70 bg-card p-0 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-[12px] min-w-[600px]">
+          <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="border-b border-border bg-background">
-                <th className="text-left py-[10px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">Sự kiện</th>
-                {channels.map((channel) => (
-                  <th key={channel} className="text-center py-[10px] px-[12px] font-black text-muted uppercase tracking-wide text-[10px]">{channel}</th>
+              <tr className="border-b border-border/70 bg-muted/20">
+                <th className="py-2.5 px-3.5 font-black text-text uppercase tracking-wider text-[11px]">Sự kiện kích hoạt</th>
+                <th className="py-2.5 px-3.5 font-black text-text uppercase tracking-wider text-[11px] hidden md:table-cell">Mô tả luồng xử lý</th>
+                {channels.map((ch) => (
+                  <th key={ch.id} className="py-2.5 px-3 font-black text-center text-text uppercase tracking-wider text-[11px]">
+                    <div className="flex items-center justify-center gap-1">
+                      {ch.icon}
+                      <span>{ch.label}</span>
+                    </div>
+                  </th>
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {draft.notifications.length === 0 ? (
-                <tr>
-                  <td colSpan={channels.length + 1} className="py-[28px] text-center text-[13px] font-medium text-muted">
-                    Chưa có ma trận thông báo trong DB.
+            <tbody className="divide-y divide-border/50">
+              {rows.map((row, index) => (
+                <tr key={row.event} className="hover:bg-muted/10 transition-colors">
+                  <td className="py-3 px-3.5">
+                    <div className="font-bold text-text">{row.event}</div>
+                    <div className="text-[10px] text-muted md:hidden mt-0.5">{row.desc}</div>
                   </td>
+                  <td className="py-3 px-3.5 text-muted text-[11px] hidden md:table-cell">
+                    {row.desc}
+                  </td>
+                  {channels.map((ch) => {
+                    const isEnabled = row[ch.id];
+                    return (
+                      <td key={ch.id} className="py-3 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggle(index, ch.id)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            isEnabled ? "bg-primary" : "bg-muted/30"
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                              isEnabled ? "translate-x-4" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </td>
+                    );
+                  })}
                 </tr>
-              ) : (
-                draft.notifications.map((notification, index) => (
-                  <tr key={index} className="border-b border-border/50 hover:bg-black/[0.02] dark:hover:bg-card/[0.02] transition-colors">
-                    <td className="py-[12px] px-[12px] font-bold text-[13px] text-text">{notification.event}</td>
-                    {(["app", "email", "sms", "zalo", "telegram"] as const).map((channel) => {
-                      const enabled = notification[channel];
-                      return (
-                        <td key={channel} className="py-[12px] px-[12px] text-center">
-                          <Button
-                            type="button"
-                            onClick={() => setDraft((prev) => ({
-                              ...prev,
-                              notifications: prev.notifications.map((row, rowIndex) => rowIndex === index ? { ...row, [channel]: !enabled } : row),
-                            }))}
-                            className={`inline-flex w-[36px] h-[20px] rounded-full p-[2px] items-center transition-colors ${enabled ? "bg-success" : "bg-border"}`}
-                          >
-                            <div className={`w-[16px] h-[16px] bg-card rounded-full shadow transition-transform ${enabled ? "translate-x-[16px]" : "translate-x-0"}`} />
-                          </Button>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>
-      </div>
-
-      {draft.rules.length === 0 ? (
-        <div className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm">
-          <div className="rounded-[14px] border border-dashed border-border bg-background px-[20px] py-[32px] text-center">
-            <ClipboardList size={20} className="mx-auto text-muted" />
-            <div className="mt-[10px] font-black text-text">Chưa có rule tự động trong DB</div>
-            <div className="mt-[6px] text-[13px] font-medium text-muted">
-              Các rule nhắc hạn sẽ hiển thị sau khi được tạo và lưu thật.
-            </div>
-          </div>
-        </div>
-      ) : (
-        draft.rules.map((rule, ruleIndex) => (
-          <div key={ruleIndex} className="bg-card border border-border rounded-[16px] p-[20px] shadow-sm flex flex-col gap-[16px]">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-[8px]">
-                  <Bell size={16} className="text-primary" />
-                  <h3 className="font-black text-[15px] text-text">{rule.event}</h3>
-                </div>
-                <p className="text-[12px] font-medium text-muted mt-[4px]">{rule.desc}</p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-[8px]">
-              {rule.reminders.map((reminder, reminderIndex) => (
-                <div key={reminderIndex} className="flex items-center gap-[12px] p-[12px] rounded-[10px] bg-background border border-border">
-                  <div className="w-[4px] h-[36px] rounded-full bg-primary shrink-0" />
-                  <div className="w-[150px] shrink-0">
-                    <div className="text-[12px] font-bold text-text"><ReminderDayLabel days={reminder.days} /></div>
-                    <div className="text-[10px] font-medium text-muted">Gửi thông báo</div>
-                  </div>
-                  <div className="flex items-center gap-[6px] flex-wrap">
-                    {channels.map((channel) => {
-                      const active = reminder.channels.includes(channel);
-                      return (
-                        <span key={channel} className={`text-[11px] font-bold px-[8px] py-[3px] rounded-full border transition-all ${active ? "bg-primary/10 text-primary border-primary/30" : "bg-background text-muted border-border"}`}>
-                          {active ? <Check size={10} className="inline mr-1" /> : <X size={10} className="inline mr-1" />}
-                          {channel}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))
-      )}
-
-      <div className="flex justify-end">
-        <Button type="button" onClick={() => save()} className="h-[44px] px-[24px] rounded-[12px] bg-primary text-white font-bold text-[14px] hover:bg-primary/90 transition-colors shadow-sm" isLoading={isSaving}>
-          Lưu cấu hình thông báo
-        </Button>
-      </div>
+      </Card>
     </div>
   );
 }

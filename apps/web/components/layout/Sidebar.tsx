@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Bookmark,
   Building,
   ChevronDown,
   ChevronRight,
@@ -81,6 +82,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
 
         <SectionLabel collapsed={collapsed}>HỢP ĐỒNG</SectionLabel>
         <NavItem href="/contracts" icon={<FileText size={20} />} label="Hợp đồng" collapsed={collapsed} active={pathname === "/contracts"} />
+        <NavItem href="/deposits" icon={<Bookmark size={20} />} label="Đặt cọc" collapsed={collapsed} active={pathname.startsWith("/deposits")} />
         <NavItem href="/invoices" icon={<Receipt size={20} />} label="Hóa đơn" collapsed={collapsed} active={pathname === "/invoices"} />
 
         <SectionLabel collapsed={collapsed}>TÀI CHÍNH</SectionLabel>
@@ -93,7 +95,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
         {hasSettingsAccess && (
           <NavItem href="/settings" icon={<Settings size={20} />} label="Cài đặt" collapsed={collapsed} active={pathname === "/settings"} dataTestId="sidebar-nav-settings" />
         )}
-        <NavItem href="/settings?section=audit" icon={<ClipboardList size={20} />} label="Nhật ký hoạt động" collapsed={collapsed} />
+        <NavItem href="/activities" icon={<ClipboardList size={20} />} label="Nhật ký hoạt động" collapsed={collapsed} active={pathname === "/activities" || pathname.startsWith("/activities")} />
       </nav>
 
       <div className={`mt-4 px-[10px] pt-[14px] ${collapsed ? "flex flex-col items-center" : ""}`}>

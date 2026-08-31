@@ -150,112 +150,96 @@ const settingsGroups: SettingsGroup[] = [
         id: "notifications",
         domain: "operations",
         title: "Thông báo tự động",
-        description: "Nhắc nợ, nhắc hết hạn hợp đồng và thông báo hệ thống.",
-        keywords: ["thong bao", "nhac no", "automation", "zalo", "email"],
+        description: "Nhắc nợ, nhắc hết hạn hợp đồng và mẫu tin nhắn.",
+        keywords: ["thong bao", "sms", "zalo", "nhac no", "automation"],
         icon: <Bell size={17} />,
       },
       {
         id: "templates",
         domain: "operations",
         title: "Biểu mẫu",
-        description: "Mẫu hợp đồng, hóa đơn, thông báo và tài liệu vận hành.",
-        keywords: ["bieu mau", "template", "hop dong", "hoa don", "document"],
+        description: "Mẫu hợp đồng, phiếu thu, phiếu chi và biên bản.",
+        keywords: ["bieu mau", "template", "hop dong mau", "in an"],
         icon: <ClipboardList size={17} />,
       },
     ],
   },
   {
     id: "finance",
-    title: "Tài chính & Hóa đơn",
-    description: "Kế toán, tài khoản nhận tiền và đối soát.",
+    title: "Tài chính & kế toán",
+    description: "Tài khoản kế toán, danh mục hạch toán và đối soát.",
     icon: <WalletCards size={18} />,
     items: [
       {
         id: "accounting",
         domain: "finance",
-        title: "Kế toán & hạch toán",
-        description: "Hệ thống tài khoản, danh mục hạch toán và mapping.",
-        keywords: ["ke toan", "hach toan", "mapping", "doanh thu", "chi phi"],
+        title: "Hạch toán & kế toán",
+        description: "Tài khoản kế toán, danh mục thu chi và quy tắc ghi sổ.",
+        keywords: ["ke toan", "hach toan", "tai khoan", "so cai", "ledger"],
         icon: <BookOpen size={17} />,
-      },
-      {
-        id: "owners",
-        domain: "finance",
-        title: "Tài khoản ngân hàng",
-        description: "Tài khoản nhận tiền và QR thanh toán dùng trên hóa đơn.",
-        keywords: ["ngan hang", "tai khoan", "qr", "thanh toan", "vietqr"],
-        icon: <WalletCards size={17} />,
-      },
-      {
-        id: "integrations",
-        domain: "finance",
-        title: "Đối soát thanh toán",
-        description: "Kết nối SePay, ngân hàng và webhook giao dịch.",
-        keywords: ["sepay", "doi soat", "webhook", "giao dich", "mbbank"],
-        icon: <Plug size={17} />,
       },
     ],
   },
   {
     id: "integrations",
-    title: "Tích hợp",
-    description: "Dịch vụ thanh toán, tin nhắn, IoT và developer.",
+    title: "Tích hợp & mở rộng",
+    description: "Kết nối dịch vụ ngoài, IoT và nhà cung cấp API.",
     icon: <Plug size={18} />,
     items: [
       {
         id: "integrations",
         domain: "integrations",
-        title: "Tích hợp dịch vụ",
-        description: "SePay, Zalo, Email, Telegram và các kết nối tenant.",
-        keywords: ["integration", "sepay", "zalo", "email", "telegram", "smtp"],
-        icon: <Link2 size={17} />,
+        title: "Dịch vụ tích hợp",
+        description: "SePay, Zalo OA, Email SMTP, Telegram và Webhook.",
+        keywords: ["sepay", "zalo", "email", "smtp", "telegram", "webhook"],
+        icon: <PlugZap size={17} />,
       },
       {
         id: "hunonic",
         domain: "integrations",
-        title: "Hunonic",
-        description: "Công tơ điện, IoT và dữ liệu tiêu thụ.",
-        keywords: ["hunonic", "dien", "iot", "cong to", "meter", "gia dien"],
-        icon: <PlugZap size={17} />,
+        title: "Hunonic IoT",
+        description: "Công tơ điện thông minh, tự động chốt số và điều khiển.",
+        keywords: ["hunonic", "iot", "cong to dien", "chot so", "thiet bi"],
+        icon: <SlidersHorizontal size={17} />,
       },
       {
         id: "api",
         domain: "integrations",
         title: "API & Webhook",
-        description: "API key, webhook và tích hợp dành cho developer.",
-        keywords: ["api", "webhook", "developer", "key", "token"],
-        icon: <Webhook size={17} />,
+        description: "API Key, phân quyền developer và tài liệu tích hợp.",
+        keywords: ["api", "api key", "developer", "token", "webhook"],
+        icon: <FileKey2 size={17} />,
       },
     ],
   },
   {
     id: "system",
-    title: "Hệ thống",
-    description: "Bảo mật, nhật ký, sao lưu và dữ liệu hệ thống.",
-    icon: <SlidersHorizontal size={18} />,
+    title: "Hệ thống & bảo mật",
+    description: "Bảo mật tài khoản, sao lưu và bảo trì nền tảng.",
+    icon: <Shield size={18} />,
     items: [
       {
         id: "security",
         domain: "system",
-        title: "Bảo mật tài khoản",
-        description: "Mật khẩu, 2FA, phiên đăng nhập và bảo mật tài khoản.",
-        keywords: ["bao mat", "security", "password", "2fa", "session"],
-        icon: <Shield size={17} />,
+        title: "Bảo mật",
+        description: "Mật khẩu, 2FA, phiên đăng nhập và chính sách bảo mật.",
+        keywords: ["bao mat", "mat khau", "2fa", "session", "security"],
+        icon: <KeyRound size={17} />,
       },
       {
         id: "backup",
         domain: "system",
         title: "Cập nhật, sao lưu & rollback",
-        description: "Kiểm tra version mới, xác nhận cập nhật, sao lưu và rollback có kiểm soát.",
-        keywords: ["backup", "sao luu", "restore", "phuc hoi", "du lieu", "update", "cap nhat", "version", "rollback", "release", "git"],
-        icon: <Cloud size={17} />,
+        description: "Kiểm tra version mới, xác nhận cập nhật, sao lưu và rollback.",
+        keywords: ["backup", "sao luu", "khoi phuc", "restore", "snapshot", "update", "rollback", "version"],
+        icon: <Database size={17} />,
       },
       {
         id: "license",
         domain: "system",
-        title: "Đăng ký bảo trì",
-        description: "Gói dịch vụ, quota và dữ liệu bảo trì phần mềm.",
-        keywords: ["license", "billing", "bao tri", "goi dich vu", "quota"],
+        title: "Đăng ký & bảo trì",
+        description: "Gói dịch vụ, bản quyền và trạng thái bảo trì hệ thống.",
+        keywords: ["license", "bao tri", "ban quyen", "goi dich vu", "han dung"],
         icon: <Wrench size={17} />,
       },
     ],
@@ -266,17 +250,17 @@ const accountItems: SettingsItem[] = [
   {
     id: "profile",
     domain: "account",
-    title: "Hồ sơ của tôi",
-    description: "Thông tin cá nhân của tài khoản đang đăng nhập.",
-    keywords: ["profile", "ho so", "ca nhan", "avatar"],
+    title: "Hồ sơ cá nhân",
+    description: "Thông tin tài khoản, avatar và liên hệ.",
+    keywords: ["ho so", "ca nhan", "profile", "avatar", "email"],
     icon: <User size={17} />,
   },
   {
     id: "security",
     domain: "account",
-    title: "Bảo mật & đăng nhập",
-    description: "Mật khẩu, 2FA và phiên đăng nhập cá nhân.",
-    keywords: ["password", "mat khau", "2fa", "session", "dang nhap"],
+    title: "Bảo mật tài khoản",
+    description: "Đổi mật khẩu, 2FA và thiết bị tin cậy.",
+    keywords: ["doi mat khau", "password", "2fa", "bao mat"],
     icon: <Shield size={17} />,
   },
 ];
@@ -284,13 +268,13 @@ const accountItems: SettingsItem[] = [
 const settingsItems = [...settingsGroups.flatMap((group) => group.items), ...accountItems];
 
 const topTabs: Array<{ id: SettingsSection; label: string; icon: React.ReactNode }> = [
-  { id: "overview", label: "Tổng quan", icon: <Settings2 size={16} /> },
-  { id: "security", label: "Bảo mật", icon: <Shield size={16} /> },
-  { id: "users", label: "Users", icon: <Users size={16} /> },
-  { id: "notifications", label: "Thông báo", icon: <Bell size={16} /> },
-  { id: "integrations", label: "Tích hợp", icon: <Plug size={16} /> },
-  { id: "license", label: "Đăng ký & bảo trì", icon: <Wrench size={16} /> },
-  { id: "backup", label: "Cập nhật, sao lưu & rollback", icon: <Database size={16} /> },
+  { id: "overview", label: "Tổng quan", icon: <Settings2 size={15} /> },
+  { id: "security", label: "Bảo mật", icon: <Shield size={15} /> },
+  { id: "users", label: "Users", icon: <Users size={15} /> },
+  { id: "notifications", label: "Thông báo", icon: <Bell size={15} /> },
+  { id: "integrations", label: "Tích hợp", icon: <Plug size={15} /> },
+  { id: "license", label: "Đăng ký & bảo trì", icon: <Wrench size={15} /> },
+  { id: "backup", label: "Cập nhật, sao lưu & rollback", icon: <Database size={15} /> },
 ];
 
 function hasValue(value: unknown): boolean {
@@ -328,36 +312,19 @@ function resolveSectionParam(section: string | null): SettingsSection | null {
   return "overview";
 }
 
-function SettingsSystemContinuity() {
-  return (
-    <div className="flex flex-col gap-[20px]" data-testid="settings-system-continuity">
-      <section className="rounded-[8px] border border-primary/20 bg-primary/5 px-[20px] py-[16px] sm:px-[24px]">
-        <div className="flex flex-col gap-[4px]">
-          <h2 className="text-[17px] font-black text-text">Cập nhật, sao lưu và rollback</h2>
-          <p className="max-w-[920px] text-[13px] font-medium leading-[20px] text-muted">
-            Các thao tác có rủi ro vận hành được gom trong cùng một tab. Cập nhật và rollback cần xác nhận trước khi tạo job; sao lưu/khôi phục dữ liệu vẫn khóa cho đến khi backend cung cấp API thật.
-          </p>
-        </div>
-      </section>
-      <SettingsSystemUpdate />
-      <SettingsBackup />
-    </div>
-  );
-}
-
 function SettingsCard({ item, onSelect }: { item: SettingsItem; onSelect: (section: SettingsSection) => void }) {
   return (
     <button
       type="button"
       onClick={() => onSelect(item.id)}
-      className="group flex min-h-[104px] w-full items-start gap-[12px] rounded-[10px] border border-border bg-card p-[14px] text-left shadow-sm transition hover:-translate-y-[1px] hover:border-primary/40 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
+      className="group flex min-h-[104px] w-full items-start gap-[12px] rounded-xl border border-border bg-card p-[14px] text-left shadow-2xs transition hover:-translate-y-[1px] hover:border-primary/40 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
     >
-      <span className="mt-[2px] flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-primary transition group-hover:bg-primary group-hover:text-white">
+      <span className="mt-[2px] flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition group-hover:bg-primary group-hover:text-white">
         {item.icon}
       </span>
       <span className="min-w-0">
-        <span className="block text-[14px] font-black leading-[18px] text-text">{item.title}</span>
-        <span className="mt-[6px] block text-[12px] font-medium leading-[18px] text-muted">{item.description}</span>
+        <span className="block text-sm font-black leading-[18px] text-text">{item.title}</span>
+        <span className="mt-[6px] block text-xs font-medium leading-[18px] text-muted">{item.description}</span>
       </span>
     </button>
   );
@@ -387,16 +354,16 @@ function QuickSetupCard({
     <button
       type="button"
       onClick={onSelect}
-      className="group flex min-h-[134px] flex-col items-start justify-between rounded-[12px] border border-border bg-card p-[16px] text-left shadow-sm transition hover:-translate-y-[1px] hover:border-primary/30 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/30"
+      className="group flex min-h-[134px] flex-col items-start justify-between rounded-xl border border-border bg-card p-[16px] text-left shadow-2xs transition hover:-translate-y-[1px] hover:border-primary/30 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/30"
     >
       <div className="flex items-start gap-[14px]">
-        <span className={`flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[14px] ${toneClass}`}>{icon}</span>
+        <span className={`flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-xl ${toneClass}`}>{icon}</span>
         <span className="min-w-0">
-          <span className="block text-[14px] font-black leading-[20px] text-text">{title}</span>
-          <span className="mt-[7px] block text-[13px] font-medium leading-[20px] text-muted">{description}</span>
+          <span className="block text-sm font-black leading-[20px] text-text">{title}</span>
+          <span className="mt-[7px] block text-xs font-medium leading-[20px] text-muted">{description}</span>
         </span>
       </div>
-      <span className="ml-[60px] mt-[14px] text-[12px] font-black text-primary transition group-hover:translate-x-[2px]">
+      <span className="ml-[60px] mt-[14px] text-xs font-black text-primary transition group-hover:translate-x-[2px]">
         Cấu hình -&gt;
       </span>
     </button>
@@ -438,18 +405,18 @@ function ServiceRow({
 }) {
   return (
     <div className="flex items-center gap-[12px] border-b border-border/70 py-[12px] last:border-b-0">
-      <span className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${warning ? "bg-warning/10 text-warning" : "bg-primary/10 text-primary"}`}>
+      <span className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-xl ${warning ? "bg-warning/10 text-warning" : "bg-primary/10 text-primary"}`}>
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-black text-text">{name}</div>
-        <div className="mt-[2px] text-[12px] font-medium text-muted">{desc}</div>
+        <div className="text-xs font-black text-text">{name}</div>
+        <div className="mt-[2px] text-[11px] font-medium text-muted">{desc}</div>
       </div>
-      <div className={`hidden items-center gap-[7px] text-[12px] font-bold sm:flex ${warning ? "text-warning" : "text-success"}`}>
+      <div className={`hidden items-center gap-[7px] text-xs font-bold sm:flex ${warning ? "text-warning" : "text-success"}`}>
         <span className={`h-[6px] w-[6px] rounded-full ${warning ? "bg-warning" : "bg-success"}`} />
         {status}
       </div>
-      <Button variant="outline" className="h-[34px] rounded-[8px] px-[12px] text-[12px]" onClick={onSelect}>
+      <Button variant="outline" className="h-[32px] rounded-xl px-[12px] text-xs font-bold" onClick={onSelect}>
         Mở
       </Button>
     </div>
@@ -480,127 +447,120 @@ function ActivityRow({
   }[tone];
 
   return (
-    <div className="flex items-center gap-[12px] border-b border-border/70 px-[12px] py-[12px] last:border-b-0">
-      <span className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${toneClass}`}>{icon}</span>
+    <div className="flex items-center gap-[12px] border-b border-border/70 p-[12px] last:border-b-0">
+      <span className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-xl ${toneClass}`}>{icon}</span>
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-black text-text">{title}</div>
-        <div className="mt-[2px] text-[12px] font-medium text-muted">{desc}</div>
+        <div className="text-xs font-black text-text">{title}</div>
+        <div className="mt-[2px] text-[11px] font-medium text-muted">{desc}</div>
       </div>
-      <div className="hidden min-w-[150px] text-right md:block">
-        <div className="text-[12px] font-black text-text">{actor}</div>
-        <div className="mt-[2px] text-[12px] font-medium text-muted">{time}</div>
+      <div className="text-right">
+        <div className="text-xs font-bold text-text">{actor}</div>
+        <div className="mt-[2px] text-[10px] font-medium text-muted">{time}</div>
       </div>
     </div>
   );
 }
 
 function SearchResults({ query, onSelect }: { query: string; onSelect: (section: SettingsSection) => void }) {
-  const filteredItems = useMemo(() => {
-    const term = normalize(query.trim());
-    if (!term) return [];
-    return settingsItems.filter((item) => {
-      const haystack = normalize([item.title, item.description, ...item.keywords].join(" "));
-      return haystack.includes(term);
-    });
-  }, [query]);
+  const normalizedQuery = normalize(query.trim());
+  if (!normalizedQuery) return null;
 
-  if (!query.trim()) return null;
+  const results = settingsItems.filter((item) => {
+    const haystack = [item.title, item.description, ...item.keywords].map(normalize).join(" ");
+    return haystack.includes(normalizedQuery);
+  });
 
   return (
-    <section className="rounded-[14px] border border-border bg-card p-[16px] shadow-sm">
-      <div className="mb-[12px] text-[14px] font-black text-text">Kết quả tìm kiếm</div>
-      <div className="grid grid-cols-1 gap-[10px] md:grid-cols-2 xl:grid-cols-3">
-        {filteredItems.length ? (
-          filteredItems.map((item) => <SettingsCard key={`${item.domain}-${item.id}-${item.title}`} item={item} onSelect={onSelect} />)
-        ) : (
-          <div className="rounded-[10px] border border-dashed border-border bg-background p-[18px] text-[13px] font-semibold text-muted md:col-span-2 xl:col-span-3">
-            Không tìm thấy cài đặt phù hợp.
-          </div>
-        )}
+    <section className="rounded-xl border border-border bg-card p-[18px] shadow-2xs">
+      <div className="mb-[14px] flex items-center justify-between">
+        <h3 className="text-sm font-black text-text">Kết quả tìm kiếm ({results.length})</h3>
+        <span className="text-xs font-medium text-muted">Từ khóa: &quot;{query}&quot;</span>
       </div>
+      {results.length === 0 ? (
+        <div className="p-[20px] text-center text-xs text-muted">Không tìm thấy cài đặt phù hợp.</div>
+      ) : (
+        <div className="grid grid-cols-1 gap-[12px] md:grid-cols-2 xl:grid-cols-3">
+          {results.map((item) => (
+            <SettingsCard key={`${item.domain}-${item.id}`} item={item} onSelect={onSelect} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
 function SettingsDashboard({ onSelect }: { onSelect: (section: SettingsSection) => void }) {
   const [query, setQuery] = useState("");
-  const owners = useSettingsSectionQuery<Record<string, unknown>>("owners", "TENANT");
-  const team = useSettingsSectionQuery<Record<string, unknown>>("team", "TENANT");
-  const invoiceRules = useSettingsSectionQuery<Record<string, unknown>>("invoice-rules", "TENANT");
-  const email = useSettingsSectionQuery<Record<string, unknown>>("email-provider", "TENANT");
-  const sepay = useSettingsSectionQuery<Record<string, unknown>>("sepay", "TENANT");
-  const zalo = useSettingsSectionQuery<Record<string, unknown>>("zalo-provider", "TENANT");
-  const hunonic = useSettingsSectionQuery<Record<string, unknown>>("hunonic", "TENANT");
-  const audit = useSWR(["settings-dashboard-audit"], () => auditApi.logs({ limit: 5 }), { revalidateOnFocus: false });
-  const auditRows = Array.isArray(audit.data) ? audit.data : [];
+  const sepay = useSettingsSectionQuery("sepay");
+  const zalo = useSettingsSectionQuery("zalo");
+  const email = useSettingsSectionQuery("email");
+  const hunonic = useSettingsSectionQuery("hunonic");
+  const audit = useSWR("settings-overview-audit", () => auditApi.logs({ limit: 5 }), { revalidateOnFocus: false });
 
   const healthItems = [
-    { label: "Chủ sở hữu", configured: hasValue(owners.data?.value) },
-    { label: "Thành viên & phân quyền", configured: hasValue(team.data?.value) },
-    { label: "Quy tắc hóa đơn", configured: hasValue(invoiceRules.data?.value) },
-    { label: "Email SMTP", configured: hasValue(email.data?.value) },
-    { label: "SePay webhook", configured: hasValue(sepay.data?.value) },
-    { label: "Zalo OA", configured: hasValue(zalo.data?.value) },
+    { label: "SePay", isConfigured: hasValue(sepay.data?.value) },
+    { label: "Zalo", isConfigured: hasValue(zalo.data?.value) },
+    { label: "Email", isConfigured: hasValue(email.data?.value) },
+    { label: "Hunonic", isConfigured: hasValue(hunonic.data?.value) },
   ];
-  const configuredCount = healthItems.filter((item) => item.configured).length;
+
+  const configuredCount = healthItems.filter((item) => item.isConfigured).length;
+  const auditRows: AuditLogItem[] = Array.isArray(audit.data) ? audit.data : [];
 
   return (
-    <div className="flex flex-col gap-[18px]">
-      <section className="rounded-[14px] border border-border bg-card p-[18px] shadow-sm">
-        <div className="mb-[16px] flex flex-col gap-[4px]">
-          <h2 className="text-[18px] font-black text-text">Thiết lập nhanh</h2>
-          <p className="text-[13px] font-medium text-muted">Truy cập nhanh các cài đặt quan trọng thường dùng</p>
+    <div className="flex flex-col gap-3" data-testid="settings-overview-root">
+      <section className="rounded-xl border border-border bg-card p-4 shadow-2xs">
+        <div className="mb-3 flex flex-col gap-1">
+          <h2 className="text-base font-black text-text">Thiết lập nhanh</h2>
+          <p className="text-xs font-medium text-muted">Truy cập nhanh các cài đặt quan trọng thường dùng</p>
         </div>
-        <div className="grid grid-cols-1 gap-[16px] md:grid-cols-2 xl:grid-cols-4">
-          <QuickSetupCard icon={<RefreshCcw size={22} />} title="Cập nhật, sao lưu & rollback" description="Kiểm tra version mới, xác nhận cập nhật, sao lưu và rollback có kiểm soát" tone="blue" onSelect={() => onSelect("backup")} />
-          <QuickSetupCard icon={<Shield size={22} />} title="Bảo mật tài khoản" description="Quản lý mật khẩu, 2FA, phiên đăng nhập và bảo mật tài khoản" tone="primary" onSelect={() => onSelect("security")} />
-          <QuickSetupCard icon={<Bell size={22} />} title="Thông báo tự động" description="Thiết lập nhắc nợ, nhắc hết hạn hợp đồng và thông báo hệ thống" tone="orange" onSelect={() => onSelect("notifications")} />
-          <QuickSetupCard icon={<Link2 size={22} />} title="Tích hợp dịch vụ" description="Kết nối ngân hàng, SePay, Zalo, Email, Hunonic và dịch vụ khác" tone="green" onSelect={() => onSelect("integrations")} />
-          <QuickSetupCard icon={<ReceiptText size={22} />} title="Thiết lập hóa đơn" description="Cấu hình mẫu hóa đơn, ký hiệu, số hóa đơn và quy tắc tạo hóa đơn" tone="blue" onSelect={() => onSelect("invoice-rules")} />
-          <QuickSetupCard icon={<FileKey2 size={22} />} title="Quy tắc hợp đồng" description="Thiết lập tiền cọc, gia hạn, điều khoản và phụ lục hợp đồng" tone="primary" onSelect={() => onSelect("contract-rules")} />
-          <QuickSetupCard icon={<BookOpen size={22} />} title="Kế toán & hạch toán" description="Quản lý hệ thống tài khoản, danh mục hạch toán và mapping" tone="blue" onSelect={() => onSelect("accounting")} />
-          <QuickSetupCard icon={<Wrench size={22} />} title="Đăng ký bảo trì" description="Quản lý lịch bảo trì hệ thống, thiết bị và nhà cung cấp" tone="orange" onSelect={() => onSelect("license")} />
+        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-4">
+          <QuickSetupCard icon={<RefreshCcw size={20} />} title="Cập nhật, sao lưu & rollback" description="Kiểm tra version mới, xác nhận cập nhật, sao lưu và rollback có kiểm soát" tone="blue" onSelect={() => onSelect("backup")} />
+          <QuickSetupCard icon={<Shield size={20} />} title="Bảo mật tài khoản" description="Quản lý mật khẩu, 2FA, phiên đăng nhập và bảo mật tài khoản" tone="primary" onSelect={() => onSelect("security")} />
+          <QuickSetupCard icon={<Bell size={20} />} title="Thông báo tự động" description="Thiết lập nhắc nợ, nhắc hết hạn hợp đồng và thông báo hệ thống" tone="orange" onSelect={() => onSelect("notifications")} />
+          <QuickSetupCard icon={<Link2 size={20} />} title="Tích hợp dịch vụ" description="Kết nối ngân hàng, SePay, Zalo, Email, Hunonic và dịch vụ khác" tone="green" onSelect={() => onSelect("integrations")} />
+          <QuickSetupCard icon={<ReceiptText size={20} />} title="Thiết lập hóa đơn" description="Cấu hình mẫu hóa đơn, ký hiệu, số hóa đơn và quy tắc tạo hóa đơn" tone="blue" onSelect={() => onSelect("invoice-rules")} />
+          <QuickSetupCard icon={<FileKey2 size={20} />} title="Quy tắc hợp đồng" description="Thiết lập tiền cọc, gia hạn, điều khoản và phụ lục hợp đồng" tone="primary" onSelect={() => onSelect("contract-rules")} />
+          <QuickSetupCard icon={<BookOpen size={20} />} title="Kế toán & hạch toán" description="Quản lý hệ thống tài khoản, danh mục hạch toán và mapping" tone="blue" onSelect={() => onSelect("accounting")} />
+          <QuickSetupCard icon={<Wrench size={20} />} title="Đăng ký bảo trì" description="Quản lý lịch bảo trì hệ thống, thiết bị và nhà cung cấp" tone="orange" onSelect={() => onSelect("license")} />
         </div>
       </section>
 
       <SearchResults query={query} onSelect={onSelect} />
 
-      <section className="grid grid-cols-1 gap-[16px] xl:grid-cols-[0.95fr_1.45fr]">
-        <div className="rounded-[14px] border border-border bg-card p-[18px] shadow-sm">
-          <div className="mb-[14px]">
-            <h3 className="text-[17px] font-black text-text">Trạng thái hệ thống</h3>
-            <p className="mt-[4px] text-[13px] font-medium text-muted">Tình trạng các dịch vụ và kết nối quan trọng</p>
+      <section className="grid grid-cols-1 gap-3 xl:grid-cols-[0.95fr_1.45fr]">
+        <div className="rounded-xl border border-border bg-card p-4 shadow-2xs">
+          <div className="mb-3">
+            <h3 className="text-sm font-black text-text">Trạng thái hệ thống</h3>
+            <p className="mt-0.5 text-xs font-medium text-muted">Tình trạng các dịch vụ và kết nối quan trọng</p>
           </div>
           <div>
-            <ServiceRow icon={<WalletCards size={17} />} name="SePay" desc="Thanh toán" status={hasValue(sepay.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(sepay.data?.value)} onSelect={() => onSelect("integrations")} />
-            <ServiceRow icon={<Bell size={17} />} name="Zalo OA" desc="Gửi thông báo" status={hasValue(zalo.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(zalo.data?.value)} onSelect={() => onSelect("integrations")} />
-            <ServiceRow icon={<ReceiptText size={17} />} name="Email SMTP" desc="Gửi email" status={hasValue(email.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(email.data?.value)} onSelect={() => onSelect("integrations")} />
-            <ServiceRow icon={<PlugZap size={17} />} name="Hunonic" desc="Điện & IoT" status={hasValue(hunonic.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(hunonic.data?.value)} onSelect={() => onSelect("hunonic")} />
-            <ServiceRow icon={<Server size={17} />} name="API hệ thống" desc="Kết nối audit" status={audit.isLoading ? "Đang kiểm tra" : audit.error ? "Không kết nối" : "Đã kết nối"} warning={Boolean(audit.error)} onSelect={() => onSelect("overview")} />
+            <ServiceRow icon={<WalletCards size={16} />} name="SePay" desc="Thanh toán" status={hasValue(sepay.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(sepay.data?.value)} onSelect={() => onSelect("integrations")} />
+            <ServiceRow icon={<Bell size={16} />} name="Zalo OA" desc="Gửi thông báo" status={hasValue(zalo.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(zalo.data?.value)} onSelect={() => onSelect("integrations")} />
+            <ServiceRow icon={<ReceiptText size={16} />} name="Email SMTP" desc="Gửi email" status={hasValue(email.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(email.data?.value)} onSelect={() => onSelect("integrations")} />
+            <ServiceRow icon={<PlugZap size={16} />} name="Hunonic" desc="Điện & IoT" status={hasValue(hunonic.data?.value) ? "Đã cấu hình" : "Chưa cấu hình"} warning={!hasValue(hunonic.data?.value)} onSelect={() => onSelect("hunonic")} />
+            <ServiceRow icon={<Server size={16} />} name="API hệ thống" desc="Kết nối audit" status={audit.isLoading ? "Đang kiểm tra" : audit.error ? "Không kết nối" : "Đã kết nối"} warning={Boolean(audit.error)} onSelect={() => onSelect("overview")} />
           </div>
-          <button type="button" onClick={() => onSelect("overview")} className="mt-[12px] w-full text-center text-[13px] font-black text-primary">
-            Xem tất cả trạng thái hệ thống -&gt;
-          </button>
         </div>
 
-        <div className="rounded-[14px] border border-border bg-card p-[18px] shadow-sm">
-          <div className="mb-[14px] flex items-center justify-between gap-[12px]">
+        <div className="rounded-xl border border-border bg-card p-4 shadow-2xs">
+          <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-[17px] font-black text-text">Nhật ký hoạt động gần đây</h3>
-              <p className="mt-[4px] text-[13px] font-medium text-muted">Dữ liệu audit mới nhất từ hệ thống</p>
+              <h3 className="text-sm font-black text-text">Nhật ký hoạt động gần đây</h3>
+              <p className="mt-0.5 text-xs font-medium text-muted">Dữ liệu audit mới nhất từ hệ thống</p>
             </div>
-            <Button variant="outline" className="h-[36px] rounded-[8px] px-[14px] text-[12px]" onClick={() => onSelect("overview")}>
+            <Button variant="outline" size="sm" className="h-8 rounded-xl px-3 text-xs font-bold" onClick={() => onSelect("overview")}>
               Xem tất cả
             </Button>
           </div>
-          <div className="overflow-hidden rounded-[12px] border border-border">
-            {audit.isLoading && <div className="px-[14px] py-[28px] text-center text-[13px] font-semibold text-muted">Đang tải nhật ký...</div>}
-            {!audit.isLoading && audit.error && <div className="px-[14px] py-[28px] text-center text-[13px] font-semibold text-rose-600">Không tải được nhật ký hoạt động.</div>}
-            {!audit.isLoading && !audit.error && auditRows.length === 0 && <div className="px-[14px] py-[28px] text-center text-[13px] font-semibold text-muted">Chưa có nhật ký hoạt động.</div>}
-            {auditRows.map((log) => (
+          <div className="overflow-hidden rounded-xl border border-border/70">
+            {audit.isLoading && <div className="p-6 text-center text-xs font-semibold text-muted">Đang tải nhật ký...</div>}
+            {!audit.isLoading && audit.error && <div className="p-6 text-center text-xs font-semibold text-rose-600">Không tải được nhật ký hoạt động.</div>}
+            {!audit.isLoading && !audit.error && auditRows.length === 0 && <div className="p-6 text-center text-xs font-semibold text-muted">Chưa có nhật ký hoạt động.</div>}
+            {auditRows.map((log: AuditLogItem) => (
               <ActivityRow
                 key={log.id}
-                icon={<ClipboardList size={16} />}
+                icon={<ClipboardList size={15} />}
                 title={formatAuditAction(log)}
                 desc={`${log.module || "Hệ thống"} · ${log.entity}${log.entityId ? ` · ${log.entityId}` : ""}`}
                 actor={log.user?.fullName || log.user?.email || "Hệ thống"}
@@ -612,30 +572,30 @@ function SettingsDashboard({ onSelect }: { onSelect: (section: SettingsSection) 
         </div>
       </section>
 
-      <section className="rounded-[14px] border border-border bg-card p-[18px] shadow-sm">
-        <div className="mb-[12px] flex flex-col gap-[8px] md:flex-row md:items-center md:justify-between">
+      <section className="rounded-xl border border-border bg-card p-4 shadow-2xs">
+        <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 className="text-[17px] font-black text-text">Tra cứu cài đặt</h3>
-            <p className="mt-[4px] text-[13px] font-medium text-muted">{configuredCount}/{healthItems.length} cấu hình nền tảng đang có dữ liệu.</p>
+            <h3 className="text-sm font-black text-text">Tra cứu cài đặt</h3>
+            <p className="mt-0.5 text-xs font-medium text-muted">{configuredCount}/{healthItems.length} cấu hình nền tảng đang có dữ liệu.</p>
           </div>
           <div className="relative">
-            <Search size={18} className="absolute left-[14px] top-1/2 -translate-y-1/2 text-muted" />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Tìm kiếm cài đặt..."
-              className="h-[42px] w-full rounded-[10px] border border-border bg-background pl-[42px] pr-[14px] text-[14px] font-semibold text-text outline-none transition focus:border-primary md:w-[320px]"
+              className="h-9 w-full rounded-xl border border-border/70 bg-background pl-9 pr-3 text-xs font-semibold text-text outline-none transition focus:border-primary md:w-[320px]"
             />
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-[10px] md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-4">
           {settingsGroups.slice(0, 4).map((group) => (
-            <div key={group.id} className="rounded-[10px] border border-border bg-background p-[14px]">
-              <div className="flex items-center gap-[10px]">
-                <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-primary">{group.icon}</span>
-                <div className="font-black text-text">{group.title}</div>
+            <div key={group.id} className="rounded-xl border border-border/70 bg-background p-3.5">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{group.icon}</span>
+                <div className="text-xs font-black text-text">{group.title}</div>
               </div>
-              <p className="mt-[8px] text-[12px] font-medium leading-[18px] text-muted">{group.description}</p>
+              <p className="mt-2 text-[11px] font-medium leading-relaxed text-muted">{group.description}</p>
             </div>
           ))}
         </div>
@@ -648,26 +608,25 @@ function SettingsTopTabs({ activeSection, onSelect }: { activeSection: SettingsS
   const active = activeSection ?? "overview";
 
   return (
-    <div className="sticky top-[80px] z-20 -mx-[16px] overflow-x-auto border-b border-border bg-background/95 px-[16px] backdrop-blur sm:-mx-[24px] sm:px-[24px] lg:-mx-[32px] lg:px-[32px]">
-      <div className="flex min-w-max items-center gap-[22px]">
-        {topTabs.map((tab, index) => {
-          const isActive = active === tab.id || (active === "overview" && index === 0);
-          return (
-            <button
-              key={`${tab.id}-${tab.label}`}
-              type="button"
-              onClick={() => onSelect(tab.id)}
-              className={`relative flex h-[64px] items-center gap-[9px] px-[4px] text-[14px] font-black transition ${
-                isActive ? "text-primary" : "text-muted hover:text-text"
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-              {isActive && <span className="absolute bottom-0 left-0 right-0 h-[3px] rounded-t-full bg-primary" />}
-            </button>
-          );
-        })}
-      </div>
+    <div className="flex items-center gap-1.5 overflow-x-auto rounded-xl border border-border/70 bg-card p-1.5 shadow-2xs shrink-0">
+      {topTabs.map((tab, index) => {
+        const isActive = active === tab.id || (active === "overview" && index === 0);
+        return (
+          <button
+            key={`${tab.id}-${tab.label}`}
+            type="button"
+            onClick={() => onSelect(tab.id)}
+            className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-bold transition-all ${
+              isActive
+                ? "bg-primary text-white shadow-2xs"
+                : "text-muted hover:bg-muted/10 hover:text-text"
+            }`}
+          >
+            {tab.icon}
+            <span>{tab.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -709,8 +668,14 @@ export default function SettingsPage() {
       case "hunonic": return <SettingsHunonicIntegration />;
       case "api": return <SettingsApiKeys />;
       case "owners": return <SettingsOwnerManagement />;
-      case "backup": return <SettingsSystemContinuity />;
-      case "system-update": return <SettingsSystemContinuity />;
+      case "backup":
+      case "system-update":
+        return (
+          <div className="flex flex-col gap-3">
+            <SettingsSystemUpdate />
+            <SettingsBackup />
+          </div>
+        );
       case "license": return <SettingsLicense />;
       default: return <SettingsDashboard onSelect={changeSection} />;
     }
@@ -733,7 +698,10 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
-      <div className="flex w-full max-w-none flex-col gap-[20px] px-[16px] pb-[120px] sm:px-[24px] sm:pb-[96px] lg:px-[32px]">
+      <div
+        data-testid="settings-page-root"
+        className="-m-4 -mt-4 min-h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background md:min-h-[calc(100dvh-80px)] p-2.5 md:p-3 flex flex-col gap-2.5"
+      >
         <SettingsTopTabs activeSection={activeSection} onSelect={changeSection} />
 
         <div className={`min-w-0 transition-all duration-200 ease-out ${isPending ? "opacity-70 translate-y-[1px]" : "opacity-100 translate-y-0"}`}>

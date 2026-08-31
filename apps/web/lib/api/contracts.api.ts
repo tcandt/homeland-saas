@@ -2,7 +2,7 @@ import { apiClient } from './client';
 
 export type ContractSettlementPayload = {
   actualMoveOutDate: string;
-  roomTurnoverStatus?: "CLEANING" | "MAINTENANCE";
+  roomTurnoverStatus?: "AVAILABLE" | "CLEANING" | "MAINTENANCE";
   rentDaysCharged?: number;
   baseRentAmount?: number;
   electricityAmount?: number;

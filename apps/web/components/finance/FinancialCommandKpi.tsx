@@ -1,6 +1,7 @@
 import React from "react";
 import { Building, CheckCircle, DollarSign, Minus, PieChart, TrendingUp, Wallet, type LucideIcon } from "lucide-react";
 import { useDashboardQuery } from "@/lib/queries/dashboard.queries";
+import { Card } from "../ui/Card";
 
 type FinanceKpiCard = {
   label: string;
@@ -18,9 +19,9 @@ export default function FinancialCommandKpi() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 gap-[12px] md:grid-cols-4 md:gap-[16px] 2xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8 shrink-0">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-[150px] animate-pulse rounded-[16px] border border-border bg-card/50" />
+          <div key={i} className="h-24 animate-pulse rounded-xl border border-border/60 bg-card/60" />
         ))}
       </div>
     );
@@ -41,82 +42,82 @@ export default function FinancialCommandKpi() {
     {
       label: "Tiền mặt ròng",
       value: Number(kpisData.netCashFlow || 0).toLocaleString("vi-VN"),
-      unit: "VNĐ",
-      detail: "Dòng tiền thực còn lại sau khi đã trừ khoản chi.",
-      formula: "Thu tiền - chi tiền",
+      unit: "đ",
+      detail: "Dòng tiền thực còn lại sau khi đã trừ chi.",
+      formula: "Thu - Chi",
       icon: DollarSign,
-      color: "text-[#8b5cf6]",
-      bg: "bg-[#8b5cf6]/10",
+      color: "text-indigo-600 dark:text-indigo-400",
+      bg: "bg-indigo-500/10 border border-indigo-500/20",
     },
     {
       label: "Doanh thu P&L",
       value: Number(kpisData.totalRevenue || 0).toLocaleString("vi-VN"),
-      unit: "VNĐ",
-      detail: "Doanh thu ghi nhận từ tiền phòng, dịch vụ và khoản thu hợp lệ.",
-      formula: "Nguồn doanh thu trong kỳ",
+      unit: "đ",
+      detail: "Doanh thu ghi nhận trong kỳ.",
+      formula: "Tổng doanh thu",
       icon: TrendingUp,
-      color: "text-[#6366f1]",
-      bg: "bg-[#6366f1]/10",
+      color: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-500/10 border border-emerald-500/20",
     },
     {
       label: "Chi phí P&L",
       value: Number(kpisData.totalExpense || 0).toLocaleString("vi-VN"),
-      unit: "VNĐ",
-      detail: "Chi phí vận hành đã ghi nhận để tính kết quả kinh doanh.",
-      formula: "Bảo trì + vận hành + chi khác",
+      unit: "đ",
+      detail: "Chi phí vận hành & bảo trì.",
+      formula: "Tổng chi phí",
       icon: Wallet,
-      color: "text-rose-500",
-      bg: "bg-rose-500/10",
+      color: "text-rose-600 dark:text-rose-400",
+      bg: "bg-rose-500/10 border border-rose-500/20",
     },
     {
       label: "Lợi nhuận ròng",
       value: netProfit.toLocaleString("vi-VN"),
-      unit: "VNĐ",
-      detail: "Kết quả P&L cuối cùng sau khi lấy doanh thu trừ chi phí.",
-      formula: "Doanh thu - chi phí",
+      unit: "đ",
+      detail: "Kết quả kinh doanh P&L.",
+      formula: "Doanh thu - Chi phí",
       icon: PieChart,
-      color: netProfit >= 0 ? "text-[#8b5cf6]" : "text-rose-500",
-      bg: netProfit >= 0 ? "bg-[#8b5cf6]/10" : "bg-rose-500/10",
+      color: netProfit >= 0 ? "text-indigo-600 dark:text-indigo-400" : "text-rose-600 dark:text-rose-400",
+      bg: netProfit >= 0 ? "bg-indigo-500/10 border border-indigo-500/20" : "bg-rose-500/10 border border-rose-500/20",
     },
     {
       label: "Phải thu",
       value: Number(kpisData.totalDebt || 0).toLocaleString("vi-VN"),
-      unit: "VNĐ",
-      detail: "Công nợ còn chờ thu từ hóa đơn hoặc khoản phát sinh.",
-      formula: "Đã phát sinh - đã thu",
+      unit: "đ",
+      detail: "Công nợ còn chờ thu.",
+      formula: "Chưa thu",
       icon: Minus,
-      color: "text-[#f97316]",
-      bg: "bg-[#f97316]/10",
+      color: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-500/10 border border-amber-500/20",
     },
     {
       label: "Tiền cọc giữ",
       value: Number(kpisData.depositHeld || 0).toLocaleString("vi-VN"),
-      unit: "VNĐ",
-      detail: "Tiền đặt cọc đang giữ, cần theo dõi hoàn trả hoặc khấu trừ.",
-      formula: "Cọc đang hiệu lực",
+      unit: "đ",
+      detail: "Tiền đặt cọc đang giữ.",
+      formula: "Quỹ cọc",
       icon: Building,
-      color: "text-[#0ea5e9]",
-      bg: "bg-[#0ea5e9]/10",
+      color: "text-sky-600 dark:text-sky-400",
+      bg: "bg-sky-500/10 border border-sky-500/20",
     },
     {
       label: "Tỷ lệ thu",
       value: `${collectionRate}%`,
       unit: "",
-      detail: "Mức thu tiền so với tổng khoản cần thu, phản ánh sức khỏe thu nợ.",
-      formula: "Đã thu / (đã thu + phải thu)",
+      detail: "Tỷ lệ thu tiền so với phát sinh.",
+      formula: "Tỷ lệ thanh toán",
       icon: CheckCircle,
-      color: "text-[#8b5cf6]",
-      bg: "bg-[#8b5cf6]/10",
+      color: "text-indigo-600 dark:text-indigo-400",
+      bg: "bg-indigo-500/10 border border-indigo-500/20",
     },
     {
       label: "Lấp đầy",
-      value: String(Math.round(Number(occupancy.rate || 0))),
-      unit: "%",
-      detail: "Tỷ lệ phòng đang có khách thuê trên tổng phòng khả dụng.",
-      formula: "Phòng thuê / tổng phòng",
+      value: `${Math.round(Number(occupancy.rate || 0))}%`,
+      unit: "",
+      detail: "Tỷ lệ phòng đang có khách.",
+      formula: "Tỷ lệ thuê",
       icon: TrendingUp,
-      color: "text-[#a855f7]",
-      bg: "bg-[#a855f7]/10",
+      color: "text-purple-600 dark:text-purple-400",
+      bg: "bg-purple-500/10 border border-purple-500/20",
     },
   ];
 
@@ -129,34 +130,33 @@ export default function FinancialCommandKpi() {
       .replace(/^-+|-+$/g, "");
 
   return (
-    <div data-testid="finance-kpi-grid" className="grid grid-cols-2 gap-[12px] md:grid-cols-4 md:gap-[16px] 2xl:grid-cols-8">
+    <div data-testid="finance-kpi-grid" className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8 shrink-0">
       {kpis.map((kpi) => (
-        <div
+        <Card
           key={kpi.label}
           data-testid={`finance-kpi-card-${toTestId(kpi.label)}`}
-          className="group relative flex min-h-[150px] flex-col overflow-hidden rounded-[16px] border border-border bg-card p-[14px] shadow-sm transition-all hover:shadow-md"
+          className="group relative flex flex-col justify-between rounded-xl border border-border/60 bg-card p-3 shadow-2xs transition-all hover:border-primary/30 min-h-[96px]"
         >
-          <div className="z-10 flex items-center justify-between">
-            <span className="min-w-0 pr-2 text-[11px] font-bold uppercase tracking-wide text-muted transition-colors group-hover:text-text md:text-[12px]">
+          <div className="flex items-center justify-between gap-1.5">
+            <span className="truncate text-[10px] font-bold uppercase tracking-wider text-muted group-hover:text-text transition-colors">
               {kpi.label}
             </span>
-            <div className={`flex h-[24px] w-[24px] shrink-0 items-center justify-center rounded-full ${kpi.bg}`}>
+            <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${kpi.bg}`}>
               <kpi.icon size={12} className={kpi.color} />
             </div>
           </div>
 
-          <div className="z-10 mt-[10px] flex items-end justify-between">
-            <div className="flex min-w-0 items-baseline gap-[4px]">
-              <span className="truncate text-[18px] font-black leading-none text-text md:text-[20px]">{kpi.value}</span>
-              {kpi.unit && <span className={`shrink-0 text-[10px] font-bold ${kpi.color}`}>{kpi.unit}</span>}
-            </div>
+          <div className="mt-1.5 flex items-baseline gap-1">
+            <span className="truncate font-mono font-black text-base leading-none text-text">
+              {kpi.value}
+            </span>
+            {kpi.unit && <span className={`text-[10px] font-bold ${kpi.color}`}>{kpi.unit}</span>}
           </div>
 
-          <p className="z-10 mt-[10px] line-clamp-2 text-[11px] font-medium leading-[15px] text-muted">{kpi.detail}</p>
-          <div className={`z-10 mt-auto truncate rounded-[8px] px-2 py-1 text-[10px] font-bold ${kpi.bg} ${kpi.color}`}>{kpi.formula}</div>
-
-          <div className={`absolute -right-4 -bottom-4 h-16 w-16 rounded-full opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-10 ${kpi.bg.replace("/10", "")}`} />
-        </div>
+          <div className="mt-1 flex items-center justify-between text-[10px] text-muted">
+            <span className="truncate font-medium">{kpi.formula}</span>
+          </div>
+        </Card>
       ))}
     </div>
   );

@@ -3,7 +3,25 @@
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/auth/auth-store";
-import { ArrowRight, CircleOff, Database, PlugZap, Search, ShieldCheck, X } from "lucide-react";
+import {
+  ArrowRight,
+  CircleOff,
+  Database,
+  Mail,
+  MessageSquare,
+  Plug,
+  PlugZap,
+  Radio,
+  Search,
+  Send,
+  ShieldCheck,
+  SlidersHorizontal,
+  WalletCards,
+  Wifi,
+  X,
+  Zap,
+} from "lucide-react";
+import { Card } from "@/components/ui/Card";
 import SettingsSePayIntegration from "./SettingsSePayIntegration";
 import SettingsZaloIntegration from "./SettingsZaloIntegration";
 import SettingsEmailIntegration from "./SettingsEmailIntegration";
@@ -13,11 +31,11 @@ import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
 
 type IntegrationCategory = "all" | "payment" | "messaging" | "iot";
 
-const categories: Array<{ id: IntegrationCategory; label: string }> = [
-  { id: "all", label: "Tất cả" },
-  { id: "payment", label: "Thanh toán" },
-  { id: "messaging", label: "Tin nhắn" },
-  { id: "iot", label: "Điện & IoT" },
+const categories: Array<{ id: IntegrationCategory; label: string; icon: React.ReactNode }> = [
+  { id: "all", label: "Tất cả dịch vụ", icon: <Plug size={13} /> },
+  { id: "payment", label: "Cổng thanh toán", icon: <WalletCards size={13} /> },
+  { id: "messaging", label: "Tin nhắn & OTT", icon: <MessageSquare size={13} /> },
+  { id: "iot", label: "Điện & Smart IoT", icon: <Zap size={13} /> },
 ];
 
 const panelMetadata = [
@@ -39,17 +57,17 @@ export default function SettingsIntegrations() {
   const user = useAuthStore((state) => state.user);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<IntegrationCategory>("all");
+
   const sepay = useSettingsSectionQuery<Record<string, unknown>>("sepay", "TENANT");
   const zalo = useSettingsSectionQuery<Record<string, unknown>>("zalo-provider", "TENANT");
   const email = useSettingsSectionQuery<Record<string, unknown>>("email-provider", "TENANT");
   const telegram = useSettingsSectionQuery<Record<string, unknown>>("telegram-provider", "TENANT");
   const hunonic = useSettingsSectionQuery<Record<string, unknown>>("hunonic", "TENANT");
+
   const settingsQueries = [sepay, zalo, email, telegram, hunonic];
   const savedCount = settingsQueries.filter((item) => hasSavedRecord(item.data?.updatedAt)).length;
   const enabledCount = settingsQueries.filter((item) => item.data?.value?.enabled === true).length;
-  const isHunonicSaved = hasSavedRecord(hunonic.data?.updatedAt);
 
-  // If query was auto-filled by browser password manager with current user email, ignore it
   const userEmail = (user?.email || "").trim().toLowerCase();
   const normalizedQuery = useMemo(() => {
     const raw = query.trim().toLocaleLowerCase("vi-VN");
@@ -68,121 +86,126 @@ export default function SettingsIntegrations() {
         .map((panel) => panel.id),
     );
   }, [activeCategory, normalizedQuery]);
+
   const hasVisiblePanels = visiblePanelIds.size > 0;
 
   return (
-    <div className="flex flex-col gap-[20px] p-0" data-testid="settings-integration-center">
-      <div className="flex h-auto flex-col justify-between gap-[16px] border-b border-border pb-[16px] md:min-h-[64px] md:flex-row md:items-center md:pb-0">
-        <div>
-          <h2 className="text-[22px] font-black leading-none text-text">Trung tâm tích hợp</h2>
-          <p className="text-[13px] font-medium text-muted mt-[6px]">
-            Quản lý cấu hình thanh toán, thông báo và điện theo dữ liệu đã lưu của hệ thống.
-          </p>
+    <div className="flex flex-col gap-3" data-testid="settings-integration-center">
+      {/* 4 Slim KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 shrink-0">
+            <WalletCards size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">SePay Gateway</div>
+            <div className={`font-mono font-black text-[15px] leading-tight ${hasSavedRecord(sepay.data?.updatedAt) ? "text-emerald-600" : "text-amber-600"}`}>
+              {hasSavedRecord(sepay.data?.updatedAt) ? "Đã kết nối" : "Chưa kích hoạt"}
+            </div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Tự động gạch nợ QR</div>
+          </div>
+        </Card>
+
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 shrink-0">
+            <MessageSquare size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Zalo OA & ZNS</div>
+            <div className={`font-mono font-black text-[15px] leading-tight ${hasSavedRecord(zalo.data?.updatedAt) ? "text-emerald-600" : "text-amber-600"}`}>
+              {hasSavedRecord(zalo.data?.updatedAt) ? "Đã cấu hình" : "Chưa cấu hình"}
+            </div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Gửi hóa đơn Zalo</div>
+          </div>
+        </Card>
+
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
+            <Mail size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Email SMTP</div>
+            <div className={`font-mono font-black text-[15px] leading-tight ${hasSavedRecord(email.data?.updatedAt) ? "text-emerald-600" : "text-amber-600"}`}>
+              {hasSavedRecord(email.data?.updatedAt) ? "Đã cấu hình" : "Chưa cấu hình"}
+            </div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Gửi thông báo & HĐĐT</div>
+          </div>
+        </Card>
+
+        <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0">
+            <Zap size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Hunonic Smart IoT</div>
+            <div className={`font-mono font-black text-[15px] leading-tight ${hasSavedRecord(hunonic.data?.updatedAt) ? "text-emerald-600" : "text-amber-600"}`}>
+              {hasSavedRecord(hunonic.data?.updatedAt) ? "Đã kết nối" : "Chưa kích hoạt"}
+            </div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Chốt chỉ số điện tự động</div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Header & Filter Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-border/70 bg-card p-3 md:p-3.5 shadow-2xs">
+        {/* Category Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          {categories.map((cat) => {
+            const isActive = activeCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setActiveCategory(cat.id)}
+                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-bold transition-all ${
+                  isActive
+                    ? "bg-primary text-white shadow-2xs"
+                    : "text-muted hover:bg-muted/10 hover:text-text"
+                }`}
+              >
+                {cat.icon}
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
         </div>
-        <div className="relative w-full shrink-0 md:w-[300px]">
-          <Search size={14} className="absolute left-[12px] top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+
+        {/* Search */}
+        <div className="relative w-full sm:w-64 shrink-0">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
           <input
-            type="search"
+            type="text"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Tìm SePay, Zalo, Email..."
-            aria-label="Tìm tích hợp"
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck="false"
-            name="integration_search_filter_query_random"
-            data-lpignore="true"
-            data-1p-ignore="true"
-            data-form-type="other"
-            data-bwignore="true"
-            className="h-[36px] w-full rounded-[8px] border border-border bg-background pl-[34px] pr-[32px] text-[13px] text-text placeholder-muted transition-colors focus:border-primary focus:outline-none"
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Tìm cổng dịch vụ..."
+            className="h-8 w-full rounded-xl border border-border/70 bg-background pl-8 pr-3 text-xs font-semibold text-text outline-none transition focus:border-primary"
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery("")}
-              className="absolute right-[10px] top-1/2 -translate-y-1/2 text-muted hover:text-text"
-              aria-label="Xóa tìm kiếm"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-text"
             >
-              <X size={14} />
+              <X size={12} />
             </button>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-[12px] xl:grid-cols-4">
-        <div className="flex h-[82px] flex-col justify-center rounded-[8px] border border-border bg-card p-[14px]">
-          <div className="mb-[5px] flex items-center gap-[8px] text-muted">
-            <PlugZap size={14} className="text-success" />
-            <span className="text-[11px] font-bold">Đã lưu cấu hình</span>
-          </div>
-          <div className="text-[20px] font-black text-text">{savedCount}/5</div>
+      {/* Integrations Panels */}
+      {!hasVisiblePanels ? (
+        <div className="p-12 text-center text-xs font-medium text-muted rounded-xl border border-border/70 bg-card">
+          Không tìm thấy dịch vụ tích hợp phù hợp với từ khóa &quot;{query}&quot;.
         </div>
-        <div className="flex h-[82px] flex-col justify-center rounded-[8px] border border-border bg-card p-[14px]">
-          <div className="mb-[5px] flex items-center gap-[8px] text-muted">
-            <ShieldCheck size={14} className="text-primary" />
-            <span className="text-[11px] font-bold">Đang bật trong cấu hình</span>
-          </div>
-          <div className="text-[20px] font-black text-text">{enabledCount}/5</div>
-        </div>
-        <div className="flex h-[82px] flex-col justify-center rounded-[8px] border border-border bg-card p-[14px]">
-          <div className="mb-[5px] flex items-center gap-[8px] text-muted">
-            <CircleOff size={14} className="text-warning" />
-            <span className="text-[11px] font-bold">Chưa lưu cấu hình</span>
-          </div>
-          <div className="text-[20px] font-black text-text">{5 - savedCount}</div>
-        </div>
-        <div className="flex h-[82px] flex-col justify-center rounded-[8px] border border-border bg-card p-[14px]">
-          <div className="mb-[5px] flex items-center gap-[8px] text-muted">
-            <Database size={14} className="text-muted" />
-            <span className="text-[11px] font-bold">Nguồn trạng thái</span>
-          </div>
-          <div className="text-[13px] font-black text-text">Cơ sở dữ liệu</div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-[6px] overflow-x-auto border-b border-border pb-[10px]" role="tablist" aria-label="Nhóm tích hợp">
-        {categories.map((category) => (
-          <button
-            key={category.id}
-            type="button"
-            role="tab"
-            aria-selected={activeCategory === category.id}
-            onClick={() => setActiveCategory(category.id)}
-            className={`h-[34px] whitespace-nowrap rounded-[7px] px-[13px] text-[12px] font-bold transition-colors ${
-              activeCategory === category.id ? "bg-primary text-white" : "bg-background text-muted hover:text-text"
-            }`}
-          >
-            {category.label}
-          </button>
-        ))}
-      </div>
-      {(visiblePanelIds.has("sepay") ||
-        visiblePanelIds.has("zalo") ||
-        visiblePanelIds.has("email") ||
-        visiblePanelIds.has("telegram") ||
-        visiblePanelIds.has("hunonic")) && (
-        <div className="grid grid-cols-1 auto-rows-fr gap-[16px] xl:grid-cols-2 items-stretch">
+      ) : (
+        <div className="flex flex-col gap-3">
           {visiblePanelIds.has("sepay") && <SettingsSePayIntegration />}
           {visiblePanelIds.has("zalo") && <SettingsZaloIntegration />}
-          {visiblePanelIds.has("hunonic") && <SettingsHunonicIntegration />}
           {visiblePanelIds.has("email") && <SettingsEmailIntegration />}
           {visiblePanelIds.has("telegram") && <SettingsTelegramIntegration />}
+          {visiblePanelIds.has("hunonic") && <SettingsHunonicIntegration />}
         </div>
       )}
-
-      {!hasVisiblePanels && (
-        <div className="rounded-[8px] border border-dashed border-border bg-card p-[28px] text-center" data-testid="integration-filter-empty">
-          <CircleOff size={20} className="mx-auto text-muted" />
-          <div className="mt-[9px] text-[13px] font-black text-text">Không tìm thấy tích hợp phù hợp</div>
-          <div className="mt-[4px] text-[12px] font-medium text-muted">Thử từ khóa khác hoặc chọn nhóm “Tất cả”.</div>
-        </div>
-      )}
-
-      <div className="rounded-[8px] border border-border bg-background px-[14px] py-[11px] text-[11px] font-medium leading-[17px] text-muted">
-        Trạng thái trên trang chỉ phản ánh cấu hình đã lưu và cờ bật/tắt trong cơ sở dữ liệu, không thay thế kiểm tra kết nối trực tiếp với nhà cung cấp.
-      </div>
     </div>
   );
 }

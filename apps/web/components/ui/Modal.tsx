@@ -1,7 +1,59 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "./Button";
+
+// Global overlay stack to handle nested / stacked modals and drawers with ESC (LIFO)
+type OverlayStackEntry = {
+  id: string;
+  onClose: () => void;
+};
+
+let activeOverlayStack: OverlayStackEntry[] = [];
+let isKeydownListenerAttached = false;
+
+function handleGlobalKeyDown(event: KeyboardEvent) {
+  if (event.key === "Escape" || event.key === "Esc") {
+    if (activeOverlayStack.length > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      // Only close the topmost overlay in the stack
+      const topOverlay = activeOverlayStack[activeOverlayStack.length - 1];
+      topOverlay.onClose();
+    }
+  }
+}
+
+export function registerOverlay(id: string, onClose: () => void) {
+  activeOverlayStack = activeOverlayStack.filter((item) => item.id !== id);
+  activeOverlayStack.push({ id, onClose });
+
+  if (typeof document !== "undefined") {
+    document.body.style.overflow = "hidden";
+    if (!isKeydownListenerAttached) {
+      window.addEventListener("keydown", handleGlobalKeyDown, true);
+      isKeydownListenerAttached = true;
+    }
+  }
+}
+
+export function unregisterOverlay(id: string) {
+  activeOverlayStack = activeOverlayStack.filter((item) => item.id !== id);
+  if (typeof document !== "undefined") {
+    if (activeOverlayStack.length === 0) {
+      document.body.style.overflow = "";
+      if (isKeydownListenerAttached) {
+        window.removeEventListener("keydown", handleGlobalKeyDown, true);
+        isKeydownListenerAttached = false;
+      }
+    }
+  }
+}
+
+export function getOverlayStackDepth(id: string): number {
+  const index = activeOverlayStack.findIndex((item) => item.id === id);
+  return index >= 0 ? index : 0;
+}
 
 interface ModalProps {
   isOpen: boolean;
@@ -26,16 +78,26 @@ export const Modal: React.FC<ModalProps> = ({
   headerActions,
   testId
 }) => {
+  const uniqueId = useId();
+
   useEffect(() => {
-    if (isOpen) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = '';
-    return () => { document.body.style.overflow = ''; };
-  }, [isOpen]);
+    if (isOpen) {
+      registerOverlay(uniqueId, onClose);
+      return () => {
+        unregisterOverlay(uniqueId);
+      };
+    } else {
+      unregisterOverlay(uniqueId);
+    }
+  }, [isOpen, onClose, uniqueId]);
 
   if (!isOpen || typeof document === "undefined") return null;
 
+  const stackDepth = getOverlayStackDepth(uniqueId);
+  const effectiveZIndex = zIndex + stackDepth * 20;
+
   return createPortal((
-    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex }}>
+    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: effectiveZIndex }}>
       <div 
         className="absolute inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
         onClick={onClose} 

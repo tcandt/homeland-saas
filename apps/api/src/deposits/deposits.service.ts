@@ -51,7 +51,57 @@ export class DepositsService extends BaseCrudService<Deposit> {
     return record;
   }
 
+  async syncMissingContractDeposits(tenantId: string) {
+    if (!tenantId) return;
+    try {
+      const unsyncedContracts = await this.prisma.contract.findMany({
+        where: {
+          tenantId,
+          depositMoney: { gt: 0 },
+          deposits: { none: {} },
+        },
+        select: {
+          id: true,
+          code: true,
+          tenantId: true,
+          roomId: true,
+          customerId: true,
+          depositMoney: true,
+          status: true,
+        },
+      });
+
+      if (unsyncedContracts.length > 0) {
+        for (const c of unsyncedContracts) {
+          const depositStatus =
+            c.status === 'ACTIVE' || c.status === 'APPROVED'
+              ? DepositStatus.CONVERTED_TO_CONTRACT
+              : c.status === 'TERMINATED' || c.status === 'EXPIRED'
+                ? DepositStatus.REFUNDED
+                : DepositStatus.DRAFT;
+
+          await this.prisma.deposit.create({
+            data: {
+              tenantId: c.tenantId,
+              code: `DC-${c.code}`,
+              type: 'SECURITY',
+              roomId: c.roomId,
+              customerId: c.customerId,
+              contractId: c.id,
+              amount: c.depositMoney,
+              status: depositStatus,
+              note: `Cọc bảo đảm hợp đồng ${c.code}`,
+            },
+          }).catch(() => null);
+        }
+      }
+    } catch (e) {
+      // Avoid blocking on background sync failure
+    }
+  }
+
   async getDepositStats(tenantId: string, buildingId?: string) {
+    await this.syncMissingContractDeposits(tenantId);
     const where: any = { tenantId, deletedAt: null };
     if (buildingId && buildingId !== 'ALL') {
       where.room = { buildingId };
@@ -193,6 +243,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
     buildingId?: string,
     tenantId?: string,
   ): Promise<PaginatedResult<Deposit>> {
+    if (tenantId) {
+      await this.syncMissingContractDeposits(tenantId);
+    }
     const where: any = {};
     if (tenantId) where.tenantId = tenantId;
     if (search) {

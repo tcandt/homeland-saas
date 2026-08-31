@@ -1,6 +1,7 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useId } from "react";
 import { X } from "lucide-react";
 import { Button } from "./Button";
+import { registerOverlay, unregisterOverlay, getOverlayStackDepth } from "./Modal";
 
 interface DrawerProps {
   isOpen: boolean;
@@ -15,16 +16,26 @@ interface DrawerProps {
 }
 
 export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children, footer, size = "md", className = "", testId, closeTestId }) => {
+  const uniqueId = useId();
+
   useEffect(() => {
-    if (isOpen) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = '';
-    return () => { document.body.style.overflow = ''; };
-  }, [isOpen]);
+    if (isOpen) {
+      registerOverlay(uniqueId, onClose);
+      return () => {
+        unregisterOverlay(uniqueId);
+      };
+    } else {
+      unregisterOverlay(uniqueId);
+    }
+  }, [isOpen, onClose, uniqueId]);
 
   if (!isOpen) return null;
 
+  const stackDepth = getOverlayStackDepth(uniqueId);
+  const effectiveZIndex = 100 + stackDepth * 20;
+
   return (
-    <div data-testid={testId} className="fixed inset-0 z-[100] flex justify-end">
+    <div data-testid={testId} className="fixed inset-0 flex justify-end" style={{ zIndex: effectiveZIndex }}>
       <div 
         className="absolute inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
         onClick={onClose} 

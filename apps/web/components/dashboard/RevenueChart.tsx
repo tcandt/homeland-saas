@@ -1,10 +1,24 @@
 import React from "react";
 import { ChevronDown } from "lucide-react";
 import { useDashboardData } from "@/app/dashboard-context";
+import { useRevenueHistoryQuery } from "@/lib/queries/dashboard.queries";
 
 export default function RevenueChart() {
   const context = useDashboardData();
-  const rawData = context?.revenueHistory || [];
+  const { data: remoteHistory, isLoading } = useRevenueHistoryQuery();
+  const rawData = (remoteHistory && remoteHistory.length > 0) ? remoteHistory : (context?.revenueHistory || []);
+
+  if (isLoading && rawData.length === 0) {
+    return (
+      <div className="bg-card border border-border rounded-[20px] p-[24px] shadow-sm flex flex-col h-full animate-pulse">
+        <div className="flex justify-between items-center mb-[16px]">
+          <div className="h-4 w-40 bg-muted/20 rounded" />
+          <div className="h-6 w-16 bg-muted/20 rounded" />
+        </div>
+        <div className="flex-1 min-h-[220px] bg-muted/10 rounded-xl" />
+      </div>
+    );
+  }
 
   if (rawData.length === 0) {
     return (

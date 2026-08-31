@@ -38,7 +38,6 @@ export class DashboardService {
       buildings,
       recentPayments,
       recentContracts,
-      rawRevenueHistory,
     ] = await Promise.all([
       this.finance.getProfitLoss(tenantId),
       this.finance.getCashFlow(tenantId),
@@ -105,7 +104,6 @@ export class DashboardService {
         orderBy: { updatedAt: 'desc' },
         take: 5,
       }),
-      this.getRevenueHistory(tenantId, now),
     ]);
 
     const roomsFromBuildings = buildings.flatMap((building) => building.rooms);
@@ -139,7 +137,10 @@ export class DashboardService {
       ? Number(profitLoss.profit || 0)
       : contractMonthlyRevenue - Number(profitLoss.expense || 0);
     const syncedCashFlow = Number(cashFlow.net || 0) !== 0 ? Number(cashFlow.net) : syncedRevenue - Number(cashFlow.outflow || 0);
-    const revenueHistory = this.withOperationalRevenueFallback(rawRevenueHistory, syncedRevenue);
+    
+    // Quick default history structure (detailed loaded on-demand by chart)
+    const revenueHistory = this.buildQuickRevenueMonths(now, syncedRevenue);
+    
     const buildingHealth = buildings.map((building) => {
       const roomCount = building.rooms.length;
       const occupied = building.rooms.filter((room) => room.contracts.length > 0 || room.status === 'OCCUPIED').length;
@@ -235,38 +236,85 @@ export class DashboardService {
     return result;
   }
 
-  private async getRevenueHistory(tenantId: string, now: Date) {
-    const months = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
-      const next = new Date(date.getFullYear(), date.getMonth() + 1, 1);
-      return { start: date, end: next, month: `T${date.getMonth() + 1}` };
+  async getRevenueHistoryByMonths(tenantId: string, monthCount = 6) {
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth() - (monthCount - 1), 1);
+
+    const months = Array.from({ length: monthCount }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (monthCount - 1 - index), 1);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      return {
+        month: `T${date.getMonth() + 1}`,
+        key,
+        revenue: 0,
+        profit: 0,
+      };
     });
 
-    return Promise.all(months.map(async (month) => {
-      const [revenue, expense] = await Promise.all([
-        this.prisma.journalLine.aggregate({
-          where: {
-            tenantId,
-            type: 'CREDIT',
-            account: { type: 'REVENUE' },
-            journalEntry: { entryDate: { gte: month.start, lt: month.end } },
-          },
-          _sum: { amount: true },
-        }),
-        this.prisma.journalLine.aggregate({
-          where: {
-            tenantId,
-            type: 'DEBIT',
-            account: { type: 'EXPENSE' },
-            journalEntry: { entryDate: { gte: month.start, lt: month.end } },
-          },
-          _sum: { amount: true },
-        }),
-      ]);
-      const revenueAmount = Number(revenue._sum.amount || 0);
-      const expenseAmount = Number(expense._sum.amount || 0);
-      return { month: month.month, revenue: revenueAmount, profit: revenueAmount - expenseAmount };
-    }));
+    try {
+      // 1 single lightning-fast SQL group-by query across all 6 months
+      const rows: any[] = await this.prisma.$queryRaw`
+        SELECT 
+          TO_CHAR(je."entryDate", 'YYYY-MM') AS "monthKey",
+          COALESCE(SUM(CASE WHEN a."type" = 'REVENUE' AND jl."type" = 'CREDIT' THEN jl."amount" ELSE 0 END), 0)::float AS "revenue",
+          COALESCE(SUM(CASE WHEN a."type" = 'EXPENSE' AND jl."type" = 'DEBIT' THEN jl."amount" ELSE 0 END), 0)::float AS "expense"
+        FROM "JournalLine" jl
+        JOIN "JournalEntry" je ON jl."journalEntryId" = je."id"
+        JOIN "ChartOfAccount" a ON jl."accountId" = a."id"
+        WHERE jl."tenantId" = ${tenantId}
+          AND je."entryDate" >= ${startDate}
+        GROUP BY TO_CHAR(je."entryDate", 'YYYY-MM')
+        ORDER BY "monthKey" ASC
+      `;
+
+      const resultMap = new Map<string, { revenue: number; expense: number }>();
+      for (const row of rows) {
+        resultMap.set(row.monthKey, {
+          revenue: Number(row.revenue || 0),
+          expense: Number(row.expense || 0),
+        });
+      }
+
+      const result = months.map((m) => {
+        const found = resultMap.get(m.key);
+        const revenue = found ? found.revenue : 0;
+        const expense = found ? found.expense : 0;
+        return {
+          month: m.month,
+          revenue,
+          profit: revenue - expense,
+        };
+      });
+
+      // If current month has no journal entries yet, fallback to active operational contract revenue
+      if (result.every((r) => r.revenue === 0)) {
+        const contracts = await this.prisma.contract.findMany({
+          where: { tenantId, deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } },
+          select: { monthlyRent: true },
+        });
+        const currentRevenue = contracts.reduce((sum, c) => sum + Number(c.monthlyRent || 0), 0);
+        if (currentRevenue > 0) {
+          result[result.length - 1].revenue = currentRevenue;
+          result[result.length - 1].profit = currentRevenue;
+        }
+      }
+
+      return result;
+    } catch {
+      return months.map((m) => ({ month: m.month, revenue: 0, profit: 0 }));
+    }
+  }
+
+  private buildQuickRevenueMonths(now: Date, currentRevenue: number) {
+    return Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+      const isCurrent = index === 5;
+      return {
+        month: `T${date.getMonth() + 1}`,
+        revenue: isCurrent ? currentRevenue : 0,
+        profit: isCurrent ? currentRevenue : 0,
+      };
+    });
   }
 
   private withOperationalRevenueFallback<T extends { revenue: number; profit: number }>(history: T[], monthlyRevenue: number): T[] {

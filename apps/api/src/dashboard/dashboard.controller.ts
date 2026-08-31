@@ -11,4 +11,9 @@ export class DashboardController {
   async getDashboard(@Request() req) {
     return this.dashboardService.getDashboardAggregation(req.user.tenantId);
   }
+
+  @Get('revenue-history')
+  async getRevenueHistory(@Request() req) {
+    return this.dashboardService.getRevenueHistoryByMonths(req.user.tenantId);
+  }
 }

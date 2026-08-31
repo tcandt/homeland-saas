@@ -48,10 +48,39 @@ export default function Dashboard() {
   if (isLoading) {
     return (
       <AppShell>
-        <div className="flex flex-col items-center justify-center h-[calc(100vh-200px)] gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-[#4f46e5]" />
-          <div className="text-muted font-medium">Đang tải dữ liệu tổng quan...</div>
-        </div>
+        <MobilePageShell>
+          <div className="w-full flex flex-col gap-[16px] md:gap-[20px]">
+            {/* Hero Skeleton */}
+            <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_3.5fr] gap-4 md:gap-5">
+              <PanelSkeleton className="h-[180px] bg-gradient-to-br from-indigo-500/10 to-purple-500/10" />
+              <div className="hidden xl:grid grid-cols-3 gap-4">
+                <PanelSkeleton className="h-[180px]" />
+                <PanelSkeleton className="h-[180px]" />
+                <PanelSkeleton className="h-[180px]" />
+              </div>
+            </div>
+
+            {/* KPI Grid Skeleton */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5">
+              <PanelSkeleton className="h-[100px]" />
+              <PanelSkeleton className="h-[100px]" />
+              <PanelSkeleton className="h-[100px]" />
+              <PanelSkeleton className="h-[100px]" />
+            </div>
+
+            {/* Charts & Health Skeleton */}
+            <div className="grid grid-cols-1 xl:grid-cols-[2.5fr_1fr] gap-[16px] md:gap-[20px]">
+              <div className="flex flex-col gap-[16px] md:gap-[20px]">
+                <PanelSkeleton className="h-[320px]" />
+                <PanelSkeleton className="h-[260px]" />
+              </div>
+              <div className="flex flex-col gap-[16px] md:gap-[20px]">
+                <PanelSkeleton className="h-[240px]" />
+                <PanelSkeleton className="h-[240px]" />
+              </div>
+            </div>
+          </div>
+        </MobilePageShell>
       </AppShell>
     );
   }

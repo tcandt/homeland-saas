@@ -73,11 +73,10 @@ function KpiCard({ title, value, trend, trendDown, icon, iconBg, colorHex, data 
       <div className="flex flex-col flex-1 justify-end">
         <div className="text-xl md:text-2xl font-black text-text mb-1 leading-none">{value}</div>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 text-xs font-bold whitespace-nowrap">
-            <span className={trendDown ? "text-danger" : "text-success"}>
-              {trendDown ? "↓" : "↑"} {trend}
+          <div className="flex items-center gap-1.5 text-xs font-semibold whitespace-nowrap">
+            <span className={trendDown ? "text-danger font-bold" : "text-emerald-600 dark:text-emerald-400 font-medium"}>
+              {trend}
             </span>
-            <span className="text-muted font-medium">so với tháng trước</span>
           </div>
 
           <div className="relative md:absolute md:right-5 md:bottom-5 w-10 md:w-20 h-4 md:h-10 opacity-80 pointer-events-none ml-1 md:ml-0 shrink-0">

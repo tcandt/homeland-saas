@@ -5,12 +5,20 @@ import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 
 @Injectable()
 export class DashboardService {
+  private cache = new Map<string, { data: any; expiresAt: number }>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly finance: FinanceReportingService
   ) {}
 
   async getDashboardAggregation(tenantId: string) {
+    const cached = this.cache.get(tenantId);
+    const nowMs = Date.now();
+    if (cached && cached.expiresAt > nowMs) {
+      return cached.data;
+    }
+
     const now = new Date();
     const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const [
@@ -30,6 +38,7 @@ export class DashboardService {
       buildings,
       recentPayments,
       recentContracts,
+      rawRevenueHistory,
     ] = await Promise.all([
       this.finance.getProfitLoss(tenantId),
       this.finance.getCashFlow(tenantId),
@@ -96,6 +105,7 @@ export class DashboardService {
         orderBy: { updatedAt: 'desc' },
         take: 5,
       }),
+      this.getRevenueHistory(tenantId, now),
     ]);
 
     const roomsFromBuildings = buildings.flatMap((building) => building.rooms);
@@ -129,7 +139,7 @@ export class DashboardService {
       ? Number(profitLoss.profit || 0)
       : contractMonthlyRevenue - Number(profitLoss.expense || 0);
     const syncedCashFlow = Number(cashFlow.net || 0) !== 0 ? Number(cashFlow.net) : syncedRevenue - Number(cashFlow.outflow || 0);
-    const revenueHistory = this.withOperationalRevenueFallback(await this.getRevenueHistory(tenantId, now), syncedRevenue);
+    const revenueHistory = this.withOperationalRevenueFallback(rawRevenueHistory, syncedRevenue);
     const buildingHealth = buildings.map((building) => {
       const roomCount = building.rooms.length;
       const occupied = building.rooms.filter((room) => room.contracts.length > 0 || room.status === 'OCCUPIED').length;
@@ -170,7 +180,7 @@ export class DashboardService {
       })),
     ].sort((a, b) => 0).slice(0, 6);
 
-    return {
+    const result = {
       hero: {
         tasksCount: overdueInvoices.length + expiringContracts + cleaningRooms + maintenanceRooms,
         expiringContracts,
@@ -220,6 +230,9 @@ export class DashboardService {
       })),
       insights: this.buildInsights({ totalDebt, overdueCount: overdueInvoices.length, expiringContracts, occupancyRate }),
     };
+
+    this.cache.set(tenantId, { data: result, expiresAt: Date.now() + 15000 });
+    return result;
   }
 
   private async getRevenueHistory(tenantId: string, now: Date) {

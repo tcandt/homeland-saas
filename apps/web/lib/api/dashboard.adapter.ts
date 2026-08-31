@@ -112,17 +112,19 @@ export const dashboardAdapter = {
 
     const totalRooms = Number(data.occupancy?.totalRooms || 0);
     const occupiedRooms = Number(data.occupancy?.occupiedRooms || data.occupancy?.rented || 0);
-    const rate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : Number(data.occupancy?.rate || 0);
+    const rawRate = totalRooms > 0 ? (occupiedRooms / totalRooms) * 100 : Number(data.occupancy?.rate || 0);
+    const rateNumber = Math.round(rawRate * 10) / 10;
+    const formattedRate = `${rateNumber % 1 === 0 ? rateNumber.toFixed(0) : rateNumber.toFixed(1)}%`;
 
     const occupancy = {
-      rate,
+      ...data.occupancy,
+      rate: rateNumber,
       totalRooms,
       occupiedRooms,
       rented: occupiedRooms,
       available: Number(data.occupancy?.available || 0),
       maintenance: Number(data.occupancy?.maintenance || 0),
       reserved: Number(data.occupancy?.reserved || 0),
-      ...data.occupancy,
     };
 
     const buildingHealth = data.buildingHealth || [];
@@ -143,10 +145,10 @@ export const dashboardAdapter = {
       },
       alerts: data.alerts || [],
       kpis: [
-        { label: "Doanh thu tháng này", value: formatVnd(kpis.totalRevenue), trend: "", positive: true, icon: "green" },
-        { label: "Lợi nhuận ròng", value: formatVnd(kpis.netProfit), trend: "", positive: kpis.netProfit >= 0, icon: "blue" },
-        { label: "Tỷ lệ lấp đầy", value: `${occupancy.rate}%`, trend: "", positive: true, icon: "purple" },
-        { label: "Dòng tiền ròng", value: formatVnd(kpis.netCashFlow), trend: "", positive: kpis.netCashFlow >= 0, icon: "orange" },
+        { label: "Doanh thu tháng này", value: formatVnd(kpis.totalRevenue), trend: "Doanh thu thực tế", positive: true, icon: "green" },
+        { label: "Lợi nhuận ròng", value: formatVnd(kpis.netProfit), trend: `Biên LN: ${kpis.totalRevenue > 0 ? Math.round((kpis.netProfit / kpis.totalRevenue) * 100) : 100}%`, positive: kpis.netProfit >= 0, icon: "blue" },
+        { label: "Tỷ lệ lấp đầy", value: formattedRate, trend: `${occupiedRooms}/${totalRooms} phòng đã thuê`, positive: true, icon: "purple" },
+        { label: "Dòng tiền ròng", value: formatVnd(kpis.netCashFlow), trend: "Thực thu - Thực chi", positive: kpis.netCashFlow >= 0, icon: "orange" },
       ],
       kpisRaw: kpis,
       revenueHistory,

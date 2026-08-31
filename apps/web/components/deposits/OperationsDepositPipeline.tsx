@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ChevronRight, Bookmark, Coins, FileText, RefreshCcw, CheckCircle2 } from "lucide-react";
+import { ChevronRight, Bookmark, Coins, FileText, RefreshCcw, CheckCircle2, XCircle } from "lucide-react";
 import { Card } from "../ui/Card";
 import { Skeleton } from "../ui/Skeleton";
 import { useDepositStatsQuery } from "@/lib/queries/deposits.queries";
@@ -16,11 +16,12 @@ type Stage = {
   amount: number;
   color: string;
   bg: string;
-  border: string;
+  activeBorder: string;
+  activeBg: string;
 };
 
 const formatMoney = (amount: number) =>
-  new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(amount);
+  new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(amount) + " đ";
 
 export default function OperationsDepositPipeline() {
   const { statusFilter, setStatusFilter, buildingFilter } = useDepositStore();
@@ -31,15 +32,15 @@ export default function OperationsDepositPipeline() {
     PAID: Coins,
     CONVERTED_TO_CONTRACT: FileText,
     REFUNDED: RefreshCcw,
-    CANCELLED: CheckCircle2,
+    CANCELLED: XCircle,
   };
 
-  const stageColors: Record<string, { color: string; bg: string; border: string }> = {
-    DRAFT: { color: "text-[#0ea5e9]", bg: "bg-[#0ea5e9]/10", border: "border-[#0ea5e9]" },
-    PAID: { color: "text-[#f97316]", bg: "bg-[#f97316]/10", border: "border-[#f97316]" },
-    CONVERTED_TO_CONTRACT: { color: "text-[#6366f1]", bg: "bg-[#6366f1]/10", border: "border-[#6366f1]" },
-    REFUNDED: { color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500" },
-    CANCELLED: { color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10", border: "border-[#8b5cf6]" },
+  const stageColors: Record<string, { color: string; bg: string; activeBorder: string; activeBg: string }> = {
+    DRAFT: { color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-500/10", activeBorder: "border-sky-500 ring-2 ring-sky-500/20", activeBg: "bg-sky-500/[0.08]" },
+    PAID: { color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", activeBorder: "border-emerald-500 ring-2 ring-emerald-500/20", activeBg: "bg-emerald-500/[0.08]" },
+    CONVERTED_TO_CONTRACT: { color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10", activeBorder: "border-indigo-500 ring-2 ring-indigo-500/20", activeBg: "bg-indigo-500/[0.08]" },
+    REFUNDED: { color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10", activeBorder: "border-amber-500 ring-2 ring-amber-500/20", activeBg: "bg-amber-500/[0.08]" },
+    CANCELLED: { color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-500/10", activeBorder: "border-rose-500 ring-2 ring-rose-500/20", activeBg: "bg-rose-500/[0.08]" },
   };
 
   const rawPipeline = statsData?.pipeline || [];
@@ -52,46 +53,44 @@ export default function OperationsDepositPipeline() {
     amount: Number(p.amount) || 0,
     color: stageColors[p.key]?.color || "text-primary",
     bg: stageColors[p.key]?.bg || "bg-primary/10",
-    border: stageColors[p.key]?.border || "border-primary",
+    activeBorder: stageColors[p.key]?.activeBorder || "border-primary ring-2 ring-primary/20",
+    activeBg: stageColors[p.key]?.activeBg || "bg-primary/5",
   }));
 
   if (isLoading) {
     return (
-      <Card
+      <div
         data-testid="deposits-pipeline-skeleton"
-        className="p-[16px] flex items-center justify-between gap-[8px] overflow-x-auto no-scrollbar"
+        className="p-3.5 bg-card/60 border border-border/60 rounded-2xl flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shadow-xs"
       >
         {Array.from({ length: 5 }).map((_, idx) => (
           <React.Fragment key={idx}>
-            <div className="flex-1 min-w-[160px] p-[12px] rounded-[12px] border border-border/60 bg-black/5 dark:bg-white/5">
-              <div className="flex items-center gap-[8px] mb-[12px]">
-                <Skeleton className="w-[24px] h-[24px] rounded-full" />
-                <Skeleton className="h-3 w-24" />
+            <div className="flex-1 min-w-[140px] p-3 rounded-xl border border-border/40 bg-black/5 dark:bg-white/5">
+              <div className="flex items-center gap-2 mb-2">
+                <Skeleton className="w-5 h-5 rounded-md" />
+                <Skeleton className="h-3 w-20" />
               </div>
-              <div className="flex items-end justify-between">
-                <div className="flex items-end gap-[4px]">
-                  <Skeleton className="h-7 w-8" />
-                  <Skeleton className="h-3 w-14 mb-[2px]" />
-                </div>
-                <Skeleton className="h-4 w-20" />
+              <div className="flex items-baseline justify-between">
+                <Skeleton className="h-5 w-8" />
+                <Skeleton className="h-4 w-16" />
               </div>
             </div>
             {idx < 4 && (
-              <div className="flex items-center justify-center text-muted px-[4px]">
-                <ChevronRight size={16} className="opacity-20" />
+              <div className="flex items-center justify-center text-muted px-1">
+                <ChevronRight size={14} className="opacity-20" />
               </div>
             )}
           </React.Fragment>
         ))}
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card
+    <div
       tabIndex={0}
       data-testid="deposits-pipeline"
-      className="p-[16px] flex items-center justify-between gap-[8px] overflow-x-auto no-scrollbar focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className="p-2.5 md:p-3 bg-card/60 border border-border/60 rounded-2xl flex items-center justify-between gap-1.5 md:gap-2 overflow-x-auto no-scrollbar shadow-xs backdrop-blur-sm focus-visible:outline-none"
     >
       {pipeline.map((stage, idx) => {
         const isSelected = statusFilter === stage.statusCode;
@@ -99,40 +98,46 @@ export default function OperationsDepositPipeline() {
           <React.Fragment key={stage.id}>
             <div
               onClick={() => setStatusFilter(isSelected ? 'ALL' : stage.statusCode)}
-              className={`flex-1 min-w-[160px] p-[12px] rounded-[12px] border cursor-pointer transition-all duration-200 group relative overflow-hidden ${
+              className={`flex-1 min-w-[140px] p-2.5 md:p-3 rounded-xl border cursor-pointer transition-all duration-200 group relative ${
                 isSelected
-                  ? `${stage.border} shadow-sm ${stage.bg}`
-                  : "border-transparent hover:border-border hover:bg-black/5 dark:hover:bg-white/5"
+                  ? `${stage.activeBorder} ${stage.activeBg} shadow-xs`
+                  : "border-border/40 bg-card hover:border-border hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
               }`}
             >
-              <div className="flex items-center gap-[8px] mb-[12px]">
-                <div className={`w-[24px] h-[24px] rounded-full flex items-center justify-center ${isSelected ? "bg-background" : stage.bg}`}>
-                  <stage.icon size={12} className={stage.color} />
+              {/* Header: Icon & Stage name */}
+              <div className="flex items-center gap-1.5 mb-2">
+                <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${stage.bg}`}>
+                  <stage.icon size={11} className={stage.color} />
                 </div>
-                <span className={`font-black text-[11px] uppercase tracking-wider ${isSelected ? stage.color : "text-muted group-hover:text-text"} transition-colors`}>
+                <span className={`font-bold text-[11px] uppercase tracking-wide truncate ${isSelected ? stage.color : "text-muted group-hover:text-text"} transition-colors`}>
                   {stage.label}
                 </span>
               </div>
 
-              <div className="flex items-end justify-between">
-                <div className="flex items-end gap-[4px]">
-                  <span className="font-black text-[22px] leading-none text-text">{stage.count}</span>
-                  <span className="text-[11px] font-bold text-muted mb-[2px]">phiếu</span>
+              {/* Body: Count & Amount */}
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="flex items-baseline gap-1">
+                  <span className="font-mono font-black text-[18px] leading-none text-text">
+                    {stage.count}
+                  </span>
+                  <span className="text-[10px] font-bold text-muted">
+                    phiếu
+                  </span>
                 </div>
-                <span className={`font-black text-[14px] ${isSelected ? stage.color : "text-text"}`}>
-                  {formatMoney(stage.amount)}đ
+                <span className={`font-mono font-bold text-[12px] ${isSelected ? stage.color : "text-text"}`}>
+                  {formatMoney(stage.amount)}
                 </span>
               </div>
             </div>
 
             {idx < pipeline.length - 1 && (
-              <div className="flex items-center justify-center text-muted px-[4px]">
-                <ChevronRight size={16} className="opacity-30" />
+              <div className="flex items-center justify-center text-muted shrink-0">
+                <ChevronRight size={14} className="opacity-30" />
               </div>
             )}
           </React.Fragment>
         );
       })}
-    </Card>
+    </div>
   );
 }

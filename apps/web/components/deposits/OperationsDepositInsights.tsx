@@ -1,34 +1,27 @@
 "use client";
 
 import React from "react";
-import { Sparkles, Clock, AlertTriangle, CalendarClock, Wallet, FileText } from "lucide-react";
+import { Sparkles, Clock, AlertTriangle, CalendarClock, Wallet, FileText, ArrowRight } from "lucide-react";
 import { Card } from "../ui/Card";
 import { Skeleton } from "../ui/Skeleton";
 import { useDepositsQuery } from "@/lib/queries/deposits.queries";
+import { useDepositStore } from "@/lib/stores/deposit.store";
 
 export default function OperationsDepositInsights() {
+  const { setStatusFilter } = useDepositStore();
   const { data, isLoading } = useDepositsQuery({ limit: 100 });
   const items = data?.data?.items || [];
 
   if (isLoading) {
     return (
-      <Card className="p-[16px] md:p-[20px] flex items-center gap-[16px] overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-[8px] pr-[16px] border-r border-border/50 shrink-0">
-          <Skeleton className="w-[36px] h-[36px] rounded-full" />
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-3 w-24" />
-            <Skeleton className="h-4 w-28" />
-          </div>
+      <div className="h-10 px-4 rounded-xl bg-card/40 border border-border/50 flex items-center gap-4 overflow-hidden">
+        <Skeleton className="h-4 w-28 rounded-md" />
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-3.5 w-32 rounded-md" />
+          <Skeleton className="h-3.5 w-32 rounded-md" />
+          <Skeleton className="h-3.5 w-32 rounded-md" />
         </div>
-        <div className="flex items-center gap-[24px] pl-[8px]">
-          {Array.from({ length: 5 }).map((_, idx) => (
-            <div key={idx} className="flex items-center gap-[6px] shrink-0">
-              <Skeleton className="w-[14px] h-[14px] rounded-full" />
-              <Skeleton className="h-3 w-36 max-w-[180px]" />
-            </div>
-          ))}
-        </div>
-      </Card>
+      </div>
     );
   }
 
@@ -42,33 +35,37 @@ export default function OperationsDepositInsights() {
   const booking = items.filter((d: any) => d.type === "BOOKING" || d.type === "RESERVATION").length;
 
   const insights = [
-    { text: `${pending} phiếu cọc đang chờ xử lý`, icon: FileText, color: "text-[#8b5cf6]" },
-    { text: `${booking} phiếu giữ chỗ/booking`, icon: CalendarClock, color: "text-[#6366f1]" },
-    { text: `${paid} phiếu đã thanh toán hoặc chuyển cọc`, icon: Wallet, color: "text-[#f97316]" },
-    { text: `${expiring} phiếu đã quá hạn`, icon: Clock, color: "text-rose-500" },
-    { text: `${refund} phiếu hoàn tiền`, icon: AlertTriangle, color: "text-[#a855f7]" },
+    { text: `${pending} cọc chờ xử lý`, icon: FileText, color: "text-indigo-500", onClick: () => setStatusFilter("PENDING") },
+    { text: `${booking} cọc giữ chỗ`, icon: CalendarClock, color: "text-amber-500", onClick: () => {} },
+    { text: `${paid} đã thu / chuyển cọc`, icon: Wallet, color: "text-emerald-500", onClick: () => setStatusFilter("PAID") },
+    { text: `${expiring} phiếu quá hạn`, icon: Clock, color: "text-rose-500", onClick: () => {} },
+    { text: `${refund} phiếu hoàn tiền`, icon: AlertTriangle, color: "text-purple-500", onClick: () => setStatusFilter("REFUNDED") },
   ];
 
   return (
-    <Card className="p-[16px] md:p-[20px] flex items-center gap-[16px] overflow-x-auto no-scrollbar">
-      <div className="flex items-center gap-[8px] pr-[16px] border-r border-border/50 shrink-0">
-        <div className="w-[36px] h-[36px] rounded-full bg-[#6366f1]/10 flex items-center justify-center">
-          <Sparkles size={18} className="text-[#6366f1]" />
+    <div className="flex items-center gap-3 px-3.5 py-2 rounded-xl bg-card/60 border border-border/60 shadow-2xs backdrop-blur-sm overflow-x-auto no-scrollbar">
+      {/* Brand Badge */}
+      <div className="flex items-center gap-2 pr-3 border-r border-border/60 shrink-0">
+        <div className="w-5 h-5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+          <Sparkles size={12} />
         </div>
-        <div className="flex flex-col">
-          <span className="font-black text-[12px] text-text uppercase tracking-wider">AI Operations</span>
-          <span className="font-bold text-[14px] text-text leading-tight">Insight Center</span>
-        </div>
+        <span className="text-[11px] font-black tracking-wide text-text uppercase">Insight</span>
       </div>
 
-      <div className="flex items-center gap-[24px] pl-[8px]">
+      {/* Insight Badges */}
+      <div className="flex items-center gap-3 md:gap-4 shrink-0">
         {insights.map((item, idx) => (
-          <div key={idx} className="flex items-center gap-[6px] shrink-0">
-            <item.icon size={14} className={item.color} />
-            <span className="font-semibold text-[13px] text-text truncate">{item.text}</span>
-          </div>
+          <button
+            key={idx}
+            type="button"
+            onClick={item.onClick}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer text-[12px] font-semibold text-muted hover:text-text shrink-0"
+          >
+            <item.icon size={13} className={item.color} />
+            <span>{item.text}</span>
+          </button>
         ))}
       </div>
-    </Card>
+    </div>
   );
 }

@@ -1,27 +1,42 @@
+"use client";
+
 import React from "react";
-import { Coins, ShieldCheck, Clock, AlertTriangle, CheckCircle2, Wallet } from "lucide-react";
+import { 
+  Coins, 
+  ShieldCheck, 
+  Clock, 
+  AlertTriangle, 
+  CheckCircle2, 
+  Wallet,
+  ArrowUpRight,
+  TrendingUp
+} from "lucide-react";
 import { useDepositStatsQuery } from "@/lib/queries/deposits.queries";
 import { useDepositStore } from "@/lib/stores/deposit.store";
 import { Card } from "../ui/Card";
 import { Skeleton } from "../ui/Skeleton";
 
-export default function OperationsDepositKpi() {
+interface OperationsDepositKpiProps {
+  onCreateClick?: () => void;
+}
+
+export default function OperationsDepositKpi({ onCreateClick }: OperationsDepositKpiProps) {
   const { buildingFilter } = useDepositStore();
   const { data: statsData, isLoading } = useDepositStatsQuery(buildingFilter !== 'ALL' ? buildingFilter : undefined);
   const kpi = statsData?.kpi || {};
 
   if (isLoading) {
     return (
-      <div data-testid="deposits-kpi-grid" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-[16px]">
+      <div data-testid="deposits-kpi-grid" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4">
         {Array.from({ length: 6 }).map((_, idx) => (
-          <Card key={idx} className="p-[16px] flex flex-col justify-center gap-[8px] h-[80px] md:h-[90px] shadow-sm">
+          <Card key={idx} className="p-4 flex flex-col justify-between h-[104px] rounded-2xl border border-border/50 shadow-xs">
             <div className="flex items-center justify-between">
-              <Skeleton className="h-3 w-24" />
-              <Skeleton className="w-[28px] h-[28px] rounded-full" />
+              <Skeleton className="h-3 w-20 rounded-md" />
+              <Skeleton className="w-8 h-8 rounded-xl" />
             </div>
-            <div className="flex items-end gap-[6px]">
-              <Skeleton className="h-8 w-16" />
-              <Skeleton className="h-3 w-8 mb-[2px]" />
+            <div className="flex flex-col gap-1">
+              <Skeleton className="h-6 w-24 rounded-md" />
+              <Skeleton className="h-2.5 w-16 rounded-md" />
             </div>
           </Card>
         ))}
@@ -36,42 +51,137 @@ export default function OperationsDepositKpi() {
   const refundOverdueCount = Number(kpi.refundOverdueCount) || 0;
   const refundedCount = Number(kpi.refundedCount) || 0;
 
-  const formatMillions = (val: number) => {
-    if (val >= 1000000) {
-      return `${(val / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+  const formatVndCompact = (val: number) => {
+    if (val >= 1_000_000_000) {
+      return `${(val / 1_000_000_000).toFixed(2).replace(/\.?0+$/, '')} tỷ`;
     }
-    return val.toLocaleString() + " đ";
+    if (val >= 1_000_000) {
+      return `${(val / 1_000_000).toFixed(1).replace(/\.?0+$/, '')}M`;
+    }
+    return new Intl.NumberFormat("vi-VN").format(val);
+  };
+
+  const formatVndFull = (val: number) => {
+    return new Intl.NumberFormat("vi-VN").format(val) + " đ";
   };
 
   const kpis = [
-    { label: "Tổng quỹ cọc", value: formatMillions(totalFund), unit: "", icon: Wallet, color: "text-[#6366f1]", bg: "bg-[#6366f1]/10", border: "border-[#6366f1]/20" },
-    { label: "Cọc bảo đảm", value: formatMillions(securityFund), unit: "", icon: ShieldCheck, color: "text-[#8b5cf6]", bg: "bg-[#8b5cf6]/10", border: "border-[#8b5cf6]/20" },
-    { label: "Cọc giữ chỗ", value: formatMillions(bookingFund), unit: "", icon: Coins, color: "text-[#f97316]", bg: "bg-[#f97316]/10", border: "border-[#f97316]/20" },
-    { label: "Sắp hoàn tiền", value: refundPendingCount.toString(), unit: "phiếu", icon: Clock, color: "text-[#0ea5e9]", bg: "bg-[#0ea5e9]/10", border: "border-[#0ea5e9]/20" },
-    { label: "Hoàn quá hạn", value: refundOverdueCount.toString(), unit: "phiếu", icon: AlertTriangle, color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20" },
-    { label: "Đã hoàn (Tháng)", value: refundedCount.toString(), unit: "phiếu", icon: CheckCircle2, color: "text-muted", bg: "bg-black/5 dark:bg-white/5", border: "border-border" },
+    {
+      id: "total",
+      label: "Tổng quỹ cọc",
+      displayValue: totalFund > 0 ? formatVndCompact(totalFund) : "0",
+      unit: totalFund > 0 && totalFund < 1_000_000 ? "đ" : totalFund >= 1_000_000 ? "đ" : "đ",
+      subtext: "Quỹ tiền đang giữ",
+      icon: Wallet,
+      color: "text-indigo-600 dark:text-indigo-400",
+      bgGradient: "from-indigo-500/[0.08] to-indigo-500/[0.02]",
+      iconBg: "bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400",
+      borderGlow: "group-hover:border-indigo-500/40",
+      activePill: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
+    },
+    {
+      id: "security",
+      label: "Cọc bảo đảm",
+      displayValue: securityFund > 0 ? formatVndCompact(securityFund) : "0",
+      unit: "đ",
+      subtext: "Hợp đồng thuê",
+      icon: ShieldCheck,
+      color: "text-purple-600 dark:text-purple-400",
+      bgGradient: "from-purple-500/[0.08] to-purple-500/[0.02]",
+      iconBg: "bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400",
+      borderGlow: "group-hover:border-purple-500/40",
+      activePill: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+    },
+    {
+      id: "booking",
+      label: "Cọc giữ chỗ",
+      displayValue: bookingFund > 0 ? formatVndCompact(bookingFund) : "0",
+      unit: "đ",
+      subtext: "Chờ lên HĐ",
+      icon: Coins,
+      color: "text-amber-600 dark:text-amber-400",
+      bgGradient: "from-amber-500/[0.08] to-amber-500/[0.02]",
+      iconBg: "bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400",
+      borderGlow: "group-hover:border-amber-500/40",
+      activePill: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    },
+    {
+      id: "pending_refund",
+      label: "Sắp hoàn tiền",
+      displayValue: refundPendingCount.toString(),
+      unit: "phiếu",
+      subtext: "Đang chờ chuyển",
+      icon: Clock,
+      color: "text-sky-600 dark:text-sky-400",
+      bgGradient: "from-sky-500/[0.08] to-sky-500/[0.02]",
+      iconBg: "bg-sky-500/10 border border-sky-500/20 text-sky-600 dark:text-sky-400",
+      borderGlow: "group-hover:border-sky-500/40",
+      activePill: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+    },
+    {
+      id: "overdue",
+      label: "Hoàn quá hạn",
+      displayValue: refundOverdueCount.toString(),
+      unit: "phiếu",
+      subtext: refundOverdueCount > 0 ? "Cần xử lý gấp" : "Không quá hạn",
+      icon: AlertTriangle,
+      color: refundOverdueCount > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-400",
+      bgGradient: refundOverdueCount > 0 ? "from-rose-500/[0.12] to-rose-500/[0.03]" : "from-slate-500/[0.05] to-transparent",
+      iconBg: refundOverdueCount > 0 ? "bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400" : "bg-black/5 dark:bg-white/5 border border-border text-muted",
+      borderGlow: refundOverdueCount > 0 ? "border-rose-500/30 group-hover:border-rose-500/50" : "group-hover:border-border",
+      activePill: refundOverdueCount > 0 ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 font-black" : "bg-black/5 dark:bg-white/5 text-muted",
+    },
+    {
+      id: "refunded",
+      label: "Đã hoàn (tháng)",
+      displayValue: refundedCount.toString(),
+      unit: "phiếu",
+      subtext: "Tháng hiện tại",
+      icon: CheckCircle2,
+      color: "text-emerald-600 dark:text-emerald-400",
+      bgGradient: "from-emerald-500/[0.08] to-emerald-500/[0.02]",
+      iconBg: "bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400",
+      borderGlow: "group-hover:border-emerald-500/40",
+      activePill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    },
   ];
 
   return (
-    <div data-testid="deposits-kpi-grid" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-[16px]">
-      {kpis.map((kpi, idx) => (
-        <div 
-          key={idx} 
-          className="bg-card border border-border rounded-[16px] p-[16px] flex flex-col justify-center gap-[8px] h-[80px] md:h-[90px] shadow-sm hover:shadow-md hover:-translate-y-[2px] transition-all cursor-pointer relative overflow-hidden group"
+    <div data-testid="deposits-kpi-grid" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-3.5">
+      {kpis.map((item) => (
+        <div
+          key={item.id}
+          className={`group relative flex flex-col justify-between p-3.5 md:p-4 rounded-2xl border border-border/70 bg-gradient-to-b ${item.bgGradient} bg-card/60 backdrop-blur-sm shadow-xs transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${item.borderGlow}`}
         >
-          <div className="flex items-center justify-between z-10">
-            <span className="font-bold text-[12px] md:text-[13px] text-muted uppercase tracking-wide group-hover:text-text transition-colors">{kpi.label}</span>
-            <div className={`w-[28px] h-[28px] rounded-full flex items-center justify-center ${kpi.bg}`}>
-              <kpi.icon size={14} className={kpi.color} />
+          {/* Top Row: Label & Icon */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold text-muted uppercase tracking-wider truncate group-hover:text-text transition-colors">
+              {item.label}
+            </span>
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-2xs transition-transform duration-200 group-hover:scale-105 ${item.iconBg}`}>
+              <item.icon size={15} />
             </div>
           </div>
-          <div className="flex items-end gap-[6px] z-10">
-            <span className="font-black text-[24px] md:text-[28px] text-text leading-none">{kpi.value}</span>
-            {kpi.unit && <span className={`text-[12px] font-bold mb-[2px] ${kpi.color}`}>{kpi.unit}</span>}
+
+          {/* Value Row */}
+          <div className="mt-2 flex flex-col">
+            <div className="flex items-baseline gap-1">
+              <span className="font-mono font-black text-[22px] md:text-[25px] text-text leading-none tracking-tight">
+                {item.displayValue}
+              </span>
+              {item.unit && (
+                <span className={`text-[12px] font-bold ${item.color}`}>
+                  {item.unit}
+                </span>
+              )}
+            </div>
+            <span className="text-[11px] font-medium text-muted mt-1 truncate">
+              {item.subtext}
+            </span>
           </div>
-          
-          {/* Subtle gradient background effect on hover */}
-          <div className={`absolute -right-4 -bottom-4 w-16 h-16 rounded-full blur-xl opacity-0 group-hover:opacity-20 transition-opacity duration-300 ${kpi.bg.replace('/10', '')}`} />
+
+          {/* Micro ambient glow effect */}
+          <div className="absolute right-0 bottom-0 w-16 h-16 bg-current opacity-[0.03] rounded-full blur-xl pointer-events-none group-hover:opacity-[0.07] transition-opacity" />
         </div>
       ))}
     </div>

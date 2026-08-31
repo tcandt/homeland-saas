@@ -1,10 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, Building2 } from "lucide-react";
+import { X, Building2, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { useDepositStore } from "../../lib/stores/deposit.store";
 import { useBuildingsQuery } from "../../lib/queries/buildings.queries";
-import { Card } from "../ui/Card";
 import { SearchInput } from "../ui/SearchInput";
 import { Select } from "../ui/Select";
 import { Button } from "../ui/Button";
@@ -37,7 +36,7 @@ export default function OperationsDepositFilters() {
   const typeOptions = [
     { label: "Loại cọc (Tất cả)", value: "ALL" },
     { label: "Giữ phòng", value: "BOOKING" },
-    { label: "Bảo đảm", value: "SECURITY" },
+    { label: "Bảo đảm HĐ", value: "SECURITY" },
     { label: "Giữ chỗ", value: "RESERVATION" }
   ];
 
@@ -46,24 +45,24 @@ export default function OperationsDepositFilters() {
     { label: "Nháp", value: "DRAFT" },
     { label: "Chờ thu", value: "PENDING" },
     { label: "Đã thu", value: "PAID" },
-    { label: "Lên hợp đồng", value: "CONVERTED_TO_CONTRACT" },
+    { label: "Đã lên HĐ", value: "CONVERTED_TO_CONTRACT" },
     { label: "Hoàn tiền", value: "REFUNDED" },
-    { label: "Hủy", value: "CANCELLED" }
+    { label: "Đã hủy", value: "CANCELLED" }
   ];
 
   return (
-    <Card data-testid="deposits-filter-bar" className="p-[8px] flex items-center justify-between flex-wrap gap-[8px]">
-      <div className="flex items-center gap-[8px] flex-1 flex-wrap">
+    <div data-testid="deposits-filter-bar" className="p-2 md:p-2.5 bg-card/60 border border-border/60 rounded-2xl flex items-center justify-between flex-wrap gap-2 shadow-xs backdrop-blur-sm">
+      <div className="flex items-center gap-2 flex-1 flex-wrap">
         {/* Search */}
         <SearchInput 
-          placeholder="Tìm mã phiếu, khách, sđt..." 
-          className="w-full md:w-[260px] xl:w-[280px]"
+          placeholder="Tìm mã phiếu, tên khách, số điện thoại, số phòng..." 
+          className="w-full md:w-[260px] xl:w-[300px]"
           value={localSearch}
           onChange={(e) => setLocalSearch(e.target.value)}
         />
 
         {/* Building Filter */}
-        <div className="w-[180px]">
+        <div className="w-[170px]">
           <Select 
             aria-label="Filter by building"
             options={buildingOptions}
@@ -73,7 +72,7 @@ export default function OperationsDepositFilters() {
         </div>
 
         {/* Type Filter */}
-        <div className="w-[150px]">
+        <div className="w-[145px]">
           <Select 
             aria-label="Filter by deposit type"
             options={typeOptions}
@@ -83,7 +82,7 @@ export default function OperationsDepositFilters() {
         </div>
 
         {/* Status Filter */}
-        <div className="w-[160px]">
+        <div className="w-[155px]">
           <Select 
             aria-label="Filter by deposit status"
             options={statusOptions}
@@ -93,20 +92,20 @@ export default function OperationsDepositFilters() {
         </div>
       </div>
 
-      <div className="flex items-center gap-[8px]">
-        {hasFilters && (
-          <Button 
-            onClick={() => {
-              setLocalSearch('');
-              resetFilters();
-            }}
-            variant="ghost"
-            className="text-muted hover:text-text font-bold"
-          >
-            <X size={14} className="mr-2" /> Xóa lọc
-          </Button>
-        )}
-      </div>
-    </Card>
+      {hasFilters && (
+        <Button 
+          type="button"
+          onClick={() => {
+            setLocalSearch('');
+            resetFilters();
+          }}
+          variant="ghost"
+          size="sm"
+          className="h-9 px-3 text-muted hover:text-rose-500 hover:bg-rose-500/10 font-bold text-[12px] rounded-xl flex items-center gap-1.5 transition-colors"
+        >
+          <RotateCcw size={13} /> Xóa bộ lọc
+        </Button>
+      )}
+    </div>
   );
 }

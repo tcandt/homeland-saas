@@ -32,10 +32,10 @@ services:
       dockerfile: Dockerfile.api
       args:
         COMMIT_SHA: ${COMMIT_SHA:-production}
-        VERSION: ${APP_VERSION:-v1.1.7}
+        VERSION: ${APP_VERSION:-v1.1.8}
         BUILD_ID: ${BUILD_ID:-public-production}
         BUILD_TIME: ${BUILD_TIME:-manual}
-    image: homeland-api:${APP_VERSION:-v1.1.7}
+    image: homeland-api:${APP_VERSION:-v1.1.8}
     container_name: homeland_production_api
     env_file:
       - .env.public-production
@@ -83,7 +83,7 @@ services:
     restart: unless-stopped
 
   notification_worker:
-    image: homeland-api:${APP_VERSION:-v1.1.7}
+    image: homeland-api:${APP_VERSION:-v1.1.8}
     container_name: homeland_production_notification_worker
     env_file:
       - .env.public-production
@@ -119,14 +119,14 @@ services:
       dockerfile: Dockerfile.web
       args:
         COMMIT_SHA: ${COMMIT_SHA:-production}
-        VERSION: ${APP_VERSION:-v1.1.7}
+        VERSION: ${APP_VERSION:-v1.1.8}
         BUILD_ID: ${BUILD_ID:-public-production}
         BUILD_TIME: ${BUILD_TIME:-manual}
         NEXT_PUBLIC_API_URL: /api/v1
         INTERNAL_API_ORIGIN: http://api:${API_CONTAINER_PORT}
         NEXT_PUBLIC_ALLOW_REGISTRATION: ${NEXT_PUBLIC_ALLOW_REGISTRATION:-false}
         NEXT_PUBLIC_MAINTENANCE_MODE: ${NEXT_PUBLIC_MAINTENANCE_MODE:-false}
-    image: homeland-web:${APP_VERSION:-v1.1.7}
+    image: homeland-web:${APP_VERSION:-v1.1.8}
     container_name: homeland_production_web
     env_file:
       - .env.public-production

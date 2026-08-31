@@ -431,8 +431,8 @@ export class CommunicationController {
           })
         : template === 'update'
         ? buildUpdateAvailableMessage({
-            currentVersion: String(body?.currentVersion || process.env.APP_VERSION || 'v1.1.7'),
-            latestVersion: String(body?.latestVersion || 'v1.1.7'),
+            currentVersion: String(body?.currentVersion || process.env.APP_VERSION || 'v1.1.8'),
+            latestVersion: String(body?.latestVersion || 'v1.1.8'),
             checkedAt: new Date(),
           })
         : template === 'overload'

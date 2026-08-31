@@ -62,6 +62,9 @@ apps/web/tests/e2e/.auth/
 
 # generated
 *.tsbuildinfo
+deploy/**/release/
+deploy/**/*.tar.gz
+deploy/**/*.zip
 
 .eos/
 

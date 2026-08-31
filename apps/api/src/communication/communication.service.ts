@@ -39,44 +39,31 @@ function normalizeDispatchContext(context: any) {
 const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { name: string; subject?: string; body: string }> = {
   INVOICE_ZALO_PAYMENT_REQUEST: {
     name: 'Yêu cầu thanh toán hóa đơn',
-    subject: '🧾 Thông báo hóa đơn {{invoiceCode}}',
-    body: `🧾 HÓA ĐƠN TIỀN NHÀ ({{period}})
-Mã HĐ: {{invoiceCode}}
+    subject: 'HomeLand - Hóa đơn tiền nhà {{period}}',
+    body: `HomeLand - Hóa đơn tiền nhà {{period}}
 
 Kính gửi: {{customerName}}
-🏢 Phòng: {{roomAndBuilding}}
-⏰ Hạn đóng: {{dueDate}}
+{{roomAndBuilding}}
 
-📋 CHI TIẾT KHOẢN THU:
+Chi tiết khoản thu:
 {{itemsSummary}}
+Tổng: {{amount}} đ
 
-👉 TỔNG TIỀN: {{amount}} đ
-
-💳 THÔNG TIN THANH TOÁN:
-🏦 Ngân hàng: {{bankName}}
-🔢 STK: {{bankAccountNumber}}
-👤 Chủ TK: {{accountHolder}}
-🔖 Nội dung CK: {{paymentCode}}
-
-(Quý khách quét mã QR đính kèm để thanh toán nhanh)`,
+(Quét mã QR đính kèm để thanh toán nhanh)`,
   },
   DEPOSIT_ZALO_PAYMENT_REQUEST: {
     name: 'Yêu cầu thanh toán cọc',
-    subject: '💰 Thông báo thanh toán cọc {{depositCode}}',
-    body: `💰 THÔNG BÁO TIỀN CỌC
-Mã cọc: {{depositCode}}
+    subject: 'HomeLand - Hóa đơn tiền cọc {{roomAndBuilding}}',
+    body: `HomeLand - Hóa đơn tiền cọc {{roomAndBuilding}}
 
 Kính gửi: {{customerName}}
-Phòng: {{roomCode}}
-Số tiền: {{amount}} đ
+{{roomAndBuilding}}
 
-💳 THÔNG TIN CHUYỂN KHOẢN:
-🏦 Ngân hàng: {{bankName}}
-🔢 STK: {{bankAccountNumber}}
-👤 Chủ TK: {{accountHolder}}
-🔖 Nội dung CK: {{paymentCode}}
+Chi tiết khoản thu:
+{{itemsSummary}}
+Tổng: {{amount}} đ
 
-Trân trọng cảm ơn!`,
+(Quét mã QR đính kèm để thanh toán nhanh)`,
   },
 };
 
@@ -99,12 +86,24 @@ export class CommunicationService {
     const context = normalizeDispatchContext(payload.context);
 
     // 1. Fetch template or use default system template
+    const defaultTpl = DEFAULT_NOTIFICATION_TEMPLATES[payload.templateCode];
     let template = await this.prisma.notificationTemplate.findUnique({
       where: { tenantId_code: { tenantId: payload.tenantId, code: payload.templateCode } }
     });
 
-    if (!template) {
-      const defaultTpl = DEFAULT_NOTIFICATION_TEMPLATES[payload.templateCode];
+    if (defaultTpl && (payload.templateCode === 'INVOICE_ZALO_PAYMENT_REQUEST' || payload.templateCode === 'DEPOSIT_ZALO_PAYMENT_REQUEST')) {
+      template = {
+        id: template?.id || 'default',
+        tenantId: payload.tenantId,
+        code: payload.templateCode,
+        name: defaultTpl.name,
+        subject: defaultTpl.subject || defaultTpl.name,
+        body: defaultTpl.body,
+        type: 'SYSTEM' as any,
+        createdAt: template?.createdAt || new Date(),
+        updatedAt: new Date(),
+      } as any;
+    } else if (!template) {
       if (defaultTpl) {
         template = {
           id: 'default',

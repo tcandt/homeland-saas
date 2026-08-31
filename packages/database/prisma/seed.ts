@@ -646,14 +646,14 @@ async function main() {
     {
       code: 'INVOICE_ZALO_PAYMENT_REQUEST',
       name: 'Invoice Payment Request Zalo',
-      subject: 'Hóa đơn {{invoiceCode}}{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
-      body: 'Xin chào {{customerName}},\n\nHóa đơn {{invoiceCode}} số tiền {{formatCurrency amount "VND"}} đã sẵn sàng thanh toán.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if roomMemberCount}}\nSố người theo hợp đồng: {{roomMemberCount}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\nNội dung chuyển khoản: {{paymentCode}}\nNgân hàng nhận: {{bankName}} - {{bankAccountNumber}}\n\nQuét QR trong tin nhắn để thanh toán nhanh: {{qrUrl}}\n\nTrân trọng,'
+      subject: 'HomeLand - Hóa đơn tiền nhà {{period}}',
+      body: 'HomeLand - Hóa đơn tiền nhà {{period}}\n\nKính gửi: {{customerName}}\n{{roomAndBuilding}}\n\nChi tiết khoản thu:\n{{itemsSummary}}\nTổng: {{amount}} đ\n\n(Quét mã QR đính kèm để thanh toán nhanh)',
     },
     {
       code: 'DEPOSIT_ZALO_PAYMENT_REQUEST',
       name: 'Deposit Payment Request Zalo',
-      subject: 'Phiếu cọc {{depositCode}}{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
-      body: 'Xin chào {{customerName}},\n\nPhiếu cọc {{depositCode}} số tiền {{formatCurrency amount "VND"}} đã sẵn sàng thanh toán.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if roomMemberCount}}\nSố người theo hợp đồng: {{roomMemberCount}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\nNội dung chuyển khoản: {{paymentCode}}\nNgân hàng nhận: {{bankName}} - {{bankAccountNumber}}\n\nQuét QR trong tin nhắn để thanh toán nhanh: {{qrUrl}}\n\nTrân trọng,'
+      subject: 'HomeLand - Hóa đơn tiền cọc {{roomAndBuilding}}',
+      body: 'HomeLand - Hóa đơn tiền cọc {{roomAndBuilding}}\n\nKính gửi: {{customerName}}\n{{roomAndBuilding}}\n\nChi tiết khoản thu:\n{{itemsSummary}}\nTổng: {{amount}} đ\n\n(Quét mã QR đính kèm để thanh toán nhanh)',
     },
     {
       code: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',

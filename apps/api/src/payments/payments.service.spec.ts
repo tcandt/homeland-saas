@@ -23,6 +23,7 @@ describe('PaymentsService', () => {
       },
       paymentRequest: {
         findFirst: vi.fn(),
+        findUnique: vi.fn().mockResolvedValue(null),
         update: vi.fn(),
         create: vi.fn(),
       },
@@ -46,6 +47,9 @@ describe('PaymentsService', () => {
       },
       owner: {
         findMany: vi.fn().mockResolvedValue([]),
+      },
+      contract: {
+        findFirst: vi.fn().mockResolvedValue(null),
       },
       room: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -409,6 +413,7 @@ describe('PaymentsService', () => {
       contract: {
         roomId: 'room-1',
         room: {
+          id: 'room-1',
           buildingId: 'building-1',
           building: { ownerId: 'owner-a' },
         },
@@ -1067,10 +1072,11 @@ describe('PaymentsService', () => {
         total: 500000,
         paidAmount: 100000,
         customerId: 'customer-1',
-        customer: { fullName: 'Khach A', phone: '0901000001' },
+        customer: { fullName: 'Khach A', phone: '' },
         contract: {
           roomId: 'room-1',
           room: {
+            id: 'room-1',
             buildingId: 'building-1',
             building: { ownerId: 'owner-a' },
           },
@@ -1081,11 +1087,11 @@ describe('PaymentsService', () => {
         tenantId: 'tenant-1',
         code: 'INV-001',
         customerId: 'customer-1',
-        customer: { fullName: 'Khach A', phone: '0901000001' },
+        customer: { fullName: 'Khach A', phone: '' },
       });
 
     await expect(service.sendInvoiceRequestToZalo('invoice-1', 'user-1')).rejects.toThrow(
-      'Khách thuê chưa có Zalo chat ID hoặc user ID',
+      'Khách thuê chưa có số điện thoại hoặc Zalo chat ID',
     );
     expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
   });

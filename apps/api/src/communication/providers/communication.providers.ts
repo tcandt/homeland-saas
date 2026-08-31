@@ -459,12 +459,20 @@ export class ConsoleProvider implements CommunicationProvider {
     // 2. If QR URL is present, send QR photo
     if (qrUrl) {
       try {
+        const bankLine = [payload.context?.bankAccountNumber, payload.context?.bankName].filter(Boolean).join(' / ');
+        const holderLine = payload.context?.accountHolder || '';
+        const ndLine = payload.context?.paymentCode ? `ND: ${payload.context.paymentCode}` : '';
+        const captionLines = [bankLine, holderLine, ndLine].filter(Boolean);
+        const caption = captionLines.length > 0
+          ? captionLines.join('\n')
+          : `Mã VietQR thanh toán ${payload.context?.invoiceCode || payload.context?.paymentCode || ''}`;
+
         await postJsonWithTimeout(
           `${buildZaloBotBaseUrl(apiBase, botToken)}/sendPhoto`,
           {
             chat_id: recipient,
             photo: qrUrl,
-            caption: `Mã VietQR thanh toán hóa đơn ${payload.context?.invoiceCode || ''}`,
+            caption,
           },
           timeoutMs,
         );

@@ -957,27 +957,17 @@ export class PaymentsService {
     // Format amount with thousand separators
     const amountFormatted = new Intl.NumberFormat('vi-VN').format(Number(request.amount));
 
-    // Format item breakdowns with icons using description or name
+    // Format item breakdowns in bullet list format
     const items = (invoice.items || []).map((item: any) => {
       const amt = Number(item.amount || 0);
       const isFree = amt === 0;
       const formattedAmt = isFree ? 'Miễn phí' : `${new Intl.NumberFormat('vi-VN').format(Math.abs(amt))} đ`;
       const name = item.description || item.name || 'Khoản thu';
-      const nameLower = name.toLowerCase();
-      const icon = nameLower.includes('điện')
-        ? '⚡'
-        : nameLower.includes('nước')
-        ? '💧'
-        : nameLower.includes('wifi') || nameLower.includes('rác') || nameLower.includes('vệ sinh')
-        ? '📶'
-        : nameLower.includes('giảm') || amt < 0
-        ? '🎁'
-        : '🏢';
       const prefix = amt < 0 ? '-' : '';
-      return `${icon} ${name}: ${prefix}${formattedAmt}`;
+      return `- ${name}: ${prefix}${formattedAmt}`;
     });
 
-    const itemsSummary = items.length > 0 ? items.join('\n') : `🏢 Tiền thuê phòng: ${amountFormatted} đ`;
+    const itemsSummary = items.length > 0 ? items.join('\n') : `- Tiền thuê phòng: ${amountFormatted} đ`;
 
     // Resolve room and building name
     let room = invoice.contract?.room;
@@ -994,9 +984,11 @@ export class PaymentsService {
       }
     }
 
-    const roomCode = room?.number || room?.code || 'PN 31-01';
+    const roomCode = room?.number || room?.code || 'Phòng';
     const buildingName = building?.name || building?.code || '';
-    const roomAndBuilding = buildingName ? `${roomCode} - ${buildingName}` : roomCode;
+    const roomAndBuilding = buildingName
+      ? `${roomCode} - ${buildingName.toLowerCase().startsWith('tòa') ? buildingName : `Tòa nhà ${buildingName}`}`
+      : roomCode;
     const periodStr = invoice.period || (invoice.createdAt ? `Tháng ${String(new Date(invoice.createdAt).getMonth() + 1).padStart(2, '0')}/${new Date(invoice.createdAt).getFullYear()}` : 'Tháng hiện tại');
 
     await this.communicationService.dispatchDirect({
@@ -1085,6 +1077,16 @@ export class PaymentsService {
     const zaloRecipient = this.resolveZaloRecipient(deposit.customer);
     const request = await this.createDepositRequest(depositId, userId);
 
+    const room = deposit.room || deposit.contract?.room;
+    const building = room?.building;
+    const roomCode = room?.number || room?.code || 'Phòng';
+    const buildingName = building?.name || building?.code || '';
+    const roomAndBuilding = buildingName
+      ? `${roomCode} - ${buildingName.toLowerCase().startsWith('tòa') ? buildingName : `Tòa nhà ${buildingName}`}`
+      : roomCode;
+    const amountFormatted = new Intl.NumberFormat('vi-VN').format(Number(request.amount));
+    const itemsSummary = `- Tiền đặt cọc giữ phòng: ${amountFormatted} đ`;
+
     await this.communicationService.dispatchDirect({
       tenantId: deposit.tenantId,
       channel: NotificationChannel.ZALO,
@@ -1097,11 +1099,17 @@ export class PaymentsService {
         customerPhone,
         zaloChatId: deposit.customer?.zaloChatId || null,
         zaloUserId: deposit.customer?.zaloUserId || null,
-        amount: Number(request.amount),
+        roomCode,
+        buildingName,
+        roomAndBuilding,
+        amount: amountFormatted,
+        rawAmount: Number(request.amount),
+        itemsSummary,
         paymentCode: request.paymentCode,
         qrUrl: request.qrUrl,
         bankName: request.bankName,
         bankAccountNumber: request.bankAccountNumber,
+        accountHolder: request.bankAccountName || 'HOMELAND MANAGEMENT',
         sentAt: new Date(),
         ...buildRoomContext(deposit.room, deposit.contract),
       },

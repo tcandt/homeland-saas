@@ -1,13 +1,18 @@
 "use client";
 
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import type { Building, Floor, Room } from "./building.types";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { useCreateBuildingMutation, useUpdateBuildingMutation, useDeleteBuildingMutation } from "@/lib/mutations/buildings.mutations";
 import { useCreateFloorMutation, useUpdateFloorMutation, useDeleteFloorMutation } from "@/lib/mutations/floors.mutations";
 import { useCreateRoomMutation, useUpdateRoomMutation, useDeleteRoomMutation } from "@/lib/mutations/rooms.mutations";
 import { Loader2, Save, Trash2 } from "lucide-react";
-import RoomPremiumModal from "./RoomPremiumModal";
+
+const RoomPremiumModal = dynamic(() => import("./RoomPremiumModal"), {
+  ssr: false,
+  loading: () => null,
+});
 import MobileBuildingsFlow from "./MobileBuildingsFlow";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";

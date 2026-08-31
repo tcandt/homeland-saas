@@ -40,6 +40,8 @@ export const DocumentScannerModal: React.FC<DocumentScannerModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
+    const activeTimers: (ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>)[] = [];
+
     const checkAndLoadOpenCV = () => {
       const globalCv = (window as any).cv;
       if (globalCv && globalCv.Mat) {
@@ -56,7 +58,8 @@ export const DocumentScannerModal: React.FC<DocumentScannerModalProps> = ({
             setIsOpenCvLoading(false);
             clearInterval(interval);
           }
-        }, 150);
+        }, 300);
+        activeTimers.push(interval);
         return;
       }
 
@@ -82,7 +85,8 @@ export const DocumentScannerModal: React.FC<DocumentScannerModalProps> = ({
               setIsOpenCvLoading(false);
               clearInterval(interval);
             }
-          }, 150);
+          }, 300);
+          activeTimers.push(interval);
         };
 
         script.onerror = () => {
@@ -102,6 +106,7 @@ export const DocumentScannerModal: React.FC<DocumentScannerModalProps> = ({
             onFail();
           }
         }, 40000);
+        activeTimers.push(timeoutId);
       };
 
       const loadLocal = () => {
@@ -129,6 +134,13 @@ export const DocumentScannerModal: React.FC<DocumentScannerModalProps> = ({
     };
 
     checkAndLoadOpenCV();
+
+    return () => {
+      activeTimers.forEach((timer) => {
+        clearInterval(timer as any);
+        clearTimeout(timer as any);
+      });
+    };
   }, [isOpen]);
 
   // Initialize and clean up URL

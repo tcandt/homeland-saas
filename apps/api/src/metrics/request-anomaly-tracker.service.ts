@@ -16,8 +16,9 @@ export type RequestAnomalySnapshot = {
 
 @Injectable()
 export class RequestAnomalyTrackerService {
-  private readonly samples: RequestSample[] = [];
+  private samples: RequestSample[] = [];
   private readonly windowMs = 60_000;
+  private lastPruneAt = 0;
 
   recordRequest(ip: string | null | undefined, path: string) {
     const normalizedPath = String(path || '').toLowerCase();
@@ -30,9 +31,13 @@ export class RequestAnomalyTrackerService {
       return;
     }
 
-    this.prune(Date.now());
+    const now = Date.now();
+    if (now - this.lastPruneAt > 5000 || this.samples.length > 2000) {
+      this.prune(now);
+    }
+
     this.samples.push({
-      timestamp: Date.now(),
+      timestamp: now,
       ip: normalizeIp(ip),
     });
   }
@@ -64,8 +69,13 @@ export class RequestAnomalyTrackerService {
   }
 
   private prune(now: number) {
-    while (this.samples.length > 0 && now - this.samples[0].timestamp > this.windowMs) {
-      this.samples.shift();
+    this.lastPruneAt = now;
+    const cutoff = now - this.windowMs;
+    const firstValidIdx = this.samples.findIndex((s) => s.timestamp >= cutoff);
+    if (firstValidIdx > 0) {
+      this.samples = this.samples.slice(firstValidIdx);
+    } else if (firstValidIdx === -1) {
+      this.samples = [];
     }
   }
 }

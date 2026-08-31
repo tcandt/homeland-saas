@@ -1,9 +1,13 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { DocumentScannerModal } from "../common/DocumentScannerModal";
-import { renderAsync } from "docx-preview";
+import dynamic from "next/dynamic";
 import { CheckCircle2, FileText, CalendarClock, Download, Trash2, Link as LinkIcon, History, ShieldCheck, User, X, Upload, Save, Clock3, Loader2, Zap, Droplets, Wifi } from "lucide-react";
+
+const DocumentScannerModal = dynamic(
+  () => import("../common/DocumentScannerModal").then((mod) => mod.DocumentScannerModal),
+  { ssr: false, loading: () => null }
+);
 import { Modal } from "../ui/Modal";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
@@ -124,32 +128,37 @@ function DocxViewer({ url }: { url: string }) {
     setLoading(true);
     setError(false);
     
-    fetch(url)
-      .then(res => {
-        if (!res.ok) throw new Error("Network response was not ok");
-        return res.blob();
-      })
-      .then(blob => {
-        if (mounted && containerRef.current) {
-          renderAsync(blob, containerRef.current, undefined, {
-             className: "docx-viewer",
-             inWrapper: true,
-             ignoreWidth: false,
-             ignoreHeight: false
-          }).then(() => {
-             if (mounted) setLoading(false);
-          }).catch(err => {
-             console.error(err);
-             if (mounted) { setLoading(false); setError(true); }
+    import("docx-preview")
+      .then(({ renderAsync }) => {
+        return fetch(url)
+          .then((res) => {
+            if (!res.ok) throw new Error("Network response was not ok");
+            return res.blob();
+          })
+          .then((blob) => {
+            if (mounted && containerRef.current) {
+              return renderAsync(blob, containerRef.current, undefined, {
+                className: "docx-viewer",
+                inWrapper: true,
+                ignoreWidth: false,
+                ignoreHeight: false,
+              }).then(() => {
+                if (mounted) setLoading(false);
+              });
+            }
           });
-        }
       })
-      .catch(err => {
+      .catch((err) => {
         console.error(err);
-        if (mounted) { setLoading(false); setError(true); }
+        if (mounted) {
+          setLoading(false);
+          setError(true);
+        }
       });
-      
-    return () => { mounted = false; };
+
+    return () => {
+      mounted = false;
+    };
   }, [url]);
 
   return (

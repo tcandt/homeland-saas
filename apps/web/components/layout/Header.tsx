@@ -140,18 +140,22 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   useEffect(() => {
     if (!accessToken) return;
 
+    let isSubscribed = true;
+    let streamController: AbortController | null = null;
+    let pollingTimer: ReturnType<typeof setInterval> | null = null;
+
     const fetchInitialCount = async () => {
       try {
         const res = await fetch("/api/v1/notifications/unread-count", {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
-        if (res.ok) {
+        if (res.ok && isSubscribed) {
           const data = await res.json();
           setUnreadCount(data.count || data.data?.count || 0);
         }
-      } catch (error) {
-        console.error("[Header] Fetch unread count failed:", error);
+      } catch {
+        // Silent catch for dev server restarts
       }
     };
 
@@ -160,7 +164,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     const handleSseData = (rawData: string) => {
       try {
         const data = JSON.parse(rawData);
-        if (data && data.count !== undefined) {
+        if (data && data.count !== undefined && isSubscribed) {
           setUnreadCount(data.count);
         }
       } catch {
@@ -168,29 +172,43 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       }
     };
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
-    const streamController = new AbortController();
-    void fetch(`${apiUrl}/notifications/stream`, {
-      headers: {
-        Accept: "text/event-stream",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      signal: streamController.signal,
-    }).then(async (response) => {
-      if (response.ok) {
-        await consumeServerSentEvents(response, handleSseData);
-      }
-    }).catch((error) => {
-      if (error instanceof Error && error.name !== "AbortError") {
-        console.error("[Header] Notification stream failed:", error);
-      }
-    });
+    const startStream = () => {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+      streamController = new AbortController();
+      fetch(`${apiUrl}/notifications/stream`, {
+        headers: {
+          Accept: "text/event-stream",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        signal: streamController.signal,
+      })
+        .then(async (response) => {
+          if (response.ok && isSubscribed) {
+            await consumeServerSentEvents(response, handleSseData);
+          } else if (isSubscribed) {
+            // If SSE not available, start fallback polling at 60s
+            if (!pollingTimer) {
+              pollingTimer = setInterval(fetchInitialCount, 60000);
+            }
+          }
+        })
+        .catch(() => {
+          if (isSubscribed && !pollingTimer) {
+            pollingTimer = setInterval(fetchInitialCount, 60000);
+          }
+        });
+    };
 
-    const pollingFallback = window.setInterval(fetchInitialCount, 30000);
+    startStream();
 
     return () => {
-      streamController.abort();
-      window.clearInterval(pollingFallback);
+      isSubscribed = false;
+      if (streamController) {
+        streamController.abort();
+      }
+      if (pollingTimer) {
+        clearInterval(pollingTimer);
+      }
     };
   }, [accessToken]);
 

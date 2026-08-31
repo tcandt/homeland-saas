@@ -62,8 +62,8 @@ export class CommunicationController {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
     
-    // Fallback/Simulated SSE using rxjs timer to emit immediately then every 5s
-    return timer(0, 5000).pipe(
+    // Fallback/Simulated SSE using rxjs timer to emit immediately then every 30s
+    return timer(0, 30000).pipe(
       switchMap(async () => {
         const count = await this.prisma.notification.count({
           where: { tenantId, userId, channel: 'IN_APP', status: { in: ['CREATED', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED'] } }

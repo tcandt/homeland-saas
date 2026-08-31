@@ -714,6 +714,68 @@ export class PaymentsService {
     const bankAccount = resolved.bankAccount;
     const paymentCodePrefix = String(sepayConfig.paymentCodePrefix || memoPrefix || 'PAY');
     
+    // Check if a pending payment request already exists for this source (e.g. invoice)
+    const existingPending = await this.prisma.paymentRequest.findFirst({
+      where: {
+        tenantId,
+        sourceType,
+        sourceId,
+        status: PaymentRequestStatus.PENDING,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const roomContext = allocation?.roomId || allocation?.buildingId
+      ? { roomId: allocation?.roomId || null, buildingId: allocation?.buildingId || null }
+      : {};
+
+    if (existingPending) {
+      const memo = existingPending.paymentCode;
+      const qrUrl = this.buildQrUrl({
+        bankName: bankAccount.bankName,
+        accountNumber: bankAccount.accountNumber,
+        amount,
+        memo,
+        accountName: bankAccount.accountName,
+        store: 'HomeLand',
+      });
+
+      const updated = await this.prisma.paymentRequest.update({
+        where: { id: existingPending.id },
+        data: {
+          amount,
+          bankAccountId: bankAccount.id,
+          bankName: bankAccount.bankName,
+          bankAccountNumber: bankAccount.accountNumber,
+          bankAccountName: bankAccount.accountName,
+          qrUrl,
+          metadata: {
+            ...((existingPending.metadata as object) || {}),
+            ...(metadata && typeof metadata === 'object' ? metadata : {}),
+            ...roomContext,
+            sepayRoutingSource: resolved.source,
+            sepayRoomRouting: resolved.roomRoute || null,
+          },
+        },
+      });
+
+      return {
+        id: updated.id,
+        sourceType: updated.sourceType,
+        sourceId: updated.sourceId,
+        paymentCode: updated.paymentCode,
+        amount: Number(updated.amount),
+        bankName: updated.bankName,
+        bankAccountNumber: updated.bankAccountNumber,
+        bankAccountName: updated.bankAccountName,
+        qrUrl: updated.qrUrl,
+        status: updated.status,
+        provider: updated.provider,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      };
+    }
+
     // Generate clean concise payment code (e.g. HD-3101-0826 or HD31010826)
     let paymentCode = randomCode(paymentCodePrefix, tenantId);
     if (sourceType === PaymentSourceType.INVOICE) {
@@ -722,6 +784,20 @@ export class PaymentsService {
       const now = new Date();
       const monthYear = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
       paymentCode = `HD-${cleanRoom}-${monthYear}`;
+    }
+
+    // Ensure paymentCode is unique for this tenant
+    const existingCode = await this.prisma.paymentRequest.findUnique({
+      where: { tenantId_paymentCode: { tenantId, paymentCode } },
+    });
+    if (existingCode) {
+      let counter = 1;
+      let candidateCode = `${paymentCode}-${counter}`;
+      while (await this.prisma.paymentRequest.findUnique({ where: { tenantId_paymentCode: { tenantId, paymentCode: candidateCode } } })) {
+        counter++;
+        candidateCode = `${paymentCode}-${counter}`;
+      }
+      paymentCode = candidateCode;
     }
 
     const memo = paymentCode;
@@ -733,10 +809,6 @@ export class PaymentsService {
       accountName: bankAccount.accountName,
       store: 'HomeLand',
     });
-
-    const roomContext = allocation?.roomId || allocation?.buildingId
-      ? { roomId: allocation?.roomId || null, buildingId: allocation?.buildingId || null }
-      : {};
 
     const request = await this.prisma.paymentRequest.create({
       data: {

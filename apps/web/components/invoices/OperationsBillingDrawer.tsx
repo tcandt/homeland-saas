@@ -162,10 +162,12 @@ export default function OperationsBillingDrawer({
     invoice.contract?.customer?.gender ||
     "";
 
+  const cleanGender = (customerGender || "").trim().toLowerCase();
   const isFemale =
-    customerGender === "FEMALE" ||
-    customerGender === "Nữ" ||
-    customerGender === "nu";
+    cleanGender === "female" ||
+    cleanGender === "nu" ||
+    cleanGender === "nữ" ||
+    cleanGender === "gái";
 
   const avatarUrl = getTenantAvatar(
     invoice.customer?.avatar || invoice.contract?.customer?.avatar,

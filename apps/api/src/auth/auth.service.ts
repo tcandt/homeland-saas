@@ -10,6 +10,7 @@ import { ErrorCodes } from '../shared/exceptions/error-codes';
 import * as crypto from 'crypto';
 import { MailProvider } from './services/mail.service';
 import { STORAGE_PROVIDER, StorageProvider } from '../documents/interfaces/storage-provider.interface';
+import { IpSecurityService } from '../shared/security/ip-security.service';
 
 @Injectable()
 export class AuthService {
@@ -21,10 +22,18 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly audit: AuditService,
     private readonly mailProvider: MailProvider,
+    @Optional() private readonly ipSecurity?: IpSecurityService,
     @Optional() @Inject(STORAGE_PROVIDER) private readonly storageProvider?: StorageProvider,
   ) {}
 
   async login(input: LoginInput, ip?: string, userAgent?: string) {
+    const clientIp = ip || '127.0.0.1';
+
+    // 1. Kiểm tra xem IP có đang bị khóa do nhập sai quá 5 lần không
+    if (this.ipSecurity) {
+      this.ipSecurity.checkIpBlocked(clientIp);
+    }
+
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
@@ -49,6 +58,9 @@ export class AuthService {
     });
 
     if (!user) {
+      if (this.ipSecurity) {
+        this.ipSecurity.recordFailedAttempt(clientIp);
+      }
       await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', module: 'Auth', before: { emailOrPhone: input.emailOrPhone }, ip, userAgent });
       throw new UnauthorizedException({ code: ErrorCodes.AUTH_INVALID_CREDENTIALS, message: 'Invalid credentials' });
     }
@@ -60,8 +72,17 @@ export class AuthService {
 
     const isMatch = await bcrypt.compare(input.password, user.passwordHash);
     if (!isMatch) {
+      // Ghi nhận lần nhập sai mật khẩu cho IP này
+      if (this.ipSecurity) {
+        this.ipSecurity.recordFailedAttempt(clientIp);
+      }
       await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', entityId: user.id, module: 'Auth', before: { reason: 'Wrong password' }, tenantId: user.tenantId, ip, userAgent });
       throw new UnauthorizedException({ code: ErrorCodes.AUTH_INVALID_CREDENTIALS, message: 'Invalid credentials' });
+    }
+
+    // Đăng nhập thành công -> Xóa bộ đếm sai mật khẩu của IP này
+    if (this.ipSecurity) {
+      this.ipSecurity.resetFailedAttempts(clientIp);
     }
 
     // Extract roles and permissions

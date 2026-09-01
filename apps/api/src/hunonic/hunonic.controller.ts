@@ -11,21 +11,21 @@ export class HunonicController {
   constructor(private readonly hunonicService: HunonicService) {}
 
   @Get('overview')
-  @RequirePermissions('setting.read')
+  @RequirePermissions('meter.read')
   @ApiOperation({ summary: 'Get Hunonic electricity overview for managed buildings' })
   overview(@CurrentUser('tenantId') tenantId: string) {
     return this.hunonicService.getOverview(tenantId);
   }
 
   @Get('rates')
-  @RequirePermissions('setting.read')
+  @RequirePermissions('meter.read')
   @ApiOperation({ summary: 'Get Hunonic electricity rate groups for mapped meters' })
   rates(@CurrentUser('tenantId') tenantId: string) {
     return this.hunonicService.getElectricityRates(tenantId);
   }
 
   @Post('rates/apply')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('meter.update')
   @ApiOperation({ summary: 'Apply Hunonic electricity rate group to selected meters' })
   applyRates(
     @Body() body: any,
@@ -35,7 +35,7 @@ export class HunonicController {
   }
 
   @Get('history')
-  @RequirePermissions('setting.read')
+  @RequirePermissions('meter.read')
   @ApiOperation({ summary: 'Search Hunonic reading history for managed buildings' })
   history(
     @Query() query: any,
@@ -45,7 +45,7 @@ export class HunonicController {
   }
 
   @Get('reconciliation')
-  @RequirePermissions('setting.read')
+  @RequirePermissions('meter.read')
   @ApiOperation({ summary: 'Compare Hunonic monthly electricity data with issued invoices' })
   reconciliation(
     @Query() query: any,
@@ -55,7 +55,7 @@ export class HunonicController {
   }
 
   @Post('history/lock')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('meter.update')
   @ApiOperation({ summary: 'Lock Hunonic monthly periods to prevent sync overwrite' })
   lockHistory(
     @Body() body: any,
@@ -65,7 +65,7 @@ export class HunonicController {
   }
 
   @Post('history/unlock')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('meter.update')
   @ApiOperation({ summary: 'Unlock Hunonic monthly periods to allow sync overwrite' })
   unlockHistory(
     @Body() body: any,
@@ -85,14 +85,14 @@ export class HunonicController {
   }
 
   @Post('sync')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('meter.sync')
   @ApiOperation({ summary: 'Run Hunonic sync for the current tenant' })
   sync(@CurrentUser('tenantId') tenantId: string) {
     return this.hunonicService.syncTenant(tenantId, undefined, { backfillMonths: 6 });
   }
 
   @Get('sync-logs')
-  @RequirePermissions('setting.read')
+  @RequirePermissions('meter.read')
   @ApiOperation({ summary: 'Get Hunonic sync logs history' })
   syncLogs(
     @Query() query: any,
@@ -102,7 +102,7 @@ export class HunonicController {
   }
 
   @Post('test')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('meter.update')
   @ApiOperation({ summary: 'Test Hunonic credentials without saving readings' })
   test(
     @Body() body: any,

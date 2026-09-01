@@ -54,4 +54,29 @@ describe('PermissionsGuard', () => {
       ForbiddenException,
     );
   });
+
+  it('allows manager with meter or audit permissions to access meter and audit endpoints', () => {
+    const meterGuard = createGuard(['meter.read']);
+    const meterSyncGuard = createGuard(['meter.sync']);
+    const auditGuard = createGuard(['audit.read']);
+
+    expect(meterGuard.canActivate(createContext({ roles: ['MANAGER'], permissions: ['meter.read'] }))).toBe(true);
+    expect(meterSyncGuard.canActivate(createContext({ roles: ['MANAGER'], permissions: ['meter.sync'] }))).toBe(true);
+    expect(auditGuard.canActivate(createContext({ roles: ['MANAGER'], permissions: ['audit.read'] }))).toBe(true);
+  });
+
+  it('strictly isolates finance.ownerProfit.read so finance.read alone does not grant access', () => {
+    const ownerProfitGuard = createGuard(['finance.ownerProfit.read']);
+
+    // Manager with finance.read is denied
+    expect(() => ownerProfitGuard.canActivate(createContext({ roles: ['MANAGER'], permissions: ['finance.read'] }))).toThrow(
+      ForbiddenException,
+    );
+
+    // User with explicit finance.ownerProfit.read is allowed
+    expect(ownerProfitGuard.canActivate(createContext({ roles: ['FINANCE'], permissions: ['finance.ownerProfit.read'] }))).toBe(true);
+
+    // ADMIN is allowed
+    expect(ownerProfitGuard.canActivate(createContext({ roles: ['ADMIN'], permissions: [] }))).toBe(true);
+  });
 });

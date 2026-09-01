@@ -532,8 +532,9 @@ function InvoiceRow({
   const remaining = invoiceRemaining(invoice);
   const code = formatInvoiceCode(invoice);
   const customerName = invoiceCustomer(invoice);
-  const customerGender = invoice.customer?.gender || "";
-  const isFemale = customerGender === "FEMALE" || customerGender === "Nữ" || customerGender === "nu";
+  const customerGender = invoice.customer?.gender || (invoice.contract as any)?.customer?.gender || "";
+  const cleanGender = (customerGender || "").trim().toLowerCase();
+  const isFemale = cleanGender === "female" || cleanGender === "nu" || cleanGender === "nữ" || cleanGender === "gái";
   const avatarUrl = getTenantAvatar(invoice.customer?.avatar, customerName, customerGender);
   const { roomCode, buildingName } = invoiceRoom(invoice);
 

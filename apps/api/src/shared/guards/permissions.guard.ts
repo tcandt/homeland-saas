@@ -9,11 +9,14 @@ export class PermissionsGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   private readonly legacyPermissionAliases: Record<string, string[]> = {
+    'meter.read': ['setting.read', 'building.read', 'room.read'],
+    'meter.update': ['setting.update'],
+    'meter.sync': ['meter.update', 'setting.update'],
+    'audit.read': ['setting.read'],
     'finance.approve': ['finance.update'],
     'finance.pay': ['finance.update'],
     'finance.settle': ['finance.update'],
     'finance.export': ['finance.read'],
-    'finance.ownerProfit.read': ['finance.read'],
     'finance.attachment.read': ['finance.read'],
   };
 

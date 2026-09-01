@@ -265,7 +265,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
     const orderBy = { [sort || 'createdAt']: order || 'desc' };
 
     return this.repository.paginate(where, page, limit, orderBy, {
-      customer: { select: { id: true, fullName: true, phone: true, zaloChatId: true, zaloUserId: true } },
+      customer: { select: { id: true, fullName: true, phone: true, gender: true, zaloChatId: true, zaloUserId: true } },
       room: { 
         select: { id: true, code: true, name: true, buildingId: true, building: { select: { id: true, name: true } } } 
       },

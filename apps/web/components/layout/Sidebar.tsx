@@ -11,6 +11,7 @@ import {
   CircleDollarSign,
   ClipboardList,
   FileBarChart,
+  FileSpreadsheet,
   FileText,
   History,
   Home,
@@ -76,9 +77,9 @@ export default function Sidebar({ collapsed }: SidebarProps) {
         <NavItem href="/" icon={<Home size={20} />} label="Tổng quan" collapsed={collapsed} active={pathname === "/"} />
 
         <SectionLabel collapsed={collapsed}>VẬN HÀNH</SectionLabel>
+        <NavItem href="/summary" icon={<FileSpreadsheet size={20} />} label="Tổng hợp" collapsed={collapsed} active={pathname === "/summary" || pathname.startsWith("/summary")} />
         <NavItem href="/buildings" icon={<Building size={20} />} label="Tòa nhà" collapsed={collapsed} active={pathname.startsWith("/buildings")} />
         <NavItem href="/tenants" icon={<User size={20} />} label="Khách thuê" collapsed={collapsed} active={pathname === "/tenants"} />
-        <NavItem href="/electricity" icon={<PlugZap size={20} />} label="Công tơ điện" collapsed={collapsed} active={pathname === "/electricity"} />
 
         <SectionLabel collapsed={collapsed}>HỢP ĐỒNG</SectionLabel>
         <NavItem href="/contracts" icon={<FileText size={20} />} label="Hợp đồng" collapsed={collapsed} active={pathname === "/contracts"} />

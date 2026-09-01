@@ -3,6 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { ToastProvider } from "@/components/ui/ToastContext";
 import AuthGuard from "@/components/auth/AuthGuard";
+import ProductionSecurityProvider from "@/components/security/ProductionSecurityProvider";
 import Providers from "./providers";
 
 export const metadata: Metadata = {
@@ -18,20 +19,22 @@ export default function RootLayout({
   return (
     <html lang="vi" suppressHydrationWarning>
       <body>
-        <Providers>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <ToastProvider>
-              <AuthGuard>
-                {children}
-              </AuthGuard>
-            </ToastProvider>
-          </ThemeProvider>
-        </Providers>
+        <ProductionSecurityProvider>
+          <Providers>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="system"
+              enableSystem
+              disableTransitionOnChange
+            >
+              <ToastProvider>
+                <AuthGuard>
+                  {children}
+                </AuthGuard>
+              </ToastProvider>
+            </ThemeProvider>
+          </Providers>
+        </ProductionSecurityProvider>
       </body>
     </html>
   );

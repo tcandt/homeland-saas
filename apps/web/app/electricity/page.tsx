@@ -132,7 +132,7 @@ const columnLabels: Record<ColumnKey, string> = {
   actions: "Thao tác",
 };
 
-export default function ElectricityManagementPage() {
+export function ElectricityManagerContent() {
   const { data: overviewRes, mutate: mutateOverview, isLoading: isLoadingOverview } = useSWR(
     ["hunonic-overview"],
     () => hunonicApi.overview(),
@@ -663,8 +663,7 @@ export default function ElectricityManagementPage() {
   };
 
   return (
-    <AppShell>
-      <div className="space-y-3.5 pb-20">
+    <div className="space-y-3.5 pb-20">
         {/* COMPACT STATS BAR: Tinh gọn, hiện đại, không chiếm diện tích */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="flex items-center gap-3 rounded-xl border border-border/80 bg-card p-2.5 px-3.5 shadow-sm">
@@ -1934,6 +1933,13 @@ export default function ElectricityManagementPage() {
           )}
         </Modal>
       </div>
+  );
+}
+
+export default function ElectricityManagementPage() {
+  return (
+    <AppShell>
+      <ElectricityManagerContent />
     </AppShell>
   );
 }

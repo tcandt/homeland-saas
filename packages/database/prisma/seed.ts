@@ -34,6 +34,8 @@ async function main() {
     'contract.read', 'contract.create', 'contract.update', 'contract.delete', 'contract.sign',
     'invoice.read', 'invoice.create', 'invoice.update', 'invoice.delete', 'invoice.collect',
     'deposit.read', 'deposit.create', 'deposit.update', 'deposit.delete', 'deposit.collect', 'deposit.refund', 'deposit.convert', 'deposit.cancel',
+    'meter.read', 'meter.update', 'meter.sync',
+    'audit.read',
     'finance.read', 'finance.create', 'finance.update', 'finance.delete',
     'finance.approve', 'finance.pay', 'finance.settle', 'finance.export', 'finance.ownerProfit.read', 'finance.attachment.read',
     'task.read', 'task.create', 'task.update', 'task.delete',
@@ -79,8 +81,15 @@ async function main() {
     p.key.startsWith('customer.') || 
     p.key.startsWith('contract.') || 
     p.key.startsWith('deposit.') || 
-    p.key.startsWith('invoice.read') || 
-    p.key.startsWith('task.')
+    p.key.startsWith('invoice.') || 
+    p.key.startsWith('meter.') || 
+    p.key === 'audit.read' ||
+    p.key === 'finance.read' ||
+    p.key === 'finance.create' ||
+    p.key === 'finance.export' ||
+    p.key === 'finance.attachment.read' ||
+    p.key.startsWith('task.') ||
+    p.key.startsWith('sales.')
   );
   await prisma.rolePermission.createMany({
     data: managerPerms.map(p => ({ roleId: managerRole.id, permissionId: p.id })),

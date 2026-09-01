@@ -24,13 +24,19 @@ export const usePermissions = () => {
     canUpdateRoom: hasPermission('room.update'),
     canDeleteRoom: hasPermission('room.delete'),
 
+    canReadMeter: hasPermissionOrLegacy('meter.read', 'setting.read'),
+    canUpdateMeter: hasPermissionOrLegacy('meter.update', 'setting.update'),
+    canSyncMeter: hasPermissionOrLegacy('meter.sync', 'setting.update'),
+
+    canReadAudit: hasPermissionOrLegacy('audit.read', 'setting.read'),
+
     canReadFinance: hasPermission('finance.read'),
     canCreateExpense: hasPermission('finance.create'),
     canApproveExpense: hasPermissionOrLegacy('finance.approve', 'finance.update'),
     canPayExpense: hasPermissionOrLegacy('finance.pay', 'finance.update'),
     canSettleExpense: hasPermissionOrLegacy('finance.settle', 'finance.update'),
     canExportFinance: hasPermissionOrLegacy('finance.export', 'finance.read'),
-    canReadOwnerProfit: hasPermissionOrLegacy('finance.ownerProfit.read', 'finance.read'),
+    canReadOwnerProfit: hasPermission('finance.ownerProfit.read'),
     canReadExpenseAttachment: hasPermissionOrLegacy('finance.attachment.read', 'finance.read'),
 
     hasPermission,

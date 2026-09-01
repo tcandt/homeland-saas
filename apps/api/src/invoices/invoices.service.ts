@@ -62,7 +62,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     const orderBy = { [sort || 'createdAt']: order || 'desc' };
 
     return this.repository.paginate(where, page, limit, orderBy, {
-      customer: { select: { id: true, fullName: true, phone: true } },
+      customer: { select: { id: true, fullName: true, phone: true, gender: true } },
       contract: { select: { id: true, code: true, room: { select: { id: true, code: true, building: { select: { id: true, name: true } } } } } }
     });
   }

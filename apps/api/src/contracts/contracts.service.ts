@@ -135,7 +135,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     const orderBy = { [sort || 'createdAt']: order || 'desc' };
 
     return this.repository.paginate(where, page, limit, orderBy, {
-      customer: { select: { id: true, fullName: true, phone: true } },
+      customer: { select: { id: true, fullName: true, phone: true, gender: true } },
       room: {
         select: { id: true, code: true, building: { select: { id: true, name: true } } },
       },

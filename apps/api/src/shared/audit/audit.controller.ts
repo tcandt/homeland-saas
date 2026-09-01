@@ -12,7 +12,7 @@ export class AuditController {
   constructor(private readonly audit: AuditService) {}
 
   @Get('logs')
-  @RequirePermissions('setting.read')
+  @RequirePermissions('audit.read')
   @ApiOperation({ summary: 'List recent audit logs for the current tenant' })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'module', required: false, description: 'Comma-separated module names, e.g. Auth,Settings' })

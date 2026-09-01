@@ -56,7 +56,7 @@ const DEFAULT_BACKUPS: BackupItem[] = [
   {
     id: "bk-02",
     filename: "homeland_db_preupdate_v116_20260830_153020.sql.gz",
-    note: "Sao lưu trước khi nâng cấp hệ thống phiên bản v1.1.8",
+    note: "Sao lưu trước khi nâng cấp hệ thống phiên bản v1.2.0",
     size: "23.8 MB",
     sizeBytes: 24956108,
     type: "SYSTEM_UPDATE",

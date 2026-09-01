@@ -26,7 +26,7 @@ function shortVersion(value?: string) {
 }
 
 function displayVersion(value?: string) {
-  if (!value) return "v1.1.8";
+  if (!value) return "v1.2.0";
   return value;
 }
 

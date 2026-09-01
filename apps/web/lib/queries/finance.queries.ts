@@ -55,10 +55,12 @@ export function useBuildingProfitSummaryQuery(params?: Record<string, any>) {
   });
 }
 
-export function useOwnerProfitSummaryQuery() {
+export function useOwnerProfitSummaryQuery(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: financeKeys.ownerProfitSummary(),
     queryFn: () => financeAdapter.getOwnerProfitSummary(),
+    enabled: options?.enabled ?? true,
+    retry: false,
   });
 }
 

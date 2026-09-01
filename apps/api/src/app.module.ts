@@ -44,8 +44,11 @@ import { SettingsModule } from './settings/settings.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HunonicModule } from './hunonic/hunonic.module';
 import { SystemUpdateModule } from './system-update/system-update.module';
+import { MonthlySettlementModule } from './monthly-settlement/monthly-settlement.module';
 import { schedulesEnabled, validateEnvironment } from './shared/config/environment.validation';
 import { InternalTokenGuard } from './shared/guards/internal-token.guard';
+import { IpSecurityModule } from './shared/security/ip-security.module';
+import { GeoIpGuard } from './shared/security/geo-ip.guard';
 
 @Module({
   imports: [
@@ -157,10 +160,13 @@ import { InternalTokenGuard } from './shared/guards/internal-token.guard';
     SettingsModule,
     PaymentsModule,
     HunonicModule,
+    MonthlySettlementModule,
     SystemUpdateModule,
+    IpSecurityModule,
   ],
   controllers: [HealthController],
   providers: [
+    { provide: APP_GUARD, useClass: GeoIpGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },

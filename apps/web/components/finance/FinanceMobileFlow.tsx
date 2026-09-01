@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import { AlertCircle, CheckCircle2, Clock, FileText, Loader2, Receipt, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { useDashboardQuery } from "@/lib/queries/dashboard.queries";
 import { useCashFlowQuery, useLedgerQuery, useOwnerProfitSummaryQuery, useProfitLossQuery } from "@/lib/queries/finance.queries";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 
 function formatMoney(amount: number) {
   if (Math.abs(amount) >= 1000000) {
@@ -18,10 +19,11 @@ function getLedgerAmount(row: any) {
 }
 
 export default function FinanceMobileFlow() {
+  const permissions = usePermissions();
   const { data: dashboard, isLoading: isDashboardLoading } = useDashboardQuery();
   const { data: cashflow, isLoading: isCashFlowLoading } = useCashFlowQuery();
   const { data: profitLoss, isLoading: isProfitLossLoading } = useProfitLossQuery();
-  const { data: ownerRows, isLoading: isOwnerLoading } = useOwnerProfitSummaryQuery();
+  const { data: ownerRows, isLoading: isOwnerLoading } = useOwnerProfitSummaryQuery({ enabled: permissions.canReadOwnerProfit });
   const { data: ledgerRows, isLoading: isLedgerLoading, isError } = useLedgerQuery();
 
   const isLoading = isDashboardLoading || isCashFlowLoading || isProfitLossLoading || isLedgerLoading || isOwnerLoading;
@@ -106,40 +108,42 @@ export default function FinanceMobileFlow() {
         </div>
       </section>
 
-      <section className="rounded-[12px] border border-border bg-card p-3">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-[14px] font-black text-text">Theo chủ sở hữu</h3>
-          <span className="text-[11px] font-bold text-muted">{owners.length} chủ</span>
-        </div>
+      {permissions.canReadOwnerProfit && (
+        <section className="rounded-[12px] border border-border bg-card p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-[14px] font-black text-text">Theo chủ sở hữu</h3>
+            <span className="text-[11px] font-bold text-muted">{owners.length} chủ</span>
+          </div>
 
-        {owners.length === 0 ? (
-          <div className="rounded-[10px] bg-surface p-3 text-[12px] font-semibold text-muted">Chưa có dữ liệu owner để hiển thị trên mobile.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-2">
-            {owners.slice(0, 3).map((owner: any) => (
-              <div key={owner.owner?.id || owner.owner?.code} className="rounded-[10px] border border-border bg-surface p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-[13px] font-black text-text">{owner.owner?.name || owner.owner?.code || "Chủ sở hữu"}</div>
-                    <div className="mt-1 truncate text-[11px] font-semibold text-muted">
-                      {(owner.buildings || []).map((building: any) => building.code).join(", ") || "Chưa gắn tòa"}
+          {owners.length === 0 ? (
+            <div className="rounded-[10px] bg-surface p-3 text-[12px] font-semibold text-muted">Chưa có dữ liệu owner để hiển thị trên mobile.</div>
+          ) : (
+            <div className="grid grid-cols-1 gap-2">
+              {owners.slice(0, 3).map((owner: any) => (
+                <div key={owner.owner?.id || owner.owner?.code} className="rounded-[10px] border border-border bg-surface p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-black text-text">{owner.owner?.name || owner.owner?.code || "Chủ sở hữu"}</div>
+                      <div className="mt-1 truncate text-[11px] font-semibold text-muted">
+                        {(owner.buildings || []).map((building: any) => building.code).join(", ") || "Chưa gắn tòa"}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] font-black uppercase text-muted">Còn lại</div>
+                      <div className="text-[13px] font-black text-[#059669]">{formatMoney(Number(owner.profitAfterAdvance || 0))}</div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-[10px] font-black uppercase text-muted">Còn lại</div>
-                    <div className="text-[13px] font-black text-[#059669]">{formatMoney(Number(owner.profitAfterAdvance || 0))}</div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+                    <MiniMetric label="Thu" value={formatMoney(Number(owner.revenue || 0))} tone="text-[#4f46e5]" />
+                    <MiniMetric label="Chi" value={formatMoney(Number(owner.expense || 0))} tone="text-rose-500" />
+                    <MiniMetric label="Ứng hộ" value={formatMoney(Number(owner.advanceReceivable || 0))} tone="text-[#16a34a]" />
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
-                  <MiniMetric label="Thu" value={formatMoney(Number(owner.revenue || 0))} tone="text-[#4f46e5]" />
-                  <MiniMetric label="Chi" value={formatMoney(Number(owner.expense || 0))} tone="text-rose-500" />
-                  <MiniMetric label="Ứng hộ" value={formatMoney(Number(owner.advanceReceivable || 0))} tone="text-[#16a34a]" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="rounded-[12px] border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border p-3">

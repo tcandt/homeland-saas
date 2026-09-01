@@ -529,7 +529,8 @@ export class AuthService {
       throw new NotFoundException({ code: 'AUTH_ROLE_NOT_FOUND', message: 'Role is not configured' });
     }
 
-    const passwordHash = await bcrypt.hash(input.temporaryPassword, 12);
+    const tempPassword = input.temporaryPassword?.trim() || 'Homeland@123';
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
     const user = await this.prisma.$transaction(async (tx) => {
       return tx.user.create({
         data: {
@@ -805,11 +806,25 @@ export class AuthService {
   private async ensureTeamProvisioningAllowed(tenantId: string, actorUserId: string, email: string, role: string) {
     const actor = await this.prisma.user.findFirst({
       where: { id: actorUserId, tenantId, deletedAt: null },
-      select: { email: true },
+      select: {
+        email: true,
+        roles: {
+          select: {
+            role: { select: { code: true, name: true } },
+          },
+        },
+      },
     });
     const actorEmail = actor?.email?.toLowerCase() ?? '';
     const isBootstrapAdmin = actorEmail === 'admin@homeland.vn';
-    if (isBootstrapAdmin) return;
+    const hasAdminRole = Boolean(
+      actor?.roles?.some((r: any) => {
+        const c = String(r?.role?.code || r?.role?.name || '').toUpperCase();
+        return c === 'ADMIN' || c === 'MANAGER';
+      }),
+    );
+
+    if (isBootstrapAdmin || hasAdminRole) return;
 
     await this.audit.log({
       action: 'CREATE',
@@ -826,7 +841,7 @@ export class AuthService {
     });
     throw new ForbiddenException({
       code: 'AUTH_TEAM_PROVISIONING_FORBIDDEN',
-      message: 'Only admin@homeland.vn may provision team accounts',
+      message: 'Chỉ Quản trị viên mới có quyền tạo và quản lý tài khoản nhân sự',
     });
   }
 

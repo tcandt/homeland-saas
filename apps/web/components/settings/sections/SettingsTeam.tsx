@@ -129,8 +129,16 @@ export default function SettingsTeam() {
   // Create User Submit
   const handleCreateSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim()) {
-      toast.error("Vui lòng điền họ tên và email");
+    if (!fullName.trim()) {
+      toast.error("Vui lòng nhập họ và tên");
+      return;
+    }
+    if (!email.trim() || !email.includes("@")) {
+      toast.error("Vui lòng nhập địa chỉ email hợp lệ");
+      return;
+    }
+    if (tempPassword.trim() && tempPassword.trim().length < 6) {
+      toast.error("Mật khẩu tạm phải có ít nhất 6 ký tự");
       return;
     }
 
@@ -138,7 +146,7 @@ export default function SettingsTeam() {
     try {
       await authApi.createTeamMember({
         fullName: fullName.trim(),
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         role,
         temporaryPassword: tempPassword.trim() || "Homeland@123",
       });
@@ -149,7 +157,8 @@ export default function SettingsTeam() {
       setTempPassword("");
       await mutate();
     } catch (err: any) {
-      toast.error(err?.message || "Không thể tạo tài khoản");
+      const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message || "Không thể tạo tài khoản";
+      toast.error(typeof msg === "string" ? msg : "Không thể tạo tài khoản");
     } finally {
       setIsSubmittingCreate(false);
     }
@@ -492,14 +501,18 @@ export default function SettingsTeam() {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-bold text-muted uppercase">Mật khẩu tạm (Tùy chọn)</label>
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-bold text-muted uppercase">Mật khẩu tạm (Tùy chọn)</label>
+              <span className="text-[10px] text-muted">Tối thiểu 6 ký tự</span>
+            </div>
             <Input
               type="text"
               value={tempPassword}
               onChange={(e) => setTempPassword(e.target.value)}
-              placeholder="Để trống sẽ tự sinh mật khẩu mặc định"
-              className="h-9 rounded-xl text-xs"
+              placeholder="VD: nhan@123456 (để trống tự sinh Homeland@123)"
+              className="h-9 rounded-xl text-xs font-mono"
             />
+            <span className="text-[10px] text-muted">Nếu để trống, hệ thống sẽ cấp mật khẩu mặc định là <code className="font-mono text-primary font-bold">Homeland@123</code></span>
           </div>
         </form>
       </Modal>

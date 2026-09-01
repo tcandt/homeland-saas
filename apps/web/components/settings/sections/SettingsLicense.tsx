@@ -104,62 +104,227 @@ export function MaintenanceScreen({
   hideHeaderBar?: boolean;
 }) {
   const [localTheme, setLocalTheme] = useState<PreviewTheme>("dark");
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const theme = forcedTheme ?? localTheme;
   const isDark = theme === "dark";
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    setTimeout(() => {
+      if (typeof window !== "undefined") {
+        window.location.reload();
+      }
+      setIsRefreshing(false);
+    }, 600);
+  };
 
   return (
     <section
       data-testid={isPreview ? "maintenance-screen-preview" : "maintenance-screen-live"}
       data-theme={theme}
-      className={`w-full overflow-hidden rounded-xl border ${
-        isDark ? "border-slate-800 bg-slate-950 text-slate-100" : "border-slate-200 bg-white text-slate-900"
+      className={`relative w-full overflow-hidden rounded-2xl border transition-all duration-300 shadow-2xl ${
+        isDark
+          ? "border-slate-800/80 bg-gradient-to-b from-slate-950 via-[#0B0F19] to-slate-950 text-slate-100"
+          : "border-slate-200/90 bg-gradient-to-b from-slate-50 via-white to-slate-100/70 text-slate-900 shadow-slate-200/50"
       }`}
     >
-      <div className={`flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 ${isDark ? "border-slate-800" : "border-slate-200"}`}>
-        <div className="flex items-center gap-2.5">
-          <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${isDark ? "bg-indigo-500/20 text-indigo-400" : "bg-indigo-50 text-indigo-600"}`}>
-            <Wrench size={16} aria-hidden="true" />
-          </span>
+      {/* Background ambient neon glow */}
+      <div
+        className={`pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full blur-[100px] opacity-25 ${
+          isDark ? "bg-amber-500/20" : "bg-amber-400/30"
+        }`}
+      />
+      <div
+        className={`pointer-events-none absolute -bottom-24 right-10 w-80 h-80 rounded-full blur-[100px] opacity-20 ${
+          isDark ? "bg-primary/20" : "bg-primary/25"
+        }`}
+      />
+
+      {/* Top Bar */}
+      <div
+        className={`relative z-10 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3.5 backdrop-blur-md ${
+          isDark ? "border-slate-800/80 bg-slate-950/60" : "border-slate-200/80 bg-white/70"
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className={`flex h-9 w-9 items-center justify-center rounded-xl border shadow-inner ${
+              isDark
+                ? "border-amber-500/30 bg-amber-500/10 text-amber-400 shadow-amber-500/5"
+                : "border-amber-400/40 bg-amber-50 text-amber-600 shadow-amber-100"
+            }`}
+          >
+            <Wrench size={17} className="animate-spin-slow" />
+          </div>
           <div>
-            <strong className="block text-xs font-black">HomeLand Premium</strong>
-            <span className={`block text-[10px] font-medium ${isDark ? "text-slate-400" : "text-slate-500"}`}>Mẫu màn hình bảo trì</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black tracking-tight">HomeLand System Core</span>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider border ${
+                  isDark
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                    : "border-amber-500/30 bg-amber-50 text-amber-700"
+                }`}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping" />
+                Đang bảo trì
+              </span>
+            </div>
+            <span className={`block text-[10px] font-medium ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              {isPreview ? "Xem trước giao diện khách hàng nhìn thấy" : "Hệ thống tạm ngưng phục vụ để nâng cấp"}
+            </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           {isPreview && (
-            <div className="flex items-center gap-1 rounded-lg border border-border/70 p-0.5">
+            <div
+              className={`flex items-center gap-1 rounded-xl border p-1 shadow-2xs ${
+                isDark ? "border-slate-800 bg-slate-900/90" : "border-slate-200 bg-slate-100/90"
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setLocalTheme("dark")}
-                className={`flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-bold ${
-                  isDark ? "bg-primary text-white" : "text-muted hover:text-text"
+                className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-bold transition-all ${
+                  isDark
+                    ? "bg-primary text-white shadow-sm"
+                    : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
-                <Moon size={11} /> Tối
+                <Moon size={12} /> Tối
               </button>
               <button
                 type="button"
                 onClick={() => setLocalTheme("light")}
-                className={`flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-bold ${
-                  !isDark ? "bg-primary text-white" : "text-muted hover:text-text"
+                className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-bold transition-all ${
+                  !isDark
+                    ? "bg-primary text-white shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <Sun size={11} /> Sáng
+                <Sun size={12} /> Sáng
               </button>
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500 mb-3 border border-amber-500/20">
-          <Wrench size={22} className="animate-pulse" />
+      {/* Main Content Area */}
+      <div className="relative z-10 flex flex-col items-center justify-center px-6 py-10 md:py-12 text-center max-w-2xl mx-auto">
+        {/* Animated Badge Icon */}
+        <div className="relative mb-6">
+          <div className="absolute inset-0 rounded-3xl bg-amber-500/20 blur-xl animate-pulse" />
+          <div
+            className={`relative flex h-20 w-20 items-center justify-center rounded-3xl border-2 shadow-2xl transition-transform hover:scale-105 ${
+              isDark
+                ? "border-amber-500/40 bg-gradient-to-br from-amber-500/20 via-slate-900 to-slate-950 text-amber-400 shadow-amber-500/10"
+                : "border-amber-400/50 bg-gradient-to-br from-amber-100 via-white to-amber-50 text-amber-600 shadow-amber-200/50"
+            }`}
+          >
+            <ServerCog size={38} className="animate-pulse" />
+          </div>
+          <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-slate-950 border-2 border-slate-950 shadow-md">
+            <Sparkles size={12} />
+          </span>
         </div>
-        <h3 className="text-base font-black text-text">Hệ thống đang bảo trì định kỳ</h3>
-        <p className="max-w-md text-xs text-muted mt-1 leading-relaxed">
-          Chúng tôi đang nâng cấp cơ sở dữ liệu và tối ưu hiệu năng. Hệ thống sẽ quay trở lại hoạt động bình thường trong ít phút.
+
+        {/* Headlines */}
+        <h2 className="text-xl md:text-2xl font-black tracking-tight mb-2">
+          Hệ thống đang được nâng cấp định kỳ
+        </h2>
+        <p className={`text-xs md:text-sm max-w-lg leading-relaxed mb-8 ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+          Chúng tôi đang tối ưu hóa cơ sở dữ liệu, nâng cấp tính năng tự động hóa và tăng cường bảo mật. Mọi dữ liệu phòng & hợp đồng của quý khách vẫn được bảo vệ tuyệt đối an toàn.
         </p>
+
+        {/* 3 Status Info Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full mb-8 text-left">
+          {/* Card 1: Estimated Time */}
+          <div
+            className={`flex flex-col gap-1.5 p-3.5 rounded-xl border backdrop-blur-xs transition-all hover:border-amber-500/40 ${
+              isDark ? "border-slate-800/80 bg-slate-900/50" : "border-slate-200/80 bg-white/80"
+            }`}
+          >
+            <div className="flex items-center justify-between text-[11px] font-bold text-amber-500">
+              <span className="flex items-center gap-1.5">
+                <Clock size={13} /> Thời gian dự kiến
+              </span>
+              <span className="text-[10px] font-mono bg-amber-500/10 px-1.5 py-0.5 rounded-md">85%</span>
+            </div>
+            <div className="font-mono font-black text-sm text-text">15 - 30 phút</div>
+            {/* Progress Bar */}
+            <div className="w-full bg-slate-800/30 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+              <div className="bg-gradient-to-r from-amber-500 to-primary h-full rounded-full w-[85%] animate-pulse" />
+            </div>
+          </div>
+
+          {/* Card 2: Upgrade Scope */}
+          <div
+            className={`flex flex-col gap-1.5 p-3.5 rounded-xl border backdrop-blur-xs transition-all hover:border-primary/40 ${
+              isDark ? "border-slate-800/80 bg-slate-900/50" : "border-slate-200/80 bg-white/80"
+            }`}
+          >
+            <div className="flex items-center justify-between text-[11px] font-bold text-primary">
+              <span className="flex items-center gap-1.5">
+                <Zap size={13} /> Hạng mục nâng cấp
+              </span>
+              <span className="text-[10px] font-mono bg-primary/10 px-1.5 py-0.5 rounded-md">v1.1.8</span>
+            </div>
+            <div className="font-semibold text-xs text-text truncate">Database & Bot Zalo</div>
+            <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Tối ưu tốc độ xử lý</span>
+          </div>
+
+          {/* Card 3: Data Safety */}
+          <div
+            className={`flex flex-col gap-1.5 p-3.5 rounded-xl border backdrop-blur-xs transition-all hover:border-emerald-500/40 ${
+              isDark ? "border-slate-800/80 bg-slate-900/50" : "border-slate-200/80 bg-white/80"
+            }`}
+          >
+            <div className="flex items-center justify-between text-[11px] font-bold text-emerald-500">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck size={13} /> An toàn dữ liệu
+              </span>
+              <span className="text-[10px] font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded-md">100%</span>
+            </div>
+            <div className="font-semibold text-xs text-text truncate">Đã tự động sao lưu</div>
+            <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Mã hóa nhiều lớp</span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center justify-center gap-3 w-full">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            isLoading={isRefreshing}
+            className="h-10 rounded-xl px-5 text-xs font-bold gap-2 border-border/80 hover:bg-slate-800/20"
+          >
+            <RefreshCw size={13} className={isRefreshing ? "animate-spin" : ""} />
+            Làm mới trang (F5)
+          </Button>
+
+          <a
+            href="/login"
+            className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl px-5 text-xs font-bold transition-all shadow-md ${
+              isDark
+                ? "bg-primary text-white hover:bg-primary/90 shadow-primary/20"
+                : "bg-slate-900 text-white hover:bg-slate-800 shadow-slate-900/20"
+            }`}
+          >
+            <KeyRound size={13} />
+            Đăng nhập Quản trị viên (Bypass)
+          </a>
+        </div>
+
+        {/* Emergency support notice */}
+        <div className={`mt-8 pt-5 border-t w-full text-center text-[11px] flex flex-wrap items-center justify-center gap-4 ${
+          isDark ? "border-slate-800/80 text-slate-400" : "border-slate-200/80 text-slate-500"
+        }`}>
+          <span>Hotline hỗ trợ kỹ thuật: <strong className="text-text font-mono">0909.888.xxx</strong></span>
+          <span>•</span>
+          <span>Email: <strong className="text-text">support@homeland.vn</strong></span>
+        </div>
       </div>
     </section>
   );
@@ -287,7 +452,7 @@ export default function SettingsLicense() {
           </div>
         </div>
 
-        <MaintenanceScreen isPreview forcedTheme="dark" />
+        <MaintenanceScreen isPreview />
       </Card>
     </div>
   );

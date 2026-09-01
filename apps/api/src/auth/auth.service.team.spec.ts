@@ -231,7 +231,10 @@ describe('AuthService team directory', () => {
   it('blocks team provisioning from non-system admins', async () => {
     const prisma: any = {
       user: {
-        findFirst: vi.fn().mockResolvedValue({ email: 'manager@homeland.local' }),
+        findFirst: vi.fn().mockResolvedValue({
+          email: 'sales@homeland.local',
+          roles: [{ role: { code: 'SALES', name: 'SALES' } }],
+        }),
       },
     };
     const audit: any = { log: vi.fn() };

@@ -35,20 +35,20 @@ export const ResetPasswordSchema = z.object({
 });
 
 export const CreateTeamMemberSchema = z.object({
-  fullName: z.string().trim().min(2, 'Full name must be at least 2 characters'),
-  email: z.string().trim().email('Invalid email address'),
+  fullName: z.string().trim().min(2, 'Họ và tên phải có ít nhất 2 ký tự'),
+  email: z.string().trim().email('Email không đúng định dạng'),
   role: z.enum(['ADMIN', 'MANAGER', 'SALES', 'FINANCE']),
-  temporaryPassword: z.string().min(12, 'Temporary password must be at least 12 characters'),
+  temporaryPassword: z.string().min(6, 'Mật khẩu tạm phải có ít nhất 6 ký tự').optional(),
 });
 
 export const UpdateTeamMemberSchema = z.object({
-  fullName: z.string().trim().min(2, 'Full name must be at least 2 characters').optional(),
+  fullName: z.string().trim().min(2, 'Họ và tên phải có ít nhất 2 ký tự').optional(),
   role: z.enum(['ADMIN', 'MANAGER', 'SALES', 'FINANCE']).optional(),
   status: z.enum(['ACTIVE', 'PENDING_VERIFICATION', 'DISABLED', 'LOCKED']).optional(),
-  temporaryPassword: z.string().min(12, 'Temporary password must be at least 12 characters').optional(),
+  temporaryPassword: z.string().min(6, 'Mật khẩu tạm phải có ít nhất 6 ký tự').optional(),
   avatarUrl: z.string().trim().min(1).optional(),
 }).refine((data) => Object.values(data).some((value) => value !== undefined), {
-  message: 'At least one field is required',
+  message: 'Cần ít nhất một trường thông tin để cập nhật',
 });
 
 export type LoginInput = z.infer<typeof LoginSchema>;

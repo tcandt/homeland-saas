@@ -6,11 +6,13 @@ import {
   AlertTriangle,
   Award,
   CheckCircle2,
+  Clock,
   Eye,
   KeyRound,
   LockKeyhole,
   Monitor,
   Moon,
+  RefreshCw,
   ServerCog,
   ShieldCheck,
   Sparkles,
@@ -18,6 +20,7 @@ import {
   UserPlus,
   Wrench,
   X,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";

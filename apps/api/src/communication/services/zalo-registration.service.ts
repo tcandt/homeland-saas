@@ -38,8 +38,8 @@ export class ZaloRegistrationService {
     const command = String(update.text || '').trim();
     const isFollow = isFollowOrSubscribeEvent(update);
 
-    // 1. Handle Follow / Subscribe OA events (when user clicks follow or interacts without text)
-    if (isFollow || (!command && update.chatType === 'private')) {
+    // 1. Handle explicit Follow / Subscribe OA events only
+    if (isFollow) {
       await this.sendCustomerMessage(
         tenantId,
         update.chatId,
@@ -49,6 +49,7 @@ export class ZaloRegistrationService {
       return { route: 'customer', action: 'welcome_sent', chatId: update.chatId };
     }
 
+    // Ignore non-text messages (like contact cards, stickers, media) without spamming guide
     if (!command) {
       return { route: 'ignored', reason: 'EMPTY_TEXT' };
     }
@@ -93,7 +94,7 @@ export class ZaloRegistrationService {
       return this.registerCustomerZalo(tenantId, update, parsed, settingsValue);
     }
 
-    // 6. Greetings, Help, Menu or registration request button ("Đăng ký nhận thông tin", "Xin chào", etc.)
+    // 6. Greetings, Help, Menu
     if (isGreetingOrHelpCommand(command)) {
       await this.sendCustomerMessage(
         tenantId,
@@ -138,7 +139,7 @@ export class ZaloRegistrationService {
       return { route: 'customer', action: 'syntax_error' };
     }
 
-    // Any other private message from customer
+    // Any other private message from customer: send guide
     if (update.chatType === 'private') {
       await this.sendCustomerMessage(
         tenantId,
@@ -249,9 +250,9 @@ export class ZaloRegistrationService {
       await this.sendCustomerMessage(
         tenantId,
         update.chatId!,
-        'HomeLand - Đăng ký Zalo Bot',
+        'HomeLand - Đăng ký không thành công',
         [
-          'Thông tin đăng ký không chính xác.',
+          'Đăng ký không thành công.',
           `Không tìm thấy căn hộ tương ứng với "${command.roomNumber}".`,
           'Vui lòng kiểm tra lại Số điện thoại và Mã phòng trong hợp đồng.',
         ].join('\n'),
@@ -265,16 +266,16 @@ export class ZaloRegistrationService {
       return { ok: false, code: 'ROOM_NOT_FOUND' };
     }
 
-    const roomLabel = `${room.building?.name || room.building?.code ? `Tòa ${room.building?.name || room.building?.code} - ` : ''}Phòng ${room.name || room.code}`;
+    const roomLabel = formatRoomLabel(room);
 
     const contracts = Array.isArray(room.contracts) ? room.contracts : [];
     if (contracts.length === 0) {
       await this.sendCustomerMessage(
         tenantId,
         update.chatId!,
-        'HomeLand - Đăng ký Zalo Bot',
+        'HomeLand - Đăng ký không thành công',
         [
-          'Thông tin đăng ký không chính xác.',
+          'Đăng ký không thành công.',
           `${roomLabel} hiện không có hợp đồng đang hoạt động.`,
         ].join('\n'),
       );
@@ -314,10 +315,10 @@ export class ZaloRegistrationService {
       await this.sendCustomerMessage(
         tenantId,
         update.chatId!,
-        'HomeLand - Đăng ký Zalo Bot',
+        'HomeLand - Đăng ký không thành công',
         [
-          'Thông tin đăng ký không chính xác.',
-          `Số điện thoại (${command.phones.join(', ')}) chưa được ghi nhận trong hợp đồng của ${roomLabel}.`,
+          'Đăng ký không thành công.',
+          `Số điện thoại (${command.phones.join(', ')}) không khớp với hợp đồng của ${roomLabel}.`,
           'Vui lòng kiểm tra lại Số điện thoại và Mã phòng trong hợp đồng.',
         ].join('\n'),
       );
@@ -411,7 +412,7 @@ export class ZaloRegistrationService {
       return { ok: false, code: 'ROOM_NOT_FOUND' };
     }
 
-    const roomLabel = `${room.building?.name || room.building?.code ? `Tòa ${room.building?.name || room.building?.code} - ` : ''}Phòng ${room.name || room.code}`;
+    const roomLabel = formatRoomLabel(room);
 
     const contracts = Array.isArray(room.contracts) ? room.contracts : [];
     const potentialCustomers: Array<{
@@ -458,30 +459,30 @@ export class ZaloRegistrationService {
       });
     }
 
-    const unregNames = Array.from(new Set(matchedCustomers.map((c) => c.fullName).filter(Boolean))).join(', ') || 'Quý khách';
-    const unregPhones = Array.from(new Set(matchedCustomers.map((c) => c.phone).filter(Boolean))).join(', ') || command.phones.join(', ');
+    const matchedNames = Array.from(new Set(matchedCustomers.map((c) => c.fullName).filter(Boolean))).join(', ') || 'Quý khách';
 
     await this.sendCustomerMessage(
       tenantId,
       update.chatId!,
-      'HomeLand - Hủy nhận thông báo',
+      'HomeLand - Hủy nhận thông báo thành công',
       [
-        'HomeLand - Hủy nhận thông báo thành công',
-        `Đã hủy nhận thông báo Zalo cho căn hộ: ${roomLabel}`,
-        `Khách hàng: ${unregNames}`,
-        `SĐT hủy: ${unregPhones}`,
+        'HomeLand - Đã hủy nhận thông báo Zalo',
+        `Khách hàng: ${matchedNames}`,
+        `Căn hộ: ${roomLabel}`,
+        '',
+        'Tài khoản Zalo này đã dừng nhận thông báo tự động từ hệ thống.',
       ].join('\n'),
     );
 
     await this.sendAdminMessage(
       tenantId,
       settingsValue,
-      'HomeLand - Khách đã hủy nhận thông báo Zalo',
+      'HomeLand - Khách hủy nhận tin Zalo Bot',
       [
-        'Khách đã hủy nhận thông báo Zalo',
-        `Khách hàng: ${unregNames}`,
+        'Khách hủy nhận tin Zalo Bot',
+        `Khách hàng: ${matchedNames}`,
         `Căn hộ: ${roomLabel}`,
-        `SĐT: ${unregPhones}`,
+        `SĐT: ${command.phones.join(', ')}`,
         `Chat ID: ${update.chatId}`,
       ].join('\n'),
     );
@@ -794,6 +795,16 @@ export function isFollowOrSubscribeEvent(update: NormalizedZaloUpdate): boolean 
     event === 'oa_open' ||
     event === 'user_follow_oa'
   );
+}
+
+export function formatRoomLabel(room: any): string {
+  if (!room) return 'Căn hộ';
+  const bRaw = String(room.building?.name || room.building?.code || '').trim();
+  const bName = bRaw ? (bRaw.toLowerCase().startsWith('tòa') ? bRaw : `Tòa ${bRaw}`) : '';
+  const rRaw = String(room.name || room.code || '').trim();
+  const rName = rRaw ? (rRaw.toLowerCase().startsWith('phòng') || rRaw.toLowerCase().startsWith('p') ? rRaw : `Phòng ${rRaw}`) : '';
+  if (bName && rName) return `${bName} - ${rName}`;
+  return bName || rName || 'Căn hộ';
 }
 
 export function buildWelcomeGuideMessage(): string {

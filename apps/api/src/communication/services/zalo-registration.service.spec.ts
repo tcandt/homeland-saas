@@ -217,14 +217,14 @@ describe('ZaloRegistrationService', () => {
       1,
       expect.objectContaining({
         recipient: 'chat-123',
-        title: 'HomeLand - Hủy nhận thông báo',
+        title: 'HomeLand - Hủy nhận thông báo thành công',
       }),
     );
     expect(zaloProvider.send).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         recipient: 'admin-group-1',
-        title: 'HomeLand - Khách đã hủy nhận thông báo Zalo',
+        title: 'HomeLand - Khách hủy nhận tin Zalo Bot',
       }),
     );
   });
@@ -300,7 +300,7 @@ describe('ZaloRegistrationService', () => {
       1,
       expect.objectContaining({
         recipient: 'chat-123',
-        message: expect.stringContaining('Thông tin đăng ký không chính xác'),
+        message: expect.stringContaining('Đăng ký không thành công'),
       }),
     );
     expect(zaloProvider.send).toHaveBeenNthCalledWith(

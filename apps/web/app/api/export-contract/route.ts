@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
+import path from 'path';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 

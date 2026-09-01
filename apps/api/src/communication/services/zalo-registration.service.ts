@@ -31,11 +31,29 @@ export class ZaloRegistrationService {
     update: NormalizedZaloUpdate,
     settingsValue: any,
   ) {
-    if (!update.chatId || !update.text) {
-      return { route: 'ignored', reason: 'MISSING_CHAT_OR_TEXT' };
+    if (!update.chatId) {
+      return { route: 'ignored', reason: 'MISSING_CHAT_ID' };
     }
 
     const command = String(update.text || '').trim();
+    const isFollow = isFollowOrSubscribeEvent(update);
+
+    // 1. Handle Follow / Subscribe OA events (when user clicks follow or interacts without text)
+    if (isFollow || (!command && update.chatType === 'private')) {
+      await this.sendCustomerMessage(
+        tenantId,
+        update.chatId,
+        'HomeLand - Đăng ký nhận thông tin',
+        buildWelcomeGuideMessage(),
+      );
+      return { route: 'customer', action: 'welcome_sent', chatId: update.chatId };
+    }
+
+    if (!command) {
+      return { route: 'ignored', reason: 'EMPTY_TEXT' };
+    }
+
+    // 2. Chat ID command (/id, /chatid)
     if (isChatIdCommand(command)) {
       const autoBindResult = await this.tryAutoBindAdminGroupFromChatCommand(tenantId, update, settingsValue);
       await this.sendCustomerMessage(
@@ -52,6 +70,7 @@ export class ZaloRegistrationService {
       return autoBindResult || { route: 'command', action: 'chat_id_echo' };
     }
 
+    // 3. Admin group setup command (/setadmin <code>)
     const adminGroupSetupResult = await this.trySetAdminGroup(tenantId, update, settingsValue);
     if (adminGroupSetupResult) {
       return adminGroupSetupResult;
@@ -62,12 +81,30 @@ export class ZaloRegistrationService {
       return { route: 'admin', action: 'ignored' };
     }
 
-    // 1. Check Unregister command (HUY)
+    // 4. Check Unregister command (HUY / HỦY)
     const unregisterParsed = parseUnregisterCommand(command);
     if (unregisterParsed) {
       return this.unregisterCustomerZalo(tenantId, update, unregisterParsed, settingsValue);
     }
-    if (/(?:^|\s)huy\b/i.test(update.text || '')) {
+
+    // 5. Check Register command (DK / ĐK / ĐĂNG KÝ)
+    const parsed = parseRegisterCommand(command);
+    if (parsed) {
+      return this.registerCustomerZalo(tenantId, update, parsed, settingsValue);
+    }
+
+    // 6. Greetings, Help, Menu or registration request button ("Đăng ký nhận thông tin", "Xin chào", etc.)
+    if (isGreetingOrHelpCommand(command)) {
+      await this.sendCustomerMessage(
+        tenantId,
+        update.chatId,
+        'HomeLand - Hướng dẫn đăng ký Zalo Bot',
+        buildWelcomeGuideMessage(),
+      );
+      return { route: 'customer', action: 'guide_sent', chatId: update.chatId };
+    }
+
+    if (isUnregisterAttempt(command)) {
       await this.sendCustomerMessage(
         tenantId,
         update.chatId,
@@ -84,30 +121,35 @@ export class ZaloRegistrationService {
       return { route: 'customer', action: 'syntax_error' };
     }
 
-    // 2. Check Register command (DK)
-    const parsed = parseRegisterCommand(command);
-    if (!parsed) {
-      if (/(?:^|\s)dk\b/i.test(update.text || '')) {
-        await this.sendCustomerMessage(
-          tenantId,
-          update.chatId,
-          'HomeLand - Đăng ký Zalo Bot',
-          [
-            'Cú pháp đăng ký chưa đúng.',
-            'Vui lòng nhắn theo mẫu:',
-            'DK <SĐT> <MÃ PHÒNG>',
-            '',
-            'Ví dụ: DK 0567867889 LK31.06',
-            'hoặc: DK 0567867889,0329484353 31.06',
-          ].join('\n'),
-        );
-        return { route: 'customer', action: 'syntax_error' };
-      }
-
-      return { route: 'customer', action: 'ignored' };
+    if (isRegisterAttempt(command)) {
+      await this.sendCustomerMessage(
+        tenantId,
+        update.chatId,
+        'HomeLand - Đăng ký Zalo Bot',
+        [
+          'Cú pháp đăng ký chưa đúng.',
+          'Vui lòng nhắn theo mẫu:',
+          'DK <SĐT> <MÃ PHÒNG>',
+          '',
+          'Ví dụ: DK 0567867889 LK31.06',
+          'hoặc: DK 0567867889,0329484353 31.06',
+        ].join('\n'),
+      );
+      return { route: 'customer', action: 'syntax_error' };
     }
 
-    return this.registerCustomerZalo(tenantId, update, parsed, settingsValue);
+    // Any other private message from customer
+    if (update.chatType === 'private') {
+      await this.sendCustomerMessage(
+        tenantId,
+        update.chatId,
+        'HomeLand - Hướng dẫn đăng ký Zalo Bot',
+        buildWelcomeGuideMessage(),
+      );
+      return { route: 'customer', action: 'guide_sent', chatId: update.chatId };
+    }
+
+    return { route: 'customer', action: 'ignored' };
   }
 
   private async findRoom(tenantId: string, roomQuery: string) {
@@ -206,7 +248,7 @@ export class ZaloRegistrationService {
     if (!room) {
       await this.sendCustomerMessage(
         tenantId,
-        update.chatId,
+        update.chatId!,
         'HomeLand - Đăng ký Zalo Bot',
         [
           'Thông tin đăng ký không chính xác.',
@@ -229,7 +271,7 @@ export class ZaloRegistrationService {
     if (contracts.length === 0) {
       await this.sendCustomerMessage(
         tenantId,
-        update.chatId,
+        update.chatId!,
         'HomeLand - Đăng ký Zalo Bot',
         [
           'Thông tin đăng ký không chính xác.',
@@ -271,7 +313,7 @@ export class ZaloRegistrationService {
     if (matchedCustomers.length === 0) {
       await this.sendCustomerMessage(
         tenantId,
-        update.chatId,
+        update.chatId!,
         'HomeLand - Đăng ký Zalo Bot',
         [
           'Thông tin đăng ký không chính xác.',
@@ -305,7 +347,7 @@ export class ZaloRegistrationService {
 
     await this.sendCustomerMessage(
       tenantId,
-      update.chatId,
+      update.chatId!,
       'HomeLand - Đăng ký thành công',
       [
         'HomeLand - Đăng ký nhận thông tin thành công',
@@ -359,7 +401,7 @@ export class ZaloRegistrationService {
     if (!room) {
       await this.sendCustomerMessage(
         tenantId,
-        update.chatId,
+        update.chatId!,
         'HomeLand - Hủy nhận thông báo Zalo',
         [
           'Thông tin hủy không chính xác.',
@@ -395,7 +437,7 @@ export class ZaloRegistrationService {
     if (matchedCustomers.length === 0) {
       await this.sendCustomerMessage(
         tenantId,
-        update.chatId,
+        update.chatId!,
         'HomeLand - Hủy nhận thông báo Zalo',
         [
           'Thông tin hủy không chính xác.',
@@ -421,7 +463,7 @@ export class ZaloRegistrationService {
 
     await this.sendCustomerMessage(
       tenantId,
-      update.chatId,
+      update.chatId!,
       'HomeLand - Hủy nhận thông báo',
       [
         'HomeLand - Hủy nhận thông báo thành công',
@@ -461,26 +503,34 @@ export class ZaloRegistrationService {
   }
 
   private async sendCustomerMessage(tenantId: string, chatId: string, title: string, message: string) {
-    await this.zaloProvider.send({
-      tenantId,
-      recipient: chatId,
-      title,
-      message,
-      context: {},
-    });
+    try {
+      await this.zaloProvider.send({
+        tenantId,
+        recipient: chatId,
+        title,
+        message,
+        context: {},
+      });
+    } catch (err: any) {
+      this.logger.warn(`Failed to send message to customer chat ${chatId}: ${err?.message || err}`);
+    }
   }
 
   private async sendAdminMessage(tenantId: string, settingsValue: any, title: string, message: string) {
     const adminGroupChatId = String(settingsValue?.adminGroupChatId || '').trim();
     if (!adminGroupChatId) return;
 
-    await this.zaloProvider.send({
-      tenantId,
-      recipient: adminGroupChatId,
-      title,
-      message,
-      context: {},
-    });
+    try {
+      await this.zaloProvider.send({
+        tenantId,
+        recipient: adminGroupChatId,
+        title,
+        message,
+        context: {},
+      });
+    } catch (err: any) {
+      this.logger.warn(`Failed to send message to admin group chat ${adminGroupChatId}: ${err?.message || err}`);
+    }
   }
 
   private async trySetAdminGroup(tenantId: string, update: NormalizedZaloUpdate, settingsValue: any) {
@@ -489,7 +539,7 @@ export class ZaloRegistrationService {
 
     const expectedCode = String(settingsValue?.adminSetupCode || '').trim().toUpperCase();
     const expiresAt = String(settingsValue?.adminSetupCodeExpiresAt || '').trim();
-    const notExpired = Boolean(expiresAt) && Date.now() <= new Date(expiresAt).getTime();
+    const notExpired = !expiresAt || Date.now() <= new Date(expiresAt).getTime();
     const isValid = Boolean(expectedCode) && notExpired && parsed.setupCode.toUpperCase() === expectedCode;
 
     if (!isValid) {
@@ -634,54 +684,142 @@ export class ZaloRegistrationService {
   }
 }
 
-function parseRegisterCommand(text: string): RegisterCommand | null {
+export function removeVietnameseTones(str: string): string {
+  if (!str) return '';
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .trim();
+}
+
+export function parseRegisterCommand(text: string): RegisterCommand | null {
   const cleanText = String(text || '').trim();
-  const match = cleanText.match(/(?:^|\s)DK\s+([\d,\s+.-]+?)\s+([A-Za-z0-9._\s-]+)$/i);
+  if (!cleanText) return null;
+
+  const normalized = removeVietnameseTones(cleanText);
+  // Match prefix: DK, DANG KY, DANG KY NHAN TIN, DANGKY, REGISTER, REG with optional ':' or '-'
+  const match = normalized.match(/(?:^|\s)(?:DK|DANG\s*KY|DANG\s*KY\s*NHAN\s*TIN|DANGKY|REGISTER|REG)[:\s-]+([\d,\s+./-]+?)\s+([A-Za-z0-9._\s/-]+)$/i);
   if (!match) return null;
 
   const rawPhones = match[1];
   const phones = rawPhones
-    .split(/[,;\s]+/)
+    .split(/[,;\s/]+/)
     .map(normalizePhone)
-    .filter(Boolean);
-  const roomNumber = String(match[2] || '').trim();
+    .filter((p) => p && p.length >= 9 && p.length <= 12);
 
-  if (!phones.length || !roomNumber) return null;
+  let rawRoom = String(match[2] || '').trim();
+  // Strip words like 'phong', 'can', 'p.', 'p-'
+  rawRoom = rawRoom.replace(/^(?:PHONG|CAN|TOA)\s+/i, '').replace(/^[Pp][.-]/, '').trim();
+
+  if (!phones.length || !rawRoom) return null;
 
   return {
     phones,
     primaryPhone: phones[0],
     secondaryPhones: phones.slice(1),
-    roomNumber,
+    roomNumber: rawRoom,
   };
 }
 
-function parseUnregisterCommand(text: string): UnregisterCommand | null {
+export function parseUnregisterCommand(text: string): UnregisterCommand | null {
   const cleanText = String(text || '').trim();
-  const match = cleanText.match(/(?:^|\s)HUY\s+([\d,\s+.-]+?)\s+([A-Za-z0-9._\s-]+)$/i);
+  if (!cleanText) return null;
+
+  const normalized = removeVietnameseTones(cleanText);
+  // Match prefix: HUY, HUY DANG KY, HUY NHAN TIN, UNREGISTER, STOP with optional ':' or '-'
+  const match = normalized.match(/(?:^|\s)(?:HUY|HUY\s*DANG\s*KY|HUY\s*NHAN\s*TIN|UNREGISTER|UNREG|STOP)[:\s-]+([\d,\s+./-]+?)\s+([A-Za-z0-9._\s/-]+)$/i);
   if (!match) return null;
 
   const rawPhones = match[1];
   const phones = rawPhones
-    .split(/[,;\s]+/)
+    .split(/[,;\s/]+/)
     .map(normalizePhone)
-    .filter(Boolean);
-  const roomNumber = String(match[2] || '').trim();
+    .filter((p) => p && p.length >= 9 && p.length <= 12);
 
-  if (!phones.length || !roomNumber) return null;
+  let rawRoom = String(match[2] || '').trim();
+  rawRoom = rawRoom.replace(/^(?:PHONG|CAN|TOA)\s+/i, '').replace(/^[Pp][.-]/, '').trim();
+
+  if (!phones.length || !rawRoom) return null;
 
   return {
     phones,
-    roomNumber,
+    roomNumber: rawRoom,
   };
 }
 
+export function isRegisterAttempt(text: string): boolean {
+  const norm = removeVietnameseTones(String(text || '')).toLowerCase();
+  return (
+    /(?:^|\s)(?:dk|dang\s*ky|dangky|register|reg)\b/i.test(norm) ||
+    norm.includes('nhan thong tin') ||
+    norm.includes('dang ky nhan')
+  );
+}
+
+export function isUnregisterAttempt(text: string): boolean {
+  const norm = removeVietnameseTones(String(text || '')).toLowerCase();
+  return /(?:^|\s)(?:huy|huy\s*dang\s*ky|huy\s*nhan|unregister|stop)\b/i.test(norm);
+}
+
+export function isGreetingOrHelpCommand(text: string): boolean {
+  const norm = removeVietnameseTones(String(text || '')).toLowerCase();
+  const keywords = [
+    'xin chao',
+    'chao',
+    'hello',
+    'hi',
+    'alo',
+    'bat dau',
+    'start',
+    '/start',
+    'menu',
+    'huong dan',
+    'help',
+    '/help',
+    'quan tam',
+    'thong tin',
+    'nhan tin',
+  ];
+  return keywords.some((kw) => norm === kw || norm.startsWith(`${kw} `) || norm.endsWith(` ${kw}`));
+}
+
+export function isFollowOrSubscribeEvent(update: NormalizedZaloUpdate): boolean {
+  const event = String(update.eventName || '').toLowerCase();
+  return (
+    event.includes('follow') ||
+    event.includes('subscribe') ||
+    event.includes('join') ||
+    event === 'oa_open' ||
+    event === 'user_follow_oa'
+  );
+}
+
+export function buildWelcomeGuideMessage(): string {
+  return [
+    'HomeLand - Hướng dẫn đăng ký nhận thông báo',
+    '',
+    'Để kích hoạt nhận thông báo tự động (hóa đơn, tiền phòng, hợp đồng), Quý khách vui lòng gửi tin nhắn theo cú pháp:',
+    '',
+    '👉 DK <Số điện thoại> <Mã phòng>',
+    '',
+    '📌 Ví dụ:',
+    '• DK 0567867889 LK31.06',
+    '• hoặc: DK 0567867889 31.06',
+    '• Nhiều SĐT cùng phòng: DK 0567867889,0329484353 31.06',
+    '',
+    '📌 Để hủy nhận thông báo:',
+    '👉 HUY <Số điện thoại> <Mã phòng>',
+  ].join('\n');
+}
+
 function cleanAlphanumeric(s: any): string {
-  return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return removeVietnameseTones(String(s || '')).toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
 function extractTokens(s: any): { clean: string; parts: string[]; numbers: string[] } {
-  const clean = String(s || '').toUpperCase().trim();
+  const clean = removeVietnameseTones(String(s || '')).toUpperCase().trim();
   const parts = clean.split(/[^A-Z0-9]+/).filter(Boolean);
   const numbers = clean.match(/\d+/g) || [];
   return { clean, parts, numbers };
@@ -811,9 +949,15 @@ function buildComparablePhones(value: string | null | undefined) {
   const candidates = new Set<string>([normalized]);
   if (normalized.startsWith('84') && normalized.length > 9) {
     candidates.add(`0${normalized.slice(2)}`);
+    candidates.add(normalized.slice(2));
   }
   if (normalized.startsWith('0') && normalized.length > 9) {
     candidates.add(`84${normalized.slice(1)}`);
+    candidates.add(normalized.slice(1));
+  }
+  if (normalized.length === 9 && !normalized.startsWith('0')) {
+    candidates.add(`0${normalized}`);
+    candidates.add(`84${normalized}`);
   }
   return Array.from(candidates);
 }

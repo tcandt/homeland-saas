@@ -473,7 +473,7 @@ describe('ZaloRegistrationService', () => {
       },
       {
         adminSetupCode: 'A91F72BC',
-        adminSetupCodeExpiresAt: '2026-08-29T17:00:00.000Z',
+        adminSetupCodeExpiresAt: new Date(Date.now() + 600000).toISOString(),
       },
     );
 
@@ -525,7 +525,7 @@ describe('ZaloRegistrationService', () => {
       },
       {
         adminSetupCode: 'A91F72BC',
-        adminSetupCodeExpiresAt: '2026-08-29T17:00:00.000Z',
+        adminSetupCodeExpiresAt: new Date(Date.now() + 600000).toISOString(),
       },
     );
 
@@ -549,6 +549,126 @@ describe('ZaloRegistrationService', () => {
       expect.objectContaining({
         recipient: 'group-123',
         title: 'HomeLand - Admin Bot Connected',
+      }),
+    );
+  });
+
+  it('sends welcome guide on follow event without text', async () => {
+    const { service, zaloProvider } = createService();
+
+    const result = await service.handleIncomingMessage(
+      'tenant-1',
+      {
+        updateId: 'u-1',
+        chatId: 'user-follow-123',
+        chatType: 'private',
+        senderId: 'user-follow-123',
+        text: null,
+        eventName: 'follow',
+        displayName: 'Customer',
+        raw: {},
+      },
+      {},
+    );
+
+    expect(result).toEqual({
+      route: 'customer',
+      action: 'welcome_sent',
+      chatId: 'user-follow-123',
+    });
+    expect(zaloProvider.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: 'user-follow-123',
+        title: 'HomeLand - Đăng ký nhận thông tin',
+        message: expect.stringContaining('DK <Số điện thoại> <Mã phòng>'),
+      }),
+    );
+  });
+
+  it('successfully registers with Vietnamese diacritic command "ĐK 0567867889 phòng 31.06"', async () => {
+    const { service, prisma, zaloProvider } = createService();
+    prisma.room.findFirst.mockResolvedValueOnce({
+      id: 'room-1',
+      code: 'P31-06',
+      building: { code: 'LK01.31', name: 'Tòa nhà LK01.31' },
+      contracts: [
+        {
+          id: 'contract-1',
+          customer: {
+            id: 'customer-1',
+            fullName: 'Nguyen Van A',
+            phone: '0567867889',
+            zaloUserId: null,
+          },
+        },
+      ],
+      roommates: [],
+    });
+
+    const result = await service.handleIncomingMessage(
+      'tenant-1',
+      {
+        updateId: 'u-1',
+        chatId: 'chat-vn-123',
+        chatType: 'private',
+        senderId: 'sender-vn-456',
+        text: 'ĐK 0567867889 phòng 31.06',
+        eventName: 'user_send_text',
+        displayName: 'Nguyen Van A',
+        raw: {},
+      },
+      { adminGroupChatId: 'admin-group-1' },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      customerId: 'customer-1',
+      roomId: 'room-1',
+    });
+    expect(prisma.customer.update).toHaveBeenCalledWith({
+      where: { id: 'customer-1' },
+      data: {
+        zaloChatId: 'chat-vn-123',
+        zaloUserId: 'sender-vn-456',
+        zaloPhone: '0567867889',
+      },
+    });
+    expect(zaloProvider.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: 'chat-vn-123',
+        title: 'HomeLand - Đăng ký thành công',
+      }),
+    );
+  });
+
+  it('responds with guide message when customer sends "Đăng ký nhận thông tin" or greeting', async () => {
+    const { service, zaloProvider } = createService();
+
+    const result = await service.handleIncomingMessage(
+      'tenant-1',
+      {
+        updateId: 'u-1',
+        chatId: 'chat-help-123',
+        chatType: 'private',
+        senderId: 'sender-help-456',
+        text: 'Đăng ký nhận thông tin',
+        eventName: 'user_send_text',
+        displayName: 'Guest',
+        raw: {},
+      },
+      {},
+    );
+
+    expect(result).toEqual({
+      route: 'customer',
+      action: 'guide_sent',
+      chatId: 'chat-help-123',
+    });
+    expect(zaloProvider.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: 'chat-help-123',
+        title: 'HomeLand - Hướng dẫn đăng ký Zalo Bot',
+        message: expect.stringContaining('DK <Số điện thoại> <Mã phòng>'),
       }),
     );
   });

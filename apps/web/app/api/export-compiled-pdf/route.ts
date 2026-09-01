@@ -31,6 +31,19 @@ const LANDLORDS: Record<string, any> = {
   }
 };
 
+function resolveTaiLieuPath(filename: string): string {
+  const candidates = [
+    path.join(process.cwd(), 'tai-lieu', filename),
+    path.join(process.cwd(), '..', '..', 'tai-lieu', filename),
+    path.join('/app', 'tai-lieu', filename),
+    path.join('d:\\homeland-new\\homeland-saas\\tai-lieu', filename),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return path.join(process.cwd(), 'tai-lieu', filename);
+}
+
 function convertDocxToPdf(inputPath: string, outputPath: string) {
   const resolvedInput = path.resolve(inputPath);
   const resolvedOutput = path.resolve(outputPath);
@@ -175,8 +188,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Contract not found' }, { status: 404 });
     }
 
-    // Prepare temp folder inside tai-lieu
-    const tempDir = path.resolve('d:\\homeland-new\\homeland-saas\\tai-lieu\\temp_docx');
+    // Prepare temp folder inside tai-lieu or os temp
+    const tempDir = path.join(path.dirname(resolveTaiLieuPath('CT01.docx')), 'temp_docx');
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
@@ -184,7 +197,7 @@ export async function POST(request: Request) {
     const nowTimestamp = Date.now();
 
     // 2. Generate CT01 PDF
-    const ct01TemplatePath = 'd:\\homeland-new\\homeland-saas\\tai-lieu\\CT01.docx';
+    const ct01TemplatePath = resolveTaiLieuPath('CT01.docx');
     if (!fs.existsSync(ct01TemplatePath)) {
       return NextResponse.json({ error: 'Không tìm thấy file mẫu CT01' }, { status: 404 });
     }
@@ -307,7 +320,7 @@ export async function POST(request: Request) {
     }
 
     if (!hasContractPdf) {
-      const contractTemplatePath = 'd:\\homeland-new\\homeland-saas\\tai-lieu\\HOP_DONG_1PN.docx';
+      const contractTemplatePath = resolveTaiLieuPath('HOP_DONG_1PN.docx');
       if (!fs.existsSync(contractTemplatePath)) {
         return NextResponse.json({ error: 'Không tìm thấy file mẫu hợp đồng HOP_DONG_1PN.docx' }, { status: 404 });
       }
@@ -406,21 +419,21 @@ export async function POST(request: Request) {
     }
 
     // Giấy đăng ký kinh doanh
-    const gpkdPath = 'd:\\homeland-new\\homeland-saas\\tai-lieu\\Giay-phep-KD.jpg';
+    const gpkdPath = resolveTaiLieuPath('Giay-phep-KD.jpg');
     if (fs.existsSync(gpkdPath)) {
       const imgBuf = fs.readFileSync(gpkdPath);
       await addImagePage(mergedPdf, imgBuf, false);
     }
 
     // Sổ đỏ mặt trước
-    const sodoMTPath = 'd:\\homeland-new\\homeland-saas\\tai-lieu\\so-do-MT.jpg';
+    const sodoMTPath = resolveTaiLieuPath('so-do-MT.jpg');
     if (fs.existsSync(sodoMTPath)) {
       const imgBuf = fs.readFileSync(sodoMTPath);
       await addImagePage(mergedPdf, imgBuf, false);
     }
 
     // Sổ đỏ mặt sau
-    const sodoMSPath = 'd:\\homeland-new\\homeland-saas\\tai-lieu\\so-do-MS.jpg';
+    const sodoMSPath = resolveTaiLieuPath('so-do-MS.jpg');
     if (fs.existsSync(sodoMSPath)) {
       const imgBuf = fs.readFileSync(sodoMSPath);
       await addImagePage(mergedPdf, imgBuf, false);

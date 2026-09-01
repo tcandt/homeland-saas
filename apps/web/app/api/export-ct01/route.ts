@@ -7,7 +7,13 @@ import Docxtemplater from 'docxtemplater';
 export async function POST(request: Request) {
   try {
     const data = await request.json();
-    const templatePath = 'd:\\homeland-new\\homeland-saas\\tai-lieu\\CT01.docx';
+    const candidates = [
+      path.join(process.cwd(), 'tai-lieu', 'CT01.docx'),
+      path.join(process.cwd(), '..', '..', 'tai-lieu', 'CT01.docx'),
+      path.join('/app', 'tai-lieu', 'CT01.docx'),
+      'd:\\homeland-new\\homeland-saas\\tai-lieu\\CT01.docx',
+    ];
+    let templatePath = candidates.find(p => fs.existsSync(p)) || candidates[0];
 
     // Check if the file exists
     if (!fs.existsSync(templatePath)) {

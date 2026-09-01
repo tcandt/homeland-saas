@@ -101,6 +101,8 @@ Copy-DirectoryContents -Source (Join-Path $SourceRoot "scripts") -Destination (J
 
 Copy-DirectoryContents -Source (Join-Path $SourceRoot "prisma") -Destination (Join-Path $OutputRoot "prisma")
 Copy-DirectoryContents -Source (Join-Path $SourceRoot "public") -Destination (Join-Path $OutputRoot "public")
+Copy-DirectoryContents -Source (Join-Path $SourceRoot "docs") -Destination (Join-Path $OutputRoot "docs")
+Copy-DirectoryContents -Source (Join-Path $SourceRoot "tai-lieu") -Destination (Join-Path $OutputRoot "tai-lieu")
 
 $releaseMetaDir = Join-Path $SourceRoot "deploy\public-production"
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "README.md") -Destination (Join-Path $OutputRoot "README.md")
@@ -137,6 +139,8 @@ $manifest = [ordered]@{
     "scripts/",
     "prisma/",
     "public/",
+    "docs/",
+    "tai-lieu/",
     "systemd/"
   )
 }

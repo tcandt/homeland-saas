@@ -7,7 +7,14 @@ export async function POST(request: Request) {
   try {
     const data = await request.json();
     console.log('--- EXPORT CONTRACT PAYLOAD ---', data);
-    const templatePath = 'd:\\homeland-new\\homeland-saas\\tai-lieu\\HOP_DONG_1PN.docx';
+    
+    const candidates = [
+      path.join(process.cwd(), 'tai-lieu', 'HOP_DONG_1PN.docx'),
+      path.join(process.cwd(), '..', '..', 'tai-lieu', 'HOP_DONG_1PN.docx'),
+      path.join('/app', 'tai-lieu', 'HOP_DONG_1PN.docx'),
+      'd:\\homeland-new\\homeland-saas\\tai-lieu\\HOP_DONG_1PN.docx',
+    ];
+    let templatePath = candidates.find(p => fs.existsSync(p)) || candidates[0];
 
     // Check if the file exists
     if (!fs.existsSync(templatePath)) {

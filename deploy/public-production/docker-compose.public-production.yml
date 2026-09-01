@@ -139,6 +139,8 @@ services:
       MAINTENANCE_MODE: ${MAINTENANCE_MODE:-false}
       NEXT_PUBLIC_MAINTENANCE_MODE: ${NEXT_PUBLIC_MAINTENANCE_MODE:-false}
       MAINTENANCE_BYPASS_KEY: ${MAINTENANCE_BYPASS_KEY:-}
+    volumes:
+      - ./tai-lieu:/app/tai-lieu
     depends_on:
       - api
     ports:

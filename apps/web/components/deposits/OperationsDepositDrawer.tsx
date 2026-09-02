@@ -344,7 +344,8 @@ export default function OperationsDepositDrawer({
   return (
     <>
       <Modal
-        testId="deposit-detail-modal"
+        testId="deposit-detail-drawer"
+        closeButtonTestId="deposit-detail-close"
         isOpen={!!detailDeposit}
         onClose={onClose}
         maxWidth="max-w-4xl"
@@ -364,7 +365,7 @@ export default function OperationsDepositDrawer({
                 <span className="font-mono font-bold text-xs text-primary px-2.5 py-0.5 rounded-lg bg-primary/10 border border-primary/20 shrink-0">
                   {detailDeposit.code || detailDeposit.id}
                 </span>
-                <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-wide ${statusConfig.bg}`}>
+                <span data-testid="deposit-status-badge" className={`text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-wide ${statusConfig.bg}`}>
                   {statusConfig.label}
                 </span>
               </div>

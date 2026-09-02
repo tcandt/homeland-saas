@@ -208,7 +208,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
       title={
         <div className="flex items-center gap-2.5">
           <span className="text-base font-black text-text">
-            {data?.owner?.name ? `Chi tiết phân bổ: ${data.owner.name}` : "Chi tiết phân bổ chủ sở hữu"}
+            {data?.owner?.name ? `Chi tiết ${data.owner.name}` : "Chi tiết phân bổ chủ sở hữu"}
           </span>
           {data?.owner?.code && (
             <span className="rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-mono font-bold text-primary">
@@ -285,14 +285,14 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                 </span>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-card border border-border/60 shadow-2xs">
+              <div data-testid="owner-profit-detail-advance-payable" className="p-2.5 rounded-xl bg-card border border-border/60 shadow-2xs">
                 <span className="text-[10px] font-bold text-muted uppercase block truncate">Khấu trừ</span>
                 <span className="font-mono font-black text-sm text-amber-600 dark:text-amber-400 block mt-0.5">
                   {formatVnd(data.summary?.advancePayable || 0)}
                 </span>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 shadow-2xs">
+              <div data-testid="owner-profit-detail-after-advance" className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 shadow-2xs">
                 <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase block">Thực nhận</span>
                 <span className="font-mono font-black text-sm text-emerald-700 dark:text-emerald-400 block mt-0.5">
                   {formatVnd(data.summary?.profitAfterAdvance || 0)}
@@ -396,6 +396,39 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                 </table>
               </div>
             </div>
+
+            {/* Chi phí liên quan & Chi phí do chủ sở hữu chi trả */}
+            {(data.expenses || []).length > 0 && (
+              <div data-testid="owner-profit-expenses-breakdown" className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xs">
+                <div className="border-b border-border/60 bg-muted/5 px-3.5 py-2.5 flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-muted">Chi phí do chủ sở hữu ứng chi / liên quan</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-muted/5 border-b border-border/60 text-[10px] uppercase font-black text-muted">
+                      <tr>
+                        <th className="px-3 py-2">Mã chi phí</th>
+                        <th className="px-3 py-2">Tòa nhà</th>
+                        <th className="px-3 py-2">Phòng</th>
+                        <th className="px-3 py-2">Người ứng / chi</th>
+                        <th className="px-3 py-2 text-right">Số tiền</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/40">
+                      {data.expenses.map((exp: any) => (
+                        <tr key={exp.id} className="hover:bg-muted/5 transition-colors">
+                          <td className="px-3 py-2 font-mono font-bold text-text">{exp.code}</td>
+                          <td className="px-3 py-2 font-semibold text-text">{exp.building?.code || exp.building?.name || "-"}</td>
+                          <td className="px-3 py-2 text-text">{exp.room?.code || exp.room?.name || "-"}</td>
+                          <td className="px-3 py-2 font-semibold text-primary">{exp.paidByOwner?.name || exp.paidByName || "-"}</td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-rose-500">{formatVnd(exp.amount || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

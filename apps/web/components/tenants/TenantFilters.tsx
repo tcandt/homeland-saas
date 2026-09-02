@@ -8,16 +8,23 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { SearchInput } from "../ui/SearchInput";
 import TenantFormModal from "./TenantFormModal";
+import TenantDeduplicateModal from "./TenantDeduplicateModal";
 
 export default function TenantFilters() {
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isDeduplicateOpen, setIsDeduplicateOpen] = useState(false);
   const { search, setSearch } = useTenantsStore();
   const deduplicateMutation = useDeduplicateCustomersMutation();
 
-  const handleDeduplicate = () => {
-    if (window.confirm("Hệ thống sẽ kiểm tra và tự động gộp các khách thuê bị trùng lặp SĐT hoặc CCCD vào hồ sơ chính, chuyển toàn bộ hợp đồng/hóa đơn tương ứng. Bạn có muốn tiếp tục?")) {
-      deduplicateMutation.mutate();
-    }
+  const handleConfirmDeduplicate = () => {
+    deduplicateMutation.mutate(undefined, {
+      onSuccess: () => {
+        setIsDeduplicateOpen(false);
+      },
+      onError: () => {
+        setIsDeduplicateOpen(false);
+      },
+    });
   };
 
   return (
@@ -37,7 +44,7 @@ export default function TenantFilters() {
 
           <div className="flex items-center gap-2">
             <Button
-              onClick={handleDeduplicate}
+              onClick={() => setIsDeduplicateOpen(true)}
               variant="ghost"
               disabled={deduplicateMutation.isPending}
               title="Gộp và dọn dẹp các khách thuê trùng SĐT hoặc CCCD"
@@ -56,6 +63,13 @@ export default function TenantFilters() {
       </Card>
 
       <TenantFormModal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} />
+      
+      <TenantDeduplicateModal
+        isOpen={isDeduplicateOpen}
+        onClose={() => setIsDeduplicateOpen(false)}
+        onConfirm={handleConfirmDeduplicate}
+        isLoading={deduplicateMutation.isPending}
+      />
     </>
   );
 }

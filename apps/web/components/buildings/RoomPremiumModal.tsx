@@ -1011,6 +1011,7 @@ export default function RoomPremiumModal({
 
 
   const commitTenantDraft = async (isCustomContract?: boolean) => {
+    setIsExporting(true);
     try {
       const isSharedRoom = roomData?.rentalType === "shared";
       const name = tenantDraft.name.trim();
@@ -1322,11 +1323,15 @@ export default function RoomPremiumModal({
         }
       });
       setIsTenantModalOpen(false);
+      setTenantModalStep(1);
+      setIsContractRepresentative(false);
       if (!(onUpdateRoom && isContractRepresentative)) {
         showToast("Đã cập nhật thông tin khách hàng.", "success");
       }
     } catch (error) {
       console.error("Error in commitTenantDraft:", error);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -1356,82 +1361,11 @@ export default function RoomPremiumModal({
     }
 
     if (isContractRepresentative && tenantModalStep === 2) {
-      exportContractAndSaveTenant();
+      commitTenantDraft(true);
       return;
     }
 
     commitTenantDraft();
-  };
-
-  const exportContractAndSaveTenant = async () => {
-    setIsExporting(true);
-    try {
-      // 1. Lưu khách thuê và hợp đồng vào Database trước
-      await commitTenantDraft(true);
-
-      // 2. Chỉ xuất và tải file hợp đồng khi lưu DB thành công
-      const landlordInfo = LANDLORDS[contractDraft.chuNha || "TINH"];
-      const currentBuilding = buildings?.find(b => Array.isArray(b.floors) && b.floors.some(f => Array.isArray(f.rooms) && f.rooms.some(r => r.id === roomId)));
-
-      const payloadData = {
-        hoTen: tenantDraft.name.trim() || "..........................",
-        ngaySinh: formatBirthDateForDisplay(tenantDraft.birthDate) || "..........................",
-        cccd: tenantDraft.cccd.trim() || "..........................",
-        diaChi: tenantDraft.address.trim() || "..........................",
-        dienThoai: tenantDraft.phone.trim() || "..........................",
-        dienThoaiNguoithan: tenantDraft.emergencyPhone.trim() || "-",
-        mucDichThue: contractDraft.mucDichThue.trim() || "..........................",
-        tienThue: Number(contractDraft.tienThue.replace(/\D/g, "")) || 0,
-        tienThueChu: contractDraft.tienThue ? numberToWordsVietnamese(Number(contractDraft.tienThue.replace(/\D/g, ""))) : "..........................",
-        tienCoc: Number(contractDraft.tienCoc.replace(/\D/g, "")) || 0,
-        tienCocChu: contractDraft.tienCoc ? numberToWordsVietnamese(Number(contractDraft.tienCoc.replace(/\D/g, ""))) : "..........................",
-        ngayBatDau: formatBirthDateForDisplay(contractDraft.ngayBatDau),
-        ngayKetThuc: formatBirthDateForDisplay(contractDraft.ngayKetThuc),
-        maPhong: roomData?.code || roomData?.name || "..........................",
-        soPhongNgu: contractDraft.soPhongNgu || "..........................",
-        thoiHanThue: contractDraft.thoiHanThue || "..........................",
-        toaNha: currentBuilding?.name || "..........................",
-        diachiToanha: currentBuilding?.address || "..........................",
-        ngayKyHD: contractDraft.ngayKyhopdong ? contractDraft.ngayKyhopdong.split("-")[2] : "...",
-        thangKyHD: contractDraft.ngayKyhopdong ? contractDraft.ngayKyhopdong.split("-")[1] : "...",
-        namKyHD: contractDraft.ngayKyhopdong ? contractDraft.ngayKyhopdong.split("-")[0] : "....",
-        ngayKyhopdong: formatBirthDateForDisplay(contractDraft.ngayKyhopdong),
-        ngayThanhToanDauTien: formatBirthDateForDisplay(contractDraft.ngayThanhToanDauTien),
-        ...landlordInfo,
-      };
-
-      try {
-        const res = await fetch("/api/export-contract", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payloadData),
-        });
-
-        if (res.ok) {
-          const blob = await res.blob();
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = `HopDong_${payloadData.hoTen}_${payloadData.maPhong}.docx`;
-          link.click();
-          window.URL.revokeObjectURL(url);
-        }
-      } catch (docErr) {
-        console.warn("[ExportContractFile]", docErr);
-      }
-    } catch (error: any) {
-      console.warn("[SaveAndExportContract]", error);
-      let errMsg = error?.message || "Có lỗi xảy ra khi lưu khách thuê.";
-      if (typeof errMsg === "string" && errMsg.startsWith("{")) {
-        try {
-          const parsed = JSON.parse(errMsg);
-          if (parsed.error || parsed.message) errMsg = parsed.error || parsed.message;
-        } catch {}
-      }
-      showToast(errMsg, "error");
-    } finally {
-      setIsExporting(false);
-    }
   };
 
   const formatCompactMoney = (amount: number) => {

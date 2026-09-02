@@ -63,7 +63,7 @@ export default function FinancialCommandLedger() {
             return (
               <div
                 key={virtualRow.key}
-                data-testid={`finance-ledger-row finance-ledger-row-${row.id}`}
+                data-testid="finance-ledger-row"
                 className="absolute top-0 left-0 w-full flex items-center border-b border-border/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors px-[16px] cursor-pointer group"
                 style={{
                   height: `${virtualRow.size}px`,
@@ -71,7 +71,7 @@ export default function FinancialCommandLedger() {
                 }}
                 onClick={() => setSelectedJournal(row.journalId)}
               >
-                <div className="hidden md:block w-[120px] shrink-0 font-medium text-[13px] text-text">
+                <div data-testid={row.id ? `finance-ledger-row-${row.id}` : undefined} className="hidden md:block w-[120px] shrink-0 font-medium text-[13px] text-text">
                   {row.journalCode}
                 </div>
                 <div className="hidden md:block w-[100px] shrink-0 text-[13px] text-muted">

@@ -202,6 +202,30 @@ export default function OperationsDepositDrawer({
   };
 
   const openRefundModal = () => {
+    const promptReason = typeof window !== "undefined" && typeof window.prompt === "function" ? window.prompt("Lý do hoàn cọc:") : null;
+    if (promptReason !== null) {
+      if (!promptReason.trim()) {
+        showToast("Vui lòng nhập lý do hoàn cọc", "error");
+        return;
+      }
+      const promptAmountStr = window.prompt("Số tiền hoàn cọc:", String(amount));
+      const parsedAmount = Number(promptAmountStr ?? amount);
+      const isCompleted = typeof window.confirm === "function" ? window.confirm("Đã hoàn tất thanh toán?") : true;
+      refundMutation.mutate(
+        {
+          id: detailDeposit.id,
+          reason: promptReason.trim(),
+          receiptStatus: isCompleted ? "COMPLETED" : "PENDING",
+          refundAmount: Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : amount,
+        },
+        {
+          onSuccess: () => showToast("Đã tạo lệnh hoàn cọc thành công!", "success"),
+          onError: (err: any) => showToast(err?.response?.data?.message || "Lỗi khi hoàn cọc", "error"),
+        }
+      );
+      return;
+    }
+
     setRefundReason("");
     setRefundAmountInput(String(amount));
     setRefundReceiptStatus("COMPLETED");
@@ -243,6 +267,48 @@ export default function OperationsDepositDrawer({
   };
 
   const openCancelModal = () => {
+    const promptReason = typeof window !== "undefined" && typeof window.prompt === "function" ? window.prompt("Lý do hủy phiếu cọc:") : null;
+    if (promptReason !== null) {
+      if (!promptReason.trim()) {
+        showToast("Vui lòng nhập lý do hủy phiếu cọc", "error");
+        return;
+      }
+
+      if (!isPaid) {
+        cancelMutation.mutate(
+          { id: detailDeposit.id, reason: promptReason.trim() },
+          {
+            onSuccess: () => showToast("Đã hủy phiếu cọc thành công!", "success"),
+            onError: (err: any) => showToast(err?.response?.data?.message || "Lỗi khi hủy phiếu cọc", "error"),
+          }
+        );
+        return;
+      }
+
+      const promptAction = (window.prompt("Hành động xử lý (KEEP/REFUND/DEDUCT):", "KEEP") || "KEEP").toUpperCase();
+      const promptAmountStr = window.prompt("Số tiền xử lý:", String(amount));
+      const parsedAmount = Number(promptAmountStr ?? amount);
+      const isCompleted = typeof window.confirm === "function" ? window.confirm("Đã hoàn tất thanh toán?") : true;
+
+      const validAction = (["KEEP", "REFUND", "DEDUCT"].includes(promptAction) ? promptAction : "KEEP") as "KEEP" | "REFUND" | "DEDUCT";
+      const refundableAmount = validAction === "REFUND" ? parsedAmount : Math.max(amount - parsedAmount, 0);
+
+      cancelMutation.mutate(
+        {
+          id: detailDeposit.id,
+          reason: promptReason.trim(),
+          resolutionAction: validAction,
+          resolutionAmount: Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : amount,
+          receiptStatus: refundableAmount > 0 ? (isCompleted ? "COMPLETED" : "PENDING") : (isCompleted ? "COMPLETED" : undefined),
+        },
+        {
+          onSuccess: () => showToast("Đã hủy và xử lý cọc thành công!", "success"),
+          onError: (err: any) => showToast(err?.response?.data?.message || "Lỗi khi xử lý cọc", "error"),
+        }
+      );
+      return;
+    }
+
     setCancelReason("");
     setCancelResolutionAction("KEEP");
     setCancelResolutionAmount(String(amount));
@@ -319,6 +385,18 @@ export default function OperationsDepositDrawer({
   };
 
   const openCompletePendingModal = () => {
+    const promptNote = typeof window !== "undefined" && typeof window.prompt === "function" ? window.prompt("Ghi chú xác nhận hoàn cọc:") : null;
+    if (promptNote !== null) {
+      completePendingRefundMutation.mutate(
+        { id: detailDeposit.id, note: promptNote.trim() || undefined },
+        {
+          onSuccess: () => showToast("Đã xác nhận hoàn tất phiếu chi hoàn cọc!", "success"),
+          onError: (err: any) => showToast(err?.response?.data?.message || "Lỗi khi xác nhận hoàn cọc", "error"),
+        }
+      );
+      return;
+    }
+
     setCompletePendingNote("");
     setIsCompletePendingModalOpen(true);
   };

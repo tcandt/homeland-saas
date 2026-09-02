@@ -4,5 +4,9 @@ title = "HomeLand Gitleaks configuration"
 useDefault = true
 
 [[allowlists]]
-description = "Generated trace output"
-paths = ['''(?:^|/)trace_out/''']
+description = "Generated trace output and test fixture examples"
+paths = [
+  '''(?:^|/)trace_out/''',
+  '''(?:^|/)deploy/public-testing/env\.public-testing\.example$''',
+  '''(?:^|/)scripts/production-bundle-preflight\.test\.js$''',
+]

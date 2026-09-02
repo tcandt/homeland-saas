@@ -58,6 +58,7 @@ export default function BankTransactionHistory() {
   const [direction, setDirection] = useState("");
   const [matchStatus, setMatchStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [contentFilter, setContentFilter] = useState("");
 
   const params = useMemo(
     () => ({
@@ -66,10 +67,11 @@ export default function BankTransactionHistory() {
       ...(bankAccountId ? { bankAccountId } : {}),
       ...(direction ? { direction } : {}),
       ...(matchStatus ? { matchStatus } : {}),
-      ...(search.trim() ? { search: search.trim(), content: search.trim() } : {}),
+      ...(search.trim() ? { search: search.trim() } : {}),
+      ...(contentFilter.trim() ? { content: contentFilter.trim() } : {}),
       limit: 300,
     }),
-    [bankAccountId, direction, matchStatus, month, search, year],
+    [bankAccountId, contentFilter, direction, matchStatus, month, search, year],
   );
 
   const { data, isLoading, isError, refetch, isFetching } = useBankTransactionsQuery(params);
@@ -140,46 +142,57 @@ export default function BankTransactionHistory() {
           valueColor="text-rose-600 dark:text-rose-400"
         />
         <KpiCard
-          title="Cần tra soát"
-          value={`${data?.summary?.needsReview || 0} GD`}
+          title="Dòng tiền thuần"
+          value={formatVnd(data?.summary?.net ?? ((data?.summary?.inflow || 0) - (data?.summary?.outflow || 0)))}
           subtext={
             Number(data?.summary?.needsReview || 0) > 0
-              ? "Cần đối chiếu mã thanh toán"
-              : "Đã đối soát hoàn tất"
+              ? `${data?.summary?.needsReview} GD cần đối soát`
+              : "Thuần thu trừ chi"
           }
-          highlight={Number(data?.summary?.needsReview || 0) > 0}
-          highlightColor="text-amber-500"
-          icon={<AlertTriangle size={16} className="text-amber-600 dark:text-amber-400" />}
-          iconBg="bg-amber-500/10 border border-amber-500/20"
+          icon={<AlertTriangle size={16} className="text-primary" />}
+          iconBg="bg-primary/10 border border-primary/20"
         />
       </div>
 
       {/* 2. UNIFIED SLIM FILTER & SEARCH BAR */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
         {/* Left search */}
-        <div className="relative flex-1 min-w-[240px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-          <input
-            data-testid="bank-transactions-search"
-            type="search"
-            name="bank_tx_search_query"
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck="false"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Tìm theo nội dung, mã giao dịch, số tài khoản..."
-            className="h-9 w-full rounded-xl border border-border/70 bg-card pl-8 pr-7 text-xs font-semibold text-text placeholder:text-muted focus:border-primary focus:outline-none transition-colors shadow-2xs"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-text p-0.5"
-            >
-              <XCircle size={13} />
-            </button>
-          )}
+        <div className="flex items-center gap-2 flex-1 min-w-[320px]">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+            <input
+              data-testid="bank-transactions-search"
+              type="search"
+              name="bank_tx_search_query"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Tìm theo nội dung, mã, STK..."
+              className="h-9 w-full rounded-xl border border-border/70 bg-card pl-8 pr-7 text-xs font-semibold text-text placeholder:text-muted focus:border-primary focus:outline-none transition-colors shadow-2xs"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-text p-0.5"
+              >
+                <XCircle size={13} />
+              </button>
+            )}
+          </div>
+          <div className="relative w-44 shrink-0">
+            <input
+              data-testid="bank-transactions-content-filter"
+              type="search"
+              name="bank_tx_content_filter"
+              value={contentFilter}
+              onChange={(event) => setContentFilter(event.target.value)}
+              placeholder="Lọc nội dung..."
+              className="h-9 w-full rounded-xl border border-border/70 bg-card px-3 text-xs font-semibold text-text placeholder:text-muted focus:border-primary focus:outline-none transition-colors shadow-2xs"
+            />
+          </div>
         </div>
 
         {/* Right dropdown filters */}

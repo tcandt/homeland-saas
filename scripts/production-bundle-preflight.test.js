@@ -17,7 +17,7 @@ const valid = {
   APP_URL: 'https://homeland.example.com',
   CORS_ORIGINS: 'https://homeland.example.com',
   POSTGRES_PASSWORD: 'very-strong-postgres-password',
-  JWT_SECRET: 'very-strong-jwt-secret-with-32-plus-characters',
+  JWT_SECRET: 'very-strong-jwt-secret-with-32-plus-characters', // gitleaks:allow
   INTERNAL_API_TOKEN: 'very-strong-internal-token-with-32-plus-characters',
   MAINTENANCE_BYPASS_KEY: 'very-strong-bypass-key',
   RUN_DB_MIGRATIONS: 'false',

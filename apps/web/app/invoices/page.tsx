@@ -23,6 +23,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import AppShell from "@/components/layout/AppShell";
 import OperationsBillingDrawer from "@/components/invoices/OperationsBillingDrawer";
 import InvoiceCreateModal from "@/components/invoices/InvoiceCreateModal";
+import OperationsBillingPipeline from "@/components/invoices/OperationsBillingPipeline";
 import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { Card } from "@/components/ui/Card";
@@ -206,6 +207,9 @@ export default function InvoicesPage() {
                 trendPositive={true}
               />
             </div>
+
+            {/* BILLING PIPELINE */}
+            <OperationsBillingPipeline />
 
             {/* FILTER BAR WITH 1-CLICK STATUS TABS */}
             <Card data-testid="invoices-filter-bar" className="flex flex-col gap-2.5 rounded-2xl border-border/60 p-3 shadow-xs shrink-0">

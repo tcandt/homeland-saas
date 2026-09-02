@@ -44,6 +44,7 @@ interface UnifiedBuildingCockpitProps {
   onSelectRoom: (room: CockpitRoomSpec) => void;
   onCloseRoom: () => void;
   onEditBuilding?: (buildingCode: string) => void;
+  onAddBuilding?: () => void;
   onOpenRoomModal?: (roomId: string, tab?: string) => void;
 }
 
@@ -903,6 +904,7 @@ export default function UnifiedBuildingCockpit({
   onSelectRoom,
   onCloseRoom,
   onEditBuilding,
+  onAddBuilding,
   onOpenRoomModal,
 }: UnifiedBuildingCockpitProps) {
   const [highlightedRoomCode, setHighlightedRoomCode] = useState<string | null>(null);
@@ -941,6 +943,7 @@ export default function UnifiedBuildingCockpit({
         activeBuildingCode={building.code}
         onSelectBuilding={onSelectBuilding}
         onConfigureBuilding={onEditBuilding}
+        onAddBuilding={onAddBuilding}
       />
       <PortfolioKpiBar buildings={portfolioBuildings} />
 

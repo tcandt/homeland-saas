@@ -73,7 +73,7 @@ export default function FinancePage() {
       {permissions.canExportFinance && (
         <div className="fixed right-0 top-1/2 -translate-y-1/2 z-50">
           <details className="group relative">
-            <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-l-xl border-y border-l border-primary/40 bg-card/95 py-3 px-2 text-xs font-black text-primary shadow-xl backdrop-blur-md transition-all hover:bg-primary/10 hover:border-primary hover:pl-3 [writing-mode:vertical-rl] select-none">
+            <summary data-testid="finance-export-button" className="flex cursor-pointer list-none items-center gap-1.5 rounded-l-xl border-y border-l border-primary/40 bg-card/95 py-3 px-2 text-xs font-black text-primary shadow-xl backdrop-blur-md transition-all hover:bg-primary/10 hover:border-primary hover:pl-3 [writing-mode:vertical-rl] select-none">
               <Download size={13} className="text-primary rotate-90" />
               <span>Xuất báo cáo</span>
             </summary>

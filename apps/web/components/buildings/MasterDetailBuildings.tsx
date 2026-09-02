@@ -162,11 +162,12 @@ export default function MasterDetailBuildings() {
   };
 
   const handleSaveBuilding = () => {
-    if (!bName || !bAddress || !bCode) return;
+    if (!bName || !bAddress) return;
+    const code = bCode || bName.replace(/\s+/g, '-').toUpperCase();
     if (activeDialog === "addBuilding") {
       createBuilding.mutate({
         name: bName,
-        code: bCode,
+        code,
         address: bAddress,
         notes: bNotes,
         status: bStatus,
@@ -179,7 +180,7 @@ export default function MasterDetailBuildings() {
     } else if (activeDialog === "editBuilding" && activeBuilding) {
       updateBuilding.mutate({
         id: activeBuilding.id,
-        data: { name: bName, code: bCode, address: bAddress, notes: bNotes, status: bStatus }
+        data: { name: bName, code, address: bAddress, notes: bNotes, status: bStatus }
       }, {
         onSuccess: () => setActiveDialog(null)
       });
@@ -331,6 +332,7 @@ export default function MasterDetailBuildings() {
         <BuildingCockpit
           buildings={buildings}
           onEditBuilding={handleOpenEditBuilding}
+          onAddBuilding={handleOpenAddBuilding}
           onOpenRoomModal={openRoomModal}
         />
       )}

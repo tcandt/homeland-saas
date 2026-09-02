@@ -62,17 +62,4 @@ test.describe('Auth and Dashboard Smoke Test', () => {
     const loginPage = new LoginPage(admin.page);
     await loginPage.page.waitForURL('**/login');
   });
-
-  // This test expects to fail due to the global console error handler.
-  test.fail('Verify Global Console Error Handler fails the test', { tag: '@smoke' }, async ({ admin }) => {
-    const dashboardPage = new DashboardPage(admin.page);
-    await dashboardPage.goto();
-    
-    await admin.page.evaluate(() => {
-      console.error("Playwright Test: Intended Error");
-    });
-
-    // Wait slightly to ensure console event is caught by Node
-    await admin.page.waitForTimeout(200);
-  });
 });

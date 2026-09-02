@@ -152,7 +152,7 @@ export default function OperationsDepositList({ onCreateClick }: OperationsDepos
               )}
               {isError && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-[13px] font-bold text-rose-500">
+                  <td data-testid="deposits-error-state" colSpan={8} className="px-4 py-12 text-center text-[13px] font-bold text-rose-500">
                     Không tải được danh sách phiếu cọc.
                   </td>
                 </tr>

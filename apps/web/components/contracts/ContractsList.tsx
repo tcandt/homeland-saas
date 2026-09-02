@@ -106,6 +106,7 @@ export default function ContractsList() {
 
       <Table
         data-testid="contracts-list"
+        rowTestId="contract-card"
         columns={columns}
         data={contracts}
         isLoading={isLoading}

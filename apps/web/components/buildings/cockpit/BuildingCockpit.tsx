@@ -42,6 +42,7 @@ import UnifiedBuildingCockpit from "./UnifiedBuildingCockpit";
 interface BuildingCockpitProps {
   buildings: Building[];
   onEditBuilding?: (buildingCode: string) => void;
+  onAddBuilding?: () => void;
   onOpenRoomModal?: (roomId: string, tab?: string) => void;
 }
 
@@ -476,7 +477,7 @@ function FloorWorkspace({
   );
 }
 
-export default function BuildingCockpit({ buildings, onEditBuilding, onOpenRoomModal }: BuildingCockpitProps) {
+export default function BuildingCockpit({ buildings, onEditBuilding, onAddBuilding, onOpenRoomModal }: BuildingCockpitProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -607,6 +608,7 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onOpenRoomM
           onSelectRoom={selectCurrentFloorRoom}
           onCloseRoom={closeRoom}
           onEditBuilding={onEditBuilding}
+          onAddBuilding={onAddBuilding}
           onOpenRoomModal={onOpenRoomModal}
         />
       </div>

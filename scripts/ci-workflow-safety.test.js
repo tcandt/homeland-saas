@@ -227,7 +227,7 @@ test('Hunonic mobile signing secrets stay outside source control', () => {
   assert.match(exampleEnv, /HUNONIC_MOBILE_ACCESS_KEY=replace-/);
   assert.match(exampleEnv, /HUNONIC_MOBILE_SECRET_KEY=replace-/);
   const bootstrap = read('scripts/ci-bootstrap-database.js');
-  assert.equal((bootstrap.match(/gitleaks:allow - reviewed migration checksum/g) || []).length, 10);
+  assert.equal((bootstrap.match(/gitleaks:allow - reviewed migration checksum/g) || []).length, 12);
   assert.match(gitleaks, /trace_out/);
   assert.doesNotMatch(gitleaks, /hunonic\.provider|apps\/api/);
 });

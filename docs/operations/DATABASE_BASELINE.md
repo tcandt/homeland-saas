@@ -69,6 +69,8 @@ Tại commit hiện tại, mười checksum SHA-256 đã review là:
 | `20260813050000_add_forced_password_change` | `baf6e36dde03d858f8e7f5933f50eea84dff99d96b19571fce0cfbe452d84eca` |
 | `20260823060000_harden_payment_webhook_processing` | `6bc6a0c59dbcc6213b0b1dc51770c99ae2ea78af0617464f795e3dcb889ff780` |
 | `20260823070000_add_customer_zalo_identity` | `52aa5ca04ffb9aed359e6ab96d1940d3ab9b35923111b671c13d98f34ff304d3` |
+| `20260824090000_add_room_rental_type` | `8e558564f731c19be090d2f1e19bc9c29272c1151bc0ef63196e65867f5e00fe` |
+| `20260824110000_add_room_payment_account_routes` | `b5a3faf02148f231f8d211df29f42b18e4717ce1cac35b8f15c69b1713a513c9` |
 
 Kiểm tra local:
 
@@ -127,7 +129,9 @@ $reviewed = @(
   '20260809020000_add_owner_expense_allocation',
   '20260813050000_add_forced_password_change',
   '20260823060000_harden_payment_webhook_processing',
-  '20260823070000_add_customer_zalo_identity'
+  '20260823070000_add_customer_zalo_identity',
+  '20260824090000_add_room_rental_type',
+  '20260824110000_add_room_payment_account_routes'
 )
 
 foreach ($migration in $reviewed) {

@@ -18,6 +18,7 @@
     "test": "vitest run app.test.ts components/buildings/workspace/building-profiles.test.ts components/buildings/cockpit/building-image-maps.test.ts components/buildings/cockpit/building-cockpit-data.test.ts lib/adapters/building.adapter.test.ts lib/server/expense-bill-storage.test.ts lib/server-sent-events.test.ts lib/utils/learning-store.test.ts"
   },
   "dependencies": {
+    "@homeland/shared": "*",
     "@google/genai": "^2.12.0",
     "@hookform/resolvers": "^5.4.0",
     "@opentelemetry/api": "^1.9.1",

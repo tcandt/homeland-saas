@@ -1785,7 +1785,7 @@ export function ElectricityManagerContent() {
                               <td colSpan={5} className="py-12 text-center text-muted">
                                 <PlugZap size={28} className="mx-auto text-muted/30 mb-2" />
                                 <div className="font-bold text-xs text-text">Chưa có nhật ký đồng bộ nào</div>
-                                <div className="text-[11px] mt-0.5 text-muted">Bấm nút "Đồng bộ" trên thanh công cụ để thực hiện quét dữ liệu mới.</div>
+                                <div className="text-[11px] mt-0.5 text-muted">Bấm nút &quot;Đồng bộ&quot; trên thanh công cụ để thực hiện quét dữ liệu mới.</div>
                               </td>
                             </tr>
                           );

@@ -11,12 +11,12 @@ import { shouldRunGeneralSchedulers } from '../shared/config/runtime-mode';
 
 function normalizePhone(phone?: string | null): string {
   if (!phone) return '';
-  return phone.replace(/[\s\-\.\(\)]/g, '').trim();
+  return phone.replace(/[\s.()-]/g, '').trim();
 }
 
 function normalizeIdentityNo(identityNo?: string | null): string {
   if (!identityNo) return '';
-  return identityNo.replace(/[\s\-\.]/g, '').trim();
+  return identityNo.replace(/[\s.-]/g, '').trim();
 }
 
 @Injectable()

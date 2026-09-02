@@ -334,7 +334,7 @@ export class MonthlySettlementService {
       const waterAmount = hasContract ? Math.max(1, membersCount) * 100000 : 0;
 
       // 4. Phí dịch vụ: 0 nếu không có phát sinh
-      let serviceAmount = 0;
+      const serviceAmount = 0;
 
       // Nếu có invoice thật đã tạo, lấy số liệu từ invoice
       let totalAmount = roomPrice + electricityAmount + waterAmount + serviceAmount;
@@ -362,7 +362,7 @@ export class MonthlySettlementService {
       let notifStatus: 'SENT_ZALO' | 'PENDING' | 'FAILED' | 'SENDING' = 'PENDING';
       let notifSentAt: string | null = null;
       let notifError: string | null = null;
-      let invoiceCode = existingInvoice?.code || (hasContract ? `INV-${period.replace('-', '')}-${room.code}` : '--');
+      const invoiceCode = existingInvoice?.code || (hasContract ? `INV-${period.replace('-', '')}-${room.code}` : '--');
 
       if (existingInvoice) {
         const notif = notifByInvoiceCode.get(existingInvoice.code);

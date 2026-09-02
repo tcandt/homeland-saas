@@ -269,6 +269,13 @@ jobs:
       DEBUG: pw:webserver
       CI_DATABASE_BOOTSTRAP: true
       RUN_DESTRUCTIVE_E2E: true
+      SEED_DEFAULT_PASSWORD: homeland_e2e_password_123!
+      E2E_ADMIN_PASSWORD: homeland_e2e_password_123!
+      E2E_DEFAULT_PASSWORD: homeland_e2e_password_123!
+      E2E_MANAGER_PASSWORD: homeland_e2e_password_123!
+      E2E_SALES_PASSWORD: homeland_e2e_password_123!
+      E2E_FINANCE_PASSWORD: homeland_e2e_password_123!
+      SEED_FORCE_PASSWORD_CHANGE: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

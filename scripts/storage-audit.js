@@ -112,7 +112,7 @@ async function runAudit(options, deps = {}) {
       prisma.appSetting.findMany({
         where: {
           OR: [
-            { scope: SettingScope.USER, key: 'profile' },
+            { scope: (SettingScope && SettingScope.USER) || 'USER', key: 'profile' },
             { key: 'business' },
             { key: 'owners' },
           ],

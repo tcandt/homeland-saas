@@ -16,6 +16,7 @@ permissions:
 env:
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  PUPPETEER_SKIP_DOWNLOAD: "true"
 
 jobs:
   lint:

@@ -315,13 +315,13 @@ jobs:
       # Run all E2E
       - name: Run E2E Smoke Tests
         working-directory: apps/web
-        run: npx playwright test tests/e2e/smoke
+        run: npx playwright test tests/e2e/smoke --project="Desktop 1920"
       - name: Run E2E Regression Tests
         working-directory: apps/web
-        run: npx playwright test tests/e2e/regression
+        run: npx playwright test tests/e2e/regression --project="Desktop 1920"
       - name: Run E2E Acceptance Tests
         working-directory: apps/web
-        run: npx playwright test tests/e2e/acceptance
+        run: npx playwright test tests/e2e/acceptance --project="Desktop 1920"
         
       - name: Upload Test Results
         if: always()

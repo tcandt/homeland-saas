@@ -127,10 +127,7 @@ export default function OperationsDepositDrawer({
 
   // Check if this deposit belongs to a contract
   const isContractDeposit =
-    detailDeposit.type === "SECURITY" ||
-    !!detailDeposit.contractId ||
-    !!detailDeposit.contractCode ||
-    isConverted;
+    Boolean(detailDeposit.contractId || detailDeposit.contractCode || isConverted);
 
   // Only allow standalone refund for room booking/holding deposits
   const isBookingDeposit = detailDeposit.type === "BOOKING" || detailDeposit.type === "RESERVATION";

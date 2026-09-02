@@ -65,6 +65,7 @@ interface ModalProps {
   zIndex?: number;
   headerActions?: React.ReactNode;
   testId?: string;
+  closeButtonTestId?: string;
 }
 
 export const Modal: React.FC<ModalProps> = ({ 
@@ -76,7 +77,8 @@ export const Modal: React.FC<ModalProps> = ({
   maxWidth = "max-w-md",
   zIndex = 10020,
   headerActions,
-  testId
+  testId,
+  closeButtonTestId
 }) => {
   const uniqueId = useId();
 
@@ -109,7 +111,7 @@ export const Modal: React.FC<ModalProps> = ({
             <h2 className="font-black text-xl text-text truncate">{title}</h2>
             {headerActions}
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full -mr-2 shrink-0 hover:bg-slate-100 dark:hover:bg-white/10">
+          <Button data-testid={closeButtonTestId} variant="ghost" size="icon" onClick={onClose} className="rounded-full -mr-2 shrink-0 hover:bg-slate-100 dark:hover:bg-white/10">
             <X size={20} />
           </Button>
         </div>

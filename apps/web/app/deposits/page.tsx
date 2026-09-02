@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import OperationsDepositKpi from "@/components/deposits/OperationsDepositKpi";
+import OperationsDepositPipeline from "@/components/deposits/OperationsDepositPipeline";
 import OperationsDepositFilters from "@/components/deposits/OperationsDepositFilters";
 import OperationsDepositList from "@/components/deposits/OperationsDepositList";
 import OperationsRefundCenter from "@/components/deposits/OperationsRefundCenter";
@@ -37,7 +38,10 @@ export default function DepositsPage() {
             {/* 1. Compact 4-Card KPI Grid */}
             <OperationsDepositKpi />
 
-            {/* 2. Unified Filter Bar with Search, Dropdowns, Status Tabs & Create Button */}
+            {/* 2. Operations Deposit Pipeline */}
+            <OperationsDepositPipeline />
+
+            {/* 3. Unified Filter Bar with Search, Dropdowns, Status Tabs & Create Button */}
             <OperationsDepositFilters onCreateClick={() => setIsCreateModalOpen(true)} />
 
             {/* 3. High-Density Table List */}

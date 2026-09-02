@@ -278,7 +278,7 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
   const hasTelegram = !!((row.source as any)?.telegramChatId || (row.source as any)?.telegramId || (row.source as any)?.telegramUsername);
 
   return (
-    <div onClick={onOpen} className="relative grid min-w-[1140px] cursor-pointer grid-cols-[minmax(200px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(170px,1fr)_minmax(140px,0.8fr)_100px_110px_60px] items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-surface/70">
+    <div data-testid="tenant-card" onClick={onOpen} className="relative grid min-w-[1140px] cursor-pointer grid-cols-[minmax(200px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(170px,1fr)_minmax(140px,0.8fr)_100px_110px_60px] items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-surface/70">
       <div className="flex min-w-0 items-center gap-3 self-center">
         <div className="relative shrink-0">
           <img

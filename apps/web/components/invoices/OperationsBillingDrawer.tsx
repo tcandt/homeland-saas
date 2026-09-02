@@ -295,6 +295,8 @@ export default function OperationsBillingDrawer({
   return (
     <>
       <Modal
+        testId="invoice-detail-drawer"
+        closeButtonTestId="invoice-detail-close"
         isOpen={!!invoice}
         onClose={onClose}
         maxWidth="max-w-[580px]"
@@ -315,7 +317,7 @@ export default function OperationsBillingDrawer({
               <categoryInfo.icon size={12} />
               {categoryInfo.label}
             </span>
-            <Badge variant={meta.badgeVariant} className="text-xs">
+            <Badge data-testid="invoice-status-badge" variant={meta.badgeVariant} className="text-xs">
               {meta.label}
             </Badge>
           </div>
@@ -662,7 +664,7 @@ export default function OperationsBillingDrawer({
           {activeTab === "ITEMS" && (
             <div className="rounded-xl border border-border/70 bg-card overflow-hidden">
               <div className="flex items-center justify-between px-3.5 py-2 border-b border-border/60 bg-surface/50 text-[11px] font-black uppercase tracking-wider text-muted select-none">
-                <span>Khoản mục phí</span>
+                <span>Chi tiết phí (Breakdown)</span>
                 <span>Thành tiền</span>
               </div>
 

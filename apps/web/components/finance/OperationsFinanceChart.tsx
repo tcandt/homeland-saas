@@ -126,7 +126,7 @@ export default function OperationsFinanceChart() {
   const yTicks = [maxVal, Math.round(maxVal * 0.66), Math.round(maxVal * 0.33), 0];
 
   return (
-    <Card className="rounded-xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col gap-4">
+    <Card data-testid="finance-chart" className="rounded-xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col gap-4">
       {/* Header & Legend */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/50 pb-3">
         <div>

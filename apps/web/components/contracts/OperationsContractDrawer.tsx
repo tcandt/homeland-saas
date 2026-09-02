@@ -768,13 +768,15 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
   return (
     <>
       <Modal
+        testId="contract-detail-drawer"
+        closeButtonTestId="contract-detail-close"
         isOpen={!!detailContract}
         onClose={onClose}
         maxWidth="max-w-[1100px]"
         title={
           <div className="flex items-center gap-3">
             <span className="font-black text-[20px] text-text">Chi tiết hợp đồng</span>
-            <Badge variant="primary">{detailContract.code || detailContract.id.slice(0, 8)}</Badge>
+            <Badge data-testid="contract-status-badge" variant="primary">{detailContract.code || detailContract.id.slice(0, 8)}</Badge>
           </div>
         }
         footer={
@@ -987,7 +989,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
             <div className="flex-1 flex flex-col gap-4 min-w-0">
               <Card className="p-4 flex flex-col gap-3">
                 <h4 className="font-black text-[14px] text-text flex items-center gap-2 border-b border-slate-200/60 dark:border-white/[0.06] pb-2">
-                  <FileText size={16} className="text-[#6366f1]" /> Thông tin tài chính
+                  <FileText size={16} className="text-[#6366f1]" /> Thông tin Tài chính
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="flex flex-col justify-center p-3 bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800/60 rounded-[10px]">

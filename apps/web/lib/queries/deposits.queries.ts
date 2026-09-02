@@ -7,12 +7,10 @@ export const useDepositsQuery = (params: any) => {
     queryKey: ['deposits', params],
     queryFn: async () => {
       const response = await depositsApi.list(params);
-      // Backend ResponseInterceptor wraps successful responses in { success: true, data: T, meta: any }
-      // apiClient.get returns data.data (which is the actual payload, e.g. { items, total })
-      // We must wrap it back in { data: ... } for components that expect it, per previous fix.
       const rawData = response; 
-      const rawItems = Array.isArray(rawData) ? rawData : (rawData as any).data || (rawData as any).items || [];
-      const total = Array.isArray(rawData) ? rawItems.length : (rawData as any).total || 0;
+      const candidate = (rawData as any)?.items || (rawData as any)?.data?.items || (rawData as any)?.data || rawData;
+      const rawItems = Array.isArray(candidate) ? candidate : [];
+      const total = (rawData as any)?.total || (rawData as any)?.data?.total || rawItems.length;
       
       return {
         data: {

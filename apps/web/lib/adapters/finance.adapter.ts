@@ -44,21 +44,23 @@ export interface UILedgerRow {
 
 export const financeAdapter = {
   getLedger: async (params?: Record<string, any>): Promise<UILedgerRow[]> => {
-    const rows = await financeApi.getLedger(params) || [];
+    const raw = await financeApi.getLedger(params);
+    const candidate = Array.isArray(raw) ? raw : (raw as any)?.data || (raw as any)?.items || [];
+    const rows = Array.isArray(candidate) ? candidate : [];
     
     return rows.map((line: any) => ({
       id: line.id,
-      journalId: line.journalEntry?.id,
-      journalCode: line.journalEntry?.code,
-      date: line.createdAt,
-      description: line.description || line.journalEntry?.description,
-      accountCode: line.account?.code,
-      accountName: line.account?.name,
-      costCenterName: line.costCenter?.name,
-      debit: line.type === 'DEBIT' ? Number(line.amount) : 0,
-      credit: line.type === 'CREDIT' ? Number(line.amount) : 0,
-      sourceType: line.journalEntry?.sourceType,
-      status: line.journalEntry?.status,
+      journalId: line.journalEntry?.id || line.journalId || line.id,
+      journalCode: line.journalEntry?.code || line.journalCode || 'JRN-001',
+      date: line.createdAt || line.date || new Date().toISOString(),
+      description: line.description || line.journalEntry?.description || '',
+      accountCode: line.account?.code || line.accountCode || '',
+      accountName: line.account?.name || line.accountName || '',
+      costCenterName: line.costCenter?.name || line.costCenterName,
+      debit: line.type === 'DEBIT' ? Number(line.amount) : Number(line.debit || 0),
+      credit: line.type === 'CREDIT' ? Number(line.amount) : Number(line.credit || 0),
+      sourceType: line.journalEntry?.sourceType || line.sourceType || 'MANUAL',
+      status: line.journalEntry?.status || line.status || 'POSTED',
     }));
   },
 

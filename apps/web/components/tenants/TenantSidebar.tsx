@@ -60,7 +60,7 @@ export default function TenantSidebar() {
   const visibleChartData = chartData.length ? chartData : [{ label: "Chưa có dữ liệu", value: 1, color: "#e2e8f0" }];
 
   return (
-    <aside className="hidden min-w-0 flex-col gap-3.5 2xl:flex 2xl:h-full 2xl:min-h-0">
+    <aside aria-label="Thống kê khách thuê" className="hidden min-w-0 flex-col gap-3.5 2xl:flex 2xl:h-full 2xl:min-h-0">
       <Card className="flex min-h-[250px] shrink-0 flex-col rounded-[14px] border-border/40 p-4 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-[15px] font-black text-text">Tình hình khách thuê</h2>

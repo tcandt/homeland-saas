@@ -48,12 +48,15 @@ Thumbs.db
 .idea/
 
 # docker / local storage
-storage/
-tmp/
-uploads/
-**/storage/
-**/tmp/
-**/uploads/
+/storage/
+/tmp/
+/uploads/
+/apps/api/storage/
+/apps/api/uploads/
+/apps/api/tmp/
+!**/src/**/storage/
+!**/src/**/tmp/
+!**/src/**/uploads/
 
 # auth/cache
 apps/web/tests/.auth/

@@ -776,7 +776,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
         title={
           <div className="flex items-center gap-3">
             <span className="font-black text-[20px] text-text">Chi tiết hợp đồng</span>
-            <Badge data-testid="contract-status-badge" variant="primary">{detailContract.code || detailContract.id.slice(0, 8)}</Badge>
+            <Badge variant="primary">{detailContract.code || detailContract.id.slice(0, 8)}</Badge>
           </div>
         }
         footer={

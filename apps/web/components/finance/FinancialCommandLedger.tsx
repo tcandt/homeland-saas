@@ -63,7 +63,7 @@ export default function FinancialCommandLedger() {
             return (
               <div
                 key={virtualRow.key}
-                data-testid={`finance-ledger-row-${row.id}`}
+                data-testid="finance-ledger-row"
                 className="absolute top-0 left-0 w-full flex items-center border-b border-border/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors px-[16px] cursor-pointer group"
                 style={{
                   height: `${virtualRow.size}px`,

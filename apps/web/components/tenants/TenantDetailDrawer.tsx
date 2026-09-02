@@ -171,6 +171,7 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
     <>
       <Modal
         testId="tenant-detail-drawer"
+        closeButtonTestId="tenant-detail-close"
         isOpen={!!tenant}
         onClose={onClose}
         maxWidth="max-w-4xl"

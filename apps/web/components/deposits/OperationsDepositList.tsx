@@ -185,6 +185,7 @@ export default function OperationsDepositList({ onCreateClick }: OperationsDepos
                 return (
                   <tr
                     key={deposit.id}
+                    data-testid="deposit-card"
                     onClick={() => setSelectedDeposit(deposit)}
                     className="cursor-pointer transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
                   >

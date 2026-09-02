@@ -35,14 +35,23 @@ const formatDate = (value?: string | null) => {
   return `${day}/${month}/${year}`;
 };
 
-const getStatusMeta = (status: string) => {
+const getStatusMeta = (status: string, type?: string) => {
+  const isSecurity = type === "SECURITY";
   switch (status) {
     case "DRAFT":
       return { label: "Bản nháp", tone: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200 dark:border-slate-700", dot: "bg-slate-400" };
     case "PENDING":
-      return { label: "Chờ thu cọc", tone: "bg-sky-500/10 text-sky-600 border-sky-500/20", dot: "bg-sky-500" };
+      return {
+        label: isSecurity ? "Chờ thu cọc hợp đồng" : "Chờ thu cọc giữ phòng",
+        tone: isSecurity ? "bg-purple-500/10 text-purple-600 border-purple-500/20" : "bg-sky-500/10 text-sky-600 border-sky-500/20",
+        dot: isSecurity ? "bg-purple-500" : "bg-sky-500"
+      };
     case "PAID":
-      return { label: "Đã thu cọc", tone: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20", dot: "bg-emerald-500" };
+      return {
+        label: isSecurity ? "Đã thu cọc hợp đồng" : "Đã thu cọc giữ phòng",
+        tone: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+        dot: "bg-emerald-500"
+      };
     case "CONVERTED_TO_CONTRACT":
       return { label: "Đã lên Hợp đồng", tone: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20", dot: "bg-indigo-500" };
     case "REFUNDED":
@@ -52,6 +61,12 @@ const getStatusMeta = (status: string) => {
     default:
       return { label: status, tone: "bg-black/5 text-muted border-border", dot: "bg-muted" };
   }
+};
+
+export const canShowVietQr = (status?: string | null) => {
+  if (!status) return false;
+  const s = status.toUpperCase();
+  return !["PAID", "CONVERTED_TO_CONTRACT", "REFUNDED", "CANCELLED"].includes(s);
 };
 
 const getTypeMeta = (type: string) => {
@@ -163,7 +178,7 @@ export default function OperationsDepositList({ onCreateClick }: OperationsDepos
                 </tr>
               )}
               {!isLoading && !isError && deposits.map((deposit: UI_Deposit) => {
-                const statusInfo = getStatusMeta(deposit.status);
+                const statusInfo = getStatusMeta(deposit.status, deposit.type);
                 const typeInfo = getTypeMeta(deposit.type);
                 const isOverdue = deposit.expiredAt && deposit.status === "PENDING" && new Date(deposit.expiredAt).getTime() < Date.now();
 
@@ -236,14 +251,16 @@ export default function OperationsDepositList({ onCreateClick }: OperationsDepos
                     {/* Thao tác */}
                     <td className="px-3.5 py-2.5 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          title="Xem VietQR & Gửi Zalo"
-                          onClick={() => setQrModalDeposit(deposit)}
-                          className="flex h-7 px-2 items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 text-primary text-[11px] font-bold hover:bg-primary/15 transition-colors"
-                        >
-                          <QrCode size={13} /> VietQR
-                        </button>
+                        {canShowVietQr(deposit.status) && (
+                          <button
+                            type="button"
+                            title="Xem VietQR & Gửi Zalo"
+                            onClick={() => setQrModalDeposit(deposit)}
+                            className="flex h-7 px-2 items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 text-primary text-[11px] font-bold hover:bg-primary/15 transition-colors"
+                          >
+                            <QrCode size={13} /> VietQR
+                          </button>
+                        )}
                         <button
                           type="button"
                           title="Xem chi tiết"

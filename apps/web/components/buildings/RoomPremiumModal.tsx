@@ -39,10 +39,17 @@ import {
   QrCode,
   MoreHorizontal,
   Zap,
+  SlidersHorizontal,
+  Maximize2,
+  Star,
+  RefreshCw,
+  Droplets,
+  Download,
 } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 import { numberToWordsVietnamese } from "../../lib/utils/number-to-words";
 import { Modal } from "../ui/Modal";
+import { PreviewContractModal } from "../contracts/PreviewContractModal";
 import { CccdUploadScannerModal } from "../common/CccdUploadScannerModal";
 import { Button } from "../ui/Button";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
@@ -56,6 +63,7 @@ import {
 } from "@/lib/utils/cccd-camera";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
+import InvoiceCreateModal from "../invoices/InvoiceCreateModal";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { useCustomersQuery } from "@/lib/queries/customers.queries";
 import {
@@ -65,6 +73,7 @@ import {
 } from "@/lib/mutations/contracts.mutations";
 import { useDeleteRoomMutation } from "@/lib/mutations/rooms.mutations";
 import { customersApi } from "@/lib/api/customers.api";
+import { roomsApi } from "@/lib/api/rooms.api";
 import { contractsApi } from "@/lib/api/contracts.api";
 import { hunonicApi } from "@/lib/api/hunonic.api";
 import { getRoomDisplayName } from "./building-labels";
@@ -85,8 +94,6 @@ type TabKey =
   | "finances"
   | "contract"
   | "temp_residence"
-  | "images"
-  | "notes"
   | "overview";
 
 type TenantDraft = {
@@ -135,7 +142,7 @@ const LANDLORDS = {
     hoTenChuNha: "NGUYỄN ĐỨC TÍNH",
     ngaySinhChuNha: "13/03/1997",
     cccdChuNha: "054097010677",
-    diaChiChuNha: "LK01.31 Khu đô thị \u00c2n Phú , phường Tân An , tỉnh Đắk Lắk",
+    diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
     dienThoaiChuNha: "0373129295 - 0567867889 ( Tính )",
     chuTaiKhoan: "HKD NGUYEN DUC TINH",
     soTaiKhoan: "8818406081",
@@ -145,12 +152,79 @@ const LANDLORDS = {
     hoTenChuNha: "PHAN VĂN THỂ",
     ngaySinhChuNha: "24/11/1994",
     cccdChuNha: "066094006596 , Cấp ngày: 15/10/2025 tại Cục cảnh sát",
-    diaChiChuNha: "LK01.31 Khu đô thị \u00c2n Phú , phường Tân An , tỉnh Đắk Lắk",
+    diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
     dienThoaiChuNha: "0373129295 - 0567.79.2222 ( Thể )",
     chuTaiKhoan: "HKD PHAN VAN THE",
     soTaiKhoan: "8827905414",
     nganHang: "BIDV",
   }
+};
+
+export const resolveBuildingLandlord = (
+  building?: Building | any | null,
+  room?: Room | any | null
+): "TINH" | "THE" => {
+  const ownerName = String(
+    building?.owner?.name ||
+    building?.ownerName ||
+    room?.building?.owner?.name ||
+    room?.building?.ownerName ||
+    ""
+  ).toLowerCase();
+
+  if (ownerName.includes("thể") || ownerName.includes("the")) {
+    return "THE";
+  }
+  if (ownerName.includes("tính") || ownerName.includes("tinh")) {
+    return "TINH";
+  }
+
+  const bCode = String(
+    building?.code ||
+    building?.name ||
+    room?.building?.code ||
+    room?.building?.name ||
+    room?.buildingName ||
+    ""
+  ).toUpperCase();
+
+  if (
+    bCode.includes("32") ||
+    bCode.includes("24") ||
+    bCode.includes("LK01-32") ||
+    bCode.includes("LK01.32") ||
+    bCode.includes("LK08-24") ||
+    bCode.includes("LK08.24")
+  ) {
+    return "THE";
+  }
+  if (
+    bCode.includes("31") ||
+    bCode.includes("25") ||
+    bCode.includes("LK01-31") ||
+    bCode.includes("LK01.31") ||
+    bCode.includes("LK08-25") ||
+    bCode.includes("LK08.25")
+  ) {
+    return "TINH";
+  }
+
+  return "TINH";
+};
+
+export const ROOM_TYPE_OPTIONS = [
+  { label: "1 Phòng ngủ", value: "1 phòng ngủ" },
+  { label: "2 Phòng ngủ", value: "2 phòng ngủ" },
+  { label: "Văn Phòng", value: "Văn phòng" },
+  { label: "Khác", value: "Khác" },
+];
+
+export const getStoredRoomType = (rId: string, fallback?: string) => {
+  if (typeof window !== "undefined") {
+    const stored = localStorage.getItem(`homeland_room_type_${rId}`);
+    if (stored) return stored;
+  }
+  return fallback || "1 phòng ngủ";
 };
 
 const EMPTY_TENANT_DRAFT: TenantDraft = {
@@ -265,7 +339,7 @@ export default function RoomPremiumModal({
   initialTab = "rental_flow",
 }: Props) {
   const normalizeInitialTab = (tab: string): TabKey => {
-    if (tab === "finances" || tab === "contract" || tab === "temp_residence" || tab === "images" || tab === "notes" || tab === "overview" || tab === "rental_flow") {
+    if (tab === "finances" || tab === "contract" || tab === "temp_residence" || tab === "overview" || tab === "rental_flow") {
       return tab;
     }
     return "rental_flow";
@@ -275,6 +349,11 @@ export default function RoomPremiumModal({
   const [activeTab, setActiveTab] = useState<TabKey>(normalizeInitialTab(initialTab));
   const [isTenantModalOpen, setIsTenantModalOpen] = useState(false);
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
+  const [isCreateInvoiceModalOpen, setIsCreateInvoiceModalOpen] = useState(false);
+  const [openContractMenuId, setOpenContractMenuId] = useState<string | null>(null);
+  const [previewContractData, setPreviewContractData] = useState<any | null>(null);
+  const [isPreviewContractModalOpen, setIsPreviewContractModalOpen] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
   const [isQrMenuOpen, setIsQrMenuOpen] = useState(false);
   const [isQrSupported, setIsQrSupported] = useState(true);
@@ -292,18 +371,52 @@ export default function RoomPremiumModal({
   const [householdRepId, setHouseholdRepId] = useState("");
   const [isRemoveTenantConfirmOpen, setIsRemoveTenantConfirmOpen] = useState(false);
   const [isRemovingTenant, setIsRemovingTenant] = useState(false);
-  const [contractDraft, setContractDraft] = useState<ContractDraft>({
+  const [isTempResidenceConfirmOpen, setIsTempResidenceConfirmOpen] = useState(false);
+  const [isSavingTempResidence, setIsSavingTempResidence] = useState(false);
+  const [isSavingRoom, setIsSavingRoom] = useState(false);
+  const [isUpdatingElectricity, setIsUpdatingElectricity] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+  let currentRoom: Room | null = null;
+  let currentBuilding: Building | null = null;
+  for (const b of buildings) {
+    for (const f of b.floors) {
+      const r = f.rooms.find((r) => r.id === roomId);
+      if (r) {
+        currentRoom = r;
+        currentBuilding = b;
+        break;
+      }
+    }
+    if (currentRoom) break;
+  }
+
+  const resolvedLandlordKey = useMemo(() => {
+    return resolveBuildingLandlord(currentBuilding, currentRoom);
+  }, [currentBuilding, currentRoom]);
+
+  const [contractDraft, setContractDraft] = useState<ContractDraft>(() => ({
     mucDichThue: "Ở",
     tienThue: "",
     tienCoc: "",
     ngayBatDau: getLocalYMD(),
-    ngayKetThuc: getLocalYMD(new Date(new Date().setFullYear(new Date().getFullYear() + 2))),
-    soPhongNgu: "1 phòng ngủ",
-    thoiHanThue: "2 năm",
-    chuNha: "TINH",
+    ngayKetThuc: getLocalYMD(new Date(new Date().setFullYear(new Date().getFullYear() + 1))),
+    soPhongNgu: getStoredRoomType(roomId, (currentRoom as any)?.roomType || (currentRoom as any)?.type),
+    thoiHanThue: "1 năm",
+    chuNha: resolveBuildingLandlord(currentBuilding, currentRoom),
     ngayKyhopdong: getLocalYMD(),
     ngayThanhToanDauTien: getLocalYMD(),
-  });
+  }));
+
+  useEffect(() => {
+    setContractDraft((prev) => ({
+      ...prev,
+      chuNha: resolvedLandlordKey,
+    }));
+  }, [resolvedLandlordKey]);
+
   const [isExporting, setIsExporting] = useState(false);
   const [contractCustomerId, setContractCustomerId] = useState("");
   const [contractCode, setContractCode] = useState("");
@@ -324,11 +437,27 @@ export default function RoomPremiumModal({
   const deleteRoomMutation = useDeleteRoomMutation();
 
   const { data: invoicesResponse } = useInvoicesQuery({ roomId });
-  const { data: electricityResponse, isLoading: isElectricityLoading } = useSWR(
+  const {
+    data: electricityResponse,
+    isLoading: isElectricityLoading,
+    mutate: mutateElectricity,
+  } = useSWR(
     roomId ? ["hunonic-room-electricity", roomId] : null,
     () => hunonicApi.roomElectricity(roomId),
     { revalidateOnFocus: false, refreshInterval: 60 * 60 * 1000 },
   );
+
+  const handleUpdateElectricity = async () => {
+    setIsUpdatingElectricity(true);
+    try {
+      await mutateElectricity();
+      showToast("Đã cập nhật chỉ số điện mới nhất từ công tơ!", "success");
+    } catch (err) {
+      showToast("Không thể cập nhật chỉ số điện lúc này.", "error");
+    } finally {
+      setIsUpdatingElectricity(false);
+    }
+  };
   const { data: customersResponse } = useCustomersQuery({ limit: 100 });
   const realInvoices = (invoicesResponse as any)?.data?.items || [];
   const electricity = electricityResponse as any;
@@ -338,30 +467,129 @@ export default function RoomPremiumModal({
     return Array.isArray(items) ? items : [];
   }, [customersResponse]);
 
-  let currentRoom: Room | null = null;
-  for (const b of buildings) {
-    for (const f of b.floors) {
-      const r = f.rooms.find((r) => r.id === roomId);
-      if (r) {
-        currentRoom = r;
-        break;
+  const handleConfirmToggleTempResidence = async () => {
+    if (!roomData) return;
+    setIsSavingTempResidence(true);
+    const isCurrentlyDeclared = Boolean(
+      roomData.tenant?.tempResidence ||
+      (roomData.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st: any) => st.tempResidence))
+    );
+    const nextVal = !isCurrentlyDeclared;
+
+    try {
+      // 1. Save to localStorage
+      if (typeof window !== "undefined") {
+        if (roomId) localStorage.setItem(`homeland_temp_residence_room_${roomId}`, String(nextVal));
+        if (roomData.tenant?.id) localStorage.setItem(`homeland_temp_residence_${roomData.tenant.id}`, String(nextVal));
+        (roomData.roommates || []).forEach((rm: any) => {
+          if (rm.id) localStorage.setItem(`homeland_temp_residence_${rm.id}`, String(nextVal));
+        });
+        (roomData.sharedTenants || []).forEach((st: any) => {
+          if (st.id) localStorage.setItem(`homeland_temp_residence_${st.id}`, String(nextVal));
+        });
       }
+
+      // 2. Persist to DB for all related customers
+      const cids: string[] = [];
+      if (roomData.tenant?.id && !roomData.tenant.id.startsWith("t-")) cids.push(roomData.tenant.id);
+      (roomData.roommates || []).forEach((rm: any) => {
+        if (rm.id && !rm.id.startsWith("t-")) cids.push(rm.id);
+      });
+      (roomData.sharedTenants || []).forEach((st: any) => {
+        if (st.id && !st.id.startsWith("t-")) cids.push(st.id);
+      });
+
+      await Promise.all(
+        cids.map(async (cid) => {
+          const existing = customers.find((c: any) => c.id === cid);
+          const curImages = Array.isArray(existing?.idImages) ? [...existing.idImages] : [];
+          const nextImages = nextVal
+            ? Array.from(new Set([...curImages, "TEMP_RESIDENCE_DECLARED"]))
+            : curImages.filter((img: string) => img !== "TEMP_RESIDENCE_DECLARED");
+          return customersApi.update(cid, { idImages: nextImages });
+        })
+      );
+
+      // 3. Update local React state
+      setRoomData((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          tenant: prev.tenant ? { ...prev.tenant, tempResidence: nextVal } : prev.tenant,
+          roommates: (prev.roommates || []).map((rm: any) => ({ ...rm, tempResidence: nextVal })),
+          sharedTenants: (prev.sharedTenants || []).map((st: any) => ({ ...st, tempResidence: nextVal })),
+        };
+      });
+
+      // 4. Invalidate Query Cache
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+        queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+        queryClient.invalidateQueries({ queryKey: ["customers"] }),
+      ]);
+
+      setIsTempResidenceConfirmOpen(false);
+      showToast(nextVal ? "Đã xác nhận ĐÃ KHAI BÁO tạm trú cho phòng!" : "Đã chuyển về CHƯA KHAI BÁO tạm trú!", "success");
+    } catch (err) {
+      console.error("Failed to update temporary residence in DB:", err);
+      showToast("Có lỗi xảy ra khi cập nhật trạng thái tạm trú", "error");
+    } finally {
+      setIsSavingTempResidence(false);
     }
-    if (currentRoom) break;
-  }
+  };
 
   const [roomData, setRoomData] = useState<Room | null>(
-    currentRoom ? { ...currentRoom, rentalType: currentRoom.rentalType || "whole" } : currentRoom,
+    currentRoom
+      ? ({
+        ...currentRoom,
+        rentalType: currentRoom.rentalType || "whole",
+        roomType: getStoredRoomType(roomId, (currentRoom as any)?.roomType || (currentRoom as any)?.type),
+      } as any)
+      : currentRoom,
   );
 
   useEffect(() => {
     setMounted(true);
-    setRoomData(currentRoom ? { ...currentRoom, rentalType: currentRoom.rentalType || "whole" } : currentRoom);
+    setRoomData(
+      currentRoom
+        ? ({
+          ...currentRoom,
+          rentalType: currentRoom.rentalType || "whole",
+          roomType: getStoredRoomType(roomId, (currentRoom as any)?.roomType || (currentRoom as any)?.type),
+        } as any)
+        : currentRoom,
+    );
   }, [roomId, currentRoom]);
 
   useEffect(() => {
     setActiveTab(normalizeInitialTab(initialTab));
   }, [initialTab]);
+
+  useEffect(() => {
+    if (!openContractMenuId) return;
+    const handleDocClick = () => setOpenContractMenuId(null);
+    window.addEventListener("click", handleDocClick);
+    return () => window.removeEventListener("click", handleDocClick);
+  }, [openContractMenuId]);
+
+  useEffect(() => {
+    if (isTenantModalOpen && tenantModalStep === 1) {
+      const start = new Date();
+      const end = new Date(start);
+      end.setFullYear(start.getFullYear() + 1);
+      const configuredRoomType =
+        (roomData as any)?.roomType || getStoredRoomType(roomId, (currentRoom as any)?.roomType);
+      setContractDraft((prev) => ({
+        ...prev,
+        thoiHanThue: "1 năm",
+        soPhongNgu: configuredRoomType || prev.soPhongNgu || "1 phòng ngủ",
+        ngayBatDau: getLocalYMD(start),
+        ngayKetThuc: getLocalYMD(end),
+        tienThue: prev.tienThue || (roomData?.monthlyPrice ? Number(roomData.monthlyPrice).toLocaleString("vi-VN") : ""),
+        tienCoc: prev.tienCoc || (roomData?.monthlyPrice ? (Number(roomData.monthlyPrice) * 2).toLocaleString("vi-VN") : ""),
+      }));
+    }
+  }, [isTenantModalOpen, tenantModalStep, roomData?.monthlyPrice, (roomData as any)?.roomType, roomId, currentRoom]);
 
   useEffect(() => {
     if (!roomData?.tenant) {
@@ -483,7 +711,7 @@ export default function RoomPremiumModal({
               "success",
             );
           },
-          () => {},
+          () => { },
         );
         await optimizeCccdCameraTrack(QR_CAMERA_ELEMENT_ID);
       } catch (error: any) {
@@ -573,13 +801,14 @@ export default function RoomPremiumModal({
       onClose();
       return;
     }
+    setIsSavingRoom(true);
 
     const mapUiStatusToApi = (s: string) => {
-      if (s === "occupied" || s === "expiring_soon") return "OCCUPIED";
-      if (s === "maintenance") return "MAINTENANCE";
-      if (s === "deposited") return "RESERVED";
-      if (s === "vacant" || s === "available") return "AVAILABLE";
-      if (s === "cleaning") return "CLEANING";
+      if (s === "occupied" || s === "expiring_soon" || s === "RENTED") return "OCCUPIED";
+      if (s === "maintenance" || s === "MAINTENANCE") return "MAINTENANCE";
+      if (s === "deposited" || s === "RESERVED") return "RESERVED";
+      if (s === "vacant" || s === "available" || s === "AVAILABLE") return "AVAILABLE";
+      if (s === "cleaning" || s === "CLEANING") return "CLEANING";
       return s?.toUpperCase() || "AVAILABLE";
     };
 
@@ -591,16 +820,128 @@ export default function RoomPremiumModal({
       area: roomData.area !== undefined ? Number(roomData.area) : undefined,
       capacity: roomData.capacity !== undefined ? Number(roomData.capacity) : undefined,
       rentalType: roomData.rentalType || "whole",
-      notes: roomData.notes,
+      notes: roomData.notes || "",
+      images: roomData.images || [],
     };
 
-    if (onUpdateRoom) {
-      await onUpdateRoom(roomData.id, payload);
+    if (typeof window !== "undefined" && (roomData as any)?.roomType) {
+      localStorage.setItem(`homeland_room_type_${roomData.id}`, (roomData as any).roomType);
     }
-    setRoomData((prev) => (prev ? ({ ...prev, ...payload } as Room) : prev));
-    onClose();
+
+    try {
+      if (onUpdateRoom) {
+        await onUpdateRoom(roomData.id, payload);
+      } else {
+        await roomsApi.update(roomData.id, payload);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+        queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+      ]);
+      setRoomData((prev) => (prev ? ({ ...prev, ...payload } as Room) : prev));
+      showToast("Đã lưu thông tin phòng thành công!", "success");
+      onClose();
+    } catch (err) {
+      console.error("Failed to save room:", err);
+      showToast("Có lỗi xảy ra khi lưu thông tin phòng", "error");
+    } finally {
+      setIsSavingRoom(false);
+    }
   };
-  const handleFieldChange = (field: keyof Room, value: any) => {
+
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploadingImage(true);
+    const newImages: string[] = [];
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > 10 * 1024 * 1024) {
+          showToast(`File ${file.name} vượt quá 10MB.`, "error");
+          continue;
+        }
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        newImages.push(dataUrl);
+      }
+
+      if (newImages.length > 0) {
+        const updatedImages = [...(roomData.images || []), ...newImages];
+        setRoomData((prev) => (prev ? { ...prev, images: updatedImages } : null));
+        await roomsApi.update(roomData.id, { images: updatedImages });
+        await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+        await queryClient.invalidateQueries({ queryKey: ["buildings"] });
+        showToast(`Đã tải lên và lưu ${newImages.length} ảnh phòng!`, "success");
+      }
+    } catch (err) {
+      console.error("Upload image error:", err);
+      showToast("Không thể lưu ảnh phòng vào hệ thống.", "error");
+    } finally {
+      setIsUploadingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteImage = async (indexToDelete: number) => {
+    const updatedImages = (roomData.images || []).filter((_, idx) => idx !== indexToDelete);
+    setRoomData((prev) => (prev ? { ...prev, images: updatedImages } : null));
+
+    try {
+      await roomsApi.update(roomData.id, { images: updatedImages });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      await queryClient.invalidateQueries({ queryKey: ["buildings"] });
+      showToast("Đã xóa ảnh thành công!", "success");
+    } catch (err) {
+      console.error("Delete image error:", err);
+      showToast("Lỗi khi xóa ảnh khỏi cơ sở dữ liệu.", "error");
+    }
+  };
+
+  const handleSetCoverImage = async (index: number) => {
+    const currentImages = [...(roomData.images || [])];
+    if (index === 0 || index >= currentImages.length) return;
+    const selected = currentImages.splice(index, 1)[0];
+    const updatedImages = [selected, ...currentImages];
+    setRoomData((prev) => (prev ? { ...prev, images: updatedImages } : null));
+
+    try {
+      await roomsApi.update(roomData.id, { images: updatedImages });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      await queryClient.invalidateQueries({ queryKey: ["buildings"] });
+      showToast("Đã đặt làm ảnh đại diện phòng!", "success");
+    } catch (err) {
+      console.error("Set cover image error:", err);
+    }
+  };
+
+  const handleSaveNotes = async () => {
+    if (!roomData) return;
+    setIsSavingNotes(true);
+    try {
+      await roomsApi.update(roomData.id, { notes: roomData.notes || "" });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      await queryClient.invalidateQueries({ queryKey: ["buildings"] });
+      showToast("Đã lưu ghi chú phòng thành công!", "success");
+    } catch (err) {
+      console.error("Save notes error:", err);
+      showToast("Lỗi khi lưu ghi chú", "error");
+    } finally {
+      setIsSavingNotes(false);
+    }
+  };
+  const handleFieldChange = (field: keyof Room | "roomType", value: any) => {
+    if (field === "roomType") {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`homeland_room_type_${roomId}`, value);
+      }
+      setContractDraft((prev) => ({ ...prev, soPhongNgu: value }));
+    }
     setRoomData((prev) => (prev ? { ...prev, [field]: value } : null));
   };
   const shouldStartAsRepresentative = roomData?.rentalType === "shared" || !roomData?.tenant;
@@ -716,9 +1057,17 @@ export default function RoomPremiumModal({
           customerId =
             (created as any)?.data?.id || (created as any)?.id || customerId;
         }
-      } catch (error) {
-        console.error(error);
-        showToast("Không thể lưu khách thuê vào DB.", "error");
+      } catch (error: any) {
+        console.warn("[SaveTenant]", error);
+        let errMsg = error?.message || "Không thể lưu khách thuê vào hệ thống.";
+        if (typeof errMsg === "string" && errMsg.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(errMsg);
+            if (parsed.error || parsed.message) errMsg = parsed.error || parsed.message;
+          } catch {}
+        }
+        showToast(errMsg, "error");
+        if (isCustomContract) throw error;
         return;
       }
 
@@ -759,12 +1108,17 @@ export default function RoomPremiumModal({
             purpose: isCustomContract ? contractDraft.mucDichThue : "Tạo nhanh từ luồng thêm khách thuê vào phòng",
             coRepresentativeIds: existingCoReps,
           });
-        } catch (error) {
-          console.error(error);
-          showToast(
-            "Đã lưu khách thuê nhưng chưa thể liên kết vào phòng.",
-            "error",
-          );
+        } catch (error: any) {
+          console.warn("[CreateContract]", error);
+          let errMsg = error?.message || "Đã lưu khách thuê nhưng chưa thể liên kết vào phòng.";
+          if (typeof errMsg === "string" && errMsg.startsWith("{")) {
+            try {
+              const parsed = JSON.parse(errMsg);
+              if (parsed.error || parsed.message) errMsg = parsed.error || parsed.message;
+            } catch {}
+          }
+          showToast(errMsg, "error");
+          if (isCustomContract) throw error;
           return;
         }
       } else if (isContractRepresentative && tenantDraft.id && existingContractId) {
@@ -1012,6 +1366,10 @@ export default function RoomPremiumModal({
   const exportContractAndSaveTenant = async () => {
     setIsExporting(true);
     try {
+      // 1. Lưu khách thuê và hợp đồng vào Database trước
+      await commitTenantDraft(true);
+
+      // 2. Chỉ xuất và tải file hợp đồng khi lưu DB thành công
       const landlordInfo = LANDLORDS[contractDraft.chuNha || "TINH"];
       const currentBuilding = buildings?.find(b => Array.isArray(b.floors) && b.floors.some(f => Array.isArray(f.rooms) && f.rooms.some(r => r.id === roomId)));
 
@@ -1042,35 +1400,33 @@ export default function RoomPremiumModal({
         ...landlordInfo,
       };
 
-      const res = await fetch("/api/export-contract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payloadData),
-      });
+      try {
+        const res = await fetch("/api/export-contract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payloadData),
+        });
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || "Export failed");
-      }
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `HopDong_${payloadData.hoTen}_${payloadData.maPhong}.docx`;
-      link.click();
-      window.URL.revokeObjectURL(url);
-
-      await commitTenantDraft(true);
-    } catch (error: any) {
-      console.error(error);
-      let errMsg = "Có lỗi xảy ra khi xuất hợp đồng.";
-      if (error?.message) {
-        try {
-          const parsed = JSON.parse(error.message);
-          if (parsed.error) errMsg = parsed.error;
-        } catch {
-          errMsg = error.message;
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `HopDong_${payloadData.hoTen}_${payloadData.maPhong}.docx`;
+          link.click();
+          window.URL.revokeObjectURL(url);
         }
+      } catch (docErr) {
+        console.warn("[ExportContractFile]", docErr);
+      }
+    } catch (error: any) {
+      console.warn("[SaveAndExportContract]", error);
+      let errMsg = error?.message || "Có lỗi xảy ra khi lưu khách thuê.";
+      if (typeof errMsg === "string" && errMsg.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(errMsg);
+          if (parsed.error || parsed.message) errMsg = parsed.error || parsed.message;
+        } catch {}
       }
       showToast(errMsg, "error");
     } finally {
@@ -1119,41 +1475,38 @@ export default function RoomPremiumModal({
     }
   }
 
+  const occupantsCount = roomData.rentalType === "shared"
+    ? (roomData.sharedTenants?.length || 0)
+    : (roomData.tenant ? 1 + (roomData.roommates?.length || 0) : 0);
+
   const tabs = [
     {
       id: "rental_flow",
       label: "Khách thuê",
-      icon: <Users size={14} className="shrink-0" />,
+      icon: <Users size={16} className="shrink-0" />,
+      badge: occupantsCount > 0 ? occupantsCount : undefined,
     },
     {
       id: "finances",
       label: "Tài chính",
-      icon: <DollarSign size={14} className="shrink-0" />,
+      icon: <DollarSign size={16} className="shrink-0" />,
+      badge: rDebt > 0 ? "Nợ" : undefined,
     },
     {
       id: "contract",
       label: "Hợp đồng",
-      icon: <FileText size={14} className="shrink-0" />,
+      icon: <FileText size={16} className="shrink-0" />,
     },
     {
       id: "temp_residence",
       label: "Tạm trú",
-      icon: <ShieldAlert size={14} className="shrink-0" />,
-    },
-    {
-      id: "images",
-      label: "Ảnh",
-      icon: <ImageIcon size={14} className="shrink-0" />,
-    },
-    {
-      id: "notes",
-      label: "Ghi chú",
-      icon: <AlignLeft size={14} className="shrink-0" />,
+      icon: <ShieldAlert size={16} className="shrink-0" />,
+      badge: occupantsCount > 0 ? ((roomData.tenant?.tempResidence || (roomData.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every(st => st.tempResidence))) ? "✓" : "!") : undefined,
     },
     {
       id: "overview",
-      label: "Metadata",
-      icon: <LayoutDashboard size={14} className="shrink-0" />,
+      label: "Cài đặt phòng",
+      icon: <SlidersHorizontal size={16} className="shrink-0" />,
     },
   ];
 
@@ -1174,484 +1527,424 @@ export default function RoomPremiumModal({
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 md:p-8 overflow-hidden box-border max-w-full w-full">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-5 md:p-8 overflow-hidden box-border max-w-full w-full">
         <div
-          className="absolute inset-0 bg-black/60 backdrop-blur-[4px] animate-in fade-in duration-300"
+          className="absolute inset-0 bg-black/60 backdrop-blur-[4px] animate-in fade-in duration-200"
           onClick={onClose}
         />
-        <div className="relative z-10 w-full max-w-[500px] md:max-w-[1450px] h-[85dvh] md:h-[85vh] max-h-[850px] bg-background md:bg-card/95 md:backdrop-blur-3xl border border-border/60 shadow-xl rounded-[20px] md:rounded-[24px] flex flex-col overflow-hidden animate-in zoom-in-[0.98] duration-300 box-border">
-          <div className="flex flex-col p-4 md:px-8 md:py-5 border-b border-border/50 bg-black/[0.01] dark:bg-white/[0.01] shrink-0 w-full box-border max-w-full">
-            <div className="flex items-start justify-between w-full min-w-0">
-              <div className="flex flex-col flex-1 min-w-0 pr-2 overflow-hidden">
-                <h2 className="font-black text-[16px] md:text-[22px] tracking-tight text-text leading-tight truncate">
-                  {getRoomDisplayName(roomData)}
-                </h2>
-                <div className="flex flex-col mt-0.5 min-w-0 overflow-hidden text-[12px] font-bold">
-                  <span className="text-text truncate w-full">
-                    {tenantName}
+        <div className="relative z-10 w-full max-w-[1360px] h-[92dvh] md:h-[88vh] max-h-[880px] bg-card border border-border/70 shadow-[0_24px_70px_rgba(0,0,0,0.22)] rounded-[24px] flex flex-col overflow-hidden animate-in zoom-in-[0.98] duration-200 box-border">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 md:px-7 py-3.5 border-b border-border/50 bg-card shrink-0 w-full">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/15 shadow-sm">
+                <LayoutDashboard size={19} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="font-black text-[17px] md:text-[19px] tracking-tight text-text leading-none">
+                    {getRoomDisplayName(roomData)}
+                  </h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-primary/10 text-primary border border-primary/20 uppercase tracking-wider">
+                    {roomRentalTypeLabel}
                   </span>
-                  <div className="flex items-center gap-2 mt-0.5 truncate w-full text-[11px]">
-                    {rDebt > 0 ? (
-                      <span className="text-rose-500">
-                        Nợ: {formatCompactMoney(rDebt)}
-                      </span>
-                    ) : (
-                      <span className="text-indigo-500">Không nợ</span>
-                    )}
-                    <span className="text-muted">•</span>
-                    <span className="text-muted">
-                      {daysLeft !== "-" ? `Còn: ${daysLeft}` : "Trống"}
-                    </span>
-                  </div>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${roomData.status === "occupied" || roomData.status === "expiring_soon"
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                    : "bg-surface text-muted border border-border/40"
+                    }`}>
+                    {roomData.status === "occupied" ? "● Đang thuê" : roomData.status === "expiring_soon" ? "● Sắp hết hạn" : "○ Phòng trống"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-1 text-[11px] font-semibold text-muted">
+                  <span className="text-text font-bold truncate max-w-[180px]">
+                    {tenantName || "Chưa có người ở"}
+                  </span>
+                  <span>•</span>
+                  {rDebt > 0 ? (
+                    <span className="text-rose-500 font-bold">Nợ: {formatCompactMoney(rDebt)}</span>
+                  ) : (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Không nợ</span>
+                  )}
+                  {daysLeft !== "-" && (
+                    <>
+                      <span>•</span>
+                      <span>HĐ còn: {daysLeft}</span>
+                    </>
+                  )}
                 </div>
               </div>
+            </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <Button onClick={handleSave}>
-                  <Save size={16} />{" "}
-                  <span className="hidden md:inline ml-2">Lưu thay đổi</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsDeleteConfirmOpen(true)}
-                  className="border-rose-500/30 text-rose-500 hover:bg-rose-500/10"
-                >
-                  <Trash2 size={16} />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={onClose}>
-                  <X size={18} />
-                </Button>
-              </div>
+            {/* Quick Actions (Close & Delete) - Removed redundant header save button */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsDeleteConfirmOpen(true)}
+                className="h-8.5 w-8.5 p-0 rounded-xl border-border/60 text-muted hover:text-rose-500 hover:border-rose-500/40 hover:bg-rose-500/10"
+                title="Xóa phòng này"
+              >
+                <Trash2 size={15} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClose}
+                className="h-8.5 w-8.5 p-0 rounded-xl text-muted hover:text-text hover:bg-surface"
+                title="Đóng popup (Esc)"
+              >
+                <X size={17} />
+              </Button>
             </div>
           </div>
 
           <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row w-full box-border max-w-full">
-            <div className="w-full max-w-full border-b border-border/50 bg-black/[0.01] dark:bg-white/[0.01] shrink-0 box-border md:w-[250px] md:border-b-0 md:border-r md:flex-col md:overflow-y-auto">
-              <div className="tabs-scroll overflow-x-auto max-w-full flex gap-[8px] px-[12px] py-[12px] scrollbar-hide md:flex-col md:px-4 md:py-4">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as TabKey)}
-                    className={`flex items-center gap-2 px-3 py-2 md:px-4 md:py-3 rounded-[8px] md:rounded-[12px] font-bold text-[12px] md:text-[13px] transition-all whitespace-nowrap shrink-0 snap-start text-left border flex-[0_0_auto] ${activeTab === tab.id ? "bg-[#6366f1] text-white border-[#6366f1] md:bg-[#6366f1]/10 md:text-[#6366f1] shadow-sm" : "text-muted border-border/50 bg-card md:bg-transparent md:border-transparent hover:bg-black/5 dark:hover:bg-white/5"}`}
-                  >
-                    {tab.icon} {tab.label}
-                  </button>
-                ))}
+            {/* Sidebar Navigation */}
+            <div className="w-full md:w-[210px] lg:w-[220px] border-b md:border-b-0 md:border-r border-border/50 bg-surface/30 shrink-0 flex flex-col">
+              <div className="tabs-scroll overflow-x-auto max-w-full flex gap-1 p-2 md:flex-col md:p-3 scrollbar-hide">
+                {tabs.map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id as TabKey)}
+                      className={`group flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl font-bold text-[12px] md:text-[13px] transition-all whitespace-nowrap shrink-0 text-left border ${isActive
+                        ? "bg-primary text-white border-primary shadow-sm shadow-primary/25 font-black"
+                        : "text-muted border-transparent hover:bg-card hover:text-text hover:border-border/40"
+                        }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {tab.icon}
+                        <span>{tab.label}</span>
+                      </div>
+                      {tab.badge !== undefined && (
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black uppercase tracking-wider ${isActive
+                          ? "bg-white/20 text-white"
+                          : tab.badge === "Nợ" || tab.badge === "!"
+                            ? "bg-rose-500 text-white"
+                            : "bg-surface text-muted"
+                          }`}>
+                          {tab.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-8 relative w-full box-border pb-[80px] max-w-full">
-              {activeTab === "overview" && (
-                <div className="flex flex-col gap-4 md:gap-6 animate-in w-full box-border">
-                  <h3 className="font-black text-[14px] md:text-[15px] uppercase tracking-widest text-muted border-b border-border/40 pb-2">
-                    Thông tin cơ bản phòng
-                  </h3>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-[14px] border border-emerald-500/20 bg-emerald-500/[0.035] p-4">
-                    <div className="sm:col-span-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-[13px] font-black text-text">
-                        <Zap size={16} className="text-emerald-600" /> Điện Hunonic
-                      </div>
-                      <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-black text-emerald-700">
-                        Sync 1 giờ
-                      </span>
-                    </div>
-                    {electricity ? (
-                      <>
-                        <div className="rounded-xl border border-border/40 bg-card p-3">
-                          <div className="text-[11px] font-bold uppercase text-muted">Công tơ</div>
-                          <div className="mt-1 text-[14px] font-black text-text">{electricity.deviceName || electricity.displayName}</div>
-                        </div>
-                        <div className="rounded-xl border border-border/40 bg-card p-3">
-                          <div className="text-[11px] font-bold uppercase text-muted">kWh tháng này</div>
-                          <div className="mt-1 text-[14px] font-black text-text">{Number(electricity.energyMonthKwh || 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} kWh</div>
-                        </div>
-                        <div className="rounded-xl border border-border/40 bg-card p-3">
-                          <div className="text-[11px] font-bold uppercase text-muted">Tiền điện</div>
-                          <div className="mt-1 text-[14px] font-black text-emerald-700">{formatCompactMoney(Number(electricity.moneyMonthVnd || 0))}</div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="sm:col-span-3 rounded-xl border border-dashed border-emerald-500/25 bg-card/70 px-3 py-3 text-[12px] font-semibold text-muted">
-                        {isElectricityLoading ? "Đang tải dữ liệu công tơ..." : "Chưa có dữ liệu Hunonic cho phòng này. Kiểm tra Settings > Hunonic Electricity rồi chạy Sync ngay."}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-4 w-full">
-                    <div className="flex flex-col gap-1 w-full">
-                      <label className="text-[10px] md:text-[11px] font-black text-muted uppercase">
-                        Tên phòng
-                      </label>
-                      <Input
-                        data-testid="room-name-input"
-                        value={roomData.name}
-                        onChange={(e) =>
-                          handleFieldChange("name", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1 w-full">
-                      <label className="text-[10px] md:text-[11px] font-black text-muted uppercase">
-                        Mã phòng
-                      </label>
-                      <Input
-                        data-testid="room-code-input"
-                        value={roomData.code}
-                        onChange={(e) =>
-                          handleFieldChange("code", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1 w-full">
-                      <label className="text-[10px] md:text-[11px] font-black text-muted uppercase">
-                        Trạng thái
-                      </label>
-                      <Select
-                        value={roomData.status}
-                        onChange={(e) =>
-                          handleFieldChange("status", e.target.value)
-                        }
-                        options={[
-                          { label: "Trống", value: "AVAILABLE" },
-                          { label: "Đang thuê", value: "RENTED" },
-                          { label: "Đặt cọc", value: "RESERVED" },
-                          { label: "Bảo trì", value: "MAINTENANCE" },
-                          { label: "Không khả dụng", value: "UNAVAILABLE" },
-                        ]}
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1 w-full">
-                      <label className="text-[10px] md:text-[11px] font-black text-muted uppercase">
-                        Diện tích (m²)
-                      </label>
-                      <Input
-                        type="number"
-                        value={roomData.area ?? ""}
-                        onChange={(e) => handleFieldChange(
-                          "area",
-                          e.target.value === "" ? undefined : Number(e.target.value),
-                        )}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1 w-full">
-                      <label className="text-[10px] md:text-[11px] font-black text-muted uppercase">
-                        Sức chứa (người)
-                      </label>
-                      <Input
-                        type="number"
-                        value={roomData.capacity ?? ""}
-                        onChange={(e) => handleFieldChange(
-                          "capacity",
-                          e.target.value === "" ? undefined : Number(e.target.value),
-                        )}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
+            <div className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 relative w-full box-border max-w-full">
+              {/* TAB 1: KHÁCH THUÊ */}
               {activeTab === "rental_flow" && (
-                <div className="flex flex-col gap-4 md:gap-6 animate-in w-full box-border">
-                  <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-black/5 dark:bg-white/5 p-4">
-                    <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-5 animate-in w-full box-border">
+                  {/* Compact, elegant Room Rental Type bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border border-border/60 bg-card shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                        <Users size={18} />
+                      </div>
                       <div>
-                        <div className="text-[11px] font-black uppercase tracking-wide text-muted">Loại phòng hiện tại</div>
-                        <div className="mt-1 text-[15px] font-black text-text">{roomRentalTypeLabel}</div>
+                        <span className="text-[11px] font-bold text-muted uppercase tracking-wider block">Hình thức cho thuê</span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[14px] font-black text-text">
+                            {roomData.rentalType === "shared" ? "Cho thuê theo giường / Ở ghép" : "Cho thuê nguyên căn"}
+                          </span>
+                          <span className="text-[11px] text-muted hidden md:inline">
+                            {roomData.rentalType === "shared"
+                              ? "• Mỗi cư dân có hợp đồng riêng"
+                              : "• Mặc định thêm khách vào hợp đồng chính"}
+                          </span>
+                        </div>
                       </div>
-                      <div className="rounded-full bg-white/80 dark:bg-[#1e1e1e] px-3 py-1 text-[11px] font-bold text-muted shadow-sm">
-                        {roomData?.rentalType === "shared"
-                          ? `Mặc định thêm cư dân theo đại diện hợp đồng`
-                          : `Mặc định thêm khách vào hợp đồng chính`}
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      <span className="text-xs text-muted font-medium hidden lg:inline">Chuyển kiểu thuê:</span>
+                      <div className="inline-flex rounded-xl p-1 bg-surface border border-border/50">
+                        <button
+                          type="button"
+                          onClick={() => handleFieldChange("rentalType", "whole")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${roomData.rentalType !== "shared"
+                            ? "bg-card text-primary shadow-sm font-black"
+                            : "text-muted hover:text-text"
+                            }`}
+                        >
+                          Nguyên căn
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleFieldChange("rentalType", "shared")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${roomData.rentalType === "shared"
+                            ? "bg-card text-primary shadow-sm font-black"
+                            : "text-muted hover:text-text"
+                            }`}
+                        >
+                          Ở ghép
+                        </button>
                       </div>
                     </div>
-                    <div className="text-[11px] leading-relaxed text-muted">
-                      Chọn lại loại phòng trước khi thêm khách để hệ thống áp dụng đúng logic hợp đồng, cư dân cùng phòng và thông báo Zalo/SePay.
+                  </div>
+
+                  {/* Tenant List Header & Actions */}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-black text-[14px] uppercase text-text tracking-wide">
+                          Danh sách khách thuê
+                        </h4>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary">
+                          {occupantsCount} người
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center bg-surface border border-border/50 rounded-xl p-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setTenantViewMode("basic")}
+                            className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${tenantViewMode === "basic" ? "bg-card shadow-sm text-text font-black" : "text-muted hover:text-text"
+                              }`}
+                          >
+                            Cơ bản
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTenantViewMode("detailed")}
+                            className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${tenantViewMode === "detailed" ? "bg-card shadow-sm text-text font-black" : "text-muted hover:text-text"
+                              }`}
+                          >
+                            Chi tiết
+                          </button>
+                        </div>
+
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setIsContractRepresentative(shouldStartAsRepresentative);
+                            setHouseholdRepId("");
+                            setTenantDraft({
+                              id: undefined,
+                              name: "",
+                              phone: "",
+                              cccd: "",
+                              birthDate: "",
+                              gender: "",
+                              nationality: "",
+                              address: "",
+                              emergencyPhone: "",
+                            });
+                            setTenantModalStep(1);
+                            setIsTenantModalOpen(true);
+                          }}
+                          className="bg-primary text-white hover:bg-primary/90 shadow-sm"
+                        >
+                          <UserPlus size={14} className="mr-1.5" />
+                          {roomData?.rentalType === "shared" ? "Thêm khách ghép" : roomData?.tenant ? "Thêm người ở cùng" : "Thêm khách thuê"}
+                        </Button>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-black/5 dark:bg-white/5 p-4">
-                    <label className="text-[11px] font-black text-muted uppercase">
-                      Kiểu thuê phòng
-                    </label>
-                    <Select
-                      value={roomData.rentalType || "whole"}
-                      onChange={(e) => handleFieldChange("rentalType", e.target.value)}
-                      options={[
-                        { label: "Nguyên căn", value: "whole" },
-                        { label: "Phòng ghép", value: "shared" },
-                      ]}
-                    />
-                    <span className="text-[11px] text-muted leading-relaxed">
-                      Chọn trước khi thêm khách thuê để hệ thống áp dụng đúng logic hợp đồng, cư dân cùng phòng và thông báo Zalo/SePay.
-                    </span>
-                  </div>
+                    {/* Tenant Table / Empty State */}
+                    {(() => {
+                      const allTenantsList = getOccupantsList();
 
-                  <div className="flex items-center justify-between pb-2 mb-2">
-                    <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2">
-                      Thông tin khách hàng
-                    </h4>
-                    <div className="flex items-center bg-black/5 dark:bg-white/5 rounded-[8px] p-1">
-                      <button
-                        onClick={() => setTenantViewMode("basic")}
-                        className={`px-3 py-1.5 text-[11px] font-bold rounded-[6px] transition-all ${tenantViewMode === "basic" ? "bg-white dark:bg-[#1e1e1e] shadow-sm text-text" : "text-muted hover:text-text"}`}
-                      >
-                        Cơ bản
-                      </button>
-                      <button
-                        onClick={() => setTenantViewMode("detailed")}
-                        className={`px-3 py-1.5 text-[11px] font-bold rounded-[6px] transition-all ${tenantViewMode === "detailed" ? "bg-white dark:bg-[#1e1e1e] shadow-sm text-text" : "text-muted hover:text-text"}`}
-                      >
-                        Chi tiết
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-4 w-full box-border">
-                    <div className="border border-border/60 rounded-xl overflow-x-auto bg-card pb-4">
-                      <table className="w-full text-left text-sm whitespace-nowrap min-w-[700px]">
-                        <thead className="bg-black/5 dark:bg-white/5 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
-                          <tr>
-                            <th className="p-3">STT</th>
-                            <th className="p-3">Họ và tên</th>
-                            <th className="p-3">Số điện thoại</th>
-                            <th className="p-3">SĐT Người thân</th>
-                            <th className="p-3">CCCD/CMND</th>
-                            {tenantViewMode === "detailed" && <th className="p-3">Giới tính</th>}
-                            <th className="p-3">Ngày sinh</th>
-                            {tenantViewMode === "detailed" && <th className="p-3">Quốc tịch</th>}
-                            {tenantViewMode === "detailed" && <th className="p-3">Thường trú</th>}
-                            <th className="p-3">Vai trò</th>
-                            <th className="p-3 text-right">Thao tác</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(() => {
-                            const allTenantsList = getOccupantsList();
+                      if (allTenantsList.length === 0) {
+                        return (
+                          <div className="p-10 text-center border-2 border-dashed border-border/60 rounded-2xl flex flex-col items-center justify-center bg-card shadow-sm">
+                            <div className="h-12 w-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3">
+                              <Users size={24} />
+                            </div>
+                            <h5 className="text-[15px] font-black text-text">Chưa có khách thuê trong phòng</h5>
+                            <p className="text-xs text-muted max-w-sm mt-1 leading-relaxed">
+                              {roomData.rentalType === "shared"
+                                ? "Phòng này cho thuê ở ghép. Hãy thêm khách thuê đầu tiên để tạo hợp đồng."
+                                : "Phòng hiện đang trống. Thêm khách thuê để lập hợp đồng và kích hoạt khai báo tạm trú."}
+                            </p>
+                            <Button
+                              size="sm"
+                              className="mt-4"
+                              onClick={() => {
+                                setIsContractRepresentative(true);
+                                setHouseholdRepId("");
+                                setTenantDraft({ ...EMPTY_TENANT_DRAFT });
+                                setTenantModalStep(1);
+                                setIsTenantModalOpen(true);
+                              }}
+                            >
+                              <UserPlus size={14} className="mr-1.5" /> Thêm khách thuê ngay
+                            </Button>
+                          </div>
+                        );
+                      }
 
-                            if (allTenantsList.length === 0) {
-                              return (
+                      return (
+                        <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm whitespace-nowrap">
+                              <thead className="bg-surface/50 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
                                 <tr>
-                                  <td colSpan={tenantViewMode === "detailed" ? 11 : 7} className="p-6 text-center text-muted font-bold">
-                                    Chưa có khách thuê
-                                  </td>
+                                  <th className="px-4 py-3">STT</th>
+                                  <th className="px-4 py-3">Họ và tên</th>
+                                  <th className="px-4 py-3">Số điện thoại</th>
+                                  <th className="px-4 py-3">SĐT Người thân</th>
+                                  <th className="px-4 py-3">CCCD / CMND</th>
+                                  {tenantViewMode === "detailed" && <th className="px-4 py-3">Giới tính</th>}
+                                  <th className="px-4 py-3">Ngày sinh</th>
+                                  {tenantViewMode === "detailed" && <th className="px-4 py-3">Quốc tịch</th>}
+                                  {tenantViewMode === "detailed" && <th className="px-4 py-3">Thường trú</th>}
+                                  <th className="px-4 py-3">Vai trò</th>
+                                  <th className="px-4 py-3 text-right">Thao tác</th>
                                 </tr>
-                              );
-                            }
-
-                            return allTenantsList.map((t, index) => (
-                              <tr key={t.id || index} className="border-b border-border/40 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                                <td className="p-3">{index + 1}</td>
-                                <td className="p-3 font-semibold">{t.name || "-"}</td>
-                                <td className="p-3">{t.phone || "-"}</td>
-                                <td className="p-3">{(t as any).emergencyPhone || "-"}</td>
-                                <td className="p-3">{t.cccd || (t as any).citizenId || "-"}</td>
-                                {tenantViewMode === "detailed" && <td className="p-3">{(t as any).gender || "-"}</td>}
-                                <td className="p-3">{formatBirthDateForDisplay(t.birthDate || "") || "-"}</td>
-                                {tenantViewMode === "detailed" && <td className="p-3">{t.nationality || "-"}</td>}
-                                {tenantViewMode === "detailed" && <td className="p-3 max-w-[150px] truncate" title={t.address}>{t.address || "-"}</td>}
-                                <td className="p-3">
-                                  <span className={`px-2 py-1 rounded-[6px] text-[10px] font-bold ${t.isRep ? 'bg-[#6366f1]/10 text-[#6366f1]' : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'}`}>
-                                    {t.role}
-                                  </span>
-                                </td>
-                                <td className="p-3 flex justify-end gap-1">
-                                  <button
-                                    onClick={() => {
-                                      setTenantDraft({
-                                        id: t.id,
-                                        name: t.name || "",
-                                        phone: t.phone || "",
-                                        cccd: (t as any).citizenId || t.cccd || "",
-                                        birthDate: t.birthDate ? new Date(t.birthDate).toISOString().split('T')[0] : "",
-                                        gender: (t as any).gender || "",
-                                        nationality: (t as any).nationality || "",
-                                        address: (t as any).address || "",
-                                        emergencyPhone: (t as any).emergencyPhone || "",
-                                        relationship: (t as any).relationship || "",
-                                      });
-                                      setIsContractRepresentative(t.isRep);
-                                      if (!t.isRep && (t as any).contractId) {
-                                        const repIdForContract = getRepresentativeCandidates().find((st: any) => (st as any).contractId === (t as any).contractId || (st.id === roomData?.tenant?.id && roomData?.contract?.id === (t as any).contractId))?.id;
-                                        setHouseholdRepId(repIdForContract || "");
-                                      } else {
-                                        setHouseholdRepId("");
-                                      }
-
-                                      if (t.isRep) {
-                                        const tContract = t.id === roomData?.tenant?.id ? roomData?.contract : (t as any);
-                                        setContractDraft(prevDraft => ({
-                                          ...prevDraft,
-                                          ngayBatDau: tContract?.startDate ? new Date(tContract.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                                          ngayKetThuc: tContract?.endDate ? new Date(tContract.endDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                                          tienCoc: tContract?.deposit ? tContract.deposit.toLocaleString("vi-VN") : "0",
-                                          tienThue: tContract?.rentPrice ? tContract.rentPrice.toLocaleString("vi-VN") : "0",
-                                          ngayKyhopdong: tContract?.signedAt ? new Date(tContract.signedAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                                          ngayThanhToanDauTien: tContract?.firstPaymentDate ? new Date(tContract.firstPaymentDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                                          mucDichThue: tContract?.purpose || "Ở"
-                                        }));
-                                      }
-
-                                      setTenantModalStep(1);
-                                      setIsTenantModalOpen(true);
-                                    }}
-                                    className="w-[28px] h-[28px] flex items-center justify-center rounded-[8px] text-muted hover:text-text hover:bg-black/5 bg-transparent border border-transparent hover:border-border transition-colors"
-                                    title="Chỉnh sửa"
-                                  >
-                                    <Edit2 size={14} />
-                                  </button>
-                                  {t.isRep && (
-                                    <button
-                                      onClick={() => setIsRemoveTenantConfirmOpen(true)}
-                                      className="w-[28px] h-[28px] flex items-center justify-center rounded-[8px] text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-transparent hover:border-rose-200 dark:hover:border-rose-500/30 transition-colors"
-                                      title="Xóa đại diện hợp đồng"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  )}
-                                </td>
-                              </tr>
-                            ));
-                          })()}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setIsContractRepresentative(shouldStartAsRepresentative);
-                        setHouseholdRepId("");
-                        setTenantDraft({
-                          id: undefined,
-                          name: "",
-                          phone: "",
-                          cccd: "",
-                          birthDate: "",
-                          gender: "",
-                          nationality: "",
-                          address: "",
-                          emergencyPhone: "",
-                        });
-                        setTenantModalStep(1);
-                        setIsTenantModalOpen(true);
-                      }}
-                      className="w-full border-dashed border-[#6366f1]/40 bg-[#6366f1]/5 text-[#6366f1] hover:bg-[#6366f1]/10"
-                    >
-                      <UserPlus size={16} className="mr-2" /> {roomData?.rentalType === "shared" ? "Thêm khách ghép" : roomData?.tenant ? "Thêm người ở cùng" : "Thêm khách thuê"}
-                    </Button>
+                              </thead>
+                              <tbody className="divide-y divide-border/40">
+                                {allTenantsList.map((t, index) => (
+                                  <tr key={t.id || index} className="hover:bg-surface/40 transition-colors">
+                                    <td className="px-4 py-3 font-semibold text-muted text-xs">{index + 1}</td>
+                                    <td className="px-4 py-3 font-bold text-text">{t.name || "-"}</td>
+                                    <td className="px-4 py-3 text-text font-mono text-xs">{t.phone || "-"}</td>
+                                    <td className="px-4 py-3 text-muted font-mono text-xs">{(t as any).emergencyPhone || "-"}</td>
+                                    <td className="px-4 py-3 text-text font-mono text-xs">{t.cccd || (t as any).citizenId || "-"}</td>
+                                    {tenantViewMode === "detailed" && <td className="px-4 py-3 text-muted text-xs">{(t as any).gender || "-"}</td>}
+                                    <td className="px-4 py-3 text-muted text-xs">{formatBirthDateForDisplay(t.birthDate || "") || "-"}</td>
+                                    {tenantViewMode === "detailed" && <td className="px-4 py-3 text-muted text-xs">{t.nationality || "-"}</td>}
+                                    {tenantViewMode === "detailed" && <td className="px-4 py-3 max-w-[160px] truncate text-muted text-xs" title={t.address}>{t.address || "-"}</td>}
+                                    <td className="px-4 py-3">
+                                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${t.isRep ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface text-muted border border-border/40'
+                                        }`}>
+                                        {t.role}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                      <div className="flex items-center justify-end gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setTenantDraft({
+                                              id: t.id,
+                                              name: t.name || "",
+                                              phone: t.phone || "",
+                                              cccd: (t as any).citizenId || t.cccd || "",
+                                              birthDate: t.birthDate || "",
+                                              gender: (t as any).gender || "",
+                                              nationality: t.nationality || "",
+                                              address: t.address || "",
+                                              emergencyPhone: (t as any).emergencyPhone || "",
+                                            });
+                                            setTenantModalStep(1);
+                                            setIsTenantModalOpen(true);
+                                          }}
+                                          className="p-1.5 hover:bg-surface rounded-lg text-muted hover:text-text transition-colors cursor-pointer"
+                                          title="Sửa thông tin"
+                                        >
+                                          <Edit2 size={14} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setIsRemoveTenantConfirmOpen(true);
+                                          }}
+                                          className="p-1.5 hover:bg-rose-500/10 rounded-lg text-muted hover:text-rose-500 transition-colors cursor-pointer"
+                                          title="Xóa cư dân"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
 
+              {/* TAB 2: TÀI CHÍNH */}
               {activeTab === "finances" && (
-                <div className="flex flex-col gap-6 animate-in w-full box-border">
-                  <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                    <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2">
-                      <CreditCard size={14} /> Danh sách hóa đơn
-                    </h4>
-                    <Button
-                      size="sm"
-                      onClick={() =>
-                        showToast(
-                          "Chức năng tạo hóa đơn thủ công đang được xử lý.",
-                          "info",
-                        )
-                      }
-                    >
-                      <Plus size={12} className="mr-1" /> Tạo hóa đơn
-                    </Button>
+                <div className="flex flex-col gap-5 animate-in w-full box-border">
+                  {/* Financial KPI Summary Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-4 rounded-2xl border border-border/60 bg-card shadow-sm">
+                      <span className="text-[11px] font-bold text-muted uppercase tracking-wider block">Dư nợ hiện tại</span>
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <span className={`text-[20px] font-black ${rDebt > 0 ? "text-rose-500" : "text-emerald-600 dark:text-emerald-400"}`}>
+                          {rDebt > 0 ? formatCompactMoney(rDebt) : "0 đ"}
+                        </span>
+                        <span className="text-xs text-muted font-medium">{rDebt > 0 ? "Cần thanh toán" : "Đã thanh toán đủ"}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-2xl border border-border/60 bg-card shadow-sm">
+                      <span className="text-[11px] font-bold text-muted uppercase tracking-wider block">Giá thuê niêm yết</span>
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <span className="text-[20px] font-black text-text">
+                          {(roomData.monthlyPrice || 0).toLocaleString("vi-VN")} đ
+                        </span>
+                        <span className="text-xs text-muted font-medium">/ tháng</span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-2xl border border-border/60 bg-card shadow-sm">
+                      <span className="text-[11px] font-bold text-muted uppercase tracking-wider block">Hóa đơn đã lập</span>
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <span className="text-[20px] font-black text-primary">
+                          {realInvoices?.length || 0}
+                        </span>
+                        <span className="text-xs text-muted font-medium">hóa đơn ghi nhận</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="border border-border/60 rounded-xl overflow-hidden bg-card">
-                    <table className="w-full text-left border-collapse text-sm">
-                      <thead>
-                        <tr className="bg-black/5 dark:bg-white/5 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
-                          <th className="p-3">Mã HĐ</th>
-                          <th className="p-3">Số tiền</th>
-                          <th className="p-3">Hạn thanh toán</th>
-                          <th className="p-3 text-right">Trạng thái</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {realInvoices && realInvoices.length > 0 ? (
-                          realInvoices.map((inv: any) => (
-                            <tr
-                              key={inv.id}
-                              className="border-b border-border/40 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                            >
-                              <td className="p-3 font-bold">{inv.code}</td>
-                              <td className="p-3 font-black">
-                                {(
-                                  inv.total ||
-                                  inv.amount ||
-                                  0
-                                ).toLocaleString()}{" "}
-                                đ
-                              </td>
-                              <td className="p-3 text-muted">
-                                {new Date(inv.dueDate).toLocaleDateString(
-                                  "vi-VN",
-                                )}
-                              </td>
-                              <td className="p-3 text-right">
-                                <span
-                                  className={`px-2 py-0.5 rounded-[6px] text-[11px] font-bold uppercase ${["PAID", "paid"].includes(inv.status) ? "bg-indigo-500/10 text-indigo-500" : "bg-rose-500/10 text-rose-500"}`}
-                                >
-                                  {["PAID", "paid"].includes(inv.status)
-                                    ? "Đã trả"
-                                    : "Chưa trả"}
-                                </span>
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td
-                              colSpan={4}
-                              className="p-4 text-center text-muted italic"
-                            >
-                              Chưa có hóa đơn nào
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                  {/* Invoices List */}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-black text-[14px] uppercase text-text tracking-wide flex items-center gap-2">
+                        <CreditCard size={15} className="text-primary" /> Danh sách hóa đơn
+                      </h4>
+                      <Button
+                        size="sm"
+                        onClick={() => setIsCreateInvoiceModalOpen(true)}
+                        className="bg-primary text-white hover:bg-primary/90 shadow-sm"
+                      >
+                        <Plus size={13} className="mr-1" /> Tạo hóa đơn
+                      </Button>
+                    </div>
 
-                  <div className="flex flex-col gap-2">
-                    <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2">
-                      Lịch sử thanh toán
-                    </h4>
-                    <div className="border border-border/60 rounded-xl overflow-hidden bg-card">
+                    <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
                       <table className="w-full text-left border-collapse text-sm">
                         <thead>
-                          <tr className="bg-black/5 dark:bg-white/5 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
-                            <th className="p-3">Tháng</th>
-                            <th className="p-3">Số tiền</th>
-                            <th className="p-3">Ngày thanh toán</th>
-                            <th className="p-3 text-right">Hình thức</th>
+                          <tr className="bg-surface/50 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
+                            <th className="px-4 py-3">Mã HĐ</th>
+                            <th className="px-4 py-3">Số tiền</th>
+                            <th className="px-4 py-3">Hạn thanh toán</th>
+                            <th className="px-4 py-3 text-right">Trạng thái</th>
                           </tr>
                         </thead>
-                        <tbody>
-                          {roomData.paymentHistory &&
-                            roomData.paymentHistory.length > 0 ? (
-                            roomData.paymentHistory.map((pay) => (
+                        <tbody className="divide-y divide-border/40">
+                          {realInvoices && realInvoices.length > 0 ? (
+                            realInvoices.map((inv: any) => (
                               <tr
-                                key={pay.id}
-                                className="border-b border-border/40 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                                key={inv.id}
+                                className="hover:bg-surface/40 transition-colors"
                               >
-                                <td className="p-3 font-bold">{pay.month}</td>
-                                <td className="p-3 font-black">
-                                  {pay.amount.toLocaleString()} đ
+                                <td className="px-4 py-3 font-bold text-text">{inv.code}</td>
+                                <td className="px-4 py-3 font-black text-text">
+                                  {(inv.total || inv.amount || 0).toLocaleString()} đ
                                 </td>
-                                <td className="p-3 text-muted">
-                                  {new Date(pay.date).toLocaleDateString(
-                                    "vi-VN",
-                                  )}
+                                <td className="px-4 py-3 text-muted text-xs">
+                                  {new Date(inv.dueDate).toLocaleDateString("vi-VN")}
                                 </td>
-                                <td className="p-3 text-right text-muted">
-                                  {pay.method}
+                                <td className="px-4 py-3 text-right">
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${["PAID", "paid"].includes(inv.status)
+                                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                      : "bg-rose-500/10 text-rose-500 border border-rose-500/20"
+                                      }`}
+                                  >
+                                    {["PAID", "paid"].includes(inv.status) ? "Đã trả" : "Chưa trả"}
+                                  </span>
                                 </td>
                               </tr>
                             ))
@@ -1659,7 +1952,52 @@ export default function RoomPremiumModal({
                             <tr>
                               <td
                                 colSpan={4}
-                                className="p-4 text-center text-muted italic"
+                                className="p-8 text-center text-muted font-medium italic"
+                              >
+                                Chưa có hóa đơn nào cho phòng này
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Payment History */}
+                  <div className="flex flex-col gap-3">
+                    <h4 className="font-black text-[14px] uppercase text-text tracking-wide flex items-center gap-2">
+                      Lịch sử thanh toán
+                    </h4>
+                    <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
+                      <table className="w-full text-left border-collapse text-sm">
+                        <thead>
+                          <tr className="bg-surface/50 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
+                            <th className="px-4 py-3">Tháng</th>
+                            <th className="px-4 py-3">Số tiền</th>
+                            <th className="px-4 py-3">Ngày thanh toán</th>
+                            <th className="px-4 py-3 text-right">Hình thức</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/40">
+                          {roomData.paymentHistory && roomData.paymentHistory.length > 0 ? (
+                            roomData.paymentHistory.map((pay) => (
+                              <tr
+                                key={pay.id}
+                                className="hover:bg-surface/40 transition-colors"
+                              >
+                                <td className="px-4 py-3 font-bold text-text">{pay.month}</td>
+                                <td className="px-4 py-3 font-black text-emerald-600 dark:text-emerald-400">
+                                  {pay.amount.toLocaleString()} đ
+                                </td>
+                                <td className="px-4 py-3 text-muted text-xs">{pay.date}</td>
+                                <td className="px-4 py-3 text-right text-muted text-xs font-semibold">{pay.method}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={4}
+                                className="p-8 text-center text-muted font-medium italic"
                               >
                                 Chưa có lịch sử thanh toán
                               </td>
@@ -1672,190 +2010,627 @@ export default function RoomPremiumModal({
                 </div>
               )}
 
+              {/* TAB 3: HỢP ĐỒNG */}
               {activeTab === "contract" && (
-                <div className="flex flex-col gap-6 animate-in w-full box-border">
-                  <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2 border-b border-border/40 pb-2">
-                    <FileText size={14} /> Thông tin hợp đồng thuê
-                  </h4>
-                  {roomData.contract ? (
-                    <div className="flex flex-col gap-4 pb-4 w-full">
-                      <table className="w-full text-left text-sm whitespace-nowrap">
-                        <thead className="bg-black/5 dark:bg-white/5 uppercase text-[10px] md:text-[11px] font-black text-muted">
-                          <tr>
-                            <th className="p-3 rounded-l-lg w-[50px]">STT</th>
-                            <th className="p-3">Đại diện HĐ</th>
-                            <th className="p-3">Mã Hợp Đồng</th>
-                            <th className="p-3">Tiền phòng</th>
-                            <th className="p-3">Tiền cọc</th>
-                            <th className="p-3">Ngày bắt đầu</th>
-                            <th className="p-3">Ngày kết thúc</th>
-                            <th className="p-3 rounded-r-lg text-center w-[80px]">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(() => {
-                            const reps = [
-                              ...(roomData.tenant ? [{ ...roomData.tenant, contract: roomData.contract }] : []),
-                              ...(roomData.sharedTenants || []).filter((t: any) => t.isRep).map(t => ({
-                                ...t,
-                                contract: {
-                                  id: t.contractId,
-                                  code: t.contractCode || `HĐ-${roomData.code || roomData.name}-${t.name ? t.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toUpperCase() : Date.now().toString().slice(-4)}`,
-                                  deposit: t.deposit,
-                                  rentPrice: t.rentPrice,
-                                  startDate: t.startDate,
-                                  endDate: t.endDate
-                                }
-                              }))
-                            ];
-
-                            if (reps.length === 0) return null;
-
-                            return reps.map((rep, index) => {
-                              const c = rep.contract || {} as any;
-                              const tName = rep.name || rep.fullName || "";
-                              const cleanName = tName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toUpperCase();
-                              const contractCode = c.code || `HĐ-${roomData.code || roomData.name}${cleanName ? `-${cleanName}` : ""}`;
-
-                              return (
-                                <tr key={rep.id || index} className="border-b border-border/40 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                                  <td className="p-3 font-bold">{index + 1}</td>
-                                  <td className="p-3 font-bold">{tName || "Chưa có"}</td>
-                                  <td className="p-3 font-bold text-indigo-600">{contractCode}</td>
-                                  <td className="p-3 font-bold">{(c.rentPrice || roomData.monthlyPrice || 0).toLocaleString()} đ</td>
-                                  <td className="p-3 font-bold">{(c.deposit || 0).toLocaleString()} đ</td>
-                                  <td className="p-3 text-muted">{c.startDate ? new Date(c.startDate).toLocaleDateString("vi-VN") : "-"}</td>
-                                  <td className="p-3 text-muted">{c.endDate ? new Date(c.endDate).toLocaleDateString("vi-VN") : "-"}</td>
-                                  <td className="p-3 text-center">
-                                    <div className="relative inline-flex items-center justify-center group">
-                                      <button className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors cursor-pointer outline-none">
-                                        <MoreHorizontal size={16} className="text-muted" />
-                                      </button>
-                                      <div className="absolute right-4 top-full mt-1 z-[10020] w-[180px] overflow-hidden rounded-[12px] border border-border bg-background shadow-xl py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible transition-all duration-200">
-                                        <button className="flex w-full items-center px-4 py-2.5 text-left text-[13px] font-semibold text-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors outline-none" onClick={() => showToast("Đang tải tệp PDF...", "info")}><Paperclip size={14} className="mr-2" /> Xem PDF</button>
-                                        <button className="flex w-full items-center px-4 py-2.5 text-left text-[13px] font-semibold text-amber-500 hover:bg-amber-500/10 transition-colors outline-none" onClick={() => { if (c.id) expireContractMutation.mutate(c.id); }}><FileText size={14} className="mr-2" /> Gia hạn hợp đồng</button>
-                                        <button className="flex w-full items-center px-4 py-2.5 text-left text-[13px] font-semibold text-danger hover:bg-danger/10 transition-colors outline-none" onClick={() => { if (c.id) terminateContractMutation.mutate(c.id); }}><Trash2 size={14} className="mr-2" /> Chấm dứt hợp đồng</button>
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            });
-                          })()}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center">
-                      <FileText
-                        size={32}
-                        className="text-muted opacity-40 mb-2"
-                      />
-                      <span className="text-sm font-bold text-muted">
-                        Phòng này hiện chưa có hợp đồng
-                      </span>
-                      <Button
-                        size="sm"
-                        className="mt-4"
-                        onClick={openCreateContractModal}
-                      >
-                        <Plus size={12} className="mr-1" /> Tạo hợp đồng ngay
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === "temp_residence" && (
-                <div className="flex flex-col gap-6 animate-in w-full box-border">
-                  <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2 border-b border-border/40 pb-2">
-                    <ShieldAlert size={14} /> Tình trạng khai báo tạm trú
-                  </h4>
-                  <div className="border border-border/60 rounded-xl p-5 bg-card flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-bold text-text">
-                        Khai báo tạm trú (Công an sở tại)
-                      </span>
-                      <span className="text-xs text-muted mt-0.5">
-                        Quy định bắt buộc đối với khách thuê lưu trú qua đêm
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        if (roomData.tenant) {
-                          handleTenantChange(
-                            "tempResidence",
-                            !roomData.tenant.tempResidence,
-                          );
-                          showToast(
-                            "Cập nhật trạng thái tạm trú thành công!",
-                            "success",
-                          );
-                        }
-                      }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${roomData.tenant?.tempResidence ? "bg-indigo-500/10 text-indigo-500" : "bg-rose-500/10 text-rose-500"}`}
+                <div className="flex flex-col gap-5 animate-in w-full box-border">
+                  <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                    <h4 className="font-black text-[14px] uppercase text-text tracking-wide flex items-center gap-2">
+                      <FileText size={16} className="text-primary" /> Thông tin hợp đồng thuê
+                    </h4>
+                    <Button
+                      size="sm"
+                      onClick={openCreateContractModal}
+                      className="bg-primary text-white hover:bg-primary/90 shadow-sm"
                     >
-                      {roomData.tenant?.tempResidence
-                        ? "Đã khai báo"
-                        : "Chưa khai báo"}
-                    </button>
+                      <Plus size={13} className="mr-1" /> Tạo hợp đồng mới
+                    </Button>
                   </div>
+
+                  {(() => {
+                    const reps = [
+                      ...(roomData.tenant ? [{ ...roomData.tenant, contract: roomData.contract }] : []),
+                      ...(roomData.sharedTenants || []).filter((t: any) => t.isRep).map(t => ({
+                        ...t,
+                        contract: {
+                          id: t.contractId,
+                          code: t.contractCode || `HĐ-${roomData.code || roomData.name}-${t.name ? t.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toUpperCase() : Date.now().toString().slice(-4)}`,
+                          deposit: t.deposit,
+                          rentPrice: t.rentPrice,
+                          startDate: t.startDate,
+                          endDate: t.endDate
+                        }
+                      }))
+                    ];
+
+                    if (reps.length === 0 || !roomData.contract) {
+                      return (
+                        <div className="p-10 text-center border-2 border-dashed border-border/60 rounded-2xl flex flex-col items-center justify-center bg-card shadow-sm my-2">
+                          <div className="h-12 w-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3">
+                            <FileText size={24} />
+                          </div>
+                          <h5 className="text-[15px] font-black text-text">Phòng này hiện chưa có hợp đồng</h5>
+                          <p className="text-xs text-muted max-w-sm mt-1 leading-relaxed">
+                            Lập hợp đồng thuê mới để quản lý thời hạn, tiền phòng, tiền cọc và tự động phát sinh hóa đơn định kỳ.
+                          </p>
+                          <Button
+                            size="sm"
+                            className="mt-4"
+                            onClick={openCreateContractModal}
+                          >
+                            <Plus size={13} className="mr-1" /> Tạo hợp đồng ngay
+                          </Button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="border border-border/60 rounded-2xl bg-card shadow-sm overflow-visible">
+                        <div className="overflow-visible min-h-[140px]">
+                          <table className="w-full text-left text-sm whitespace-nowrap">
+                            <thead className="bg-surface/50 uppercase text-[11px] font-black text-muted tracking-wider border-b border-border/40">
+                              <tr>
+                                <th className="px-4 py-3 w-[50px]">STT</th>
+                                <th className="px-4 py-3">Đại diện HĐ</th>
+                                <th className="px-4 py-3">Mã Hợp Đồng</th>
+                                <th className="px-4 py-3">Tiền phòng</th>
+                                <th className="px-4 py-3">Tiền cọc</th>
+                                <th className="px-4 py-3">Ngày bắt đầu</th>
+                                <th className="px-4 py-3">Ngày kết thúc</th>
+                                <th className="px-4 py-3 text-right w-[100px]">Thao tác</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/40">
+                              {(() => {
+                                const currentBuilding = buildings?.find(b => Array.isArray(b.floors) && b.floors.some(f => Array.isArray(f.rooms) && f.rooms.some(r => r.id === roomId)));
+                                const currentRoomType = (roomData as any)?.roomType || getStoredRoomType(roomId, (currentRoom as any)?.roomType);
+
+                                const buildContractPayload = (rep: any) => {
+                                  const c = rep.contract || {} as any;
+                                  const rentVal = Number(c.rentPrice || roomData.monthlyPrice || 0);
+                                  const depositVal = Number(c.deposit || 0);
+                                  const landlordKey = contractDraft.chuNha || "TINH";
+                                  const landlordInfo = LANDLORDS[landlordKey] || LANDLORDS["TINH"];
+
+                                  const signedDate = c.signedAt ? new Date(c.signedAt) : new Date();
+                                  const ngayKyHD = String(signedDate.getDate()).padStart(2, "0");
+                                  const thangKyHD = String(signedDate.getMonth() + 1).padStart(2, "0");
+                                  const namKyHD = String(signedDate.getFullYear());
+
+                                  return {
+                                    hoTen: rep.name || rep.fullName || "..........................",
+                                    ngaySinh: rep.birthDate ? formatBirthDateForDisplay(rep.birthDate) : "..........................",
+                                    cccd: rep.citizenId || rep.identityNo || rep.cccd || "..........................",
+                                    diaChi: rep.address || "..........................",
+                                    dienThoai: rep.phone || rep.phoneNumber || "..........................",
+                                    dienThoaiNguoithan: rep.emergencyPhone || "-",
+                                    mucDichThue: c.purpose || "Để ở",
+                                    tienThue: rentVal,
+                                    tienThueChu: rentVal ? numberToWordsVietnamese(rentVal) : "..........................",
+                                    tienCoc: depositVal,
+                                    tienCocChu: depositVal ? numberToWordsVietnamese(depositVal) : "..........................",
+                                    ngayBatDau: c.startDate ? formatBirthDateForDisplay(c.startDate) : "..........................",
+                                    ngayKetThuc: c.endDate ? formatBirthDateForDisplay(c.endDate) : "..........................",
+                                    maPhong: roomData.code || roomData.name || "..........................",
+                                    soPhongNgu: currentRoomType || "1 phòng ngủ",
+                                    thoiHanThue: contractDraft.thoiHanThue || "1 năm",
+                                    toaNha: currentBuilding?.name || "..........................",
+                                    diachiToanha: currentBuilding?.address || "..........................",
+                                    chuNha: landlordKey,
+                                    ngayKyHD,
+                                    thangKyHD,
+                                    namKyHD,
+                                    ngayKyhopdong: c.signedAt ? formatBirthDateForDisplay(c.signedAt) : `${ngayKyHD}/${thangKyHD}/${namKyHD}`,
+                                    ngayThanhToanDauTien: c.firstPaymentDate ? formatBirthDateForDisplay(c.firstPaymentDate) : `${ngayKyHD}/${thangKyHD}/${namKyHD}`,
+                                    ...landlordInfo,
+                                    signedAt: c.signedAt,
+                                    firstPaymentDate: c.firstPaymentDate,
+                                    contractCode: c.code,
+                                  };
+                                };
+
+                                const handleDownloadContractPdf = async (rep: any) => {
+                                  const rowKey = rep.contract?.id || rep.id || "current";
+                                  setIsDownloadingPdf(rowKey);
+                                  showToast("Đang tạo tệp PDF hợp đồng...", "info");
+                                  try {
+                                    const payload = buildContractPayload(rep);
+                                    const res = await fetch("/api/export-contract?format=pdf", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify(payload),
+                                    });
+                                    if (!res.ok) throw new Error("Không thể tải tệp PDF từ server");
+                                    const blob = await res.blob();
+                                    const url = window.URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    a.href = url;
+                                    const isPdf = blob.type.includes("pdf");
+                                    const ext = isPdf ? "pdf" : "docx";
+                                    const safeCustomer = (payload.hoTen || "KhachHang").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "_");
+                                    const safeRoom = (payload.maPhong || "").replace(/[^a-zA-Z0-9]/g, "");
+                                    a.download = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ""}.${ext}`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    window.URL.revokeObjectURL(url);
+                                    showToast("Đã tải xuống hợp đồng PDF thành công!", "success");
+                                  } catch (err: any) {
+                                    console.warn("[DownloadContractPdf]", err);
+                                    showToast(err?.message || "Có lỗi xảy ra khi tải xuống hợp đồng", "error");
+                                  } finally {
+                                    setIsDownloadingPdf(null);
+                                  }
+                                };
+
+                                return reps.map((rep, index) => {
+                                  const c = rep.contract || {} as any;
+                                  const tName = rep.name || rep.fullName || "";
+                                  const cleanName = tName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toUpperCase();
+                                  const contractCode = c.code || `HĐ-${roomData.code || roomData.name}${cleanName ? `-${cleanName}` : ""}`;
+                                  const rowKey = c.id || rep.id || String(index);
+
+                                  return (
+                                    <tr key={rowKey} className="hover:bg-surface/40 transition-colors">
+                                      <td className="px-4 py-3 font-semibold text-muted text-xs">{index + 1}</td>
+                                      <td className="px-4 py-3 font-bold text-text">{tName || "Chưa có"}</td>
+                                      <td className="px-4 py-3">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const payload = buildContractPayload(rep);
+                                            setPreviewContractData(payload);
+                                            setIsPreviewContractModalOpen(true);
+                                          }}
+                                          className="font-bold text-primary hover:underline font-mono text-xs cursor-pointer inline-flex items-center gap-1.5 group text-left"
+                                          title="Nhấn để xem trực tiếp PDF hợp đồng"
+                                        >
+                                          <span>{contractCode}</span>
+                                          <Eye size={13} className="text-primary/70 group-hover:text-primary transition-colors" />
+                                        </button>
+                                      </td>
+                                      <td className="px-4 py-3 font-black text-text">{(c.rentPrice || roomData.monthlyPrice || 0).toLocaleString()} đ</td>
+                                      <td className="px-4 py-3 font-bold text-text">{(c.deposit || 0).toLocaleString()} đ</td>
+                                      <td className="px-4 py-3 text-muted text-xs">{c.startDate ? new Date(c.startDate).toLocaleDateString("vi-VN") : "-"}</td>
+                                      <td className="px-4 py-3 text-muted text-xs">{c.endDate ? new Date(c.endDate).toLocaleDateString("vi-VN") : "-"}</td>
+                                      <td className="px-4 py-3 text-right">
+                                        <div className="relative inline-flex items-center justify-end gap-1.5">
+                                          <button
+                                            type="button"
+                                            disabled={isDownloadingPdf === rowKey}
+                                            onClick={() => handleDownloadContractPdf(rep)}
+                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-border/60 bg-surface hover:bg-surface/80 text-text hover:text-primary text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                                            title="Tải xuống PDF hợp đồng"
+                                          >
+                                            {isDownloadingPdf === rowKey ? (
+                                              <Loader2 size={13} className="animate-spin text-primary" />
+                                            ) : (
+                                              <Download size={13} />
+                                            )}
+                                            <span className="hidden sm:inline">Tải PDF</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setOpenContractMenuId((prev) => (prev === rowKey ? null : rowKey));
+                                            }}
+                                            className={`p-1.5 rounded-xl transition-colors cursor-pointer outline-none ${
+                                              openContractMenuId === rowKey ? "bg-surface text-primary shadow-sm" : "hover:bg-surface text-muted hover:text-text"
+                                            }`}
+                                            title="Tùy chọn khác"
+                                          >
+                                            <MoreHorizontal size={16} />
+                                          </button>
+                                          {openContractMenuId === rowKey && (
+                                            <div
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="absolute right-0 top-full mt-1.5 z-[10020] w-[200px] rounded-2xl border border-border bg-card shadow-2xl p-1.5 animate-in fade-in zoom-in-95 duration-150 text-left"
+                                            >
+                                              <button
+                                                type="button"
+                                                className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-text hover:bg-surface transition-colors cursor-pointer"
+                                                onClick={() => {
+                                                  setOpenContractMenuId(null);
+                                                  const payload = buildContractPayload(rep);
+                                                  setPreviewContractData(payload);
+                                                  setIsPreviewContractModalOpen(true);
+                                                }}
+                                              >
+                                                <Eye size={14} className="mr-2 text-primary" /> Xem PDF trực tiếp
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-text hover:bg-surface transition-colors cursor-pointer"
+                                                onClick={() => {
+                                                  setOpenContractMenuId(null);
+                                                  handleDownloadContractPdf(rep);
+                                                }}
+                                              >
+                                                <Download size={14} className="mr-2 text-muted" /> Tải xuống PDF
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                                                onClick={() => {
+                                                  setOpenContractMenuId(null);
+                                                  if (c.id) expireContractMutation.mutate(c.id);
+                                                }}
+                                              >
+                                                <FileText size={14} className="mr-2" /> Gia hạn hợp đồng
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                                onClick={() => {
+                                                  setOpenContractMenuId(null);
+                                                  if (c.id) terminateContractMutation.mutate(c.id);
+                                                }}
+                                              >
+                                                <Trash2 size={14} className="mr-2" /> Chấm dứt hợp đồng
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
-              {activeTab === "images" && (
-                <div className="flex flex-col gap-6 animate-in w-full box-border">
-                  <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2 border-b border-border/40 pb-2">
-                    <ImageIcon size={14} /> Hình ảnh căn hộ và CCCD khách thuê
-                  </h4>
+              {/* TAB 4: TẠM TRÚ */}
+              {activeTab === "temp_residence" && (
+                <div className="flex flex-col gap-5 animate-in w-full box-border">
+                  <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                    <h4 className="font-black text-[14px] uppercase text-text tracking-wide flex items-center gap-2">
+                      <ShieldAlert size={16} className="text-primary" /> Khai báo tạm trú (Mẫu CT01)
+                    </h4>
+                    <span className="text-[11px] font-bold text-muted">
+                      Đồng bộ dữ liệu cư dân
+                    </span>
+                  </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {roomData.images && roomData.images.length > 0 ? (
-                      roomData.images.map((img, idx) => (
-                        <div
-                          key={idx}
-                          className="relative aspect-video rounded-xl overflow-hidden border border-border/60 bg-muted group"
-                        >
-                          <img
-                            src={img}
-                            alt={`Room image ${idx}`}
-                            className="w-full h-full object-cover"
-                          />
-                          <button className="absolute top-2 right-2 w-[24px] h-[24px] bg-black/60 hover:bg-rose-500/90 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Trash2 size={12} />
-                          </button>
+                  {(() => {
+                    const occupants = getOccupantsList();
+
+                    // IF NO TENANTS: Display clear, prominent empty state as requested
+                    if (occupants.length === 0) {
+                      return (
+                        <div className="p-12 text-center border-2 border-dashed border-border/60 rounded-2xl flex flex-col items-center justify-center bg-card shadow-sm my-2">
+                          <div className="h-14 w-14 rounded-2xl bg-muted/10 text-muted flex items-center justify-center mb-3">
+                            <ShieldAlert size={28} />
+                          </div>
+                          <h4 className="text-[15px] font-black text-text">Chưa có khách thuê</h4>
+                          <p className="text-xs text-muted max-w-sm mt-1.5 leading-relaxed">
+                            Phòng hiện đang trống. Sau khi thêm khách thuê hoặc ký hợp đồng, bạn có thể thực hiện thủ tục khai báo tạm trú (Mẫu CT01) cho cư dân tại đây.
+                          </p>
+                          <Button
+                            size="sm"
+                            className="mt-4 bg-primary text-white hover:bg-primary/90"
+                            onClick={() => setActiveTab("rental_flow")}
+                          >
+                            <UserPlus size={14} className="mr-1.5" /> Thêm khách thuê ngay
+                          </Button>
                         </div>
-                      ))
-                    ) : (
-                      <div className="col-span-full p-8 text-center text-muted italic">
-                        Chưa tải ảnh phòng lên
-                      </div>
-                    )}
+                      );
+                    }
 
-                    <div className="border-2 border-dashed border-border rounded-xl aspect-video flex flex-col items-center justify-center cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                      <Upload
-                        size={24}
-                        className="text-muted opacity-50 mb-1"
-                      />
-                      <span className="text-[11px] font-bold text-muted">
-                        Tải ảnh lên (Max 5MB)
-                      </span>
+                    const isAllDeclared = roomData.tenant?.tempResidence || (roomData.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every(st => st.tempResidence));
+
+                    return (
+                      <div className="flex flex-col gap-4">
+                        {/* Main room-wide status card */}
+                        <div className="border border-border/60 rounded-2xl p-5 bg-card flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-black text-text">
+                                Khai báo tạm trú với Công an sở tại
+                              </span>
+                              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${isAllDeclared
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                                }`}>
+                                {isAllDeclared ? "✓ Đã khai báo" : "• Chưa hoàn tất"}
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted">
+                              Quy định bắt buộc đối với khách thuê lưu trú qua đêm tại căn hộ.
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant={isAllDeclared ? "outline" : "primary"}
+                            onClick={() => setIsTempResidenceConfirmOpen(true)}
+                            className="shrink-0"
+                          >
+                            {isAllDeclared ? "Hủy xác nhận khai báo" : "Xác nhận đã khai báo"}
+                          </Button>
+                        </div>
+
+                        {/* Occupants list breakdown */}
+                        <div className="flex flex-col gap-3 mt-1">
+                          <h5 className="text-[12px] font-black uppercase text-muted tracking-wider">
+                            Danh sách người lưu trú ({occupants.length})
+                          </h5>
+                          <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
+                            <table className="w-full text-left border-collapse text-sm">
+                              <thead>
+                                <tr className="bg-surface/50 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
+                                  <th className="px-4 py-3">Họ và tên</th>
+                                  <th className="px-4 py-3">CCCD / Định danh</th>
+                                  <th className="px-4 py-3">Vai trò</th>
+                                  <th className="px-4 py-3 text-right">Trạng thái tạm trú</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border/40">
+                                {occupants.map((occ: any, idx: number) => {
+                                  const isDeclared = Boolean(occ.tempResidence || roomData.tenant?.tempResidence);
+                                  return (
+                                    <tr key={occ.id || idx} className="hover:bg-surface/40 transition-colors">
+                                      <td className="px-4 py-3 font-bold text-text">{occ.name || occ.fullName || "Khách thuê"}</td>
+                                      <td className="px-4 py-3 text-text font-mono text-xs">{occ.cccd || occ.identityNo || "—"}</td>
+                                      <td className="px-4 py-3">
+                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${occ.isRep ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface text-muted border border-border/40'}`}>
+                                          {occ.role || (occ.isRep ? "Đại diện HĐ" : "Người ở cùng")}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-3 text-right">
+                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${isDeclared
+                                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                          : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                                          }`}>
+                                          <span className={`w-1.5 h-1.5 rounded-full ${isDeclared ? "bg-emerald-500" : "bg-rose-500"}`} />
+                                          {isDeclared ? "Đã khai báo" : "Chưa khai báo"}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* TAB 5: CÀI ĐẶT PHÒNG */}
+              {activeTab === "overview" && (
+                <div className="flex flex-col gap-5 animate-in w-full box-border">
+                  <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                    <h3 className="font-black text-[14px] md:text-[15px] uppercase tracking-wide text-text flex items-center gap-2">
+                      <SlidersHorizontal size={16} className="text-primary" /> Cài đặt & Thông số phòng
+                    </h3>
+                    <span className="text-[11px] font-bold text-muted">Mã: {roomData.code}</span>
+                  </div>
+
+                  {/* Hunonic IoT & Utilities Card */}
+                  <div className="flex flex-col gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.04] p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/15 pb-2.5">
+                      <div className="flex items-center gap-2 text-[13px] font-black text-text">
+                        <Zap size={17} className="text-emerald-500" /> Công tơ điện thông minh Hunonic & Tiện ích
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400">
+                          ● Tự động đồng bộ
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleUpdateElectricity}
+                          disabled={isUpdatingElectricity || isElectricityLoading}
+                          className="h-7 text-xs font-bold gap-1 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/15 cursor-pointer"
+                        >
+                          <RefreshCw size={12} className={isUpdatingElectricity || isElectricityLoading ? "animate-spin" : ""} />
+                          {isUpdatingElectricity ? "Đang cập nhật..." : "Cập nhật chỉ số điện"}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {electricity ? (
+                        <>
+                          <div className="rounded-xl border border-border/40 bg-card p-3.5 shadow-sm">
+                            <div className="text-[11px] font-bold uppercase text-muted">Thiết bị đo</div>
+                            <div className="mt-1 text-[14px] font-black text-text truncate">{electricity.deviceName || electricity.displayName}</div>
+                          </div>
+                          <div className="rounded-xl border border-border/40 bg-card p-3.5 shadow-sm">
+                            <div className="text-[11px] font-bold uppercase text-muted">Số điện tháng này</div>
+                            <div className="mt-1 text-[14px] font-black text-text">{Number(electricity.energyMonthKwh || 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} kWh</div>
+                          </div>
+                          <div className="rounded-xl border border-border/40 bg-card p-3.5 shadow-sm">
+                            <div className="text-[11px] font-bold uppercase text-muted">Tiền điện tạm tính</div>
+                            <div className="mt-1 text-[14px] font-black text-emerald-600 dark:text-emerald-400">{formatCompactMoney(Number(electricity.moneyMonthVnd || 0))}</div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="col-span-2 sm:col-span-3 rounded-xl border border-dashed border-emerald-500/25 bg-card/60 p-3.5 text-[12px] font-semibold text-muted text-center flex items-center justify-center">
+                          {isElectricityLoading ? "Đang tải dữ liệu công tơ điện..." : "Chưa liên kết công tơ Hunonic cho phòng này."}
+                        </div>
+                      )}
+                      <div className="rounded-xl border border-border/40 bg-card p-3.5 shadow-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold uppercase text-muted">Định mức nước</span>
+                          <Droplets size={13} className="text-sky-500" />
+                        </div>
+                        <div className="mt-1 text-[14px] font-black text-sky-600 dark:text-sky-400">100.000 đ / người</div>
+                        <div className="text-[10px] text-muted font-medium mt-0.5">Thu theo số người ở</div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
 
-              {activeTab === "notes" && (
-                <div className="flex flex-col gap-6 animate-in w-full box-border">
-                  <h4 className="font-black text-[13px] md:text-[14px] uppercase text-muted flex items-center gap-2 border-b border-border/40 pb-2">
-                    <AlignLeft size={14} /> Ghi chú nội bộ
-                  </h4>
-                  <textarea
-                    value={roomData.notes || ""}
-                    onChange={(e) => handleFieldChange("notes", e.target.value)}
-                    placeholder="Nhập các ghi chú quan trọng về khách thuê hoặc phòng..."
-                    className="flex min-h-[150px] w-full rounded-xl border border-border bg-transparent px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 resize-none"
-                  />
+                  {/* Form Specifications Card */}
+                  {(() => {
+                    const displayRent = (roomData.contract?.rentPrice ? Number(roomData.contract.rentPrice) : (roomData.monthlyPrice || roomData.price || 0)).toLocaleString("vi-VN") + " đ";
+                    const displayStatus = roomData.status === "occupied" ? "Đang thuê" : roomData.status === "expiring_soon" ? "Hợp đồng sắp hết hạn" : roomData.status === "deposited" ? "Đã đặt cọc" : roomData.status === "maintenance" ? "Đang bảo trì" : "Trống (Có thể thuê)";
+                    const displayRentalType = roomData.rentalType === "shared" ? "Cho thuê theo giường / Phòng ở ghép" : "Cho thuê nguyên căn";
+                    const currentRoomType = (roomData as any)?.roomType || getStoredRoomType(roomId, (currentRoom as any)?.roomType);
+
+                    return (
+                      <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm flex flex-col gap-4">
+                        <h4 className="text-[12px] font-black uppercase tracking-wider text-muted border-b border-border/40 pb-2">
+                          Thông số cơ bản
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* 1. Tên phòng - Cố định theo tòa nhà */}
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <label className="text-[11px] font-black text-muted uppercase">
+                                Tên phòng
+                              </label>
+                              <span className="text-[10px] font-bold text-muted bg-surface px-2 py-0.5 rounded-full border border-border/40">
+                                Cố định theo tòa nhà
+                              </span>
+                            </div>
+                            <Input
+                              readOnly
+                              disabled
+                              value={roomData.name}
+                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
+                            />
+                          </div>
+
+                          {/* 2. Mã định danh phòng - Cố định theo tòa nhà */}
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <label className="text-[11px] font-black text-muted uppercase">
+                                Mã định danh phòng
+                              </label>
+                              <span className="text-[10px] font-bold text-muted bg-surface px-2 py-0.5 rounded-full border border-border/40">
+                                Cố định theo tòa nhà
+                              </span>
+                            </div>
+                            <Input
+                              readOnly
+                              disabled
+                              value={roomData.code}
+                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
+                            />
+                          </div>
+
+                          {/* 3. Giá thuê niêm yết - Theo trạng thái hợp đồng */}
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <label className="text-[11px] font-black text-muted uppercase">
+                                Giá thuê niêm yết (VNĐ / tháng)
+                              </label>
+                              <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                                Theo hợp đồng
+                              </span>
+                            </div>
+                            <Input
+                              readOnly
+                              disabled
+                              value={displayRent}
+                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
+                            />
+                          </div>
+
+                          {/* 4. Trạng thái phòng - Theo trạng thái hợp đồng */}
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <label className="text-[11px] font-black text-muted uppercase">
+                                Trạng thái phòng
+                              </label>
+                              <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                                Theo hợp đồng
+                              </span>
+                            </div>
+                            <Input
+                              readOnly
+                              disabled
+                              value={displayStatus}
+                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
+                            />
+                          </div>
+
+                          {/* 5. Kiểu thuê phòng - Theo trạng thái hợp đồng */}
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <label className="text-[11px] font-black text-muted uppercase">
+                                Kiểu thuê phòng
+                              </label>
+                              <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                                Theo hợp đồng
+                              </span>
+                            </div>
+                            <Input
+                              readOnly
+                              disabled
+                              value={displayRentalType}
+                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
+                            />
+                          </div>
+
+                          {/* 6. Loại phòng - Tùy chỉnh (1 Phòng ngủ, 2 Phòng ngủ, Văn Phòng, Khác) */}
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <label className="text-[11px] font-black text-muted uppercase">
+                                Loại phòng
+                              </label>
+                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                                Mặc định vào khách thuê
+                              </span>
+                            </div>
+                            <Select
+                              value={currentRoomType}
+                              onChange={(e) => handleFieldChange("roomType" as any, e.target.value)}
+                              options={ROOM_TYPE_OPTIONS}
+                            />
+                          </div>
+
+                          {/* 7. Diện tích & Sức chứa */}
+                          <div className="grid grid-cols-2 gap-3 md:col-span-2">
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-[11px] font-black text-muted uppercase">
+                                Diện tích (m²)
+                              </label>
+                              <Input
+                                type="number"
+                                value={roomData.area ?? ""}
+                                onChange={(e) => handleFieldChange(
+                                  "area",
+                                  e.target.value === "" ? undefined : Number(e.target.value),
+                                )}
+                                placeholder="m²"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-[11px] font-black text-muted uppercase">
+                                Sức chứa (người)
+                              </label>
+                              <Input
+                                type="number"
+                                value={roomData.capacity ?? ""}
+                                onChange={(e) => handleFieldChange(
+                                  "capacity",
+                                  e.target.value === "" ? undefined : Number(e.target.value),
+                                )}
+                                placeholder="Số người"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Dedicated Save Button for Room Settings */}
+                        <div className="flex justify-end pt-3 border-t border-border/40">
+                          <Button onClick={handleSave} disabled={isSavingRoom} className="bg-primary text-white hover:bg-primary/90 font-black px-6 shadow-sm">
+                            {isSavingRoom ? <Loader2 size={16} className="animate-spin mr-2" /> : <Save size={16} className="mr-2" />}
+                            {isSavingRoom ? "Đang lưu..." : "Lưu cài đặt phòng"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -1937,8 +2712,8 @@ export default function RoomPremiumModal({
         }
       >
         <div className="flex flex-col gap-4 py-2">
-              {tenantModalStep === 1 && (
-                <>
+          {tenantModalStep === 1 && (
+            <>
               <div className="flex items-center justify-between bg-indigo-50/50 p-3 rounded-lg border border-emerald-100">
                 <div className="flex flex-col mr-2">
                   <span className="text-[12px] md:text-[13px] font-bold text-emerald-900">Đại diện hợp đồng</span>
@@ -2142,19 +2917,29 @@ export default function RoomPremiumModal({
           {tenantModalStep === 2 && (
             <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-right-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-black text-muted uppercase">
-                  Loại phòng
-                </label>
-                <Select
-                  value={contractDraft.soPhongNgu}
-                  onChange={(e) => setContractDraft((p) => ({ ...p, soPhongNgu: e.target.value }))}
-                  options={[
-                    { label: "Phòng Studio", value: "Phòng Studio" },
-                    { label: "1 phòng ngủ", value: "1 phòng ngủ" },
-                    { label: "2 phòng ngủ", value: "2 phòng ngủ" },
-                    { label: "3 phòng ngủ", value: "3 phòng ngủ" },
-                    { label: "Khác", value: "Khác" },
-                  ]}
+                <div className="flex items-center justify-between gap-1">
+                  <label className="text-[11px] font-black text-muted uppercase">
+                    Loại phòng
+                  </label>
+                  <span className="text-[10px] font-bold text-muted bg-surface px-2 py-0.5 rounded-full border border-border/40">
+                    Theo cài đặt phòng
+                  </span>
+                </div>
+                <Input
+                  type="text"
+                  readOnly
+                  disabled
+                  value={
+                    ROOM_TYPE_OPTIONS.find(
+                      (opt) =>
+                        opt.value.toLowerCase() ===
+                        (contractDraft.soPhongNgu || (roomData as any)?.roomType || "1 phòng ngủ").toLowerCase()
+                    )?.label ||
+                    contractDraft.soPhongNgu ||
+                    (roomData as any)?.roomType ||
+                    "1 Phòng ngủ"
+                  }
+                  className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -2195,16 +2980,23 @@ export default function RoomPremiumModal({
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-black text-muted uppercase">
-                  Chủ căn hộ cho thuê
-                </label>
-                <Select
-                  value={contractDraft.chuNha}
-                  onChange={(e) => setContractDraft((p) => ({ ...p, chuNha: e.target.value as "TINH" | "THE" }))}
-                  options={[
-                    { label: "NGUYỄN ĐỨC TÍNH", value: "TINH" },
-                    { label: "PHAN VĂN THỂ", value: "THE" },
-                  ]}
+                <div className="flex items-center justify-between gap-1">
+                  <label className="text-[11px] font-black text-muted uppercase whitespace-nowrap">
+                    Chủ căn hộ
+                  </label>
+                  <span
+                    className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full truncate max-w-[120px]"
+                    title={currentBuilding?.name || currentBuilding?.code || "Tòa nhà"}
+                  >
+                    {currentBuilding?.code || currentBuilding?.name || "Tòa nhà"}
+                  </span>
+                </div>
+                <Input
+                  type="text"
+                  readOnly
+                  disabled
+                  value={LANDLORDS[resolvedLandlordKey]?.hoTenChuNha || "NGUYỄN ĐỨC TÍNH"}
+                  className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -2233,7 +3025,7 @@ export default function RoomPremiumModal({
                 />
                 {contractDraft.tienThue && (
                   <span className="text-[10px] text-indigo-600 font-medium mt-[-2px]">
-                    Bằng chữ: {numberToWordsVietnamese(Number(contractDraft.tienThue.replace(/\D/g, "")))}
+                    {numberToWordsVietnamese(Number(contractDraft.tienThue.replace(/\D/g, "")))}
                   </span>
                 )}
               </div>
@@ -2545,6 +3337,75 @@ export default function RoomPremiumModal({
         </div>
       </Modal>
 
+      <Modal
+        isOpen={isTempResidenceConfirmOpen}
+        onClose={() => setIsTempResidenceConfirmOpen(false)}
+        title={
+          (roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence)))
+            ? "Xác nhận hủy khai báo tạm trú"
+            : "Xác nhận đã khai báo tạm trú"
+        }
+        footer={
+          <div className="flex gap-3 justify-end w-full">
+            <Button
+              variant="outline"
+              onClick={() => setIsTempResidenceConfirmOpen(false)}
+              disabled={isSavingTempResidence}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              variant={
+                (roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence)))
+                  ? "danger"
+                  : "primary"
+              }
+              onClick={handleConfirmToggleTempResidence}
+              disabled={isSavingTempResidence}
+            >
+              {isSavingTempResidence ? (
+                <Loader2 size={16} className="animate-spin mr-2" />
+              ) : (roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence))) ? (
+                <ShieldAlert size={16} className="mr-2" />
+              ) : (
+                <Check size={16} className="mr-2" />
+              )}
+              {(roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence)))
+                ? "Xác nhận hủy"
+                : "Xác nhận đã khai báo"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3 py-2">
+          {(roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence))) ? (
+            <>
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-800 dark:text-rose-300 text-[13px]">
+                <ShieldAlert className="shrink-0 text-rose-600" size={18} />
+                <span>
+                  Bạn có chắc chắn muốn hủy trạng thái khai báo tạm trú của phòng <strong>P.{getRoomDisplayName(roomData)}</strong>?
+                </span>
+              </div>
+              <p className="text-xs text-muted leading-relaxed">
+                Phòng sẽ được chuyển về trạng thái &quot;Chưa khai tạm trú&quot; và hiển thị lại cảnh báo trên danh sách phòng.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-[13px]">
+                <ShieldAlert className="shrink-0 text-emerald-600" size={18} />
+                <span>
+                  Xác nhận phòng <strong>P.{getRoomDisplayName(roomData)}</strong> ({roomData?.tenant?.name || "Khách thuê"}) đã hoàn tất thủ tục đăng ký tạm trú với Công an sở tại.
+                </span>
+              </div>
+              <p className="text-xs text-muted leading-relaxed">
+                Sau khi xác nhận, hệ thống sẽ gỡ bỏ các cảnh báo thiếu tạm trú trên giao diện quản lý và lưu trạng thái vĩnh viễn vào hệ thống.
+              </p>
+            </>
+          )}
+        </div>
+      </Modal>
+
       <input
         ref={qrFileInputRef}
         type="file"
@@ -2569,6 +3430,42 @@ export default function RoomPremiumModal({
         file={scannerFile}
         onSuccess={handleUploadSuccess}
       />
+
+      {previewImage && (
+        <Modal
+          isOpen={Boolean(previewImage)}
+          onClose={() => setPreviewImage(null)}
+          title="Xem ảnh căn hộ"
+          maxWidth="max-w-4xl"
+        >
+          <div className="flex items-center justify-center p-2 bg-black/5 dark:bg-white/5 rounded-xl">
+            <img
+              src={previewImage}
+              alt="Room preview"
+              className="max-h-[75vh] w-auto max-w-full rounded-lg object-contain shadow-lg"
+            />
+          </div>
+        </Modal>
+      )}
+
+      {isCreateInvoiceModalOpen && (
+        <InvoiceCreateModal
+          isOpen={isCreateInvoiceModalOpen}
+          onClose={() => setIsCreateInvoiceModalOpen(false)}
+          defaultRoomId={roomId}
+        />
+      )}
+
+      {isPreviewContractModalOpen && previewContractData && (
+        <PreviewContractModal
+          isOpen={isPreviewContractModalOpen}
+          onClose={() => {
+            setIsPreviewContractModalOpen(false);
+            setPreviewContractData(null);
+          }}
+          contract={previewContractData}
+        />
+      )}
     </>,
     document.body,
   );

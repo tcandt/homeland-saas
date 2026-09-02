@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   Clock,
   DoorClosed,
-  Eye,
   MessageSquare,
   Phone,
   RefreshCw,
@@ -269,27 +268,20 @@ export default function MonthlySettlementTable({
                               onClick={() => onResendSingle(item.roomId)}
                               isLoading={isResending}
                               disabled={!repHasZalo}
-                              className={`h-8 rounded-lg px-2 text-xs font-bold gap-1 border-border ${
-                                repHasZalo
+                              className={`h-8 rounded-lg px-2 text-xs font-bold gap-1 border-border ${repHasZalo
                                   ? "text-primary hover:bg-primary/10"
                                   : "text-muted opacity-40 cursor-not-allowed bg-muted/20"
-                              }`}
+                                }`}
                               title={repHasZalo ? "Gửi thông báo Zalo" : "Khách chưa đăng ký Zalo Bot"}
                             >
                               <Send size={12} />
-                              <span className="hidden sm:inline">Gửi Zalo</span>
+                              <span className="hidden sm:inline">Zalo</span>
                             </Button>
                           );
                         })()
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => onRowClick(item)}
-                        className="h-8 w-8 rounded-lg border border-border flex items-center justify-center text-muted hover:text-text hover:bg-muted/40 transition-colors"
-                        title="Xem chi tiết"
-                      >
-                        <Eye size={13} />
-                      </button>
+                      ) : (
+                        <span className="text-muted/30 text-xs font-mono">-</span>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -43,6 +43,22 @@ export const adaptFloor = (apiFloor: any, allRooms: any[] = []): Floor => {
   };
 };
 
+export const isTempResidenceDeclared = (customer: any, roomId?: string): boolean => {
+  if (!customer) return false;
+  if (Array.isArray(customer.idImages) && customer.idImages.includes("TEMP_RESIDENCE_DECLARED")) {
+    return true;
+  }
+  if (typeof window !== "undefined") {
+    if (customer.id && localStorage.getItem(`homeland_temp_residence_${customer.id}`) === "true") {
+      return true;
+    }
+    if (roomId && localStorage.getItem(`homeland_temp_residence_room_${roomId}`) === "true") {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const adaptRoom = (apiRoom: any): Room => {
   const allContracts = (apiRoom.contracts && apiRoom.contracts.length > 0)
     ? apiRoom.contracts.filter((c: any) => !c.deletedAt)
@@ -74,8 +90,8 @@ export const adaptRoom = (apiRoom: any): Room => {
     nationality: activeContract.customer.nationality || "",
     address: activeContract.customer.address || "",
     emergencyPhone: activeContract.customer.emergencyPhone || "",
-    idImages: [],
-    tempResidence: false
+    idImages: activeContract.customer.idImages || [],
+    tempResidence: isTempResidenceDeclared(activeContract.customer, apiRoom.id),
   } : undefined;
 
   const contract = activeContract ? {
@@ -103,8 +119,8 @@ export const adaptRoom = (apiRoom: any): Room => {
     nationality: c.customer.nationality || "",
     address: c.customer.address || "",
     emergencyPhone: c.customer.emergencyPhone || "",
-    idImages: [],
-    tempResidence: false,
+    idImages: c.customer.idImages || [],
+    tempResidence: isTempResidenceDeclared(c.customer, apiRoom.id),
     isRep: true,
     contractId: c.id,
     contractCode: c.code,
@@ -135,8 +151,8 @@ export const adaptRoom = (apiRoom: any): Room => {
     nationality: r.nationality || "",
     address: r.address || "",
     emergencyPhone: r.emergencyPhone || "",
-    idImages: [],
-    tempResidence: false,
+    idImages: r.idImages || [],
+    tempResidence: isTempResidenceDeclared(r, apiRoom.id),
     isRep: false,
     bedPosition: "",
     invoices: [],
@@ -146,7 +162,9 @@ export const adaptRoom = (apiRoom: any): Room => {
     remainingDays: 0
   }));
 
-  const sharedTenants = [...additionalContractTenants, ...roommatesList];
+  const isShared = mapApiRentalTypeToUi(apiRoom.rentalType) === "shared";
+  const sharedTenants = isShared ? [...additionalContractTenants, ...roommatesList] : additionalContractTenants;
+  const roommates = isShared ? [] : roommatesList;
 
   return {
     id: apiRoom.id,
@@ -166,7 +184,7 @@ export const adaptRoom = (apiRoom: any): Room => {
     building: apiRoom.building,
     buildingName: apiRoom.building?.name || apiRoom.building?.code || apiRoom.buildingCode || "",
     tenant,
-    roommates: [],
+    roommates,
     contract,
     invoices: [],
     paymentHistory: [],

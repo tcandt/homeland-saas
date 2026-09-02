@@ -74,11 +74,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
       if (unsyncedContracts.length > 0) {
         for (const c of unsyncedContracts) {
           const depositStatus =
-            c.status === 'ACTIVE' || c.status === 'APPROVED'
-              ? DepositStatus.CONVERTED_TO_CONTRACT
-              : c.status === 'TERMINATED' || c.status === 'EXPIRED'
-                ? DepositStatus.REFUNDED
-                : DepositStatus.DRAFT;
+            c.status === 'TERMINATED' || c.status === 'EXPIRED'
+              ? DepositStatus.REFUNDED
+              : DepositStatus.PENDING;
 
           await this.prisma.deposit.create({
             data: {

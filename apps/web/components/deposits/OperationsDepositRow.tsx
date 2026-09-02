@@ -26,14 +26,21 @@ export default function OperationsDepositRow({
 }) {
   const [showQrModal, setShowQrModal] = useState(false);
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, type?: string) => {
+    const isSecurity = type === "SECURITY";
     switch (status) {
       case "DRAFT":
         return { label: "Nháp", color: "text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20" };
       case "PENDING":
-        return { label: "Chờ thu", color: "text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20" };
+        return {
+          label: isSecurity ? "Chờ thu cọc hợp đồng" : "Chờ thu cọc giữ phòng",
+          color: isSecurity ? "text-purple-600 bg-purple-500/10 border-purple-500/20" : "text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20"
+        };
       case "PAID":
-        return { label: "Đã thu cọc", color: "text-[#10b981] bg-[#10b981]/10 border-[#10b981]/20" };
+        return {
+          label: isSecurity ? "Đã thu cọc hợp đồng" : "Đã thu cọc giữ phòng",
+          color: "text-[#10b981] bg-[#10b981]/10 border-[#10b981]/20"
+        };
       case "CONVERTED_TO_CONTRACT":
         return { label: "Đã chuyển HĐ", color: "text-[#6366f1] bg-[#6366f1]/10 border-[#6366f1]/20" };
       case "REFUNDED":
@@ -58,7 +65,7 @@ export default function OperationsDepositRow({
     }
   };
 
-  const statusBadge = getStatusBadge(deposit.status);
+  const statusBadge = getStatusBadge(deposit.status, deposit.type);
   const typeInfo = getTypeName();
   const amountStr = new Intl.NumberFormat("vi-VN").format(deposit.amount);
 
@@ -121,17 +128,19 @@ export default function OperationsDepositRow({
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              title="Xem VietQR & Gửi Zalo"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowQrModal(true);
-              }}
-              className="h-8 px-2.5 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/15 text-primary text-[12px] font-bold flex items-center gap-1 transition-colors"
-            >
-              <QrCode size={14} /> VietQR
-            </button>
+            {!["PAID", "CONVERTED_TO_CONTRACT", "REFUNDED", "CANCELLED"].includes(deposit.status?.toUpperCase() || "") && (
+              <button
+                type="button"
+                title="Xem VietQR & Gửi Zalo"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowQrModal(true);
+                }}
+                className="h-8 px-2.5 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/15 text-primary text-[12px] font-bold flex items-center gap-1 transition-colors"
+              >
+                <QrCode size={14} /> VietQR
+              </button>
+            )}
 
             <button
               type="button"

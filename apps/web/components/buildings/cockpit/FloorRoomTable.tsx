@@ -13,6 +13,8 @@ export interface FloorRoomTableProps {
   highlightedRoomCode?: string | null;
   onSelectRoom: (room: CockpitRoomSpec) => void;
   onOpenRoomInspector?: (room: CockpitRoomSpec) => void;
+  onOpenRoomModal?: (roomId: string, tab?: string) => void;
+  onContextMenuRoom?: (room: CockpitRoomSpec, event: React.MouseEvent) => void;
   onHoverRoom?: (roomCode: string | null) => void;
   className?: string;
 }
@@ -98,6 +100,8 @@ function FloorRoomTable({
   highlightedRoomCode = null,
   onSelectRoom,
   onOpenRoomInspector,
+  onOpenRoomModal,
+  onContextMenuRoom,
   onHoverRoom,
   className,
 }: FloorRoomTableProps) {
@@ -129,17 +133,36 @@ function FloorRoomTable({
             const status = room.sourceRoom?.status || room.status;
             const tone = getStatusTone(status);
             const hasOperationalData = Boolean(room.sourceRoom);
+
+            const handleDoubleClick = () => {
+              onSelectRoom(room);
+              const targetId = room.sourceRoom?.id || room.id;
+              if (onOpenRoomModal && targetId) {
+                onOpenRoomModal(targetId, "overview");
+              } else {
+                onOpenRoomInspector?.(room);
+              }
+            };
+
+            const handleContextMenu = (event: React.MouseEvent) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSelectRoom(room);
+              onContextMenuRoom?.(room, event);
+            };
+
             return (
               <tr
                 key={room.id}
                 data-room-code={room.urlCode}
                 aria-selected={selected}
                 onClick={() => onSelectRoom(room)}
-                onDoubleClick={() => onOpenRoomInspector?.(room)}
+                onDoubleClick={handleDoubleClick}
+                onContextMenu={handleContextMenu}
                 onMouseEnter={() => onHoverRoom?.(room.urlCode)}
                 onMouseLeave={() => onHoverRoom?.(null)}
                 className={cx(
-                  "cursor-pointer border-b border-border/20 dark:border-white/5 text-[12px] text-muted transition-[background-color,box-shadow] last:border-b-0 motion-reduce:transition-none",
+                  "cursor-pointer border-b border-border/20 dark:border-white/5 text-[12px] text-muted transition-[background-color,box-shadow] last:border-b-0 motion-reduce:transition-none select-none",
                   selected ? "bg-primary/[0.075] shadow-[inset_3px_0_0_var(--primary)]" : highlighted ? "bg-primary/[0.035]" : "hover:bg-surface/45",
                 )}
               >
@@ -149,6 +172,10 @@ function FloorRoomTable({
                     aria-pressed={selected}
                     onFocus={() => onHoverRoom?.(room.urlCode)}
                     onBlur={() => onHoverRoom?.(null)}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      handleDoubleClick();
+                    }}
                     className="rounded-md text-[12px] font-black text-text underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                   >
                     {room.code}

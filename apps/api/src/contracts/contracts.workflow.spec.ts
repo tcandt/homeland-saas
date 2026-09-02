@@ -164,7 +164,7 @@ describe('Contracts Workflow Verification', () => {
     // 4. Terminate
     await service.terminateContract('c1', 'u1');
     expect(currentContract.status).toBe(ContractStatus.TERMINATED);
-    expect(currentRoom.status).toBe(RoomStatus.CLEANING);
+    expect(currentRoom.status).toBe(RoomStatus.AVAILABLE);
     expect(currentInvoice.status).toBe('ISSUED'); // Zero-value settlement does not replace the issued invoice.
     expect(auditService.log).toHaveBeenCalled();
   });
@@ -177,7 +177,7 @@ describe('Contracts Workflow Verification', () => {
 
     await service.expireContract('c1', 'u1');
     expect(currentContract.status).toBe(ContractStatus.EXPIRED);
-    expect(currentRoom.status).toBe(RoomStatus.CLEANING);
+    expect(currentRoom.status).toBe(RoomStatus.AVAILABLE);
   });
 
   it('should rollback transaction if a side effect fails', async () => {

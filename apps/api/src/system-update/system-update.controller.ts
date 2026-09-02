@@ -45,6 +45,17 @@ export class SystemUpdateController {
     assertSystemUpdateAdmin(email);
     return this.systemUpdateService.startRollback(body || {});
   }
+
+  @Post('wipe-data')
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Wipe business data while preserving settings and accounts' })
+  wipeData(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('tenantId') tenantId: string,
+    @Body() body: { password?: string; scope?: string; confirmPhrase?: string },
+  ) {
+    return this.systemUpdateService.wipeData(userId, tenantId, body || {});
+  }
 }
 
 function assertSystemUpdateAdmin(email?: string) {

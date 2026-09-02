@@ -60,12 +60,20 @@ export class ContractsService extends BaseCrudService<Contract> {
         orderBy: { createdAt: 'desc' },
       });
 
-      const targetStatus =
-        contract.status === ContractStatus.ACTIVE || contract.status === ContractStatus.APPROVED
-          ? DepositStatus.CONVERTED_TO_CONTRACT
-          : contract.status === ContractStatus.TERMINATED || contract.status === ContractStatus.EXPIRED
-            ? DepositStatus.REFUNDED
-            : DepositStatus.DRAFT;
+      let targetStatus: DepositStatus = DepositStatus.PENDING;
+      if (contract.status === ContractStatus.TERMINATED || contract.status === ContractStatus.EXPIRED) {
+        targetStatus = DepositStatus.REFUNDED;
+      } else if (existingDeposit) {
+        if (existingDeposit.status === DepositStatus.PAID) {
+          targetStatus = existingDeposit.type === 'SECURITY' ? DepositStatus.PAID : DepositStatus.CONVERTED_TO_CONTRACT;
+        } else if (existingDeposit.status === DepositStatus.REFUNDED) {
+          targetStatus = DepositStatus.REFUNDED;
+        } else {
+          targetStatus = existingDeposit.status;
+        }
+      } else {
+        targetStatus = DepositStatus.PENDING;
+      }
 
       if (existingDeposit) {
         await this.prisma.tx.deposit.update({
@@ -73,7 +81,7 @@ export class ContractsService extends BaseCrudService<Contract> {
           data: {
             contractId: contract.id,
             amount: contract.depositMoney,
-            status: existingDeposit.status === DepositStatus.REFUNDED ? DepositStatus.REFUNDED : targetStatus,
+            status: targetStatus,
             type: existingDeposit.type || 'SECURITY',
           },
         });

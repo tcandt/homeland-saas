@@ -31,7 +31,7 @@ export default function LoginPage() {
 
     try {
       const response = await authApi.login({ emailOrPhone, password });
-      toast.success("Đăng nhập thành công! Đang chuyển tới trang quản lý...", {
+      toast.success("Đăng nhập thành công", {
         id: "login-toast",
         duration: 2500,
       });

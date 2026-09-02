@@ -33,6 +33,7 @@ import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
+import { useToast } from "@/components/ui/ToastContext";
 import TenantFormModal from "./TenantFormModal";
 import { useDeleteCustomerMutation } from "@/lib/mutations/customers.mutations";
 
@@ -73,26 +74,10 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
     activity: false,
   });
 
+  const { showToast } = useToast();
   const deleteMutation = useDeleteCustomerMutation();
 
   if (!tenant) return null;
-
-  const toggleSection = (key: string) => {
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const handleDelete = () => {
-    setIsDeleteModalOpen(true);
-  };
-
-  const confirmDelete = () => {
-    deleteMutation.mutate(tenant.id, {
-      onSuccess: () => {
-        setIsDeleteModalOpen(false);
-        onClose();
-      },
-    });
-  };
 
   // Resolve customer data fields safely
   const rawCustomer = tenant.source || tenant;
@@ -116,9 +101,10 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
   const code = tenant.code || rawCustomer.code || `KH-${phone.slice(-4) || tenant.id.slice(0, 6)}`;
 
   // Contract & Room fields
+  const allCustomerContracts: any[] = rawCustomer.contracts || tenant.contracts || [];
   const activeContract =
     tenant.activeContract ||
-    (rawCustomer.contracts || []).find(
+    allCustomerContracts.find(
       (c: any) =>
         c.status === "ACTIVE" ||
         c.status === "APPROVED" ||
@@ -139,6 +125,43 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
     : endDate
     ? Math.max(0, Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : 0;
+
+  const toggleSection = (key: string) => {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleDelete = () => {
+    if (hasContract) {
+      showToast(
+        `Không thể xóa khách thuê "${fullName}" vì vẫn còn hợp đồng (${activeContract?.code || "đang có hiệu lực"}). Bạn phải chấm dứt hoặc thanh lý hợp đồng trước!`,
+        "error"
+      );
+      return;
+    }
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (hasContract) {
+      showToast(
+        `Không thể xóa khách thuê "${fullName}" vì vẫn còn hợp đồng (${activeContract?.code || "đang có hiệu lực"}). Bạn phải chấm dứt hoặc thanh lý hợp đồng trước!`,
+        "error"
+      );
+      setIsDeleteModalOpen(false);
+      return;
+    }
+
+    deleteMutation.mutate(tenant.id, {
+      onSuccess: () => {
+        showToast("Đã xóa khách thuê thành công.", "success");
+        setIsDeleteModalOpen(false);
+        onClose();
+      },
+      onError: (error: any) => {
+        showToast(error?.message || "Không thể xóa khách thuê do còn dữ liệu liên kết.", "error");
+      },
+    });
+  };
 
   // Status computation
   const statusLabel = tenant.statusLabel || (hasContract ? (contractDaysLeft > 0 ? "Đang thuê" : "Hết hạn HĐ") : "Chưa thuê");

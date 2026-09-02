@@ -42,12 +42,12 @@ export class RoomsService extends BaseCrudService<Room> {
       floor: { select: { id: true, name: true, level: true } },
       contracts: {
         where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES }, deletedAt: null },
-        include: { customer: { select: { id: true, fullName: true, phone: true, email: true, identityNo: true, gender: true, birthDate: true, nationality: true, address: true, emergencyPhone: true } } },
+        include: { customer: { select: { id: true, fullName: true, phone: true, email: true, identityNo: true, gender: true, birthDate: true, nationality: true, address: true, emergencyPhone: true, idImages: true, relationship: true } } },
         orderBy: { createdAt: 'asc' }
       },
       roommates: {
         where: { deletedAt: null },
-        select: { id: true, fullName: true, phone: true, identityNo: true, gender: true, birthDate: true, nationality: true, address: true, emergencyPhone: true }
+        select: { id: true, fullName: true, phone: true, email: true, identityNo: true, gender: true, birthDate: true, nationality: true, address: true, emergencyPhone: true, idImages: true, relationship: true }
       }
     });
   }

@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowDownToLine,
+  ArrowRight,
+  Check,
   CheckCircle2,
   Clock,
   Database,
@@ -23,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { systemUpdateApi } from "@/lib/api/system-update.api";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -41,52 +44,7 @@ export interface BackupItem {
   status: "COMPLETED" | "VERIFIED";
 }
 
-const DEFAULT_BACKUPS: BackupItem[] = [
-  {
-    id: "bk-01",
-    filename: "homeland_db_auto_20260831_020000.sql.gz",
-    note: "Sao lưu tự động hàng ngày (Scheduled daily snapshot)",
-    size: "24.6 MB",
-    sizeBytes: 25794969,
-    type: "AUTO",
-    createdAt: "2026-08-31T02:00:00.000Z",
-    createdBy: "Hệ thống tự động",
-    status: "VERIFIED",
-  },
-  {
-    id: "bk-02",
-    filename: "homeland_db_preupdate_v116_20260830_153020.sql.gz",
-    note: "Sao lưu trước khi nâng cấp hệ thống phiên bản v1.2.0",
-    size: "23.8 MB",
-    sizeBytes: 24956108,
-    type: "SYSTEM_UPDATE",
-    createdAt: "2026-08-30T15:30:20.000Z",
-    createdBy: "System Admin",
-    status: "VERIFIED",
-  },
-  {
-    id: "bk-03",
-    filename: "homeland_db_manual_reconcile_20260828_182045.sql.gz",
-    note: "Sao lưu trước kỳ kết chuyển đối soát tài chính & cọc",
-    size: "22.4 MB",
-    sizeBytes: 23488102,
-    type: "MANUAL",
-    createdAt: "2026-08-28T18:20:45.000Z",
-    createdBy: "Nguyễn Văn Tính (Admin)",
-    status: "COMPLETED",
-  },
-  {
-    id: "bk-04",
-    filename: "homeland_db_auto_20260824_020000.sql.gz",
-    note: "Sao lưu tự động định kỳ đầu tuần",
-    size: "21.1 MB",
-    sizeBytes: 22124953,
-    type: "AUTO",
-    createdAt: "2026-08-24T02:00:00.000Z",
-    createdBy: "Hệ thống tự động",
-    status: "VERIFIED",
-  },
-];
+const DEFAULT_BACKUPS: BackupItem[] = [];
 
 const STORAGE_KEY = "homeland_system_backups_v2";
 
@@ -100,6 +58,8 @@ export default function SettingsBackup() {
   const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
+  const [wipeStep, setWipeStep] = useState<1 | 2>(1);
+  const [wipeCheckboxConfirmed, setWipeCheckboxConfirmed] = useState(false);
 
   const [activeItem, setActiveItem] = useState<BackupItem | null>(null);
 
@@ -108,7 +68,7 @@ export default function SettingsBackup() {
   const [newBackupScope, setNewBackupScope] = useState("FULL");
   const [password, setPassword] = useState("");
   const [wipeConfirmText, setWipeConfirmText] = useState("");
-  const [wipeScope, setWipeScope] = useState("DEMO_DATA");
+  const [wipeScope, setWipeScope] = useState("ALL_BUSINESS_DATA");
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Load from local storage or fallback
@@ -116,13 +76,18 @@ export default function SettingsBackup() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        setBackups(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        const cleaned = Array.isArray(parsed)
+          ? parsed.filter((item: BackupItem) => !["bk-01", "bk-02", "bk-03", "bk-04"].includes(item.id))
+          : [];
+        setBackups(cleaned);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
       } else {
-        setBackups(DEFAULT_BACKUPS);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_BACKUPS));
+        setBackups([]);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
       }
     } catch {
-      setBackups(DEFAULT_BACKUPS);
+      setBackups([]);
     }
   }, []);
 
@@ -267,24 +232,38 @@ export default function SettingsBackup() {
   };
 
   // Handle Wipe Data
-  const handleWipeData = () => {
-    if (wipeConfirmText !== "XAC NHAN XOA") {
+  const handleWipeData = async () => {
+    if (wipeConfirmText.trim() !== "XAC NHAN XOA") {
       toast.error('Vui lòng gõ chính xác cụm từ "XAC NHAN XOA" để tiếp tục');
       return;
     }
+    if (!wipeCheckboxConfirmed) {
+      toast.error("Vui lòng tích xác nhận đồng ý xóa dữ liệu");
+      return;
+    }
     if (!password) {
-      toast.error("Vui lòng nhập mật khẩu quản trị viên");
+      toast.error("Vui lòng nhập mật khẩu quản trị viên để xác nhận");
       return;
     }
 
     setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      toast.success("Đã dọn dẹp và làm sạch dữ liệu thành công");
+    try {
+      const res = await systemUpdateApi.wipeData({
+        password,
+        scope: wipeScope,
+        confirmPhrase: wipeConfirmText.trim(),
+      });
+      toast.success(res?.message || "Đã xóa toàn bộ dữ liệu nghiệp vụ thành công. Các cài đặt và tài khoản được giữ nguyên.");
       setIsWipeModalOpen(false);
       setWipeConfirmText("");
       setPassword("");
-    }, 1200);
+      setWipeStep(1);
+      setWipeCheckboxConfirmed(false);
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể thực hiện xóa dữ liệu. Vui lòng kiểm tra lại mật khẩu.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -312,6 +291,9 @@ export default function SettingsBackup() {
             onClick={() => {
               setPassword("");
               setWipeConfirmText("");
+              setWipeCheckboxConfirmed(false);
+              setWipeStep(1);
+              setWipeScope("ALL_BUSINESS_DATA");
               setIsWipeModalOpen(true);
             }}
             className="h-9 gap-1.5 rounded-xl border-rose-500/30 text-rose-600 hover:bg-rose-500/10 hover:border-rose-500 text-xs font-bold shadow-2xs"
@@ -379,7 +361,9 @@ export default function SettingsBackup() {
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Tình trạng hệ thống</div>
-            <div className="font-bold text-[14px] text-emerald-600 dark:text-emerald-400 leading-tight">Sẵn sàng khôi phục</div>
+            <div className="font-bold text-[14px] text-emerald-600 dark:text-emerald-400 leading-tight">
+              {backups.length > 0 ? "Sẵn sàng khôi phục" : "Chưa tạo bản sao"}
+            </div>
             <div className="text-[10px] text-muted truncate mt-0.5">Khóa bảo mật 2 lớp Admin</div>
           </div>
         </Card>
@@ -448,7 +432,9 @@ export default function SettingsBackup() {
               {filteredBackups.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-muted font-medium">
-                    Không tìm thấy bản sao lưu nào phù hợp.
+                    {search || selectedType !== "ALL"
+                      ? "Không tìm thấy bản sao lưu nào phù hợp."
+                      : 'Chưa có bản sao lưu nào trong hệ thống. Nhấn "Tạo bản sao lưu ngay" để tạo bản sao lưu đầu tiên.'}
                   </td>
                 </tr>
               ) : (
@@ -633,10 +619,31 @@ export default function SettingsBackup() {
               <span>Nhập mật khẩu Admin để xác nhận:</span>
             </label>
             <input
+              type="text"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="off"
+            />
+            <input
               type="password"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="new-password"
+            />
+            <input
+              type="password"
+              name="admin_create_backup_pwd_no_fill"
+              id="admin_create_backup_pwd_no_fill"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Nhập mật khẩu tài khoản hiện tại..."
+              autoComplete="new-password"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-form-type="other"
               className="h-9 w-full rounded-xl border border-rose-500/40 bg-background px-3 text-xs font-semibold text-text placeholder:text-muted focus:border-rose-500 focus:outline-none"
             />
           </div>
@@ -708,10 +715,31 @@ export default function SettingsBackup() {
               <span>Nhập mật khẩu Admin để xác nhận khôi phục:</span>
             </label>
             <input
+              type="text"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="off"
+            />
+            <input
               type="password"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="new-password"
+            />
+            <input
+              type="password"
+              name="admin_restore_backup_pwd_no_fill"
+              id="admin_restore_backup_pwd_no_fill"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Nhập mật khẩu tài khoản hiện tại..."
+              autoComplete="new-password"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-form-type="other"
               className="h-9 w-full rounded-xl border border-rose-500/40 bg-background px-3 text-xs font-semibold text-text placeholder:text-muted focus:border-rose-500 focus:outline-none"
             />
           </div>
@@ -761,95 +789,289 @@ export default function SettingsBackup() {
               <span>Nhập mật khẩu Admin để xác nhận xóa:</span>
             </label>
             <input
+              type="text"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="off"
+            />
+            <input
               type="password"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="new-password"
+            />
+            <input
+              type="password"
+              name="admin_delete_backup_pwd_no_fill"
+              id="admin_delete_backup_pwd_no_fill"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Nhập mật khẩu..."
+              placeholder="Nhập mật khẩu tài khoản..."
+              autoComplete="new-password"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-form-type="other"
               className="h-9 w-full rounded-xl border border-rose-500/40 bg-background px-3 text-xs font-semibold text-text placeholder:text-muted focus:border-rose-500 focus:outline-none"
             />
           </div>
         </div>
       </Modal>
 
-      {/* ================= MODAL 4: DỌN DẸP / XÓA DATA (WIPE DATA) ================= */}
+      {/* ================= MODAL 4: DỌN DẸP / XÓA DATA (WIPE DATA - 2-STEP CONFIRMATION) ================= */}
       <Modal
-        title="Dọn dẹp & Xóa dữ liệu (Data Wipe)"
+        title={
+          wipeStep === 1
+            ? "Dọn dẹp & Xóa dữ liệu (Bước 1/2: Chọn phạm vi & Xác nhận)"
+            : "Cảnh báo cấp cao: Xác nhận lần 2 (Bước 2/2)"
+        }
         isOpen={isWipeModalOpen}
         onClose={() => !isProcessing && setIsWipeModalOpen(false)}
         footer={
-          <div className="flex items-center justify-end gap-2 w-full">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsWipeModalOpen(false)}
-              disabled={isProcessing}
-              className="h-9 rounded-xl text-xs font-bold"
-            >
-              Hủy
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleWipeData}
-              disabled={isProcessing || wipeConfirmText !== "XAC NHAN XOA" || !password}
-              className="h-9 gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-4 text-xs font-bold"
-            >
-              {isProcessing ? <RefreshCcw size={13} className="animate-spin" /> : <Trash2 size={13} />}
-              <span>{isProcessing ? "Đang xử lý..." : "Thực hiện xóa dữ liệu"}</span>
-            </Button>
+          <div className="flex items-center justify-between gap-2 w-full">
+            {wipeStep === 1 ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsWipeModalOpen(false)}
+                  disabled={isProcessing}
+                  className="h-9 rounded-xl text-xs font-bold"
+                >
+                  Hủy
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    if (wipeConfirmText.trim() !== "XAC NHAN XOA") {
+                      toast.error('Vui lòng gõ chính xác "XAC NHAN XOA" để tiếp tục');
+                      return;
+                    }
+                    setPassword("");
+                    setWipeCheckboxConfirmed(false);
+                    setWipeStep(2);
+                  }}
+                  disabled={wipeConfirmText.trim() !== "XAC NHAN XOA"}
+                  className="h-9 gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 text-xs font-bold shadow-2xs"
+                >
+                  <span>Tiếp tục sang bước 2</span>
+                  <ArrowRight size={13} />
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setWipeStep(1)}
+                  disabled={isProcessing}
+                  className="h-9 rounded-xl text-xs font-bold"
+                >
+                  Quay lại bước 1
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleWipeData}
+                  disabled={isProcessing || !wipeCheckboxConfirmed || !password}
+                  className="h-9 gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-4 text-xs font-bold shadow-2xs"
+                >
+                  {isProcessing ? <RefreshCcw size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                  <span>{isProcessing ? "Đang xóa dữ liệu..." : "Thực hiện xóa vĩnh viễn"}</span>
+                </Button>
+              </>
+            )}
           </div>
         }
       >
-        <div className="flex flex-col gap-3 py-1">
-          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed flex items-start gap-2.5">
-            <AlertTriangle size={18} className="shrink-0 text-rose-600 mt-0.5" />
-            <div>
-              <strong className="block font-black mb-0.5">VÙNG NGUY HIỂM:</strong>
-              Hành động này sẽ xóa vĩnh viễn các bản ghi được chọn khỏi hệ thống. Vui lòng tạo một bản sao lưu mới trước khi thực hiện.
+        {wipeStep === 1 ? (
+          /* ================= BƯỚC 1: CHỌN PHẠM VI & XÁC NHẬN CỤM TỪ ================= */
+          <div className="flex flex-col gap-3 py-1">
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed flex items-start gap-2.5">
+              <AlertTriangle size={18} className="shrink-0 text-rose-600 mt-0.5" />
+              <div>
+                <strong className="block font-black mb-0.5">VÙNG NGUY HIỂM (BƯỚC 1/2):</strong>
+                Hành động xóa dữ liệu sẽ loại bỏ vĩnh viễn các bản ghi được chỉ định. Thao tác này cần 2 lần xác nhận để đảm bảo an toàn tuyệt đối.
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label className="text-xs font-bold text-text block mb-1">Chọn phạm vi dữ liệu cần dọn dẹp:</label>
-            <select
-              value={wipeScope}
-              onChange={(e) => setWipeScope(e.target.value)}
-              className="h-9 w-full rounded-xl border border-border/70 bg-background px-2.5 text-xs font-bold text-text focus:border-primary focus:outline-none"
-            >
-              <option value="DEMO_DATA">Xóa dữ liệu dùng thử / dữ liệu mẫu (Demo Data)</option>
-              <option value="DRAFT_TRANSACTIONS">Xóa toàn bộ các giao dịch nháp (Draft Ledger & Invoices)</option>
-              <option value="OLD_LOGS">Xóa lịch sử log hoạt động cũ hơn 90 ngày (Old Audit Logs)</option>
-              <option value="SYSTEM_CACHE">Xóa bộ nhớ đệm và phiên làm việc (System Cache & Sessions)</option>
-            </select>
-          </div>
+            <div>
+              <label className="text-xs font-bold text-text block mb-1">Chọn phạm vi dữ liệu cần dọn dẹp:</label>
+              <select
+                value={wipeScope}
+                onChange={(e) => setWipeScope(e.target.value)}
+                className="h-9 w-full rounded-xl border border-border/70 bg-background px-2.5 text-xs font-bold text-text focus:border-primary focus:outline-none"
+              >
+                <option value="ALL_BUSINESS_DATA">
+                  Xóa toàn bộ dữ liệu giao dịch & khách thuê (Giữ nguyên tòa nhà, phòng và settings)
+                </option>
+                <option value="DEMO_DATA">Xóa dữ liệu dùng thử / dữ liệu mẫu (Demo Data)</option>
+                <option value="DRAFT_TRANSACTIONS">Xóa toàn bộ các giao dịch nháp (Draft Ledger & Invoices)</option>
+                <option value="OLD_LOGS">Xóa lịch sử log hoạt động cũ hơn 90 ngày (Old Audit Logs)</option>
+                <option value="SYSTEM_CACHE">Xóa bộ nhớ đệm và phiên làm việc (System Cache & Sessions)</option>
+              </select>
+            </div>
 
-          <div>
-            <label className="text-xs font-bold text-text block mb-1">
-              Gõ chính xác cụm từ <strong className="text-rose-600 font-mono">XAC NHAN XOA</strong> vào ô bên dưới:
-            </label>
+            {/* Chi tiết phân biệt dữ liệu bị xóa vs dữ liệu giữ lại */}
+            {wipeScope === "ALL_BUSINESS_DATA" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2.5 rounded-xl border border-border/60 bg-muted/10 text-xs">
+                <div className="flex flex-col gap-1 p-2 rounded-lg bg-rose-500/5 border border-rose-500/20">
+                  <div className="font-bold text-rose-600 flex items-center gap-1 text-[11px] uppercase">
+                    <Trash2 size={11} /> Sẽ xóa sạch:
+                  </div>
+                  <ul className="text-[11px] text-muted space-y-0.5 list-disc list-inside">
+                    <li>Toàn bộ Khách thuê & Khách ở ghép</li>
+                    <li>Toàn bộ Hợp đồng & Phiếu cọc</li>
+                    <li>Toàn bộ Hóa đơn, Thu chi, Sổ quỹ</li>
+                    <li>Chỉ số công tơ điện nước, Sự cố</li>
+                  </ul>
+                </div>
+
+                <div className="flex flex-col gap-1 p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+                  <div className="font-bold text-emerald-600 flex items-center gap-1 text-[11px] uppercase">
+                    <ShieldCheck size={12} /> Giữ nguyên vẹn:
+                  </div>
+                  <ul className="text-[11px] text-muted space-y-0.5 list-disc list-inside">
+                    <li>Tòa nhà, Tầng, Phòng cố định (reset về trạng thái Trống)</li>
+                    <li>Toàn bộ mục Cài đặt (Settings)</li>
+                    <li>Cấu hình VietQR & Ngân hàng</li>
+                    <li>Mẫu in hợp đồng & hóa đơn</li>
+                    <li>Tài khoản quản trị & nhân viên</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Hidden dummy inputs to prevent browser credential managers from autofilling */}
             <input
               type="text"
-              value={wipeConfirmText}
-              onChange={(e) => setWipeConfirmText(e.target.value)}
-              placeholder="XAC NHAN XOA"
-              className="h-9 w-full rounded-xl border border-border/70 bg-background px-3 font-mono text-xs font-bold text-text focus:border-rose-500 focus:outline-none"
+              name="fake_user_wipe_step1"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="off"
             />
-          </div>
-
-          <div>
-            <label className="text-xs font-bold text-rose-600 dark:text-rose-400 block mb-1 flex items-center gap-1">
-              <Lock size={12} />
-              <span>Nhập mật khẩu Admin để xác nhận:</span>
-            </label>
             <input
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Nhập mật khẩu quản trị viên..."
-              className="h-9 w-full rounded-xl border border-rose-500/40 bg-background px-3 text-xs font-semibold text-text placeholder:text-muted focus:border-rose-500 focus:outline-none"
+              name="fake_pass_wipe_step1"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="new-password"
             />
+
+            <div>
+              <label className="text-xs font-bold text-text block mb-1">
+                Gõ chính xác cụm từ <strong className="text-rose-600 font-mono">XAC NHAN XOA</strong> vào ô bên dưới:
+              </label>
+              <input
+                type="text"
+                name="wipe_confirmation_phrase_custom_field"
+                id="wipe_confirmation_phrase_custom_field"
+                value={wipeConfirmText}
+                onChange={(e) => setWipeConfirmText(e.target.value)}
+                placeholder="XAC NHAN XOA"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-form-type="other"
+                className="h-9 w-full rounded-xl border border-border/70 bg-background px-3 font-mono text-xs font-bold text-text focus:border-rose-500 focus:outline-none placeholder:text-muted/60"
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          /* ================= BƯỚC 2: CẢNH BÁO TỐI CAO & MẬT KHẨU ADMIN ================= */
+          <div className="flex flex-col gap-3 py-1">
+            <div className="rounded-xl border-2 border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-800 dark:text-rose-200 leading-relaxed flex items-start gap-2.5 shadow-2xs">
+              <ShieldAlert size={20} className="shrink-0 text-rose-600 mt-0.5" />
+              <div>
+                <strong className="block font-black text-rose-600 dark:text-rose-400 mb-0.5 uppercase tracking-wide">
+                  Xác nhận lần 2 - Cảnh báo mức cao nhất:
+                </strong>
+                Bạn đang chuẩn bị thực hiện xóa vĩnh viễn toàn bộ dữ liệu nghiệp vụ. Thao tác này là không thể đảo ngược nếu không có bản sao lưu trước đó.
+              </div>
+            </div>
+
+            {/* Tóm tắt bước 1 */}
+            <div className="rounded-xl border border-border/70 bg-card p-3 flex flex-col gap-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-muted font-medium">Phạm vi dữ liệu:</span>
+                <span className="font-bold text-text">
+                  {wipeScope === "ALL_BUSINESS_DATA"
+                    ? "Toàn bộ dữ liệu nghiệp vụ (Giữ lại Settings)"
+                    : wipeScope}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted font-medium">Xác nhận lần 1:</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-mono text-[11px]">
+                  <Check size={12} /> Đã nhập: XAC NHAN XOA
+                </span>
+              </div>
+            </div>
+
+            {/* Checkbox cam kết trách nhiệm */}
+            <label className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-500/30 bg-rose-500/5 cursor-pointer select-none hover:bg-rose-500/10 transition-colors">
+              <input
+                type="checkbox"
+                checked={wipeCheckboxConfirmed}
+                onChange={(e) => setWipeCheckboxConfirmed(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-rose-400 text-rose-600 focus:ring-rose-500"
+              />
+              <div className="text-xs">
+                <span className="font-bold text-rose-700 dark:text-rose-300 block">
+                  Tôi đồng ý và cam kết xác nhận xóa
+                </span>
+                <span className="text-muted text-[11px] leading-relaxed block mt-0.5">
+                  Tôi đã đọc kỹ cảnh báo và hiểu rằng toàn bộ các dữ liệu nghiệp vụ đã chọn sẽ bị xóa vĩnh viễn.
+                </span>
+              </div>
+            </label>
+
+            {/* Hidden dummy inputs to prevent browser credential managers from autofilling */}
+            <input
+              type="text"
+              name="fake_user_wipe_step2"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="off"
+            />
+            <input
+              type="password"
+              name="fake_pass_wipe_step2"
+              style={{ display: "none" }}
+              tabIndex={-1}
+              autoComplete="new-password"
+            />
+
+            <div>
+              <label className="text-xs font-bold text-rose-600 dark:text-rose-400 block mb-1 flex items-center gap-1">
+                <Lock size={12} />
+                <span>Nhập mật khẩu Admin để thực thi:</span>
+              </label>
+              <input
+                type="password"
+                name="admin_security_verify_wipe_code_step2"
+                id="admin_security_verify_wipe_code_step2"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Nhập mật khẩu quản trị viên hiện tại..."
+                autoComplete="new-password"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-form-type="other"
+                className="h-9 w-full rounded-xl border border-rose-500/40 bg-background px-3 text-xs font-semibold text-text placeholder:text-muted focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

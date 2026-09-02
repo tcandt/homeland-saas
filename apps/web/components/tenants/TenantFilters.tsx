@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus } from "lucide-react";
+import { GitMerge, Plus } from "lucide-react";
 import { useTenantsStore } from "@/lib/hooks/useTenantsStore";
+import { useDeduplicateCustomersMutation } from "@/lib/mutations/customers.mutations";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { SearchInput } from "../ui/SearchInput";
@@ -11,6 +12,13 @@ import TenantFormModal from "./TenantFormModal";
 export default function TenantFilters() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const { search, setSearch } = useTenantsStore();
+  const deduplicateMutation = useDeduplicateCustomersMutation();
+
+  const handleDeduplicate = () => {
+    if (window.confirm("Hệ thống sẽ kiểm tra và tự động gộp các khách thuê bị trùng lặp SĐT hoặc CCCD vào hồ sơ chính, chuyển toàn bộ hợp đồng/hóa đơn tương ứng. Bạn có muốn tiếp tục?")) {
+      deduplicateMutation.mutate();
+    }
+  };
 
   return (
     <>
@@ -25,10 +33,20 @@ export default function TenantFilters() {
                 className="h-10 rounded-xl border-[#dbe3ef] bg-card text-[13px] font-semibold"
               />
             </div>
-
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              onClick={handleDeduplicate}
+              variant="ghost"
+              disabled={deduplicateMutation.isPending}
+              title="Gộp và dọn dẹp các khách thuê trùng SĐT hoặc CCCD"
+              className="h-10 shrink-0 border border-border bg-card px-3.5 text-[13px] font-bold text-text hover:bg-surface"
+            >
+              <GitMerge size={15} className={`mr-1.5 text-primary ${deduplicateMutation.isPending ? "animate-spin" : ""}`} />
+              {deduplicateMutation.isPending ? "Đang xử lý..." : "Dọn trùng lặp"}
+            </Button>
+
             <Button onClick={() => setIsFormOpen(true)} variant="primary" data-testid="add-tenant-button" className="h-10 shrink-0 bg-[#6d3df8] px-4 text-white hover:bg-[#5b35f5]">
               <Plus size={15} className="mr-2" />
               Thêm khách thuê

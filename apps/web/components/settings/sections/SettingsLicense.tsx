@@ -271,10 +271,10 @@ export function MaintenanceScreen({
               <span className="flex items-center gap-1.5">
                 <Zap size={13} /> Hạng mục nâng cấp
               </span>
-              <span className="text-[10px] font-mono bg-primary/10 px-1.5 py-0.5 rounded-md">v1.2.0</span>
+              <span className="text-[10px] font-mono bg-primary/10 px-1.5 py-0.5 rounded-md">v1.2.1</span>
             </div>
-            <div className="font-semibold text-xs text-text truncate">Database & Bot Zalo</div>
-            <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Tối ưu tốc độ xử lý</span>
+            <div className="font-semibold text-xs text-text truncate">Data Wipe & Settlement</div>
+            <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Bảo vệ dữ liệu & QR Code</span>
           </div>
 
           {/* Card 3: Data Safety */}

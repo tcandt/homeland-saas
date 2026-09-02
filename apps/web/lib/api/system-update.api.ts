@@ -40,4 +40,9 @@ export const systemUpdateApi = {
     apiClient.post<SystemUpdateJob>('/system-update/install', payload),
   rollback: (payload: { targetVersion?: string; dryRun?: boolean }) =>
     apiClient.post<SystemUpdateJob>('/system-update/rollback', payload),
+  wipeData: (payload: { password: string; scope: string; confirmPhrase: string }) =>
+    apiClient.post<{ success: boolean; message: string; scope: string; deletedCounts: Record<string, number> }>(
+      '/system-update/wipe-data',
+      payload,
+    ),
 };

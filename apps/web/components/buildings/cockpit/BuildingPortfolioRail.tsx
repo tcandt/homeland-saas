@@ -46,10 +46,10 @@ export default function BuildingPortfolioRail({
               <article
                 key={descriptor.code}
                 className={cx(
-                  "group relative flex min-h-[102px] h-full flex-col justify-between overflow-hidden rounded-2xl border transition-all duration-300 motion-reduce:transition-none p-3 select-none",
+                  "group relative flex min-h-[102px] h-full flex-col justify-between overflow-hidden rounded-2xl border transition-all duration-300 motion-reduce:transition-none p-3 select-none bg-card",
                   isSelected
-                    ? "border-primary/60 bg-gradient-to-r from-primary/[0.08] via-primary/[0.04] to-card shadow-[0_8px_24px_rgb(var(--shadow-color)/0.10)] ring-1 ring-primary/30"
-                    : "border-border/30 dark:border-white/5 bg-card/80 backdrop-blur-sm hover:border-primary/40 hover:bg-card hover:shadow-md",
+                    ? "border-primary shadow-[0_10px_26px_rgb(var(--shadow-color)/0.08)] ring-2 ring-primary/25"
+                    : "border-border/30 dark:border-white/5 shadow-[0_10px_26px_rgb(var(--shadow-color)/0.055)] hover:border-primary/40 hover:shadow-md",
                 )}
               >
                 {/* Left active gradient indicator bar */}

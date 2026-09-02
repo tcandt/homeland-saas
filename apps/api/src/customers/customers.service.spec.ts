@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CustomersRepository } from './customers.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
+import { PrismaService } from '../prisma.service';
 
 describe('CustomersService', () => {
   let service: CustomersService;
@@ -22,6 +23,13 @@ describe('CustomersService', () => {
         {
           provide: AuditService,
           useValue: {},
+        },
+        {
+          provide: PrismaService,
+          useValue: {
+            customer: { updateMany: vi.fn() },
+            $transaction: vi.fn(),
+          },
         },
       ],
     }).compile();

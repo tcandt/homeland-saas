@@ -4,8 +4,11 @@ import Image from "next/image";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  ArrowRight,
   Check,
   Copy,
+  Eye,
+  FileText,
   Layers3,
   MapPin,
   Pencil,
@@ -625,6 +628,7 @@ function FloorPlanPanel({
   onSelectFloor,
   onSelectRoom,
   onOpenRoomInspector,
+  onOpenRoomModal,
 }: {
   building: CockpitBuildingSpec;
   floor: CockpitFloorSpec;
@@ -635,11 +639,57 @@ function FloorPlanPanel({
   onSelectFloor: (floorId: CockpitFloorId) => void;
   onSelectRoom: (room: CockpitRoomSpec) => void;
   onOpenRoomInspector: (room: CockpitRoomSpec) => void;
+  onOpenRoomModal?: (roomId: string, tab?: string) => void;
 }) {
   const [tab, setTab] = useState<"rooms" | "floor">("rooms");
   const panelRef = useRef<HTMLElement>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    room: CockpitRoomSpec;
+  } | null>(null);
+
+  const handleOpenRoomProfile = useCallback((targetRoom: CockpitRoomSpec) => {
+    onSelectRoom(targetRoom);
+    const targetId = targetRoom.sourceRoom?.id || targetRoom.id;
+    if (onOpenRoomModal && targetId) {
+      onOpenRoomModal(targetId, "overview");
+    } else if (onOpenRoomInspector) {
+      onOpenRoomInspector(targetRoom);
+    }
+  }, [onOpenRoomModal, onOpenRoomInspector, onSelectRoom]);
+
+  const handleContextMenu = useCallback((targetRoom: CockpitRoomSpec, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSelectRoom(targetRoom);
+    const menuWidth = 230;
+    const menuHeight = 180;
+    const x = Math.max(12, Math.min(event.clientX, window.innerWidth - menuWidth - 16));
+    const y = Math.max(12, Math.min(event.clientY, window.innerHeight - menuHeight - 16));
+    setContextMenu({ x, y, room: targetRoom });
+  }, [onSelectRoom]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleDismiss = () => setContextMenu(null);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setContextMenu(null);
+    };
+    window.addEventListener("click", handleDismiss);
+    window.addEventListener("contextmenu", handleDismiss);
+    window.addEventListener("scroll", handleDismiss, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("click", handleDismiss);
+      window.removeEventListener("contextmenu", handleDismiss);
+      window.removeEventListener("scroll", handleDismiss, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
+
   return (
-    <section ref={panelRef} data-testid="floor-workspace-panel" className="flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-border/30 dark:border-white/5 bg-card shadow-[0_10px_26px_rgb(var(--shadow-color)/0.055)]">
+    <section ref={panelRef} data-testid="floor-workspace-panel" className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-border/30 dark:border-white/5 bg-card shadow-[0_10px_26px_rgb(var(--shadow-color)/0.055)]">
       <header className="border-b border-border/20 dark:border-white/5 px-3.5 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -683,6 +733,8 @@ function FloorPlanPanel({
             highlightedRoomCode={highlightedRoomCode}
             onSelectRoom={onSelectRoom}
             onOpenRoomInspector={onOpenRoomInspector}
+            onOpenRoomModal={onOpenRoomModal}
+            onContextMenuRoom={handleContextMenu}
             onHoverRoom={onHighlightRoom}
             debugMode={debugMode}
           />
@@ -700,11 +752,72 @@ function FloorPlanPanel({
               highlightedRoomCode={highlightedRoomCode}
               onSelectRoom={onSelectRoom}
               onOpenRoomInspector={onOpenRoomInspector}
+              onOpenRoomModal={onOpenRoomModal}
+              onContextMenuRoom={handleContextMenu}
               onHoverRoom={onHighlightRoom}
             />
           ) : <FloorInformation floor={floor} />}
         </div>
       </div>
+
+      {/* Floating Context Menu for Rooms */}
+      {contextMenu && (
+        <div
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed z-[99999] min-w-[220px] overflow-hidden rounded-2xl border border-border/70 dark:border-white/10 bg-card p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.22)] backdrop-blur-lg animate-in fade-in zoom-in-95 duration-150 select-none"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-2 border-b border-border/40 dark:border-white/5 mb-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-black text-[13px] text-text">Phòng {contextMenu.room.code}</span>
+              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                {getStatusLabel(contextMenu.room.status)}
+              </span>
+            </div>
+            <p className="text-[11px] font-semibold text-muted truncate mt-0.5">{contextMenu.room.type}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              handleOpenRoomProfile(contextMenu.room);
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-left text-[12px] font-black text-white bg-primary hover:bg-primary/90 transition-colors shadow-sm shadow-primary/25 cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <FileText size={15} />
+              <span>Mở hồ sơ phòng</span>
+            </div>
+            <ArrowRight size={13} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onSelectRoom(contextMenu.room);
+              onOpenRoomInspector?.(contextMenu.room);
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-[12px] font-bold text-text hover:bg-surface transition-colors mt-0.5 cursor-pointer"
+          >
+            <Eye size={15} className="text-muted" />
+            <span>Xem chi tiết bên phải</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(contextMenu.room.code);
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-[12px] font-bold text-text hover:bg-surface transition-colors border-t border-border/30 dark:border-white/5 mt-1 pt-1.5 cursor-pointer"
+          >
+            <Copy size={14} className="text-muted" />
+            <span>Sao chép mã phòng</span>
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -846,6 +959,7 @@ export default function UnifiedBuildingCockpit({
             onSelectFloor={onSelectFloor}
             onSelectRoom={selectRoom}
             onOpenRoomInspector={openRoomInspector}
+            onOpenRoomModal={onOpenRoomModal}
           />
           {room ? (
             <>

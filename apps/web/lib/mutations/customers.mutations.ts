@@ -47,3 +47,23 @@ export const useDeleteCustomerMutation = () => {
     },
   });
 };
+
+export const useDeduplicateCustomersMutation = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => customersApi.deduplicate(),
+    onSuccess: (res: any) => {
+      const merged = res?.mergedCount ?? res?.data?.mergedCount ?? 0;
+      if (merged > 0) {
+        toast.success(`Đã tự động gộp và dọn dẹp ${merged} khách hàng trùng lặp!`);
+      } else {
+        toast.success('Không có khách hàng nào bị trùng lặp thông tin.');
+      }
+      queryClient.invalidateQueries({ queryKey: customerKeys.lists() });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Có lỗi xảy ra khi gộp khách hàng trùng lặp');
+    },
+  });
+};

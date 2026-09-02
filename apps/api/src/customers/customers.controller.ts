@@ -32,6 +32,13 @@ export class CustomersController {
     return this.customersService.cleanupExpiredAndInactiveCustomers(daysThreshold);
   }
 
+  @Post('deduplicate')
+  @RequirePermissions('customer.update')
+  @ApiOperation({ summary: 'Deduplicate customers by phone and identity number' })
+  deduplicate(@CurrentUser('id') userId: string) {
+    return this.customersService.deduplicateCustomers(userId);
+  }
+
   @Get(':id')
   @RequirePermissions('customer.read')
   @ApiOperation({ summary: 'Get customer details' })

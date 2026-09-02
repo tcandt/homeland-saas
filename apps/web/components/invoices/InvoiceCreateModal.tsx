@@ -80,6 +80,12 @@ export default function InvoiceCreateModal({
   // 1. Room Selection
   const [selectedRoomId, setSelectedRoomId] = useState<string>(defaultRoomId || "");
 
+  useEffect(() => {
+    if (defaultRoomId) {
+      setSelectedRoomId(defaultRoomId);
+    }
+  }, [defaultRoomId, isOpen]);
+
   // 2. Recipient Selection (Representative vs Roommate)
   const [recipientType, setRecipientType] = useState<"REPRESENTATIVE" | "ROOMMATE">("REPRESENTATIVE");
   const [selectedRoommateId, setSelectedRoommateId] = useState<string>("");

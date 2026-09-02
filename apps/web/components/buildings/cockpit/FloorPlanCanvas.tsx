@@ -13,6 +13,8 @@ interface FloorPlanCanvasProps {
   highlightedRoomCode?: string | null;
   onSelectRoom: (room: CockpitRoomSpec) => void;
   onOpenRoomInspector?: (room: CockpitRoomSpec) => void;
+  onOpenRoomModal?: (roomId: string, tab?: string) => void;
+  onContextMenuRoom?: (room: CockpitRoomSpec, event: React.MouseEvent) => void;
   onHoverRoom?: (roomCode: string | null) => void;
   debugMode: boolean;
 }
@@ -140,6 +142,8 @@ function FloorPlanCanvas({
   highlightedRoomCode = null,
   onSelectRoom,
   onOpenRoomInspector,
+  onOpenRoomModal,
+  onContextMenuRoom,
   onHoverRoom,
   debugMode,
 }: FloorPlanCanvasProps) {
@@ -309,7 +313,26 @@ function FloorPlanCanvas({
                     onHoverRoom?.(null);
                   }}
                   onClick={(event) => { event.stopPropagation(); selectRoom(roomMap.roomId); }}
-                  onDoubleClick={(event) => { event.stopPropagation(); openRoomInspector(roomMap.roomId); }}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                    selectRoom(roomMap.roomId);
+                    if (roomSpec) {
+                      const targetId = roomSpec.sourceRoom?.id || roomSpec.id;
+                      if (onOpenRoomModal && targetId) {
+                        onOpenRoomModal(targetId, "overview");
+                      } else {
+                        openRoomInspector(roomMap.roomId);
+                      }
+                    }
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    selectRoom(roomMap.roomId);
+                    if (roomSpec && onContextMenuRoom) {
+                      onContextMenuRoom(roomSpec, event);
+                    }
+                  }}
                 >
                   {roomMap.paths.map((path, pathIndex) => (
                     <path

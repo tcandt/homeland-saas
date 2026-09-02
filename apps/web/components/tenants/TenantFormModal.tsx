@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CreateCustomerSchema } from "@homeland/shared";
 import { useCreateCustomerMutation, useUpdateCustomerMutation } from "@/lib/mutations/customers.mutations";
+import { useCustomersQuery } from "@/lib/queries/customers.queries";
 import { formatBirthDateForDisplay, normalizeVietnameseDate, parseCccdQrPayload } from "@/lib/utils/cccd-qr";
 import { CCCD_LIVE_SCAN_CONFIG, optimizeCccdCameraTrack, stopCccdCameraTracks } from "@/lib/utils/cccd-camera";
 import { Button } from "../ui/Button";
@@ -13,7 +14,7 @@ import { Modal } from "../ui/Modal";
 import { Input } from "../ui/Input";
 import { useToast } from "@/components/ui/ToastContext";
 import { CccdUploadScannerModal } from "../common/CccdUploadScannerModal";
-import { Camera, ChevronDown, QrCode, Upload, X } from "lucide-react";
+import { AlertTriangle, Camera, ChevronDown, QrCode, Upload, X } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 
 type FormData = z.infer<typeof CreateCustomerSchema>;
@@ -64,6 +65,7 @@ const buildFormPayload = (values: FormData) => {
 export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormModalProps) {
   const createMutation = useCreateCustomerMutation();
   const updateMutation = useUpdateCustomerMutation();
+  const { data: allCustomersData } = useCustomersQuery({ limit: 1000 });
   const { showToast } = useToast();
   const qrScannerRef = useRef<Html5Qrcode | null>(null);
   const qrFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -83,11 +85,40 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
     handleSubmit,
     reset,
     setValue,
+    setError,
+    watch,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(CreateCustomerSchema as any),
     defaultValues: EMPTY_VALUES,
   });
+
+  const currentPhone = watch("phone") || "";
+  const currentCitizenId = watch("citizenId") || "";
+
+  // Kiểm tra trùng SĐT trong danh sách khách hiện có
+  const duplicatePhoneCustomer = React.useMemo(() => {
+    const clean = currentPhone.replace(/[\s\-\.\(\)]/g, "").trim();
+    if (!clean || clean.length < 8) return null;
+    const list: any[] = (allCustomersData as any)?.data || [];
+    return list.find((c: any) => {
+      if (tenant && (c.id === tenant.id || c.id === tenant.source?.id)) return false;
+      const p = (c.phone || "").replace(/[\s\-\.\(\)]/g, "").trim();
+      return p === clean;
+    });
+  }, [currentPhone, allCustomersData, tenant]);
+
+  // Kiểm tra trùng CCCD trong danh sách khách hiện có
+  const duplicateCitizenIdCustomer = React.useMemo(() => {
+    const clean = currentCitizenId.replace(/[\s\-\.]/g, "").trim();
+    if (!clean || clean.length < 8) return null;
+    const list: any[] = (allCustomersData as any)?.data || [];
+    return list.find((c: any) => {
+      if (tenant && (c.id === tenant.id || c.id === tenant.source?.id)) return false;
+      const cid = (c.identityNo || c.citizenId || "").replace(/[\s\-\.]/g, "").trim();
+      return cid === clean;
+    });
+  }, [currentCitizenId, allCustomersData, tenant]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -237,8 +268,21 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
     window.setTimeout(() => qrFileInputRef.current?.click(), 0);
   };
 
-
   const onSubmit = (data: FormData) => {
+    if (duplicatePhoneCustomer) {
+      const msg = `Số điện thoại "${data.phone}" đã được đăng ký bởi khách "${duplicatePhoneCustomer.fullName || duplicatePhoneCustomer.name}". Vui lòng kiểm tra lại!`;
+      showToast(msg, "error");
+      setError("phone", { type: "manual", message: `SĐT đã tồn tại (${duplicatePhoneCustomer.fullName || duplicatePhoneCustomer.name})` });
+      return;
+    }
+
+    if (duplicateCitizenIdCustomer) {
+      const msg = `Số CCCD/CMND "${data.citizenId}" đã được đăng ký bởi khách "${duplicateCitizenIdCustomer.fullName || duplicateCitizenIdCustomer.name}". Vui lòng kiểm tra lại!`;
+      showToast(msg, "error");
+      setError("citizenId", { type: "manual", message: `CCCD đã tồn tại (${duplicateCitizenIdCustomer.fullName || duplicateCitizenIdCustomer.name})` });
+      return;
+    }
+
     const payload = buildFormPayload(data);
 
     if (isEdit) {
@@ -249,6 +293,16 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
             showToast("Đã cập nhật khách thuê.", "success");
             onClose();
           },
+          onError: (error: any) => {
+            const errorMsg = error?.message || "Có lỗi xảy ra khi cập nhật khách thuê";
+            showToast(errorMsg, "error");
+            if (errorMsg.includes("Số điện thoại") || errorMsg.includes("SĐT")) {
+              setError("phone", { type: "manual", message: errorMsg });
+            }
+            if (errorMsg.includes("CCCD") || errorMsg.includes("CMND")) {
+              setError("citizenId", { type: "manual", message: errorMsg });
+            }
+          },
         }
       );
       return;
@@ -258,6 +312,16 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
       onSuccess: () => {
         showToast("Đã thêm khách thuê mới.", "success");
         onClose();
+      },
+      onError: (error: any) => {
+        const errorMsg = error?.message || "Có lỗi xảy ra khi thêm khách thuê";
+        showToast(errorMsg, "error");
+        if (errorMsg.includes("Số điện thoại") || errorMsg.includes("SĐT")) {
+          setError("phone", { type: "manual", message: errorMsg });
+        }
+        if (errorMsg.includes("CCCD") || errorMsg.includes("CMND")) {
+          setError("citizenId", { type: "manual", message: errorMsg });
+        }
       },
     });
   };
@@ -349,6 +413,14 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
               error={errors.phone?.message}
               data-testid="input-phone"
             />
+            {duplicatePhoneCustomer && (
+              <div className="flex items-center gap-1.5 mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-200 dark:border-rose-900/50">
+                <AlertTriangle size={14} className="shrink-0" />
+                <span>
+                  SĐT này đã thuộc về khách <b>{duplicatePhoneCustomer.fullName || duplicatePhoneCustomer.name}</b>
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-1">
@@ -359,6 +431,14 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
               error={errors.citizenId?.message}
               data-testid="input-citizenId"
             />
+            {duplicateCitizenIdCustomer && (
+              <div className="flex items-center gap-1.5 mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-200 dark:border-rose-900/50">
+                <AlertTriangle size={14} className="shrink-0" />
+                <span>
+                  Số CCCD này đã thuộc về khách <b>{duplicateCitizenIdCustomer.fullName || duplicateCitizenIdCustomer.name}</b>
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-1">

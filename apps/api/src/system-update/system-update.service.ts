@@ -1,7 +1,9 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { execFileSync, spawn } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import * as bcrypt from 'bcryptjs';
+import { PrismaService } from '../prisma.service';
 
 type UpdateJobStatus =
   | 'IDLE'
@@ -48,6 +50,8 @@ const SAFE_UPDATE_STEPS: Array<{ status: UpdateJobStatus; progressPercent: numbe
 export class SystemUpdateService {
   private currentJob: UpdateJob | null = null;
   private readonly repositoryUrl = process.env.SYSTEM_UPDATE_REPOSITORY || 'https://github.com/tcandt/homeland-saas.git';
+
+  constructor(private readonly prisma?: PrismaService) {}
 
   checkForUpdates() {
     const currentCommit = getCurrentCommit();
@@ -203,6 +207,114 @@ export class SystemUpdateService {
     }
 
     job.logs.push(`${new Date().toISOString()} ${line}`);
+  }
+
+  async wipeData(
+    userId: string,
+    tenantId: string,
+    body: { password?: string; scope?: string; confirmPhrase?: string },
+  ) {
+    if (!body?.password) {
+      throw new BadRequestException('Vui lòng nhập mật khẩu quản trị viên để xác nhận');
+    }
+    if ((body?.confirmPhrase || '').trim() !== 'XAC NHAN XOA') {
+      throw new BadRequestException('Cụm từ xác nhận không chính xác (yêu cầu "XAC NHAN XOA")');
+    }
+
+    if (!this.prisma) {
+      throw new BadRequestException('Dịch vụ cơ sở dữ liệu không khả dụng');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('Không tìm thấy thông tin tài khoản người dùng');
+    }
+
+    const isMatch = await bcrypt.compare(body.password, user.passwordHash);
+    if (!isMatch) {
+      throw new BadRequestException('Mật khẩu quản trị viên không chính xác. Vui lòng thử lại.');
+    }
+
+    const scope = body.scope || 'ALL_BUSINESS_DATA';
+    const deletedCounts: Record<string, number> = {};
+
+    if (scope === 'ALL_BUSINESS_DATA' || scope === 'DEMO_DATA') {
+      await this.prisma.$transaction(async (tx) => {
+        // 1. Payment allocations & payments
+        const pAlloc = await (tx as any).paymentAllocation?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const pWebhooks = await (tx as any).paymentWebhookLog?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const pRequests = await (tx as any).paymentRequest?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const payments = await (tx as any).payment?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const creditNotes = await (tx as any).creditNote?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+
+        // 2. Invoices & items
+        const invItems = await (tx as any).invoiceItem?.deleteMany({ where: { invoice: { tenantId } } }).catch(() => ({ count: 0 }));
+        const invoices = await (tx as any).invoice?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+
+        // 3. Deposits
+        const deposits = await (tx as any).deposit?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+
+        // 4. Contracts & ContractTenants
+        const cTenants = await (tx as any).contractTenant?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const contracts = await (tx as any).contract?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+
+        // 5. Meter readings & routes
+        const meterReadings = await (tx as any).hunonicMeterReading?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const meterMappings = await (tx as any).hunonicMeterMapping?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const routes = await (tx as any).roomPaymentAccountRoute?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+
+        // 6. Customers (Khách thuê)
+        const customers = await (tx as any).customer?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+
+        // 7. Finance transactions
+        const expenses = await (tx as any).expense?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const receipts = await (tx as any).receipt?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const jLines = await (tx as any).journalLine?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const jEntries = await (tx as any).journalEntry?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+
+        // 8. BẢO TỒN NGUYÊN VẸN TÒA NHÀ, TẦNG, PHÒNG - Chỉ đặt lại trạng thái phòng về "Trống" (AVAILABLE)
+        await (tx as any).room?.updateMany({
+          where: { tenantId },
+          data: {
+            status: 'AVAILABLE',
+            deletedAt: null,
+            deletedBy: null,
+            deleteReason: null,
+          },
+        });
+
+        // 9. Tasks, incidents, notifications
+        const incidents = await (tx as any).incident?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const tasks = await (tx as any).task?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const notifs = await (tx as any).notificationQueue?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const jobs = await (tx as any).notificationJob?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const leads = await (tx as any).salesLead?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+
+        deletedCounts.customers = customers?.count ?? 0;
+        deletedCounts.contracts = contracts?.count ?? 0;
+        deletedCounts.deposits = deposits?.count ?? 0;
+        deletedCounts.invoices = invoices?.count ?? 0;
+        deletedCounts.payments = payments?.count ?? 0;
+      });
+    } else if (scope === 'DRAFT_TRANSACTIONS') {
+      await this.prisma.$transaction(async (tx) => {
+        await (tx as any).invoice?.deleteMany({ where: { tenantId, status: 'DRAFT' } }).catch(() => ({ count: 0 }));
+        await (tx as any).deposit?.deleteMany({ where: { tenantId, status: 'DRAFT' } }).catch(() => ({ count: 0 }));
+        await (tx as any).contract?.deleteMany({ where: { tenantId, status: 'DRAFT' } }).catch(() => ({ count: 0 }));
+      });
+    } else if (scope === 'OLD_LOGS') {
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      await (this.prisma as any).auditLog?.deleteMany({
+        where: { tenantId, createdAt: { lt: ninetyDaysAgo } },
+      }).catch(() => ({ count: 0 }));
+    }
+
+    return {
+      success: true,
+      message: 'Đã thực hiện xóa dữ liệu thành công',
+      scope,
+      deletedCounts,
+    };
   }
 }
 

@@ -19,5 +19,9 @@ export const customersApi = {
 
   delete: (id: string) => {
     return apiClient.delete(`/customers/${id}`);
+  },
+
+  deduplicate: () => {
+    return apiClient.post('/customers/deduplicate');
   }
 };

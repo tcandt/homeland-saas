@@ -204,6 +204,30 @@ export default function SettingsEmailIntegration() {
             </Button>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Tài khoản gửi SMTP</label>
+              <Input
+                value={draft.smtpUser || ""}
+                onChange={(e) => setDraft((prev) => ({ ...prev, smtpUser: e.target.value }))}
+                placeholder="user@example.com"
+                className="h-9 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Mật khẩu SMTP</label>
+              <Input
+                type="password"
+                value={draft.smtpPassword || ""}
+                onChange={(e) => setDraft((prev) => ({ ...prev, smtpPassword: e.target.value }))}
+                placeholder={canEditSecrets ? "Nhập mật khẩu SMTP" : "Chỉ admin@homeland.vn được sửa"}
+                disabled={!canEditSecrets}
+                data-testid="integration-secret-field"
+                className="h-9 text-xs font-mono"
+              />
+            </div>
+          </div>
+
           {/* Consolidated Summary Grid */}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             <div className="rounded-xl border border-border bg-card p-3 cursor-pointer hover:border-sky-500/40 transition" onClick={openConfigModal}>

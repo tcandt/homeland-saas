@@ -156,7 +156,7 @@ export default function SettingsTelegramIntegration() {
                 </span>
               )}
             </div>
-            <h3 className="text-lg font-black text-text">Cấu hình gửi Telegram</h3>
+            <h3 className="text-lg font-black text-text">Cấu hình Telegram</h3>
             <p className="text-xs text-muted">
               Lưu bot token và chat mặc định để gửi cảnh báo tự động tới nhóm vận hành hoặc từng chat cụ thể.
             </p>
@@ -185,6 +185,30 @@ export default function SettingsTelegramIntegration() {
             >
               <Settings2 size={13} className="mr-1.5" /> Thiết lập cấu hình
             </Button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Telegram Bot Token</label>
+              <Input
+                type="password"
+                value={draft.botToken || ""}
+                onChange={(e) => setDraft((prev) => ({ ...prev, botToken: e.target.value }))}
+                placeholder={canEditSecrets ? "Nhập Bot Token" : "Chỉ admin@homeland.vn được sửa"}
+                disabled={!canEditSecrets}
+                data-testid="integration-secret-field"
+                className="h-9 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Chat ID mặc định</label>
+              <Input
+                value={draft.defaultChatId || ""}
+                onChange={(e) => setDraft((prev) => ({ ...prev, defaultChatId: e.target.value }))}
+                placeholder="-100123456789"
+                className="h-9 text-xs font-mono"
+              />
+            </div>
           </div>
 
           {/* Consolidated Summary Grid */}

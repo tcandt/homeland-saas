@@ -223,7 +223,7 @@ export default function SettingsHunonicIntegration() {
                 </span>
               )}
             </div>
-            <h3 className="text-lg font-black text-text">Cấu hình điện thông minh Hunonic</h3>
+            <h3 className="text-lg font-black text-text">Điện Hunonic</h3>
             <p className="text-xs text-muted">
               Đồng bộ chỉ số công tơ điện tự động theo chu kỳ, đối soát số điện và tính tiền điện theo phòng.
             </p>
@@ -237,69 +237,120 @@ export default function SettingsHunonicIntegration() {
           </div>
         </div>
 
-        {/* Section: HỢP NHẤT TOÀN BỘ CẤU HÌNH VÀO 1 BOX TINH GỌN */}
-        <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3.5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
-              <Bolt size={14} className="text-emerald-600" /> Tích hợp Công tơ điện Hunonic
-            </div>
+        {/* Inline Operational Controls & Permissions */}
+        <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-2">
+            <span className="text-xs font-bold text-text">Thông số kết nối & vận hành</span>
             <div className="flex items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={openConfigModal}
-                className="h-8 rounded-xl px-3 text-xs font-bold text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/5 hover:border-emerald-500"
+                onClick={testConnection}
+                isLoading={isTesting}
+                className="h-8 rounded-xl px-3 text-xs font-bold"
               >
-                <Settings2 size={13} className="mr-1.5" /> Thiết lập cấu hình
+                <Zap size={13} className="mr-1.5 text-emerald-600" /> Kiểm tra kết nối
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={syncNow}
+                isLoading={isSyncing}
+                className="h-8 rounded-xl px-3 text-xs font-bold"
+              >
+                <RefreshCcw size={13} className="mr-1.5 text-emerald-600" /> Đồng bộ ngay
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={saveConfigModal}
+                isLoading={isSaving}
+                className="h-8 rounded-xl px-3 text-xs font-bold bg-primary text-white"
+              >
+                Lưu cấu hình
               </Button>
             </div>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Tài khoản Hunonic</label>
+              <Input
+                value={draft.username || ""}
+                onChange={(event) => setDraft((prev) => ({ ...prev, username: event.target.value }))}
+                placeholder="0987654321"
+                className="h-9 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Mật khẩu API</label>
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={draft.password || ""}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, password: event.target.value }))}
+                  placeholder={canEditSecrets ? "Nhập mật khẩu" : "••••••••"}
+                  disabled={!canEditSecrets}
+                  className="pr-10 text-xs font-mono h-9"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              {!canEditSecrets && (
+                <p className="text-[11px] text-amber-600 font-medium mt-1">
+                  Chỉ admin@homeland.vn được chỉnh sửa token hoặc mật khẩu tích hợp Hunonic.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60 text-xs text-muted">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center gap-1 font-semibold text-text">
+                <Clock size={13} className="text-emerald-600" /> Kiểm tra dữ liệu đồng bộ 3 năm
+              </span>
+            </div>
+            <Link
+              href="/electricity"
+              className="font-bold text-primary hover:underline inline-flex items-center gap-1"
+            >
+              Mở thiết lập giá <ArrowRight size={12} />
+            </Link>
+          </div>
+        </div>
+
+        {/* Summary Details */}
+        <div className="rounded-xl border border-border bg-background/80 p-3.5 sm:p-4 space-y-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
+              <Bolt size={14} className="text-emerald-600" /> Trạng thái đồng bộ công tơ điện
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={openConfigModal}
+              className="h-8 rounded-xl px-3 text-xs font-bold text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/5 hover:border-emerald-500"
+            >
+              <Settings2 size={13} className="mr-1.5" /> Nâng cao
+            </Button>
+          </div>
+
           {/* Consolidated Summary Grid */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             <div className="rounded-xl border border-border bg-card p-3">
               <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Chế độ kết nối</div>
               <div className="mt-1 text-xs font-bold text-text truncate">
                 {draft.mode === "website" ? "Website Session" : "Mobile / Pro API"}
               </div>
             </div>
-
-            {draft.mode === "website" ? (
-              <div className="rounded-xl border border-border bg-card p-3 cursor-pointer hover:border-emerald-500/40 transition" onClick={openConfigModal}>
-                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Bearer Token</div>
-                <div className="mt-1 text-xs font-mono font-bold text-text truncate">
-                  {draft.websiteToken ? shortSecret(draft.websiteToken) : <span className="text-muted font-normal">Chưa cấu hình</span>}
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-border bg-card p-3 cursor-pointer hover:border-emerald-500/40 transition" onClick={openConfigModal}>
-                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Tài khoản Hunonic</div>
-                <div className="mt-1 text-xs font-mono font-bold text-text truncate">
-                  {draft.username || <span className="text-muted font-normal">Chưa cấu hình</span>}
-                </div>
-              </div>
-            )}
-
-            {draft.mode === "website" ? (
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Cookie Session</div>
-                <div className="mt-1 text-xs font-bold text-text truncate">
-                  {draft.websiteCookie ? (
-                    <span className="text-emerald-600 dark:text-emerald-400">Đã cấu hình</span>
-                  ) : (
-                    <span className="text-muted font-normal">Chưa cấu hình</span>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Mật khẩu API</div>
-                <div className="mt-1 text-xs font-mono font-bold text-text truncate">
-                  {draft.password ? "••••••••" : <span className="text-muted font-normal">Chưa cấu hình</span>}
-                </div>
-              </div>
-            )}
 
             <div className="rounded-xl border border-border bg-card p-3">
               <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Số công tơ</div>
@@ -308,10 +359,17 @@ export default function SettingsHunonicIntegration() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-3 col-span-2 sm:col-span-1">
+            <div className="rounded-xl border border-border bg-card p-3">
               <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Đồng bộ gần nhất</div>
               <div className="mt-1 text-xs font-bold text-text truncate">
                 {formatDate(lastSyncAt)}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-muted">Chu kỳ quét</div>
+              <div className="mt-1 text-xs font-bold text-text truncate">
+                {draft.syncIntervalMinutes ? `${draft.syncIntervalMinutes} phút/lần` : "Thủ công"}
               </div>
             </div>
           </div>

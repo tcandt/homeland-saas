@@ -444,6 +444,33 @@ export default function SettingsZaloIntegration() {
             </Button>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Zalo Bot Token</label>
+              <Input
+                type="password"
+                value={draft.botToken || ""}
+                onChange={(e) => setDraft((prev) => ({ ...prev, botToken: e.target.value }))}
+                placeholder={canEditSecrets ? "Nhập Bot Token" : "Chỉ admin@homeland.vn được sửa"}
+                disabled={!canEditSecrets}
+                data-testid="integration-secret-field"
+                className="h-9 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Webhook Secret Key</label>
+              <Input
+                type="password"
+                value={draft.webhookSecret || ""}
+                onChange={(e) => setDraft((prev) => ({ ...prev, webhookSecret: e.target.value }))}
+                placeholder={canEditSecrets ? "Nhập Webhook Secret" : "Chỉ admin@homeland.vn được sửa"}
+                disabled={!canEditSecrets}
+                data-testid="integration-secret-field"
+                className="h-9 text-xs font-mono"
+              />
+            </div>
+          </div>
+
           {/* Webhook URL preview box */}
           <div className="flex items-center gap-2">
             <div className="flex-1 flex items-center justify-between overflow-hidden rounded-xl border border-border bg-card px-3.5 py-2.5">

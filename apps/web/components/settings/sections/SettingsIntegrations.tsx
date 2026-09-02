@@ -32,9 +32,9 @@ import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
 type IntegrationCategory = "all" | "payment" | "messaging" | "iot";
 
 const categories: Array<{ id: IntegrationCategory; label: string; icon: React.ReactNode }> = [
-  { id: "all", label: "Tất cả dịch vụ", icon: <Plug size={13} /> },
-  { id: "payment", label: "Cổng thanh toán", icon: <WalletCards size={13} /> },
-  { id: "messaging", label: "Tin nhắn & OTT", icon: <MessageSquare size={13} /> },
+  { id: "all", label: "Tất cả", icon: <Plug size={13} /> },
+  { id: "payment", label: "Thanh toán", icon: <WalletCards size={13} /> },
+  { id: "messaging", label: "Tin nhắn", icon: <MessageSquare size={13} /> },
   { id: "iot", label: "Điện & Smart IoT", icon: <Zap size={13} /> },
 ];
 
@@ -91,6 +91,18 @@ export default function SettingsIntegrations() {
 
   return (
     <div className="flex flex-col gap-3" data-testid="settings-integration-center">
+      {/* Title & Counters */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+        <div>
+          <h2 className="text-base sm:text-lg font-black text-text flex items-center gap-2">
+            <PlugZap size={18} className="text-primary" /> Trung tâm tích hợp
+          </h2>
+          <p className="text-xs text-muted mt-0.5">
+            Đã lưu cấu hình{savedCount}/5 · Đang bật trong cấu hình{enabledCount}/5
+          </p>
+        </div>
+      </div>
+
       {/* 4 Slim KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
@@ -149,13 +161,15 @@ export default function SettingsIntegrations() {
       {/* Header & Filter Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-border/70 bg-card p-3 md:p-3.5 shadow-2xs">
         {/* Category Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto">
+        <div className="flex items-center gap-1.5 overflow-x-auto" role="tablist">
           {categories.map((cat) => {
             const isActive = activeCategory === cat.id;
             return (
               <button
                 key={cat.id}
                 type="button"
+                role="tab"
+                aria-selected={isActive}
                 onClick={() => setActiveCategory(cat.id)}
                 className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-bold transition-all ${
                   isActive
@@ -175,6 +189,7 @@ export default function SettingsIntegrations() {
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           <input
             type="search"
+            aria-label="Tìm tích hợp"
             name="integration_search_query"
             autoComplete="off"
             autoCorrect="off"
@@ -199,7 +214,7 @@ export default function SettingsIntegrations() {
 
       {/* Integrations Panels */}
       {!hasVisiblePanels ? (
-        <div className="p-12 text-center text-xs font-medium text-muted rounded-xl border border-border/70 bg-card">
+        <div data-testid="integration-filter-empty" className="p-12 text-center text-xs font-medium text-muted rounded-xl border border-border/70 bg-card">
           Không tìm thấy dịch vụ tích hợp phù hợp với từ khóa &quot;{query}&quot;.
         </div>
       ) : (

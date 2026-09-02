@@ -444,7 +444,7 @@ export default function SettingsSePayIntegration() {
                 </span>
               )}
             </div>
-            <h3 className="text-lg font-black text-text">Thanh toán và đối soát tự động</h3>
+            <h3 className="text-lg font-black text-text">Tích hợp thanh toán SePay</h3>
             <p className="text-xs text-muted">
               Tự động nhận diện biến động số dư ngân hàng qua SePay Webhook và đối soát hóa đơn/phiếu cọc.
             </p>
@@ -463,15 +463,55 @@ export default function SettingsSePayIntegration() {
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
               <Link2 size={14} className="text-primary" /> Tích hợp Webhook & Cấu hình SePay
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={openConfigModal}
-              className="h-8 rounded-xl px-3 text-xs font-bold text-primary border-primary/30 hover:bg-primary/5 hover:border-primary"
-            >
-              <Settings2 size={13} className="mr-1.5" /> Thiết lập cấu hình
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={async () => {
+                  const payload: Partial<SePaySettings> = { ...draft };
+                  if (!canEditSecrets || !draft.webhookApiKey) delete payload.webhookApiKey;
+                  if (!canEditSecrets || !draft.hmacSecret) delete payload.hmacSecret;
+                  await save(payload as SePaySettings);
+                  toast.success("Đã lưu cấu hình SePay thành công!");
+                }}
+                className="h-8 rounded-xl px-3 text-xs font-bold bg-primary text-white"
+              >
+                Lưu SePay
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={openConfigModal}
+                className="h-8 rounded-xl px-3 text-xs font-bold text-primary border-primary/30 hover:bg-primary/5 hover:border-primary"
+              >
+                <Settings2 size={13} className="mr-1.5" /> Thiết lập cấu hình
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">API Key Webhook</label>
+              <Input
+                type="password"
+                value={draft.webhookApiKey || ""}
+                onChange={(e) => setDraft((prev) => ({ ...prev, webhookApiKey: e.target.value }))}
+                placeholder={canEditSecrets ? "Nhập API Key" : "Chỉ admin@homeland.vn được sửa"}
+                disabled={!canEditSecrets}
+                data-testid="integration-secret-field"
+                className="h-9 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-text">Tiền tố mã thanh toán</label>
+              <Input
+                value={draft.paymentCodePrefix || "HL"}
+                onChange={(e) => setDraft((prev) => ({ ...prev, paymentCodePrefix: e.target.value }))}
+                placeholder="HL"
+                className="h-9 text-xs font-mono font-bold"
+              />
+            </div>
           </div>
 
           {/* Webhook URL preview box */}

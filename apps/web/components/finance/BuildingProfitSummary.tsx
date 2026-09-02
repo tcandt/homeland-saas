@@ -95,7 +95,7 @@ export default function BuildingProfitSummary() {
           </div>
           <div className="grid grid-cols-2 gap-2 lg:w-[300px]">
             <Select data-testid="building-profit-year" value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
-            <Select data-testid="building-profit-month" value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
+            <Select aria-label="Chọn tháng báo cáo lợi nhuận" data-testid="building-profit-month" value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
           </div>
         </div>
       </div>

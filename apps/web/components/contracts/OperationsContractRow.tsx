@@ -204,7 +204,7 @@ export default function OperationsContractRow({
       <div className="relative flex justify-end items-center gap-1.5">
         <button
           type="button"
-          aria-label="Xem chi tiết hợp đồng"
+          aria-label="Xem chi tiết"
           onClick={(event) => {
             event.stopPropagation();
             onClick();

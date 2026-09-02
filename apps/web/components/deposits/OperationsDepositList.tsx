@@ -264,6 +264,7 @@ export default function OperationsDepositList({ onCreateClick }: OperationsDepos
                         )}
                         <button
                           type="button"
+                          aria-label="Xem chi tiết"
                           title="Xem chi tiết"
                           onClick={() => setSelectedDeposit(deposit)}
                           className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted hover:text-text hover:border-primary/40 transition-colors"

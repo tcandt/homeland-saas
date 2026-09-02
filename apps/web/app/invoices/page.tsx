@@ -631,7 +631,7 @@ function InvoiceRow({
       <td className="px-3.5 py-3 text-right">
         <button
           type="button"
-          aria-label="Xem chi tiết hóa đơn"
+          aria-label="Xem chi tiết"
           onClick={(e) => {
             e.stopPropagation();
             onOpen();

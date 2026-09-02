@@ -433,7 +433,7 @@ export default function OperationsDepositDrawer({
 
               {isPaid && !isContractDeposit && (
                 <Button
-                  data-testid="deposit-action-cancel-paid"
+                  data-testid="deposit-action-cancel"
                   onClick={openCancelModal}
                   disabled={cancelMutation.isPending}
                   variant="ghost"

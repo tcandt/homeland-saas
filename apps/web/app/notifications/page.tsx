@@ -8,30 +8,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { CheckCircle2, Clock, Mail, Bell } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 
-const getAuthToken = () => {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const authStore = localStorage.getItem("auth-storage");
-    if (!authStore) return "";
-    const parsed = JSON.parse(authStore);
-    return parsed?.state?.accessToken || "";
-  } catch {
-    return "";
-  }
-};
-
-const fetcher = async (url: string) => {
-  const token = getAuthToken();
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-
-  if (!res.ok) {
-    throw new Error("Unable to load notifications.");
-  }
-
-  const json = await res.json();
-  return json.data || json;
-};
+import { apiClient } from "@/lib/api/client";
 
 function normalizeNotifications(value: unknown) {
   if (Array.isArray(value)) return value;
@@ -65,27 +42,30 @@ export default function InboxCenter() {
   const [activeTab, setActiveTab] = useState("all");
   const [selectedNotification, setSelectedNotification] = useState<any>(null);
 
-  const { data: notifications, mutate } = useSWR("/api/v1/notifications", fetcher, {
+  const { data: notifications, mutate } = useSWR("notifications-list", async () => {
+    const res: any = await apiClient.fetch("/notifications");
+    return res?.data || res;
+  }, {
     refreshInterval: 0,
   });
   const notificationItems = useMemo(() => normalizeNotifications(notifications), [notifications]);
 
   const markAsRead = async (id: string) => {
-    const token = getAuthToken();
-    await fetch(`/api/v1/notifications/${id}/read`, {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    mutate();
+    try {
+      await apiClient.fetch(`/notifications/${id}/read`, { method: "PATCH" });
+      mutate();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const markAllAsRead = async () => {
-    const token = getAuthToken();
-    await fetch("/api/v1/notifications/read-all", {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    mutate();
+    try {
+      await apiClient.fetch("/notifications/read-all", { method: "PATCH" });
+      mutate();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const filteredNotifications =

@@ -59,7 +59,7 @@ function shortSecret(value?: string) {
 export default function SettingsEmailIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<EmailSettings>("email-provider", "TENANT", fallback);
   const user = useAuthStore((state) => state.user);
-  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
+  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn" && Boolean(draft.smtpPassword);
 
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState<EmailSettings>(fallback);

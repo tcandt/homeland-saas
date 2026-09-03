@@ -53,7 +53,7 @@ function shortSecret(value?: string) {
 export default function SettingsTelegramIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<TelegramSettings>("telegram-provider", "TENANT", fallback);
   const user = useAuthStore((state) => state.user);
-  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
+  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn" && Boolean(draft.botToken);
 
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState<TelegramSettings>(fallback);

@@ -168,7 +168,7 @@ export default function SettingsSePayIntegration() {
   const [togglingBankId, setTogglingBankId] = useState("");
   const [copiedUrl, setCopiedUrl] = useState(false);
 
-  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
+  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn" && Boolean(draft.webhookApiKey);
 
   const config = adminConfig?.config;
   const status = config?.status;

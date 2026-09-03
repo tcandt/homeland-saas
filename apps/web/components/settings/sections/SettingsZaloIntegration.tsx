@@ -116,7 +116,7 @@ function resolveZaloErrorMessage(error: unknown) {
 export default function SettingsZaloIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<ZaloSettings>("zalo-provider", "TENANT", fallback);
   const user = useAuthStore((state) => state.user);
-  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
+  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn" && Boolean(draft.botToken);
 
   // Modal & Edit Draft States
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);

@@ -1588,9 +1588,14 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                         </Badge>
                       </div>
                       <div>
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted block">
-                          Số tiền còn lại phải hoàn trả khách
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted block">
+                            Số tiền còn lại phải hoàn trả khách
+                          </span>
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                            Hoàn khách:
+                          </span>
+                        </div>
                         <div className="mt-1 text-3xl font-mono font-black text-emerald-600 dark:text-emerald-400">
                           {formatCurrency(refundToCustomer)}
                         </div>
@@ -1616,9 +1621,14 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                         </Badge>
                       </div>
                       <div>
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted block">
-                          Số tiền khách cần nộp thêm
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted block">
+                            Số tiền khách cần nộp thêm
+                          </span>
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                            Thu thêm:
+                          </span>
+                        </div>
                         <div className="mt-1 text-3xl font-mono font-black text-rose-600 dark:text-rose-400">
                           {formatCurrency(netReceivable)}
                         </div>
@@ -1848,23 +1858,23 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                     Trạng thái phòng sau bàn giao
                   </span>
                   <span className="text-xs font-black text-text mt-0.5 block">
-                    {settlementPreview?.roomTurnoverStatus === "MAINTENANCE"
+                    {(settlementPreview?.roomTurnoverStatus || settlementForm.roomTurnoverStatus) === "MAINTENANCE"
                       ? "Bảo trì trước khi mở bán"
-                      : settlementPreview?.roomTurnoverStatus === "CLEANING"
+                      : (settlementPreview?.roomTurnoverStatus || settlementForm.roomTurnoverStatus) === "CLEANING"
                         ? "Vệ sinh trước khi mở bán"
                         : "Phòng trống (Sẵn sàng mở bán)"}
                   </span>
                 </div>
                 <Badge
                   variant={
-                    settlementPreview?.roomTurnoverStatus === "MAINTENANCE"
+                    (settlementPreview?.roomTurnoverStatus || settlementForm.roomTurnoverStatus) === "MAINTENANCE"
                       ? "warning"
-                      : settlementPreview?.roomTurnoverStatus === "CLEANING"
+                      : (settlementPreview?.roomTurnoverStatus || settlementForm.roomTurnoverStatus) === "CLEANING"
                         ? "primary"
                         : "success"
                   }
                 >
-                  {settlementPreview?.roomTurnoverStatus || "AVAILABLE"}
+                  {settlementPreview?.roomTurnoverStatus || settlementForm.roomTurnoverStatus || "AVAILABLE"}
                 </Badge>
               </div>
 

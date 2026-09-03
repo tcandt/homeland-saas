@@ -227,6 +227,7 @@ export default function SettingsTeam() {
 
   return (
     <div className="flex flex-col gap-3" data-testid="settings-users-root">
+      <div data-testid="settings-team-real-data" className="flex flex-col gap-3">
       {/* 4 Slim KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
@@ -593,6 +594,7 @@ export default function SettingsTeam() {
           </div>
         </form>
       </Modal>
+      </div>
     </div>
   );
 }

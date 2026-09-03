@@ -288,6 +288,7 @@ export default function SettingsHunonicIntegration() {
               <label className="text-xs font-bold text-text">Mật khẩu API</label>
               <div className="relative">
                 <Input
+                  data-testid="integration-secret-field"
                   type={showPassword ? "text" : "password"}
                   value={draft.password || ""}
                   onChange={(event) => setDraft((prev) => ({ ...prev, password: event.target.value }))}

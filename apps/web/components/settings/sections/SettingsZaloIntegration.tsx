@@ -463,10 +463,10 @@ export default function SettingsZaloIntegration() {
                 type="password"
                 value={draft.webhookSecret || ""}
                 onChange={(e) => setDraft((prev) => ({ ...prev, webhookSecret: e.target.value }))}
-                placeholder={canEditSecrets ? "Nhập Webhook Secret" : "Chỉ admin@homeland.vn được sửa"}
-                disabled={!canEditSecrets}
+                placeholder="Tự động tạo bởi hệ thống"
+                disabled={true}
                 data-testid="integration-secret-field"
-                className="h-9 text-xs font-mono"
+                className="h-9 text-xs font-mono bg-muted/20 cursor-not-allowed"
               />
             </div>
           </div>

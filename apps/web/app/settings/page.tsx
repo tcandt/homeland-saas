@@ -546,7 +546,7 @@ function SettingsDashboard({ onSelect }: { onSelect: (section: SettingsSection) 
         <div className="rounded-xl border border-border bg-card p-4 shadow-2xs">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-black text-text"><span>Nhật ký hoạt động</span> gần đây</h3>
+              <h3 className="text-sm font-black text-text">Nhật ký hoạt động</h3>
               <p className="mt-0.5 text-xs font-medium text-muted">Dữ liệu audit mới nhất từ hệ thống</p>
             </div>
             <Button variant="outline" size="sm" className="h-8 rounded-xl px-3 text-xs font-bold" onClick={() => onSelect("overview")}>

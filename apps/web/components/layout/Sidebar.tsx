@@ -96,7 +96,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
         {hasSettingsAccess && (
           <NavItem href="/settings" icon={<Settings size={20} />} label="Cài đặt" collapsed={collapsed} active={pathname === "/settings"} dataTestId="sidebar-nav-settings" />
         )}
-        <NavItem href="/activities" icon={<ClipboardList size={20} />} label="Nhật ký hoạt động" collapsed={collapsed} active={pathname === "/activities" || pathname.startsWith("/activities")} />
+        <NavItem href="/activities" icon={<ClipboardList size={20} />} label="Nhật ký vận hành" collapsed={collapsed} active={pathname === "/activities" || pathname.startsWith("/activities")} />
       </nav>
 
       {/* Account & Logout Section - Always pinned to bottom */}

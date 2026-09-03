@@ -467,40 +467,113 @@ export default function RoomPremiumModal({
     return Array.isArray(items) ? items : [];
   }, [customersResponse]);
 
-  const handleConfirmToggleTempResidence = async () => {
+  const handleToggleOccupantTempResidence = async (occupant: any) => {
     if (!roomData) return;
     setIsSavingTempResidence(true);
-    const isCurrentlyDeclared = Boolean(
-      roomData.tenant?.tempResidence ||
-      (roomData.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st: any) => st.tempResidence))
-    );
-    const nextVal = !isCurrentlyDeclared;
+    const occupantId = occupant.id;
+    const currentStatus = Boolean(occupant.tempResidence);
+    const nextVal = !currentStatus;
 
     try {
       // 1. Save to localStorage
       if (typeof window !== "undefined") {
-        if (roomId) localStorage.setItem(`homeland_temp_residence_room_${roomId}`, String(nextVal));
-        if (roomData.tenant?.id) localStorage.setItem(`homeland_temp_residence_${roomData.tenant.id}`, String(nextVal));
-        (roomData.roommates || []).forEach((rm: any) => {
-          if (rm.id) localStorage.setItem(`homeland_temp_residence_${rm.id}`, String(nextVal));
+        if (occupantId) localStorage.setItem(`homeland_temp_residence_${occupantId}`, String(nextVal));
+        if (roomId) localStorage.removeItem(`homeland_temp_residence_room_${roomId}`);
+      }
+
+      // 2. Persist to DB for this customer if real ID
+      if (occupantId && !occupantId.startsWith("t-")) {
+        const existing = customers.find((c: any) => c.id === occupantId);
+        const curImages = Array.isArray(existing?.idImages) ? [...existing.idImages] : [];
+        const nextImages = nextVal
+          ? Array.from(new Set([...curImages, "TEMP_RESIDENCE_DECLARED"]))
+          : curImages.filter((img: string) => img !== "TEMP_RESIDENCE_DECLARED");
+        await customersApi.update(occupantId, { idImages: nextImages });
+      }
+
+      // 3. Update local React state
+      setRoomData((prev) => {
+        if (!prev) return null;
+        let nextTenant = prev.tenant;
+        if (
+          prev.tenant &&
+          (prev.tenant.id === occupantId ||
+            (!occupantId && occupant.isRep) ||
+            (prev.tenant.name === occupant.name && prev.tenant.cccd === occupant.cccd))
+        ) {
+          nextTenant = { ...prev.tenant, tempResidence: nextVal };
+        }
+        const nextRoommates = (prev.roommates || []).map((rm: any) => {
+          if (
+            rm.id === occupantId ||
+            (rm.name === occupant.name && (rm.cccd === occupant.cccd || rm.phone === occupant.phone))
+          ) {
+            return { ...rm, tempResidence: nextVal };
+          }
+          return rm;
         });
-        (roomData.sharedTenants || []).forEach((st: any) => {
-          if (st.id) localStorage.setItem(`homeland_temp_residence_${st.id}`, String(nextVal));
+        const nextShared = (prev.sharedTenants || []).map((st: any) => {
+          if (
+            st.id === occupantId ||
+            (st.name === occupant.name && (st.cccd === occupant.cccd || st.phone === occupant.phone))
+          ) {
+            return { ...st, tempResidence: nextVal };
+          }
+          return st;
+        });
+        return {
+          ...prev,
+          tenant: nextTenant,
+          roommates: nextRoommates,
+          sharedTenants: nextShared,
+        };
+      });
+
+      // 4. Invalidate Query Cache
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+        queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+        queryClient.invalidateQueries({ queryKey: ["customers"] }),
+      ]);
+
+      const occupantName = occupant.name || occupant.fullName || "Khách thuê";
+      showToast(
+        nextVal
+          ? `Đã xác nhận khai báo tạm trú cho "${occupantName}"!`
+          : `Đã hủy khai báo tạm trú cho "${occupantName}"!`,
+        "success"
+      );
+    } catch (err) {
+      console.error("Failed to update occupant temporary residence:", err);
+      showToast("Có lỗi xảy ra khi cập nhật trạng thái tạm trú", "error");
+    } finally {
+      setIsSavingTempResidence(false);
+    }
+  };
+
+  const handleConfirmToggleTempResidence = async () => {
+    if (!roomData) return;
+    setIsSavingTempResidence(true);
+    const occupants = getOccupantsList();
+    const isAllDeclared = occupants.length > 0 && occupants.every((occ: any) => Boolean(occ.tempResidence));
+    const nextVal = !isAllDeclared;
+
+    try {
+      // 1. Save to localStorage
+      if (typeof window !== "undefined") {
+        if (roomId) localStorage.removeItem(`homeland_temp_residence_room_${roomId}`);
+        occupants.forEach((occ: any) => {
+          if (occ.id) localStorage.setItem(`homeland_temp_residence_${occ.id}`, String(nextVal));
         });
       }
 
       // 2. Persist to DB for all related customers
-      const cids: string[] = [];
-      if (roomData.tenant?.id && !roomData.tenant.id.startsWith("t-")) cids.push(roomData.tenant.id);
-      (roomData.roommates || []).forEach((rm: any) => {
-        if (rm.id && !rm.id.startsWith("t-")) cids.push(rm.id);
-      });
-      (roomData.sharedTenants || []).forEach((st: any) => {
-        if (st.id && !st.id.startsWith("t-")) cids.push(st.id);
-      });
+      const cids = occupants
+        .map((occ: any) => occ.id)
+        .filter((id: string) => id && !id.startsWith("t-"));
 
       await Promise.all(
-        cids.map(async (cid) => {
+        cids.map(async (cid: string) => {
           const existing = customers.find((c: any) => c.id === cid);
           const curImages = Array.isArray(existing?.idImages) ? [...existing.idImages] : [];
           const nextImages = nextVal
@@ -529,7 +602,12 @@ export default function RoomPremiumModal({
       ]);
 
       setIsTempResidenceConfirmOpen(false);
-      showToast(nextVal ? "Đã xác nhận ĐÃ KHAI BÁO tạm trú cho phòng!" : "Đã chuyển về CHƯA KHAI BÁO tạm trú!", "success");
+      showToast(
+        nextVal
+          ? "Đã xác nhận ĐÃ KHAI BÁO tạm trú cho tất cả khách trong phòng!"
+          : "Đã hủy khai báo tạm trú cho tất cả khách trong phòng!",
+        "success"
+      );
     } catch (err) {
       console.error("Failed to update temporary residence in DB:", err);
       showToast("Có lỗi xảy ra khi cập nhật trạng thái tạm trú", "error");
@@ -1435,7 +1513,14 @@ export default function RoomPremiumModal({
       id: "temp_residence",
       label: "Tạm trú",
       icon: <ShieldAlert size={16} className="shrink-0" />,
-      badge: occupantsCount > 0 ? ((roomData.tenant?.tempResidence || (roomData.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every(st => st.tempResidence))) ? "✓" : "!") : undefined,
+      badge: (() => {
+        if (occupantsCount === 0) return undefined;
+        const occs = getOccupantsList();
+        const declared = occs.filter((o: any) => Boolean(o.tempResidence)).length;
+        if (declared === occs.length && occs.length > 0) return "✓";
+        if (declared > 0) return `${declared}/${occs.length}`;
+        return "!";
+      })(),
     },
     {
       id: "overview",
@@ -2256,43 +2341,63 @@ export default function RoomPremiumModal({
                       );
                     }
 
-                    const isAllDeclared = roomData.tenant?.tempResidence || (roomData.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every(st => st.tempResidence));
+                    const declaredCount = occupants.filter((occ: any) => Boolean(occ.tempResidence)).length;
+                    const isAllDeclared = declaredCount === occupants.length && occupants.length > 0;
+                    const isPartialDeclared = declaredCount > 0 && declaredCount < occupants.length;
+                    const isNoneDeclared = declaredCount === 0;
 
                     return (
                       <div className="flex flex-col gap-4">
                         {/* Main room-wide status card */}
                         <div className="border border-border/60 rounded-2xl p-5 bg-card flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
                           <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-black text-text">
                                 Khai báo tạm trú với Công an sở tại
                               </span>
-                              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${isAllDeclared
-                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
-                                }`}>
-                                {isAllDeclared ? "✓ Đã khai báo" : "• Chưa hoàn tất"}
-                              </span>
+                              {isAllDeclared && (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                  ✓ Đã khai báo ({declaredCount}/{occupants.length})
+                                </span>
+                              )}
+                              {isPartialDeclared && (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                  ⚠ Khai báo 1 phần ({declaredCount}/{occupants.length})
+                                </span>
+                              )}
+                              {isNoneDeclared && (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                                  • Chưa khai báo (0/{occupants.length})
+                                </span>
+                              )}
                             </div>
                             <span className="text-xs text-muted">
-                              Quy định bắt buộc đối với khách thuê lưu trú qua đêm tại căn hộ.
+                              Quy định bắt buộc đối với khách thuê lưu trú qua đêm tại căn hộ. Bạn có thể khai báo cho từng khách hoặc khai báo toàn bộ.
                             </span>
                           </div>
-                          <Button
-                            type="button"
-                            variant={isAllDeclared ? "outline" : "primary"}
-                            onClick={() => setIsTempResidenceConfirmOpen(true)}
-                            className="shrink-0"
-                          >
-                            {isAllDeclared ? "Hủy xác nhận khai báo" : "Xác nhận đã khai báo"}
-                          </Button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                              type="button"
+                              variant={isAllDeclared ? "outline" : "primary"}
+                              onClick={() => setIsTempResidenceConfirmOpen(true)}
+                              disabled={isSavingTempResidence}
+                              className="shrink-0"
+                            >
+                              {isAllDeclared ? "Hủy khai báo tất cả" : "Xác nhận đã khai báo tất cả"}
+                            </Button>
+                          </div>
                         </div>
 
                         {/* Occupants list breakdown */}
                         <div className="flex flex-col gap-3 mt-1">
-                          <h5 className="text-[12px] font-black uppercase text-muted tracking-wider">
-                            Danh sách người lưu trú ({occupants.length})
-                          </h5>
+                          <div className="flex items-center justify-between">
+                            <h5 className="text-[12px] font-black uppercase text-muted tracking-wider">
+                              Danh sách người lưu trú ({occupants.length})
+                            </h5>
+                            <span className="text-xs font-semibold text-muted">
+                              Đã khai báo: <strong className="text-text">{declaredCount}/{occupants.length}</strong> khách
+                            </span>
+                          </div>
                           <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
                             <table className="w-full text-left border-collapse text-sm">
                               <thead>
@@ -2300,22 +2405,28 @@ export default function RoomPremiumModal({
                                   <th className="px-4 py-3">Họ và tên</th>
                                   <th className="px-4 py-3">CCCD / Định danh</th>
                                   <th className="px-4 py-3">Vai trò</th>
-                                  <th className="px-4 py-3 text-right">Trạng thái tạm trú</th>
+                                  <th className="px-4 py-3 text-center">Trạng thái tạm trú</th>
+                                  <th className="px-4 py-3 text-right">Thao tác</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-border/40">
                                 {occupants.map((occ: any, idx: number) => {
-                                  const isDeclared = Boolean(occ.tempResidence || roomData.tenant?.tempResidence);
+                                  const isDeclared = Boolean(occ.tempResidence);
                                   return (
                                     <tr key={occ.id || idx} className="hover:bg-surface/40 transition-colors">
-                                      <td className="px-4 py-3 font-bold text-text">{occ.name || occ.fullName || "Khách thuê"}</td>
+                                      <td className="px-4 py-3">
+                                        <div className="flex flex-col">
+                                          <span className="font-bold text-text">{occ.name || occ.fullName || "Khách thuê"}</span>
+                                          {occ.phone && <span className="text-[11px] text-muted font-mono">{occ.phone}</span>}
+                                        </div>
+                                      </td>
                                       <td className="px-4 py-3 text-text font-mono text-xs">{occ.cccd || occ.identityNo || "—"}</td>
                                       <td className="px-4 py-3">
                                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${occ.isRep ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface text-muted border border-border/40'}`}>
                                           {occ.role || (occ.isRep ? "Đại diện HĐ" : "Người ở cùng")}
                                         </span>
                                       </td>
-                                      <td className="px-4 py-3 text-right">
+                                      <td className="px-4 py-3 text-center">
                                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${isDeclared
                                           ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                                           : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
@@ -2323,6 +2434,29 @@ export default function RoomPremiumModal({
                                           <span className={`w-1.5 h-1.5 rounded-full ${isDeclared ? "bg-emerald-500" : "bg-rose-500"}`} />
                                           {isDeclared ? "Đã khai báo" : "Chưa khai báo"}
                                         </span>
+                                      </td>
+                                      <td className="px-4 py-3 text-right">
+                                        <Button
+                                          size="sm"
+                                          variant={isDeclared ? "outline" : "primary"}
+                                          onClick={() => handleToggleOccupantTempResidence(occ)}
+                                          disabled={isSavingTempResidence}
+                                          className={`h-8 text-xs font-bold gap-1 px-3 ${
+                                            isDeclared
+                                              ? "text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 border-rose-200 dark:border-rose-900/40"
+                                              : ""
+                                          }`}
+                                        >
+                                          {isDeclared ? (
+                                            <>
+                                              <X size={13} /> Hủy khai báo
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Check size={13} /> Khai báo
+                                            </>
+                                          )}
+                                        </Button>
                                       </td>
                                     </tr>
                                   );
@@ -3275,9 +3409,13 @@ export default function RoomPremiumModal({
         isOpen={isTempResidenceConfirmOpen}
         onClose={() => setIsTempResidenceConfirmOpen(false)}
         title={
-          (roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence)))
-            ? "Xác nhận hủy khai báo tạm trú"
-            : "Xác nhận đã khai báo tạm trú"
+          (() => {
+            const occs = getOccupantsList();
+            const allDeclared = occs.length > 0 && occs.every((occ: any) => Boolean(occ.tempResidence));
+            return allDeclared
+              ? "Xác nhận hủy khai báo tạm trú tất cả"
+              : "Xác nhận đã khai báo tạm trú tất cả";
+          })()
         }
         footer={
           <div className="flex gap-3 justify-end w-full">
@@ -3288,55 +3426,62 @@ export default function RoomPremiumModal({
             >
               Hủy bỏ
             </Button>
-            <Button
-              variant={
-                (roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence)))
-                  ? "danger"
-                  : "primary"
-              }
-              onClick={handleConfirmToggleTempResidence}
-              disabled={isSavingTempResidence}
-            >
-              {isSavingTempResidence ? (
-                <Loader2 size={16} className="animate-spin mr-2" />
-              ) : (roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence))) ? (
-                <ShieldAlert size={16} className="mr-2" />
-              ) : (
-                <Check size={16} className="mr-2" />
-              )}
-              {(roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence)))
-                ? "Xác nhận hủy"
-                : "Xác nhận đã khai báo"}
-            </Button>
+            {(() => {
+              const occs = getOccupantsList();
+              const allDeclared = occs.length > 0 && occs.every((occ: any) => Boolean(occ.tempResidence));
+              return (
+                <Button
+                  variant={allDeclared ? "danger" : "primary"}
+                  onClick={handleConfirmToggleTempResidence}
+                  disabled={isSavingTempResidence}
+                >
+                  {isSavingTempResidence ? (
+                    <Loader2 size={16} className="animate-spin mr-2" />
+                  ) : allDeclared ? (
+                    <ShieldAlert size={16} className="mr-2" />
+                  ) : (
+                    <Check size={16} className="mr-2" />
+                  )}
+                  {allDeclared ? "Xác nhận hủy tất cả" : "Xác nhận khai báo tất cả"}
+                </Button>
+              );
+            })()}
           </div>
         }
       >
         <div className="flex flex-col gap-3 py-2">
-          {(roomData?.tenant?.tempResidence || (roomData?.sharedTenants && roomData.sharedTenants.length > 0 && roomData.sharedTenants.every((st) => st.tempResidence))) ? (
-            <>
-              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-800 dark:text-rose-300 text-[13px]">
-                <ShieldAlert className="shrink-0 text-rose-600" size={18} />
-                <span>
-                  Bạn có chắc chắn muốn hủy trạng thái khai báo tạm trú của phòng <strong>P.{getRoomDisplayName(roomData)}</strong>?
-                </span>
-              </div>
-              <p className="text-xs text-muted leading-relaxed">
-                Phòng sẽ được chuyển về trạng thái &quot;Chưa khai tạm trú&quot; và hiển thị lại cảnh báo trên danh sách phòng.
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-[13px]">
-                <ShieldAlert className="shrink-0 text-emerald-600" size={18} />
-                <span>
-                  Xác nhận phòng <strong>P.{getRoomDisplayName(roomData)}</strong> ({roomData?.tenant?.name || "Khách thuê"}) đã hoàn tất thủ tục đăng ký tạm trú với Công an sở tại.
-                </span>
-              </div>
-              <p className="text-xs text-muted leading-relaxed">
-                Sau khi xác nhận, hệ thống sẽ gỡ bỏ các cảnh báo thiếu tạm trú trên giao diện quản lý và lưu trạng thái vĩnh viễn vào hệ thống.
-              </p>
-            </>
-          )}
+          {(() => {
+            const occs = getOccupantsList();
+            const allDeclared = occs.length > 0 && occs.every((occ: any) => Boolean(occ.tempResidence));
+            if (allDeclared) {
+              return (
+                <>
+                  <div className="flex items-center gap-2.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-800 dark:text-rose-300 text-[13px]">
+                    <ShieldAlert className="shrink-0 text-rose-600" size={18} />
+                    <span>
+                      Bạn có chắc chắn muốn hủy trạng thái khai báo tạm trú của tất cả khách trong phòng <strong>P.{getRoomDisplayName(roomData)}</strong>?
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted leading-relaxed">
+                    Phòng sẽ được chuyển về trạng thái &quot;Chưa khai tạm trú&quot; và hiển thị lại cảnh báo trên danh sách phòng.
+                  </p>
+                </>
+              );
+            }
+            return (
+              <>
+                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-[13px]">
+                  <ShieldAlert className="shrink-0 text-emerald-600" size={18} />
+                  <span>
+                    Xác nhận tất cả ({occs.length}) cư dân phòng <strong>P.{getRoomDisplayName(roomData)}</strong> đã hoàn tất thủ tục đăng ký tạm trú với Công an sở tại.
+                  </span>
+                </div>
+                <p className="text-xs text-muted leading-relaxed">
+                  Sau khi xác nhận, tất cả khách lưu trú trong phòng sẽ được đánh dấu đã khai báo và trạng thái phòng sẽ là &quot;Đã khai báo&quot;.
+                </p>
+              </>
+            );
+          })()}
         </div>
       </Modal>
 

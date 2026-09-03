@@ -52,9 +52,6 @@ export const isTempResidenceDeclared = (customer: any, roomId?: string): boolean
     if (customer.id && localStorage.getItem(`homeland_temp_residence_${customer.id}`) === "true") {
       return true;
     }
-    if (roomId && localStorage.getItem(`homeland_temp_residence_room_${roomId}`) === "true") {
-      return true;
-    }
   }
   return false;
 };

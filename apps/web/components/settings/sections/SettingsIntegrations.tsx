@@ -223,7 +223,7 @@ export default function SettingsIntegrations() {
           {visiblePanelIds.has("zalo") && <SettingsZaloIntegration />}
           {visiblePanelIds.has("email") && <SettingsEmailIntegration />}
           {visiblePanelIds.has("telegram") && <SettingsTelegramIntegration />}
-          {visiblePanelIds.has("hunonic") && <SettingsHunonicIntegration />}
+          {visiblePanelIds.has("hunonic") && hunonic.data && <SettingsHunonicIntegration />}
         </div>
       )}
     </div>

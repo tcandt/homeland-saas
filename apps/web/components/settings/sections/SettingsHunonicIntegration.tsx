@@ -73,7 +73,8 @@ export default function SettingsHunonicIntegration() {
   );
   const overview = useSWR(["hunonic-overview"], () => hunonicApi.overview(), { revalidateOnFocus: false });
   const user = useAuthStore((state) => state.user);
-  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
+  const isHunonicSection = typeof window !== "undefined" && window.location.search.includes("section=hunonic");
+  const canEditSecrets = !isHunonicSection && (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState<Required<HunonicSettingsPayload>>(fallback);

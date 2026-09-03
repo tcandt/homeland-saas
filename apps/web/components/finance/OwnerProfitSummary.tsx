@@ -101,7 +101,7 @@ export default function OwnerProfitSummary() {
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted font-medium">
                         <Building2 size={12} className="text-primary shrink-0" />
                         <span className="truncate max-w-[220px]">
-                          {(row.buildings || []).map((b: any) => b.code || b.name).join(", ") || "Chưa gán tòa"}
+                          {(row.buildings || []).map((b: any) => `Tòa ${b.code || b.name}`).join(", ") || "Chưa gán tòa"}
                         </span>
                       </div>
                     </div>
@@ -341,7 +341,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                                 {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                               </button>
                             </td>
-                            <td className="px-3 py-2.5 font-bold text-text">{row.building.code || row.building.name}</td>
+                            <td className="px-3 py-2.5 font-bold text-text">Tòa {row.building.code || row.building.name}</td>
                             <td className="px-3 py-2.5 text-right font-mono font-semibold text-text">{formatVnd(row.revenueBreakdown?.rent || 0)}</td>
                             <td className="px-3 py-2.5 text-right font-mono font-semibold text-amber-600">{formatVnd(row.revenueBreakdown?.electricity || 0)}</td>
                             <td className="px-3 py-2.5 text-right font-mono font-semibold text-sky-600">{formatVnd(row.revenueBreakdown?.waterAndService || 0)}</td>
@@ -374,7 +374,14 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                                     <tbody className="divide-y divide-border/30">
                                       {(row.roomBreakdown || []).map((roomRow: any) => (
                                         <tr key={`${row.building.id}:${roomRow.room.id}`}>
-                                          <td className="px-2 py-1.5 font-bold text-text">{roomRow.room.code || roomRow.room.name}</td>
+                                          <td className="px-2 py-1.5 font-bold text-text">
+                                            <span>{roomRow.room.code}</span>
+                                            {roomRow.room.name ? (
+                                              <span className="text-muted font-normal ml-1">
+                                                ({roomRow.room.name})
+                                              </span>
+                                            ) : null}
+                                          </td>
                                           <td className="px-2 py-1.5 text-right font-mono text-muted">{formatVnd(roomRow.rent || 0)}</td>
                                           <td className="px-2 py-1.5 text-right font-mono text-amber-600">{formatVnd(roomRow.electricity || 0)}</td>
                                           <td className="px-2 py-1.5 text-right font-mono text-sky-600">{formatVnd(roomRow.waterAndService || 0)}</td>

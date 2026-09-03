@@ -125,7 +125,7 @@ export default function FinanceMobileFlow() {
                     <div className="min-w-0">
                       <div className="truncate text-[13px] font-black text-text">{owner.owner?.name || owner.owner?.code || "Chủ sở hữu"}</div>
                       <div className="mt-1 truncate text-[11px] font-semibold text-muted">
-                        {(owner.buildings || []).map((building: any) => building.code).join(", ") || "Chưa gắn tòa"}
+                        {(owner.buildings || []).map((building: any) => `Tòa ${building.code}`).join(", ") || "Chưa gắn tòa"}
                       </div>
                     </div>
                     <div className="text-right">

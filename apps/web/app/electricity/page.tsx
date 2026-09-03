@@ -184,14 +184,12 @@ export function ElectricityManagerContent() {
   const [historyTab, setHistoryTab] = useState<"readings" | "sync_logs">("readings");
   const [historySearch, setHistorySearch] = useState("");
   const [historyBuilding, setHistoryBuilding] = useState("all");
-  const [historyYear, setHistoryYear] = useState<string>("");
-  const [historyMonth, setHistoryMonth] = useState<string>("");
+  const [historyYear, setHistoryYear] = useState<string>("all");
+  const [historyMonth, setHistoryMonth] = useState<string>("all");
   const [historyPage, setHistoryPage] = useState(1);
 
-  const hasSelectedMonthYear = Boolean(historyYear && historyMonth);
-
-  const { data: historyDataRes, isLoading: isLoadingHistoryData } = useSWR(
-    isHistoryModalOpen && (historyTab === "sync_logs" || hasSelectedMonthYear)
+  const { data: historyDataRes, isLoading: isLoadingHistoryData, mutate: mutateHistoryData } = useSWR(
+    isHistoryModalOpen
       ? [
           "hunonic-history-full",
           historyTab,
@@ -207,8 +205,8 @@ export function ElectricityManagerContent() {
         ? hunonicApi.history({
             search: historySearch || undefined,
             buildingCode: historyBuilding !== "all" ? historyBuilding : undefined,
-            year: historyYear || undefined,
-            month: historyMonth || undefined,
+            year: historyYear !== "all" ? historyYear : undefined,
+            month: historyMonth !== "all" ? historyMonth : undefined,
             page: historyPage,
             limit: 20,
           })
@@ -1556,16 +1554,39 @@ export function ElectricityManagerContent() {
                 </button>
               </div>
 
-              {/* Nút Xuất Excel */}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleExportHistoryCsv}
-                className="h-8 rounded-xl px-3 text-xs font-bold text-primary border-primary/30 hover:bg-primary/10 shadow-none"
-              >
-                <Download size={13} className="mr-1.5" /> Xuất Excel
-              </Button>
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={isSyncing}
+                  onClick={async () => {
+                    await handleSync();
+                    mutateHistoryData();
+                  }}
+                  className="h-8 rounded-xl px-3 text-xs font-bold shadow-none"
+                >
+                  {isSyncing ? (
+                    <>
+                      <RefreshCcw size={13} className="mr-1.5 animate-spin" /> Đang đồng bộ...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCcw size={13} className="mr-1.5" /> Đồng bộ ngay
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportHistoryCsv}
+                  className="h-8 rounded-xl px-3 text-xs font-bold text-primary border-primary/30 hover:bg-primary/10 shadow-none"
+                >
+                  <Download size={13} className="mr-1.5" /> Xuất Excel
+                </Button>
+              </div>
             </div>
 
             {/* Filter Toolbar (Áp dụng cho tab Chỉ số theo kỳ) */}
@@ -1614,7 +1635,7 @@ export function ElectricityManagerContent() {
                     }}
                     className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
-                    <option value="">-- Chọn tháng --</option>
+                    <option value="all">Tất cả các tháng</option>
                     {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                       <option key={m} value={String(m)}>
                         Tháng {m}
@@ -1633,7 +1654,7 @@ export function ElectricityManagerContent() {
                     }}
                     className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
-                    <option value="">-- Chọn năm --</option>
+                    <option value="all">Tất cả các năm</option>
                     {[2026, 2025, 2024].map((y) => (
                       <option key={y} value={String(y)}>
                         Năm {y}
@@ -1660,21 +1681,7 @@ export function ElectricityManagerContent() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {!hasSelectedMonthYear ? (
-                        <tr>
-                          <td colSpan={6} className="py-16 text-center text-muted">
-                            <div className="flex flex-col items-center justify-center space-y-2">
-                              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-1">
-                                <Calendar size={22} />
-                              </div>
-                              <div className="font-bold text-sm text-text">Vui lòng chọn Tháng và Năm</div>
-                              <div className="text-xs text-muted max-w-sm">
-                                Dữ liệu lịch sử sẽ tự động hiển thị khi bạn chọn tháng và năm từ bộ lọc phía trên.
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : isLoadingHistoryData ? (
+                      {isLoadingHistoryData ? (
                         <tr>
                           <td colSpan={6} className="py-12 text-center text-muted">
                             <RefreshCcw size={20} className="mx-auto animate-spin text-primary mb-2" />
@@ -1695,8 +1702,12 @@ export function ElectricityManagerContent() {
                             <tr>
                               <td colSpan={6} className="py-12 text-center text-muted">
                                 <PlugZap size={28} className="mx-auto text-muted/30 mb-2" />
-                                <div className="font-bold text-xs text-text">Không có bản ghi nào trong kỳ {historyMonth && historyYear ? `Tháng ${historyMonth}/${historyYear}` : ''}</div>
-                                <div className="text-[11px] mt-0.5 text-muted">Hãy thay đổi bộ lọc tìm kiếm hoặc tháng/năm khác.</div>
+                                <div className="font-bold text-xs text-text">
+                                  Chưa có bản ghi chỉ số nào {historyMonth !== 'all' || historyYear !== 'all' ? `trong kỳ ${historyMonth !== 'all' ? `Tháng ${historyMonth}` : ''}${historyYear !== 'all' ? `/${historyYear}` : ''}` : ''}
+                                </div>
+                                <div className="text-[11px] mt-1 text-muted max-w-sm mx-auto">
+                                  Bấm nút <strong>&quot;Đồng bộ ngay&quot;</strong> ở trên để cập nhật dữ liệu chỉ số công tơ mới nhất từ hệ thống Hunonic.
+                                </div>
                               </td>
                             </tr>
                           );

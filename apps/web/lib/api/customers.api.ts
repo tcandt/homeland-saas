@@ -23,5 +23,9 @@ export const customersApi = {
 
   deduplicate: () => {
     return apiClient.post('/customers/deduplicate');
+  },
+
+  checkDuplicate: (params: { phone?: string; identityNo?: string; excludeId?: string }) => {
+    return apiClient.get('/customers/check-duplicate', { params });
   }
 };

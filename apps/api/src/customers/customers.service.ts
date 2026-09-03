@@ -33,6 +33,138 @@ export class CustomersService extends BaseCrudService<Customer> {
   }
 
   /**
+   * Kiểm tra trùng lặp nhẹ (lightweight) phục vụ validate form realtime hoặc trước khi chuyển bước
+   */
+  async checkDuplicate(params: {
+    phone?: string | null;
+    identityNo?: string | null;
+    excludeId?: string | null;
+  }) {
+    const cleanPhone = normalizePhone(params.phone);
+    const cleanIdentityNo = normalizeIdentityNo(params.identityNo);
+
+    if (!cleanPhone && !cleanIdentityNo) {
+      return { isDuplicate: false, duplicateField: null, duplicateCustomer: null, message: null };
+    }
+
+    if (cleanPhone) {
+      const existingByPhone = await this.prisma.customer.findFirst({
+        where: {
+          deletedAt: null,
+          phone: { equals: cleanPhone, mode: 'insensitive' },
+          ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
+        },
+        include: {
+          room: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              building: { select: { id: true, code: true, name: true } },
+            },
+          },
+          contracts: {
+            where: {
+              deletedAt: null,
+              status: { notIn: [ContractStatus.TERMINATED, ContractStatus.CANCELLED, ContractStatus.EXPIRED] },
+            },
+            select: {
+              id: true,
+              code: true,
+              status: true,
+              room: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                  building: { select: { id: true, code: true, name: true } },
+                },
+              },
+            },
+            take: 1,
+          },
+        },
+      });
+
+      if (existingByPhone) {
+        const room = existingByPhone.contracts?.[0]?.room || existingByPhone.room;
+        const roomText = room ? `${room.building ? `${room.building.name || room.building.code} - ` : ''}Phòng ${room.code || room.name}` : null;
+        return {
+          isDuplicate: true,
+          duplicateField: 'phone',
+          duplicateCustomer: {
+            id: existingByPhone.id,
+            fullName: existingByPhone.fullName,
+            phone: existingByPhone.phone,
+            identityNo: existingByPhone.identityNo,
+            currentRoom: roomText,
+          },
+          message: `Số điện thoại "${params.phone}" đã được đăng ký cho khách thuê "${existingByPhone.fullName}"${roomText ? ` (${roomText})` : ''}.`,
+        };
+      }
+    }
+
+    if (cleanIdentityNo) {
+      const existingByIdentity = await this.prisma.customer.findFirst({
+        where: {
+          deletedAt: null,
+          identityNo: { equals: cleanIdentityNo, mode: 'insensitive' },
+          ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
+        },
+        include: {
+          room: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              building: { select: { id: true, code: true, name: true } },
+            },
+          },
+          contracts: {
+            where: {
+              deletedAt: null,
+              status: { notIn: [ContractStatus.TERMINATED, ContractStatus.CANCELLED, ContractStatus.EXPIRED] },
+            },
+            select: {
+              id: true,
+              code: true,
+              status: true,
+              room: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                  building: { select: { id: true, code: true, name: true } },
+                },
+              },
+            },
+            take: 1,
+          },
+        },
+      });
+
+      if (existingByIdentity) {
+        const room = existingByIdentity.contracts?.[0]?.room || existingByIdentity.room;
+        const roomText = room ? `${room.building ? `${room.building.name || room.building.code} - ` : ''}Phòng ${room.code || room.name}` : null;
+        return {
+          isDuplicate: true,
+          duplicateField: 'identityNo',
+          duplicateCustomer: {
+            id: existingByIdentity.id,
+            fullName: existingByIdentity.fullName,
+            phone: existingByIdentity.phone,
+            identityNo: existingByIdentity.identityNo,
+            currentRoom: roomText,
+          },
+          message: `Số CCCD/CMND "${params.identityNo}" đã được đăng ký cho khách thuê "${existingByIdentity.fullName}"${roomText ? ` (${roomText})` : ''}.`,
+        };
+      }
+    }
+
+    return { isDuplicate: false, duplicateField: null, duplicateCustomer: null, message: null };
+  }
+
+  /**
    * Kiểm tra trùng lặp Số điện thoại và Số CCCD/CMND khi lưu thông tin khách thuê
    */
   async validateCustomerUniqueness(phone?: string | null, identityNo?: string | null, excludeId?: string): Promise<void> {

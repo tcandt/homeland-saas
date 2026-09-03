@@ -43,8 +43,9 @@ import {
   Maximize2,
   Star,
   RefreshCw,
-  Droplets,
   Download,
+  Droplets,
+  AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 import { numberToWordsVietnamese } from "../../lib/utils/number-to-words";
@@ -371,6 +372,7 @@ export default function RoomPremiumModal({
   const [householdRepId, setHouseholdRepId] = useState("");
   const [isRemoveTenantConfirmOpen, setIsRemoveTenantConfirmOpen] = useState(false);
   const [isRemovingTenant, setIsRemovingTenant] = useState(false);
+  const [occupantToDelete, setOccupantToDelete] = useState<any | null>(null);
   const [isTempResidenceConfirmOpen, setIsTempResidenceConfirmOpen] = useState(false);
   const [isSavingTempResidence, setIsSavingTempResidence] = useState(false);
   const [isSavingRoom, setIsSavingRoom] = useState(false);
@@ -427,8 +429,11 @@ export default function RoomPremiumModal({
   const [tenantFieldErrors, setTenantFieldErrors] = useState<{
     name: boolean;
     phone: boolean;
+    cccd?: boolean;
     relationship?: boolean;
-  }>({ name: false, phone: false, relationship: false });
+  }>({ name: false, phone: false, cccd: false, relationship: false });
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const { showToast } = useToast();
   const createContractMutation = useCreateContractMutation();
@@ -1080,8 +1085,14 @@ export default function RoomPremiumModal({
     if (field === "phone" && tenantFieldErrors.phone) {
       setTenantFieldErrors((prev) => ({ ...prev, phone: false }));
     }
+    if (field === "cccd" && tenantFieldErrors.cccd) {
+      setTenantFieldErrors((prev) => ({ ...prev, cccd: false }));
+    }
     if (field === "relationship" && tenantFieldErrors.relationship) {
       setTenantFieldErrors((prev) => ({ ...prev, relationship: false }));
+    }
+    if (field === "phone" || field === "cccd") {
+      setDuplicateWarning(null);
     }
     setTenantDraft((prev) => ({ ...prev, [field]: value }));
   };
@@ -1150,14 +1161,16 @@ export default function RoomPremiumModal({
         return;
       }
 
-      let existingContractId: string | null | undefined = roomData?.contract?.id;
-      if (!existingContractId && tenantDraft.id) {
-        existingContractId = tenantDraft.id === roomData?.tenant?.id
-          ? roomData?.contract?.id
-          : roomData?.sharedTenants?.find(st => st.id === tenantDraft.id)?.contractId;
+      let existingContractId: string | null | undefined = undefined;
+      if (tenantDraft.id) {
+        if (!isSharedRoom) {
+          existingContractId = (tenantDraft.id === roomData?.tenant?.id) ? roomData?.contract?.id : undefined;
+        } else {
+          existingContractId = roomData?.sharedTenants?.find((st: any) => st.id === tenantDraft.id)?.contractId;
+        }
       }
 
-      const existingCoReps = (roomData?.sharedTenants || []).filter(st => st.isRep && st.id !== customerId).map(st => st.id);
+      const existingCoReps = (roomData?.sharedTenants || []).filter((st: any) => st.isRep && st.id !== customerId).map((st: any) => st.id);
       if (isContractRepresentative && customerId !== roomData?.tenant?.id && !existingCoReps.includes(customerId)) {
         existingCoReps.push(customerId);
       }
@@ -1172,8 +1185,8 @@ export default function RoomPremiumModal({
             customerId,
             roomId,
             contractCode: `HD-${roomData?.code || roomData?.name || roomId}-${Date.now().toString().slice(-4)}`,
-            startDate: isCustomContract ? contractDraft.ngayBatDau : new Date().toISOString().slice(0, 10),
-            endDate: isCustomContract ? contractDraft.ngayKetThuc : new Date(
+            startDate: isCustomContract && contractDraft.ngayBatDau ? contractDraft.ngayBatDau : new Date().toISOString().slice(0, 10),
+            endDate: isCustomContract && contractDraft.ngayKetThuc ? contractDraft.ngayKetThuc : new Date(
               new Date().setFullYear(new Date().getFullYear() + 1),
             )
               .toISOString()
@@ -1219,10 +1232,10 @@ export default function RoomPremiumModal({
         }
       }
 
-      if (onUpdateRoom && isContractRepresentative) {
+      if (onUpdateRoom) {
         await onUpdateRoom(roomId, {
-          status: shouldCreateContract ? "occupied" : roomData?.status === "occupied" ? "occupied" : "vacant",
-        });
+          status: "occupied",
+        } as any);
       }
 
       await Promise.all([
@@ -1413,13 +1426,15 @@ export default function RoomPremiumModal({
     }
   };
 
-  const handleSaveTenant = () => {
+  const handleSaveTenant = async () => {
     const name = tenantDraft.name.trim();
     const phone = tenantDraft.phone.trim();
+    const cccd = tenantDraft.cccd.trim();
     const relationship = tenantDraft.relationship?.trim();
     const nextErrors = {
       name: !name,
       phone: !phone,
+      cccd: false,
       relationship: !isContractRepresentative ? !relationship : false
     };
     if (nextErrors.name || nextErrors.phone || nextErrors.relationship) {
@@ -1432,6 +1447,69 @@ export default function RoomPremiumModal({
       showToast("Vui lòng chọn người đại diện hợp đồng.", "error");
       return;
     }
+
+    // 1. Kiểm tra trùng cục bộ trong phòng hiện tại
+    const cleanPhone = phone.replace(/[\s.()-]/g, "");
+    const cleanCccd = cccd.replace(/[\s.-]/g, "");
+    const currentDraftId = tenantDraft.id;
+
+    const allOccupants: any[] = [
+      roomData?.tenant,
+      ...(roomData?.sharedTenants || []),
+      ...(roomData?.roommates || []),
+    ].filter(Boolean);
+
+    for (const occ of allOccupants) {
+      if (!occ) continue;
+      if (occ.id && (occ.id === currentDraftId || occ.id === `t-${currentDraftId}`)) continue;
+      const occPhone = (occ.phone || "").replace(/[\s.()-]/g, "");
+      const occCccd = (occ.cccd || (occ as any).identityNo || "").replace(/[\s.-]/g, "");
+
+      if (cleanPhone && occPhone && occPhone === cleanPhone) {
+        setTenantFieldErrors((prev) => ({ ...prev, phone: true }));
+        const msg = `Số điện thoại "${phone}" đã trùng với người lưu trú "${occ.name || occ.fullName}" trong phòng này.`;
+        setDuplicateWarning(msg);
+        showToast(msg, "error");
+        return;
+      }
+      if (cleanCccd && occCccd && occCccd === cleanCccd) {
+        setTenantFieldErrors((prev) => ({ ...prev, cccd: true }));
+        const msg = `Số CCCD/CMND "${cccd}" đã trùng với người lưu trú "${occ.name || occ.fullName}" trong phòng này.`;
+        setDuplicateWarning(msg);
+        showToast(msg, "error");
+        return;
+      }
+    }
+
+    // 2. Kiểm tra trùng toàn hệ thống qua API checkDuplicate tối ưu (không tải toàn bộ danh sách)
+    try {
+      setIsCheckingDuplicate(true);
+      const dupRes: any = await customersApi.checkDuplicate({
+        phone: cleanPhone || undefined,
+        identityNo: cleanCccd || undefined,
+        excludeId: currentDraftId || undefined,
+      });
+
+      const dupData = dupRes?.data || dupRes;
+      if (dupData?.isDuplicate) {
+        if (dupData.duplicateField === "phone" || dupData.duplicateField === "both") {
+          setTenantFieldErrors((prev) => ({ ...prev, phone: true }));
+        }
+        if (dupData.duplicateField === "identityNo" || dupData.duplicateField === "both") {
+          setTenantFieldErrors((prev) => ({ ...prev, cccd: true }));
+        }
+        const warningMsg = dupData.message || "Thông tin SĐT hoặc CCCD đã tồn tại trong hệ thống.";
+        setDuplicateWarning(warningMsg);
+        showToast(warningMsg, "error");
+        return;
+      }
+    } catch (err) {
+      console.warn("Could not check duplicate customer:", err);
+    } finally {
+      setIsCheckingDuplicate(false);
+    }
+
+    setDuplicateWarning(null);
 
     if (isContractRepresentative && tenantModalStep === 1) {
       setTenantModalStep(2);
@@ -1487,9 +1565,7 @@ export default function RoomPremiumModal({
     }
   }
 
-  const occupantsCount = roomData.rentalType === "shared"
-    ? (roomData.sharedTenants?.length || 0)
-    : (roomData.tenant ? 1 + (roomData.roommates?.length || 0) : 0);
+  const occupantsCount = getOccupantsList().length;
 
   const tabs = [
     {
@@ -1859,6 +1935,7 @@ export default function RoomPremiumModal({
                                         <button
                                           type="button"
                                           onClick={() => {
+                                            setOccupantToDelete(t);
                                             setIsRemoveTenantConfirmOpen(true);
                                           }}
                                           className="p-1.5 hover:bg-rose-500/10 rounded-lg text-muted hover:text-rose-500 transition-colors cursor-pointer"
@@ -2772,14 +2849,21 @@ export default function RoomPremiumModal({
             >
               Hủy
             </Button>
-            <Button onClick={handleSaveTenant} disabled={isExporting}>
-              {isExporting ? <Loader2 className="animate-spin mr-2" size={16} /> : null}
+            <Button onClick={handleSaveTenant} disabled={isExporting || isCheckingDuplicate}>
+              {isExporting || isCheckingDuplicate ? <Loader2 className="animate-spin mr-2" size={16} /> : null}
               {tenantModalStep === 1 && isContractRepresentative ? "Tiếp tục" : "Lưu thông tin"}
             </Button>
           </div>
         }
       >
         <div className="flex flex-col gap-4 py-2">
+          {duplicateWarning && (
+            <div className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-200 bg-rose-50/90 text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/40 dark:text-rose-200 text-xs leading-relaxed shadow-sm animate-in fade-in-50 duration-200">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+              <div className="flex-1 font-semibold">{duplicateWarning}</div>
+            </div>
+          )}
+
           {tenantModalStep === 1 && (
             <>
               <div className="flex items-center justify-between bg-indigo-50/50 p-3 rounded-lg border border-emerald-100">
@@ -2911,6 +2995,12 @@ export default function RoomPremiumModal({
                     value={tenantDraft.cccd}
                     onChange={(event) =>
                       updateTenantDraft("cccd", event.target.value)
+                    }
+                    aria-invalid={tenantFieldErrors.cccd}
+                    className={
+                      tenantFieldErrors.cccd
+                        ? "!border-danger !ring-danger focus-visible:!ring-danger"
+                        : ""
                     }
                   />
                 </div>
@@ -3312,31 +3402,97 @@ export default function RoomPremiumModal({
 
       <Modal
         isOpen={isRemoveTenantConfirmOpen}
-        onClose={() => setIsRemoveTenantConfirmOpen(false)}
+        onClose={() => {
+          setIsRemoveTenantConfirmOpen(false);
+          setOccupantToDelete(null);
+        }}
         title="Xác nhận xóa khách thuê"
         footer={
           <div className="flex gap-3 justify-end w-full">
             <Button
               variant="outline"
-              onClick={() => setIsRemoveTenantConfirmOpen(false)}
+              onClick={() => {
+                setIsRemoveTenantConfirmOpen(false);
+                setOccupantToDelete(null);
+              }}
               disabled={isRemovingTenant}
             >
               Hủy
             </Button>
             <Button
               onClick={async () => {
-                if (onUpdateRoom) {
-                  setIsRemovingTenant(true);
-                  try {
-                    await onUpdateRoom(roomId, { tenant: null, status: 'vacant' });
-                    setRoomData(prev => prev ? { ...prev, tenant: null, status: 'vacant' } : prev);
-                    setIsRemoveTenantConfirmOpen(false);
-                    showToast("Đã xóa khách thuê thành công.", "success");
-                  } catch (err) {
-                    showToast("Lỗi khi xóa khách thuê.", "error");
-                  } finally {
-                    setIsRemovingTenant(false);
+                setIsRemovingTenant(true);
+                try {
+                  const targetOccupant = occupantToDelete || (roomData?.tenant ? { ...roomData.tenant, isRep: true } : null);
+                  const occId = targetOccupant?.id;
+                  const isRep = Boolean(targetOccupant?.isRep);
+                  const contractId = targetOccupant?.contractId || (isRep ? roomData?.contract?.id : undefined);
+
+                  // 1. Delete contract if contract representative
+                  if (contractId && !contractId.startsWith("c-")) {
+                    try {
+                      await contractsApi.delete(contractId);
+                    } catch (err) {
+                      console.warn("Could not delete contract:", err);
+                    }
                   }
+
+                  // 2. Delete or unlink customer from DB
+                  if (occId && !occId.startsWith("t-")) {
+                    try {
+                      await customersApi.delete(occId);
+                    } catch (err) {
+                      console.warn("Could not delete customer via API, unlinking instead:", err);
+                      try {
+                        await customersApi.update(occId, { roomId: null });
+                      } catch {}
+                    }
+                  }
+
+                  // 3. Update local state
+                  let nextTenant = roomData?.tenant;
+                  if (nextTenant && (nextTenant.id === occId || isRep)) {
+                    nextTenant = null;
+                  }
+                  const nextRoommates = (roomData?.roommates || []).filter((rm: any) => rm.id !== occId && (occId || rm.name !== targetOccupant?.name));
+                  const nextSharedTenants = (roomData?.sharedTenants || []).filter((st: any) => st.id !== occId && (occId || st.name !== targetOccupant?.name));
+                  const hasAnyOccupantLeft = Boolean(nextTenant || nextRoommates.length > 0 || nextSharedTenants.length > 0);
+                  const nextStatus = hasAnyOccupantLeft ? (roomData?.status || "occupied") : "vacant";
+
+                  setRoomData((prev) => {
+                    if (!prev) return null;
+                    return {
+                      ...prev,
+                      tenant: nextTenant,
+                      roommates: nextRoommates,
+                      sharedTenants: nextSharedTenants,
+                      contract: isRep && !prev.rentalType?.includes("shared") ? undefined : prev.contract,
+                      status: nextStatus,
+                    };
+                  });
+
+                  if (onUpdateRoom) {
+                    await onUpdateRoom(roomId, {
+                      tenant: nextTenant,
+                      status: nextStatus,
+                    } as any);
+                  }
+
+                  await Promise.all([
+                    queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+                    queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+                    queryClient.invalidateQueries({ queryKey: ["customers"] }),
+                    queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+                  ]);
+
+                  setIsRemoveTenantConfirmOpen(false);
+                  setOccupantToDelete(null);
+                  showToast("Đã xóa khách thuê thành công.", "success");
+                } catch (err: any) {
+                  console.error("Error deleting customer:", err);
+                  showToast(err?.message || "Lỗi khi xóa khách thuê.", "error");
+                } finally {
+                  setIsRemovingTenant(false);
                 }
               }}
               className="bg-rose-500 text-white hover:bg-rose-600"
@@ -3353,7 +3509,11 @@ export default function RoomPremiumModal({
         }
       >
         <p className="text-[13px] text-muted-foreground py-2">
-          Bạn có chắc chắn muốn xóa thông tin khách thuê này không? Thao tác này sẽ cập nhật trạng thái phòng thành &quot;Trống&quot;.
+          {occupantToDelete?.name ? (
+            <>Bạn có chắc chắn muốn xóa khách thuê <strong>{occupantToDelete.name}</strong> khỏi phòng này không?</>
+          ) : (
+            "Bạn có chắc chắn muốn xóa thông tin khách thuê này không?"
+          )}
         </p>
       </Modal>
 

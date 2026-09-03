@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CreateCustomerSchema } from "@homeland/shared";
 import { useCreateCustomerMutation, useUpdateCustomerMutation } from "@/lib/mutations/customers.mutations";
-import { useCustomersQuery } from "@/lib/queries/customers.queries";
+import { customersApi } from "@/lib/api/customers.api";
 import { formatBirthDateForDisplay, normalizeVietnameseDate, parseCccdQrPayload } from "@/lib/utils/cccd-qr";
 import { CCCD_LIVE_SCAN_CONFIG, optimizeCccdCameraTrack, stopCccdCameraTracks } from "@/lib/utils/cccd-camera";
 import { Button } from "../ui/Button";
@@ -65,7 +65,6 @@ const buildFormPayload = (values: FormData) => {
 export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormModalProps) {
   const createMutation = useCreateCustomerMutation();
   const updateMutation = useUpdateCustomerMutation();
-  const { data: allCustomersData } = useCustomersQuery({ limit: 1000 });
   const { showToast } = useToast();
   const qrScannerRef = useRef<Html5Qrcode | null>(null);
   const qrFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -76,9 +75,12 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
   const [isQrOverlayOpen, setIsQrOverlayOpen] = useState(false);
   const [qrMode, setQrMode] = useState<QrMode>(null);
   const [qrStatus, setQrStatus] = useState("");
+  const [duplicatePhoneCustomer, setDuplicatePhoneCustomer] = useState<any | null>(null);
+  const [duplicateCitizenIdCustomer, setDuplicateCitizenIdCustomer] = useState<any | null>(null);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
 
   const isEdit = !!tenant;
-  const isPending = createMutation.isPending || updateMutation.isPending;
+  const isPending = createMutation.isPending || updateMutation.isPending || isCheckingDuplicate;
 
   const {
     register,
@@ -96,29 +98,47 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
   const currentPhone = watch("phone") || "";
   const currentCitizenId = watch("citizenId") || "";
 
-  // Kiểm tra trùng SĐT trong danh sách khách hiện có
-  const duplicatePhoneCustomer = React.useMemo(() => {
-    const clean = currentPhone.replace(/[\s\-\.\(\)]/g, "").trim();
-    if (!clean || clean.length < 8) return null;
-    const list: any[] = (allCustomersData as any)?.data || [];
-    return list.find((c: any) => {
-      if (tenant && (c.id === tenant.id || c.id === tenant.source?.id)) return false;
-      const p = (c.phone || "").replace(/[\s\-\.\(\)]/g, "").trim();
-      return p === clean;
-    });
-  }, [currentPhone, allCustomersData, tenant]);
+  // Kiểm tra trùng SĐT / CCCD bằng API nhẹ (không tải toàn bộ 1000 khách vào RAM)
+  useEffect(() => {
+    const cleanPhone = currentPhone.replace(/[\s\-\.\(\)]/g, "").trim();
+    const cleanCid = currentCitizenId.replace(/[\s\-\.]/g, "").trim();
 
-  // Kiểm tra trùng CCCD trong danh sách khách hiện có
-  const duplicateCitizenIdCustomer = React.useMemo(() => {
-    const clean = currentCitizenId.replace(/[\s\-\.]/g, "").trim();
-    if (!clean || clean.length < 8) return null;
-    const list: any[] = (allCustomersData as any)?.data || [];
-    return list.find((c: any) => {
-      if (tenant && (c.id === tenant.id || c.id === tenant.source?.id)) return false;
-      const cid = (c.identityNo || c.citizenId || "").replace(/[\s\-\.]/g, "").trim();
-      return cid === clean;
-    });
-  }, [currentCitizenId, allCustomersData, tenant]);
+    if ((!cleanPhone || cleanPhone.length < 8) && (!cleanCid || cleanCid.length < 8)) {
+      setDuplicatePhoneCustomer(null);
+      setDuplicateCitizenIdCustomer(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const dupRes: any = await customersApi.checkDuplicate({
+          phone: cleanPhone.length >= 8 ? cleanPhone : undefined,
+          identityNo: cleanCid.length >= 8 ? cleanCid : undefined,
+          excludeId: tenant?.id || undefined,
+        });
+        const dupData = dupRes?.data || dupRes;
+        if (dupData?.isDuplicate) {
+          if (dupData.duplicateField === "phone" || dupData.duplicateField === "both") {
+            setDuplicatePhoneCustomer(dupData.duplicateCustomer);
+          } else {
+            setDuplicatePhoneCustomer(null);
+          }
+          if (dupData.duplicateField === "identityNo" || dupData.duplicateField === "both") {
+            setDuplicateCitizenIdCustomer(dupData.duplicateCustomer);
+          } else {
+            setDuplicateCitizenIdCustomer(null);
+          }
+        } else {
+          setDuplicatePhoneCustomer(null);
+          setDuplicateCitizenIdCustomer(null);
+        }
+      } catch (err) {
+        // ignore
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [currentPhone, currentCitizenId, tenant?.id]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -128,6 +148,8 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
       setQrStatus("");
       setScannerFile(null);
       setIsScannerOpen(false);
+      setDuplicatePhoneCustomer(null);
+      setDuplicateCitizenIdCustomer(null);
       return;
     }
 
@@ -268,19 +290,31 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
     window.setTimeout(() => qrFileInputRef.current?.click(), 0);
   };
 
-  const onSubmit = (data: FormData) => {
-    if (duplicatePhoneCustomer) {
-      const msg = `Số điện thoại "${data.phone}" đã được đăng ký bởi khách "${duplicatePhoneCustomer.fullName || duplicatePhoneCustomer.name}". Vui lòng kiểm tra lại!`;
-      showToast(msg, "error");
-      setError("phone", { type: "manual", message: `SĐT đã tồn tại (${duplicatePhoneCustomer.fullName || duplicatePhoneCustomer.name})` });
-      return;
-    }
+  const onSubmit = async (data: FormData) => {
+    try {
+      setIsCheckingDuplicate(true);
+      const dupRes: any = await customersApi.checkDuplicate({
+        phone: data.phone?.trim() || undefined,
+        identityNo: data.citizenId?.trim() || undefined,
+        excludeId: tenant?.id || undefined,
+      });
 
-    if (duplicateCitizenIdCustomer) {
-      const msg = `Số CCCD/CMND "${data.citizenId}" đã được đăng ký bởi khách "${duplicateCitizenIdCustomer.fullName || duplicateCitizenIdCustomer.name}". Vui lòng kiểm tra lại!`;
-      showToast(msg, "error");
-      setError("citizenId", { type: "manual", message: `CCCD đã tồn tại (${duplicateCitizenIdCustomer.fullName || duplicateCitizenIdCustomer.name})` });
-      return;
+      const dupData = dupRes?.data || dupRes;
+      if (dupData?.isDuplicate) {
+        const msg = dupData.message || "SĐT hoặc CCCD đã tồn tại trong hệ thống.";
+        showToast(msg, "error");
+        if (dupData.duplicateField === "phone" || dupData.duplicateField === "both") {
+          setError("phone", { type: "manual", message: msg });
+        }
+        if (dupData.duplicateField === "identityNo" || dupData.duplicateField === "both") {
+          setError("citizenId", { type: "manual", message: msg });
+        }
+        return;
+      }
+    } catch (err) {
+      console.warn("Could not check duplicate customer:", err);
+    } finally {
+      setIsCheckingDuplicate(false);
     }
 
     const payload = buildFormPayload(data);

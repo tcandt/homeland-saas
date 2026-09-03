@@ -39,6 +39,17 @@ export class CustomersController {
     return this.customersService.deduplicateCustomers(userId);
   }
 
+  @Get('check-duplicate')
+  @RequirePermissions('customer.read')
+  @ApiOperation({ summary: 'Lightweight check if phone or identity number already exists' })
+  checkDuplicate(
+    @Query('phone') phone?: string,
+    @Query('identityNo') identityNo?: string,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    return this.customersService.checkDuplicate({ phone, identityNo, excludeId });
+  }
+
   @Get(':id')
   @RequirePermissions('customer.read')
   @ApiOperation({ summary: 'Get customer details' })

@@ -85,7 +85,7 @@ export class HunonicService {
     const settings = await this.getSettings(tenantId);
     const managedBuildingCodes = await this.getManagedBuildingCodes(tenantId);
     const rawMappings = await this.prismaAny.hunonicMeterMapping.findMany({
-      where: { tenantId, buildingCode: { in: managedBuildingCodes } },
+      where: { tenantId },
       include: {
         room: { select: { id: true, code: true, name: true, status: true } },
         building: { select: { id: true, code: true, name: true } },
@@ -182,7 +182,7 @@ export class HunonicService {
       if (fixed && rootId) mobileRootByRoom.set(canonicalRoomKey(fixed.buildingCode, fixed.roomCode), meter);
     }
     const rawMappings = await this.prismaAny.hunonicMeterMapping.findMany({
-      where: { tenantId, buildingCode: { in: managedBuildingCodes }, enabled: true },
+      where: { tenantId, enabled: true },
       orderBy: [{ buildingCode: 'asc' }, { roomCode: 'asc' }],
     });
     const mappings = dedupeMappingsByRoom(rawMappings);
@@ -273,7 +273,6 @@ export class HunonicService {
       where: {
         tenantId,
         id: { in: meterIds },
-        buildingCode: { in: managedBuildingCodes },
         enabled: true,
       },
       orderBy: [{ buildingCode: 'asc' }, { roomCode: 'asc' }],
@@ -459,7 +458,7 @@ export class HunonicService {
 
     // Auto-backfill previous month readings from mappings if not yet saved
     const rawMappingsForBackfill = await this.prismaAny.hunonicMeterMapping.findMany({
-      where: { tenantId, buildingCode: { in: managedBuildingCodes } },
+      where: { tenantId },
       select: {
         id: true,
         buildingCode: true,
@@ -507,11 +506,10 @@ export class HunonicService {
       }
     }
 
-    const relationFilter: any = {
-      buildingCode: query.buildingCode && query.buildingCode !== 'all'
-        ? { in: buildingCodeVariants(query.buildingCode) }
-        : { in: managedBuildingCodes },
-    };
+    const relationFilter: any = {};
+    if (query.buildingCode && query.buildingCode !== 'all') {
+      relationFilter.buildingCode = { in: buildingCodeVariants(query.buildingCode) };
+    }
 
     if (query.roomCode && query.roomCode !== 'all') {
       relationFilter.roomCode = { in: roomCodeVariants(query.roomCode) };
@@ -584,7 +582,7 @@ export class HunonicService {
         },
       }),
       this.prismaAny.hunonicMeterMapping.findMany({
-        where: { tenantId, buildingCode: { in: managedBuildingCodes } },
+        where: { tenantId },
         select: { buildingCode: true, roomCode: true, displayName: true },
         orderBy: [{ buildingCode: 'asc' }, { roomCode: 'asc' }],
       }),
@@ -827,14 +825,14 @@ export class HunonicService {
       const autoLockRows: HunonicLockedPeriod[] = [];
 
       for (const meter of dashboard.electric_meters) {
-        const fixed = resolveFixedRoomMapping(meter);
-        if (!fixed) continue;
-
-        const roomMatch = roomIndex.get(canonicalRoomKey(fixed.buildingCode, fixed.roomCode));
+        const fixed = resolveFixedRoomMapping(meter, buildings);
         const readingAt = meter.updated_at ? new Date(meter.updated_at) : new Date(dashboard.exported_at);
         const providerMeterId = meter.provider_meter_id || meter.provider_device_id;
-        if (!roomMatch) continue;
         if (!providerMeterId || Number.isNaN(readingAt.getTime())) continue;
+
+        const roomMatch = (fixed.buildingId || fixed.roomId)
+          ? { buildingId: fixed.buildingId, roomId: fixed.roomId }
+          : roomIndex.get(canonicalRoomKey(fixed.buildingCode, fixed.roomCode));
 
         const mapping = await this.upsertMeterMappingByRoom(
           tenantId,
@@ -844,7 +842,10 @@ export class HunonicService {
           meter,
           new Date(dashboard.exported_at),
         );
-        mappingByProviderMeterId.set(providerMeterId, { mapping, roomId: roomMatch?.roomId, meter, fixed });
+        const entry = { mapping, roomId: roomMatch?.roomId, meter, fixed };
+        mappingByProviderMeterId.set(providerMeterId, entry);
+        if (meter.provider_root_id) mappingByProviderMeterId.set(meter.provider_root_id, entry);
+        if (meter.provider_device_id) mappingByProviderMeterId.set(meter.provider_device_id, entry);
 
         const currentPeriod = getReadingPeriod(readingAt);
         const upserted = await this.upsertMonthlyReading(
@@ -1185,17 +1186,102 @@ export class HunonicService {
   }
 }
 
-function resolveFixedRoomMapping(meter: HunonicElectricMeter) {
+function resolveFixedRoomMapping(meter: HunonicElectricMeter, buildings: Array<any> = []) {
   const name = String(meter.name || '').trim();
   const roomName = String(meter.room_name || '').trim();
-  const candidates = [name, roomName].filter(Boolean);
-  const officeMatch = candidates.some((value) => value.toLowerCase() === 'văn phòng' || value.toLowerCase() === 'van phong');
-  if (officeMatch) return { buildingCode: 'LK01-32', roomCode: '32-01', displayName: 'Văn Phòng' };
+  const homeName = String(meter.home_name || '').trim();
+  const candidates = [name, roomName, homeName].filter(Boolean);
+
+  const officeMatch = candidates.some((value) => {
+    const norm = normalizeText(value);
+    return norm.includes('van phong') || norm.includes('office');
+  });
+  if (officeMatch) {
+    if (buildings.length > 0) {
+      for (const b of buildings) {
+        for (const r of b.rooms || []) {
+          const rNorm = normalizeText(r.name || r.code);
+          if (rNorm.includes('van phong') || rNorm.includes('vp') || r.code === '32-01') {
+            return {
+              buildingId: b.id,
+              roomId: r.id,
+              buildingCode: b.code,
+              roomCode: r.code,
+              displayName: r.name || 'Văn Phòng',
+            };
+          }
+        }
+      }
+    }
+    return { buildingCode: 'LK01-32', roomCode: '32-01', displayName: 'Văn Phòng' };
+  }
+
+  // Direct match with rooms in buildings
+  if (buildings.length > 0) {
+    for (const b of buildings) {
+      for (const r of b.rooms || []) {
+        const rCode = String(r.code || '').trim();
+        const rName = String(r.name || '').trim();
+        const rCodeCanon = canonicalRoomCode(rCode);
+        const rNameCanon = canonicalRoomCode(rName);
+        const rCodeNorm = normalizeText(rCode);
+        const rNameNorm = normalizeText(rName);
+
+        for (const candidate of candidates) {
+          const cCanon = canonicalRoomCode(candidate);
+          const cNorm = normalizeText(candidate);
+          if (
+            (rCodeCanon && (cCanon === rCodeCanon || cCanon.endsWith(`-${rCodeCanon}`))) ||
+            (rNameCanon && (cCanon === rNameCanon || cCanon.endsWith(`-${rNameCanon}`))) ||
+            (rCodeNorm && (cNorm === rCodeNorm || cNorm.includes(rCodeNorm)))
+          ) {
+            return {
+              buildingId: b.id,
+              roomId: r.id,
+              buildingCode: b.code,
+              roomCode: r.code,
+              displayName: r.name || r.code,
+            };
+          }
+        }
+      }
+    }
+  }
 
   const code = candidates.map(extractRoomCode).find(Boolean);
-  if (!code) return null;
-  const buildingNo = code.split('-')[0];
-  return { buildingCode: `LK01-${buildingNo}`, roomCode: code, displayName: code };
+  if (code) {
+    const buildingNo = code.split('-')[0];
+    const matchedBuilding = buildings.find((b) =>
+      normalizeText(b.code).includes(buildingNo) || normalizeText(b.name).includes(buildingNo)
+    );
+    const matchedRoom = matchedBuilding?.rooms?.find((r: any) =>
+      canonicalRoomCode(r.code) === code || canonicalRoomCode(r.name) === code
+    );
+    return {
+      buildingId: matchedBuilding?.id,
+      roomId: matchedRoom?.id,
+      buildingCode: matchedBuilding?.code || `LK01-${buildingNo}`,
+      roomCode: matchedRoom?.code || code,
+      displayName: matchedRoom?.name || code,
+    };
+  }
+
+  const fallbackBuilding = buildings[0];
+  return {
+    buildingId: fallbackBuilding?.id,
+    roomId: undefined,
+    buildingCode: homeName || fallbackBuilding?.code || 'HUNONIC',
+    roomCode: roomName || name || 'METER',
+    displayName: name || 'Công tơ điện',
+  };
+}
+
+function extractRoomCode(value: string) {
+  const matchTwoPart = value.match(/(?:DIEN|P|PN|PHONG|PHÒNG|\b)?\s*(\d{1,3})[.\-\s](\d{1,3})/i);
+  if (matchTwoPart) return `${matchTwoPart[1]}-${matchTwoPart[2]}`;
+  const matchSingle = value.match(/(?:DIEN|P|PN|PHONG|PHÒNG|\b)\s*(\d{3,4})\b/i);
+  if (matchSingle) return matchSingle[1];
+  return null;
 }
 
 function buildingCodeVariants(value: string | null | undefined) {
@@ -1239,10 +1325,6 @@ function normalizeText(value: unknown) {
     .toLowerCase();
 }
 
-function extractRoomCode(value: string) {
-  const match = value.match(/(?:DIEN|\b)?\s*(\d{2})[.\-\s]?(\d{2})/i);
-  return match ? `${match[1]}-${match[2]}` : null;
-}
 
 function hasMonthlyElectricityData(meter: HunonicElectricMeter) {
   return isPresentNumber(meter.energy_month_kwh) || isPresentNumber(meter.money_month_vnd);

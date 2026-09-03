@@ -186,6 +186,7 @@ export default function SettingsSecurity() {
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     placeholder="Nhập mật khẩu hiện tại"
+                    data-testid="settings-current-password"
                     className="h-8.5 rounded-xl text-xs pr-8"
                   />
                   <button
@@ -209,6 +210,7 @@ export default function SettingsSecurity() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Mật khẩu mới (tối thiểu 8 ký tự)"
+                    data-testid="settings-new-password"
                     className="h-8.5 rounded-xl text-xs pr-8"
                   />
                   <button
@@ -232,6 +234,7 @@ export default function SettingsSecurity() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Nhập lại mật khẩu mới"
+                    data-testid="settings-confirm-password"
                     className="h-8.5 rounded-xl text-xs pr-8"
                   />
                   <button
@@ -248,6 +251,7 @@ export default function SettingsSecurity() {
                 type="submit"
                 variant="primary"
                 isLoading={isChangingPassword}
+                data-testid="settings-change-password-submit"
                 className="mt-2 h-8.5 w-full rounded-xl text-xs font-bold shadow-2xs"
               >
                 Cập nhật mật khẩu

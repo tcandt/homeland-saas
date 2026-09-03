@@ -92,3 +92,5 @@ async function bootstrap() {
   if (swaggerEnabled) console.log(`Swagger Docs available at: http://localhost:${port}/api/docs`);
 }
 bootstrap();
+// Reload trigger
+

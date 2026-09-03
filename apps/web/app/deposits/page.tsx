@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import AppShell from "@/components/layout/AppShell";
 import OperationsDepositKpi from "@/components/deposits/OperationsDepositKpi";
 import OperationsDepositPipeline from "@/components/deposits/OperationsDepositPipeline";
@@ -8,12 +8,8 @@ import OperationsDepositFilters from "@/components/deposits/OperationsDepositFil
 import OperationsDepositList from "@/components/deposits/OperationsDepositList";
 import OperationsRefundCenter from "@/components/deposits/OperationsRefundCenter";
 import DepositsMobileFlow from "@/components/deposits/DepositsMobileFlow";
-import CreateDepositModal from "@/components/deposits/CreateDepositModal";
-import { Plus } from "lucide-react";
 
 export default function DepositsPage() {
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-
   return (
     <AppShell>
       <div data-testid="deposits-root" className="-m-4 h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background md:h-[calc(100dvh-80px)] xl:overflow-hidden">
@@ -21,12 +17,6 @@ export default function DepositsPage() {
         <div className="block md:hidden p-3">
           <div className="mb-3 flex items-center justify-between">
             <h1 className="font-black text-[20px] text-text">Phiếu đặt cọc</h1>
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="h-9 px-3.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-bold text-[12px] shadow-sm flex items-center gap-1.5 active:scale-95 transition-all"
-            >
-              <Plus size={15} /> Tạo cọc
-            </button>
           </div>
           <DepositsMobileFlow />
         </div>
@@ -41,11 +31,11 @@ export default function DepositsPage() {
             {/* 2. Operations Deposit Pipeline */}
             <OperationsDepositPipeline />
 
-            {/* 3. Unified Filter Bar with Search, Dropdowns, Status Tabs & Create Button */}
-            <OperationsDepositFilters onCreateClick={() => setIsCreateModalOpen(true)} />
+            {/* 3. Unified Filter Bar with Search, Dropdowns & Status Tabs */}
+            <OperationsDepositFilters />
 
-            {/* 3. High-Density Table List */}
-            <OperationsDepositList onCreateClick={() => setIsCreateModalOpen(true)} />
+            {/* 4. High-Density Table List */}
+            <OperationsDepositList />
           </div>
 
           {/* Right Sidebar: Refund & Cancellation Center */}
@@ -53,14 +43,6 @@ export default function DepositsPage() {
             <OperationsRefundCenter />
           </div>
         </div>
-
-        {/* Modal Tạo Phiếu Cọc Mới */}
-        {isCreateModalOpen && (
-          <CreateDepositModal
-            isOpen={isCreateModalOpen}
-            onClose={() => setIsCreateModalOpen(false)}
-          />
-        )}
       </div>
     </AppShell>
   );

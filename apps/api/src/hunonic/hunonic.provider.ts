@@ -131,31 +131,45 @@ export class HunonicProvider {
     });
   }
 
-  async fetchRecentMonthlyHistory(monthCount = 6): Promise<{ dashboard: HunonicDashboardData; history: HunonicMonthlyHistoryPoint[] }> {
-    if (this.mode !== 'website') {
-      throw new Error('Hunonic monthly history requires website API mode.');
-    }
-
+  async fetchRecentMonthlyHistory(monthCount = 12): Promise<{ dashboard: HunonicDashboardData; history: HunonicMonthlyHistoryPoint[] }> {
     const dashboard = await this.fetchDashboardData();
+    const session = await this.createSession();
     const months = getRecentMonths(monthCount);
     const years = Array.from(new Set(months.map((month) => month.year)));
     const history: HunonicMonthlyHistoryPoint[] = [];
+
+    const tokenId = session.source === 'mobile' ? session.tokenId : null;
 
     for (const meter of dashboard.electric_meters) {
       const rootId = meter.provider_root_id || meter.provider_meter_id;
       if (!rootId) continue;
 
       for (const year of years) {
-        const response = await this.postWebsiteJson('/atmwifi/getDataGraph', {
-          type: '3',
-          root_id: rootId,
-          time_start: `${year}-01-01`,
-          time_end: `${year}-12-31`,
-          year: String(year),
-        });
-        assertSuccess(response.data, 'Hunonic getDataGraph failed');
+        let responseData: any;
+        if (session.source === 'website') {
+          const response = await this.postWebsiteJson('/atmwifi/getDataGraph', {
+            type: '3',
+            root_id: rootId,
+            time_start: `${year}-01-01`,
+            time_end: `${year}-12-31`,
+            year: String(year),
+          });
+          assertSuccess(response.data, 'Hunonic getDataGraph failed');
+          responseData = response.data;
+        } else {
+          const response = await this.postForm('/atmwifi/getDataGraph', this.sign({
+            token_id: tokenId,
+            root_id: rootId,
+            type: 3,
+            year,
+            time_start: `${year}-01-01`,
+            time_end: `${year}-12-31`,
+          }));
+          assertSuccess(response.data, 'Hunonic getDataGraph failed');
+          responseData = response.data;
+        }
 
-        const graphData = arrayOf(response.data?.data?.graph_data);
+        const graphData = arrayOf(responseData?.data?.graph_data);
         const pointsByPeriod = new Map<string, any>();
         for (const item of graphData) {
           const parsed = parseGraphLabel(item?.label, year);
@@ -166,18 +180,22 @@ export class HunonicProvider {
         for (const month of months.filter((item) => item.year === year)) {
           const item = pointsByPeriod.get(month.period);
           if (!item) continue;
-          history.push({
-            provider_meter_id: meter.provider_meter_id,
-            provider_root_id: meter.provider_root_id,
-            provider_device_id: meter.provider_device_id,
-            name: meter.name,
-            period: month.period,
-            year: month.year,
-            month: month.month,
-            energy_month_kwh: numberOrNull(item.value) || 0,
-            money_month_vnd: numberOrNull(item.amount) || 0,
-            raw: item,
-          });
+          const energyKwh = numberOrNull(item.value) || 0;
+          const moneyVnd = numberOrNull(item.amount) || 0;
+          if (energyKwh > 0 || moneyVnd > 0) {
+            history.push({
+              provider_meter_id: meter.provider_meter_id,
+              provider_root_id: meter.provider_root_id,
+              provider_device_id: meter.provider_device_id,
+              name: meter.name,
+              period: month.period,
+              year: month.year,
+              month: month.month,
+              energy_month_kwh: energyKwh,
+              money_month_vnd: moneyVnd,
+              raw: item,
+            });
+          }
         }
       }
     }

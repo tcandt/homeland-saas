@@ -374,6 +374,8 @@ export default function RoomPremiumModal({
   const [isRemovingTenant, setIsRemovingTenant] = useState(false);
   const [occupantToDelete, setOccupantToDelete] = useState<any | null>(null);
   const [isTempResidenceConfirmOpen, setIsTempResidenceConfirmOpen] = useState(false);
+  const [occupantToConfirmTempResidence, setOccupantToConfirmTempResidence] = useState<any | null>(null);
+  const [isSingleTempResidenceConfirmOpen, setIsSingleTempResidenceConfirmOpen] = useState(false);
   const [isSavingTempResidence, setIsSavingTempResidence] = useState(false);
   const [isSavingRoom, setIsSavingRoom] = useState(false);
   const [isUpdatingElectricity, setIsUpdatingElectricity] = useState(false);
@@ -1029,10 +1031,23 @@ export default function RoomPremiumModal({
   };
   const shouldStartAsRepresentative = roomData?.rentalType === "shared" || !roomData?.tenant;
   const roomRentalTypeLabel = roomData?.rentalType === "shared" ? "Phòng ghép" : "Nguyên căn";
-  const getRepresentativeCandidates = () => [
-    ...(roomData?.tenant ? [roomData.tenant] : []),
-    ...(roomData?.sharedTenants || []).filter((tenant: any) => tenant.isRep),
-  ];
+  const getRepresentativeCandidates = () => {
+    const list: any[] = [];
+    if (roomData?.tenant) list.push(roomData.tenant);
+    (roomData?.sharedTenants || []).forEach((st: any) => {
+      if (st.isRep && !list.some((existing) => (st.id && existing.id === st.id) || (st.name && existing.name === st.name))) {
+        list.push(st);
+      }
+    });
+    ((roomData as any)?.contract?.coRepresentatives || []).forEach((cr: any) => {
+      const crName = cr.fullName || cr.name;
+      if (!list.some((existing) => (cr.id && existing.id === cr.id) || (crName && existing.name === crName))) {
+        list.push({ ...cr, name: crName });
+      }
+    });
+    return list;
+  };
+
   const getOccupantsList = () => {
     if (roomData?.rentalType === "shared") {
       return [
@@ -1044,20 +1059,79 @@ export default function RoomPremiumModal({
       ];
     }
 
-    return [
-      ...(roomData?.tenant ? [{ ...roomData.tenant, role: "Đại diện HĐ", isRep: true }] : []),
-      ...((roomData?.roommates || []).map((tenant: any) => ({
+    // Cho thuê nguyên căn (Whole rental):
+    // 1. Đại diện HĐ chính (roomData.tenant)
+    const primaryTenant = roomData?.tenant
+      ? [{ ...roomData.tenant, role: "Đại diện HĐ", isRep: true }]
+      : [];
+
+    // 2. Đại diện HĐ thứ 2, 3... (từ sharedTenants có isRep hoặc contract.coRepresentatives)
+    const coRepsFromShared = (roomData?.sharedTenants || [])
+      .filter(
+        (st: any) =>
+          st.isRep &&
+          st.id !== roomData?.tenant?.id &&
+          (!roomData?.tenant?.name || st.name !== roomData.tenant.name)
+      )
+      .map((st: any) => ({
+        ...st,
+        role: "Đại diện HĐ",
+        isRep: true,
+      }));
+
+    const contractCoReps = ((roomData as any)?.contract?.coRepresentatives || [])
+      .filter(
+        (cr: any) =>
+          cr.id !== roomData?.tenant?.id &&
+          (!roomData?.tenant?.name || (cr.fullName || cr.name) !== roomData.tenant.name)
+      )
+      .map((cr: any) => ({
+        id: cr.id,
+        name: cr.fullName || cr.name,
+        phone: cr.phone || "",
+        email: cr.email || "",
+        cccd: cr.identityNo || cr.cccd || "",
+        gender: cr.gender || "",
+        birthDate: cr.birthDate || "",
+        nationality: cr.nationality || "",
+        address: cr.address || "",
+        emergencyPhone: cr.emergencyPhone || "",
+        idImages: cr.idImages || [],
+        tempResidence: (cr as any).tempResidence || false,
+        role: "Đại diện HĐ",
+        isRep: true,
+      }));
+
+    const allCoReps: any[] = [];
+    [...coRepsFromShared, ...contractCoReps].forEach((rep) => {
+      if (
+        !allCoReps.some(
+          (existing) =>
+            (rep.id && existing.id === rep.id) || (rep.name && existing.name === rep.name)
+        )
+      ) {
+        allCoReps.push(rep);
+      }
+    });
+
+    // 3. Người ở cùng (roommates)
+    const roommates = (roomData?.roommates || [])
+      .filter(
+        (rm: any) =>
+          rm.id !== roomData?.tenant?.id &&
+          !allCoReps.some((cr) => (rm.id && cr.id === rm.id) || (rm.name && cr.name === rm.name))
+      )
+      .map((tenant: any) => ({
         ...tenant,
         role: "Người ở cùng",
         isRep: false,
-      }))),
-    ];
+      }));
+
+    return [...primaryTenant, ...allCoReps, ...roommates];
   };
+
   const getDefaultMemberCount = () => {
-    if (roomData?.rentalType === "shared") {
-      return Math.max(1, roomData.sharedTenants?.length || 1);
-    }
-    return Math.max(1, 1 + (roomData?.roommates?.length || 0));
+    return Math.max(1, getOccupantsList().length);
   };
   const handleTenantChange = (field: keyof Tenant, value: any) => {
     setRoomData((prev) => {
@@ -2516,7 +2590,10 @@ export default function RoomPremiumModal({
                                         <Button
                                           size="sm"
                                           variant={isDeclared ? "outline" : "primary"}
-                                          onClick={() => handleToggleOccupantTempResidence(occ)}
+                                          onClick={() => {
+                                            setOccupantToConfirmTempResidence(occ);
+                                            setIsSingleTempResidenceConfirmOpen(true);
+                                          }}
                                           disabled={isSavingTempResidence}
                                           className={`h-8 text-xs font-bold gap-1 px-3 ${
                                             isDeclared
@@ -3619,7 +3696,7 @@ export default function RoomPremiumModal({
                   <div className="flex items-center gap-2.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-800 dark:text-rose-300 text-[13px]">
                     <ShieldAlert className="shrink-0 text-rose-600" size={18} />
                     <span>
-                      Bạn có chắc chắn muốn hủy trạng thái khai báo tạm trú của tất cả khách trong phòng <strong>P.{getRoomDisplayName(roomData)}</strong>?
+                      Bạn có chắc chắn muốn hủy trạng thái khai báo tạm trú của tất cả khách trong phòng <strong>{getRoomDisplayName(roomData)}</strong>?
                     </span>
                   </div>
                   <p className="text-xs text-muted leading-relaxed">
@@ -3633,11 +3710,127 @@ export default function RoomPremiumModal({
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-[13px]">
                   <ShieldAlert className="shrink-0 text-emerald-600" size={18} />
                   <span>
-                    Xác nhận tất cả ({occs.length}) cư dân phòng <strong>P.{getRoomDisplayName(roomData)}</strong> đã hoàn tất thủ tục đăng ký tạm trú với Công an sở tại.
+                    Xác nhận tất cả ({occs.length}) cư dân phòng <strong>{getRoomDisplayName(roomData)}</strong> đã hoàn tất thủ tục đăng ký tạm trú với Công an sở tại.
                   </span>
                 </div>
                 <p className="text-xs text-muted leading-relaxed">
                   Sau khi xác nhận, tất cả khách lưu trú trong phòng sẽ được đánh dấu đã khai báo và trạng thái phòng sẽ là &quot;Đã khai báo&quot;.
+                </p>
+              </>
+            );
+          })()}
+        </div>
+      </Modal>
+
+      {/* Modal Xác nhận khai báo tạm trú cho từng khách thuê */}
+      <Modal
+        isOpen={isSingleTempResidenceConfirmOpen && Boolean(occupantToConfirmTempResidence)}
+        onClose={() => {
+          if (!isSavingTempResidence) {
+            setIsSingleTempResidenceConfirmOpen(false);
+            setOccupantToConfirmTempResidence(null);
+          }
+        }}
+        title={
+          occupantToConfirmTempResidence?.tempResidence
+            ? "Xác nhận hủy khai báo tạm trú"
+            : "Xác nhận đã khai báo tạm trú"
+        }
+        footer={
+          <div className="flex gap-3 justify-end w-full">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsSingleTempResidenceConfirmOpen(false);
+                setOccupantToConfirmTempResidence(null);
+              }}
+              disabled={isSavingTempResidence}
+            >
+              Hủy bỏ
+            </Button>
+            {(() => {
+              const isDeclared = Boolean(occupantToConfirmTempResidence?.tempResidence);
+              return (
+                <Button
+                  variant={isDeclared ? "danger" : "primary"}
+                  onClick={async () => {
+                    if (occupantToConfirmTempResidence) {
+                      await handleToggleOccupantTempResidence(occupantToConfirmTempResidence);
+                      setIsSingleTempResidenceConfirmOpen(false);
+                      setOccupantToConfirmTempResidence(null);
+                    }
+                  }}
+                  disabled={isSavingTempResidence}
+                >
+                  {isSavingTempResidence ? (
+                    <Loader2 size={16} className="animate-spin mr-2" />
+                  ) : isDeclared ? (
+                    <ShieldAlert size={16} className="mr-2" />
+                  ) : (
+                    <Check size={16} className="mr-2" />
+                  )}
+                  {isDeclared ? "Xác nhận hủy khai báo" : "Xác nhận đã khai báo"}
+                </Button>
+              );
+            })()}
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3 py-2">
+          {(() => {
+            const occ = occupantToConfirmTempResidence;
+            if (!occ) return null;
+            const isDeclared = Boolean(occ.tempResidence);
+            const occName = occ.name || occ.fullName || "Khách thuê";
+            const occPhone = occ.phone || "";
+            const occCccd = occ.cccd || occ.identityNo || "";
+
+            if (isDeclared) {
+              return (
+                <>
+                  <div className="flex items-center gap-3 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-800 dark:text-rose-300 text-[13px]">
+                    <ShieldAlert className="shrink-0 text-rose-600" size={22} />
+                    <div className="flex flex-col gap-0.5">
+                      <div className="font-bold">
+                        Hủy trạng thái khai báo tạm trú của khách thuê:
+                      </div>
+                      <div className="text-[14px] font-black text-rose-600 dark:text-rose-400">
+                        {occName}
+                      </div>
+                      {(occPhone || occCccd) && (
+                        <div className="text-[11px] opacity-80">
+                          {occPhone ? `SĐT: ${occPhone}` : ""} {occPhone && occCccd ? "•" : ""} {occCccd ? `CCCD: ${occCccd}` : ""}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted leading-relaxed">
+                    Khách thuê này sẽ được chuyển về trạng thái &quot;Chưa khai báo&quot; tại phòng <strong>{getRoomDisplayName(roomData)}</strong>.
+                  </p>
+                </>
+              );
+            }
+
+            return (
+              <>
+                <div className="flex items-center gap-3 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-[13px]">
+                  <Check className="shrink-0 text-emerald-600" size={22} />
+                  <div className="flex flex-col gap-0.5">
+                    <div className="font-bold">
+                      Xác nhận đã khai báo tạm trú (Mẫu CT01) cho khách thuê:
+                    </div>
+                    <div className="text-[14px] font-black text-emerald-600 dark:text-emerald-400">
+                      {occName}
+                    </div>
+                    {(occPhone || occCccd) && (
+                      <div className="text-[11px] opacity-80">
+                        {occPhone ? `SĐT: ${occPhone}` : ""} {occPhone && occCccd ? "•" : ""} {occCccd ? `CCCD: ${occCccd}` : ""}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-muted leading-relaxed">
+                  Sau khi xác nhận, hệ thống sẽ đánh dấu khách thuê này là &quot;Đã khai báo&quot; tại phòng <strong>{getRoomDisplayName(roomData)}</strong>.
                 </p>
               </>
             );

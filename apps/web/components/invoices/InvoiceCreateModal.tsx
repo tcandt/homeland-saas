@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   AlertTriangle,
+  ArrowDownLeft,
+  ArrowUpRight,
   Banknote,
   Bot,
   Building2,
@@ -15,18 +17,21 @@ import {
   Droplets,
   FileText,
   Gift,
+  HelpCircle,
   Loader2,
   Minus,
   Phone,
   Plus,
   QrCode,
   Receipt,
+  RotateCcw,
   Send,
   ShieldCheck,
   Smartphone,
   Tag,
   User,
   UserCheck,
+  UserPlus,
   Users,
   Wallet,
   X,
@@ -40,16 +45,22 @@ import { useContractsQuery } from "@/lib/queries/contracts.queries";
 import { useCreateInvoiceMutation } from "@/lib/mutations/invoices.mutations";
 import { useIssueInvoiceMutation, usePayInvoiceMutation } from "@/lib/queries/invoices.queries";
 import { useSendInvoicePaymentToZaloMutation } from "@/lib/queries/payments.queries";
+import { customersApi } from "@/lib/api/customers.api";
+import { depositsApi } from "@/lib/api/deposits.api";
+import { contractsApi } from "@/lib/api/contracts.api";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
+import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+
+export type InvoiceModalTab = "INVOICE" | "HOLDING_DEPOSIT" | "HOLDING_REFUND" | "RENT" | "CONTRACT_DEPOSIT";
 
 interface InvoiceCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultRoomId?: string;
+  defaultTab?: InvoiceModalTab;
 }
 
-// Formatters for thousand-separator inputs
 function parseCurrency(val: string): number {
   return Number(val.replace(/\D/g, "")) || 0;
 }
@@ -63,19 +74,38 @@ function formatVnd(val: number): string {
   return `${Number(val || 0).toLocaleString("vi-VN")} đ`;
 }
 
+function addMonthsToDate(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function InvoiceCreateModal({
   isOpen,
   onClose,
   defaultRoomId,
+  defaultTab = "INVOICE",
 }: InvoiceCreateModalProps) {
+  const queryClient = useQueryClient();
   const { data: rooms = [] } = useRoomsQuery({ limit: 100 });
   const { data: contractsData } = useContractsQuery({ limit: 100 });
-  const contracts = Array.isArray(contractsData?.data) ? contractsData.data : Array.isArray(contractsData) ? contractsData : [];
+  const contracts = Array.isArray(contractsData?.data)
+    ? contractsData.data
+    : Array.isArray(contractsData)
+    ? contractsData
+    : [];
 
   const createMutation = useCreateInvoiceMutation();
   const issueMutation = useIssueInvoiceMutation();
   const payMutation = usePayInvoiceMutation();
   const sendZaloMutation = useSendInvoicePaymentToZaloMutation();
+
+  // Active Tab: Normalize RENT / CONTRACT_DEPOSIT to INVOICE
+  const normalizedInitialTab =
+    defaultTab === "RENT" || defaultTab === "CONTRACT_DEPOSIT" ? "INVOICE" : defaultTab;
+  const [activeTab, setActiveTab] = useState<"INVOICE" | "HOLDING_DEPOSIT" | "HOLDING_REFUND">(
+    normalizedInitialTab as any
+  );
 
   // 1. Room Selection
   const [selectedRoomId, setSelectedRoomId] = useState<string>(defaultRoomId || "");
@@ -84,11 +114,11 @@ export default function InvoiceCreateModal({
     if (defaultRoomId) {
       setSelectedRoomId(defaultRoomId);
     }
-  }, [defaultRoomId, isOpen]);
-
-  // 2. Recipient Selection (Representative vs Roommate)
-  const [recipientType, setRecipientType] = useState<"REPRESENTATIVE" | "ROOMMATE">("REPRESENTATIVE");
-  const [selectedRoommateId, setSelectedRoommateId] = useState<string>("");
+    if (defaultTab) {
+      const norm = defaultTab === "RENT" || defaultTab === "CONTRACT_DEPOSIT" ? "INVOICE" : defaultTab;
+      setActiveTab(norm as any);
+    }
+  }, [defaultRoomId, defaultTab, isOpen]);
 
   // Lookup Room & Contract from real data
   const selectedRoom = useMemo(() => {
@@ -97,11 +127,13 @@ export default function InvoiceCreateModal({
 
   const activeContract = useMemo(() => {
     if (!selectedRoomId) return null;
-    return contracts.find(
-      (c: any) =>
-        (c.roomId === selectedRoomId || c.room?.id === selectedRoomId) &&
-        ["ACTIVE", "APPROVED", "DRAFT", "EXPIRING"].includes(c.status)
-    ) || null;
+    return (
+      contracts.find(
+        (c: any) =>
+          (c.roomId === selectedRoomId || c.room?.id === selectedRoomId) &&
+          ["ACTIVE", "APPROVED", "DRAFT", "EXPIRING"].includes(c.status)
+      ) || null
+    );
   }, [contracts, selectedRoomId]);
 
   // Real representative from room/contract
@@ -113,6 +145,7 @@ export default function InvoiceCreateModal({
         fullName: selectedRoom.tenant.name || selectedRoom.tenant.fullName,
         phone: selectedRoom.tenant.phone || "",
         gender: selectedRoom.tenant.gender || "MALE",
+        citizenId: selectedRoom.tenant.cccd || selectedRoom.tenant.citizenId || "",
       };
     }
     if (activeContract?.customer) {
@@ -121,6 +154,7 @@ export default function InvoiceCreateModal({
         fullName: activeContract.customer.fullName || activeContract.customer.name,
         phone: activeContract.customer.phone || "",
         gender: activeContract.customer.gender || "MALE",
+        citizenId: activeContract.customer.identityNo || activeContract.customer.citizenId || "",
       };
     }
     return null;
@@ -137,70 +171,117 @@ export default function InvoiceCreateModal({
         fullName: t.name || t.fullName,
         phone: t.phone || "",
         gender: t.gender || "MALE",
+        citizenId: t.cccd || t.citizenId || "",
       }));
   }, [selectedRoom, representative]);
 
-  const hasValidTenant = !!representative;
+  // 2. Customer Mode (Existing vs New Customer)
+  const [customerMode, setCustomerMode] = useState<"EXISTING" | "NEW">("EXISTING");
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [newCustomerCitizenId, setNewCustomerCitizenId] = useState("");
 
-  // Active recipient currently selected
-  const activeRecipient = useMemo(() => {
-    if (!hasValidTenant) return null;
+  // Recipient Selection (Representative vs Roommate)
+  const [recipientType, setRecipientType] = useState<"REPRESENTATIVE" | "ROOMMATE">("REPRESENTATIVE");
+  const [selectedRoommateId, setSelectedRoommateId] = useState<string>("");
+
+  const activeExistingRecipient = useMemo(() => {
     if (recipientType === "ROOMMATE" && availableRoommates.length > 0) {
       return availableRoommates.find((r: any) => r.id === selectedRoommateId) || availableRoommates[0];
     }
     return representative;
-  }, [hasValidTenant, recipientType, availableRoommates, selectedRoommateId, representative]);
+  }, [recipientType, availableRoommates, selectedRoommateId, representative]);
 
-  // 3. Line Items
-  // Column 1: Phòng & Cọc
+  const effectiveRecipient = useMemo(() => {
+    if (customerMode === "NEW") {
+      return {
+        id: "",
+        fullName: newCustomerName.trim() || "Khách hàng mới",
+        phone: newCustomerPhone.trim(),
+        citizenId: newCustomerCitizenId.trim(),
+        gender: "MALE",
+        isNew: true,
+      };
+    }
+    return activeExistingRecipient;
+  }, [customerMode, newCustomerName, newCustomerPhone, newCustomerCitizenId, activeExistingRecipient]);
+
+  const hasValidRecipient = customerMode === "NEW" ? !!newCustomerName.trim() && !!newCustomerPhone.trim() : !!effectiveRecipient?.id;
+
+  // 3. Tab 1: HÓA ĐƠN (Tiền kỳ hạn + Cọc hợp đồng)
   const [includeRent, setIncludeRent] = useState<boolean>(true);
   const [roomRent, setRoomRent] = useState<number>(0);
 
+  // Cọc hợp đồng trong Tab Hóa đơn
   const [includeContractDeposit, setIncludeContractDeposit] = useState<boolean>(false);
-  const [contractDeposit, setContractDeposit] = useState<number>(0);
+  const [contractDepositAmount, setContractDepositAmount] = useState<number>(0);
+  const [contractDepositNote, setContractDepositNote] = useState<string>("Cọc bảo đảm hợp đồng thuê");
+  const [contractDurationMonths, setContractDurationMonths] = useState<number>(6);
+  const [contractEndDate, setContractEndDate] = useState<string>(addMonthsToDate(6));
 
-  const [includeHoldingDeposit, setIncludeHoldingDeposit] = useState<boolean>(false);
-  const [holdingDeposit, setHoldingDeposit] = useState<number>(0);
-
-  // Column 2: Điện, Nước, Giảm giá
   const [includeElectricity, setIncludeElectricity] = useState<boolean>(true);
   const [electricityAmount, setElectricityAmount] = useState<number>(0);
-
   const [includeWater, setIncludeWater] = useState<boolean>(true);
   const [waterPeopleCount, setWaterPeopleCount] = useState<number>(1);
   const [waterUnitPrice] = useState<number>(100000); // 100k/person
-
   const [includeDiscount, setIncludeDiscount] = useState<boolean>(false);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [serviceFee, setServiceFee] = useState<number>(0);
+  const [includeServiceFee, setIncludeServiceFee] = useState<boolean>(false);
 
-  // 4. Period & Due Date (Vietnamese format)
+  // 4. Tab 2: Cọc giữ chỗ phòng (Holding Deposit)
+  const [holdingDepositAmount, setHoldingDepositAmount] = useState<number>(1000000);
+  const [holdingExpiryDate, setHoldingExpiryDate] = useState<string>(
+    new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+  );
+  const [expectedMoveInDate, setExpectedMoveInDate] = useState<string>(
+    new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+  );
+  const [holdingNote, setHoldingNote] = useState<string>("Cọc giữ chỗ khóa phòng chờ vào ở");
+
+  // 5. Tab 3: Hoàn cọc giữ phòng (Holding Deposit Refund - OUTFLOW)
+  const [refundAmount, setRefundAmount] = useState<number>(1000000);
+  const [refundReason, setRefundReason] = useState<string>("Khách hàng hủy giữ phòng / hoàn trả theo thỏa thuận");
+  const [refundMethod, setRefundMethod] = useState<"BANK_TRANSFER" | "CASH">("BANK_TRANSFER");
+
+  // Period & Due Date
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
   const [periodMonth, setPeriodMonth] = useState<number>(currentMonth);
   const [periodYear, setPeriodYear] = useState<number>(currentYear);
 
-  // Default due date: 5 days from now formatted as dd/mm/yyyy
   const dueDefault = new Date(Date.now() + 5 * 86400000);
   const [dueDay, setDueDay] = useState<string>(
     `${String(dueDefault.getDate()).padStart(2, "0")}/${String(dueDefault.getMonth() + 1).padStart(2, "0")}/${dueDefault.getFullYear()}`
   );
 
-  // 5. Payment & Bot
+  // Payment Method & Zalo Bot
   const [payMethod, setPayMethod] = useState<"QR_TRANSFER" | "CASH">("QR_TRANSFER");
   const [isCashCollected, setIsCashCollected] = useState<boolean>(false);
   const [sendZaloBot, setSendZaloBot] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Auto update when Room changes
+  // Auto-fill values when Room changes
   useEffect(() => {
     if (selectedRoom) {
       const defaultRent = selectedRoom.price || selectedRoom.monthlyPrice || Number(activeContract?.monthlyRent) || 0;
       setRoomRent(defaultRent);
-      setContractDeposit(Number(activeContract?.depositMoney) || defaultRent);
-      setWaterPeopleCount(Number(activeContract?.memberCount) || (selectedRoom.sharedTenants?.length ? selectedRoom.sharedTenants.length + 1 : 1));
+      const cDeposit = Number(activeContract?.depositMoney) || defaultRent;
+      setContractDepositAmount(cDeposit);
+      setHoldingDepositAmount(Math.min(defaultRent, 2000000) || 1000000);
+      setRefundAmount(Math.min(defaultRent, 2000000) || 1000000);
+      setWaterPeopleCount(
+        Number(activeContract?.memberCount) || (selectedRoom.sharedTenants?.length ? selectedRoom.sharedTenants.length + 1 : 1)
+      );
       setElectricityAmount(0);
-      setHoldingDeposit(0);
       setDiscountAmount(0);
+
+      if (activeContract?.endDate) {
+        try {
+          const eDate = new Date(activeContract.endDate).toISOString().slice(0, 10);
+          setContractEndDate(eDate);
+        } catch {}
+      }
 
       if (availableRoommates.length > 0) {
         setSelectedRoommateId(availableRoommates[0].id);
@@ -210,95 +291,280 @@ export default function InvoiceCreateModal({
       }
     } else {
       setRoomRent(0);
-      setContractDeposit(0);
-      setHoldingDeposit(0);
+      setContractDepositAmount(0);
+      setHoldingDepositAmount(1000000);
+      setRefundAmount(1000000);
       setElectricityAmount(0);
       setDiscountAmount(0);
       setSelectedRoommateId("");
     }
   }, [selectedRoomId, selectedRoom, activeContract, availableRoommates.length]);
 
-  // Calculations
+  // Calculations per Tab
   const waterTotal = includeWater ? waterUnitPrice * waterPeopleCount : 0;
   const actualDiscount = includeDiscount ? discountAmount : 0;
+  const actualServiceFee = includeServiceFee ? serviceFee : 0;
 
   const grandTotal = useMemo(() => {
+    if (activeTab === "HOLDING_DEPOSIT") {
+      return holdingDepositAmount;
+    }
+    if (activeTab === "HOLDING_REFUND") {
+      return refundAmount;
+    }
+    // Tab INVOICE (Thu tiền kỳ hạn + Cọc hợp đồng)
     let sum = 0;
     if (includeRent) sum += roomRent;
-    if (includeContractDeposit) sum += contractDeposit;
-    if (includeHoldingDeposit) sum += holdingDeposit;
+    if (includeContractDeposit) sum += contractDepositAmount;
     if (includeElectricity) sum += electricityAmount;
     if (includeWater) sum += waterTotal;
+    if (includeServiceFee) sum += actualServiceFee;
     return Math.max(0, sum - actualDiscount);
   }, [
+    activeTab,
+    holdingDepositAmount,
+    refundAmount,
     includeRent,
     roomRent,
     includeContractDeposit,
-    contractDeposit,
-    includeHoldingDeposit,
-    holdingDeposit,
+    contractDepositAmount,
     includeElectricity,
     electricityAmount,
     includeWater,
     waterTotal,
+    includeServiceFee,
+    actualServiceFee,
     actualDiscount,
   ]);
 
+  // Submit Handler
   const handleCreate = async (autoIssue = true) => {
     if (!selectedRoomId) {
       toast.error("Vui lòng chọn Phòng tạo hóa đơn");
       return;
     }
 
-    if (!hasValidTenant || !activeRecipient) {
-      toast.error("Phòng chưa có thông tin khách thuê hợp lệ");
-      return;
-    }
-
-    const customerId = activeContract?.customerId || activeContract?.customer?.id || representative?.id;
-    if (!customerId) {
-      toast.error("Không tìm thấy thông tin khách hàng hợp lệ");
+    if (!hasValidRecipient) {
+      toast.error(
+        customerMode === "NEW"
+          ? "Vui lòng nhập đầy đủ Họ tên và Số điện thoại của khách hàng mới"
+          : "Phòng chưa có thông tin khách thuê hợp lệ"
+      );
       return;
     }
 
     setIsSubmitting(true);
     try {
+      // 1. Resolve or Create Customer if in NEW mode
+      let customerId = effectiveRecipient?.id || "";
+      if (customerMode === "NEW" || !customerId || customerId.startsWith("t-")) {
+        const createCustRes = await customersApi.create({
+          fullName: newCustomerName.trim() || effectiveRecipient?.fullName || "Khách hàng",
+          phone: newCustomerPhone.trim() || effectiveRecipient?.phone || "",
+          citizenId: newCustomerCitizenId.trim() || undefined,
+          status: "ACTIVE",
+          roomId: selectedRoomId,
+        });
+        const cData = (createCustRes as any)?.data || createCustRes;
+        customerId = cData?.id || customerId;
+      }
+
+      const periodStr = `Tháng ${String(periodMonth).padStart(2, "0")}/${periodYear}`;
+      const parts = dueDay.split("/");
+      const dueIso = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().slice(0, 10);
+
+      // Handle TAB 3: Hoàn cọc giữ phòng (OUTFLOW REFUND)
+      if (activeTab === "HOLDING_REFUND") {
+        const refundPayload = {
+          roomId: selectedRoomId,
+          customerId,
+          contractId: activeContract?.id || undefined,
+          period: "Hoàn cọc giữ phòng",
+          dueDate: new Date().toISOString(),
+          totalAmount: refundAmount,
+          paidAmount: refundAmount,
+          status: "PAID",
+          notes: `[PHIẾU CHI HOÀN CỌC GIỮ PHÒNG] ${refundReason} • Người nhận: ${effectiveRecipient.fullName} (${effectiveRecipient.phone}) • Hình thức: ${refundMethod === "BANK_TRANSFER" ? "Chuyển khoản" : "Tiền mặt"}`,
+          items: [
+            {
+              name: "Hoàn trả tiền cọc giữ phòng",
+              type: "DISCOUNT",
+              amount: -refundAmount,
+              quantity: 1,
+              description: refundReason,
+            },
+          ],
+        };
+
+        const result: any = await createMutation.mutateAsync(refundPayload);
+        const invoiceId = result?.id || result?.data?.id;
+        if (invoiceId) {
+          try {
+            await issueMutation.mutateAsync(invoiceId);
+          } catch {}
+          try {
+            await payMutation.mutateAsync({ id: invoiceId, amount: refundAmount });
+          } catch {}
+        }
+
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+          queryClient.invalidateQueries({ queryKey: ["deposits"] }),
+          queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+        ]);
+
+        toast.success(`Đã tạo phiếu hoàn cọc giữ phòng ${formatVnd(refundAmount)} thành công!`);
+        onClose();
+        return;
+      }
+
+      // Handle TAB 2: Cọc giữ chỗ phòng (HOLDING DEPOSIT)
+      if (activeTab === "HOLDING_DEPOSIT") {
+        const depositCode = `DC-GP-${selectedRoom?.code || selectedRoomId.slice(0, 4)}-${Date.now().toString().slice(-4)}`;
+        try {
+          await depositsApi.create({
+            code: depositCode,
+            type: "BOOKING",
+            roomId: selectedRoomId,
+            customerId,
+            amount: holdingDepositAmount,
+            status: isCashCollected ? "HELD" : "PENDING",
+            expiredAt: holdingExpiryDate,
+            note: `${holdingNote} • Ngày dự kiến vào: ${expectedMoveInDate}`,
+          });
+        } catch (e) {
+          console.warn("Could not create deposit record directly:", e);
+        }
+
+        const invoicePayload = {
+          roomId: selectedRoomId,
+          contractId: activeContract?.id || undefined,
+          customerId,
+          period: "Cọc giữ phòng",
+          dueDate: holdingExpiryDate ? new Date(holdingExpiryDate).toISOString() : new Date().toISOString(),
+          totalAmount: holdingDepositAmount,
+          paidAmount: isCashCollected ? holdingDepositAmount : 0,
+          status: isCashCollected ? "PAID" : "UNPAID",
+          notes: `[CỌC GIỮ PHÒNG] ${holdingNote} • Khách: ${effectiveRecipient.fullName} (${effectiveRecipient.phone}) • Hạn cọc: ${holdingExpiryDate} • Ngày vào: ${expectedMoveInDate}`,
+          items: [
+            {
+              name: `Tiền cọc giữ chỗ phòng (Hạn: ${holdingExpiryDate})`,
+              type: "RENT",
+              amount: holdingDepositAmount,
+              quantity: 1,
+            },
+          ],
+        };
+
+        const result: any = await createMutation.mutateAsync(invoicePayload);
+        const invoiceId = result?.id || result?.data?.id;
+
+        if (autoIssue && invoiceId) {
+          try {
+            await issueMutation.mutateAsync(invoiceId);
+          } catch {}
+        }
+        if (isCashCollected && invoiceId) {
+          try {
+            await payMutation.mutateAsync({ id: invoiceId, amount: holdingDepositAmount });
+          } catch {}
+        }
+
+        if (sendZaloBot && payMethod === "QR_TRANSFER" && invoiceId) {
+          try {
+            await sendZaloMutation.mutateAsync(invoiceId);
+            toast.success(`🤖 Đã gửi mã VietQR cọc giữ phòng qua Bot Zalo cho ${effectiveRecipient.fullName}!`);
+          } catch (e: any) {
+            toast.success("Tạo hóa đơn cọc giữ phòng thành công!");
+          }
+        } else {
+          toast.success("Tạo hóa đơn cọc giữ phòng thành công!");
+        }
+
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+          queryClient.invalidateQueries({ queryKey: ["deposits"] }),
+          queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+        ]);
+
+        onClose();
+        return;
+      }
+
+      // Handle TAB 1: HÓA ĐƠN (Thu tiền kỳ hạn + Cọc hợp đồng)
       const items: any[] = [];
       if (includeRent && roomRent > 0) {
         items.push({ name: "Tiền thuê phòng", type: "RENT", amount: roomRent, quantity: 1 });
       }
-      if (includeContractDeposit && contractDeposit > 0) {
-        items.push({ name: "Tiền đặt cọc hợp đồng", type: "RENT", amount: contractDeposit, quantity: 1 });
-      }
-      if (includeHoldingDeposit && holdingDeposit > 0) {
-        items.push({ name: "Tiền cọc giữ chỗ phòng", type: "RENT", amount: holdingDeposit, quantity: 1 });
+      if (includeContractDeposit && contractDepositAmount > 0) {
+        items.push({
+          name: `Tiền đặt cọc hợp đồng (Hạn HĐ: ${contractEndDate})`,
+          type: "RENT",
+          amount: contractDepositAmount,
+          quantity: 1,
+        });
       }
       if (includeElectricity && electricityAmount > 0) {
         items.push({ name: "Tiền điện", type: "UTILITY_ELECTRICITY", amount: electricityAmount, quantity: 1 });
       }
       if (includeWater && waterTotal > 0) {
-        items.push({ name: `Tiền nước (${waterPeopleCount} người)`, type: "UTILITY_WATER", amount: waterTotal, quantity: waterPeopleCount });
+        items.push({
+          name: `Tiền nước (${waterPeopleCount} người)`,
+          type: "UTILITY_WATER",
+          amount: waterTotal,
+          quantity: waterPeopleCount,
+        });
+      }
+      if (includeServiceFee && actualServiceFee > 0) {
+        items.push({ name: "Phí dịch vụ & tiện ích", type: "SERVICE", amount: actualServiceFee, quantity: 1 });
       }
       if (includeDiscount && discountAmount > 0) {
         items.push({ name: "Giảm giá", type: "DISCOUNT", amount: -discountAmount, quantity: 1 });
       }
 
-      const periodStr = `Tháng ${String(periodMonth).padStart(2, "0")}/${periodYear}`;
+      // Automatically sync contract deposit to Deposit module if included
+      if (includeContractDeposit && contractDepositAmount > 0) {
+        const depositCode = `DC-HD-${selectedRoom?.code || selectedRoomId.slice(0, 4)}-${Date.now().toString().slice(-4)}`;
+        try {
+          await depositsApi.create({
+            code: depositCode,
+            type: "SECURITY",
+            roomId: selectedRoomId,
+            customerId,
+            contractId: activeContract?.id || undefined,
+            amount: contractDepositAmount,
+            status: isCashCollected ? "HELD" : "PENDING",
+            note: `${contractDepositNote} • Hạn HĐ: ${contractEndDate}`,
+          });
+        } catch (e) {
+          console.warn("Could not create deposit record directly:", e);
+        }
 
-      // Convert dd/mm/yyyy to ISO
-      const parts = dueDay.split("/");
-      const dueIso = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().slice(0, 10);
+        // Sync contract end date & deposit money if active contract exists
+        if (activeContract?.id) {
+          try {
+            await contractsApi.update(activeContract.id, {
+              endDate: new Date(contractEndDate).toISOString(),
+              depositMoney: contractDepositAmount,
+            });
+          } catch (e) {
+            console.warn("Could not update contract endDate:", e);
+          }
+        }
+      }
 
       const payload = {
         roomId: selectedRoomId,
         contractId: activeContract?.id || "",
-        customerId: customerId,
+        customerId,
         period: periodStr,
         dueDate: dueIso,
         totalAmount: grandTotal,
         paidAmount: isCashCollected ? grandTotal : 0,
         status: isCashCollected ? "PAID" : "UNPAID",
-        notes: `Hóa đơn ${periodStr} - ${recipientType === "ROOMMATE" ? "Khách ghép" : "Đại diện"}: ${activeRecipient.fullName} (${activeRecipient.phone})`,
+        notes: `Hóa đơn ${periodStr} - ${recipientType === "ROOMMATE" ? "Khách ghép" : "Đại diện"}: ${effectiveRecipient.fullName} (${effectiveRecipient.phone})${
+          includeContractDeposit ? ` • [GỒM CỌC HĐ: ${formatVnd(contractDepositAmount)} - Hạn HĐ: ${contractEndDate}]` : ""
+        }`,
         items: items,
       };
 
@@ -308,44 +574,38 @@ export default function InvoiceCreateModal({
       if (autoIssue && invoiceId) {
         try {
           await issueMutation.mutateAsync(invoiceId);
-        } catch (e) {
-          // ignore
-        }
+        } catch {}
       }
 
       if (isCashCollected && invoiceId) {
         try {
           await payMutation.mutateAsync({ id: invoiceId, amount: grandTotal });
-        } catch (e) {
-          // ignore
-        }
+        } catch {}
       }
 
       if (sendZaloBot && payMethod === "QR_TRANSFER" && invoiceId) {
         try {
-          console.log("🚀 [ZaloBot] Đang gửi hóa đơn qua Bot Zalo...", {
-            invoiceId,
-            customerName: activeRecipient?.fullName,
-            customerPhone: activeRecipient?.phone,
-            zaloChatId: (activeRecipient as any)?.zaloChatId,
+          await sendZaloMutation.mutateAsync(invoiceId);
+          toast.success(`🤖 Bot Zalo đã gửi hóa đơn & VietQR tới ${effectiveRecipient.fullName} thành công!`, {
+            duration: 5000,
           });
-          const zaloRes = await sendZaloMutation.mutateAsync(invoiceId);
-          console.log("✅ [ZaloBot] Phản hồi gửi thành công:", zaloRes);
-          toast.success(
-            `🤖 Bot Zalo đã gửi hóa đơn & mã VietQR tới ${activeRecipient.fullName} thành công!`,
-            { duration: 5000 }
-          );
         } catch (e: any) {
-          console.error("❌ [ZaloBot] Lỗi gửi hóa đơn qua Bot Zalo:", e);
-          const errorMsg =
-            e?.response?.data?.message ||
-            e?.message ||
-            `Khách thuê ${activeRecipient.fullName} chưa liên kết Zalo ID với Bot.`;
-          toast.error(errorMsg, { duration: 6000 });
+          toast.error(e?.message || `Khách thuê ${effectiveRecipient.fullName} chưa liên kết Zalo ID với Bot.`);
         }
       } else {
-        toast.success("Tạo hóa đơn thành công!");
+        toast.success(
+          includeContractDeposit
+            ? "Tạo hóa đơn & đồng bộ tiền cọc hợp đồng thành công!"
+            : "Tạo hóa đơn thành công!"
+        );
       }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+        queryClient.invalidateQueries({ queryKey: ["deposits"] }),
+        queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+        queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+      ]);
 
       onClose();
     } catch (err: any) {
@@ -355,22 +615,26 @@ export default function InvoiceCreateModal({
     }
   };
 
-  const isFemale = activeRecipient?.gender === "FEMALE" || activeRecipient?.gender === "Nữ";
-  const avatarUrl = getTenantAvatar(undefined, activeRecipient?.fullName || "Khách thuê", isFemale ? "FEMALE" : "MALE");
+  const isFemale = effectiveRecipient?.gender === "FEMALE" || effectiveRecipient?.gender === "Nữ";
+  const avatarUrl = getTenantAvatar(
+    undefined,
+    effectiveRecipient?.fullName || "Khách thuê",
+    isFemale ? "FEMALE" : "MALE"
+  );
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="max-w-[660px]"
+      maxWidth="max-w-[720px]"
       title={
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Receipt size={17} />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-xs">
+            <Receipt size={18} />
           </div>
           <div>
-            <h2 className="text-sm font-black text-text leading-tight">Lập hóa đơn thanh toán</h2>
-            <span className="text-[11px] text-muted font-medium">Chọn khoản thu và phát hành qua Bot Zalo</span>
+            <h2 className="text-[15px] font-black text-text leading-tight">Lập hóa đơn & Phiếu thu/chi</h2>
+            <span className="text-[11px] text-muted font-medium">Quản lý tiền phòng, cọc giữ chỗ, cọc hợp đồng & hoàn cọc</span>
           </div>
         </div>
       }
@@ -381,30 +645,38 @@ export default function InvoiceCreateModal({
           </Button>
 
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-xl font-bold text-xs"
-              onClick={() => handleCreate(false)}
-              disabled={!hasValidTenant || isSubmitting}
-            >
-              Lưu nháp
-            </Button>
+            {activeTab !== "HOLDING_REFUND" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl font-bold text-xs"
+                onClick={() => handleCreate(false)}
+                disabled={!hasValidRecipient || isSubmitting}
+              >
+                Lưu nháp
+              </Button>
+            )}
 
             <Button
               variant="primary"
               size="sm"
               className={`rounded-xl font-black text-white shadow-xs px-4 text-xs transition ${
-                !hasValidTenant
+                !hasValidRecipient
                   ? "bg-muted/40 cursor-not-allowed opacity-60 text-text/50"
+                  : activeTab === "HOLDING_REFUND"
+                  ? "bg-rose-600 hover:bg-rose-700"
                   : "bg-primary hover:bg-primary/90"
               }`}
               onClick={() => handleCreate(true)}
-              disabled={!hasValidTenant || isSubmitting}
+              disabled={!hasValidRecipient || isSubmitting}
             >
               {isSubmitting ? (
                 <>
                   <Loader2 size={14} className="mr-1.5 animate-spin" /> Đang xử lý...
+                </>
+              ) : activeTab === "HOLDING_REFUND" ? (
+                <>
+                  <ArrowUpRight size={14} className="mr-1.5" /> Tạo phiếu hoàn cọc ({formatVnd(refundAmount)})
                 </>
               ) : sendZaloBot && payMethod === "QR_TRANSFER" ? (
                 <>
@@ -420,9 +692,51 @@ export default function InvoiceCreateModal({
         </div>
       }
     >
-      <div className="flex flex-col gap-3 max-h-[75vh] overflow-y-auto pr-1 text-xs">
-        {/* 1. CHỌN PHÒNG & NGƯỜI NHẬN HÓA ĐƠN */}
-        <div className="rounded-xl border border-border/80 bg-surface/30 p-2.5 flex flex-col gap-2">
+      <div className="flex flex-col gap-3.5 max-h-[75vh] overflow-y-auto pr-1 text-xs">
+        {/* TOP TAB BAR - 3 TABS GỘP */}
+        <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-surface border border-border/60">
+          <button
+            type="button"
+            onClick={() => setActiveTab("INVOICE")}
+            className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === "INVOICE"
+                ? "bg-card text-primary shadow-xs font-black border border-primary/20"
+                : "text-muted hover:text-text"
+            }`}
+          >
+            <Receipt size={14} className="shrink-0" />
+            <span className="truncate">Hóa đơn</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("HOLDING_DEPOSIT")}
+            className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === "HOLDING_DEPOSIT"
+                ? "bg-card text-amber-600 dark:text-amber-400 shadow-xs font-black border border-amber-500/30"
+                : "text-muted hover:text-text"
+            }`}
+          >
+            <Wallet size={14} className="shrink-0 text-amber-500" />
+            <span className="truncate">Cọc giữ chỗ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("HOLDING_REFUND")}
+            className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === "HOLDING_REFUND"
+                ? "bg-card text-rose-600 dark:text-rose-400 shadow-xs font-black border border-rose-500/30"
+                : "text-muted hover:text-text"
+            }`}
+          >
+            <RotateCcw size={14} className="shrink-0 text-rose-500" />
+            <span className="truncate">Hoàn cọc giữ chỗ</span>
+          </button>
+        </div>
+
+        {/* 1. CHỌN PHÒNG & THÔNG TIN KHÁCH HÀNG */}
+        <div className="rounded-xl border border-border/80 bg-surface/30 p-3 flex flex-col gap-2.5">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             {/* Room Selector */}
             <div className="flex-1">
@@ -450,424 +764,579 @@ export default function InvoiceCreateModal({
               </select>
             </div>
 
-            {/* Recipient Mode Toggle */}
-            <div className="sm:w-60">
+            {/* Customer Type Toggle: Khách hiện có vs Khách mới */}
+            <div>
               <label className="text-[10px] font-black uppercase tracking-wider text-muted block mb-1">
-                Hình thức nhận
+                Đối tượng khách
               </label>
-              <div className="flex items-center gap-1 bg-card border border-border rounded-lg p-0.5 h-8.5">
+              <div className="inline-flex rounded-lg p-0.5 bg-surface border border-border">
                 <button
                   type="button"
-                  disabled={!hasValidTenant}
-                  onClick={() => setRecipientType("REPRESENTATIVE")}
-                  className={`flex-1 flex items-center justify-center gap-1 rounded-md text-[11px] font-bold h-full transition ${
-                    recipientType === "REPRESENTATIVE"
-                      ? "bg-primary text-white shadow-2xs"
-                      : "text-muted hover:text-text"
-                  } ${!hasValidTenant ? "opacity-50 cursor-not-allowed" : ""}`}
+                  onClick={() => setCustomerMode("EXISTING")}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                    customerMode === "EXISTING" ? "bg-card text-primary shadow-xs font-black" : "text-muted hover:text-text"
+                  }`}
                 >
-                  <UserCheck size={12} /> Nguyên căn
+                  Khách hiện có
                 </button>
                 <button
                   type="button"
-                  disabled={!hasValidTenant || availableRoommates.length === 0}
-                  onClick={() => setRecipientType("ROOMMATE")}
-                  className={`flex-1 flex items-center justify-center gap-1 rounded-md text-[11px] font-bold h-full transition ${
-                    recipientType === "ROOMMATE"
-                      ? "bg-primary text-white shadow-2xs"
-                      : "text-muted hover:text-text"
-                  } ${!hasValidTenant || availableRoommates.length === 0 ? "opacity-50 cursor-not-allowed" : ""}`}
+                  onClick={() => setCustomerMode("NEW")}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                    customerMode === "NEW" ? "bg-card text-primary shadow-xs font-black" : "text-muted hover:text-text"
+                  }`}
                 >
-                  <Users size={12} /> Thuê ghép
+                  + Khách mới
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Tenant details card or Empty Warning */}
-          {selectedRoomId ? (
-            hasValidTenant && activeRecipient ? (
-              <div className="flex items-center justify-between rounded-lg bg-card border border-border/60 p-2">
-                <div className="flex items-center gap-2.5 min-w-0">
+          {/* New Customer Form Inputs */}
+          {customerMode === "NEW" ? (
+            <div className="p-2.5 rounded-lg bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 flex flex-col gap-2 animate-in fade-in-50 duration-200">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                <UserPlus size={14} /> Điền thông tin khách hàng mới:
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-muted block mb-0.5">Họ và tên *</label>
+                  <input
+                    type="text"
+                    placeholder="VD: Nguyễn Văn A"
+                    value={newCustomerName}
+                    onChange={(e) => setNewCustomerName(e.target.value)}
+                    className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-xs font-semibold text-text outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-muted block mb-0.5">Số điện thoại *</label>
+                  <input
+                    type="tel"
+                    placeholder="VD: 0901234567"
+                    value={newCustomerPhone}
+                    onChange={(e) => setNewCustomerPhone(e.target.value)}
+                    className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-xs font-mono font-semibold text-text outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-muted block mb-0.5">CCCD / CMND</label>
+                  <input
+                    type="text"
+                    placeholder="Số căn cước công dân"
+                    value={newCustomerCitizenId}
+                    onChange={(e) => setNewCustomerCitizenId(e.target.value)}
+                    className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-xs font-mono font-semibold text-text outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Existing Customer Info Bar */
+            selectedRoom && (
+              <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-card border border-border/60">
+                <div className="flex items-center gap-2 min-w-0">
                   <img
                     src={avatarUrl}
-                    alt={activeRecipient.fullName}
-                    className={`h-8 w-8 min-w-[32px] min-h-[32px] max-w-[32px] max-h-[32px] rounded-lg object-cover border shrink-0 ${
-                      isFemale ? "border-pink-300 bg-pink-50" : "border-sky-300 bg-sky-50"
-                    }`}
+                    alt="avatar"
+                    className="w-7 h-7 rounded-full object-cover border border-border shrink-0"
                   />
                   <div className="min-w-0">
-                    <div className="font-black text-text text-xs truncate">
-                      {activeRecipient.fullName}
-                    </div>
-                    <div className="flex items-center gap-1 text-[11px] text-muted font-mono">
-                      <Phone size={10} className="text-emerald-500 shrink-0" />
-                      <span>{activeRecipient.phone || "Chưa có SĐT"}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-text text-xs truncate">
+                        {effectiveRecipient?.fullName || "Chưa có khách thuê"}
+                      </span>
+                      <span className="text-[10px] text-muted font-mono">
+                        {effectiveRecipient?.phone ? `• ${effectiveRecipient.phone}` : ""}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {recipientType === "ROOMMATE" ? (
-                  availableRoommates.length > 0 ? (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[10px] text-muted font-bold">Khách ghép:</span>
-                      <select
-                        value={selectedRoommateId}
-                        onChange={(e) => setSelectedRoommateId(e.target.value)}
-                        className="h-7 px-2 rounded-md border border-primary/30 bg-primary/5 text-[11px] font-bold text-primary outline-none"
-                      >
-                        {availableRoommates.map((rm: any) => (
-                          <option key={rm.id} value={rm.id}>
-                            {rm.fullName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  ) : (
-                    <span className="text-[10px] text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">
-                      Phòng 1 người
-                    </span>
-                  )
-                ) : (
-                  <Badge variant="primary" className="text-[10px] py-0.5 px-2">
-                    Đại diện HĐ
-                  </Badge>
+                {availableRoommates.length > 0 && activeTab === "INVOICE" && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <select
+                      value={recipientType === "ROOMMATE" ? selectedRoommateId : "REP"}
+                      onChange={(e) => {
+                        if (e.target.value === "REP") {
+                          setRecipientType("REPRESENTATIVE");
+                        } else {
+                          setRecipientType("ROOMMATE");
+                          setSelectedRoommateId(e.target.value);
+                        }
+                      }}
+                      className="h-7 px-2 rounded-md border border-border bg-surface text-[11px] font-bold text-text outline-none"
+                    >
+                      <option value="REP">Đại diện ({representative?.fullName || "Hợp đồng"})</option>
+                      {availableRoommates.map((rm: any) => (
+                        <option key={rm.id} value={rm.id}>
+                          Khách ghép: {rm.fullName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 )}
               </div>
-            ) : (
-              <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-2 text-amber-700">
-                <AlertTriangle size={15} className="shrink-0 text-amber-600" />
-                <div className="text-xs">
-                  <span className="font-bold">Phòng chưa có khách thuê:</span>
-                  <span className="ml-1 text-[11px] text-amber-800">
-                    Phòng hiện đang trống hoặc chưa có hợp đồng hiệu lực. Vui lòng chọn phòng đang có khách thuê để tạo hóa đơn.
-                  </span>
-                </div>
-              </div>
             )
-          ) : null}
+          )}
         </div>
 
-        {/* 2. KHOẢN MỤC THU TIỀN */}
-        <div className={`rounded-xl border border-border/80 bg-card p-3 flex flex-col gap-2 transition ${
-          !hasValidTenant && selectedRoomId ? "opacity-40 pointer-events-none" : ""
-        }`}>
-          <div className="flex items-center justify-between border-b border-border/50 pb-1.5 text-[10px] font-black uppercase tracking-wider text-muted select-none">
-            <span>Khoản mục thu tiền</span>
-            <span>Số tiền (VNĐ)</span>
-          </div>
+        {/* 2. BODY PER TAB */}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2">
-            {/* CỘT 1: PHÒNG & CỌC */}
-            <div className="flex flex-col gap-2">
-              {/* 1. Tiền thuê phòng */}
-              <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
+        {/* TAB 1: HÓA ĐƠN (TIỀN KỲ HẠN + CỌC HỢP ĐỒNG GỘP LÀM 1) */}
+        {activeTab === "INVOICE" && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-border/40 pb-1">
+              <span className="text-[11px] font-black uppercase text-muted tracking-wider">
+                Khoản mục thu tiền kỳ hạn & Cọc hợp đồng
+              </span>
+              <span className="text-[11px] text-muted font-medium">Tích chọn các khoản thu cần lập</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* Tiền phòng */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-card">
+                <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
+                    id="inc-rent"
                     checked={includeRent}
                     onChange={(e) => setIncludeRent(e.target.checked)}
-                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                    className="w-4 h-4 rounded text-primary accent-primary cursor-pointer"
                   />
-                  <Building2 size={13} className="text-indigo-500 shrink-0" />
-                  <span className="whitespace-nowrap">Tiền phòng</span>
-                </label>
-                <div className="relative w-32 shrink-0">
-                  <input
-                    type="text"
-                    disabled={!includeRent}
-                    value={includeRent ? formatCurrencyInput(roomRent) : "0"}
-                    onChange={(e) => setRoomRent(parseCurrency(e.target.value))}
-                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
-                      includeRent
-                        ? "border-border bg-surface text-text focus:border-primary"
-                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
-                    }`}
-                  />
-                  <span className="absolute right-1.5 top-1.5 text-[10px] text-muted font-bold">đ</span>
+                  <label htmlFor="inc-rent" className="font-bold text-text flex items-center gap-1.5 cursor-pointer">
+                    <Building2 size={15} className="text-primary" /> Tiền phòng
+                  </label>
                 </div>
+                <input
+                  type="text"
+                  disabled={!includeRent}
+                  value={formatCurrencyInput(roomRent)}
+                  onChange={(e) => setRoomRent(parseCurrency(e.target.value))}
+                  className="w-32 h-7.5 px-2 text-right font-black rounded-lg border border-border bg-surface text-text text-xs outline-none focus:border-primary"
+                />
               </div>
 
-              {/* 2. Tiền cọc hợp đồng */}
-              <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={includeContractDeposit}
-                    onChange={(e) => setIncludeContractDeposit(e.target.checked)}
-                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
-                  />
-                  <ShieldCheck size={13} className="text-indigo-600 shrink-0" />
-                  <span className="whitespace-nowrap">Cọc hợp đồng</span>
-                </label>
-                <div className="relative w-32 shrink-0">
+              {/* Tiền Cọc hợp đồng */}
+              <div
+                className={`col-span-1 sm:col-span-2 flex flex-col gap-2 p-2.5 rounded-xl border transition-all ${
+                  includeContractDeposit
+                    ? "border-indigo-500/50 bg-indigo-50/40 dark:bg-indigo-950/20"
+                    : "border-border/70 bg-card"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="inc-cdeposit"
+                      checked={includeContractDeposit}
+                      onChange={(e) => setIncludeContractDeposit(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 accent-indigo-600 cursor-pointer"
+                    />
+                    <label
+                      htmlFor="inc-cdeposit"
+                      className="font-bold text-text flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <ShieldCheck size={15} className="text-indigo-600 dark:text-indigo-400" />
+                      <span>Cọc hợp đồng</span>
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/60 px-1.5 py-0.2 rounded font-medium">
+                        Bảo đảm HĐ
+                      </span>
+                    </label>
+                  </div>
                   <input
                     type="text"
                     disabled={!includeContractDeposit}
-                    value={includeContractDeposit ? formatCurrencyInput(contractDeposit) : "0"}
-                    onChange={(e) => setContractDeposit(parseCurrency(e.target.value))}
-                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
-                      includeContractDeposit
-                        ? "border-border bg-surface text-text focus:border-primary"
-                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
-                    }`}
+                    value={formatCurrencyInput(contractDepositAmount)}
+                    onChange={(e) => setContractDepositAmount(parseCurrency(e.target.value))}
+                    placeholder="0 đ"
+                    className="w-36 h-7.5 px-2 text-right font-black rounded-lg border border-border bg-card text-indigo-600 dark:text-indigo-400 text-xs outline-none focus:border-indigo-500"
                   />
-                  <span className="absolute right-1.5 top-1.5 text-[10px] text-muted font-bold">đ</span>
                 </div>
+
+                {/* Khi tích chọn Cọc hợp đồng: Hiển thị thêm button/input Hạn Hợp Đồng */}
+                {includeContractDeposit && (
+                  <div className="pt-2 border-t border-indigo-200/60 dark:border-indigo-800/40 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 animate-in fade-in-50 duration-200">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1">
+                        <Calendar size={13} className="text-indigo-600" /> Hạn hợp đồng:
+                      </span>
+                      <div className="inline-flex rounded-lg p-0.5 bg-card border border-indigo-200 dark:border-indigo-800 text-[10px]">
+                        {[3, 6, 12].map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => {
+                              setContractDurationMonths(m);
+                              setContractEndDate(addMonthsToDate(m));
+                            }}
+                            className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                              contractDurationMonths === m
+                                ? "bg-indigo-600 text-white shadow-xs font-black"
+                                : "text-muted hover:text-text"
+                            }`}
+                          >
+                            {m} tháng
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-[10px] font-bold text-muted whitespace-nowrap">Đến ngày:</label>
+                      <input
+                        type="date"
+                        value={contractEndDate}
+                        onChange={(e) => {
+                          setContractEndDate(e.target.value);
+                          setContractDurationMonths(0);
+                        }}
+                        className="h-7 px-2 rounded-md border border-indigo-300 dark:border-indigo-700 bg-card text-[11px] font-bold font-mono text-text outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* 3. Cọc giữ phòng */}
-              <div className="flex items-center justify-between gap-2 py-1">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
+              {/* Tiền điện */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-card">
+                <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
-                    checked={includeHoldingDeposit}
-                    onChange={(e) => setIncludeHoldingDeposit(e.target.checked)}
-                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
-                  />
-                  <Wallet size={13} className="text-amber-500 shrink-0" />
-                  <span className="whitespace-nowrap">Cọc giữ phòng</span>
-                </label>
-                <div className="relative w-32 shrink-0">
-                  <input
-                    type="text"
-                    disabled={!includeHoldingDeposit}
-                    value={includeHoldingDeposit ? formatCurrencyInput(holdingDeposit) : "0"}
-                    onChange={(e) => setHoldingDeposit(parseCurrency(e.target.value))}
-                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
-                      includeHoldingDeposit
-                        ? "border-border bg-surface text-text focus:border-primary"
-                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
-                    }`}
-                  />
-                  <span className="absolute right-1.5 top-1.5 text-[10px] text-muted font-bold">đ</span>
-                </div>
-              </div>
-            </div>
-
-            {/* CỘT 2: ĐIỆN, NƯỚC, GIẢM GIÁ */}
-            <div className="flex flex-col gap-2">
-              {/* 4. Tiền điện */}
-              <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
-                  <input
-                    type="checkbox"
+                    id="inc-elec"
                     checked={includeElectricity}
                     onChange={(e) => setIncludeElectricity(e.target.checked)}
-                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                    className="w-4 h-4 rounded text-primary accent-primary cursor-pointer"
                   />
-                  <Zap size={13} className="text-amber-500 shrink-0" />
-                  <span className="whitespace-nowrap">Tiền điện</span>
-                </label>
-                <div className="relative w-32 shrink-0">
-                  <input
-                    type="text"
-                    disabled={!includeElectricity}
-                    value={includeElectricity ? formatCurrencyInput(electricityAmount) : "0"}
-                    onChange={(e) => setElectricityAmount(parseCurrency(e.target.value))}
-                    placeholder="0"
-                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
-                      includeElectricity
-                        ? "border-border bg-surface text-text focus:border-primary"
-                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
-                    }`}
-                  />
-                  <span className="absolute right-1.5 top-1.5 text-[10px] text-muted font-bold">đ</span>
+                  <label htmlFor="inc-elec" className="font-bold text-text flex items-center gap-1.5 cursor-pointer">
+                    <Zap size={15} className="text-amber-500" /> Tiền điện
+                  </label>
                 </div>
+                <input
+                  type="text"
+                  disabled={!includeElectricity}
+                  value={formatCurrencyInput(electricityAmount)}
+                  onChange={(e) => setElectricityAmount(parseCurrency(e.target.value))}
+                  className="w-32 h-7.5 px-2 text-right font-black rounded-lg border border-border bg-surface text-text text-xs outline-none focus:border-primary"
+                />
               </div>
 
-              {/* 5. Tiền nước */}
-              <div className="flex items-center justify-between gap-2 py-1 border-b border-border/30">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text select-none shrink-0">
+              {/* Tiền nước */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-card">
+                <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
+                    id="inc-water"
                     checked={includeWater}
                     onChange={(e) => setIncludeWater(e.target.checked)}
-                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                    className="w-4 h-4 rounded text-primary accent-primary cursor-pointer"
                   />
-                  <Droplets size={13} className="text-sky-500 shrink-0" />
-                  <span className="whitespace-nowrap">Tiền nước</span>
-                </label>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {includeWater && (
-                    <div className="flex items-center bg-surface border border-border/80 rounded px-1.5 h-7">
-                      <Users size={11} className="text-muted mr-1" />
-                      <input
-                        type="text"
-                        value={waterPeopleCount}
-                        onChange={(e) => {
-                          const val = Number(e.target.value.replace(/\D/g, "")) || 1;
-                          setWaterPeopleCount(Math.max(1, Math.min(20, val)));
-                        }}
-                        className="w-5 font-mono font-black text-xs text-text bg-transparent text-center outline-none"
-                      />
-                      <span className="text-[10px] text-muted font-bold ml-0.5">người</span>
-                    </div>
-                  )}
-                  <div className="relative w-24">
+                  <label htmlFor="inc-water" className="font-bold text-text flex items-center gap-1.5 cursor-pointer">
+                    <Droplets size={15} className="text-sky-500" /> Tiền nước
+                  </label>
+                  <div className="flex items-center gap-1 bg-surface px-1.5 py-0.5 rounded-md border border-border/60 text-[10px] font-bold">
+                    <Users size={11} className="text-muted" />
                     <input
-                      type="text"
-                      readOnly
-                      value={includeWater ? formatCurrencyInput(waterTotal) : "0"}
-                      className="w-full h-7 px-1 pr-4 rounded-md border border-transparent bg-transparent text-right font-mono font-bold text-xs text-text outline-none"
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={waterPeopleCount}
+                      onChange={(e) => setWaterPeopleCount(Math.max(1, Number(e.target.value)))}
+                      className="w-7 text-center bg-transparent outline-none font-bold"
                     />
-                    <span className="absolute right-1 top-1.5 text-[10px] text-muted font-bold">đ</span>
+                    <span>người</span>
                   </div>
                 </div>
+                <span className="font-black text-text text-xs">{formatVnd(waterTotal)}</span>
               </div>
 
-              {/* 6. Giảm giá */}
-              <div className="flex items-center justify-between gap-2 py-1">
-                <label className="flex items-center gap-1.5 cursor-pointer font-bold text-rose-600 select-none shrink-0">
+              {/* Phí dịch vụ */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-card">
+                <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
+                    id="inc-svc"
+                    checked={includeServiceFee}
+                    onChange={(e) => setIncludeServiceFee(e.target.checked)}
+                    className="w-4 h-4 rounded text-primary accent-primary cursor-pointer"
+                  />
+                  <label htmlFor="inc-svc" className="font-bold text-text flex items-center gap-1.5 cursor-pointer">
+                    <Tag size={15} className="text-emerald-500" /> Phí dịch vụ
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  disabled={!includeServiceFee}
+                  value={formatCurrencyInput(serviceFee)}
+                  onChange={(e) => setServiceFee(parseCurrency(e.target.value))}
+                  placeholder="0 đ"
+                  className="w-32 h-7.5 px-2 text-right font-black rounded-lg border border-border bg-surface text-text text-xs outline-none focus:border-primary"
+                />
+              </div>
+
+              {/* Giảm giá */}
+              <div className="col-span-1 sm:col-span-2 flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-card">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="inc-disc"
                     checked={includeDiscount}
                     onChange={(e) => setIncludeDiscount(e.target.checked)}
-                    className="rounded text-rose-600 focus:ring-rose-500 h-3.5 w-3.5 cursor-pointer"
+                    className="w-4 h-4 rounded text-rose-500 accent-rose-500 cursor-pointer"
                   />
-                  <Minus size={13} className="text-rose-500 shrink-0" />
-                  <span className="whitespace-nowrap">Giảm giá</span>
-                </label>
-
-                <div className="relative w-32 shrink-0">
-                  <input
-                    type="text"
-                    disabled={!includeDiscount}
-                    value={includeDiscount ? formatCurrencyInput(discountAmount) : "0"}
-                    onChange={(e) => setDiscountAmount(parseCurrency(e.target.value))}
-                    placeholder="0"
-                    className={`w-full h-7 px-2 pr-4 rounded-md border text-right font-mono font-bold text-xs outline-none ${
-                      includeDiscount
-                        ? "border-rose-300 bg-rose-50/30 text-rose-600 focus:border-rose-500"
-                        : "border-transparent bg-transparent text-muted/50 cursor-not-allowed"
-                    }`}
-                  />
-                  <span className="absolute right-1.5 top-1.5 text-[10px] text-rose-500 font-bold">đ</span>
+                  <label htmlFor="inc-disc" className="font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1.5 cursor-pointer">
+                    <Gift size={15} /> Giảm giá / Khuyến mãi
+                  </label>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 3. TỔNG CỘNG & KỲ CƯỚC / HẠN ĐÓNG */}
-        <div className={`rounded-xl border border-primary/30 bg-primary/5 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 transition ${
-          !hasValidTenant && selectedRoomId ? "opacity-40 pointer-events-none" : ""
-        }`}>
-          <div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-muted block">
-              Tổng tiền thanh toán
-            </span>
-            <span className="font-mono text-xl font-black text-primary leading-tight">
-              {formatVnd(grandTotal)}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-center sm:justify-end gap-3 text-xs">
-            {/* Kỳ cước */}
-            <div className="flex flex-col items-center sm:items-start">
-              <span className="text-[10px] font-black uppercase text-muted block mb-0.5">Kỳ cước</span>
-              <div className="flex items-center justify-center gap-1 bg-card border border-border rounded-lg px-2.5 h-8">
-                <span className="text-[11px] font-bold text-muted">Tháng</span>
-                <select
-                  value={periodMonth}
-                  onChange={(e) => setPeriodMonth(Number(e.target.value))}
-                  className="bg-transparent font-mono font-black text-xs text-text outline-none cursor-pointer"
-                >
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>
-                      {String(m).padStart(2, "0")}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-muted/60">/</span>
                 <input
-                  type="number"
-                  value={periodYear}
-                  onChange={(e) => setPeriodYear(Number(e.target.value))}
-                  className="w-11 bg-transparent font-mono font-black text-xs text-text outline-none text-center"
+                  type="text"
+                  disabled={!includeDiscount}
+                  value={formatCurrencyInput(discountAmount)}
+                  onChange={(e) => setDiscountAmount(parseCurrency(e.target.value))}
+                  placeholder="0 đ"
+                  className="w-32 h-7.5 px-2 text-right font-black rounded-lg border border-rose-300 dark:border-rose-900 bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 text-xs outline-none"
                 />
               </div>
             </div>
+          </div>
+        )}
 
-            {/* Hạn đóng */}
-            <div className="flex flex-col items-center sm:items-start">
-              <span className="text-[10px] font-black uppercase text-muted block mb-0.5">Hạn đóng</span>
-              <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 h-8">
-                <Calendar size={12} className="text-amber-500 shrink-0" />
+        {/* TAB 2: CỌC GIỮ CHỖ PHÒNG */}
+        {activeTab === "HOLDING_DEPOSIT" && (
+          <div className="flex flex-col gap-3 p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/5">
+            <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
+              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 font-bold">
+                <Wallet size={16} /> Phiếu thu cọc giữ chỗ phòng
+              </div>
+              <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Khóa phòng chờ vào ở</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-bold uppercase text-muted block mb-1">
+                  Số tiền cọc giữ phòng <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formatCurrencyInput(holdingDepositAmount)}
+                  onChange={(e) => setHoldingDepositAmount(parseCurrency(e.target.value))}
+                  className="w-full h-8.5 px-2.5 font-black text-amber-600 dark:text-amber-400 rounded-lg border border-border bg-card text-sm outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase text-muted block mb-1">Hạn giữ phòng</label>
+                <input
+                  type="date"
+                  value={holdingExpiryDate}
+                  onChange={(e) => setHoldingExpiryDate(e.target.value)}
+                  className="w-full h-8.5 px-2.5 font-bold rounded-lg border border-border bg-card text-xs outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase text-muted block mb-1">Ngày dự kiến vào ở</label>
+                <input
+                  type="date"
+                  value={expectedMoveInDate}
+                  onChange={(e) => setExpectedMoveInDate(e.target.value)}
+                  className="w-full h-8.5 px-2.5 font-bold rounded-lg border border-border bg-card text-xs outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase text-muted block mb-1">Ghi chú cọc</label>
+                <input
+                  type="text"
+                  placeholder="Ghi chú điều khoản cọc giữ phòng"
+                  value={holdingNote}
+                  onChange={(e) => setHoldingNote(e.target.value)}
+                  className="w-full h-8.5 px-2.5 font-medium rounded-lg border border-border bg-card text-xs outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: HOÀN CỌC GIỮ PHÒNG (CHI) */}
+        {activeTab === "HOLDING_REFUND" && (
+          <div className="flex flex-col gap-3 p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/5">
+            <div className="flex items-center justify-between border-b border-rose-500/20 pb-2">
+              <div className="flex items-center gap-2 text-rose-700 dark:text-rose-300 font-bold">
+                <ArrowUpRight size={16} /> Phiếu chi hoàn tiền cọc giữ phòng
+              </div>
+              <span className="text-[11px] font-bold text-rose-600 bg-rose-100 dark:bg-rose-950 px-2 py-0.5 rounded-md">
+                Chiều Chi (-)
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-bold uppercase text-muted block mb-1">
+                  Số tiền hoàn trả <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formatCurrencyInput(refundAmount)}
+                  onChange={(e) => setRefundAmount(parseCurrency(e.target.value))}
+                  className="w-full h-8.5 px-2.5 font-black text-rose-600 rounded-lg border border-border bg-card text-sm outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase text-muted block mb-1">Hình thức hoàn tiền</label>
+                <select
+                  value={refundMethod}
+                  onChange={(e) => setRefundMethod(e.target.value as any)}
+                  className="w-full h-8.5 px-2.5 font-bold rounded-lg border border-border bg-card text-xs outline-none focus:border-rose-500"
+                >
+                  <option value="BANK_TRANSFER">Chuyển khoản ngân hàng</option>
+                  <option value="CASH">Tiền mặt</option>
+                </select>
+              </div>
+
+              <div className="col-span-1 sm:col-span-2">
+                <label className="text-[10px] font-bold uppercase text-muted block mb-1">Lý do hoàn cọc</label>
+                <input
+                  type="text"
+                  placeholder="VD: Khách hàng hủy giữ phòng / hoàn trả theo thỏa thuận"
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  className="w-full h-8.5 px-2.5 font-medium rounded-lg border border-border bg-card text-xs outline-none focus:border-rose-500"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3. TỔNG TIỀN, KỲ CƯỚC & HẠN ĐÓNG */}
+        {activeTab === "INVOICE" ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 rounded-xl border border-border/80 bg-surface/30">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-muted block">
+                Tổng tiền thanh toán
+              </span>
+              <div className="text-lg font-black mt-0.5 text-primary">
+                {formatVnd(grandTotal)}
+              </div>
+            </div>
+
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-muted block mb-1">Kỳ cước</span>
+              <div className="flex items-center gap-1">
+                <select
+                  value={periodMonth}
+                  onChange={(e) => setPeriodMonth(Number(e.target.value))}
+                  className="h-7.5 px-2 rounded-lg border border-border bg-card text-xs font-bold text-text outline-none"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <option key={m} value={m}>
+                      Tháng {String(m).padStart(2, "0")}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={periodYear}
+                  onChange={(e) => setPeriodYear(Number(e.target.value))}
+                  className="h-7.5 px-2 rounded-lg border border-border bg-card text-xs font-bold text-text outline-none"
+                >
+                  {[currentYear - 1, currentYear, currentYear + 1].map((y) => (
+                    <option key={y} value={y}>
+                      /{y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-muted block mb-1">Hạn đóng</span>
+              <div className="flex items-center gap-1.5 h-7.5 px-2.5 rounded-lg border border-border bg-card text-xs font-bold text-text">
+                <Calendar size={13} className="text-muted shrink-0" />
                 <input
                   type="text"
                   value={dueDay}
                   onChange={(e) => setDueDay(e.target.value)}
                   placeholder="dd/mm/yyyy"
-                  className="w-22 bg-transparent font-mono font-black text-xs text-text outline-none text-center"
+                  className="w-full bg-transparent outline-none font-mono text-xs"
                 />
               </div>
             </div>
           </div>
-        </div>
-
-        {/* 4. PHƯƠNG THỨC THANH TOÁN */}
-        <div className={`rounded-xl border border-border/80 bg-surface/30 p-2.5 flex flex-col gap-2 transition ${
-          !hasValidTenant && selectedRoomId ? "opacity-40 pointer-events-none" : ""
-        }`}>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setPayMethod("QR_TRANSFER")}
-              className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border font-bold text-xs transition ${
-                payMethod === "QR_TRANSFER"
-                  ? "border-primary bg-primary/10 text-primary shadow-2xs"
-                  : "border-border bg-card text-muted hover:text-text"
-              }`}
-            >
-              <QrCode size={13} /> Chuyển khoản QR (VietQR)
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setPayMethod("CASH")}
-              className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border font-bold text-xs transition ${
-                payMethod === "CASH"
-                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 shadow-2xs"
-                  : "border-border bg-card text-muted hover:text-text"
-              }`}
-            >
-              <Banknote size={13} /> Thu tiền mặt
-            </button>
+        ) : (
+          <div className="flex items-center justify-between p-3 rounded-xl border border-border/80 bg-surface/30">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-muted block">
+                {activeTab === "HOLDING_REFUND" ? "Tổng tiền hoàn trả" : "Tổng tiền cọc giữ chỗ"}
+              </span>
+              <div
+                className={`text-lg font-black mt-0.5 ${
+                  activeTab === "HOLDING_REFUND"
+                    ? "text-rose-600 dark:text-rose-400"
+                    : "text-primary"
+                }`}
+              >
+                {activeTab === "HOLDING_REFUND" ? `- ${formatVnd(grandTotal)}` : formatVnd(grandTotal)}
+              </div>
+            </div>
           </div>
+        )}
 
-          {/* Sub options */}
-          {payMethod === "QR_TRANSFER" && (
-            <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-card border border-border/60 cursor-pointer">
-              <div className="flex items-center gap-1.5">
-                <Bot size={13} className="text-primary" />
-                <span className="font-bold text-text text-[11px]">Tự động gửi QR & Hóa đơn qua Bot Zalo</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={sendZaloBot}
-                onChange={(e) => setSendZaloBot(e.target.checked)}
-                className="h-3.5 w-3.5 rounded text-primary focus:ring-primary cursor-pointer"
-              />
-            </label>
-          )}
+        {/* 4. PHƯƠNG THỨC THANH TOÁN & BOT ZALO */}
+        {activeTab !== "HOLDING_REFUND" && (
+          <div className="rounded-xl border border-border/80 bg-surface/30 p-2.5 flex flex-col gap-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setPayMethod("QR_TRANSFER")}
+                className={`flex items-center justify-center gap-2 p-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                  payMethod === "QR_TRANSFER"
+                    ? "bg-card border-primary text-primary shadow-xs font-black"
+                    : "bg-surface border-border text-muted hover:text-text"
+                }`}
+              >
+                <QrCode size={15} /> Chuyển khoản QR (VietQR)
+              </button>
 
-          {payMethod === "CASH" && (
-            <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-card border border-border/60 cursor-pointer">
-              <div className="flex items-center gap-1.5">
-                <CheckCircle2 size={13} className="text-emerald-500" />
-                <span className="font-bold text-text text-[11px]">Khách đã nộp tiền mặt ngay (Gạch nợ)</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={isCashCollected}
-                onChange={(e) => setIsCashCollected(e.target.checked)}
-                className="h-3.5 w-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-              />
-            </label>
-          )}
-        </div>
+              <button
+                type="button"
+                onClick={() => setPayMethod("CASH")}
+                className={`flex items-center justify-center gap-2 p-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                  payMethod === "CASH"
+                    ? "bg-card border-primary text-primary shadow-xs font-black"
+                    : "bg-surface border-border text-muted hover:text-text"
+                }`}
+              >
+                <Banknote size={15} /> Thu tiền mặt
+              </button>
+            </div>
+
+            {payMethod === "QR_TRANSFER" ? (
+              <label className="flex items-center gap-2 p-2 rounded-lg bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 text-indigo-900 dark:text-indigo-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={sendZaloBot}
+                  onChange={(e) => setSendZaloBot(e.target.checked)}
+                  className="w-4 h-4 rounded text-primary accent-primary cursor-pointer"
+                />
+                <span className="font-bold text-[11px] flex items-center gap-1.5">
+                  <Bot size={14} className="text-primary" /> Tự động gửi QR & Hóa đơn qua Bot Zalo cho khách
+                </span>
+              </label>
+            ) : (
+              <label className="flex items-center gap-2 p-2 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 text-emerald-900 dark:text-emerald-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isCashCollected}
+                  onChange={(e) => setIsCashCollected(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600 accent-emerald-600 cursor-pointer"
+                />
+                <span className="font-bold text-[11px]">Đã nhận đủ tiền mặt (Đánh dấu đã thanh toán)</span>
+              </label>
+            )}
+          </div>
+        )}
       </div>
     </Modal>
   );

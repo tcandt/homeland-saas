@@ -70,8 +70,7 @@ test.describe('Invoice Lifecycle Workflow E2E', () => {
     // 3. Select the Invoice to open drawer
     const invoiceCard = page.locator('[data-testid="invoice-card"]', { hasText: 'Invoice Customer E2E' }).first();
     await invoiceCard.waitFor({ state: 'visible', timeout: 10000 });
-    await invoiceCard.hover();
-    await invoiceCard.locator('button[aria-label="Xem chi tiết"]').click();
+    await invoiceCard.click();
 
     // 4. Drawer opens, verify status is DRAFT
     const drawer = page.getByTestId('invoice-detail-drawer');

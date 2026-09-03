@@ -803,16 +803,13 @@ export class HunonicService {
     });
 
     try {
-      const backfillMonths = options.backfillMonths || 0;
-      const canBackfillFromWebsite = backfillMonths > 0
-        && preferredMode === 'website'
-        && Boolean(settings.websiteToken || settings.websiteCookie);
-      const providerSettings = canBackfillFromWebsite
-        ? { ...settings, mode: 'website' as const }
-        : { ...settings, mode: preferredMode };
-      const provider = new HunonicProvider(this.toProviderOptions(providerSettings));
-      const backfill = canBackfillFromWebsite
-        ? await provider.fetchRecentMonthlyHistory(backfillMonths)
+      const backfillMonths = options.backfillMonths !== undefined ? options.backfillMonths : 12;
+      const provider = new HunonicProvider(this.toProviderOptions({ ...settings, mode: preferredMode }));
+      const backfill = backfillMonths > 0
+        ? await provider.fetchRecentMonthlyHistory(backfillMonths).catch((err) => {
+            this.logger.warn(`Failed to fetch recent monthly history: ${err?.message}`);
+            return null;
+          })
         : null;
       const dashboard = backfill?.dashboard || await provider.fetchDashboardData();
       const buildings = await this.prisma.building.findMany({
@@ -826,6 +823,7 @@ export class HunonicService {
 
       for (const meter of dashboard.electric_meters) {
         const fixed = resolveFixedRoomMapping(meter, buildings);
+        if (!fixed) continue;
         const readingAt = meter.updated_at ? new Date(meter.updated_at) : new Date(dashboard.exported_at);
         const providerMeterId = meter.provider_meter_id || meter.provider_device_id;
         if (!providerMeterId || Number.isNaN(readingAt.getTime())) continue;
@@ -1186,37 +1184,75 @@ export class HunonicService {
   }
 }
 
+function isIgnoredHunonicMeter(meter: HunonicElectricMeter) {
+  const name = String(meter.name || '');
+  const roomName = String(meter.room_name || '');
+  const homeName = String(meter.home_name || '');
+  const combined = normalizeText(`${name} ${roomName} ${homeName}`);
+  return (
+    combined.includes('nha cua tinh') ||
+    (combined.includes('tinh') && combined.includes('nha')) ||
+    combined.includes('nlmt')
+  );
+}
+
 function resolveFixedRoomMapping(meter: HunonicElectricMeter, buildings: Array<any> = []) {
+  if (isIgnoredHunonicMeter(meter)) {
+    return null;
+  }
+
   const name = String(meter.name || '').trim();
   const roomName = String(meter.room_name || '').trim();
   const homeName = String(meter.home_name || '').trim();
   const candidates = [name, roomName, homeName].filter(Boolean);
 
+  // 1. Match Office / Văn phòng
   const officeMatch = candidates.some((value) => {
     const norm = normalizeText(value);
-    return norm.includes('van phong') || norm.includes('office');
+    return norm.includes('van phong') || norm.includes('office') || norm.includes('vp');
   });
   if (officeMatch) {
-    if (buildings.length > 0) {
-      for (const b of buildings) {
-        for (const r of b.rooms || []) {
-          const rNorm = normalizeText(r.name || r.code);
-          if (rNorm.includes('van phong') || rNorm.includes('vp') || r.code === '32-01') {
-            return {
-              buildingId: b.id,
-              roomId: r.id,
-              buildingCode: b.code,
-              roomCode: r.code,
-              displayName: r.name || 'Văn Phòng',
-            };
-          }
-        }
-      }
-    }
-    return { buildingCode: 'LK01-32', roomCode: '32-01', displayName: 'Văn Phòng' };
+    const matchedBuilding = buildings.find((b) =>
+      normalizeText(b.code).includes('32') || normalizeText(b.name).includes('32')
+    );
+    const matchedRoom = matchedBuilding?.rooms?.find((r: any) => {
+      const rNorm = normalizeText(r.name || r.code);
+      return rNorm.includes('van phong') || rNorm.includes('vp') || r.code.includes('32-01') || r.name.includes('32-01');
+    });
+    return {
+      buildingId: matchedBuilding?.id,
+      roomId: matchedRoom?.id,
+      buildingCode: matchedBuilding?.code || 'LK01.32',
+      roomCode: matchedRoom?.code || 'PN 32-01',
+      displayName: matchedRoom?.name || 'PN 32-01',
+    };
   }
 
-  // Direct match with rooms in buildings
+  // 2. Extract Room Code (e.g. 31.01, 31-01, 32.06, 24.01)
+  const code = candidates.map(extractRoomCode).find(Boolean);
+  if (code) {
+    const buildingNo = code.split('-')[0];
+    const matchedBuilding = buildings.find((b) =>
+      normalizeText(b.code).includes(buildingNo) || normalizeText(b.name).includes(buildingNo)
+    );
+    const matchedRoom = matchedBuilding?.rooms?.find((r: any) =>
+      canonicalRoomCode(r.code) === code ||
+      canonicalRoomCode(r.name) === code ||
+      canonicalRoomCode(r.code) === canonicalRoomCode(code) ||
+      r.code.includes(code)
+    );
+    if (matchedBuilding) {
+      return {
+        buildingId: matchedBuilding.id,
+        roomId: matchedRoom?.id,
+        buildingCode: matchedBuilding.code,
+        roomCode: matchedRoom?.code || `PN ${code}`,
+        displayName: matchedRoom?.name || matchedRoom?.code || `PN ${code}`,
+      };
+    }
+  }
+
+  // 3. Direct match with rooms in buildings
   if (buildings.length > 0) {
     for (const b of buildings) {
       for (const r of b.rooms || []) {
@@ -1248,32 +1284,7 @@ function resolveFixedRoomMapping(meter: HunonicElectricMeter, buildings: Array<a
     }
   }
 
-  const code = candidates.map(extractRoomCode).find(Boolean);
-  if (code) {
-    const buildingNo = code.split('-')[0];
-    const matchedBuilding = buildings.find((b) =>
-      normalizeText(b.code).includes(buildingNo) || normalizeText(b.name).includes(buildingNo)
-    );
-    const matchedRoom = matchedBuilding?.rooms?.find((r: any) =>
-      canonicalRoomCode(r.code) === code || canonicalRoomCode(r.name) === code
-    );
-    return {
-      buildingId: matchedBuilding?.id,
-      roomId: matchedRoom?.id,
-      buildingCode: matchedBuilding?.code || `LK01-${buildingNo}`,
-      roomCode: matchedRoom?.code || code,
-      displayName: matchedRoom?.name || code,
-    };
-  }
-
-  const fallbackBuilding = buildings[0];
-  return {
-    buildingId: fallbackBuilding?.id,
-    roomId: undefined,
-    buildingCode: homeName || fallbackBuilding?.code || 'HUNONIC',
-    roomCode: roomName || name || 'METER',
-    displayName: name || 'Công tơ điện',
-  };
+  return null;
 }
 
 function extractRoomCode(value: string) {

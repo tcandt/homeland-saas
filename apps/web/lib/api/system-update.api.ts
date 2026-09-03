@@ -33,6 +33,30 @@ export type SystemUpdateJob = {
   error?: string;
 };
 
+export type BackupManifestInfo = {
+  id: string;
+  name: string;
+  createdAt: string;
+  sizeBytes: number;
+  commitSha?: string;
+  version?: string;
+  type: 'manual' | 'daily_schedule' | 'pre_update';
+  filesCount: number;
+  status: 'READY' | 'CORRUPTED';
+};
+
+export type SystemBackupStatus = {
+  connected: boolean;
+  agentVersion: string;
+  scheduleEnabled: boolean;
+  scheduleCron: string;
+  scheduleDescription: string;
+  lastBackupAt: string | null;
+  totalBackups: number;
+  storageUsedBytes: number;
+  backups: BackupManifestInfo[];
+};
+
 export const systemUpdateApi = {
   check: () => apiClient.get<SystemUpdateCheck>('/system-update/check'),
   status: () => apiClient.get<SystemUpdateJob>('/system-update/status'),
@@ -45,4 +69,7 @@ export const systemUpdateApi = {
       '/system-update/wipe-data',
       payload,
     ),
+  backups: () => apiClient.get<SystemBackupStatus>('/system-update/backups'),
+  createBackup: (payload?: { note?: string }) =>
+    apiClient.post<SystemBackupStatus>('/system-update/backups/create', payload || {}),
 };

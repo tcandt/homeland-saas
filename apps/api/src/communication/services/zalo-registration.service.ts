@@ -299,6 +299,24 @@ export class ZaloRegistrationService {
           contractId: contract.id,
         });
       }
+      const coRepIds = (contract.coRepresentativeIds || []).filter(Boolean);
+      if (coRepIds.length > 0) {
+        const coReps = await this.prisma.customer.findMany({
+          where: { id: { in: coRepIds }, tenantId },
+          select: {
+            id: true,
+            fullName: true,
+            phone: true,
+            zaloChatId: true,
+            zaloUserId: true,
+          },
+        });
+        for (const cr of coReps) {
+          if (!potentialCustomers.some((pc) => pc.id === cr.id)) {
+            potentialCustomers.push({ ...cr, contractId: contract.id });
+          }
+        }
+      }
     }
     if (Array.isArray(room.roommates)) {
       for (const rm of room.roommates) {
@@ -425,6 +443,24 @@ export class ZaloRegistrationService {
 
     for (const contract of contracts) {
       if (contract.customer) potentialCustomers.push(contract.customer);
+      const coRepIds = (contract.coRepresentativeIds || []).filter(Boolean);
+      if (coRepIds.length > 0) {
+        const coReps = await this.prisma.customer.findMany({
+          where: { id: { in: coRepIds }, tenantId },
+          select: {
+            id: true,
+            fullName: true,
+            phone: true,
+            zaloChatId: true,
+            zaloUserId: true,
+          },
+        });
+        for (const cr of coReps) {
+          if (!potentialCustomers.some((pc) => pc.id === cr.id)) {
+            potentialCustomers.push(cr);
+          }
+        }
+      }
     }
     if (Array.isArray(room.roommates)) {
       for (const rm of room.roommates) potentialCustomers.push(rm);

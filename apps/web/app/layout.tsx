@@ -7,8 +7,16 @@ import ProductionSecurityProvider from "@/components/security/ProductionSecurity
 import Providers from "./providers";
 
 export const metadata: Metadata = {
-  title: "HomeLand Premium CRM",
-  description: "Hệ thống quản lý căn hộ dịch vụ cao cấp",
+  title: {
+    default: "HomeLand Premium CRM",
+    template: "%s | HomeLand Premium CRM",
+  },
+  description: "HomeLand - Nền tảng quản lý vận hành tòa nhà & tài chính bất động sản thông minh",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

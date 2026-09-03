@@ -49,6 +49,16 @@ export class DepositsController {
     return this.depositsService.getDetail(id);
   }
 
+  @Post('cleanup-orphans')
+  @RequirePermissions('deposit.delete')
+  @ApiOperation({ summary: 'Clean up orphaned and invalid deposits' })
+  cleanupOrphans(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.depositsService.cleanupOrphanDeposits(tenantId, userId);
+  }
+
   @Post()
   @RequirePermissions('deposit.create')
   @ApiOperation({ summary: 'Create deposit' })
@@ -56,7 +66,8 @@ export class DepositsController {
     const input = CreateDepositSchema.parse(body);
     // Note: generate code on backend if not provided. In real world, generate sequence.
     const code = input.code || `DEP-${Math.floor(Math.random() * 1000000)}`;
-    const createInput = { ...input, code, status: 'DRAFT' };
+    const status = input.status || (body?.status as any) || 'PENDING';
+    const createInput = { ...input, code, status };
     return this.depositsService.create(createInput, userId, 'Deposits');
   }
 

@@ -95,5 +95,9 @@ export const depositsApi = {
 
   convertToContract: (id: string) => {
     return apiClient.post<any>(`/deposits/${id}/convert-contract`);
-  }
+  },
+
+  cleanupOrphans: () => {
+    return apiClient.post<{ success: boolean; deletedCount: number; message: string }>('/deposits/cleanup-orphans');
+  },
 };

@@ -136,6 +136,48 @@ export const adaptRoom = (apiRoom: any): Room => {
     paymentStatus: "paid" as any
   } : null).filter(Boolean);
 
+  // Co-representatives on any contract (e.g. 2nd representative on same contract)
+  const contractCoReps = allContracts.flatMap((c: any) =>
+    (c.coRepresentatives || []).map((rep: any) => ({
+      id: rep.id,
+      name: rep.fullName || rep.name,
+      phone: rep.phone || "",
+      email: rep.email || "",
+      cccd: rep.identityNo || rep.cccd || "",
+      gender: rep.gender || "",
+      birthDate: rep.birthDate || "",
+      nationality: rep.nationality || "",
+      address: rep.address || "",
+      emergencyPhone: rep.emergencyPhone || "",
+      idImages: rep.idImages || [],
+      tempResidence: isTempResidenceDeclared(rep, apiRoom.id),
+      isRep: true,
+      contractId: c.id,
+      contractCode: c.code,
+      startDate: c.startDate,
+      endDate: c.endDate,
+      deposit: Number(c.depositMoney) || 0,
+      rentPrice: Number(c.monthlyRent) || 0,
+      firstPaymentDate: c.firstPaymentDate,
+      signedAt: c.signedAt,
+      purpose: c.purpose,
+      remainingDays: c.endDate ? Math.ceil((new Date(c.endDate).getTime() - Date.now()) / (1000 * 3600 * 24)) : 0,
+      bedPosition: "",
+      invoices: [],
+      paymentHistory: [],
+      debt: 0,
+      paymentStatus: "paid" as any
+    }))
+  );
+
+  // Combine additional contract tenants and co-representatives, avoiding primary tenant duplication
+  const allCoRepresentatives = [...additionalContractTenants, ...contractCoReps].filter(
+    (item, index, self) =>
+      item &&
+      item.id !== tenant?.id &&
+      self.findIndex((other) => other?.id === item.id) === index
+  );
+
   // Roommates (people in room without own contract)
   const roommatesList = (apiRoom.roommates || []).map((r: any) => ({
     id: r.id,
@@ -160,7 +202,7 @@ export const adaptRoom = (apiRoom: any): Room => {
   }));
 
   const isShared = mapApiRentalTypeToUi(apiRoom.rentalType) === "shared";
-  const sharedTenants = isShared ? [...additionalContractTenants, ...roommatesList] : additionalContractTenants;
+  const sharedTenants = isShared ? [...allCoRepresentatives, ...roommatesList] : allCoRepresentatives;
   const roommates = isShared ? [] : roommatesList;
 
   return {

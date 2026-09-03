@@ -11,19 +11,21 @@ import {
   FileText, 
   RefreshCcw, 
   XCircle,
-  Layers
+  Layers,
+  Trash2,
+  Loader2
 } from "lucide-react";
 import { useDepositStore } from "../../lib/stores/deposit.store";
 import { useBuildingsQuery } from "../../lib/queries/buildings.queries";
 import { useDepositStatsQuery } from "../../lib/queries/deposits.queries";
+import { useCleanupOrphanDepositsMutation } from "../../lib/mutations/deposits.mutations";
+import toast from "react-hot-toast";
 import { Card } from "../ui/Card";
 import { Select } from "../ui/Select";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
-interface OperationsDepositFiltersProps {
-  onCreateClick?: () => void;
-}
-
-export default function OperationsDepositFilters({ onCreateClick }: OperationsDepositFiltersProps) {
+export default function OperationsDepositFilters() {
+  const cleanupMutation = useCleanupOrphanDepositsMutation();
   const { 
     searchQuery, statusFilter, typeFilter, buildingFilter,
     setSearchQuery, setStatusFilter, setTypeFilter, setBuildingFilter, resetFilters
@@ -33,6 +35,19 @@ export default function OperationsDepositFilters({ onCreateClick }: OperationsDe
   const { data: statsData } = useDepositStatsQuery(buildingFilter !== 'ALL' ? buildingFilter : undefined);
 
   const [localSearch, setLocalSearch] = useState(searchQuery);
+  const [showCleanupModal, setShowCleanupModal] = useState(false);
+
+  const handleConfirmCleanup = () => {
+    cleanupMutation.mutate(undefined, {
+      onSuccess: (res: any) => {
+        toast.success(res?.message || "Đã dọn dẹp phiếu cọc rác thành công!");
+        setShowCleanupModal(false);
+      },
+      onError: (err: any) => {
+        toast.error(err?.message || "Lỗi khi dọn dẹp phiếu cọc rác");
+      }
+    });
+  };
 
   // Debounce search
   useEffect(() => {
@@ -116,18 +131,23 @@ export default function OperationsDepositFilters({ onCreateClick }: OperationsDe
               onChange={(e) => setTypeFilter(e.target.value)}
             />
           </div>
-        </div>
 
-        {/* Action Button: Create Deposit */}
-        {onCreateClick && (
+          {/* Dọn phiếu cọc rác Button */}
           <button
             type="button"
-            onClick={onCreateClick}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white px-3.5 py-2 text-xs font-black shadow-xs transition-all active:scale-95 shrink-0"
+            disabled={cleanupMutation.isPending}
+            onClick={() => setShowCleanupModal(true)}
+            title="Dọn dẹp các phiếu cọc rác không liên kết hợp đồng / hóa đơn hợp lệ"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-bold text-rose-600 dark:text-rose-400 transition-all hover:bg-rose-500/20 hover:border-rose-500/50 disabled:opacity-50 shadow-2xs ml-auto shrink-0 cursor-pointer"
           >
-            <Plus size={14} /> Tạo phiếu cọc mới
+            {cleanupMutation.isPending ? (
+              <Loader2 size={13} className="animate-spin text-rose-600" />
+            ) : (
+              <Trash2 size={13} className="text-rose-600 dark:text-rose-400" />
+            )}
+            <span>Dọn phiếu cọc rác</span>
           </button>
-        )}
+        </div>
       </div>
 
       {/* ROW 2: 1-Click Status Filter Tabs */}
@@ -168,6 +188,19 @@ export default function OperationsDepositFilters({ onCreateClick }: OperationsDe
           </button>
         )}
       </div>
+
+      {/* Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={showCleanupModal}
+        onClose={() => setShowCleanupModal(false)}
+        onConfirm={handleConfirmCleanup}
+        title="Dọn dẹp phiếu cọc rác"
+        description="Hệ thống sẽ quét và dọn dẹp tất cả các phiếu cọc rác (không có hợp đồng hoặc hóa đơn hợp lệ). Thao tác này không thể hoàn tác. Bạn có chắc chắn muốn dọn dẹp?"
+        confirmText="Xác nhận dọn dẹp"
+        cancelText="Hủy bỏ"
+        variant="danger"
+        isLoading={cleanupMutation.isPending}
+      />
     </Card>
   );
 }

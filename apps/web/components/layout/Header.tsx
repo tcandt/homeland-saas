@@ -10,8 +10,11 @@ import { useTheme } from "next-themes";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { useCurrentUserQuery } from "@/lib/queries/auth.queries";
 import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
+import Link from "next/link";
 import { consumeServerSentEvents } from "@/lib/server-sent-events";
 import { Button } from "@/components/ui/Button";
+import BrandLogo from "@/components/ui/BrandLogo";
+import webPackage from "../../package.json";
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -22,6 +25,11 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
     title: "Dashboard",
     subtitle: "Tổng quan hoạt động hôm nay",
     mobileSubtitle: "Chào mừng trở lại",
+  },
+  "/summary": {
+    title: "Tổng hợp",
+    subtitle: "Quản lý chốt tháng, tiền điện nước & gửi thông báo",
+    mobileSubtitle: "Tổng hợp chốt tháng và dịch vụ",
   },
   "/buildings": {
     title: "Tòa nhà & Dự án",
@@ -44,12 +52,12 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
     mobileSubtitle: "Hợp đồng đang hiệu lực và sắp hết hạn",
   },
   "/deposits": {
-    title: "Phiếu cọc",
-    subtitle: "Quản lý phiếu cọc, giữ chỗ và hoàn trả",
+    title: "Đặt cọc",
+    subtitle: "Quản lý phiếu cọc, giữ chỗ và tiến trình hợp đồng",
     mobileSubtitle: "Phiếu cọc đang giữ và cần xử lý",
   },
   "/finance": {
-    title: "Tài chính & Báo cáo",
+    title: "Doanh thu & Tài chính",
     subtitle: "Theo dõi dòng tiền vào, doanh thu và công nợ",
     mobileSubtitle: "Doanh thu, công nợ và dòng tiền vào",
   },
@@ -72,6 +80,11 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
     title: "Báo cáo",
     subtitle: "Tổng hợp báo cáo vận hành, tài chính và hiệu suất",
     mobileSubtitle: "Báo cáo vận hành và tài chính",
+  },
+  "/activities": {
+    title: "Nhật ký vận hành",
+    subtitle: "Theo dõi toàn bộ lịch sử thao tác và hệ thống",
+    mobileSubtitle: "Nhật ký hoạt động và bảo mật",
   },
   "/sales": {
     title: "Sales CRM",
@@ -99,7 +112,10 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
-  const current = pathname.startsWith("/buildings") ? routeMeta["/buildings"] : routeMeta[pathname] ?? routeMeta["/"];
+  const current =
+    routeMeta[pathname] ??
+    Object.entries(routeMeta).find(([path]) => path !== "/" && pathname.startsWith(path))?.[1] ??
+    routeMeta["/"];
   const [mounted, setMounted] = useState(false);
   const [dropdownMounted, setDropdownMounted] = useState(false);
   const user = useAuthStore((state) => state.user);
@@ -282,68 +298,47 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   };
 
   const unreadBadgeCount = useMemo(() => unreadCount > 99 ? "99+" : String(unreadCount), [unreadCount]);
+  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version;
 
   return (
     <header
       data-testid="app-header"
-      className="fixed top-0 left-0 right-0 md:sticky md:top-0 bg-background md:bg-card border-b-0 md:border-b border-border flex flex-col md:flex-row md:items-center gap-[16px] px-[16px] pt-[20px] pb-[20px] md:px-[28px] md:h-[80px] md:py-0 z-50 transition-colors w-full box-border"
+      className="fixed top-0 left-0 right-0 h-[56px] bg-card border-b border-slate-100/80 dark:border-white/[0.04] flex items-center justify-between px-4 md:px-5 z-30 transition-colors w-full box-border"
     >
-      <div className="flex justify-between items-start md:items-center w-full md:w-auto md:min-w-[210px] gap-4">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onToggleSidebar}
-            aria-label="Mở menu"
-            className="hidden md:flex w-[40px] h-[40px] text-text items-center justify-center cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors"
-          >
-            <Menu size={20} />
-          </button>
-
-          <div className="hidden md:block">
-            <h1 className="m-0 text-[20px] font-black text-text">{current.title}</h1>
-            <p className="m-0 mt-1 text-muted text-[13px] font-medium">
-              {pathname === "/" ? `Chào mừng trở lại, ${getDisplayName()} 👋` : current.subtitle}
-            </p>
-          </div>
-
-          <div className="md:hidden pt-1 shrink min-w-0 overflow-hidden pr-2">
-            <h1 className="m-0 text-[24px] leading-[28px] font-[800] tracking-tight truncate w-full">
-              <span className="text-[#22c55e]">HomeLand</span>
-              <span className="text-text ml-[3px]">Premium</span>
-            </h1>
-            <p className="m-0 mt-[4px] text-[#64748b] text-[14px] leading-[20px] font-medium truncate w-full">
-              {getMobileSubtitle()}
-            </p>
-          </div>
+      <div className="flex items-center gap-3 min-w-0">
+        {/* Desktop Fixed Brand Logo - Slim & Crisp */}
+        <div className="hidden md:flex items-center gap-2 w-[210px] shrink-0 mr-1">
+          <Link href="/" className="flex items-center gap-2 min-w-0 group whitespace-nowrap">
+            <BrandLogo size="sm" variant="horizontal" showTagline={true} />
+            <span className="text-[9px] font-mono font-bold text-muted/60 pl-0.5">v{appVersion}</span>
+          </Link>
         </div>
 
-        <div className="flex md:hidden gap-[8px] relative pt-1 shrink-0">
-          <button
-            onClick={toggleTheme}
-            aria-label="Đổi giao diện"
-            className="w-[40px] h-[40px] bg-card border border-border/50 text-text rounded-full flex items-center justify-center cursor-pointer shadow-sm transition-colors shrink-0"
-          >
-            {mounted ? (theme === "dark" ? <Sun size={20} /> : <Moon size={20} />) : <div className="w-[20px] h-[20px]" />}
-          </button>
-          <button
-            ref={notificationButtonRef}
-            type="button"
-            onClick={openNotificationsMenu}
-            aria-label="Thông báo"
-            aria-expanded={notificationsOpen}
-            className="w-[40px] h-[40px] bg-card border border-border/50 text-text rounded-full flex items-center justify-center cursor-pointer relative shadow-sm transition-colors shrink-0"
-          >
-            <Bell size={20} />
-            {unreadCount > 0 && (
-              <span className="absolute -top-[2px] -right-[2px] bg-[#ef4444] text-white text-[10px] w-[16px] h-[16px] flex items-center justify-center rounded-full font-bold border-2 border-card">
-                {unreadBadgeCount}
-              </span>
-            )}
-          </button>
+        <button
+          onClick={onToggleSidebar}
+          aria-label="Mở menu"
+          className="hidden md:flex w-[34px] h-[34px] text-text items-center justify-center cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors shrink-0"
+        >
+          <Menu size={18} />
+        </button>
+
+        <div className="hidden md:block pl-0.5">
+          <h1 className="m-0 text-[16px] font-black text-text leading-tight">{current.title}</h1>
+          <p className="m-0 text-muted text-[11px] font-medium leading-tight">
+            {pathname === "/" ? `Chào mừng trở lại, ${getDisplayName()} 👋` : current.subtitle}
+          </p>
+        </div>
+
+        <div className="md:hidden pt-0.5 shrink min-w-0 overflow-hidden pr-2">
+          <BrandLogo variant="compact" size="xs" showTagline={false} />
+          <p className="m-0 text-muted text-[11px] font-medium truncate w-full">
+            {getMobileSubtitle()}
+          </p>
         </div>
       </div>
 
-      <div className="hidden md:flex flex-1 max-w-[600px] h-[44px] bg-black/5 dark:bg-white/5 border border-border rounded-[12px] items-center gap-[10px] px-[16px] transition-colors">
-        <Search size={18} className="text-muted" />
+      <div className="hidden md:flex flex-1 max-w-[480px] mx-4 h-[36px] bg-black/[0.03] dark:bg-white/[0.04] border border-border/60 dark:border-white/5 rounded-xl items-center gap-2 px-3 transition-colors">
+        <Search size={15} className="text-muted shrink-0" />
         <input
           type="search"
           name="global_search_query"
@@ -352,18 +347,18 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
           autoCapitalize="off"
           spellCheck={false}
           placeholder="Tìm phòng, khách thuê, hợp đồng, hóa đơn..."
-          className="border-0 outline-none bg-transparent w-full text-text placeholder:text-muted font-medium text-[14px]"
+          className="border-0 outline-none bg-transparent w-full text-text placeholder:text-muted/70 font-medium text-[13px]"
         />
-        <div className="text-muted bg-card border border-border rounded px-1.5 py-0.5 text-[10px] font-bold transition-colors">⌘K</div>
+        <div className="text-muted/80 bg-card border border-border/60 rounded px-1.5 py-0.5 text-[9px] font-bold transition-colors">⌘K</div>
       </div>
 
-      <div className="ml-auto hidden md:flex gap-[12px] relative">
+      <div className="flex items-center gap-2 relative">
         <button
           onClick={toggleTheme}
           aria-label="Đổi giao diện"
-          className="w-[42px] h-[42px] border border-border bg-card hover:bg-black/5 dark:hover:bg-white/5 text-text rounded-full flex items-center justify-center cursor-pointer transition-colors"
+          className="w-[34px] h-[34px] border border-border/60 bg-card hover:bg-black/5 dark:hover:bg-white/5 text-text rounded-xl flex items-center justify-center cursor-pointer transition-colors"
         >
-          {mounted ? (theme === "dark" ? <Sun size={18} /> : <Moon size={18} />) : <div className="w-[18px] h-[18px]" />}
+          {mounted ? (theme === "dark" ? <Sun size={16} /> : <Moon size={16} />) : <div className="w-[16px] h-[16px]" />}
         </button>
         <button
           ref={notificationButtonRef}
@@ -371,11 +366,11 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
           onClick={openNotificationsMenu}
           aria-label="Thông báo"
           aria-expanded={notificationsOpen}
-          className="w-[42px] h-[42px] border border-border bg-card hover:bg-black/5 dark:hover:bg-white/5 text-text rounded-full flex items-center justify-center cursor-pointer relative transition-colors"
+          className="w-[34px] h-[34px] border border-border/60 bg-card hover:bg-black/5 dark:hover:bg-white/5 text-text rounded-xl flex items-center justify-center cursor-pointer relative transition-colors"
         >
-          <Bell size={18} />
+          <Bell size={16} />
           {unreadCount > 0 && (
-            <span className="absolute -top-[2px] -right-[2px] bg-[#ef4444] text-white text-[10px] w-[18px] h-[18px] flex items-center justify-center rounded-full font-bold border-2 border-card">
+            <span className="absolute -top-[2px] -right-[2px] bg-[#ef4444] text-white text-[9px] w-[16px] h-[16px] flex items-center justify-center rounded-full font-bold border-2 border-card">
               {unreadBadgeCount}
             </span>
           )}

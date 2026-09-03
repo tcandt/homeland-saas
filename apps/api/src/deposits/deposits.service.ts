@@ -98,8 +98,81 @@ export class DepositsService extends BaseCrudService<Deposit> {
     }
   }
 
+  async cleanupOrphanDeposits(tenantId: string, userId?: string) {
+    if (!tenantId) return { success: false, deletedCount: 0, message: 'Missing tenantId' };
+
+    const allDeposits = await this.prisma.deposit.findMany({
+      where: { tenantId },
+      include: {
+        contract: { select: { id: true, code: true, deletedAt: true } },
+        room: { select: { id: true, code: true, deletedAt: true } },
+        customer: { select: { id: true, fullName: true, deletedAt: true } },
+      },
+    });
+
+    const orphanIds: string[] = [];
+    const seenPendingKeys = new Set<string>();
+
+    for (const dep of allDeposits) {
+      // 1. Invalid room or customer
+      if (!dep.roomId || !dep.room || dep.room.deletedAt) {
+        orphanIds.push(dep.id);
+        continue;
+      }
+      if (!dep.customerId || !dep.customer || dep.customer.deletedAt) {
+        orphanIds.push(dep.id);
+        continue;
+      }
+
+      // 2. SECURITY deposit with missing or deleted contract
+      if (dep.type === 'SECURITY') {
+        if (!dep.contractId || !dep.contract || dep.contract.deletedAt) {
+          orphanIds.push(dep.id);
+          continue;
+        }
+      }
+
+      // 3. Duplicate/Stale pending or draft deposits for same room & customer
+      if (dep.status === 'DRAFT' || dep.status === 'PENDING') {
+        const key = `${dep.roomId}_${dep.customerId}_${dep.type}`;
+        if (seenPendingKeys.has(key)) {
+          orphanIds.push(dep.id);
+          continue;
+        }
+        seenPendingKeys.add(key);
+      }
+    }
+
+    if (orphanIds.length > 0) {
+      await this.prisma.deposit.deleteMany({
+        where: {
+          id: { in: orphanIds },
+          tenantId,
+        },
+      });
+
+      await this.auditService.log({
+        tenantId,
+        userId,
+        module: 'Deposits',
+        entity: 'Deposit',
+        entityId: 'CLEANUP',
+        action: 'DELETE',
+        before: { orphanCount: orphanIds.length, orphanIds },
+        after: null,
+      }).catch(() => null);
+    }
+
+    return {
+      success: true,
+      deletedCount: orphanIds.length,
+      message: orphanIds.length > 0
+        ? `Đã dọn dẹp thành công ${orphanIds.length} phiếu cọc rác / không hợp lệ.`
+        : 'Không phát hiện phiếu cọc rác nào cần dọn dẹp.',
+    };
+  }
+
   async getDepositStats(tenantId: string, buildingId?: string) {
-    await this.syncMissingContractDeposits(tenantId);
     const where: any = { tenantId, deletedAt: null };
     if (buildingId && buildingId !== 'ALL') {
       where.room = { buildingId };

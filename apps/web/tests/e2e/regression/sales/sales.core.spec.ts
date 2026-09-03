@@ -97,10 +97,8 @@ test.describe('Sales Core Regression Workflow', () => {
       // Wait for the invoice to appear
       const invoiceCard = sales.page.locator('[data-testid="invoice-card"]', { hasText: invoice.code }).first();
       await expect(invoiceCard).toBeVisible({ timeout: 15000 });
-      // Hover over the card to reveal the quick actions overlay
-      await invoiceCard.hover();
-      // Click the 'Xem chi tiết' button
-      await invoiceCard.locator('button[aria-label="Xem chi tiết"]').click();
+      // Click the invoice card directly
+      await invoiceCard.click();
       
       const drawer = sales.page.getByTestId('invoice-detail-drawer');
       await expect(drawer).toBeVisible();
@@ -113,8 +111,7 @@ test.describe('Sales Core Regression Workflow', () => {
       await sales.page.reload();
       const invoiceCardAfter = sales.page.locator('[data-testid="invoice-card"]', { hasText: invoice.code }).first();
       await expect(invoiceCardAfter).toBeVisible({ timeout: 15000 });
-      await invoiceCardAfter.hover();
-      await invoiceCardAfter.locator('button[aria-label="Xem chi tiết"]').click();
+      await invoiceCardAfter.click();
       await expect(sales.page.getByTestId('invoice-detail-drawer').getByTestId('invoice-status-badge')).toContainText(/PAID|Hoàn thành|Thành công/i);
 
       finance.page.on('console', msg => console.log('FINANCE CONSOLE:', msg.text()));

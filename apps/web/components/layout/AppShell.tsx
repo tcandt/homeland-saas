@@ -66,22 +66,29 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-background text-text">
-      {/* Sidebar - hidden on mobile, block on md and up */}
-      <div className={`hidden md:block fixed inset-y-0 left-0 z-20 ${isSidebarCollapsed ? "w-20" : "w-[260px]"} transition-all duration-300`}>
-        <Sidebar collapsed={isSidebarCollapsed} />
-      </div>
+    <div className="flex flex-col min-h-screen bg-card text-text">
+      {/* Fixed Full-Width Top Header */}
+      <Header onToggleSidebar={handleToggleSidebar} />
 
-      {/* Main Content Area */}
-      <main className={`flex-1 min-w-0 transition-all duration-300 ${isSidebarCollapsed ? "md:ml-20" : "md:ml-[260px]"} min-h-screen flex flex-col pt-[87px] md:pt-0 pb-[90px] md:pb-0`}>
-        <Header onToggleSidebar={handleToggleSidebar} />
-        <LoginVersionUpdateNotice />
-        <div className={pathname.startsWith("/buildings")
-          ? "flex-1 p-0"
-          : `md:p-[24px] ${pathname.startsWith("/rooms") || pathname === "/" ? "p-0" : "px-[16px] py-[16px] md:px-[16px] md:py-[16px]"}`}>
-          {children}
+      {/* Main Layout Body below Top Header */}
+      <div className="flex flex-1 pt-[56px] min-h-screen">
+        {/* Sidebar - positioned below header */}
+        <div className={`hidden md:block fixed top-[56px] bottom-0 left-0 z-20 ${isSidebarCollapsed ? "w-20" : "w-[260px]"} transition-all duration-300 bg-card`}>
+          <Sidebar collapsed={isSidebarCollapsed} />
         </div>
-      </main>
+
+        {/* Main Content Area */}
+        <main className={`flex-1 min-w-0 transition-all duration-300 ${isSidebarCollapsed ? "md:ml-20" : "md:ml-[260px]"} flex flex-col pb-[90px] md:pb-0 bg-card`}>
+          <LoginVersionUpdateNotice />
+          <div className={`flex-1 bg-background md:rounded-tl-[28px] overflow-hidden transition-all duration-300 ${
+            pathname.startsWith("/buildings")
+              ? "p-0"
+              : `md:p-[24px] ${pathname.startsWith("/rooms") || pathname === "/" ? "p-0" : "px-[16px] py-[16px] md:px-[16px] md:py-[16px]"}`
+          }`}>
+            {children}
+          </div>
+        </main>
+      </div>
 
       <MobileBottomNav />
     </div>

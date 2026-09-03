@@ -186,10 +186,6 @@ export default function FloatingActionButton() {
                 <span className="text-[13px] font-bold text-text">Giữ chỗ</span>
                 <div className="w-8 h-8 rounded-full bg-[#0ea5e9]/10 flex items-center justify-center"><Bookmark size={14} className="text-[#0ea5e9]" /></div>
               </button>
-              <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
-                <span className="text-[13px] font-bold text-text">Tạo phiếu cọc</span>
-                <div className="w-8 h-8 rounded-full bg-[#6366f1]/10 flex items-center justify-center"><Plus size={14} className="text-[#6366f1]" /></div>
-              </button>
             </>
           )}
 

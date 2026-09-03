@@ -85,20 +85,6 @@ export class ContractsService extends BaseCrudService<Contract> {
             type: existingDeposit.type || 'SECURITY',
           },
         });
-      } else {
-        await this.prisma.tx.deposit.create({
-          data: {
-            tenantId: contract.tenantId,
-            code: `DC-${contract.code || Date.now()}`,
-            type: 'SECURITY',
-            roomId: contract.roomId,
-            customerId: contract.customerId,
-            contractId: contract.id,
-            amount: contract.depositMoney,
-            status: targetStatus,
-            note: `Cọc bảo đảm hợp đồng ${contract.code}`,
-          },
-        });
       }
     } catch (e) {
       // Don't fail contract operation if deposit sync fails

@@ -56,6 +56,20 @@ export class SystemUpdateController {
   ) {
     return this.systemUpdateService.wipeData(userId, tenantId, body || {});
   }
+
+  @Get('backups')
+  @RequirePermissions('setting.read')
+  @ApiOperation({ summary: 'Get backup agent connection status and snapshot list' })
+  getBackups() {
+    return this.systemUpdateService.getBackupStatus();
+  }
+
+  @Post('backups/create')
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Create manual backup snapshot' })
+  createBackup(@Body() body?: { note?: string }) {
+    return this.systemUpdateService.createBackupSnapshot(body);
+  }
 }
 
 function assertSystemUpdateAdmin(email?: string) {

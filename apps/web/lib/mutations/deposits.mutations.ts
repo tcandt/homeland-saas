@@ -116,3 +116,15 @@ export const useConvertContractMutation = () => {
     },
   });
 };
+
+export const useCleanupOrphanDepositsMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => depositsApi.cleanupOrphans(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deposits'] });
+      queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
+    },
+  });
+};
+

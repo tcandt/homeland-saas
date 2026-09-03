@@ -11,10 +11,15 @@ import {
   Clock, 
   ShieldCheck, 
   Bookmark,
-  Plus
+  Plus,
+  Trash2,
+  Eye,
+  Printer
 } from "lucide-react";
 import { useDepositStore } from "../../lib/stores/deposit.store";
 import { useDepositsQuery } from "../../lib/queries/deposits.queries";
+import { useDeleteDepositMutation } from "../../lib/mutations/deposits.mutations";
+import toast from "react-hot-toast";
 import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
 import { Card } from "../ui/Card";
 import { ErrorState } from "../ui/ErrorState";
@@ -22,6 +27,7 @@ import { EmptyState } from "../ui/EmptyState";
 import { LoadingState } from "../ui/LoadingState";
 import OperationsDepositDrawer from "./OperationsDepositDrawer";
 import DepositQrModal from "./DepositQrModal";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
 
@@ -82,17 +88,46 @@ const getTypeMeta = (type: string) => {
   }
 };
 
-interface OperationsDepositListProps {
-  onCreateClick?: () => void;
-}
+export default function OperationsDepositList() {
+  const [selectedDeposit, setSelectedDeposit] = useState<UI_Deposit | null>(null);
+  const [qrModalDeposit, setQrModalDeposit] = useState<UI_Deposit | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; deposit: UI_Deposit } | null>(null);
+  const [depositToDelete, setDepositToDelete] = useState<UI_Deposit | null>(null);
 
-export default function OperationsDepositList({ onCreateClick }: OperationsDepositListProps) {
   const { 
     searchQuery, statusFilter, typeFilter, buildingFilter, page, limit,
-    selectedDeposit, setSelectedDeposit, setPage
+    setPage
   } = useDepositStore();
 
-  const [qrModalDeposit, setQrModalDeposit] = useState<UI_Deposit | null>(null);
+  const deleteMutation = useDeleteDepositMutation();
+
+  React.useEffect(() => {
+    const handleClose = () => setContextMenu(null);
+    window.addEventListener("click", handleClose);
+    window.addEventListener("scroll", handleClose);
+    return () => {
+      window.removeEventListener("click", handleClose);
+      window.removeEventListener("scroll", handleClose);
+    };
+  }, []);
+
+  const handleConfirmDeleteDeposit = () => {
+    if (!depositToDelete) return;
+    deleteMutation.mutate(depositToDelete.id, {
+      onSuccess: () => {
+        toast.success("Đã xóa phiếu cọc thành công!");
+        setDepositToDelete(null);
+      },
+      onError: (err: any) => {
+        toast.error(err?.message || "Lỗi khi xóa phiếu cọc");
+      }
+    });
+  };
+
+  const handleDeleteDeposit = (dep: UI_Deposit) => {
+    setContextMenu(null);
+    setDepositToDelete(dep);
+  };
 
   const { data, isLoading, isError } = useDepositsQuery({
     page,
@@ -139,40 +174,30 @@ export default function OperationsDepositList({ onCreateClick }: OperationsDepos
                 <th className="w-[130px] px-3.5 py-2.5 font-black whitespace-nowrap">Ngày lập / Hạn</th>
                 <th className="w-[130px] px-3.5 py-2.5 text-right font-black whitespace-nowrap">Số tiền cọc</th>
                 <th className="w-[140px] px-3.5 py-2.5 font-black whitespace-nowrap">Trạng thái</th>
-                <th className="w-[110px] px-3.5 py-2.5 text-right font-black whitespace-nowrap">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {isLoading && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-[13px] font-bold text-muted">
+                  <td colSpan={7} className="px-4 py-12 text-center text-[13px] font-bold text-muted">
                     Đang tải danh sách phiếu cọc...
                   </td>
                 </tr>
               )}
               {isError && (
                 <tr>
-                  <td data-testid="deposits-error-state" colSpan={8} className="px-4 py-12 text-center text-[13px] font-bold text-rose-500">
+                  <td data-testid="deposits-error-state" colSpan={7} className="px-4 py-12 text-center text-[13px] font-bold text-rose-500">
                     Không tải được danh sách phiếu cọc.
                   </td>
                 </tr>
               )}
               {!isLoading && !isError && deposits.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center">
+                  <td colSpan={7} className="px-4 py-12 text-center">
                     <div data-testid="empty-deposits-state" className="mx-auto flex max-w-sm flex-col items-center gap-2 rounded-2xl border border-dashed border-border bg-surface/40 px-6 py-8">
                       <Receipt size={32} className="text-muted/60" />
                       <div className="text-[14px] font-black text-text">Chưa có phiếu cọc phù hợp</div>
-                      <div className="text-[12px] font-semibold text-muted">Thử thay đổi bộ lọc hoặc tạo phiếu cọc mới.</div>
-                      {onCreateClick && (
-                        <button
-                          type="button"
-                          onClick={onCreateClick}
-                          className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-primary text-white px-3 py-1.5 text-xs font-bold shadow-xs hover:bg-primary/90 transition-colors"
-                        >
-                          <Plus size={13} /> Tạo phiếu cọc mới
-                        </button>
-                      )}
+                      <div className="text-[12px] font-semibold text-muted">Thử thay đổi bộ lọc hoặc tạo hóa đơn cọc mới.</div>
                     </div>
                   </td>
                 </tr>
@@ -187,6 +212,14 @@ export default function OperationsDepositList({ onCreateClick }: OperationsDepos
                     key={deposit.id}
                     data-testid="deposit-card"
                     onClick={() => setSelectedDeposit(deposit)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        deposit,
+                      });
+                    }}
                     className="cursor-pointer transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
                   >
                     {/* Mã Phiếu */}
@@ -247,31 +280,6 @@ export default function OperationsDepositList({ onCreateClick }: OperationsDepos
                         <span className={`h-1.5 w-1.5 rounded-full ${statusInfo.dot}`} />
                         {statusInfo.label}
                       </span>
-                    </td>
-
-                    {/* Thao tác */}
-                    <td className="px-3.5 py-2.5 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                        {canShowVietQr(deposit.status) && (
-                          <button
-                            type="button"
-                            title="Xem VietQR & Gửi Zalo"
-                            onClick={() => setQrModalDeposit(deposit)}
-                            className="flex h-7 px-2 items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 text-primary text-[11px] font-bold hover:bg-primary/15 transition-colors"
-                          >
-                            <QrCode size={13} /> VietQR
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          aria-label="Xem chi tiết"
-                          title="Xem chi tiết"
-                          onClick={() => setSelectedDeposit(deposit)}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted hover:text-text hover:border-primary/40 transition-colors"
-                        >
-                          <ChevronRight size={14} />
-                        </button>
-                      </div>
                     </td>
                   </tr>
                 );
@@ -337,6 +345,70 @@ export default function OperationsDepositList({ onCreateClick }: OperationsDepos
           deposit={qrModalDeposit}
         />
       )}
+
+      {/* Floating Context Menu on Right Click */}
+      {contextMenu && (
+        <div
+          style={{
+            top: Math.min(contextMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 160),
+            left: Math.min(contextMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 220),
+          }}
+          className="fixed z-50 min-w-[200px] rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 text-[11px] font-black uppercase tracking-wider text-muted border-b border-border/40 font-mono">
+            {contextMenu.deposit.code || "Phiếu cọc"}
+          </div>
+          <div className="flex flex-col gap-0.5 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                const dep = contextMenu.deposit;
+                setContextMenu(null);
+                setSelectedDeposit(dep);
+              }}
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-bold text-text hover:bg-primary/10 hover:text-primary transition-colors text-left"
+            >
+              <Eye size={14} />
+              <span>Xem chi tiết phiếu cọc</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const dep = contextMenu.deposit;
+                setContextMenu(null);
+                setSelectedDeposit(dep);
+              }}
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-bold text-text hover:bg-primary/10 hover:text-primary transition-colors text-left"
+            >
+              <Printer size={14} />
+              <span>In phiếu cọc</span>
+            </button>
+            <div className="my-1 border-t border-border/40" />
+            <button
+              type="button"
+              onClick={() => handleDeleteDeposit(contextMenu.deposit)}
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-bold text-rose-600 hover:bg-rose-500/15 transition-colors text-left"
+            >
+              <Trash2 size={14} />
+              <span>Xóa phiếu cọc này</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Deposit Confirm Modal */}
+      <ConfirmDialog
+        isOpen={Boolean(depositToDelete)}
+        onClose={() => setDepositToDelete(null)}
+        onConfirm={handleConfirmDeleteDeposit}
+        title="Xóa phiếu cọc"
+        description={`Bạn có chắc chắn muốn xóa phiếu cọc "${depositToDelete?.code || depositToDelete?.id}"? Hành động này không thể hoàn tác.`}
+        confirmText="Xóa phiếu cọc"
+        cancelText="Hủy bỏ"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
+      />
     </>
   );
 }

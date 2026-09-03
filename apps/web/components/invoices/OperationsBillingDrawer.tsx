@@ -27,6 +27,7 @@ import {
   Zap,
   Droplets,
   Wifi,
+  RotateCcw,
 } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
@@ -57,8 +58,8 @@ function formatVnd(value?: number | null) {
   return `${Number(value || 0).toLocaleString("vi-VN")} đ`;
 }
 
-// 3 Core Payment Types in Homeland SaaS
-export type BillingCategory = "DEPOSIT_RESERVATION" | "DEPOSIT_CONTRACT" | "MONTHLY_RENT";
+// 5 Core Payment & Financial Types in Homeland SaaS
+export type BillingCategory = "DEPOSIT_RESERVATION" | "DEPOSIT_CONTRACT" | "MONTHLY_RENT" | "HOLDING_REFUND" | "SETTLEMENT_REFUND";
 
 const categoryConfig: Record<
   BillingCategory,
@@ -84,6 +85,20 @@ const categoryConfig: Record<
     color: "text-emerald-600 bg-emerald-500/10 border-emerald-500/30",
     badgeVariant: "success",
     desc: "Tiền thuê định kỳ hàng tháng + Điện (EVN) + Nước + Dịch vụ",
+  },
+  HOLDING_REFUND: {
+    label: "Hoàn cọc giữ phòng",
+    icon: RotateCcw,
+    color: "text-rose-600 bg-rose-500/10 border-rose-500/30",
+    badgeVariant: "danger",
+    desc: "Phiếu chi hoàn trả tiền cọc giữ chỗ cho khách hàng",
+  },
+  SETTLEMENT_REFUND: {
+    label: "Tất toán hoàn cọc HĐ",
+    icon: RotateCcw,
+    color: "text-rose-600 bg-rose-500/10 border-rose-500/30",
+    badgeVariant: "danger",
+    desc: "Phiếu chi hoàn trả tiền cọc thanh lý / kết thúc hợp đồng",
   },
 };
 
@@ -130,12 +145,21 @@ export default function OperationsBillingDrawer({
   const paidAmount = financials.paid || Number(invoice.paidAmount || 0);
   const remainingAmount = financials.remaining;
 
-  // Determine Category (Holding Deposit vs Security Deposit vs Monthly Rent)
+  const notes = (invoice.notes || "").toLowerCase();
+  const period = (invoice.period || "").toLowerCase();
+  const isSettlement = notes.includes("settlement") || notes.includes("tất toán") || notes.includes("thanh lý");
+  const isRefund = notes.includes("hoàn cọc") || notes.includes("phiếu chi") || period.includes("hoàn cọc");
+
+  // Determine Category
   const resolvedCategory: BillingCategory =
     invoice.category ||
-    (invoice.type === "DEPOSIT" || invoice.title?.includes("giữ chỗ")
+    (isSettlement
+      ? "SETTLEMENT_REFUND"
+      : isRefund
+      ? "HOLDING_REFUND"
+      : invoice.type === "DEPOSIT" || invoice.title?.includes("giữ chỗ") || notes.includes("cọc giữ phòng")
       ? "DEPOSIT_RESERVATION"
-      : invoice.title?.includes("Cọc hợp đồng")
+      : invoice.title?.includes("Cọc hợp đồng") || notes.includes("cọc hợp đồng")
       ? "DEPOSIT_CONTRACT"
       : "MONTHLY_RENT");
 

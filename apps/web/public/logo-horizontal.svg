@@ -1,0 +1,44 @@
+<svg width="340" height="90" viewBox="0 0 340 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="hl-h-pure" x1="15" y1="18" x2="65" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#084f2e" />
+      <stop offset="100%" stopColor="#0e6b3f" />
+    </linearGradient>
+    <linearGradient id="hl-l-pure" x1="50" y1="18" x2="98" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#10b981" />
+      <stop offset="100%" stopColor="#059669" />
+    </linearGradient>
+    <filter id="hl-shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#000" floodOpacity="0.15" />
+    </filter>
+  </defs>
+
+  {/* Emblem Icon Left */}
+  <g transform="translate(6, 4) scale(0.82)">
+    {/* Letter 'H' */}
+    <path
+      d="M 33 18 L 46 18 L 38 45 L 54 45 L 62 18 L 75 18 L 54 82 L 41 82 L 48 56 L 32 56 L 24 82 L 11 82 Z"
+      fill="url(#hl-h-pure)"
+      filter="url(#hl-shadow)"
+    />
+    {/* Letter 'L' */}
+    <path
+      d="M 69 18 L 82 18 L 72.5 48.5 C 76 52 83 55.5 90 63 C 94 67.5 96.5 73.5 97 82 L 48 82 Z"
+      fill="url(#hl-l-pure)"
+      filter="url(#hl-shadow)"
+    />
+    {/* 4 Windows */}
+    <rect x="79" y="36" width="6.5" height="6.5" rx="1.2" fill="#10b981" />
+    <rect x="88" y="36" width="6.5" height="6.5" rx="1.2" fill="#10b981" />
+    <rect x="79" y="45.5" width="6.5" height="6.5" rx="1.2" fill="#10b981" />
+    <rect x="88" y="45.5" width="6.5" height="6.5" rx="1.2" fill="#10b981" />
+  </g>
+
+  {/* Horizontal Brand Typography */}
+  <text x="104" y="52" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="32" font-weight="900" letter-spacing="-0.02em" fill="#084f2e">
+    HOME<tspan dx="6" fill="#10b981">LAND</tspan>
+  </text>
+  <text x="106" y="72" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="800" letter-spacing="0.25em" fill="#059669">
+    PREMIUM CRM
+  </text>
+</svg>

@@ -20,6 +20,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import BrandLogo, { HLEmblem } from "../ui/BrandLogo";
 import webPackage from "../../package.json";
 
 interface SidebarProps {
@@ -59,21 +60,9 @@ export default function Sidebar({ collapsed }: SidebarProps) {
   return (
     <aside
       data-testid="app-sidebar"
-      className="h-full border-r border-border/40 dark:border-border/30 bg-card text-text shadow-[12px_0_36px_rgba(0,0,0,0.03)] dark:shadow-none p-[20px_0_16px_0] flex flex-col justify-between overflow-hidden transition-colors"
+      className="h-full border-r-0 bg-card text-text shadow-[6px_0_24px_rgba(0,0,0,0.02)] dark:shadow-none p-[8px_0_16px_0] flex flex-col justify-between overflow-hidden transition-colors"
     >
-      <div className={`shrink-0 flex items-center gap-3 px-[20px] mb-6 ${collapsed ? "justify-center" : ""}`}>
-        <div className="w-[42px] h-[42px] rounded-[12px] bg-gradient-to-br from-[#6956ff] to-[#7c3aed] text-white flex items-center justify-center text-xl shrink-0 shadow-[0_14px_28px_rgba(105,86,255,0.32)]">
-          <Home size={22} fill="currentColor" />
-        </div>
-        {!collapsed && (
-          <div className="whitespace-nowrap overflow-hidden">
-            <div className="text-[20px] font-black tracking-tight text-text">HomeLand</div>
-            <div className="font-mono text-[12px] font-semibold text-muted">v{appVersion}</div>
-          </div>
-        )}
-      </div>
-
-      <nav className="flex-1 overflow-y-auto px-[10px] hide-scrollbar">
+      <nav className="flex-1 overflow-y-auto px-[10px] hide-scrollbar pt-1">
         <NavItem href="/" icon={<Home size={20} />} label="Tổng quan" collapsed={collapsed} active={pathname === "/"} />
 
         <SectionLabel collapsed={collapsed}>VẬN HÀNH</SectionLabel>

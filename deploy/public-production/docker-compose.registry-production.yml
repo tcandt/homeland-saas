@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ${API_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-api}:${API_TAG:-v1.2.1}
+    image: ${API_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-api}:${API_TAG:-v1.2.2}
     container_name: homeland_production_api
     env_file:
       - .env.public-production
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   notification_worker:
-    image: ${API_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-api}:${API_TAG:-v1.2.1}
+    image: ${API_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-api}:${API_TAG:-v1.2.2}
     container_name: homeland_production_notification_worker
     env_file:
       - .env.public-production
@@ -108,7 +108,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: ${WEB_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-web}:${WEB_TAG:-v1.2.1}
+    image: ${WEB_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-web}:${WEB_TAG:-v1.2.2}
     container_name: homeland_production_web
     env_file:
       - .env.public-production

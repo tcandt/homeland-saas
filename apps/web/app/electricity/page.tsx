@@ -245,7 +245,15 @@ export function ElectricityManagerContent() {
 
   const rawOverview = overviewRes as any;
   const overview = rawOverview?.data || rawOverview || {};
-  const meters: any[] = Array.isArray(overview.meters) ? overview.meters : [];
+  const rawMetersList: any[] = Array.isArray(overview.meters) ? overview.meters : [];
+  const meters: any[] = useMemo(() => {
+    return rawMetersList.filter((m) => {
+      const bCode = (m.buildingCode || "").toLowerCase();
+      const hName = (m.homeName || "").toLowerCase();
+      const dName = (m.displayName || m.name || "").toLowerCase();
+      return !bCode.includes("tính") && !bCode.includes("tinh") && !hName.includes("tính") && !hName.includes("tinh") && !dName.includes("nlmt");
+    });
+  }, [rawMetersList]);
 
   const rawRates = (ratesRes as any)?.data || ratesRes || {};
   const ratesList: any[] = Array.isArray(rawRates?.rows)

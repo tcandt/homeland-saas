@@ -241,6 +241,18 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     });
 
     if (newStatus === InvoiceStatus.PAID) {
+      if (invoice.contractId) {
+        await this.prisma.tx.deposit.updateMany({
+          where: {
+            tenantId: invoice.tenantId,
+            contractId: invoice.contractId,
+            status: 'PENDING' as any,
+          },
+          data: {
+            status: 'PAID' as any,
+          },
+        }).catch(() => null);
+      }
       this.eventPublisher.publish('invoice.paid', {
         tenantId: invoice.tenantId,
         userId,

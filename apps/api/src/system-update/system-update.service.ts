@@ -523,9 +523,9 @@ function readPackageVersion() {
         }
       }
     }
-    return '1.2.3';
+    return '1.2.4';
   } catch {
-    return '1.2.3';
+    return '1.2.4';
   }
 }
 

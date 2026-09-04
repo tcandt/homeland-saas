@@ -524,8 +524,8 @@ export class CommunicationController {
           })
         : template === 'update_success' || template === 'update-success'
         ? buildUpdateSuccessMessage({
-            fromVersion: String(body?.fromVersion || 'v1.2.2'),
-            toVersion: String(body?.toVersion || body?.currentVersion || process.env.APP_VERSION || 'v1.2.3'),
+            fromVersion: String(body?.fromVersion || 'v1.2.3'),
+            toVersion: String(body?.toVersion || body?.currentVersion || process.env.APP_VERSION || 'v1.2.4'),
             updatedAt: new Date(),
           })
         : template === 'overload'

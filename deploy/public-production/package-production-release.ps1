@@ -114,6 +114,7 @@ Copy-PathSafe -Source (Join-Path $releaseMetaDir "docker-compose.public-producti
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "docker-compose.registry-production.yml") -Destination (Join-Path $OutputRoot "docker-compose.registry-production.yml")
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "reset-public-production.sh") -Destination (Join-Path $OutputRoot "reset-public-production.sh")
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "setup-public-production-ubuntu.sh") -Destination (Join-Path $OutputRoot "setup-public-production-ubuntu.sh")
+Copy-PathSafe -Source (Join-Path $releaseMetaDir "update-public-production.sh") -Destination (Join-Path $OutputRoot "update-public-production.sh")
 Copy-PathSafe -Source (Join-Path $releaseMetaDir "systemd") -Destination (Join-Path $OutputRoot "systemd")
 
 $manifest = [ordered]@{
@@ -134,6 +135,7 @@ $manifest = [ordered]@{
     "ZALO_PRODUCTION_WEBHOOK_CHECKLIST.md",
     "reset-public-production.sh",
     "setup-public-production-ubuntu.sh",
+    "update-public-production.sh",
     "README.md",
     "apps/",
     "packages/",

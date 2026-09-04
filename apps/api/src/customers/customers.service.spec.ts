@@ -9,8 +9,18 @@ import { PrismaService } from '../prisma.service';
 describe('CustomersService', () => {
   let service: CustomersService;
   let repository: CustomersRepository;
+  let prismaService: any;
 
   beforeEach(async () => {
+    prismaService = {
+      customer: {
+        findUnique: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        updateMany: vi.fn(),
+      },
+      $transaction: vi.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CustomersService,
@@ -26,10 +36,7 @@ describe('CustomersService', () => {
         },
         {
           provide: PrismaService,
-          useValue: {
-            customer: { updateMany: vi.fn() },
-            $transaction: vi.fn(),
-          },
+          useValue: prismaService,
         },
       ],
     }).compile();
@@ -92,6 +99,27 @@ describe('CustomersService', () => {
         10,
         { createdAt: 'desc' },
         { _count: { select: { contracts: true } } }
+      );
+    });
+  });
+
+  describe('softDelete', () => {
+    it('should block deleting a customer while the customer is still assigned to a room', async () => {
+      prismaService.customer.findUnique.mockResolvedValue({
+        id: 'cu1',
+        fullName: 'Khach A',
+        roomId: 'room-1',
+        room: {
+          id: 'room-1',
+          code: '301',
+          name: '301',
+          building: { id: 'b1', code: 'B1', name: 'Toa B1' },
+        },
+        contracts: [],
+      });
+
+      await expect(service.softDelete('cu1', 'user1')).rejects.toThrow(
+        'vẫn đang được gắn với Toa B1 - Phòng 301',
       );
     });
   });

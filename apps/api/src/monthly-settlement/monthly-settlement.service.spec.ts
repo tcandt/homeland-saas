@@ -226,6 +226,89 @@ describe('MonthlySettlementService', () => {
       expect(item.waterAmount).toBe(100000);
       expect(item.totalAmount).toBe(3600000);
     });
+
+    it('splits shared room electricity by contract member count while keeping contract rent separate', async () => {
+      prisma.room.findMany.mockResolvedValue([
+        {
+          id: 'room-1',
+          code: '101',
+          name: 'Phòng 101',
+          monthlyPrice: 6000000,
+          rentalType: 'SHARED',
+          capacity: 4,
+          building: { id: 'bld-1', name: 'Tòa A', code: 'A' },
+          floor: { id: 'floor-1', name: 'Tầng 1', level: 1 },
+          contracts: [
+            {
+              id: 'contract-a',
+              code: 'HD-A',
+              status: 'ACTIVE',
+              startDate: new Date('2026-08-01T00:00:00.000Z'),
+              endDate: new Date('2027-08-01T00:00:00.000Z'),
+              signedAt: new Date('2026-07-25T00:00:00.000Z'),
+              monthlyRent: 2000000,
+              memberCount: 1,
+              customer: {
+                id: 'cust-a',
+                fullName: 'Khách A',
+                phone: '0900000001',
+                identityNo: '001',
+                gender: 'MALE',
+                zaloPhone: '0900000001',
+                zaloChatId: 'zalo-a',
+              },
+            },
+            {
+              id: 'contract-b',
+              code: 'HD-B',
+              status: 'ACTIVE',
+              startDate: new Date('2026-08-01T00:00:00.000Z'),
+              endDate: new Date('2027-08-01T00:00:00.000Z'),
+              signedAt: new Date('2026-07-25T00:00:00.000Z'),
+              monthlyRent: 3000000,
+              memberCount: 2,
+              customer: {
+                id: 'cust-b',
+                fullName: 'Khách B',
+                phone: '0900000002',
+                identityNo: '002',
+                gender: 'FEMALE',
+                zaloPhone: '0900000002',
+                zaloChatId: 'zalo-b',
+              },
+            },
+          ],
+          roommates: [],
+        },
+      ]);
+
+      const res = await service.getOverview('tenant-1', { period: '2026-09' });
+
+      expect(res.stats.occupiedRooms).toBe(1);
+      expect(res.stats.billingGroups).toBe(2);
+      expect(res.items).toHaveLength(2);
+
+      const itemA = res.items.find((item) => item.contractId === 'contract-a');
+      const itemB = res.items.find((item) => item.contractId === 'contract-b');
+      expect(itemA).toMatchObject({
+        billingScope: 'CONTRACT',
+        roomRentalType: 'SHARED',
+        roomPrice: 2000000,
+        membersCount: 1,
+        waterAmount: 100000,
+        electricityAmount: 140000,
+        totalAmount: 2240000,
+      });
+      expect(itemB).toMatchObject({
+        billingScope: 'CONTRACT',
+        roomRentalType: 'SHARED',
+        roomPrice: 3000000,
+        membersCount: 2,
+        waterAmount: 200000,
+        electricityAmount: 280000,
+        totalAmount: 3480000,
+      });
+    });
   });
 
   describe('closeMonth', () => {
@@ -334,6 +417,84 @@ describe('MonthlySettlementService', () => {
       expect(res.skippedCount).toBe(1);
       expect(prisma.invoiceItem.deleteMany).not.toHaveBeenCalled();
       expect(prisma.invoice.update).not.toHaveBeenCalled();
+    });
+
+    it('creates one invoice per active contract for shared rooms', async () => {
+      prisma.room.findMany.mockResolvedValue([
+        {
+          id: 'room-1',
+          code: '101',
+          name: 'Phòng 101',
+          monthlyPrice: 6000000,
+          rentalType: 'SHARED',
+          capacity: 4,
+          building: { id: 'bld-1', name: 'Tòa A', code: 'A' },
+          floor: { id: 'floor-1', name: 'Tầng 1', level: 1 },
+          contracts: [
+            {
+              id: 'contract-a',
+              code: 'HD-A',
+              status: 'ACTIVE',
+              startDate: new Date('2026-08-01T00:00:00.000Z'),
+              endDate: new Date('2027-08-01T00:00:00.000Z'),
+              signedAt: new Date('2026-07-25T00:00:00.000Z'),
+              monthlyRent: 2000000,
+              memberCount: 1,
+              customer: {
+                id: 'cust-a',
+                fullName: 'Khách A',
+                phone: '0900000001',
+                identityNo: '001',
+                gender: 'MALE',
+                zaloPhone: '0900000001',
+                zaloChatId: 'zalo-a',
+              },
+            },
+            {
+              id: 'contract-b',
+              code: 'HD-B',
+              status: 'ACTIVE',
+              startDate: new Date('2026-08-01T00:00:00.000Z'),
+              endDate: new Date('2027-08-01T00:00:00.000Z'),
+              signedAt: new Date('2026-07-25T00:00:00.000Z'),
+              monthlyRent: 3000000,
+              memberCount: 2,
+              customer: {
+                id: 'cust-b',
+                fullName: 'Khách B',
+                phone: '0900000002',
+                identityNo: '002',
+                gender: 'FEMALE',
+                zaloPhone: '0900000002',
+                zaloChatId: 'zalo-b',
+              },
+            },
+          ],
+          roommates: [],
+        },
+      ]);
+
+      const res = await service.closeMonth('tenant-1', 'user-1', {
+        period: '2026-09',
+        autoSend: false,
+      });
+
+      expect(res.settledCount).toBe(2);
+      expect(prisma.invoice.create).toHaveBeenCalledTimes(2);
+      expect(prisma.invoice.create.mock.calls[0][0].data).toMatchObject({
+        code: 'INV-202609-101-HD-A',
+        contractId: 'contract-a',
+        customerId: 'cust-a',
+        total: 2240000,
+      });
+      expect(prisma.invoice.create.mock.calls[1][0].data).toMatchObject({
+        code: 'INV-202609-101-HD-B',
+        contractId: 'contract-b',
+        customerId: 'cust-b',
+        total: 3480000,
+      });
+      expect(hunonicService.lockPeriods).toHaveBeenCalledTimes(1);
+      expect(hunonicService.lockPeriods.mock.calls[0][1].rows).toHaveLength(1);
     });
   });
 

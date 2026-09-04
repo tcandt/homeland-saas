@@ -81,6 +81,27 @@ export function getPeriodBounds(period: string): { start: Date; end: Date; year:
   return { start, end, year, month };
 }
 
+function roundMoney(value: number): number {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function sanitizeInvoiceCodePart(value: string): string {
+  return String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9-]/g, '')
+    .slice(0, 32);
+}
+
+function buildMonthlyInvoiceCode(period: string, roomCode: string, contract: any, isSharedRoom: boolean): string {
+  const periodPart = period.replace('-', '');
+  if (!isSharedRoom) {
+    return `INV-${periodPart}-${roomCode}`;
+  }
+
+  const contractPart = sanitizeInvoiceCodePart(contract?.code || contract?.id || 'SHARED');
+  return `INV-${periodPart}-${roomCode}-${contractPart}`;
+}
+
 @Injectable()
 export class MonthlySettlementService {
   private readonly logger = new Logger(MonthlySettlementService.name);
@@ -267,14 +288,19 @@ export class MonthlySettlementService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Map hóa đơn theo RoomId cho kỳ này
+    // Map hóa đơn theo RoomId/ContractId cho kỳ này. WHOLE dùng room, SHARED dùng từng contract.
     const invoiceByRoomId = new Map<string, any>();
+    const invoiceByContractId = new Map<string, any>();
     for (const inv of invoices) {
       const invRoomId = inv.contract?.roomId || (inv as any).roomId;
+      const invContractId = inv.contractId || inv.contract?.id;
       const invPeriod = (inv as any).period || (inv.createdAt ? formatVietnamPeriod(inv.createdAt) : '');
       if (invRoomId && (invPeriod === period || inv.code?.includes(period.replace('-', '')))) {
         if (!invoiceByRoomId.has(invRoomId)) {
           invoiceByRoomId.set(invRoomId, inv);
+        }
+        if (invContractId && !invoiceByContractId.has(invContractId)) {
+          invoiceByContractId.set(invContractId, inv);
         }
       }
     }
@@ -300,75 +326,18 @@ export class MonthlySettlementService {
     // 6. Tổng hợp dữ liệu từng phòng theo Eligibility Engine
     const items = [];
     for (const room of rooms) {
-      // Tìm hợp đồng có hiệu lực trong kỳ tháng M (dựa trên startDate & endDate, không phụ thuộc signedAt)
-      const activeContract = room.contracts.find((c) => {
+      const activeContracts = room.contracts.filter((c) => {
         const cStart = new Date(c.startDate);
         const cEnd = new Date(c.endDate);
         return cStart <= periodBounds.end && cEnd >= periodBounds.start;
-      }) || (room.contracts?.[0] || null);
-
-      const representative = activeContract?.customer || null;
-      const existingInvoice = invoiceByRoomId.get(room.id) || null;
-
-      // Xác định tính hợp lệ:
-      // 1. Có hợp đồng đang hiệu lực trong kỳ tháng M:
-      const hasContract = !!activeContract && new Date(activeContract.startDate) <= periodBounds.end && new Date(activeContract.endDate) >= periodBounds.start;
-
-      // 2. Có ở trong kỳ sử dụng M-1 (để tính tiền điện & dịch vụ phát sinh M-1):
-      const isEligibleForPreviousUsage = hasContract && new Date(activeContract.startDate) <= usagePeriodBounds.end;
-      const isFirstMonthNewTenant = hasContract && !isEligibleForPreviousUsage;
-
-      // Danh sách tất cả thành viên trong phòng:
-      const allMembers = [];
-      if (representative && hasContract) {
-        const hasZalo = !!(representative.zaloChatId || representative.zaloUserId);
-        allMembers.push({
-          id: representative.id,
-          fullName: representative.fullName,
-          phone: representative.phone,
-          identityNo: representative.identityNo || '',
-          gender: representative.gender || 'MALE',
-          zaloPhone: representative.zaloPhone || null,
-          zaloChatId: representative.zaloChatId || null,
-          zaloUserId: representative.zaloUserId || null,
-          hasZalo,
-          role: 'CHỦ HỢP ĐỒNG / ĐẠI DIỆN',
-          isRepresentative: true,
-          relationship: 'Đại diện thuê',
-          createdAt: activeContract?.startDate || representative.createdAt,
-        });
-      }
-
-      if (hasContract && Array.isArray(room.roommates)) {
-        for (const rm of room.roommates) {
-          if (!representative || rm.id !== representative.id) {
-            const hasZalo = !!(rm.zaloChatId || rm.zaloUserId);
-            allMembers.push({
-              id: rm.id,
-              fullName: rm.fullName,
-              phone: rm.phone,
-              identityNo: rm.identityNo || '',
-              gender: rm.gender || 'MALE',
-              zaloPhone: rm.zaloPhone || null,
-              zaloChatId: rm.zaloChatId || null,
-              zaloUserId: rm.zaloUserId || null,
-              hasZalo,
-              role: 'THÀNH VIÊN Ở CÙNG',
-              isRepresentative: false,
-              relationship: rm.relationship || 'Khách ở cùng',
-              createdAt: rm.createdAt,
-            });
-          }
-        }
-      }
-
-      const membersCount = allMembers.length;
-
-      // Khoản 1: Tiền phòng tháng M (Prepaid)
-      const roomPrice = hasContract ? Number(activeContract.monthlyRent || 0) : 0;
-
-      // Khoản 2: Tiền nước tháng M (Prepaid) - Tính theo số người trong kỳ x 100.000đ/người
-      const waterAmount = hasContract ? Math.max(1, membersCount) * 100000 : 0;
+      });
+      const isSharedRoom = room.rentalType === 'SHARED';
+      const billingContracts = isSharedRoom
+        ? activeContracts
+        : (activeContracts[0] ? [activeContracts[0]] : []);
+      const sharedTotalMembers = isSharedRoom
+        ? billingContracts.reduce((sum, contract) => sum + Math.max(1, Number(contract.memberCount || 1)), 0)
+        : 0;
 
       // Khoản 3: Tiền điện tháng M-1 (Postpaid) - Chỉ tính nếu khách đã ở trong kỳ M-1
       const meter = meterMap.get(`${room.building.code}::${room.code}`) || meterMap.get(room.code) || null;
@@ -398,156 +367,218 @@ export class MonthlySettlementService {
         }
       }
 
-      const electricityKwh = isEligibleForPreviousUsage ? rawElectricityKwh : 0;
-      const electricityAmount = isEligibleForPreviousUsage ? rawElectricityAmount : 0;
-
       // Khoản 4: Phí dịch vụ tháng M-1 (Postpaid)
-      const serviceAmount = 0;
-
-      // Nếu có invoice thật đã tạo, đồng bộ số liệu từ invoice
-      let totalAmount = roomPrice + electricityAmount + waterAmount + serviceAmount;
-      let finalRoomPrice = roomPrice;
-      let finalElectricityAmount = electricityAmount;
-      let finalWaterAmount = waterAmount;
-      let finalServiceAmount = serviceAmount;
-
-      if (existingInvoice && hasContract) {
-        totalAmount = Number(existingInvoice.total || existingInvoice.subtotal || 0);
-        if (existingInvoice.items && existingInvoice.items.length > 0) {
-          const roomItem = existingInvoice.items.find((i: any) => i.description?.toLowerCase().includes('phòng') || i.description?.toLowerCase().includes('thuê'));
-          const elecItem = existingInvoice.items.find((i: any) => i.description?.toLowerCase().includes('điện'));
-          const waterItem = existingInvoice.items.find((i: any) => i.description?.toLowerCase().includes('nước'));
-          
-          if (roomItem) finalRoomPrice = Number(roomItem.amount);
-          if (elecItem) finalElectricityAmount = Number(elecItem.amount);
-          if (waterItem) finalWaterAmount = Number(waterItem.amount);
-          finalServiceAmount = totalAmount - (finalRoomPrice + finalElectricityAmount + finalWaterAmount);
-          if (finalServiceAmount < 0) finalServiceAmount = 0;
-        }
-      }
-
-      // Trạng thái thông báo
-      let notifStatus: 'SENT_ZALO' | 'PENDING' | 'FAILED' | 'SENDING' = 'PENDING';
-      let notifSentAt: string | null = null;
-      let notifError: string | null = null;
-      const invoiceCode = existingInvoice?.code || (hasContract ? `INV-${period.replace('-', '')}-${room.code}` : '--');
-
-      if (existingInvoice) {
-        const notif = notifByInvoiceCode.get(existingInvoice.code);
-        if (notif) {
-          notifSentAt = notif.createdAt?.toISOString() || null;
-          if (['SENT', 'DELIVERED', 'READ'].includes(notif.status)) {
-            notifStatus = 'SENT_ZALO';
-          } else if (notif.status === 'FAILED') {
-            notifStatus = 'FAILED';
-            notifError = (notif.metadata as any)?.lastError || 'Lỗi gửi tin nhắn Zalo';
-          } else if (['SENDING', 'QUEUED'].includes(notif.status)) {
-            notifStatus = 'SENDING';
-          }
-        }
-      }
-
-      // Trạng thái thanh toán
-      const paymentStatus: string = !hasContract ? 'NONE' : (existingInvoice ? existingInvoice.status : 'ISSUED');
+      const rawServiceAmount = 0;
 
       const isCustomRate = meter?.rateMode === 'custom';
       const customRateVnd = isCustomRate ? Number(meter?.customRateVnd || 3967) : null;
       const rateModeLabel = isCustomRate ? `Tự thiết lập (${(customRateVnd || 3967).toLocaleString('vi-VN')}đ/kWh)` : 'Bậc thang EVN';
 
-      const item = {
-        roomId: room.id,
-        roomCode: room.code,
-        roomName: room.name,
-        buildingId: room.building.id,
-        buildingCode: room.building.code,
-        buildingName: room.building.name,
-        floorName: room.floor.name,
-        floorLevel: room.floor.level,
-        roomRentalType: room.rentalType,
-        roomCapacity: room.capacity,
-        contractId: activeContract?.id || null,
-        contractCode: activeContract?.code || null,
-        contractStatus: activeContract?.status || null,
-        contractStartDate: activeContract?.startDate ? new Date(activeContract.startDate).toISOString() : null,
-        contractSignedAt: activeContract?.signedAt ? new Date(activeContract.signedAt).toISOString() : null,
-        hasContract,
-        isFirstMonthNewTenant,
-        electricityEligible: isEligibleForPreviousUsage,
-        serviceEligible: isEligibleForPreviousUsage,
-        representative: representative
-          ? {
-              id: representative.id,
-              fullName: representative.fullName,
-              phone: representative.phone,
-              email: representative.email,
-              identityNo: representative.identityNo,
-              zaloPhone: representative.zaloPhone || null,
-              zaloChatId: representative.zaloChatId || null,
-              zaloUserId: representative.zaloUserId || null,
-              hasZalo: !!(representative.zaloChatId || representative.zaloUserId),
+      for (const activeContract of billingContracts) {
+        const representative = activeContract?.customer || null;
+        const existingInvoice = isSharedRoom
+          ? invoiceByContractId.get(activeContract.id) || null
+          : invoiceByRoomId.get(room.id) || invoiceByContractId.get(activeContract.id) || null;
+        const hasContract = !!activeContract;
+        const contractMembersCount = Math.max(1, Number(activeContract.memberCount || 1));
+        const isEligibleForPreviousUsage = hasContract && new Date(activeContract.startDate) <= usagePeriodBounds.end;
+        const isFirstMonthNewTenant = hasContract && !isEligibleForPreviousUsage;
+        const utilityShareRatio = isSharedRoom && sharedTotalMembers > 0
+          ? contractMembersCount / sharedTotalMembers
+          : 1;
+        const electricityKwh = isEligibleForPreviousUsage ? roundMoney(rawElectricityKwh * utilityShareRatio) : 0;
+        const electricityAmount = isEligibleForPreviousUsage ? roundMoney(rawElectricityAmount * utilityShareRatio) : 0;
+        const serviceAmount = isEligibleForPreviousUsage ? roundMoney(rawServiceAmount * utilityShareRatio) : 0;
+
+        const allMembers = [];
+        if (representative) {
+          const hasZalo = !!(representative.zaloChatId || representative.zaloUserId);
+          allMembers.push({
+            id: representative.id,
+            fullName: representative.fullName,
+            phone: representative.phone,
+            identityNo: representative.identityNo || '',
+            gender: representative.gender || 'MALE',
+            zaloPhone: representative.zaloPhone || null,
+            zaloChatId: representative.zaloChatId || null,
+            zaloUserId: representative.zaloUserId || null,
+            hasZalo,
+            role: isSharedRoom ? 'KHÁCH GHÉP / ĐẠI DIỆN HĐ' : 'CHỦ HỢP ĐỒNG / ĐẠI DIỆN',
+            isRepresentative: true,
+            relationship: isSharedRoom ? 'Khách thuê ghép' : 'Đại diện thuê',
+            createdAt: activeContract?.startDate || representative.createdAt,
+          });
+        }
+
+        if (!isSharedRoom && Array.isArray(room.roommates)) {
+          for (const rm of room.roommates) {
+            if (!representative || rm.id !== representative.id) {
+              const hasZalo = !!(rm.zaloChatId || rm.zaloUserId);
+              allMembers.push({
+                id: rm.id,
+                fullName: rm.fullName,
+                phone: rm.phone,
+                identityNo: rm.identityNo || '',
+                gender: rm.gender || 'MALE',
+                zaloPhone: rm.zaloPhone || null,
+                zaloChatId: rm.zaloChatId || null,
+                zaloUserId: rm.zaloUserId || null,
+                hasZalo,
+                role: 'THÀNH VIÊN Ở CÙNG',
+                isRepresentative: false,
+                relationship: rm.relationship || 'Khách ở cùng',
+                createdAt: rm.createdAt,
+              });
             }
-          : null,
-        membersCount: allMembers.length,
-        members: allMembers,
-        period,
-        usagePeriod,
-        invoiceId: existingInvoice?.id || null,
-        invoiceCode,
-        roomPrice: finalRoomPrice,
-        electricityKwh,
-        electricityAmount: finalElectricityAmount,
-        meterReading: meter
-          ? {
-              oldReading: Number(meter.oldReadingKwh || 0),
-              newReading: Number(meter.newReadingKwh || meter.energyMonthKwh || 0),
-              powerW: Number(meter.powerCurrentW || 0),
-              isOnline: meter.status === 'on' || meter.lastStatus === 'on' || meter.isOnline === true,
-              lastSyncedAt: meter.lastSyncedAt,
-              rateMode: isCustomRate ? 'custom' : 'residential',
-              customRateVnd,
-              rateModeLabel,
+          }
+        }
+
+        const membersCount = isSharedRoom
+          ? contractMembersCount
+          : Math.max(contractMembersCount, allMembers.length);
+        const roomPrice = Number(activeContract.monthlyRent || 0);
+        const waterAmount = membersCount * 100000;
+
+        let totalAmount = roomPrice + electricityAmount + waterAmount + serviceAmount;
+        let finalRoomPrice = roomPrice;
+        let finalElectricityAmount = electricityAmount;
+        let finalWaterAmount = waterAmount;
+        let finalServiceAmount = serviceAmount;
+
+        if (existingInvoice) {
+          totalAmount = Number(existingInvoice.total || existingInvoice.subtotal || 0);
+          if (existingInvoice.items && existingInvoice.items.length > 0) {
+            const roomItem = existingInvoice.items.find((i: any) => i.type === InvoiceItemType.RENT || i.description?.toLowerCase().includes('phòng') || i.description?.toLowerCase().includes('thuê'));
+            const elecItem = existingInvoice.items.find((i: any) => i.type === InvoiceItemType.UTILITY_ELECTRICITY || i.description?.toLowerCase().includes('điện'));
+            const waterItem = existingInvoice.items.find((i: any) => i.type === InvoiceItemType.UTILITY_WATER || i.description?.toLowerCase().includes('nước'));
+            const serviceItem = existingInvoice.items.find((i: any) => i.type === InvoiceItemType.SERVICE);
+            if (roomItem) finalRoomPrice = Number(roomItem.amount);
+            if (elecItem) finalElectricityAmount = Number(elecItem.amount);
+            if (waterItem) finalWaterAmount = Number(waterItem.amount);
+            finalServiceAmount = serviceItem ? Number(serviceItem.amount) : totalAmount - (finalRoomPrice + finalElectricityAmount + finalWaterAmount);
+            if (finalServiceAmount < 0) finalServiceAmount = 0;
+          }
+        }
+
+        let notifStatus: 'SENT_ZALO' | 'PENDING' | 'FAILED' | 'SENDING' = 'PENDING';
+        let notifSentAt: string | null = null;
+        let notifError: string | null = null;
+        const invoiceCode = existingInvoice?.code || buildMonthlyInvoiceCode(period, room.code, activeContract, isSharedRoom);
+
+        if (existingInvoice) {
+          const notif = notifByInvoiceCode.get(existingInvoice.code);
+          if (notif) {
+            notifSentAt = notif.createdAt?.toISOString() || null;
+            if (['SENT', 'DELIVERED', 'READ'].includes(notif.status)) {
+              notifStatus = 'SENT_ZALO';
+            } else if (notif.status === 'FAILED') {
+              notifStatus = 'FAILED';
+              notifError = (notif.metadata as any)?.lastError || 'Lỗi gửi tin nhắn Zalo';
+            } else if (['SENDING', 'QUEUED'].includes(notif.status)) {
+              notifStatus = 'SENDING';
             }
-          : null,
-        waterAmount: finalWaterAmount,
-        serviceAmount: finalServiceAmount,
-        totalAmount,
-        notificationStatus: notifStatus,
-        notificationSentAt: notifSentAt,
-        notificationError: notifError,
-        paymentStatus,
-        paidAmount: existingInvoice ? Number(existingInvoice.paidAmount || 0) : 0,
-      };
+          }
+        }
 
-      // Filter logic
-      if (query.search) {
-        const needle = query.search.trim().toLowerCase();
-        const matchRoom = room.code.toLowerCase().includes(needle);
-        const matchBuilding = room.building.name.toLowerCase().includes(needle) || room.building.code.toLowerCase().includes(needle);
-        const matchRep = representative?.fullName?.toLowerCase().includes(needle) || representative?.phone?.includes(needle);
-        const matchMember = allMembers.some((m) => m.fullName.toLowerCase().includes(needle) || m.phone.includes(needle));
-        if (!matchRoom && !matchBuilding && !matchRep && !matchMember) {
+        const paymentStatus: string = existingInvoice ? existingInvoice.status : 'ISSUED';
+        const item = {
+          billingGroupKey: isSharedRoom ? `CONTRACT:${activeContract.id}` : `ROOM:${room.id}`,
+          billingScope: isSharedRoom ? 'CONTRACT' : 'ROOM',
+          utilityShareRatio,
+          sharedTotalMembers: isSharedRoom ? sharedTotalMembers : membersCount,
+          roomElectricityKwh: rawElectricityKwh,
+          roomElectricityAmount: rawElectricityAmount,
+          roomServiceAmount: rawServiceAmount,
+          roomId: room.id,
+          roomCode: room.code,
+          roomName: room.name,
+          buildingId: room.building.id,
+          buildingCode: room.building.code,
+          buildingName: room.building.name,
+          floorName: room.floor.name,
+          floorLevel: room.floor.level,
+          roomRentalType: room.rentalType,
+          roomCapacity: room.capacity,
+          contractId: activeContract?.id || null,
+          contractCode: activeContract?.code || null,
+          contractStatus: activeContract?.status || null,
+          contractStartDate: activeContract?.startDate ? new Date(activeContract.startDate).toISOString() : null,
+          contractSignedAt: activeContract?.signedAt ? new Date(activeContract.signedAt).toISOString() : null,
+          hasContract,
+          isFirstMonthNewTenant,
+          electricityEligible: isEligibleForPreviousUsage,
+          serviceEligible: isEligibleForPreviousUsage,
+          representative: representative
+            ? {
+                id: representative.id,
+                fullName: representative.fullName,
+                phone: representative.phone,
+                email: representative.email,
+                identityNo: representative.identityNo,
+                zaloPhone: representative.zaloPhone || null,
+                zaloChatId: representative.zaloChatId || null,
+                zaloUserId: representative.zaloUserId || null,
+                hasZalo: !!(representative.zaloChatId || representative.zaloUserId),
+              }
+            : null,
+          membersCount,
+          members: allMembers,
+          period,
+          usagePeriod,
+          invoiceId: existingInvoice?.id || null,
+          invoiceCode,
+          roomPrice: finalRoomPrice,
+          electricityKwh,
+          electricityAmount: finalElectricityAmount,
+          meterReading: meter
+            ? {
+                oldReading: Number(meter.oldReadingKwh || 0),
+                newReading: Number(meter.newReadingKwh || meter.energyMonthKwh || 0),
+                powerW: Number(meter.powerCurrentW || 0),
+                isOnline: meter.status === 'on' || meter.lastStatus === 'on' || meter.isOnline === true,
+                lastSyncedAt: meter.lastSyncedAt,
+                rateMode: isCustomRate ? 'custom' : 'residential',
+                customRateVnd,
+                rateModeLabel,
+              }
+            : null,
+          waterAmount: finalWaterAmount,
+          serviceAmount: finalServiceAmount,
+          totalAmount,
+          notificationStatus: notifStatus,
+          notificationSentAt: notifSentAt,
+          notificationError: notifError,
+          paymentStatus,
+          paidAmount: existingInvoice ? Number(existingInvoice.paidAmount || 0) : 0,
+        };
+
+        if (query.search) {
+          const needle = query.search.trim().toLowerCase();
+          const matchRoom = room.code.toLowerCase().includes(needle);
+          const matchBuilding = room.building.name.toLowerCase().includes(needle) || room.building.code.toLowerCase().includes(needle);
+          const matchRep = representative?.fullName?.toLowerCase().includes(needle) || representative?.phone?.includes(needle);
+          const matchMember = allMembers.some((m) => m.fullName.toLowerCase().includes(needle) || String(m.phone || '').includes(needle));
+          if (!matchRoom && !matchBuilding && !matchRep && !matchMember) {
+            continue;
+          }
+        }
+
+        if (query.notificationStatus && query.notificationStatus !== 'ALL' && item.notificationStatus !== query.notificationStatus) {
           continue;
         }
-      }
 
-      if (query.notificationStatus && query.notificationStatus !== 'ALL') {
-        if (item.notificationStatus !== query.notificationStatus) {
+        if (query.paymentStatus && query.paymentStatus !== 'ALL' && item.paymentStatus !== query.paymentStatus) {
           continue;
         }
-      }
 
-      if (query.paymentStatus && query.paymentStatus !== 'ALL') {
-        if (item.paymentStatus !== query.paymentStatus) {
-          continue;
-        }
+        items.push(item);
       }
-
-      items.push(item);
     }
 
     // 7. Thống kê KPI
-    const totalRooms = items.length;
-    const occupiedRooms = items.filter((i) => i.hasContract).length;
+    const totalRooms = rooms.length;
+    const occupiedRooms = new Set(items.filter((i) => i.hasContract).map((i) => i.roomId)).size;
+    const billingGroups = items.length;
     const totalAmount = items.reduce((sum, i) => sum + i.totalAmount, 0);
     const sentZaloCount = items.filter((i) => i.notificationStatus === 'SENT_ZALO').length;
     const pendingCount = items.filter((i) => i.notificationStatus === 'PENDING').length;
@@ -565,6 +596,7 @@ export class MonthlySettlementService {
       stats: {
         totalRooms,
         occupiedRooms,
+        billingGroups,
         totalAmount,
         sentZaloCount,
         pendingCount,
@@ -753,18 +785,23 @@ export class MonthlySettlementService {
       settledInvoices.push({
         roomId: item.roomId,
         roomCode: item.roomCode,
+        contractId: item.contractId,
         invoiceId: invoice.id,
         invoiceCode: invoice.code,
         totalAmount: item.totalAmount,
       });
 
       if (item.electricityEligible) {
-        lockRows.push({
+        const lockRow = {
           buildingCode: item.buildingCode,
           roomCode: item.roomCode,
           period: usagePeriod,
           note: `Khóa chỉ số điện sử dụng tháng ${usagePeriod} cho kỳ thu ${period}`,
-        });
+        };
+        const lockKey = `${lockRow.buildingCode}:${lockRow.roomCode}:${lockRow.period}`;
+        if (!lockRows.some((row) => `${row.buildingCode}:${row.roomCode}:${row.period}` === lockKey)) {
+          lockRows.push(lockRow);
+        }
       }
     }
 

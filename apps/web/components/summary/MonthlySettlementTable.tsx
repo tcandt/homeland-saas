@@ -153,7 +153,7 @@ export default function MonthlySettlementTable({
 
               return (
                 <tr
-                  key={item.roomId}
+                  key={item.billingGroupKey || item.contractId || item.roomId}
                   onClick={() => onRowClick(item)}
                   className="hover:bg-muted/30 cursor-pointer transition-colors group"
                 >

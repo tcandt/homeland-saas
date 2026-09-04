@@ -28,6 +28,13 @@ export interface MeterReadingInfo {
 }
 
 export interface RoomSettlementItem {
+  billingGroupKey?: string;
+  billingScope?: 'ROOM' | 'CONTRACT';
+  utilityShareRatio?: number;
+  sharedTotalMembers?: number;
+  roomElectricityKwh?: number;
+  roomElectricityAmount?: number;
+  roomServiceAmount?: number;
   roomId: string;
   roomCode: string;
   roomName: string;

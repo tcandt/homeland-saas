@@ -224,6 +224,14 @@ export class CustomersService extends BaseCrudService<Customer> {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
       include: {
+        room: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            building: { select: { id: true, code: true, name: true } },
+          },
+        },
         contracts: {
           where: {
             deletedAt: null,
@@ -238,6 +246,16 @@ export class CustomersService extends BaseCrudService<Customer> {
 
     if (!customer) {
       throw new NotFoundException(`Không tìm thấy khách thuê với ID ${id}`);
+    }
+
+    if (customer.roomId) {
+      const room = customer.room;
+      const roomText = room
+        ? `${room.building ? `${room.building.name || room.building.code} - ` : ''}Phòng ${room.code || room.name}`
+        : `phòng ${customer.roomId}`;
+      throw new BadRequestException(
+        `Không thể xóa khách thuê "${customer.fullName}" vì khách vẫn đang được gắn với ${roomText}. Hãy chấm dứt hoặc để hợp đồng hết hạn để hệ thống tự gỡ khách khỏi phòng trước khi xóa.`,
+      );
     }
 
     if (customer.contracts && customer.contracts.length > 0) {

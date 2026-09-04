@@ -33,6 +33,10 @@ describe('ContractsService', () => {
       tx: { invoice: { create: vi.fn() },
         contract: {
           update: vi.fn(),
+          count: vi.fn().mockResolvedValue(0),
+        },
+        customer: {
+          updateMany: vi.fn(),
         },
         receipt: {
           create: vi.fn(),
@@ -306,7 +310,16 @@ describe('ContractsService', () => {
 
   describe('terminateContract', () => {
     it('should terminate an ACTIVE contract without creating a zero-value settlement invoice', async () => {
-      const mockContract = { id: 'c1', code: 'C-001', status: ContractStatus.ACTIVE, roomId: 'r1', tenantId: 't1', customerId: 'cu1', monthlyRent: 9000 };
+      const mockContract = {
+        id: 'c1',
+        code: 'C-001',
+        status: ContractStatus.ACTIVE,
+        roomId: 'r1',
+        tenantId: 't1',
+        customerId: 'cu1',
+        coRepresentativeIds: ['cu2'],
+        monthlyRent: 9000,
+      };
       const updatedContract = { ...mockContract, status: ContractStatus.TERMINATED };
       
       vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
@@ -322,6 +335,29 @@ describe('ContractsService', () => {
       expect(prismaService.tx.contract.update).toHaveBeenCalledWith({
         where: { id: 'c1' },
         data: { status: ContractStatus.TERMINATED },
+      });
+      expect(prismaService.tx.customer.updateMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: 't1',
+          id: { in: ['cu1', 'cu2'] },
+          contracts: {
+            none: {
+              roomId: 'r1',
+              status: { in: [ContractStatus.ACTIVE, ContractStatus.EXPIRING] },
+              id: { not: 'c1' },
+              deletedAt: null,
+            },
+          },
+        },
+        data: { roomId: null },
+      });
+      expect(prismaService.tx.customer.updateMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: 't1',
+          roomId: 'r1',
+          deletedAt: null,
+        },
+        data: { roomId: null },
       });
       expect(prismaService.tx.room.update).toHaveBeenCalledWith({
         where: { id: 'r1' },
@@ -351,6 +387,48 @@ describe('ContractsService', () => {
         }),
       );
       expect(result).toEqual(updatedContract);
+    });
+
+    it('should keep the room occupied and only detach the finalized contract party when another active-like contract remains', async () => {
+      const mockContract = {
+        id: 'c1',
+        code: 'C-SHARED-1',
+        status: ContractStatus.ACTIVE,
+        roomId: 'r1',
+        tenantId: 't1',
+        customerId: 'cu1',
+        coRepresentativeIds: [],
+        monthlyRent: 3500,
+      };
+
+      vi.spyOn(service, 'getDetail').mockResolvedValue(mockContract as any);
+      prismaService.tx.contract.count.mockResolvedValue(1);
+      prismaService.tx.contract.update.mockResolvedValue({ ...mockContract, status: ContractStatus.TERMINATED });
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.OCCUPIED });
+      prismaService.tx.invoice.create = vi.fn();
+
+      await service.terminateContract('c1', 'user1');
+
+      expect(prismaService.tx.customer.updateMany).toHaveBeenCalledTimes(1);
+      expect(prismaService.tx.customer.updateMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: 't1',
+          id: { in: ['cu1'] },
+          contracts: {
+            none: {
+              roomId: 'r1',
+              status: { in: [ContractStatus.ACTIVE, ContractStatus.EXPIRING] },
+              id: { not: 'c1' },
+              deletedAt: null,
+            },
+          },
+        },
+        data: { roomId: null },
+      });
+      expect(prismaService.tx.room.update).toHaveBeenCalledWith({
+        where: { id: 'r1' },
+        data: { status: RoomStatus.OCCUPIED },
+      });
     });
 
     it('should create itemized settlement invoice when termination input is provided', async () => {

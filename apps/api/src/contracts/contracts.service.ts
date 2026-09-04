@@ -6,7 +6,7 @@ import { AuditService } from '../shared/audit/audit.service';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { BaseCrudService } from '../shared/services/base-crud.service';
 import { HunonicService } from '../hunonic/hunonic.service';
-import { mapStatusFilter } from './contracts.adapter';
+import { ACTIVE_LIKE_CONTRACT_STATUSES, mapStatusFilter } from './contracts.adapter';
 import { ContractsRepository } from './contracts.repository';
 import { buildRoomContext } from '../shared/context/room-context';
 
@@ -453,31 +453,57 @@ export class ContractsService extends BaseCrudService<Contract> {
         data: { status: targetStatus },
       });
 
-      if (contract.customerId && tx.customer?.updateMany) {
-        await tx.customer.updateMany({
-          where: {
-            id: contract.customerId,
-            contracts: { none: { status: ContractStatus.ACTIVE, id: { not: contract.id } } },
-          },
-          data: {
-            roomId: null,
-            zaloChatId: null,
-            zaloUserId: null,
-            zaloPhone: null,
-          },
-        });
-      }
-
       const remainingActiveContracts = tx.contract?.count
         ? await tx.contract.count({
             where: {
               tenantId: contract.tenantId,
               roomId: contract.roomId,
-              status: ContractStatus.ACTIVE,
+              status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
               id: { not: contract.id },
+              deletedAt: null,
             },
           })
         : 0;
+
+      const contractCustomerIds = Array.from(
+        new Set(
+          [contract.customerId, ...(Array.isArray(contract.coRepresentativeIds) ? contract.coRepresentativeIds : [])]
+            .filter(Boolean),
+        ),
+      );
+
+      if (contractCustomerIds.length > 0 && tx.customer?.updateMany) {
+        await tx.customer.updateMany({
+          where: {
+            tenantId: contract.tenantId,
+            id: { in: contractCustomerIds },
+            contracts: {
+              none: {
+                roomId: contract.roomId,
+                status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+                id: { not: contract.id },
+                deletedAt: null,
+              },
+            },
+          },
+          data: {
+            roomId: null,
+          },
+        });
+      }
+
+      if (remainingActiveContracts === 0 && tx.customer?.updateMany) {
+        await tx.customer.updateMany({
+          where: {
+            tenantId: contract.tenantId,
+            roomId: contract.roomId,
+            deletedAt: null,
+          },
+          data: {
+            roomId: null,
+          },
+        });
+      }
 
       const targetRoomStatus =
         remainingActiveContracts > 0

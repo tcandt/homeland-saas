@@ -42,17 +42,30 @@ export function buildUpdateAvailableMessage(input: {
   currentVersion: string;
   latestVersion: string;
   checkedAt?: string | Date | null;
+  details?: string | string[] | null;
   note?: string | null;
 }): AdminZaloMessage {
+  const detailsList = Array.isArray(input.details)
+    ? input.details.filter(Boolean).map((d) => `• ${d.replace(/^[•\-\s]+/, '')}`).join('\n')
+    : typeof input.details === 'string' && input.details.trim()
+    ? input.details.trim()
+    : '• Tối ưu hóa hiệu năng, cập nhật giao diện và vá lỗi hệ thống.';
+
   return {
-    title: 'HomeLand - Update Available',
+    title: 'HomeLand - Phát hiện phiên bản mới',
     message: compactLines([
-      '🆕 *Có phiên bản mới*',
+      '📢 *THÔNG BÁO PHÁT HIỆN PHIÊN BẢN MỚI*',
       '',
-      `• Hiện tại: \`${input.currentVersion}\``,
-      `• Mới nhất: \`${input.latestVersion}\``,
+      `• Phiên bản hiện tại: \`${input.currentVersion}\``,
+      `• Phiên bản mới: \`${input.latestVersion}\``,
       `🕒 ${formatTimestamp(input.checkedAt)}`,
-      input.note || 'Vui lòng kiểm tra mục cập nhật trước khi triển khai.',
+      '',
+      '✨ *Chi tiết các điểm mới:*',
+      detailsList,
+      '',
+      '👉 *Hướng dẫn cập nhật:*',
+      'Vào menu *Cài đặt ➔ Cập nhật, sao lưu & rollback* để tiến hành cập nhật hệ thống.',
+      input.note ? `\n_${input.note}_` : null,
     ]),
   };
 }

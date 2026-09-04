@@ -119,7 +119,7 @@ export class AdminZaloAlertsService implements OnApplicationBootstrap {
     }
   }
 
-  @Cron(CronExpression.EVERY_30_MINUTES)
+  @Cron('0 10 * * *', { timeZone: 'Asia/Ho_Chi_Minh' })
   async checkUpdateAvailableAlerts() {
     if (!shouldRunGeneralSchedulers()) return;
 
@@ -142,15 +142,20 @@ export class AdminZaloAlertsService implements OnApplicationBootstrap {
         currentVersion: check.currentVersion,
         latestVersion: check.latestVersion,
         checkedAt: check.checkedAt,
+        details: check.releaseHighlights || check.changelog,
       });
 
-      await this.zaloProvider.send({
-        tenantId: tenant.tenantId,
-        recipient: tenant.adminGroupChatId,
-        title: built.title,
-        message: built.message,
-        context: {},
-      });
+      try {
+        await this.zaloProvider.send({
+          tenantId: tenant.tenantId,
+          recipient: tenant.adminGroupChatId,
+          title: built.title,
+          message: built.message,
+          context: {},
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to send update available alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
+      }
 
       await this.updateAlertState(tenant, {
         lastUpdateAlertAt: new Date().toISOString(),

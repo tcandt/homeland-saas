@@ -63,6 +63,9 @@ export class SystemUpdateService {
     const mode = process.env.SYSTEM_UPDATE_MODE || 'dry-run';
     const updateAvailable = isUpdateAvailable(currentVersion, latestVersion, currentCommit, latestRelease?.commit || remoteCommit);
 
+    const changelog = buildChangelog(currentVersion, latestVersion, currentCommit, latestRelease?.commit || remoteCommit);
+    const releaseHighlights = getReleaseHighlights(currentVersion, latestVersion, currentCommit, latestRelease?.commit || remoteCommit);
+
     return {
       currentVersion,
       latestVersion,
@@ -74,7 +77,8 @@ export class SystemUpdateService {
       canInstallAutomatically: mode === 'enabled',
       repository: this.repositoryUrl,
       checkedAt: new Date().toISOString(),
-      changelog: buildChangelog(currentVersion, latestVersion, currentCommit, latestRelease?.commit || remoteCommit),
+      changelog,
+      releaseHighlights,
       rollback: {
         supported: true,
         note: 'Rollback code cần version trước và backup DB tương ứng nếu migration đã chạy.',
@@ -568,6 +572,28 @@ function buildChangelog(currentVersion: string, latestVersion: string, currentCo
     `Phát hiện version mới ${latestVersion} so với hiện tại ${currentVersion}.`,
     `Cần review commit range ${range} trên GitHub trước khi bật update thật.`,
     'Quy trình an toàn bắt buộc backup DB/env/source, build, preflight, health check và kế hoạch rollback.',
+  ];
+}
+
+function getReleaseHighlights(currentVersion: string, latestVersion: string, currentCommit: string, latestCommit: string | null): string[] {
+  if (!latestCommit || !isUpdateAvailable(currentVersion, latestVersion, currentCommit, latestCommit)) {
+    return [];
+  }
+
+  // 1. Try to read recent commit summaries via git if available
+  try {
+    const gitLog = safeGit(['log', '--pretty=format:%s', '-n', '5', `${currentVersion}..${latestVersion}`]);
+    if (gitLog) {
+      const lines = gitLog.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      if (lines.length > 0) return lines;
+    }
+  } catch {}
+
+  // 2. Default clean bullet points
+  return [
+    `Nâng cấp hệ thống từ ${currentVersion} lên ${latestVersion}.`,
+    'Tối ưu hóa hiệu năng, cập nhật giao diện và tăng cường bảo mật.',
+    'Sửa lỗi và nâng cao độ ổn định cho toàn bộ dịch vụ.',
   ];
 }
 

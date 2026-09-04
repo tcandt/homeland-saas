@@ -6,7 +6,9 @@ import Link from "next/link";
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowLeft,
   ArrowUpRight,
+  Check,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -44,14 +46,14 @@ import toast from "react-hot-toast";
 import webPackage from "../../package.json";
 
 const UPDATE_STAGES = [
-  { key: "CHECKING", label: "Xác nhận Version", percent: 8, icon: GitBranch, desc: "Kiểm tra remote release tag" },
-  { key: "DOWNLOADING", label: "Tải Mã Nguồn", percent: 22, icon: Layers, desc: "Tải source code & artifact" },
-  { key: "BACKING_UP", label: "Tạo Snapshot", percent: 38, icon: Database, desc: "Sao lưu DB & metadata" },
+  { key: "CHECKING", label: "Kiểm tra Version", percent: 8, icon: GitBranch, desc: "Xác thực release tag GitHub" },
+  { key: "DOWNLOADING", label: "Tải Mã Nguồn", percent: 22, icon: Layers, desc: "Đồng bộ source & artifacts" },
+  { key: "BACKING_UP", label: "Tạo Snapshot", percent: 38, icon: Database, desc: "Sao lưu DB & metadata an toàn" },
   { key: "BUILDING", label: "Auto-Prune & Build", percent: 56, icon: Cpu, desc: "Dọn cache & build Docker" },
-  { key: "MIGRATING", label: "Đồng Bộ Schema", percent: 78, icon: HardDrive, desc: "Prisma database push" },
+  { key: "MIGRATING", label: "Đồng Bộ Schema", percent: 78, icon: HardDrive, desc: "Prisma schema database push" },
   { key: "RESTARTING", label: "Khởi Động Lại", percent: 88, icon: Server, desc: "Recreate Docker containers" },
-  { key: "HEALTH_CHECK", label: "Kiểm Tra Health", percent: 96, icon: ShieldCheck, desc: "Xác thực API & Web status" },
-  { key: "DONE", label: "Hoàn Tất 100%", percent: 100, icon: CheckCircle2, desc: "Sẵn sàng vận hành" },
+  { key: "HEALTH_CHECK", label: "Kiểm Tra Health", percent: 96, icon: ShieldCheck, desc: "Xác thực API & Web endpoint" },
+  { key: "DONE", label: "Hoàn Tất 100%", percent: 100, icon: CheckCircle2, desc: "Hệ thống sẵn sàng vận hành" },
 ];
 
 function formatBytes(bytes?: number) {
@@ -73,8 +75,9 @@ export default function SystemUpdateLivePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [fontSize, setFontSize] = useState<"sm" | "base" | "xs">("xs");
+  const [fontSize, setFontSize] = useState<"sm" | "xs">("xs");
   const [clearedLogsCount, setClearedLogsCount] = useState(0);
+  const [copied, setCopied] = useState(false);
   const terminalBottomRef = useRef<HTMLDivElement>(null);
 
   // 1. Fetch system update check info
@@ -83,11 +86,11 @@ export default function SystemUpdateLivePage() {
     refreshInterval: 60000,
   });
 
-  // 2. Fetch live job status (Poll 1s during update, 3s otherwise)
+  // 2. Fetch live job status (Poll 1.2s during update, 4s otherwise)
   const status = useSWR("system-update-status-full", () => systemUpdateApi.status(), {
     revalidateOnFocus: true,
     refreshInterval: (data) =>
-      data && !["IDLE", "DONE", "FAILED", "BLOCKED", "ROLLED_BACK"].includes(data.status) ? 1000 : 3500,
+      data && !["IDLE", "DONE", "FAILED", "BLOCKED", "ROLLED_BACK"].includes(data.status) ? 1200 : 4000,
   });
 
   // 3. Fetch snapshots list
@@ -131,6 +134,8 @@ export default function SystemUpdateLivePage() {
       return;
     }
     navigator.clipboard.writeText(rawLogs.join("\n"));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
     toast.success("Đã sao chép toàn bộ logs vào clipboard");
   };
 
@@ -162,36 +167,56 @@ export default function SystemUpdateLivePage() {
 
   return (
     <AppShell>
-      <div className="w-full flex-1 flex flex-col gap-4 p-3 sm:p-4 md:p-6 lg:p-8 min-h-[calc(100vh-70px)]">
+      <div className="w-full flex-1 flex flex-col gap-3.5 p-3 sm:p-4 md:p-5 lg:p-6 min-h-[calc(100vh-70px)] bg-background/50">
+        {/* ========================================================================= */}
+        {/* 0. NAVIGATION BREADCRUMB                                                   */}
+        {/* ========================================================================= */}
+        <div className="flex items-center justify-between gap-2">
+          <Link
+            href="/settings?section=backup"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-muted hover:text-primary transition group"
+          >
+            <span className="p-1 rounded-lg bg-card border border-border group-hover:border-primary/40 transition">
+              <ArrowLeft size={13} />
+            </span>
+            <span>Quay lại Cài đặt & Sao lưu</span>
+          </Link>
+
+          <div className="flex items-center gap-2 text-[11px] font-mono text-muted">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Host: 100.86.210.86 (Production)</span>
+          </div>
+        </div>
+
         {/* ========================================================================= */}
         {/* 1. TOP HERO COCKPIT HEADER (FULL WIDTH)                                   */}
         {/* ========================================================================= */}
-        <div className="relative w-full overflow-hidden rounded-2xl border border-border/80 bg-card p-4 sm:p-5 md:p-6 shadow-sm">
+        <div className="relative w-full overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-b from-card via-card to-card/90 p-4 sm:p-5 md:p-6 shadow-sm">
           {/* Subtle Ambient Radial Glow */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-primary/10 blur-3xl"
+            className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/10 blur-3xl"
           />
 
           <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             {/* Left: Branding & Status Badge */}
             <div className="flex items-start sm:items-center gap-3.5">
-              <div className="relative flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-primary/20 via-purple-500/20 to-indigo-500/10 text-primary border border-primary/30 shadow-inner shrink-0">
-                <Rocket size={26} className={isJobRunning ? "animate-bounce text-purple-400" : "text-primary"} />
+              <div className="relative flex h-12 w-12 sm:h-13 sm:w-13 items-center justify-center rounded-2xl bg-gradient-to-tr from-primary/20 via-purple-500/15 to-indigo-500/10 text-primary border border-primary/30 shadow-inner shrink-0">
+                <Rocket size={24} className={isJobRunning ? "animate-bounce text-purple-400" : "text-primary"} />
                 {isJobRunning && (
-                  <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-primary border-2 border-card"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-primary border-2 border-card"></span>
                   </span>
                 )}
               </div>
 
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-lg sm:text-xl md:text-2xl font-black text-text tracking-tight flex items-center gap-2">
+                  <h1 className="text-base sm:text-lg md:text-xl font-black text-text tracking-tight flex items-center gap-2">
                     Trung Tâm Cập Nhật & Vận Hành Hệ Thống
                   </h1>
-                  <span className={`text-[11px] px-3 py-0.5 rounded-full font-bold border flex items-center gap-1.5 shadow-2xs ${
+                  <span className={`text-[10px] sm:text-[11px] px-2.5 py-0.5 rounded-full font-bold border flex items-center gap-1 shadow-2xs ${
                     isJobRunning
                       ? "bg-primary/15 text-primary border-primary/30 animate-pulse"
                       : isUpToDate
@@ -200,52 +225,52 @@ export default function SystemUpdateLivePage() {
                   }`}>
                     {isJobRunning ? (
                       <>
-                        <RefreshCcw size={12} className="animate-spin" /> Đang cập nhật ({job?.progressPercent}%)
+                        <RefreshCcw size={11} className="animate-spin" /> Đang cập nhật ({job?.progressPercent}%)
                       </>
                     ) : isUpToDate ? (
                       <>
-                        <CheckCircle2 size={12} /> Phiên bản mới nhất
+                        <CheckCircle2 size={11} /> Phiên bản mới nhất
                       </>
                     ) : (
                       <>
-                        <Sparkles size={12} /> Có bản phát hành mới
+                        <Sparkles size={11} /> Có bản phát hành mới
                       </>
                     )}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-3 text-xs text-muted flex-wrap font-medium">
+                <div className="flex items-center gap-2.5 text-xs text-muted flex-wrap font-medium">
                   <span className="flex items-center gap-1">
-                    <GitBranch size={13} className="text-primary" /> Repository:{" "}
+                    <GitBranch size={12} className="text-primary" /> Repo:{" "}
                     <code className="bg-muted/15 px-1.5 py-0.5 rounded text-[11px] font-mono text-text">tcandt/homeland-saas</code>
                   </span>
                   <span className="opacity-40">•</span>
                   <span className="flex items-center gap-1">
-                    <GitCommit size={13} className="text-purple-500" /> Commit:{" "}
+                    <GitCommit size={12} className="text-purple-500" /> Commit:{" "}
                     <code className="bg-muted/15 px-1.5 py-0.5 rounded text-[11px] font-mono text-text">
-                      {info?.currentCommit?.slice(0, 7) || "f64b48a"}
+                      {info?.currentCommit?.slice(0, 7) || "a8f506c"}
                     </code>
                   </span>
                   <span className="opacity-40">•</span>
                   <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 size={13} /> Auto-Prune & DB Sync Active
+                    <CheckCircle2 size={12} /> Auto-Prune & DB Schema Push Active
                   </span>
                 </div>
               </div>
             </div>
 
             {/* Right: Action Button Cluster */}
-            <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={handleRefresh}
                 isLoading={check.isLoading || status.isLoading}
-                className="h-10 gap-1.5 rounded-xl border-border/80 text-xs font-bold shadow-2xs hover:border-primary/50"
+                className="h-9 gap-1.5 rounded-xl border-border/80 text-xs font-bold shadow-2xs hover:border-primary/50"
               >
-                <RefreshCcw size={14} className={check.isLoading ? "animate-spin" : ""} />
-                <span>Làm mới / Kiểm tra Release</span>
+                <RefreshCcw size={13} className={check.isLoading ? "animate-spin" : ""} />
+                <span>Kiểm tra Release</span>
               </Button>
 
               <Button
@@ -254,10 +279,10 @@ export default function SystemUpdateLivePage() {
                 size="sm"
                 onClick={() => setConfirmMode("rollback")}
                 disabled={isJobRunning}
-                className="h-10 gap-1.5 rounded-xl border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 text-xs font-bold shadow-2xs"
+                className="h-9 gap-1.5 rounded-xl border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 text-xs font-bold shadow-2xs"
               >
-                <RotateCcw size={14} />
-                <span>Rollback Bản Cũ</span>
+                <RotateCcw size={13} />
+                <span>Rollback</span>
               </Button>
 
               <Button
@@ -266,10 +291,10 @@ export default function SystemUpdateLivePage() {
                 size="sm"
                 onClick={() => setConfirmMode("install")}
                 disabled={isJobRunning}
-                className="h-10 gap-2 rounded-xl px-5 text-xs font-black shadow-lg shadow-primary/25 bg-gradient-to-r from-primary via-indigo-600 to-purple-600 hover:opacity-95 cursor-pointer"
+                className="h-9 gap-1.5 rounded-xl px-4 text-xs font-bold shadow-md shadow-primary/20 bg-gradient-to-r from-primary via-indigo-600 to-purple-600 hover:opacity-95 cursor-pointer"
               >
-                <Rocket size={15} />
-                <span>{isUpToDate ? "Nâng Cấp Lại Phiên Bản" : "Khởi Chạy Cập Nhật Ngay"}</span>
+                <Rocket size={14} />
+                <span>{isUpToDate ? "Nâng Cấp Lại Phiên Bản" : "Khởi Chạy Cập Nhật"}</span>
               </Button>
             </div>
           </div>
@@ -278,55 +303,55 @@ export default function SystemUpdateLivePage() {
         {/* ========================================================================= */}
         {/* 2. 4 CORE SYSTEM METRIC CARDS (FULL WIDTH 4-COL GRID)                     */}
         {/* ========================================================================= */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 w-full">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full">
           {/* Card 1: Active Version */}
-          <Card className="rounded-2xl border border-border/80 bg-card p-4 flex flex-col justify-between gap-2.5 shadow-2xs hover:border-primary/40 transition">
+          <Card className="rounded-xl border border-border/70 bg-card p-3.5 flex flex-col justify-between gap-2 shadow-2xs hover:border-primary/40 transition">
             <div className="flex items-center justify-between text-xs text-muted font-bold">
               <span className="flex items-center gap-1.5">
-                <GitBranch size={15} className="text-primary" /> Phiên bản hiện tại
+                <GitBranch size={14} className="text-primary" /> Phiên bản hiện tại
               </span>
-              <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-primary/10 text-primary font-bold">
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary font-bold">
                 Running
               </span>
             </div>
-            <div className="font-mono font-black text-3xl text-text tracking-tight">
+            <div className="font-mono font-black text-2xl text-text tracking-tight">
               {shortVersion(info?.currentVersion || webPackage.version)}
             </div>
             <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-              <CheckCircle2 size={13} /> Stack Docker Container ổn định
+              <CheckCircle2 size={12} /> Docker container hoạt động ổn định
             </div>
           </Card>
 
           {/* Card 2: Latest Version */}
-          <Card className="rounded-2xl border border-border/80 bg-card p-4 flex flex-col justify-between gap-2.5 shadow-2xs hover:border-purple-500/40 transition">
+          <Card className="rounded-xl border border-border/70 bg-card p-3.5 flex flex-col justify-between gap-2 shadow-2xs hover:border-purple-500/40 transition">
             <div className="flex items-center justify-between text-xs text-muted font-bold">
               <span className="flex items-center gap-1.5">
-                <Sparkles size={15} className="text-purple-500" /> GitHub Release Target
+                <Sparkles size={14} className="text-purple-500" /> Release Target
               </span>
-              <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold">
-                Release
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold">
+                GitHub
               </span>
             </div>
-            <div className="font-mono font-black text-3xl text-purple-600 dark:text-purple-400 tracking-tight">
+            <div className="font-mono font-black text-2xl text-purple-600 dark:text-purple-400 tracking-tight">
               {shortVersion(info?.latestVersion || info?.currentVersion || webPackage.version)}
             </div>
             <div className="text-[11px] text-muted font-medium flex items-center gap-1">
-              {info?.updateAvailable ? "⚡ Có bản nâng cấp mới khả dụng" : "✓ Trùng khớp với bản build mới nhất"}
+              {info?.updateAvailable ? "⚡ Có bản nâng cấp mới khả dụng" : "✓ Trùng khớp bản build mới nhất"}
             </div>
           </Card>
 
           {/* Card 3: Storage & Cache Protection */}
-          <Card className="rounded-2xl border border-border/80 bg-card p-4 flex flex-col justify-between gap-2.5 shadow-2xs hover:border-emerald-500/40 transition">
+          <Card className="rounded-xl border border-border/70 bg-card p-3.5 flex flex-col justify-between gap-2 shadow-2xs hover:border-emerald-500/40 transition">
             <div className="flex items-center justify-between text-xs text-muted font-bold">
               <span className="flex items-center gap-1.5">
-                <ShieldCheck size={15} className="text-emerald-500" /> Chống tràn ổ đĩa VPS
+                <ShieldCheck size={14} className="text-emerald-500" /> Chống tràn ổ đĩa VPS
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 font-bold">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">
                 Auto-Prune
               </span>
             </div>
             <div className="font-mono font-black text-2xl text-emerald-600 dark:text-emerald-400 tracking-tight">
-              Tự Dọn 8+ GB
+              Tự Dọn Cache
             </div>
             <div className="text-[11px] text-muted font-medium">
               Tự động xóa Docker Cache & image cũ
@@ -334,12 +359,12 @@ export default function SystemUpdateLivePage() {
           </Card>
 
           {/* Card 4: Database & Schema Sync */}
-          <Card className="rounded-2xl border border-border/80 bg-card p-4 flex flex-col justify-between gap-2.5 shadow-2xs hover:border-amber-500/40 transition">
+          <Card className="rounded-xl border border-border/70 bg-card p-3.5 flex flex-col justify-between gap-2 shadow-2xs hover:border-amber-500/40 transition">
             <div className="flex items-center justify-between text-xs text-muted font-bold">
               <span className="flex items-center gap-1.5">
-                <Database size={15} className="text-amber-500" /> PostgreSQL & Schema
+                <Database size={14} className="text-amber-500" /> PostgreSQL & Schema
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 font-bold">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold">
                 Auto Push
               </span>
             </div>
@@ -347,7 +372,7 @@ export default function SystemUpdateLivePage() {
               Đồng Bộ Tự Động
             </div>
             <div className="text-[11px] text-muted font-medium">
-              Không mất dữ liệu, tự tạo mới cột
+              Bảo tồn dữ liệu, tự động thêm cột mới
             </div>
           </Card>
         </div>
@@ -355,34 +380,34 @@ export default function SystemUpdateLivePage() {
         {/* ========================================================================= */}
         {/* 3. EXPANSIVE LIVE PROGRESS & 8-STAGE WORKFLOW STEPPER                     */}
         {/* ========================================================================= */}
-        <Card className="rounded-2xl border border-border/80 bg-card p-5 md:p-6 shadow-sm flex flex-col gap-4 w-full">
+        <Card className="rounded-xl border border-border/70 bg-card p-4 sm:p-5 shadow-2xs flex flex-col gap-3.5 w-full">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/15 text-amber-500">
-                <Zap size={16} />
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/15 text-amber-500 border border-amber-500/20">
+                <Zap size={15} />
               </div>
               <div>
-                <h2 className="text-sm font-black text-text uppercase tracking-wider">
+                <h2 className="text-xs md:text-sm font-black text-text uppercase tracking-wider">
                   Quy Trình Triển Khai Thực Tế (Live Execution Workflow)
                 </h2>
-                <p className="text-xs text-muted">Theo dõi từng giai đoạn trong chu trình nâng cấp</p>
+                <p className="text-[11px] text-muted">Theo dõi 8 bước triển khai tự động an toàn</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <span className="text-xs font-bold text-muted">
                 {isJobRunning ? "Đang thực thi trên VPS..." : job?.status === "DONE" ? "Hoàn tất thành công" : "Sẵn sàng"}
               </span>
-              <span className="font-mono font-black text-xl text-primary bg-primary/10 px-3 py-0.5 rounded-xl border border-primary/20">
+              <span className="font-mono font-black text-lg text-primary bg-primary/10 px-2.5 py-0.5 rounded-lg border border-primary/20">
                 {currentPercent}%
               </span>
             </div>
           </div>
 
           {/* Animated Main Progress Bar */}
-          <div className="h-4 w-full overflow-hidden rounded-full bg-muted/25 p-0.5 border border-border/80 shadow-inner">
+          <div className="h-3.5 w-full overflow-hidden rounded-full bg-muted/20 p-0.5 border border-border/70 shadow-inner">
             <div
-              className={`h-full rounded-full transition-all duration-700 ease-out shadow-sm ${
+              className={`h-full rounded-full transition-all duration-700 ease-out shadow-xs ${
                 job?.status === "DONE" || isUpToDate
                   ? "bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400"
                   : job?.status === "FAILED"
@@ -394,7 +419,7 @@ export default function SystemUpdateLivePage() {
           </div>
 
           {/* 8-Step Interactive Visual Stepper */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 pt-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pt-1">
             {UPDATE_STAGES.map((st, i) => {
               const Icon = st.icon;
               const isPast = currentPercent >= st.percent;
@@ -402,27 +427,27 @@ export default function SystemUpdateLivePage() {
               return (
                 <div
                   key={st.key}
-                  className={`flex flex-col items-center text-center p-3 rounded-2xl border transition-all duration-300 ${
+                  className={`flex flex-col items-center text-center p-2.5 rounded-xl border transition-all duration-200 ${
                     isPast
                       ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 shadow-2xs"
                       : isCurrent
-                      ? "border-primary bg-primary/15 text-primary shadow-md ring-2 ring-primary/30 scale-102"
-                      : "border-border/60 bg-muted/5 text-muted opacity-60"
+                      ? "border-primary bg-primary/10 text-primary shadow-sm ring-2 ring-primary/20 scale-[1.02]"
+                      : "border-border/50 bg-muted/5 text-muted opacity-60"
                   }`}
                 >
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-xl mb-2 transition-transform ${
+                  <div className={`flex h-7 w-7 items-center justify-center rounded-lg mb-1.5 transition-transform ${
                     isPast
                       ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
                       : isCurrent
-                      ? "bg-primary text-white shadow-md shadow-primary/30"
+                      ? "bg-primary text-white shadow-xs"
                       : "bg-muted/20 text-muted"
                   }`}>
-                    {isCurrent ? <RefreshCcw size={15} className="animate-spin" /> : <Icon size={16} />}
+                    {isCurrent ? <RefreshCcw size={13} className="animate-spin" /> : <Icon size={14} />}
                   </div>
-                  <span className="text-[11px] font-black leading-tight line-clamp-1">
+                  <span className="text-[10px] sm:text-[11px] font-black leading-tight line-clamp-1">
                     {st.label}
                   </span>
-                  <span className="text-[9px] font-mono text-muted mt-1">
+                  <span className="text-[9px] font-mono text-muted mt-0.5">
                     {st.percent}%
                   </span>
                 </div>
@@ -432,21 +457,21 @@ export default function SystemUpdateLivePage() {
         </Card>
 
         {/* ========================================================================= */}
-        {/* 4. FULL-MAIN LINUX TERMINAL STREAM CONSOLE (EXPANSIVE & INTERACTIVE)       */}
+        {/* 4. FULL-MAIN LINUX TERMINAL STREAM CONSOLE (EXPANSIVE & PREMIUM)           */}
         {/* ========================================================================= */}
-        <div className="rounded-2xl border border-neutral-800 bg-[#0a0d14] shadow-2xl overflow-hidden flex flex-col w-full flex-1 min-h-[440px]">
-          {/* Terminal Window Top Bar */}
-          <div className="flex items-center justify-between px-4 py-3 bg-[#111622] border-b border-neutral-800/80 flex-wrap gap-3">
-            {/* Left: Window Controls & Host Prompt */}
+        <div className="rounded-2xl border border-neutral-800 bg-[#080b11] shadow-2xl overflow-hidden flex flex-col w-full flex-1 min-h-[440px]">
+          {/* Terminal Window Top Bar (MacOS Style) */}
+          <div className="flex items-center justify-between px-4 py-2.5 bg-[#0e121a] border-b border-neutral-800/80 flex-wrap gap-2.5">
+            {/* Left: Window Dots & Host Prompt */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-rose-500/90 shadow-xs cursor-pointer hover:opacity-80"></div>
-                <div className="w-3 h-3 rounded-full bg-amber-500/90 shadow-xs cursor-pointer hover:opacity-80"></div>
-                <div className="w-3 h-3 rounded-full bg-emerald-500/90 shadow-xs cursor-pointer hover:opacity-80"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-rose-500/90 shadow-xs cursor-pointer hover:opacity-80"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500/90 shadow-xs cursor-pointer hover:opacity-80"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/90 shadow-xs cursor-pointer hover:opacity-80"></div>
               </div>
               <div className="flex items-center gap-2 text-xs font-mono text-neutral-300">
-                <Terminal size={15} className="text-emerald-400" />
-                <span className="text-neutral-400 hidden sm:inline">tcandt@vps:</span>
+                <Terminal size={14} className="text-emerald-400" />
+                <span className="text-neutral-400 hidden sm:inline">tcandt@homeland-vps:</span>
                 <span className="text-cyan-400 font-bold">~/homeland-public-production</span>
                 <span className="text-neutral-500">$</span>
                 <span className="text-emerald-400">update-stream --live</span>
@@ -454,16 +479,16 @@ export default function SystemUpdateLivePage() {
             </div>
 
             {/* Right: Terminal Controls Toolbar */}
-            <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               {/* Search / Filter logs input */}
               <div className="relative">
-                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
+                <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Lọc logs..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="h-7 w-28 sm:w-40 rounded-lg bg-neutral-900 border border-neutral-700/80 pl-7 pr-2 text-[11px] font-mono text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
+                  className="h-7 w-28 sm:w-36 rounded-lg bg-neutral-900 border border-neutral-700/80 pl-7 pr-2 text-[11px] font-mono text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
                 />
               </div>
 
@@ -512,31 +537,31 @@ export default function SystemUpdateLivePage() {
                 onClick={handleCopyLogs}
                 className="flex items-center gap-1 text-[11px] font-mono font-bold text-neutral-200 hover:text-white px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition cursor-pointer shadow-xs"
               >
-                <Copy size={12} />
-                <span>Copy Logs</span>
+                {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                <span>{copied ? "Đã copy" : "Copy Logs"}</span>
               </button>
             </div>
           </div>
 
-          {/* Terminal Output Area (Monospace, Color-coded, High-tech) */}
+          {/* Terminal Output Area */}
           <div
-            className={`p-4 font-mono leading-relaxed overflow-y-auto flex-1 min-h-[300px] max-h-[520px] bg-[#0a0d14] flex flex-col gap-1 select-text ${
+            className={`p-4 font-mono leading-relaxed overflow-y-auto flex-1 min-h-[300px] max-h-[520px] bg-[#080b11] flex flex-col gap-0.5 select-text ${
               fontSize === "xs" ? "text-[11px]" : "text-xs"
             }`}
           >
-            {/* Terminal Header Welcome */}
-            <div className="text-neutral-500 text-[11px] pb-2 border-b border-neutral-900/80 flex items-center justify-between">
+            {/* Terminal Header Info */}
+            <div className="text-neutral-500 text-[10px] pb-2 border-b border-neutral-900 flex items-center justify-between">
               <span>[HomeLand Production Engine v1.2.4 • Live Stream WebSocket / Polling Active]</span>
               <span>{logs.length} dòng nhật ký</span>
             </div>
 
             {logs.length === 0 ? (
               <div className="flex flex-col items-center justify-center flex-1 py-14 text-neutral-500 gap-2 select-none">
-                <Terminal size={32} className="opacity-40 text-neutral-600" />
+                <Terminal size={30} className="opacity-40 text-neutral-600" />
                 <p className="text-xs italic">
                   {isJobRunning
                     ? "Đang kết nối luồng sự kiện từ tiến trình VPS..."
-                    : "Nhấn 'Khởi Chạy Cập Nhật Ngay' hoặc chạy script trên VPS để xem luồng terminal trực tiếp."}
+                    : "Nhấn 'Khởi Chạy Cập Nhật' hoặc chạy script trên VPS để xem luồng terminal trực tiếp."}
                 </p>
               </div>
             ) : (
@@ -579,16 +604,16 @@ export default function SystemUpdateLivePage() {
           </div>
 
           {/* Terminal Footer with Quick SSH Command Snippet */}
-          <div className="px-4 py-2.5 bg-[#111622] border-t border-neutral-800/80 text-[11px] font-mono text-neutral-400 flex items-center justify-between flex-wrap gap-2">
+          <div className="px-4 py-2 bg-[#0e121a] border-t border-neutral-800/80 text-[11px] font-mono text-neutral-400 flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <Server size={13} className="text-primary" />
-              <span>Chạy trực tiếp trên VPS SSH:</span>
-              <code className="bg-neutral-950 px-2 py-0.5 rounded text-emerald-400 border border-neutral-800 select-all font-bold">
-                bash /home/tcandt/homeland-public-production/update-public-production.sh
+              <Server size={12} className="text-primary" />
+              <span>Lệnh chạy trực tiếp trên VPS SSH:</span>
+              <code className="bg-neutral-950 px-2 py-0.5 rounded text-emerald-400 border border-neutral-800 select-all font-bold text-[10px]">
+                bash deploy/public-production/update-public-production.sh
               </code>
             </div>
 
-            <div className="flex items-center gap-3 text-neutral-500">
+            <div className="flex items-center gap-3 text-neutral-500 text-[10px]">
               <span>Port: 49187 (Web) • 49188 (API) • 49189 (Postgres)</span>
             </div>
           </div>
@@ -598,11 +623,11 @@ export default function SystemUpdateLivePage() {
         {/* 5. RECENT SNAPSHOT BACKUPS DRAWER TABLE                                   */}
         {/* ========================================================================= */}
         {backups.data?.backups && backups.data.backups.length > 0 && (
-          <Card className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm flex flex-col gap-3.5 w-full">
-            <div className="flex items-center justify-between flex-wrap gap-2 border-b border-border/50 pb-3">
+          <Card className="rounded-xl border border-border/70 bg-card p-4 sm:p-5 shadow-2xs flex flex-col gap-3 w-full">
+            <div className="flex items-center justify-between flex-wrap gap-2 border-b border-border/50 pb-2.5">
               <div className="flex items-center gap-2">
-                <Database size={17} className="text-primary" />
-                <h3 className="text-sm font-black text-text">
+                <Database size={16} className="text-primary" />
+                <h3 className="text-xs md:text-sm font-black text-text">
                   Danh Sách Snapshot Sao Lưu Trước Khi Cập Nhật (Pre-update Backups)
                 </h3>
               </div>
@@ -630,7 +655,7 @@ export default function SystemUpdateLivePage() {
                       <td className="py-2.5 font-mono font-bold text-primary">v{b.version || "1.2.4"}</td>
                       <td className="py-2.5 font-mono text-muted">{formatBytes(b.sizeBytes)}</td>
                       <td className="py-2.5">
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 font-bold border border-emerald-500/20 text-[10px]">
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20 text-[10px]">
                           READY
                         </span>
                       </td>
@@ -658,7 +683,7 @@ export default function SystemUpdateLivePage() {
               size="sm"
               onClick={startJob}
               disabled={isSubmitting}
-              className={`h-9 gap-1.5 rounded-xl px-5 text-xs font-black ${confirmMode === "rollback" ? "bg-amber-600 hover:bg-amber-700" : "bg-gradient-to-r from-primary to-purple-600"}`}
+              className={`h-9 gap-1.5 rounded-xl px-4 text-xs font-bold ${confirmMode === "rollback" ? "bg-amber-600 hover:bg-amber-700" : "bg-gradient-to-r from-primary to-purple-600"}`}
             >
               {isSubmitting ? <RefreshCcw size={13} className="animate-spin" /> : <Rocket size={13} />}
               <span>{confirmMode === "install" ? "Bắt đầu cập nhật ngay" : "Bắt đầu rollback"}</span>
@@ -667,7 +692,7 @@ export default function SystemUpdateLivePage() {
         }
       >
         <div className="flex flex-col gap-3 py-1 text-xs">
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3.5 text-muted leading-relaxed">
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-muted leading-relaxed">
             Hệ thống sẽ tự động dọn dẹp Docker Build Cache, tạo bản Snapshot sao lưu dữ liệu toàn phần, sau đó build container mới và đồng bộ schema database.
           </div>
           <p className="font-bold text-text">

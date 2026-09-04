@@ -447,7 +447,7 @@ export default function LoginPage() {
                   : "bg-indigo-50 text-indigo-700 border-indigo-200 shadow-xs"
               }`}
             >
-              v{webPackage.version || "1.2.5"}
+              v{process.env.NEXT_PUBLIC_APP_VERSION?.replace(/^v+/i, "") || webPackage.version || "1.0.0"}
             </span>
           </div>
           <p

@@ -25,7 +25,7 @@ import toast from "react-hot-toast";
 import webPackage from "../../../package.json";
 
 function shortVersion(value?: string) {
-  if (!value || value === "unknown") return value || "c37fa9a";
+  if (!value || value === "unknown") return "---";
   return value.slice(0, 7);
 }
 
@@ -160,7 +160,7 @@ export default function SettingsSystemUpdate() {
             <span className="flex items-center gap-1.5">
               <GitBranch size={13} className="text-primary" /> Version hiện tại
             </span>
-            <span className="font-mono text-[10px] text-muted">{shortVersion(info?.currentCommit || "c37fa9a")}</span>
+            <span className="font-mono text-[10px] text-muted">{shortVersion(info?.currentCommit)}</span>
           </div>
           <div className="font-mono font-black text-base text-text">
             {displayVersion(info?.currentVersion)}
@@ -175,7 +175,7 @@ export default function SettingsSystemUpdate() {
             <span className="flex items-center gap-1.5">
               <Sparkles size={13} className="text-purple-500" /> Version mới nhất
             </span>
-            <span className="font-mono text-[10px] text-muted">{shortVersion(info?.latestCommit || "c37fa9a")}</span>
+            <span className="font-mono text-[10px] text-muted">{shortVersion(info?.latestCommit)}</span>
           </div>
           <div className="font-mono font-black text-base text-text">
             {displayVersion(info?.latestVersion || info?.currentVersion)}

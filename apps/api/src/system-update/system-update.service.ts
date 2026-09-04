@@ -679,9 +679,9 @@ function readPackageVersion() {
         }
       }
     }
-    return '1.2.5';
+    return process.env.APP_VERSION || process.env.npm_package_version || '1.0.0';
   } catch {
-    return '1.2.5';
+    return process.env.APP_VERSION || process.env.npm_package_version || '1.0.0';
   }
 }
 

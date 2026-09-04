@@ -530,6 +530,10 @@ function readPackageVersion() {
 }
 
 function readCurrentVersion(packageVersion: string) {
+  const pkgSemver = parseSemver(packageVersion);
+  if (pkgSemver) {
+    return normalizeDisplayVersion(packageVersion);
+  }
   return normalizeDisplayVersion(process.env.APP_VERSION || process.env.VERSION || packageVersion);
 }
 

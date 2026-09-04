@@ -3,18 +3,21 @@
 import React, { useState } from "react";
 import useSWR from "swr";
 import {
+  AlertTriangle,
   CheckCircle2,
   Clock,
   Database,
   Download,
-  FileText,
   HardDrive,
   Loader2,
+  Lock,
   Plus,
   RefreshCcw,
   RotateCcw,
+  ShieldAlert,
   ShieldCheck,
   Trash2,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -57,7 +60,14 @@ export default function SettingsBackup() {
 
   const [isCreating, setIsCreating] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(false);
-  const [selectedSnapshot, setSelectedSnapshot] = useState<BackupManifestInfo | null>(null);
+  const [showWipeModal, setShowWipeModal] = useState(false);
+
+  // Form state for Reset / Wipe data
+  const [wipePassword, setWipePassword] = useState("");
+  const [wipeConfirmPhrase, setWipeConfirmPhrase] = useState("");
+  const [wipeScope, setWipeScope] = useState<"ALL_BUSINESS_DATA" | "DRAFT_TRANSACTIONS">("ALL_BUSINESS_DATA");
+  const [autoBackupBeforeWipe, setAutoBackupBeforeWipe] = useState(true);
+  const [isWiping, setIsWiping] = useState(false);
 
   const isConnected = backupData?.connected ?? true;
   const backups = backupData?.backups || [];
@@ -85,6 +95,44 @@ export default function SettingsBackup() {
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`Đã tải manifest của ${backup.name}`);
+  };
+
+  const handleExecuteWipeData = async () => {
+    if (!wipePassword) {
+      toast.error("Vui lòng nhập mật khẩu quản trị viên để xác nhận");
+      return;
+    }
+    if (wipeConfirmPhrase.trim() !== "XAC NHAN XOA") {
+      toast.error('Vui lòng nhập chính xác cụm từ "XAC NHAN XOA"');
+      return;
+    }
+
+    setIsWiping(true);
+    try {
+      if (autoBackupBeforeWipe) {
+        toast("Đang tạo bản sao lưu snapshot bảo vệ trước khi xóa...", { icon: "🛡️" });
+        await systemUpdateApi.createBackup({ note: "Tự động sao lưu trước khi Reset / Xóa dữ liệu" }).catch(() => null);
+      }
+
+      const res = await systemUpdateApi.wipeData({
+        password: wipePassword,
+        scope: wipeScope,
+        confirmPhrase: "XAC NHAN XOA",
+      });
+
+      await mutate();
+      setShowWipeModal(false);
+      setWipePassword("");
+      setWipeConfirmPhrase("");
+
+      const counts = res.deletedCounts || {};
+      const countMsg = `Đã dọn dẹp: ${counts.contracts ?? 0} hợp đồng, ${counts.customers ?? 0} khách thuê, ${counts.invoices ?? 0} hóa đơn, ${counts.deposits ?? 0} tiền cọc.`;
+      toast.success(`Đặt lại dữ liệu thành công! ${countMsg}`, { duration: 6000 });
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || error?.message || "Xóa dữ liệu thất bại. Vui lòng kiểm tra lại mật khẩu.");
+    } finally {
+      setIsWiping(false);
+    }
   };
 
   return (
@@ -152,10 +200,10 @@ export default function SettingsBackup() {
         </Button>
         <Button
           variant="outline"
-          onClick={() => setShowRestoreModal(true)}
-          className="h-11 rounded-xl text-xs font-bold gap-2 text-rose-500 hover:text-rose-600 border-rose-500/30 hover:bg-rose-500/10 cursor-pointer"
+          onClick={() => setShowWipeModal(true)}
+          className="h-11 rounded-xl text-xs font-bold gap-2 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/10 cursor-pointer"
         >
-          <RotateCcw size={14} /> Khôi phục dữ liệu
+          <Trash2 size={14} /> Đặt lại dữ liệu (Reset)
         </Button>
       </div>
 
@@ -263,6 +311,180 @@ export default function SettingsBackup() {
           </div>
         )}
       </Card>
+
+      {/* 5. Vùng Nguy Hiểm: Đặt lại & Xóa dữ liệu (Danger Zone) */}
+      <Card className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-5 flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 mt-0.5">
+              <ShieldAlert size={20} />
+            </span>
+            <div className="flex flex-col gap-1">
+              <h4 className="text-sm font-black text-rose-600 dark:text-rose-400">
+                Vùng nguy hiểm: Đặt lại & Xóa dữ liệu vận hành (Reset Data)
+              </h4>
+              <p className="text-xs text-muted leading-relaxed max-w-2xl">
+                Dành cho Quản trị viên khi cần dọn dẹp sạch toàn bộ dữ liệu kiểm thử (Hợp đồng, Khách thuê, Tiền cọc, Hóa đơn & Lịch sử gửi Zalo) để bắt đầu nhập dữ liệu mới. 
+                <b className="text-text font-bold"> Danh sách Tòa nhà, Phòng, Tài khoản Admin và Cấu hình tích hợp luôn được bảo tồn an toàn.</b>
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => setShowWipeModal(true)}
+            className="h-10 px-4 shrink-0 rounded-xl text-xs font-bold gap-2 text-white bg-rose-600 hover:bg-rose-700 border-transparent shadow-xs cursor-pointer"
+          >
+            <Trash2 size={14} /> Đặt lại dữ liệu
+          </Button>
+        </div>
+      </Card>
+
+      {/* Modal Xác nhận Reset / Wipe Data */}
+      {showWipeModal && (
+        <Modal
+          isOpen={showWipeModal}
+          onClose={() => {
+            if (!isWiping) setShowWipeModal(false);
+          }}
+          title="Xác nhận Đặt lại & Xóa dữ liệu vận hành"
+        >
+          <div className="flex flex-col gap-4 text-xs leading-relaxed">
+            {/* Warning Box */}
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3.5 flex items-start gap-2.5">
+              <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-text font-medium">
+                Thao tác này sẽ xóa vĩnh viễn các dữ liệu giao dịch vận hành theo phạm vi bạn chọn. Vui lòng kiểm tra kỹ trước khi xác nhận.
+              </div>
+            </div>
+
+            {/* Scope Explanation */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px]">
+              <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 flex flex-col gap-1">
+                <span className="font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                  <XCircle size={13} /> Sẽ bị xóa sạch:
+                </span>
+                <ul className="list-disc pl-4 text-muted space-y-0.5">
+                  <li>Khách thuê & Thành viên ở ghép</li>
+                  <li>Hợp đồng thuê & Đặt cọc giữ phòng</li>
+                  <li>Hóa đơn, Phiếu thu & Lịch sử thanh toán</li>
+                  <li>Lịch sử gửi tin nhắn Zalo / Thông báo</li>
+                  <li>Lịch sử chốt chỉ số công tơ điện nước</li>
+                </ul>
+              </div>
+
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 flex flex-col gap-1">
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <CheckCircle2 size={13} /> Được bảo tồn an toàn:
+                </span>
+                <ul className="list-disc pl-4 text-muted space-y-0.5">
+                  <li>Danh sách Tòa nhà, Tầng & Phòng</li>
+                  <li>Tài khoản Quản trị viên & Phân quyền</li>
+                  <li>Cấu hình tích hợp (Hunonic, SePay, Zalo Bot)</li>
+                  <li>Biểu mẫu hợp đồng & Cài đặt hệ thống</li>
+                  <li>Phòng tự động chuyển về trạng thái Trống</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Scope Selection */}
+            <div className="flex flex-col gap-1.5 pt-1">
+              <label className="font-bold text-text text-xs">Phạm vi dữ liệu cần đặt lại:</label>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 rounded-xl border border-border p-2.5 hover:bg-muted/10 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="wipeScope"
+                    value="ALL_BUSINESS_DATA"
+                    checked={wipeScope === "ALL_BUSINESS_DATA"}
+                    onChange={() => setWipeScope("ALL_BUSINESS_DATA")}
+                    className="accent-primary"
+                  />
+                  <div className="flex flex-col">
+                    <span className="font-bold text-text text-xs">Toàn bộ dữ liệu vận hành & kiểm thử (Khuyến nghị)</span>
+                    <span className="text-[11px] text-muted">Xóa toàn bộ khách thuê, hợp đồng, cọc, hóa đơn và đặt lại phòng về Trống</span>
+                  </div>
+                </label>
+                <label className="flex items-center gap-2 rounded-xl border border-border p-2.5 hover:bg-muted/10 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="wipeScope"
+                    value="DRAFT_TRANSACTIONS"
+                    checked={wipeScope === "DRAFT_TRANSACTIONS"}
+                    onChange={() => setWipeScope("DRAFT_TRANSACTIONS")}
+                    className="accent-primary"
+                  />
+                  <div className="flex flex-col">
+                    <span className="font-bold text-text text-xs">Chỉ xóa dữ liệu Nháp (DRAFT)</span>
+                    <span className="text-[11px] text-muted">Chỉ xóa các hợp đồng, cọc và hóa đơn chưa phát hành chính thức</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Auto backup checkbox */}
+            <label className="flex items-center gap-2 font-medium text-text text-xs cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={autoBackupBeforeWipe}
+                onChange={(e) => setAutoBackupBeforeWipe(e.target.checked)}
+                className="accent-primary rounded"
+              />
+              <span>Tự động tạo bản sao lưu snapshot bảo vệ trước khi xóa (Khuyến nghị)</span>
+            </label>
+
+            {/* Password input */}
+            <div className="flex flex-col gap-1">
+              <label className="font-bold text-text text-xs flex items-center gap-1">
+                <Lock size={12} className="text-muted" /> Mật khẩu tài khoản Quản trị viên:
+              </label>
+              <input
+                type="password"
+                placeholder="Nhập mật khẩu tài khoản đăng nhập của bạn"
+                value={wipePassword}
+                onChange={(e) => setWipePassword(e.target.value)}
+                className="h-10 px-3 rounded-xl border border-border bg-card text-xs text-text focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
+              />
+            </div>
+
+            {/* Confirm phrase input */}
+            <div className="flex flex-col gap-1">
+              <label className="font-bold text-text text-xs">
+                Nhập cụm từ xác nhận: <b className="font-mono text-rose-600 dark:text-rose-400 select-all">XAC NHAN XOA</b>
+              </label>
+              <input
+                type="text"
+                placeholder="Nhập chính xác: XAC NHAN XOA"
+                value={wipeConfirmPhrase}
+                onChange={(e) => setWipeConfirmPhrase(e.target.value)}
+                className="h-10 px-3 rounded-xl border border-border bg-card text-xs font-mono text-text focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
+              />
+            </div>
+
+            {/* Action buttons */}
+            <div className="mt-3 flex items-center justify-end gap-2.5 pt-2 border-t border-border">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowWipeModal(false)}
+                disabled={isWiping}
+                className="h-9 px-3 rounded-xl text-xs font-bold"
+              >
+                Hủy bỏ
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleExecuteWipeData}
+                disabled={isWiping || !wipePassword || wipeConfirmPhrase.trim() !== "XAC NHAN XOA"}
+                className="h-9 px-4 rounded-xl text-xs font-bold gap-2 text-white bg-rose-600 hover:bg-rose-700 border-transparent cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                {isWiping ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                {isWiping ? "Đang xử lý đặt lại..." : "Xác nhận xóa & Đặt lại"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Modal Hướng dẫn Phục hồi Dữ liệu */}
       {showRestoreModal && (

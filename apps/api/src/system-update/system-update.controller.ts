@@ -70,6 +70,17 @@ export class SystemUpdateController {
   createBackup(@Body() body?: { note?: string }) {
     return this.systemUpdateService.createBackupSnapshot(body);
   }
+
+  @Post('backups/restore')
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Restore data from a backup snapshot' })
+  restoreBackup(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('tenantId') tenantId: string,
+    @Body() body: { snapshotId: string; password?: string },
+  ) {
+    return this.systemUpdateService.restoreBackupSnapshot(userId, tenantId, body || { snapshotId: '' });
+  }
 }
 
 function assertSystemUpdateAdmin(email?: string) {

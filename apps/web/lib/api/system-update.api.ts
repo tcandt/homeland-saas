@@ -72,4 +72,9 @@ export const systemUpdateApi = {
   backups: () => apiClient.get<SystemBackupStatus>('/system-update/backups'),
   createBackup: (payload?: { note?: string }) =>
     apiClient.post<SystemBackupStatus>('/system-update/backups/create', payload || {}),
+  restoreBackup: (payload: { snapshotId: string; password: string }) =>
+    apiClient.post<{ success: boolean; message: string; snapshotId: string; restoredCounts?: Record<string, number> }>(
+      '/system-update/backups/restore',
+      payload,
+    ),
 };

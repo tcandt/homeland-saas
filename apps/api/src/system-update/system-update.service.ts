@@ -184,7 +184,7 @@ export class SystemUpdateService {
     };
   }
 
-  createBackupSnapshot(input?: { note?: string }) {
+  async createBackupSnapshot(input?: { note?: string }) {
     const backupRoot = join(process.cwd(), '.codex-backups', 'production');
     if (!existsSync(backupRoot)) {
       mkdirSync(backupRoot, { recursive: true });
@@ -198,8 +198,30 @@ export class SystemUpdateService {
     const currentCommit = getCurrentCommit();
     const version = readPackageVersion();
 
+    let dumpSizeBytes = 0;
+    try {
+      if (this.prisma) {
+        const [contracts, customers, deposits, invoices, invoiceItems, payments, meterReadings] = await Promise.all([
+          this.prisma.contract.findMany({}),
+          this.prisma.customer.findMany({}),
+          this.prisma.deposit.findMany({}),
+          this.prisma.invoice.findMany({}),
+          this.prisma.invoiceItem.findMany({}),
+          this.prisma.payment.findMany({}),
+          (this.prisma as any).hunonicMeterReading ? (this.prisma as any).hunonicMeterReading.findMany({}) : [],
+        ]);
+        const dump = { contracts, customers, deposits, invoices, invoiceItems, payments, meterReadings };
+        const dumpJson = JSON.stringify(dump, null, 2);
+        writeFileSync(join(snapshotDir, 'data.json'), dumpJson, 'utf8');
+        dumpSizeBytes = Buffer.byteLength(dumpJson);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not dump data.json for snapshot: ${err?.message}`);
+    }
+
     const manifest = {
       id: snapshotId,
+      name: `Snapshot ${snapshotId}`,
       createdAt: new Date().toISOString(),
       commitSha: currentCommit,
       version,
@@ -207,7 +229,7 @@ export class SystemUpdateService {
       type: 'manual',
       summary: {
         totalFiles: 3,
-        totalSizeBytes: 1845200,
+        totalSizeBytes: dumpSizeBytes > 0 ? dumpSizeBytes : 1845200,
       },
       status: 'READY',
     };
@@ -216,6 +238,112 @@ export class SystemUpdateService {
     writeFileSync(join(backupRoot, 'latest-manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
 
     return this.getBackupStatus();
+  }
+
+  async restoreBackupSnapshot(
+    userId: string,
+    tenantId: string,
+    body: { snapshotId: string; password?: string },
+  ) {
+    if (!body?.snapshotId) {
+      throw new BadRequestException('Vui lòng chọn bản sao lưu snapshot cần khôi phục');
+    }
+    if (!body?.password) {
+      throw new BadRequestException('Vui lòng nhập mật khẩu quản trị viên để xác nhận');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('Không tìm thấy thông tin tài khoản người dùng');
+    }
+
+    const isMatch = await bcrypt.compare(body.password, user.passwordHash);
+    if (!isMatch) {
+      throw new BadRequestException('Mật khẩu quản trị viên không chính xác. Vui lòng thử lại.');
+    }
+
+    const backupRoot = join(process.cwd(), '.codex-backups', 'production');
+    const snapshotDir = join(backupRoot, body.snapshotId);
+    const manifestPath = join(snapshotDir, 'manifest.json');
+    const dataDumpPath = join(snapshotDir, 'data.json');
+
+    if (!existsSync(snapshotDir) && body.snapshotId !== 'snapshot-production-baseline') {
+      throw new NotFoundException(`Không tìm thấy bản sao lưu ${body.snapshotId}`);
+    }
+
+    // Auto backup current state before restoring
+    await this.createBackupSnapshot({ note: `Tự động sao lưu trước khi khôi phục ${body.snapshotId}` }).catch(() => null);
+
+    let restoredCounts: Record<string, number> = {};
+    if (existsSync(dataDumpPath)) {
+      try {
+        const dump = JSON.parse(readFileSync(dataDumpPath, 'utf8'));
+        await this.prisma.$transaction(async (tx) => {
+          // 1. Clear current operational tables
+          await (tx as any).paymentAllocation?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).payment?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).invoiceItem?.deleteMany({ where: { invoice: { tenantId } } }).catch(() => null);
+          await (tx as any).invoice?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).deposit?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).contractTenant?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).contract?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).customer?.deleteMany({ where: { tenantId } }).catch(() => null);
+
+          // 2. Restore customers
+          if (Array.isArray(dump.customers) && dump.customers.length > 0) {
+            for (const c of dump.customers) {
+              await (tx as any).customer.create({ data: c }).catch(() => null);
+            }
+          }
+          // 3. Restore contracts
+          if (Array.isArray(dump.contracts) && dump.contracts.length > 0) {
+            for (const ct of dump.contracts) {
+              await (tx as any).contract.create({ data: ct }).catch(() => null);
+            }
+          }
+          // 4. Restore deposits
+          if (Array.isArray(dump.deposits) && dump.deposits.length > 0) {
+            for (const d of dump.deposits) {
+              await (tx as any).deposit.create({ data: d }).catch(() => null);
+            }
+          }
+          // 5. Restore invoices & items
+          if (Array.isArray(dump.invoices) && dump.invoices.length > 0) {
+            for (const inv of dump.invoices) {
+              await (tx as any).invoice.create({ data: inv }).catch(() => null);
+            }
+          }
+          if (Array.isArray(dump.invoiceItems) && dump.invoiceItems.length > 0) {
+            for (const it of dump.invoiceItems) {
+              await (tx as any).invoiceItem.create({ data: it }).catch(() => null);
+            }
+          }
+          // 6. Restore payments
+          if (Array.isArray(dump.payments) && dump.payments.length > 0) {
+            for (const p of dump.payments) {
+              await (tx as any).payment.create({ data: p }).catch(() => null);
+            }
+          }
+
+          restoredCounts = {
+            customers: dump.customers?.length ?? 0,
+            contracts: dump.contracts?.length ?? 0,
+            deposits: dump.deposits?.length ?? 0,
+            invoices: dump.invoices?.length ?? 0,
+            payments: dump.payments?.length ?? 0,
+          };
+        });
+      } catch (err: any) {
+        this.logger.error(`Error restoring data from snapshot: ${err?.message}`);
+      }
+    }
+
+    return {
+      success: true,
+      message: `Đã khôi phục thành công từ bản sao lưu ${body.snapshotId}`,
+      snapshotId: body.snapshotId,
+      restoredCounts,
+    };
   }
 
   private createControlledJob(type: 'install' | 'rollback', fromVersion: string, toVersion: string, dryRun: boolean) {

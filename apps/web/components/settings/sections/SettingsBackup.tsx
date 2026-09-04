@@ -61,6 +61,11 @@ export default function SettingsBackup() {
   const [isCreating, setIsCreating] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [showWipeModal, setShowWipeModal] = useState(false);
+  const [selectedSnapshotForRestore, setSelectedSnapshotForRestore] = useState<BackupManifestInfo | null>(null);
+
+  // Restore state
+  const [restorePassword, setRestorePassword] = useState("");
+  const [isRestoring, setIsRestoring] = useState(false);
 
   // Form state for Reset / Wipe data
   const [wipePassword, setWipePassword] = useState("");
@@ -97,8 +102,44 @@ export default function SettingsBackup() {
     toast.success(`Đã tải manifest của ${backup.name}`);
   };
 
+  const handleOpenRestore = (snapshot?: BackupManifestInfo) => {
+    const target = snapshot || backups[0] || null;
+    setSelectedSnapshotForRestore(target);
+    setRestorePassword("");
+    setShowRestoreModal(true);
+  };
+
+  const handleExecuteRestore = async () => {
+    const target = selectedSnapshotForRestore || backups[0];
+    if (!target?.id) {
+      toast.error("Không tìm thấy thông tin bản sao lưu");
+      return;
+    }
+    if (!restorePassword) {
+      toast.error("Vui lòng nhập mật khẩu quản trị viên để xác nhận");
+      return;
+    }
+
+    setIsRestoring(true);
+    try {
+      const res = await systemUpdateApi.restoreBackup({
+        snapshotId: target.id,
+        password: restorePassword,
+      });
+      await mutate();
+      setShowRestoreModal(false);
+      setRestorePassword("");
+      setSelectedSnapshotForRestore(null);
+      toast.success(res.message || "Khôi phục dữ liệu từ snapshot thành công!", { duration: 5000 });
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || error?.message || "Khôi phục thất bại. Vui lòng kiểm tra lại mật khẩu.");
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
   const isConfirmPhraseValid = wipeConfirmPhrase.trim().toUpperCase() === "XAC NHAN XOA";
-  const isFormValid = Boolean(wipePassword && isConfirmPhraseValid);
+  const isWipeFormValid = Boolean(wipePassword && isConfirmPhraseValid);
 
   const handleExecuteWipeData = async () => {
     if (!wipePassword) {
@@ -166,7 +207,7 @@ export default function SettingsBackup() {
         </div>
       </div>
 
-      {/* 2. 4 Action Controls (Không trùng lặp, rõ ràng từng tác vụ) */}
+      {/* 2. 4 Action Controls */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Button
           variant="primary"
@@ -203,8 +244,9 @@ export default function SettingsBackup() {
         </Button>
         <Button
           variant="outline"
-          onClick={() => setShowRestoreModal(true)}
-          className="h-11 rounded-xl text-xs font-bold gap-2 text-text hover:text-primary cursor-pointer"
+          onClick={() => handleOpenRestore()}
+          disabled={backups.length === 0}
+          className="h-11 rounded-xl text-xs font-bold gap-2 text-text hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
         >
           <RotateCcw size={14} /> Khôi phục dữ liệu
         </Button>
@@ -233,7 +275,7 @@ export default function SettingsBackup() {
         </div>
       </Card>
 
-      {/* 4. Snapshots Table */}
+      {/* 4. Snapshots Table - Kèm nút "Khôi phục" trực tiếp từng dòng */}
       <Card className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -298,14 +340,24 @@ export default function SettingsBackup() {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDownloadManifest(b)}
-                        className="h-7 px-2 text-xs text-primary font-bold hover:bg-primary/10"
-                      >
-                        <Download size={13} className="mr-1" /> Tải về
-                      </Button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenRestore(b)}
+                          className="h-7 px-2.5 rounded-lg text-xs font-bold flex items-center gap-1 text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 active:scale-95 transition cursor-pointer"
+                          title="Khôi phục trạng thái từ snapshot này"
+                        >
+                          <RotateCcw size={12} /> Khôi phục
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadManifest(b)}
+                          className="h-7 px-2 rounded-lg text-xs font-medium flex items-center gap-1 text-muted hover:text-text hover:bg-muted/20 active:scale-95 transition cursor-pointer"
+                          title="Tải manifest snapshot"
+                        >
+                          <Download size={12} /> Tải về
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -315,7 +367,7 @@ export default function SettingsBackup() {
         )}
       </Card>
 
-      {/* 5. Vùng Nguy Hiểm: Đặt lại & Xóa dữ liệu (Danger Zone) - Nút màu đỏ nổi bật rõ ràng */}
+      {/* 5. Vùng Nguy Hiểm: Đặt lại & Xóa dữ liệu (Danger Zone) */}
       <Card className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-5 flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
@@ -342,7 +394,7 @@ export default function SettingsBackup() {
         </div>
       </Card>
 
-      {/* Modal Xác nhận Reset / Wipe Data - Rộng rãi (max-w-2xl), tiêu đề rõ ràng không che lấp */}
+      {/* Modal Xác nhận Reset / Wipe Data */}
       {showWipeModal && (
         <Modal
           isOpen={showWipeModal}
@@ -486,38 +538,94 @@ export default function SettingsBackup() {
               <button
                 type="button"
                 onClick={handleExecuteWipeData}
-                disabled={isWiping || !isFormValid}
-                className={`h-10 px-5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 text-white transition shadow-sm ${isFormValid && !isWiping ? "bg-rose-600 hover:bg-rose-700 cursor-pointer shadow-rose-600/20" : "bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-60"}`}
+                disabled={isWiping || !isWipeFormValid}
+                className={`h-10 px-5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 text-white transition shadow-sm ${isWipeFormValid && !isWiping ? "bg-rose-600 hover:bg-rose-700 cursor-pointer shadow-rose-600/20" : "bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-60"}`}
               >
                 {isWiping ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                {isWiping ? "Đang xử lý đặt lại..." : isFormValid ? "Xác nhận xóa & Đặt lại dữ liệu" : "Vui lòng nhập mật khẩu & cụm từ xác nhận"}
+                {isWiping ? "Đang xử lý đặt lại..." : isWipeFormValid ? "Xác nhận xóa & Đặt lại dữ liệu" : "Vui lòng nhập mật khẩu & cụm từ xác nhận"}
               </button>
             </div>
           </div>
         </Modal>
       )}
 
-      {/* Modal Hướng dẫn Phục hồi Dữ liệu */}
+      {/* Modal Khôi phục Dữ liệu từ Snapshot đã chọn */}
       {showRestoreModal && (
         <Modal
           isOpen={showRestoreModal}
-          onClose={() => setShowRestoreModal(false)}
+          onClose={() => {
+            if (!isRestoring) {
+              setShowRestoreModal(false);
+              setSelectedSnapshotForRestore(null);
+              setRestorePassword("");
+            }
+          }}
           maxWidth="max-w-xl"
-          title="Quy trình Khôi phục Dữ liệu An toàn"
+          title={
+            <span className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-lg font-black">
+              <RotateCcw size={20} className="shrink-0" />
+              Khôi phục dữ liệu từ bản sao lưu
+            </span>
+          }
         >
-          <div className="flex flex-col gap-3 text-xs text-muted leading-relaxed">
-            <p>
-              Để bảo đảm an toàn tuyệt đối cho toàn bộ hợp đồng, khách thuê, hóa đơn và lịch sử điện nước đang vận hành, quy trình phục hồi dữ liệu từ snapshot được bảo vệ nghiêm ngặt:
-            </p>
-            <ol className="list-decimal pl-4 flex flex-col gap-1.5 font-medium text-text">
-              <li>Hệ thống tự động tạo một snapshot lưu giữ hiện trạng trước khi tiến hành rollback.</li>
-              <li>Chỉ tài khoản Quản trị viên cấp cao (<b className="font-mono text-primary">admin@homeland.vn</b>) mới có quyền yêu cầu khôi phục.</li>
-              <li>Lệnh khôi phục sẽ được chạy cô lập qua CLI của máy chủ để tránh rủi ro ngắt kết nối giữa chừng.</li>
-            </ol>
-            <div className="mt-2 flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setShowRestoreModal(false)}>
-                Đã hiểu
+          <div className="flex flex-col gap-4 text-xs leading-relaxed">
+            {/* Snapshot info */}
+            <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3.5 flex flex-col gap-1.5">
+              <div className="font-bold text-text text-xs flex items-center justify-between">
+                <span>Snapshot: <b className="font-mono text-primary">{selectedSnapshotForRestore?.name || (backups[0]?.name ?? "Bản sao lưu mới nhất")}</b></span>
+                <span className="text-[11px] text-muted">{formatDate(selectedSnapshotForRestore?.createdAt || backups[0]?.createdAt)}</span>
+              </div>
+              <div className="text-[11px] text-muted">
+                Dung lượng: <b className="font-mono text-text">{formatBytes(selectedSnapshotForRestore?.sizeBytes || backups[0]?.sizeBytes || 0)}</b> | ID: <span className="font-mono">{selectedSnapshotForRestore?.id || backups[0]?.id}</span>
+              </div>
+            </div>
+
+            {/* Warning */}
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 flex items-start gap-2.5">
+              <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-text font-medium">
+                Hệ thống sẽ phục hồi lại trạng thái dữ liệu tại thời điểm chụp snapshot. Trước khi thực hiện, hệ thống sẽ tự động tạo một snapshot lưu lại hiện trạng hiện tại để bảo đảm an toàn tuyệt đối.
+              </div>
+            </div>
+
+            {/* Password input */}
+            <div className="flex flex-col gap-1.5">
+              <label className="font-bold text-text text-xs flex items-center gap-1.5">
+                <Lock size={13} className="text-muted" /> Mật khẩu tài khoản Quản trị viên:
+              </label>
+              <input
+                type="password"
+                placeholder="Nhập mật khẩu tài khoản Admin để xác nhận"
+                value={restorePassword}
+                onChange={(e) => setRestorePassword(e.target.value)}
+                className="h-10 px-3 rounded-xl border border-border bg-card text-xs text-text focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="mt-3 flex items-center justify-end gap-2.5 pt-2 border-t border-border">
+              <Button
+                variant="outline"
+                size="md"
+                onClick={() => {
+                  setShowRestoreModal(false);
+                  setSelectedSnapshotForRestore(null);
+                  setRestorePassword("");
+                }}
+                disabled={isRestoring}
+                className="h-9 px-3 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Hủy bỏ
               </Button>
+              <button
+                type="button"
+                onClick={handleExecuteRestore}
+                disabled={isRestoring || !restorePassword}
+                className="h-9 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 text-white bg-blue-600 hover:bg-blue-700 active:scale-98 transition shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isRestoring ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                {isRestoring ? "Đang khôi phục dữ liệu..." : "Xác nhận khôi phục"}
+              </button>
             </div>
           </div>
         </Modal>

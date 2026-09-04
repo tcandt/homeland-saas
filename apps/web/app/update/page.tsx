@@ -80,7 +80,7 @@ export default function SystemUpdateLivePage() {
   // 1. Fetch system update check info
   const check = useSWR("system-update-check-full", () => systemUpdateApi.check(), {
     revalidateOnFocus: false,
-    refreshInterval: 12000,
+    refreshInterval: 60000,
   });
 
   // 2. Fetch live job status (Poll 1s during update, 3s otherwise)

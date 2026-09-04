@@ -161,7 +161,7 @@ export class MetricsService implements OnModuleInit {
             AND (
               (pr."sourceType" = 'INVOICE' AND (COALESCE(i."total", 0) - COALESCE(i."paidAmount", 0) - COALESCE(i."creditAmount", 0)) > 0.01)
               OR
-              (pr."sourceType" = 'DEPOSIT' AND COALESCE(d."status", '') NOT IN ('PAID', 'CONVERTED_TO_CONTRACT'))
+              (pr."sourceType" = 'DEPOSIT' AND COALESCE(d."status"::text, '') NOT IN ('PAID', 'CONVERTED_TO_CONTRACT'))
             )
         `,
         this.prisma.$queryRaw<Array<{ count: bigint }>>`

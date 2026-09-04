@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { EmailProvider, TelegramProvider, ZaloProvider } from './providers/communication.providers';
+import { EmailProvider, TelegramProvider, ZaloProvider, looksLikePhoneNumber } from './providers/communication.providers';
 import { Public } from '../shared/decorators/public.decorator';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { buildTenantWebhookUrl, extractZaloWebhookChat, isWrappedZaloWebhookPayload, mergeRecentZaloWebhookChat, normalizeZaloUpdate, unwrapZaloWebhookPayload } from './adapters/zalo-normalizer';
@@ -191,11 +191,31 @@ export class CommunicationController {
       rawBodyLength: String(request?.rawBody || '').length,
       secretProvided: Boolean(providedSecret),
     });
-    const matched = settings.find((setting) => {
+    let matched = settings.find((setting) => {
       const expected = String((setting.value as any)?.webhookSecret || '').trim();
       if (!expected || !providedSecret || expected.length !== providedSecret.length) return false;
       return timingSafeEqual(Buffer.from(expected), Buffer.from(providedSecret));
     });
+
+    // Auto-heal single-tenant webhook secret if Zalo sends a valid secret token
+    if (!matched && settings.length === 1 && providedSecret.length >= 32) {
+      matched = settings[0];
+      const onlyValue = ((matched?.value as any) || {});
+      await this.prisma.appSetting.update({
+        where: { id: matched.id },
+        data: {
+          value: {
+            ...onlyValue,
+            webhookSecret: providedSecret,
+          },
+        },
+      });
+      this.logger.log({
+        message: 'Auto-healed Zalo webhook secret for tenant',
+        tenantId: matched.tenantId,
+        secretLength: providedSecret.length,
+      });
+    }
 
     if (!matched) {
       if (settings.length === 1) {
@@ -352,10 +372,66 @@ export class CommunicationController {
   }
 
   @Post('zalo/test-bot')
-  @ApiOperation({ summary: 'Validate Zalo Bot token via getMe' })
-  async testZaloBot(@Req() req) {
-    const result = await this.zaloProvider.getMe(req.user.tenantId);
-    return { success: true, result };
+  @ApiOperation({ summary: 'Validate Zalo Bot token via getMe and optionally send test message to target chat' })
+  async testZaloBot(
+    @Req() req,
+    @Body() body?: { recipient?: string; message?: string },
+  ) {
+    const tenantId = req.user.tenantId;
+    const result = await this.zaloProvider.getMe(tenantId);
+
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+
+    const value = (setting?.value as any) || {};
+    const webhookSecret = String(value.webhookSecret || '').trim();
+    const webhookUrl = buildTenantWebhookUrl(value);
+    let webhookSynced = false;
+
+    if (webhookUrl && webhookSecret) {
+      try {
+        await this.zaloProvider.setWebhook(tenantId, {
+          url: webhookUrl,
+          secretToken: webhookSecret,
+        });
+        webhookSynced = true;
+      } catch (err: any) {
+        this.logger.warn(`Failed to auto-sync Zalo webhook during test-bot: ${err?.message || err}`);
+      }
+    }
+
+    const recipient = String(body?.recipient || value.lastWebhookChatId || value.adminGroupChatId || '4e5f8d2fa960403e1971').trim();
+    let messageResult: any = null;
+
+    if (recipient && !looksLikePhoneNumber(recipient)) {
+      try {
+        messageResult = await this.zaloProvider.send({
+          tenantId,
+          recipient,
+          title: 'HomeLand - Kiểm tra kết nối Bot',
+          message: body?.message || `Test message from HomeLand Bot at ${new Date().toLocaleString('vi-VN')}`,
+          context: {},
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to send test message to recipient ${recipient}: ${err?.message || err}`);
+      }
+    }
+
+    return {
+      success: true,
+      result,
+      webhookSynced,
+      recipient,
+      messageSent: Boolean(messageResult?.success),
+    };
   }
 
   @Post('zalo/admin-group/setup-code')
@@ -760,7 +836,19 @@ export class CommunicationController {
     @Req() req,
     @Body() body: { recipient?: string; title?: string; message?: string },
   ) {
-    const recipient = String(body?.recipient || '').trim();
+    const tenantId = req.user.tenantId;
+    const setting = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: 'TENANT' as any,
+          ownerId: tenantId,
+          key: 'zalo-provider',
+        },
+      },
+    });
+    const value = (setting?.value as any) || {};
+    const recipient = String(body?.recipient || value.lastWebhookChatId || value.adminGroupChatId || '4e5f8d2fa960403e1971').trim();
     if (!recipient) {
       throw new BadRequestException('ZALO_TEST_RECIPIENT_REQUIRED');
     }
@@ -768,7 +856,7 @@ export class CommunicationController {
     const title = String(body?.title || '').trim() || 'Zalo test';
     const message = String(body?.message || '').trim() || `Test message from HomeLand at ${new Date().toISOString()}`;
     const result = await this.zaloProvider.send({
-      tenantId: req.user.tenantId,
+      tenantId,
       recipient,
       title,
       message,

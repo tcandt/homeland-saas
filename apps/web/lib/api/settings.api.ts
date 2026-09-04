@@ -35,8 +35,8 @@ export const settingsApi = {
     return apiClient.get<{ success: true; status: any }>('/notifications/zalo/status');
   },
 
-  testZaloBot: () => {
-    return apiClient.post<{ success: true; result: any }>('/notifications/zalo/test-bot', {});
+  testZaloBot: (payload?: { recipient?: string; message?: string }) => {
+    return apiClient.post<{ success: true; result: any; recipient?: string; webhookSynced?: boolean; messageSent?: boolean }>('/notifications/zalo/test-bot', payload || {});
   },
 
   testZaloAdminGroup: (payload?: { message?: string }) => {

@@ -262,11 +262,18 @@ export default function SettingsZaloIntegration() {
   const testZaloBot = async () => {
     setIsTestingBot(true);
     try {
-      const response = await settingsApi.testZaloBot();
+      const targetChatId = draft.lastWebhookChatId || "4e5f8d2fa960403e1971";
+      const response = await settingsApi.testZaloBot({ recipient: targetChatId });
       const botData = response?.result?.result || response?.result?.data || response?.result || {};
-      const botName = botData.first_name || botData.name || botData.username || "Bot";
+      const botName = botData.first_name || botData.name || botData.username || botData.display_name || "Bot";
       const botId = botData.id || botData.oa_id || "N/A";
-      toast.success(`Kết nối thành công: ${botName} (ID: ${botId})`);
+      const recipient = response?.recipient || targetChatId;
+      if (response?.messageSent) {
+        toast.success(`Kết nối ${botName} (ID: ${botId}) thành công! Đã gửi tin nhắn test tới ${recipient}`);
+      } else {
+        toast.success(`Kết nối thành công: ${botName} (ID: ${botId})`);
+      }
+      await refreshStatus();
     } catch (error: any) {
       toast.error(error?.message || "Không thể kết nối với Bot. Vui lòng kiểm tra Token.");
     } finally {

@@ -55,7 +55,7 @@ function resolveRecipient(payload: ProviderPayload, keys: string[]) {
   return '';
 }
 
-function looksLikePhoneNumber(value: string) {
+export function looksLikePhoneNumber(value: string) {
   const normalized = value.replace(/[^\d+]/g, '');
   return /^(\+?84|0)\d{8,11}$/.test(normalized);
 }

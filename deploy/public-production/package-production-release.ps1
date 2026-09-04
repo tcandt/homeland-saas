@@ -70,6 +70,7 @@ if (Test-Path -LiteralPath $OutputRoot) {
 Ensure-Directory $OutputRoot
 
 $rootFiles = @(
+  ".dockerignore",
   "Dockerfile.api",
   "Dockerfile.web",
   "package.json",

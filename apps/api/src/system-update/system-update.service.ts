@@ -474,8 +474,18 @@ function getCurrentCommit() {
   return process.env.COMMIT_SHA || safeGit(['rev-parse', 'HEAD']) || 'unknown';
 }
 
+function getAuthenticatedRepoUrl(url: string) {
+  const token = process.env.SYSTEM_UPDATE_GITHUB_TOKEN || process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (!token) return url;
+  if (url.startsWith('https://github.com/')) {
+    return url.replace('https://github.com/', `https://${token}@github.com/`);
+  }
+  return url;
+}
+
 function getRemoteCommit(repositoryUrl: string) {
-  const output = safeGit(['ls-remote', repositoryUrl, 'HEAD']);
+  const targetUrl = getAuthenticatedRepoUrl(repositoryUrl);
+  const output = safeGit(['ls-remote', targetUrl, 'HEAD']);
   return output?.split(/\s+/)[0] || null;
 }
 
@@ -484,8 +494,8 @@ function safeGit(args: string[]) {
     return execFileSync('git', args, {
       cwd: process.cwd(),
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 8000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 10000,
     }).trim();
   } catch {
     return null;
@@ -520,7 +530,8 @@ function readCurrentVersion(packageVersion: string) {
 }
 
 function getLatestReleaseVersion(repositoryUrl: string) {
-  const output = safeGit(['ls-remote', '--tags', '--refs', repositoryUrl, 'v*']);
+  const targetUrl = getAuthenticatedRepoUrl(repositoryUrl);
+  const output = safeGit(['ls-remote', '--tags', '--refs', targetUrl, 'v*']);
   if (!output) return null;
 
   const tags = output

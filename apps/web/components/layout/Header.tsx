@@ -130,11 +130,15 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
   const fetchNotifications = async (url: string) => {
     if (!accessToken) return [];
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) throw new Error("Unable to load notifications.");
-    return res.json();
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.status === 401 || !res.ok) return [];
+      return res.json();
+    } catch {
+      return [];
+    }
   };
 
   const { data: notificationList, mutate: mutateNotifications } = useSWR(
@@ -161,6 +165,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     let pollingTimer: ReturnType<typeof setInterval> | null = null;
 
     const fetchInitialCount = async () => {
+      if (!accessToken) return;
       try {
         const res = await fetch("/api/v1/notifications/unread-count", {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -189,6 +194,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     };
 
     const startStream = () => {
+      if (!accessToken) return;
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
       streamController = new AbortController();
       fetch(`${apiUrl}/notifications/stream`, {
@@ -201,8 +207,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
         .then(async (response) => {
           if (response.ok && isSubscribed) {
             await consumeServerSentEvents(response, handleSseData);
-          } else if (isSubscribed) {
-            // If SSE not available, start fallback polling at 60s
+          } else if (isSubscribed && response.status !== 401 && response.status !== 403) {
+            // If SSE not available and authenticated, fallback polling at 60s
             if (!pollingTimer) {
               pollingTimer = setInterval(fetchInitialCount, 60000);
             }

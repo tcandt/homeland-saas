@@ -480,7 +480,17 @@ export class CommunicationController {
   @ApiOperation({ summary: 'Send a test Zalo message to the configured admin group' })
   async testZaloAdminGroup(
     @Req() req,
-    @Body() body: { message?: string; template?: 'default' | 'connected' | 'update' | 'overload'; currentVersion?: string; latestVersion?: string; suspiciousIpCount?: number; topSource?: string; currentRps?: number },
+    @Body() body: {
+      message?: string;
+      template?: 'default' | 'connected' | 'update' | 'overload' | 'update_success' | 'update-success';
+      currentVersion?: string;
+      latestVersion?: string;
+      fromVersion?: string;
+      toVersion?: string;
+      suspiciousIpCount?: number;
+      topSource?: string;
+      currentRps?: number;
+    },
   ) {
     const tenantId = req.user.tenantId;
     const setting = await this.prisma.appSetting.findUnique({

@@ -374,6 +374,88 @@ export class MonthlySettlementService {
       const customRateVnd = isCustomRate ? Number(meter?.customRateVnd || 3967) : null;
       const rateModeLabel = isCustomRate ? `Tự thiết lập (${(customRateVnd || 3967).toLocaleString('vi-VN')}đ/kWh)` : 'Bậc thang EVN';
 
+      if (billingContracts.length === 0) {
+        // Phòng trống / chưa có hợp đồng: Vẫn hiển thị đầy đủ trên danh sách tổng hợp
+        const item = {
+          billingGroupKey: `ROOM:${room.id}`,
+          billingScope: 'ROOM',
+          utilityShareRatio: 1,
+          sharedTotalMembers: 0,
+          roomElectricityKwh: rawElectricityKwh,
+          roomElectricityAmount: rawElectricityAmount,
+          roomServiceAmount: 0,
+          roomId: room.id,
+          roomCode: room.code,
+          roomName: room.name,
+          buildingId: room.building.id,
+          buildingCode: room.building.code,
+          buildingName: room.building.name,
+          floorName: room.floor.name,
+          floorLevel: room.floor.level,
+          roomRentalType: room.rentalType,
+          roomCapacity: room.capacity,
+          contractId: null,
+          contractCode: null,
+          contractStatus: null,
+          contractStartDate: null,
+          contractSignedAt: null,
+          hasContract: false,
+          isFirstMonthNewTenant: false,
+          electricityEligible: false,
+          serviceEligible: false,
+          representative: null,
+          membersCount: 0,
+          members: [],
+          period,
+          usagePeriod,
+          invoiceId: null,
+          invoiceCode: `INV-${period.replace('-', '')}-${room.code}`,
+          roomPrice: 0,
+          electricityKwh: 0,
+          electricityAmount: 0,
+          meterReading: meter
+            ? {
+                oldReading: Number(meter.oldReadingKwh || 0),
+                newReading: Number(meter.newReadingKwh || meter.energyMonthKwh || 0),
+                powerW: Number(meter.powerCurrentW || 0),
+                isOnline: meter.status === 'on' || meter.lastStatus === 'on' || meter.isOnline === true,
+                lastSyncedAt: meter.lastSyncedAt,
+                rateMode: isCustomRate ? 'custom' : 'residential',
+                customRateVnd,
+                rateModeLabel,
+              }
+            : null,
+          waterAmount: 0,
+          serviceAmount: 0,
+          totalAmount: 0,
+          notificationStatus: 'PENDING' as const,
+          notificationSentAt: null,
+          notificationError: null,
+          paymentStatus: 'DRAFT',
+          paidAmount: 0,
+        };
+
+        if (query.search) {
+          const needle = query.search.trim().toLowerCase();
+          const matchRoom = room.code.toLowerCase().includes(needle);
+          const matchBuilding = room.building.name.toLowerCase().includes(needle) || room.building.code.toLowerCase().includes(needle);
+          if (!matchRoom && !matchBuilding) {
+            continue;
+          }
+        }
+
+        if (query.notificationStatus && query.notificationStatus !== 'ALL') {
+          continue;
+        }
+
+        if (query.paymentStatus && query.paymentStatus !== 'ALL') {
+          continue;
+        }
+
+        items.push(item);
+        continue;
+      }
+
       for (const activeContract of billingContracts) {
         const representative = activeContract?.customer || null;
         const existingInvoice = isSharedRoom
@@ -587,10 +669,10 @@ export class MonthlySettlementService {
     const occupiedRooms = new Set(items.filter((i) => i.hasContract).map((i) => i.roomId)).size;
     const billingGroups = items.length;
     const totalAmount = items.reduce((sum, i) => sum + i.totalAmount, 0);
-    const sentZaloCount = items.filter((i) => i.notificationStatus === 'SENT_ZALO').length;
-    const pendingCount = items.filter((i) => i.notificationStatus === 'PENDING').length;
-    const failedCount = items.filter((i) => i.notificationStatus === 'FAILED').length;
-    const paidCount = items.filter((i) => i.paymentStatus === 'PAID').length;
+    const sentZaloCount = items.filter((i) => i.hasContract && i.notificationStatus === 'SENT_ZALO').length;
+    const pendingCount = items.filter((i) => i.hasContract && i.notificationStatus === 'PENDING').length;
+    const failedCount = items.filter((i) => i.hasContract && i.notificationStatus === 'FAILED').length;
+    const paidCount = items.filter((i) => i.hasContract && i.paymentStatus === 'PAID').length;
     const totalPaidAmount = items.reduce((sum, i) => sum + i.paidAmount, 0);
 
     const settings = await this.getSettings(tenantId);

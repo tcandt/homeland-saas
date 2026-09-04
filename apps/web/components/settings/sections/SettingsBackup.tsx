@@ -450,28 +450,34 @@ export default function SettingsBackup() {
       </Card>
 
       {/* 4. Vùng Nguy Hiểm: Đặt lại & Xóa dữ liệu (Danger Zone) */}
-      <Card className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4 sm:p-5 flex flex-col gap-4 shadow-2xs">
+      <Card className="rounded-2xl border border-rose-200/70 dark:border-rose-900/40 bg-gradient-to-br from-rose-50/60 via-rose-50/20 to-background dark:from-rose-950/25 dark:via-rose-950/10 dark:to-background p-4.5 sm:p-5 flex flex-col gap-4 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 mt-0.5">
-              <ShieldAlert size={22} />
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 border border-rose-500/20 shadow-2xs mt-0.5">
+              <ShieldAlert size={20} />
             </span>
-            <div className="flex flex-col gap-1">
-              <h4 className="text-sm font-black text-rose-600 dark:text-rose-400">
-                Vùng nguy hiểm: Đặt lại & Xóa dữ liệu vận hành (Reset Data)
-              </h4>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="text-xs sm:text-sm font-bold text-rose-700 dark:text-rose-400">
+                  Vùng nguy hiểm: Đặt lại &amp; Xóa dữ liệu vận hành (Reset Data)
+                </h4>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/40">
+                  Dành riêng Quản trị viên
+                </span>
+              </div>
               <p className="text-xs text-muted leading-relaxed max-w-2xl">
-                Dành cho Quản trị viên khi cần dọn dẹp sạch toàn bộ dữ liệu kiểm thử (Hợp đồng, Khách thuê, Tiền cọc, Hóa đơn & Lịch sử gửi Zalo) để bắt đầu nhập dữ liệu mới. 
-                <b className="text-text font-bold"> Danh sách Tòa nhà, Phòng, Tài khoản Admin và Cấu hình tích hợp luôn được bảo tồn an toàn.</b>
+                Dọn dẹp nhanh dữ liệu kiểm thử (Hợp đồng, Khách thuê, Tiền cọc, Hóa đơn &amp; Lịch sử Zalo) để bắt đầu vận hành chính thức.
+                <span className="text-text font-semibold block sm:inline sm:ml-1">Danh sách Tòa nhà, Phòng, Tài khoản Admin &amp; Cấu hình thiết bị luôn được bảo toàn an toàn.</span>
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => setShowWipeModal(true)}
-            className="h-10 px-4.5 shrink-0 rounded-xl text-xs font-bold flex items-center justify-center gap-2 text-white bg-rose-600 hover:bg-rose-700 active:scale-98 transition shadow-md shadow-rose-600/20 cursor-pointer"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 shrink-0 rounded-xl text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-500/10 hover:bg-rose-600 hover:text-white dark:bg-rose-500/15 dark:hover:bg-rose-600 dark:hover:text-white border border-rose-300/80 dark:border-rose-800/60 hover:border-rose-600 shadow-2xs hover:shadow-md hover:shadow-rose-600/20 active:scale-97 transition-all duration-200 cursor-pointer"
           >
-            <Trash2 size={15} /> Đặt lại dữ liệu vận hành
+            <Trash2 size={14} className="text-rose-600 dark:text-rose-400 group-hover:text-white transition-colors" />
+            <span>Đặt lại dữ liệu vận hành</span>
           </button>
         </div>
       </Card>

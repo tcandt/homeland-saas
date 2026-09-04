@@ -2,6 +2,22 @@
 
 import React, { useEffect } from "react";
 
+const shouldIgnore = (errOrMsg: unknown) => {
+  if (!errOrMsg) return false;
+  const str =
+    typeof errOrMsg === "string"
+      ? errOrMsg
+      : (errOrMsg as Error)?.message ||
+        (errOrMsg as Error)?.stack ||
+        String(errOrMsg);
+  return (
+    str.includes("startTime") ||
+    str.includes("reportAllChanges") ||
+    str.includes("ERR_QUIC_PROTOCOL_ERROR") ||
+    str.includes("notifications/stream")
+  );
+};
+
 export default function ProductionSecurityProvider({
   children,
 }: {
@@ -10,13 +26,10 @@ export default function ProductionSecurityProvider({
   useEffect(() => {
     // 1. Chặn các lỗi không mong muốn từ Web Vitals / Cloudflare beacon / extensions bên thứ ba (startTime, reportAllChanges)
     const handleGlobalError = (event: ErrorEvent) => {
-      const msg = event?.message || "";
-      const errorMsg = event?.error?.message || "";
       if (
-        msg.includes("startTime") ||
-        msg.includes("reportAllChanges") ||
-        errorMsg.includes("startTime") ||
-        errorMsg.includes("reportAllChanges")
+        shouldIgnore(event?.message) ||
+        shouldIgnore(event?.error) ||
+        shouldIgnore(event?.filename)
       ) {
         event.preventDefault();
         event.stopImmediatePropagation?.();
@@ -25,11 +38,7 @@ export default function ProductionSecurityProvider({
     };
 
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      const reasonMsg = event?.reason?.message || String(event?.reason || "");
-      if (
-        reasonMsg.includes("startTime") ||
-        reasonMsg.includes("reportAllChanges")
-      ) {
+      if (shouldIgnore(event?.reason)) {
         event.preventDefault();
         event.stopImmediatePropagation?.();
       }

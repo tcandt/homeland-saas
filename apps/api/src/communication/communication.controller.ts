@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Post, Sse, MessageEvent, UseGuards, Req, Delete, Body, ForbiddenException, BadRequestException, Headers, Logger, Query } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Post, Sse, MessageEvent, UseGuards, Req, Delete, Body, ForbiddenException, BadRequestException, Headers, Header, Logger, Query } from '@nestjs/common';
 import { CommunicationService } from './communication.service';
 import { PrismaService } from '../prisma.service';
 import { Observable, interval, timer } from 'rxjs';
@@ -58,13 +58,17 @@ export class CommunicationController {
     return { count };
   }
 
+  @Header('Cache-Control', 'no-cache, no-transform')
+  @Header('X-Accel-Buffering', 'no')
+  @Header('Content-Encoding', 'none')
+  @Header('Connection', 'keep-alive')
   @Sse('stream')
   stream(@Req() req): Observable<MessageEvent> {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
     
-    // Fallback/Simulated SSE using rxjs timer to emit immediately then every 30s
-    return timer(0, 30000).pipe(
+    // Emit every 15s to keep HTTP/2 & HTTP/3 QUIC connection alive through Cloudflare/Nginx proxy
+    return timer(0, 15000).pipe(
       switchMap(async () => {
         const count = await this.prisma.notification.count({
           where: { tenantId, userId, channel: 'IN_APP', status: { in: ['CREATED', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED'] } }

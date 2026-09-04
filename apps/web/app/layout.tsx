@@ -31,42 +31,53 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
-                // 1. Guard PerformanceObserver to prevent crashes inside web-vitals / extensions
+                function shouldIgnore(errOrMsg) {
+                  if (!errOrMsg) return false;
+                  var str = typeof errOrMsg === 'string' ? errOrMsg : ((errOrMsg && (errOrMsg.message || errOrMsg.stack)) || String(errOrMsg));
+                  return str.indexOf('startTime') !== -1 ||
+                         str.indexOf('reportAllChanges') !== -1 ||
+                         str.indexOf('ERR_QUIC_PROTOCOL_ERROR') !== -1 ||
+                         str.indexOf('notifications/stream') !== -1;
+                }
+
+                // 1. Safe PerformanceObserver proxy preserving constructor semantics
                 if (typeof window !== 'undefined' && window.PerformanceObserver) {
                   try {
                     var OrigObserver = window.PerformanceObserver;
-                    window.PerformanceObserver = function(callback) {
+                    var SafeObserver = function(callback) {
                       var safeCallback = function(list, observer) {
                         try {
-                          if (!list || !list.getEntries) return;
-                          var entries = list.getEntries();
-                          if (!entries || !entries.length) return;
                           callback(list, observer);
                         } catch (err) {
-                          if (err && String(err.message).indexOf('startTime') !== -1) return;
+                          // Ignore web vitals / beacon internal errors
                         }
                       };
                       try {
-                        return new OrigObserver(safeCallback);
+                        return Reflect.construct(OrigObserver, [safeCallback], new.target || SafeObserver);
                       } catch (e) {
-                        return new OrigObserver(callback);
+                        return new OrigObserver(safeCallback);
                       }
                     };
-                    window.PerformanceObserver.prototype = OrigObserver.prototype;
-                    window.PerformanceObserver.supportedEntryTypes = OrigObserver.supportedEntryTypes;
+                    SafeObserver.prototype = OrigObserver.prototype;
+                    try {
+                      Object.defineProperty(SafeObserver, 'supportedEntryTypes', {
+                        get: function() { return OrigObserver.supportedEntryTypes; },
+                        configurable: true,
+                        enumerable: true
+                      });
+                    } catch (e) {}
+                    window.PerformanceObserver = SafeObserver;
                   } catch (e) {}
                 }
 
-                // 2. Guard console.error from reporting startTime/reportAllChanges
+                // 2. Guard console.error from reporting startTime/reportAllChanges/QUIC stream errors
                 if (typeof window !== 'undefined' && window.console && window.console.error) {
                   var origConsoleError = window.console.error;
                   window.console.error = function() {
-                    var str = '';
                     for (var i = 0; i < arguments.length; i++) {
-                      str += String(arguments[i] || '') + ' ';
-                    }
-                    if (str.indexOf('startTime') !== -1 || str.indexOf('reportAllChanges') !== -1) {
-                      return;
+                      if (shouldIgnore(arguments[i])) {
+                        return;
+                      }
                     }
                     return origConsoleError.apply(window.console, arguments);
                   };
@@ -75,8 +86,7 @@ export default function RootLayout({
                 // 3. Guard window.onerror
                 var origOnError = window.onerror;
                 window.onerror = function(msg, url, line, col, error) {
-                  var m = String(msg || (error && error.message) || '');
-                  if (m.indexOf('startTime') !== -1 || m.indexOf('reportAllChanges') !== -1) {
+                  if (shouldIgnore(msg) || shouldIgnore(error) || shouldIgnore(url)) {
                     return true;
                   }
                   if (origOnError) return origOnError.apply(this, arguments);
@@ -84,8 +94,7 @@ export default function RootLayout({
                 };
 
                 window.addEventListener('error', function(e) {
-                  var m = String((e && e.message) || (e && e.error && e.error.message) || '');
-                  if (m.indexOf('startTime') !== -1 || m.indexOf('reportAllChanges') !== -1) {
+                  if (shouldIgnore(e && e.message) || shouldIgnore(e && e.error) || shouldIgnore(e && e.filename)) {
                     e.preventDefault();
                     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
                     return true;
@@ -93,8 +102,7 @@ export default function RootLayout({
                 }, true);
 
                 window.addEventListener('unhandledrejection', function(e) {
-                  var m = String((e && e.reason && e.reason.message) || (e && e.reason) || '');
-                  if (m.indexOf('startTime') !== -1 || m.indexOf('reportAllChanges') !== -1) {
+                  if (shouldIgnore(e && e.reason)) {
                     e.preventDefault();
                     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
                   }

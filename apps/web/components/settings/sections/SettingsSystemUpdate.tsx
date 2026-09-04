@@ -19,6 +19,7 @@ import { Modal } from "@/components/ui/Modal";
 import { systemUpdateApi, SystemUpdateJob } from "@/lib/api/system-update.api";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import toast from "react-hot-toast";
+import webPackage from "../../../package.json";
 
 function shortVersion(value?: string) {
   if (!value || value === "unknown") return value || "c37fa9a";
@@ -26,7 +27,7 @@ function shortVersion(value?: string) {
 }
 
 function displayVersion(value?: string) {
-  if (!value) return "v1.2.3";
+  if (!value) return `v${process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version}`;
   return value;
 }
 

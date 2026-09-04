@@ -169,7 +169,7 @@ export class SystemUpdateService {
 
     return {
       connected: true,
-      agentVersion: 'v1.2.3',
+      agentVersion: readCurrentVersion(readPackageVersion()),
       scheduleEnabled: true,
       scheduleCron: '0 2 * * *',
       scheduleDescription: 'Tự động chụp snapshot định kỳ vào 02:00 AM',

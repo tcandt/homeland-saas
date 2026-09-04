@@ -507,8 +507,8 @@ export class CommunicationController {
           })
         : template === 'update'
         ? buildUpdateAvailableMessage({
-            currentVersion: String(body?.currentVersion || process.env.APP_VERSION || 'v1.2.3'),
-            latestVersion: String(body?.latestVersion || 'v1.2.3'),
+            currentVersion: String(body?.currentVersion || process.env.APP_VERSION || 'latest'),
+            latestVersion: String(body?.latestVersion || process.env.APP_VERSION || 'latest'),
             checkedAt: new Date(),
           })
         : template === 'overload'

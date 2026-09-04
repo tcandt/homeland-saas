@@ -64,21 +64,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     if (publicPaths.includes(pathname)) return;
 
     const logoutForIdle = () => {
-      const token = useAuthStore.getState().accessToken;
-      if (token) {
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api/v1"}/auth/logout`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          keepalive: true,
-        }).catch(() => undefined);
-      }
       useAuthStore.getState().clearSession();
       router.replace("/login");
     };
 
     const resetIdleTimer = () => {
       if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = window.setTimeout(logoutForIdle, 5 * 60 * 1000);
+      // Giữ session 24 giờ (86,400,000 ms) khi không tương tác
+      idleTimerRef.current = window.setTimeout(logoutForIdle, 24 * 60 * 60 * 1000);
     };
 
     const events: Array<keyof WindowEventMap> = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "focus"];

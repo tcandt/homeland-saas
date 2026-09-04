@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
+import { requireRoutePermission } from '@/lib/server/route-auth';
 
 function resolveTaiLieuPath(filename: string): string {
   const candidates = [
@@ -23,6 +24,9 @@ function resolveTaiLieuPath(filename: string): string {
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireRoutePermission(request, 'contract.read');
+    if ('response' in auth) return auth.response;
+
     const data = await request.json();
     const templatePath = resolveTaiLieuPath('CT01.docx');
 
@@ -51,9 +55,7 @@ export async function POST(request: Request) {
     };
 
     const tenantCccd = cleanCccd(data.tenantDraft?.cccd || '');
-    const isThe = data.ct01Draft?.hoTenChuHo?.toUpperCase().includes('THỂ') || data.ct01Draft?.chuNha === 'THE';
-    const landlordCccdStr = isThe ? "066094006596" : "054097010677";
-    const landlordCccd = cleanCccd(data.ct01Draft?.cccdChuHo || landlordCccdStr);
+    const landlordCccd = cleanCccd(data.ct01Draft?.cccdChuHo || '');
 
     // Map data
     const templateData = {
@@ -114,6 +116,7 @@ export async function POST(request: Request) {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'Content-Disposition': `attachment; filename="CT01_KhachThue.docx"`,
+        'Cache-Control': 'private, no-store',
       },
     });
 

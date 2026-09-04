@@ -7,28 +7,11 @@ import { execSync } from 'child_process';
 import { PDFDocument } from 'pdf-lib';
 import dayjs from 'dayjs';
 import { numberToWordsVietnamese } from '@/lib/utils/number-to-words';
+import { requireRoutePermission } from '@/lib/server/route-auth';
 
 const LANDLORDS: Record<string, any> = {
-  TINH: {
-    hoTenChuNha: "NGUYỄN ĐỨC TÍNH",
-    ngaySinhChuNha: "13/03/1997",
-    cccdChuNha: "054097010677",
-    diaChiChuNha: "LK01.31 Khu đô thị \u00c2n Phú , phường Tân An , tỉnh Đắk Lắk",
-    dienThoaiChuNha: "0373129295 - 0567867889 ( Tính )",
-    chuTaiKhoan: "HKD NGUYEN DUC TINH",
-    soTaiKhoan: "8818406081",
-    nganHang: "BIDV",
-  },
-  THE: {
-    hoTenChuNha: "PHAN VĂN THỂ",
-    ngaySinhChuNha: "24/11/1994",
-    cccdChuNha: "066094006596 , Cấp ngày: 15/10/2025 tại Cục cảnh sát",
-    diaChiChuNha: "LK01.31 Khu đô thị \u00c2n Phú , phường Tân An , tỉnh Đắk Lắk",
-    dienThoaiChuNha: "0373129295 - 0567.79.2222 ( Thể )",
-    chuTaiKhoan: "HKD PHAN VAN THE",
-    soTaiKhoan: "8827905414",
-    nganHang: "BIDV",
-  }
+  TINH: {},
+  THE: {},
 };
 
 function resolveTaiLieuPath(filename: string): string {
@@ -187,6 +170,9 @@ async function fetchAssetBuffer(assetUrl: string, apiBaseUrl: string, authHeader
 export async function POST(request: Request) {
   const tempFiles: string[] = [];
   try {
+    const auth = await requireRoutePermission(request, 'contract.read');
+    if ('response' in auth) return auth.response;
+
     const data = await request.json();
     const { contractId, ct01Draft = {} } = data;
 
@@ -194,7 +180,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing contractId' }, { status: 400 });
     }
 
-    const authHeader = request.headers.get('authorization');
+    const authHeader = auth.authorization;
     let apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001/api/v1';
     if (!apiBaseUrl.startsWith('http')) {
       apiBaseUrl = 'http://127.0.0.1:3001/api/v1';
@@ -478,6 +464,7 @@ export async function POST(request: Request) {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="HoSoLuuTru_Phong_${contract.room?.code || 'Detail'}.pdf"`,
+        'Cache-Control': 'private, no-store',
       },
     });
 

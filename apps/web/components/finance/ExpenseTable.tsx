@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { financeApi } from "@/lib/api/finance.api";
+import { getAuthorizationHeader } from "@/lib/auth/auth-header";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { financeKeys, useExpensesQuery, useOwnerProfitSummaryQuery } from "@/lib/queries/finance.queries";
@@ -288,6 +289,7 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
       formData.append("file", file);
       const response = await fetch("/api/expense-bills", {
         method: "POST",
+        headers: getAuthorizationHeader(),
         body: formData,
       });
       if (!response.ok) throw new Error("UPLOAD_FAILED");
@@ -309,7 +311,7 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
       const attachmentUrls = (Array.isArray(expense.attachmentUrls) ? expense.attachmentUrls : []).filter((item: string) => item !== url);
       await financeApi.updateExpense(expense.id, { attachmentUrls });
       if (url.startsWith("/api/expense-bills/")) {
-        await fetch(url, { method: "DELETE" }).catch(() => undefined);
+        await fetch(url, { method: "DELETE", headers: getAuthorizationHeader() }).catch(() => undefined);
       }
       toast.success("Đã xóa bill");
       await invalidate();
@@ -730,10 +732,7 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr]">
               <div className="overflow-hidden rounded-2xl border border-border bg-card">
                 {Array.isArray(pendingAction.expense.attachmentUrls) && pendingAction.expense.attachmentUrls[0] ? (
-                  <a href={pendingAction.expense.attachmentUrls[0]} target="_blank" rel="noreferrer" className="block">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={pendingAction.expense.attachmentUrls[0]} alt="Bill chi phí" className="h-[220px] w-full object-contain bg-surface" />
-                  </a>
+                  <ProtectedBillImage src={pendingAction.expense.attachmentUrls[0]} alt="Bill chi phí" className="h-[220px] w-full object-contain bg-surface" />
                 ) : (
                   <div className="flex h-[220px] flex-col items-center justify-center gap-2 bg-surface text-muted">
                     <ImageIcon size={24} />
@@ -780,8 +779,7 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
         <div className="rounded-2xl border border-border bg-surface p-3">
           {previewBillUrl && (
             <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={previewBillUrl} alt="Bill chi phí" className="max-h-[70vh] w-full rounded-xl object-contain" />
+              <ProtectedBillImage src={previewBillUrl} alt="Bill chi phí" className="max-h-[70vh] w-full rounded-xl object-contain" />
             </>
           )}
         </div>
@@ -856,8 +854,7 @@ function BillCell({
             aria-label="Xem bill"
             title="Xem bill"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={firstBill} alt="Bill" className="h-full w-full object-cover" />
+            <ProtectedBillImage src={firstBill} alt="Bill" className="h-full w-full object-cover" />
           </button>
           {bills.length > 1 && (
             <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#6d3df8] px-1 text-[10px] font-black text-white">
@@ -865,8 +862,7 @@ function BillCell({
             </span>
           )}
           <div className="pointer-events-none invisible absolute left-1/2 top-12 z-40 w-[220px] -translate-x-1/2 rounded-[14px] border border-border bg-card p-2 opacity-0 shadow-[0_22px_55px_rgba(15,23,42,0.22)] transition-all group-hover:visible group-hover:opacity-100">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={firstBill} alt="Bill preview" className="max-h-[260px] w-full rounded-[10px] object-contain" />
+            <ProtectedBillImage src={firstBill} alt="Bill preview" className="max-h-[260px] w-full rounded-[10px] object-contain" />
             <div className="mt-2 text-center text-[11px] font-bold text-muted">Rê chuột để xem nhanh · bấm để phóng to</div>
           </div>
         </div>
@@ -883,6 +879,47 @@ function BillCell({
       )}
     </div>
   );
+}
+
+function ProtectedBillImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [imageSrc, setImageSrc] = useState(src);
+
+  useEffect(() => {
+    let objectUrl = "";
+    let cancelled = false;
+
+    if (!src.startsWith("/api/expense-bills/")) {
+      setImageSrc(src);
+      return;
+    }
+
+    setImageSrc("");
+    fetch(src, { headers: getAuthorizationHeader(), cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("BILL_IMAGE_FORBIDDEN");
+        return response.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setImageSrc(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setImageSrc("");
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src]);
+
+  if (!imageSrc) {
+    return <div className={`${className || ""} flex items-center justify-center text-[11px] font-bold text-muted`}>Không thể tải bill</div>;
+  }
+
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={imageSrc} alt={alt} className={className} />;
 }
 
 function ActionMenuButton({

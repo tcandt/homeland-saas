@@ -15,7 +15,6 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../shared/guards/permissions.guard';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
-import { Public } from '../shared/decorators/public.decorator';
 
 const DOCUMENT_UPLOAD_LIMIT_BYTES = Number(process.env.DOCUMENT_UPLOAD_LIMIT_BYTES || 20 * 1024 * 1024);
 
@@ -36,19 +35,19 @@ export class DocumentsController {
   }
 
   @Get('storage/*')
-  @Public()
+  @RequirePermissions('document.download')
   async serveStorage(@Param('0') path: string, @Res({ passthrough: true }) res: Response) {
     const normalizedPath = normalizeStorageReference(path || '');
     const buffer = await this.storageProvider.read(normalizedPath);
     res.set({
       'Content-Type': inferMimeTypeFromPath(normalizedPath),
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cache-Control': 'private, no-store',
     });
     return new StreamableFile(Readable.from(buffer));
   }
 
   @Get('storage-link')
-  @Public()
+  @RequirePermissions('document.download')
   @Redirect()
   async getStorageLink(@Query('path') path: string, @Query('direct') direct?: string) {
     const normalizedPath = normalizeStorageReference(path || '');
@@ -62,7 +61,7 @@ export class DocumentsController {
   }
 
   @Get('storage')
-  @Public()
+  @RequirePermissions('document.download')
   async serveStorageByQuery(@Query('path') path: string, @Res({ passthrough: true }) res: Response) {
     const normalizedPath = normalizeStorageReference(path || '');
     if (!normalizedPath) {
@@ -71,7 +70,7 @@ export class DocumentsController {
     const buffer = await this.storageProvider.read(normalizedPath);
     res.set({
       'Content-Type': inferMimeTypeFromPath(normalizedPath),
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cache-Control': 'private, no-store',
     });
     return new StreamableFile(Readable.from(buffer));
   }

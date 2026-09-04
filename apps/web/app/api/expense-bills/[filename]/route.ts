@@ -2,6 +2,7 @@ import { readFile, unlink } from "fs/promises";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveExpenseBillPath, resolveExpenseBillStorageDir } from "../../../../lib/server/expense-bill-storage";
+import { requireRoutePermission } from "../../../../lib/server/route-auth";
 
 const uploadDir = resolveExpenseBillStorageDir();
 const contentTypes: Record<string, string> = {
@@ -12,7 +13,10 @@ const contentTypes: Record<string, string> = {
   ".gif": "image/gif",
 };
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ filename: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ filename: string }> }) {
+  const auth = await requireRoutePermission(request, "finance.read");
+  if ("response" in auth) return auth.response;
+
   const { filename } = await params;
   let file: Buffer;
   try {
@@ -31,12 +35,15 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   return new NextResponse(new Uint8Array(file), {
     headers: {
       "Content-Type": contentType,
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": "private, no-store",
     },
   });
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ filename: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ filename: string }> }) {
+  const auth = await requireRoutePermission(request, "finance.update");
+  if ("response" in auth) return auth.response;
+
   const { filename } = await params;
   try {
     await unlink(resolveExpenseBillPath(filename, uploadDir));

@@ -579,7 +579,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
         body: JSON.stringify({
           contractId: detailContract.id,
           ct01Draft: {
-            hoTenChuHo: "NGUYỄN ĐỨC TÍNH",
+            hoTenChuHo: detailContract.room?.building?.owner?.name || detailContract.room?.building?.ownerName || "",
             quanHeVoiChuHo: "Khách thuê",
             thanhVien: [],
           }

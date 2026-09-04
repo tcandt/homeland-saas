@@ -31,7 +31,12 @@ export class AiController {
        throw new BadRequestException('Context payload too large.');
     }
 
-    const result = await this.agentRouter.processMessage(tenantId, userId, permissions, body.messages as AiMessage[], body.options?.conversationId, body.options?.agent);
+    const messages = body.messages.map((message) => ({
+      role: 'user',
+      content: message.content,
+    })) as AiMessage[];
+
+    const result = await this.agentRouter.processMessage(tenantId, userId, permissions, messages, body.options?.conversationId, body.options?.agent);
     
     // Save conversation history (simple implementation)
     let convId = body.options?.conversationId;
@@ -48,7 +53,7 @@ export class AiController {
     }
 
     // Save user messages and assistant messages
-    for (const msg of body.messages) {
+    for (const msg of messages) {
       await this.prisma.aiMessage.create({
         data: {
           conversationId: convId,
@@ -103,8 +108,8 @@ export class AiController {
 
   @Get('conversations/:id')
   async getConversationDetails(@Req() req: any, @Param('id') id: string) {
-    return this.prisma.aiConversation.findUnique({
-      where: { id },
+    return this.prisma.aiConversation.findFirst({
+      where: { id, tenantId: req.user.tenantId, userId: req.user.id },
       include: {
         messages: {
           orderBy: { createdAt: 'asc' }

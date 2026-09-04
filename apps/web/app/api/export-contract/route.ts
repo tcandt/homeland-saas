@@ -4,6 +4,7 @@ import path from 'path';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { execSync } from 'child_process';
+import { requireRoutePermission } from '@/lib/server/route-auth';
 
 function resolveTaiLieuPath(filename: string): string {
   const candidates = [
@@ -24,8 +25,10 @@ function resolveTaiLieuPath(filename: string): string {
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireRoutePermission(request, 'contract.read');
+    if ('response' in auth) return auth.response;
+
     const data = await request.json();
-    console.log('--- EXPORT CONTRACT PAYLOAD ---', data);
     
     const templatePath = resolveTaiLieuPath('HOP_DONG_1PN.docx');
 
@@ -45,30 +48,7 @@ export async function POST(request: Request) {
       linebreaks: true,
     });
 
-    const LANDLORDS: Record<string, any> = {
-      TINH: {
-        hoTenChuNha: "NGUYỄN ĐỨC TÍNH",
-        ngaySinhChuNha: "13/03/1997",
-        cccdChuNha: "054097010677",
-        diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
-        dienThoaiChuNha: "0373129295 - 0567867889 ( Tính )",
-        chuTaiKhoan: "HKD NGUYEN DUC TINH",
-        soTaiKhoan: "8818406081",
-        nganHang: "BIDV",
-      },
-      THE: {
-        hoTenChuNha: "PHAN VĂN THẾ",
-        ngaySinhChuNha: "24/11/1994",
-        cccdChuNha: "066094006596 , Cấp ngày: 15/10/2025 tại Cục cảnh sát",
-        diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
-        dienThoaiChuNha: "0373129295 - 0567.79.2222 ( Thế )",
-        chuTaiKhoan: "HKD PHAN VAN THE",
-        soTaiKhoan: "8827905414",
-        nganHang: "BIDV",
-      },
-    };
-
-    const defaultLandlord = LANDLORDS[data.chuNha || "TINH"] || LANDLORDS["TINH"];
+    const defaultLandlord: Record<string, string> = {};
     const today = new Date();
     const defaultDay = String(today.getDate()).padStart(2, '0');
     const defaultMonth = String(today.getMonth() + 1).padStart(2, '0');
@@ -166,7 +146,8 @@ try {
               status: 200,
               headers: {
                 'Content-Type': 'application/pdf',
-                'Content-Disposition': `inline; filename="${filename}"`,
+        'Content-Disposition': `inline; filename="${filename}"`,
+        'Cache-Control': 'private, no-store',
               },
             });
           }
@@ -190,6 +171,7 @@ try {
               headers: {
                 'Content-Type': 'application/pdf',
                 'Content-Disposition': `inline; filename="${filename}"`,
+                'Cache-Control': 'private, no-store',
               },
             });
           }
@@ -208,6 +190,7 @@ try {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'private, no-store',
       },
     });
 

@@ -25,7 +25,7 @@ export class SystemUpdateController {
   }
 
   @Post('install')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('system.update.run')
   @ApiOperation({ summary: 'Create a controlled update job' })
   install(
     @CurrentUser('email') email: string,
@@ -36,7 +36,7 @@ export class SystemUpdateController {
   }
 
   @Post('rollback')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('system.update.run')
   @ApiOperation({ summary: 'Create a controlled rollback job' })
   rollback(
     @CurrentUser('email') email: string,
@@ -47,45 +47,51 @@ export class SystemUpdateController {
   }
 
   @Post('wipe-data')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('system.data.wipe')
   @ApiOperation({ summary: 'Wipe business data while preserving settings and accounts' })
   wipeData(
+    @CurrentUser('email') email: string,
     @CurrentUser('id') userId: string,
     @CurrentUser('tenantId') tenantId: string,
     @Body() body: { password?: string; scope?: string; confirmPhrase?: string },
   ) {
+    assertSystemUpdateAdmin(email);
     return this.systemUpdateService.wipeData(userId, tenantId, body || {});
   }
 
   @Get('backups')
-  @RequirePermissions('setting.read')
+  @RequirePermissions('system.backup.read')
   @ApiOperation({ summary: 'Get backup agent connection status and snapshot list' })
   getBackups() {
     return this.systemUpdateService.getBackupStatus();
   }
 
   @Post('backups/create')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('system.backup.create')
   @ApiOperation({ summary: 'Create manual backup snapshot' })
-  createBackup(@Body() body?: { note?: string }) {
+  createBackup(@CurrentUser('email') email: string, @Body() body?: { note?: string }) {
+    assertSystemUpdateAdmin(email);
     return this.systemUpdateService.createBackupSnapshot(body);
   }
 
   @Post('backups/restore')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('system.backup.restore')
   @ApiOperation({ summary: 'Restore data from a backup snapshot' })
   restoreBackup(
+    @CurrentUser('email') email: string,
     @CurrentUser('id') userId: string,
     @CurrentUser('tenantId') tenantId: string,
     @Body() body: { snapshotId: string; password?: string },
   ) {
+    assertSystemUpdateAdmin(email);
     return this.systemUpdateService.restoreBackupSnapshot(userId, tenantId, body || { snapshotId: '' });
   }
 
   @Delete('backups/:id')
-  @RequirePermissions('setting.update')
+  @RequirePermissions('system.backup.delete')
   @ApiOperation({ summary: 'Delete a backup snapshot' })
-  deleteBackup(@Param('id') snapshotId: string) {
+  deleteBackup(@CurrentUser('email') email: string, @Param('id') snapshotId: string) {
+    assertSystemUpdateAdmin(email);
     return this.systemUpdateService.deleteBackupSnapshot(snapshotId);
   }
 }

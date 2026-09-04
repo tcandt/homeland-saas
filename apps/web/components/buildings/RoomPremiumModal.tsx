@@ -77,6 +77,7 @@ import { customersApi } from "@/lib/api/customers.api";
 import { roomsApi } from "@/lib/api/rooms.api";
 import { contractsApi } from "@/lib/api/contracts.api";
 import { hunonicApi } from "@/lib/api/hunonic.api";
+import { getAuthorizationHeader } from "@/lib/auth/auth-header";
 import { getRoomDisplayName } from "./building-labels";
 
 interface Props {
@@ -138,27 +139,9 @@ type ContractDraft = {
   ngayThanhToanDauTien: string;
 };
 
-const LANDLORDS = {
-  TINH: {
-    hoTenChuNha: "NGUYỄN ĐỨC TÍNH",
-    ngaySinhChuNha: "13/03/1997",
-    cccdChuNha: "054097010677",
-    diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
-    dienThoaiChuNha: "0373129295 - 0567867889 ( Tính )",
-    chuTaiKhoan: "HKD NGUYEN DUC TINH",
-    soTaiKhoan: "8818406081",
-    nganHang: "BIDV",
-  },
-  THE: {
-    hoTenChuNha: "PHAN VĂN THỂ",
-    ngaySinhChuNha: "24/11/1994",
-    cccdChuNha: "066094006596 , Cấp ngày: 15/10/2025 tại Cục cảnh sát",
-    diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
-    dienThoaiChuNha: "0373129295 - 0567.79.2222 ( Thể )",
-    chuTaiKhoan: "HKD PHAN VAN THE",
-    soTaiKhoan: "8827905414",
-    nganHang: "BIDV",
-  }
+const LANDLORDS: Record<string, any> = {
+  TINH: {},
+  THE: {},
 };
 
 export const resolveBuildingLandlord = (
@@ -2306,7 +2289,7 @@ export default function RoomPremiumModal({
                                     const payload = buildContractPayload(rep);
                                     const res = await fetch("/api/export-contract?format=pdf", {
                                       method: "POST",
-                                      headers: { "Content-Type": "application/json" },
+                                      headers: { "Content-Type": "application/json", ...getAuthorizationHeader() },
                                       body: JSON.stringify(payload),
                                     });
                                     if (!res.ok) throw new Error("Không thể tải tệp PDF từ server");
@@ -3230,7 +3213,7 @@ export default function RoomPremiumModal({
                   type="text"
                   readOnly
                   disabled
-                  value={LANDLORDS[resolvedLandlordKey]?.hoTenChuNha || "NGUYỄN ĐỨC TÍNH"}
+                  value={(currentBuilding as any)?.owner?.name || (currentBuilding as any)?.ownerName || LANDLORDS[resolvedLandlordKey]?.hoTenChuNha || ""}
                   className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
                 />
               </div>

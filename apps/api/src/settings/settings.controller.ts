@@ -28,7 +28,7 @@ export class SettingsController {
   ) {}
 
   @Get('file')
-  @Public()
+  @RequirePermissions('setting.read')
   @ApiOperation({ summary: 'Download a settings asset' })
   @ApiQuery({ name: 'path', required: true })
   async getFile(
@@ -46,7 +46,7 @@ export class SettingsController {
 
     res.set({
       'Content-Type': mimeType,
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cache-Control': 'private, no-store',
     });
 
     return new StreamableFile(buffer);

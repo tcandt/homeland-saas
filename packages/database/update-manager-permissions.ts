@@ -20,6 +20,7 @@ async function main() {
     'task.read', 'task.create', 'task.update', 'task.delete',
     'sales.read', 'sales.create', 'sales.update', 'sales.delete',
     'setting.read', 'setting.update',
+    'system.update.run', 'system.data.wipe', 'system.backup.read', 'system.backup.create', 'system.backup.restore', 'system.backup.delete',
     'document.read', 'document.create', 'document.update', 'document.delete', 'document.generate', 'document.download', 'document.approve', 'document.sign', 'document.share', 'document.export'
   ];
 

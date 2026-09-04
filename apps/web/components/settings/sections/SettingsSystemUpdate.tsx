@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import {
   AlertTriangle,
@@ -12,6 +13,7 @@ import {
   RotateCcw,
   ShieldCheck,
   Sparkles,
+  Terminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -98,8 +100,20 @@ export default function SettingsSystemUpdate() {
           </div>
         </div>
 
-        {/* 3 Prominent Action Buttons */}
+        {/* Prominent Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <Link href="/update">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8.5 gap-1.5 rounded-xl border-purple-500/30 text-purple-600 dark:text-purple-400 hover:bg-purple-500/10 text-xs font-bold shadow-2xs"
+            >
+              <Terminal size={13} />
+              <span>Xem Live Console (/update)</span>
+            </Button>
+          </Link>
+
           <Button
             type="button"
             variant="outline"
@@ -109,7 +123,7 @@ export default function SettingsSystemUpdate() {
             className="h-8.5 gap-1.5 rounded-xl border-border/70 text-xs font-bold shadow-2xs hover:border-primary/50"
           >
             <RefreshCcw size={13} className={check.isLoading ? "animate-spin" : ""} />
-            <span>Làm mới / Kiểm tra version</span>
+            <span>Làm mới</span>
           </Button>
 
           <Button

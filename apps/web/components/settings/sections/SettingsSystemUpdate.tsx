@@ -186,6 +186,89 @@ export default function SettingsSystemUpdate() {
         </div>
       </div>
 
+      {/* Live Job Progress & Logs Panel */}
+      {job?.id && job.status !== "IDLE" && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3.5 flex flex-col gap-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                {isJobRunning && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>}
+                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                  job.status === "DONE" || job.status === "ROLLED_BACK"
+                    ? "bg-emerald-500"
+                    : job.status === "FAILED"
+                    ? "bg-rose-500"
+                    : job.status === "BLOCKED"
+                    ? "bg-amber-500"
+                    : "bg-primary"
+                }`}></span>
+              </span>
+              <span className="text-xs font-bold text-text">
+                {job.type === "rollback" ? "Tiến trình Rollback" : "Tiến trình Cập nhật phiên bản"}
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-background border border-border/60 text-muted">
+                {job.fromVersion} ➔ {job.toVersion}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${
+                job.status === "DONE" || job.status === "ROLLED_BACK"
+                  ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                  : job.status === "FAILED"
+                  ? "bg-rose-500/10 text-rose-600 border-rose-500/20"
+                  : job.status === "BLOCKED"
+                  ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                  : "bg-primary/10 text-primary border-primary/20"
+              }`}>
+                {job.status === "DONE" && "✅ Cập nhật thành công"}
+                {job.status === "ROLLED_BACK" && "🔄 Đã hoàn tất Rollback"}
+                {job.status === "FAILED" && "❌ Thất bại"}
+                {job.status === "BLOCKED" && "⚠️ Đang ở chế độ mô phỏng an toàn (Safe Dry-Run)"}
+                {!["DONE", "ROLLED_BACK", "FAILED", "BLOCKED"].includes(job.status) && `Đang xử lý: ${job.status}`}
+              </span>
+              <span className="font-mono font-black text-xs text-primary">{job.progressPercent}%</span>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="h-2 w-full overflow-hidden rounded-full bg-border/40">
+            <div
+              className={`h-full transition-all duration-500 ${
+                job.status === "DONE" || job.status === "ROLLED_BACK"
+                  ? "bg-emerald-500"
+                  : job.status === "FAILED"
+                  ? "bg-rose-500"
+                  : "bg-gradient-to-r from-primary to-purple-500"
+              }`}
+              style={{ width: `${Math.max(5, Math.min(100, job.progressPercent))}%` }}
+            />
+          </div>
+
+          {/* Realtime Terminal Logs */}
+          {job.logs && job.logs.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-[11px] text-muted font-bold">
+                <span className="flex items-center gap-1">
+                  <History size={12} /> Nhật ký thực thi thời gian thực (Live Logs)
+                </span>
+                <span className="text-[10px] font-mono text-muted">{job.logs.length} sự kiện</span>
+              </div>
+              <div className="max-h-36 overflow-y-auto rounded-lg bg-neutral-950 p-2.5 font-mono text-[11px] leading-relaxed text-neutral-300 border border-neutral-800 shadow-inner">
+                {job.logs.map((log, idx) => (
+                  <div key={idx} className="flex items-start gap-2 py-0.5">
+                    <span className="text-neutral-500 select-none">{idx + 1}.</span>
+                    <span className={log.includes("STDERR") || log.includes("failed") ? "text-rose-400" : log.includes("finished") || log.includes("success") ? "text-emerald-400" : "text-neutral-200"}>
+                      {log}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Confirmation Modal */}
       <Modal
         isOpen={Boolean(confirmMode)}

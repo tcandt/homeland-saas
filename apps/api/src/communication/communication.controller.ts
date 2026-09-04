@@ -17,6 +17,7 @@ import {
   buildAdminGroupTestMessage,
   buildServerOverloadAlertMessage,
   buildUpdateAvailableMessage,
+  buildUpdateSuccessMessage,
 } from './services/admin-zalo-message-builder';
 
 @ApiTags('Notifications')
@@ -510,6 +511,12 @@ export class CommunicationController {
             currentVersion: String(body?.currentVersion || process.env.APP_VERSION || 'latest'),
             latestVersion: String(body?.latestVersion || process.env.APP_VERSION || 'latest'),
             checkedAt: new Date(),
+          })
+        : template === 'update_success' || template === 'update-success'
+        ? buildUpdateSuccessMessage({
+            fromVersion: String(body?.fromVersion || 'v1.2.2'),
+            toVersion: String(body?.toVersion || body?.currentVersion || process.env.APP_VERSION || 'v1.2.3'),
+            updatedAt: new Date(),
           })
         : template === 'overload'
           ? buildServerOverloadAlertMessage({

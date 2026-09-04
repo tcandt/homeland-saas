@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { SettingScope } from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma.service';
@@ -6,7 +6,11 @@ import { ZaloProvider } from '../providers/communication.providers';
 import { shouldRunGeneralSchedulers } from '../../shared/config/runtime-mode';
 import { SystemUpdateService } from '../../system-update/system-update.service';
 import { RequestAnomalySnapshot, RequestAnomalyTrackerService } from '../../metrics/request-anomaly-tracker.service';
-import { buildServerOverloadAlertMessage, buildUpdateAvailableMessage } from './admin-zalo-message-builder';
+import {
+  buildServerOverloadAlertMessage,
+  buildUpdateAvailableMessage,
+  buildUpdateSuccessMessage,
+} from './admin-zalo-message-builder';
 
 type TenantZaloConfig = {
   settingId: string;
@@ -16,7 +20,7 @@ type TenantZaloConfig = {
 };
 
 @Injectable()
-export class AdminZaloAlertsService {
+export class AdminZaloAlertsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AdminZaloAlertsService.name);
   private readonly updateCooldownMs = Number(process.env.ADMIN_ZALO_UPDATE_ALERT_COOLDOWN_MS || 12 * 60 * 60 * 1000);
   private readonly overloadCooldownMs = Number(process.env.ADMIN_ZALO_OVERLOAD_ALERT_COOLDOWN_MS || 15 * 60 * 1000);
@@ -31,6 +35,89 @@ export class AdminZaloAlertsService {
     private readonly systemUpdateService: SystemUpdateService,
     private readonly requestAnomalyTracker: RequestAnomalyTrackerService,
   ) {}
+
+  async onApplicationBootstrap() {
+    if (!shouldRunGeneralSchedulers()) return;
+    try {
+      await this.checkVersionUpgradeAndNotify();
+    } catch (err: any) {
+      this.logger.warn(`Failed to check version upgrade notification on startup: ${err?.message || err}`);
+    }
+  }
+
+  async checkVersionUpgradeAndNotify() {
+    const check = this.systemUpdateService.checkForUpdates();
+    const currentVersion = check.currentVersion;
+
+    const tenants = await this.getTenantsWithAdminGroup();
+    for (const tenant of tenants) {
+      const state = readAlertState(tenant.value);
+      const lastRecordedVersion = state.lastRecordedActiveVersion;
+
+      if (!lastRecordedVersion) {
+        await this.updateAlertState(tenant, {
+          lastRecordedActiveVersion: currentVersion,
+        });
+        continue;
+      }
+
+      if (lastRecordedVersion !== currentVersion) {
+        const built = buildUpdateSuccessMessage({
+          fromVersion: lastRecordedVersion,
+          toVersion: currentVersion,
+          updatedAt: new Date(),
+          note: 'Hệ thống đã cập nhật và khởi động thành công trên phiên bản mới.',
+        });
+
+        try {
+          await this.zaloProvider.send({
+            tenantId: tenant.tenantId,
+            recipient: tenant.adminGroupChatId,
+            title: built.title,
+            message: built.message,
+            context: {},
+          });
+        } catch (err: any) {
+          this.logger.warn(`Failed to send update success alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
+        }
+
+        await this.updateAlertState(tenant, {
+          lastRecordedActiveVersion: currentVersion,
+          lastUpdateSuccessAlertAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  async notifyManualUpdateSuccess(input: {
+    fromVersion?: string | null;
+    toVersion: string;
+    durationSeconds?: number | null;
+    note?: string | null;
+  }) {
+    const tenants = await this.getTenantsWithAdminGroup();
+    const built = buildUpdateSuccessMessage({
+      fromVersion: input.fromVersion,
+      toVersion: input.toVersion,
+      updatedAt: new Date(),
+      durationSeconds: input.durationSeconds,
+      note: input.note,
+    });
+
+    for (const tenant of tenants) {
+      try {
+        await this.zaloProvider.send({
+          tenantId: tenant.tenantId,
+          recipient: tenant.adminGroupChatId,
+          title: built.title,
+          message: built.message,
+          context: {},
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to send manual update success alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
+      }
+    }
+  }
 
   @Cron(CronExpression.EVERY_30_MINUTES)
   async checkUpdateAvailableAlerts() {

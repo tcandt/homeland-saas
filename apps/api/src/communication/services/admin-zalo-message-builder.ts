@@ -57,6 +57,28 @@ export function buildUpdateAvailableMessage(input: {
   };
 }
 
+export function buildUpdateSuccessMessage(input: {
+  fromVersion?: string | null;
+  toVersion: string;
+  updatedAt?: string | Date | null;
+  durationSeconds?: number | null;
+  note?: string | null;
+}): AdminZaloMessage {
+  return {
+    title: 'HomeLand - Cập nhật thành công',
+    message: compactLines([
+      '🚀 *HỆ THỐNG CẬP NHẬT PHIÊN BẢN MỚI THÀNH CÔNG*',
+      '',
+      input.fromVersion ? `• Phiên bản trước: \`${input.fromVersion}\`` : null,
+      `• Phiên bản hiện tại: \`${input.toVersion}\``,
+      input.durationSeconds ? `• Thời gian thực hiện: \`${input.durationSeconds}s\`` : null,
+      `🕒 ${formatTimestamp(input.updatedAt)}`,
+      '',
+      input.note || 'Hệ thống đã hoàn tất cập nhật và đang hoạt động ổn định.',
+    ]),
+  };
+}
+
 export function buildServerOverloadAlertMessage(input: {
   currentRps?: number | null;
   suspiciousIpCount?: number | null;

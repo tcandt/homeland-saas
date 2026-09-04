@@ -77,4 +77,6 @@ export const systemUpdateApi = {
       '/system-update/backups/restore',
       payload,
     ),
+  deleteBackup: (snapshotId: string) =>
+    apiClient.delete<{ success: boolean; message: string; snapshotId: string }>(`/system-update/backups/${snapshotId}`),
 };

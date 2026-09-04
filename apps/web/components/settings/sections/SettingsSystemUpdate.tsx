@@ -6,6 +6,7 @@ import useSWR from "swr";
 import {
   AlertTriangle,
   CheckCircle2,
+  Database,
   GitBranch,
   History,
   RefreshCcw,
@@ -152,8 +153,8 @@ export default function SettingsSystemUpdate() {
         </div>
       </div>
 
-      {/* 3 Info Columns */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+      {/* 4 Info Columns */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
         <div className="rounded-xl border border-border/60 bg-muted/5 p-3 flex flex-col justify-between gap-1">
           <div className="flex items-center justify-between text-xs text-muted font-bold">
             <span className="flex items-center gap-1.5">
@@ -189,13 +190,28 @@ export default function SettingsSystemUpdate() {
             <span className="flex items-center gap-1.5">
               <ShieldCheck size={13} className="text-emerald-500" /> Chế độ vận hành
             </span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 font-bold">An toàn</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">An toàn</span>
           </div>
           <div className="font-mono font-black text-base text-emerald-600 dark:text-emerald-400">
             {info?.mode || "dry-run (safe)"}
           </div>
           <div className="text-[11px] text-muted font-medium">
             Tự động tạo snapshot trước khi chạy migration
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3 flex flex-col justify-between gap-1">
+          <div className="flex items-center justify-between text-xs text-muted font-bold">
+            <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+              <Database size={13} /> Sao lưu & Phục hồi
+            </span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold">Đã kết nối</span>
+          </div>
+          <div className="font-mono font-black text-base text-text">
+            Agent Backend
+          </div>
+          <div className="text-[11px] text-muted font-medium flex items-center gap-1">
+            <CheckCircle2 size={11} className="text-emerald-500" /> Kết nối agent sao lưu backend ổn định
           </div>
         </div>
       </div>

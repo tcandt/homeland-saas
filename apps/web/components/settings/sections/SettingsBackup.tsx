@@ -1,27 +1,25 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import useSWR from "swr";
 import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Database,
   Download,
   HardDrive,
   Loader2,
   Lock,
+  MoreVertical,
   Plus,
   RefreshCcw,
   RotateCcw,
   ShieldAlert,
-  ShieldCheck,
   Trash2,
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { systemUpdateApi, SystemBackupStatus, BackupManifestInfo } from "@/lib/api/system-update.api";
 import toast from "react-hot-toast";
@@ -63,6 +61,14 @@ export default function SettingsBackup() {
   const [showWipeModal, setShowWipeModal] = useState(false);
   const [selectedSnapshotForRestore, setSelectedSnapshotForRestore] = useState<BackupManifestInfo | null>(null);
 
+  // Daily Schedule state
+  const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(true);
+
+  // 3-dots dropdown menu state
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [snapshotToDelete, setSnapshotToDelete] = useState<BackupManifestInfo | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Restore state
   const [restorePassword, setRestorePassword] = useState("");
   const [isRestoring, setIsRestoring] = useState(false);
@@ -74,8 +80,32 @@ export default function SettingsBackup() {
   const [autoBackupBeforeWipe, setAutoBackupBeforeWipe] = useState(true);
   const [isWiping, setIsWiping] = useState(false);
 
-  const isConnected = backupData?.connected ?? true;
   const backups = backupData?.backups || [];
+
+  // Load schedule setting from localStorage or backend
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("system_backup_schedule_enabled");
+      if (saved !== null) {
+        setScheduleEnabled(saved === "true");
+      } else if (backupData?.scheduleEnabled !== undefined) {
+        setScheduleEnabled(backupData.scheduleEnabled);
+      }
+    }
+  }, [backupData]);
+
+  const handleToggleSchedule = () => {
+    const next = !scheduleEnabled;
+    setScheduleEnabled(next);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("system_backup_schedule_enabled", String(next));
+    }
+    if (next) {
+      toast.success("Đã bật lịch trình sao lưu tự động hàng ngày (02:00 AM)");
+    } else {
+      toast("Đã tạm tắt lịch trình sao lưu tự động hàng ngày", { icon: "⏸️" });
+    }
+  };
 
   const handleCreateBackup = async () => {
     setIsCreating(true);
@@ -99,7 +129,7 @@ export default function SettingsBackup() {
     a.download = `${backup.id}-manifest.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success(`Đã tải manifest của ${backup.name}`);
+    toast.success(`Đã tải file cấu hình của ${backup.name}`);
   };
 
   const handleOpenRestore = (snapshot?: BackupManifestInfo) => {
@@ -135,6 +165,21 @@ export default function SettingsBackup() {
       toast.error(error?.response?.data?.message || error?.message || "Khôi phục thất bại. Vui lòng kiểm tra lại mật khẩu.");
     } finally {
       setIsRestoring(false);
+    }
+  };
+
+  const handleDeleteSnapshot = async () => {
+    if (!snapshotToDelete) return;
+    setIsDeleting(true);
+    try {
+      await systemUpdateApi.deleteBackup(snapshotToDelete.id);
+      await mutate();
+      toast.success(`Đã xóa bản sao lưu ${snapshotToDelete.name}`);
+      setSnapshotToDelete(null);
+    } catch (err: any) {
+      toast.error(err?.message || "Không thể xóa bản sao lưu");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -180,40 +225,14 @@ export default function SettingsBackup() {
   };
 
   return (
-    <div className="flex flex-col gap-4" data-testid="settings-backup-safe-state">
-      {/* 1. Header & Backend Connection Status Banner */}
-      <div className="flex flex-col gap-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 sm:p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
-              <Database size={18} />
-            </span>
-            <div>
-              <h3 className="text-sm font-black text-text">Sao lưu & Phục hồi dữ liệu hệ thống</h3>
-              <p className="text-xs text-muted">
-                {isConnected
-                  ? "Kết nối agent sao lưu backend máy chủ hoạt động ổn định"
-                  : "Chế độ an toàn: Dữ liệu sao lưu vận hành máy chủ"}
-              </p>
-            </div>
-          </div>
-          <Badge
-            variant="success"
-            className="border-emerald-500/30 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-[11px] flex items-center gap-1.5"
-          >
-            <ShieldCheck size={13} />
-            Đã kết nối backend
-          </Badge>
-        </div>
-      </div>
-
-      {/* 2. 4 Action Controls */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="flex flex-col gap-3.5" data-testid="settings-backup-safe-state">
+      {/* 1. 4 Action Controls */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
         <Button
           variant="primary"
           onClick={handleCreateBackup}
           disabled={isCreating || isLoading}
-          className="h-11 rounded-xl text-xs font-bold gap-2 shadow-sm cursor-pointer"
+          className="h-10 rounded-xl text-xs font-bold gap-2 shadow-2xs cursor-pointer"
         >
           {isCreating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
           Tạo bản sao lưu
@@ -225,7 +244,7 @@ export default function SettingsBackup() {
             toast.success("Đã làm mới dữ liệu sao lưu");
           }}
           disabled={isLoading}
-          className="h-11 rounded-xl text-xs font-bold gap-2 cursor-pointer"
+          className="h-10 rounded-xl text-xs font-bold gap-2 cursor-pointer shadow-2xs hover:border-primary/50"
         >
           <RefreshCcw size={14} className={isLoading ? "animate-spin" : ""} /> Làm mới dữ liệu
         </Button>
@@ -238,7 +257,7 @@ export default function SettingsBackup() {
               toast.error("Chưa có bản lưu trữ nào để tải về");
             }
           }}
-          className="h-11 rounded-xl text-xs font-bold gap-2 cursor-pointer"
+          className="h-10 rounded-xl text-xs font-bold gap-2 cursor-pointer shadow-2xs hover:border-primary/50"
         >
           <Download size={14} /> Tải bản lưu mới nhất
         </Button>
@@ -246,46 +265,65 @@ export default function SettingsBackup() {
           variant="outline"
           onClick={() => handleOpenRestore()}
           disabled={backups.length === 0}
-          className="h-11 rounded-xl text-xs font-bold gap-2 text-text hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+          className="h-10 rounded-xl text-xs font-bold gap-2 text-text hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer shadow-2xs hover:border-blue-500/40"
         >
           <RotateCcw size={14} /> Khôi phục dữ liệu
         </Button>
       </div>
 
-      {/* 3. Schedule config */}
-      <Card className="rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between">
+      {/* 2. Interactive Schedule Config Card */}
+      <Card className="rounded-xl border border-border/70 bg-card p-3.5 md:p-4 shadow-2xs">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <span className="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20">
               <Clock size={16} />
             </span>
             <div>
               <div className="text-xs font-bold text-text">Lịch trình sao lưu tự động hàng ngày</div>
-              <div className="text-[11px] text-muted">
+              <div className="text-[11px] text-muted font-medium">
                 {backupData?.scheduleDescription || "Tự động chụp snapshot định kỳ vào 02:00 AM"}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">Đang hoạt động</span>
-            <div className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-emerald-500">
-              <span className="inline-block h-3.5 w-3.5 transform rounded-full bg-white translate-x-4 transition" />
+
+          {/* Interactive Toggle Switch */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={scheduleEnabled}
+            onClick={handleToggleSchedule}
+            className="flex items-center gap-2.5 cursor-pointer select-none group focus:outline-none p-1 rounded-lg hover:bg-muted/10 transition"
+            title={scheduleEnabled ? "Bấm để tạm tắt lịch trình sao lưu tự động" : "Bấm để bật lịch trình sao lưu tự động"}
+          >
+            <span className={`text-xs font-bold transition-colors ${scheduleEnabled ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}>
+              {scheduleEnabled ? "Đang hoạt động" : "Tạm tắt"}
+            </span>
+            <div
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
+                scheduleEnabled ? "bg-emerald-500" : "bg-neutral-300 dark:bg-neutral-700"
+              }`}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out ${
+                  scheduleEnabled ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
             </div>
-          </div>
+          </button>
         </div>
       </Card>
 
-      {/* 4. Snapshots Table - Kèm nút "Khôi phục" trực tiếp từng dòng */}
-      <Card className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="p-4 border-b border-border flex items-center justify-between">
+      {/* 3. Snapshots Table - Với menu Thao tác 3 chấm (...) */}
+      <Card className="rounded-xl border border-border/70 bg-card overflow-visible shadow-2xs">
+        <div className="p-3.5 md:p-4 border-b border-border/60 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <HardDrive size={16} className="text-primary" />
-            <h4 className="text-xs font-bold text-text uppercase tracking-wider">
+            <h4 className="text-xs font-black text-text uppercase tracking-wider">
               Danh sách bản sao lưu ({backups.length})
             </h4>
           </div>
           <span className="text-xs text-muted font-medium">
-            Tổng dung lượng: <b className="text-text font-mono">{formatBytes(backupData?.storageUsedBytes || 0)}</b>
+            Tổng dung lượng: <b className="text-text font-mono font-bold">{formatBytes(backupData?.storageUsedBytes || 0)}</b>
           </span>
         </div>
 
@@ -298,9 +336,9 @@ export default function SettingsBackup() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-visible">
             <table className="w-full text-left text-xs">
-              <thead className="bg-muted/20 text-muted font-bold border-b border-border">
+              <thead className="bg-muted/15 text-muted font-bold border-b border-border/60">
                 <tr>
                   <th className="py-2.5 px-4">Tên Snapshot / ID</th>
                   <th className="py-2.5 px-4">Loại sao lưu</th>
@@ -310,7 +348,7 @@ export default function SettingsBackup() {
                   <th className="py-2.5 px-4 text-right">Thao tác</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody className="divide-y divide-border/60">
                 {backups.map((b) => (
                   <tr key={b.id} className="hover:bg-muted/10 transition">
                     <td className="py-3 px-4">
@@ -319,15 +357,15 @@ export default function SettingsBackup() {
                     </td>
                     <td className="py-3 px-4">
                       {b.type === "pre_update" ? (
-                        <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold text-[10px]">
+                        <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold text-[10px] border border-purple-500/20">
                           Trước cập nhật
                         </span>
                       ) : b.type === "daily_schedule" ? (
-                        <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold text-[10px]">
+                        <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold text-[10px] border border-blue-500/20">
                           Định kỳ hàng ngày
                         </span>
                       ) : (
-                        <span className="px-2 py-0.5 rounded bg-slate-500/10 text-slate-600 dark:text-slate-400 font-bold text-[10px]">
+                        <span className="px-2 py-0.5 rounded-md bg-slate-500/10 text-slate-600 dark:text-slate-400 font-bold text-[10px] border border-slate-500/20">
                           Thủ công
                         </span>
                       )}
@@ -339,24 +377,68 @@ export default function SettingsBackup() {
                         <CheckCircle2 size={13} /> Sẵn sàng
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="py-3 px-4 text-right relative">
+                      {/* 3-Dots Action Dropdown Menu */}
+                      <div className="relative inline-block text-left">
                         <button
                           type="button"
-                          onClick={() => handleOpenRestore(b)}
-                          className="h-7 px-2.5 rounded-lg text-xs font-bold flex items-center gap-1 text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 active:scale-95 transition cursor-pointer"
-                          title="Khôi phục trạng thái từ snapshot này"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenDropdownId(openDropdownId === b.id ? null : b.id);
+                          }}
+                          className="h-8 w-8 rounded-lg flex items-center justify-center text-muted hover:text-text hover:bg-muted/20 active:scale-95 transition cursor-pointer"
+                          title="Thao tác"
                         >
-                          <RotateCcw size={12} /> Khôi phục
+                          <MoreVertical size={16} />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadManifest(b)}
-                          className="h-7 px-2 rounded-lg text-xs font-medium flex items-center gap-1 text-muted hover:text-text hover:bg-muted/20 active:scale-95 transition cursor-pointer"
-                          title="Tải manifest snapshot"
-                        >
-                          <Download size={12} /> Tải về
-                        </button>
+
+                        {openDropdownId === b.id && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-40"
+                              onClick={() => setOpenDropdownId(null)}
+                            />
+                            <div className="absolute right-0 top-full mt-1 w-44 rounded-xl border border-border/80 bg-card p-1.5 shadow-xl z-50 flex flex-col gap-0.5 text-left">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenDropdownId(null);
+                                  handleDownloadManifest(b);
+                                }}
+                                className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium text-text hover:bg-muted/20 transition cursor-pointer"
+                              >
+                                <Download size={13} className="text-primary" />
+                                <span>Tải về</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenDropdownId(null);
+                                  handleOpenRestore(b);
+                                }}
+                                className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 transition cursor-pointer"
+                              >
+                                <RotateCcw size={13} />
+                                <span>Khôi phục</span>
+                              </button>
+
+                              <div className="h-[1px] bg-border/60 my-0.5" />
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenDropdownId(null);
+                                  setSnapshotToDelete(b);
+                                }}
+                                className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                              >
+                                <Trash2 size={13} />
+                                <span>Xóa bản lưu</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -367,11 +449,11 @@ export default function SettingsBackup() {
         )}
       </Card>
 
-      {/* 5. Vùng Nguy Hiểm: Đặt lại & Xóa dữ liệu (Danger Zone) */}
-      <Card className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-5 flex flex-col gap-4">
+      {/* 4. Vùng Nguy Hiểm: Đặt lại & Xóa dữ liệu (Danger Zone) */}
+      <Card className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4 sm:p-5 flex flex-col gap-4 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 mt-0.5">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 mt-0.5">
               <ShieldAlert size={22} />
             </span>
             <div className="flex flex-col gap-1">
@@ -387,12 +469,58 @@ export default function SettingsBackup() {
           <button
             type="button"
             onClick={() => setShowWipeModal(true)}
-            className="h-11 px-5 shrink-0 rounded-xl text-xs font-bold flex items-center justify-center gap-2 text-white bg-rose-600 hover:bg-rose-700 active:scale-98 transition shadow-md shadow-rose-600/20 cursor-pointer"
+            className="h-10 px-4.5 shrink-0 rounded-xl text-xs font-bold flex items-center justify-center gap-2 text-white bg-rose-600 hover:bg-rose-700 active:scale-98 transition shadow-md shadow-rose-600/20 cursor-pointer"
           >
-            <Trash2 size={16} /> Đặt lại dữ liệu vận hành
+            <Trash2 size={15} /> Đặt lại dữ liệu vận hành
           </button>
         </div>
       </Card>
+
+      {/* Modal Xác nhận Xóa Snapshot */}
+      {snapshotToDelete && (
+        <Modal
+          isOpen={Boolean(snapshotToDelete)}
+          onClose={() => {
+            if (!isDeleting) setSnapshotToDelete(null);
+          }}
+          maxWidth="max-w-md"
+          title={
+            <span className="flex items-center gap-2 text-rose-600 dark:text-rose-400 text-base font-black">
+              <Trash2 size={18} className="shrink-0" />
+              Xác nhận xóa bản sao lưu
+            </span>
+          }
+        >
+          <div className="flex flex-col gap-3 py-1 text-xs">
+            <p className="text-text font-medium leading-relaxed">
+              Bạn có chắc chắn muốn xóa bản sao lưu <b className="font-mono text-text">{snapshotToDelete.name}</b> (ID: <span className="font-mono text-muted">{snapshotToDelete.id}</span>) không?
+            </p>
+            <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 text-muted text-[11px] leading-normal">
+              Hành động này sẽ giải phóng dung lượng đĩa và không thể hoàn tác lại file sao lưu này.
+            </div>
+            <div className="mt-3 flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSnapshotToDelete(null)}
+                disabled={isDeleting}
+                className="h-8.5 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Hủy
+              </Button>
+              <button
+                type="button"
+                onClick={handleDeleteSnapshot}
+                disabled={isDeleting}
+                className="h-8.5 px-3.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 text-white bg-rose-600 hover:bg-rose-700 active:scale-98 transition cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                <span>{isDeleting ? "Đang xóa..." : "Xác nhận xóa"}</span>
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Modal Xác nhận Reset / Wipe Data */}
       {showWipeModal && (

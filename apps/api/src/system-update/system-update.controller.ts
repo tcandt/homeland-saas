@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Post } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
@@ -80,6 +80,13 @@ export class SystemUpdateController {
     @Body() body: { snapshotId: string; password?: string },
   ) {
     return this.systemUpdateService.restoreBackupSnapshot(userId, tenantId, body || { snapshotId: '' });
+  }
+
+  @Delete('backups/:id')
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Delete a backup snapshot' })
+  deleteBackup(@Param('id') snapshotId: string) {
+    return this.systemUpdateService.deleteBackupSnapshot(snapshotId);
   }
 }
 

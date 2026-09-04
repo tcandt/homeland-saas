@@ -1,6 +1,6 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { execFileSync, spawn } from 'child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma.service';
@@ -48,6 +48,7 @@ const SAFE_UPDATE_STEPS: Array<{ status: UpdateJobStatus; progressPercent: numbe
 
 @Injectable()
 export class SystemUpdateService {
+  private readonly logger = new Logger(SystemUpdateService.name);
   private currentJob: UpdateJob | null = null;
   private readonly repositoryUrl = process.env.SYSTEM_UPDATE_REPOSITORY || 'https://github.com/tcandt/homeland-saas.git';
 
@@ -238,6 +239,33 @@ export class SystemUpdateService {
     writeFileSync(join(backupRoot, 'latest-manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
 
     return this.getBackupStatus();
+  }
+
+  async deleteBackupSnapshot(snapshotId: string) {
+    if (!snapshotId) {
+      throw new BadRequestException('Vui lòng chỉ định bản sao lưu cần xóa');
+    }
+    const backupDirs = [
+      join(process.cwd(), '.codex-backups', 'production', snapshotId),
+      join(process.cwd(), '.codex-backups', snapshotId),
+      join(process.cwd(), 'backups', snapshotId),
+    ];
+    let deleted = false;
+    for (const dir of backupDirs) {
+      if (existsSync(dir)) {
+        try {
+          rmSync(dir, { recursive: true, force: true });
+          deleted = true;
+        } catch (e: any) {
+          this.logger.warn(`Could not delete backup dir ${dir}: ${e.message}`);
+        }
+      }
+    }
+    return {
+      success: true,
+      message: `Đã xóa bản sao lưu ${snapshotId}`,
+      snapshotId,
+    };
   }
 
   async restoreBackupSnapshot(

@@ -27,6 +27,7 @@ import { requestLoginVersionCheck } from "@/lib/system-update/login-version-chec
 import { saveMobileLoginCredentials } from "@/lib/auth/mobile-session-recovery";
 import BrandLogo from "@/components/ui/BrandLogo";
 import toast from "react-hot-toast";
+import webPackage from "../../package.json";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -430,12 +431,24 @@ export default function LoginPage() {
         {/* Security & Cloud Badge Footer */}
         <div className="mt-6 flex flex-col items-center justify-center gap-2 text-center">
           <div
-            className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${
+            className={`inline-flex items-center gap-2 text-[11px] font-semibold flex-wrap justify-center ${
               isDark ? "text-slate-400" : "text-slate-600"
             }`}
           >
-            <ShieldCheck size={14} className="text-emerald-500" />
-            <span>Bảo mật 256-bit SSL • Chuẩn vận hành đám mây</span>
+            <div className="inline-flex items-center gap-1.5">
+              <ShieldCheck size={14} className="text-emerald-500" />
+              <span>Bảo mật 256-bit SSL • Chuẩn đám mây</span>
+            </div>
+            <span className="opacity-40">•</span>
+            <span
+              className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                isDark
+                  ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 shadow-xs"
+                  : "bg-indigo-50 text-indigo-700 border-indigo-200 shadow-xs"
+              }`}
+            >
+              v{webPackage.version || "1.2.4"}
+            </span>
           </div>
           <p
             className={`text-[11px] font-medium ${

@@ -81,7 +81,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <main className={`flex-1 min-w-0 transition-all duration-300 ${isSidebarCollapsed ? "md:ml-20" : "md:ml-[260px]"} flex flex-col pb-[90px] md:pb-0 bg-card`}>
           <LoginVersionUpdateNotice />
           <div className={`flex-1 bg-background md:rounded-tl-[28px] overflow-hidden transition-all duration-300 ${
-            pathname.startsWith("/buildings")
+            pathname.startsWith("/buildings") || pathname.startsWith("/update")
               ? "p-0"
               : `md:p-[24px] ${pathname.startsWith("/rooms") || pathname === "/" ? "p-0" : "px-[16px] py-[16px] md:px-[16px] md:py-[16px]"}`
           }`}>

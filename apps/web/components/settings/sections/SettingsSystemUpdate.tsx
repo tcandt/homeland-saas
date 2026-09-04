@@ -27,8 +27,8 @@ function shortVersion(value?: string) {
 }
 
 function displayVersion(value?: string) {
-  if (!value) return `v${process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version}`;
-  return value;
+  const v = value || process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version || "1.0.0";
+  return `v${v.replace(/^v+/i, "")}`;
 }
 
 export default function SettingsSystemUpdate() {

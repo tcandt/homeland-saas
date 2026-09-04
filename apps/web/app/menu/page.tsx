@@ -75,7 +75,8 @@ export default function MenuPage() {
 
   const accountLabel = user?.tenant?.name || "Tài khoản hệ thống";
   const emailLabel = profileEmail || user?.email || "Đang đồng bộ email...";
-  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version;
+  const rawVersion = process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version || "1.0.0";
+  const appVersion = rawVersion.replace(/^v+/i, "");
   const handleLogout = () => {
     clearSession();
     window.location.assign("/login");

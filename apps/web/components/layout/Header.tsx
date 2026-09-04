@@ -298,7 +298,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   };
 
   const unreadBadgeCount = useMemo(() => unreadCount > 99 ? "99+" : String(unreadCount), [unreadCount]);
-  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version;
+  const rawVersion = process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version || "1.0.0";
+  const appVersion = rawVersion.replace(/^v+/i, "");
 
   return (
     <header

@@ -35,6 +35,10 @@ docker compose --env-file .env.public-production -f docker-compose.public-produc
 echo "[-] Step 4/5: Recreating and starting containers..."
 docker compose --env-file .env.public-production -f docker-compose.public-production.yml up -d --remove-orphans
 
+echo "[-] Syncing Prisma database schema..."
+sleep 3
+docker compose --env-file .env.public-production -f docker-compose.public-production.yml exec -T api npx prisma db push --schema=packages/database/prisma/schema.prisma --skip-generate || true
+
 # 6. Post-build prune to remove old intermediate images
 echo "[-] Step 5/5: Post-deploy cleanup of dangling images..."
 docker image prune -f || true

@@ -190,8 +190,13 @@ export class CommunicationService {
 
   async dispatchDirect(payload: CommunicationPayload) {
     const result = await this.dispatch(payload);
-    if (!result || !this.immediateDeliveryEnabled || result.queueIds.length === 0) {
+    if (!result || result.queueIds.length === 0) {
       return result;
+    }
+
+    // Always process immediately for direct dispatches
+    for (const qId of result.queueIds) {
+      await this.processQueueItem(qId);
     }
 
     const queueItems = await this.prisma.notificationQueue.findMany({
@@ -433,9 +438,31 @@ export class CommunicationService {
         nextRetryAt,
       }
     });
-    await this.prisma.notification.update({
-      where: { id: item.notificationId },
-      data: { status: 'FAILED' }
-    });
+
+    try {
+      const currentNotif = await this.prisma.notification.findUnique({
+        where: { id: item.notificationId },
+        select: { metadata: true },
+      });
+      const currentMeta = (currentNotif?.metadata && typeof currentNotif.metadata === 'object')
+        ? (currentNotif.metadata as Record<string, any>)
+        : {};
+
+      await this.prisma.notification.update({
+        where: { id: item.notificationId },
+        data: {
+          status: 'FAILED',
+          metadata: {
+            ...currentMeta,
+            lastError: error,
+          },
+        },
+      });
+    } catch {
+      await this.prisma.notification.update({
+        where: { id: item.notificationId },
+        data: { status: 'FAILED' },
+      });
+    }
   }
 }

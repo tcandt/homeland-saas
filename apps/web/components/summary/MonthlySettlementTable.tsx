@@ -61,7 +61,7 @@ export default function MonthlySettlementTable({
     );
   }
 
-  const renderNotificationStatus = (status: string, hasContract: boolean) => {
+  const renderNotificationStatus = (status: string, hasContract: boolean, error?: string | null) => {
     if (!hasContract) {
       return <span className="text-muted text-[11px] font-medium">--</span>;
     }
@@ -81,7 +81,10 @@ export default function MonthlySettlementTable({
         );
       case "FAILED":
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20">
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20 cursor-help"
+            title={error || "Gửi tin nhắn thất bại. Bấm nút Zalo để gửi lại."}
+          >
             <AlertCircle size={12} /> Gửi thất bại
           </span>
         );
@@ -259,7 +262,7 @@ export default function MonthlySettlementTable({
 
                   {/* Trạng thái gửi */}
                   <td className="py-3.5 px-3.5 text-center">
-                    {renderNotificationStatus(item.notificationStatus, hasContract)}
+                    {renderNotificationStatus(item.notificationStatus, hasContract, item.notificationError)}
                   </td>
 
                   {/* Trạng thái thanh toán */}

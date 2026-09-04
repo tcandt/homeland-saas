@@ -106,7 +106,15 @@ export default function RoomSettlementDetailDrawer({
       case "SENDING":
         return <Badge variant="primary" className="gap-1 font-bold"><RefreshCw size={13} className="animate-spin" /> Đang gửi</Badge>;
       case "FAILED":
-        return <Badge variant="error" className="gap-1 font-bold"><AlertCircle size={13} /> Gửi thất bại</Badge>;
+        return (
+          <Badge
+            variant="error"
+            className="gap-1 font-bold cursor-help"
+            title={item?.notificationError || "Gửi tin nhắn thất bại. Bấm nút Gửi lại để thử lại."}
+          >
+            <AlertCircle size={13} /> Gửi thất bại
+          </Badge>
+        );
       default:
         return <Badge variant="warning" className="gap-1 font-bold"><Clock size={13} /> Chưa gửi / Chờ gửi</Badge>;
     }

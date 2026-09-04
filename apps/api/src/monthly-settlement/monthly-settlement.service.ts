@@ -475,7 +475,14 @@ export class MonthlySettlementService {
               notifStatus = 'FAILED';
               notifError = (notif.metadata as any)?.lastError || 'Lỗi gửi tin nhắn Zalo';
             } else if (['SENDING', 'QUEUED'].includes(notif.status)) {
-              notifStatus = 'SENDING';
+              const createdAt = notif.createdAt ? new Date(notif.createdAt).getTime() : 0;
+              const isStale = Date.now() - createdAt > 2 * 60 * 1000;
+              if (isStale) {
+                notifStatus = 'FAILED';
+                notifError = (notif.metadata as any)?.lastError || 'Quá thời gian phản hồi từ Zalo (Hết thời gian chờ). Nhấn Zalo để gửi lại.';
+              } else {
+                notifStatus = 'SENDING';
+              }
             }
           }
         }

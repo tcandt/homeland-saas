@@ -177,7 +177,8 @@ export function PreviewContractModal({
         });
 
         if (!res.ok) {
-          throw new Error("Không thể tạo file hợp đồng từ server");
+          const errData = await res.json().catch(() => null);
+          throw new Error(errData?.error || "Không thể tạo file hợp đồng từ server");
         }
 
         const blob = await res.blob();

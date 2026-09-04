@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ${API_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-api}:${API_TAG:-v1.2.2}
+    image: ${API_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-api}:${API_TAG:-v1.2.3}
     container_name: homeland_production_api
     env_file:
       - .env.public-production
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   notification_worker:
-    image: ${API_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-api}:${API_TAG:-v1.2.2}
+    image: ${API_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-api}:${API_TAG:-v1.2.3}
     container_name: homeland_production_notification_worker
     env_file:
       - .env.public-production
@@ -108,7 +108,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: ${WEB_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-web}:${WEB_TAG:-v1.2.2}
+    image: ${WEB_IMAGE:-ghcr.io/tcandt/homeland-saas/homeland-web}:${WEB_TAG:-v1.2.3}
     container_name: homeland_production_web
     env_file:
       - .env.public-production
@@ -121,7 +121,9 @@ services:
       MAINTENANCE_MODE: ${MAINTENANCE_MODE:-false}
       NEXT_PUBLIC_MAINTENANCE_MODE: ${NEXT_PUBLIC_MAINTENANCE_MODE:-false}
       MAINTENANCE_BYPASS_KEY: ${MAINTENANCE_BYPASS_KEY:-}
-      APP_VERSION: ${WEB_TAG:-latest}
+    volumes:
+      - ./tai-lieu:/app/tai-lieu
+      - ./tai-lieu:/app/apps/web/tai-lieu
     depends_on:
       - api
     ports:

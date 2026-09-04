@@ -206,24 +206,31 @@ export default function SettingsEmailIntegration() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-text">Tài khoản gửi SMTP</label>
+              <label className="text-xs font-bold text-text flex items-center justify-between">
+                <span>Tài khoản gửi SMTP</span>
+                <span className="text-[10px] font-normal text-muted">(Chỉ sửa trong cấu hình)</span>
+              </label>
               <Input
                 value={draft.smtpUser || ""}
-                onChange={(e) => setDraft((prev) => ({ ...prev, smtpUser: e.target.value }))}
-                placeholder="user@example.com"
-                className="h-9 text-xs font-mono"
+                placeholder="Chưa cấu hình tài khoản SMTP"
+                disabled={true}
+                readOnly
+                className="h-9 text-xs font-mono bg-muted/20 cursor-not-allowed text-muted select-none"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-text">Mật khẩu SMTP</label>
+              <label className="text-xs font-bold text-text flex items-center justify-between">
+                <span>Mật khẩu SMTP</span>
+                <span className="text-[10px] font-normal text-muted">(Chỉ sửa trong cấu hình)</span>
+              </label>
               <Input
                 type="password"
-                value={draft.smtpPassword || ""}
-                onChange={(e) => setDraft((prev) => ({ ...prev, smtpPassword: e.target.value }))}
-                placeholder={canEditSecrets ? "Nhập mật khẩu SMTP" : "Chỉ admin@homeland.vn được sửa"}
-                disabled={!canEditSecrets}
+                value={draft.smtpPassword ? "••••••••••••••••••••••••••••••••" : ""}
+                placeholder="Chưa cấu hình mật khẩu SMTP"
+                disabled={true}
+                readOnly
                 data-testid="integration-secret-field"
-                className="h-9 text-xs font-mono"
+                className="h-9 text-xs font-mono bg-muted/20 cursor-not-allowed text-muted select-none"
               />
             </div>
           </div>

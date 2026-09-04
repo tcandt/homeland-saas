@@ -169,7 +169,7 @@ export class SystemUpdateService {
 
     return {
       connected: true,
-      agentVersion: 'v1.2.2',
+      agentVersion: 'v1.2.3',
       scheduleEnabled: true,
       scheduleCron: '0 2 * * *',
       scheduleDescription: 'Tự động chụp snapshot định kỳ vào 02:00 AM',
@@ -509,9 +509,9 @@ function readPackageVersion() {
         }
       }
     }
-    return '1.2.2';
+    return '1.2.3';
   } catch {
-    return '1.2.2';
+    return '1.2.3';
   }
 }
 

@@ -3,6 +3,7 @@ import {
   MonthlySettlementService,
   formatVietnamPeriod,
   getPreviousVietnamPeriod,
+  getNextVietnamPeriod,
   isLastDayOfVietnamMonth,
 } from './monthly-settlement.service';
 
@@ -42,6 +43,9 @@ describe('MonthlySettlementService', () => {
                 id: 'contract-1',
                 code: 'HD-101',
                 status: 'ACTIVE',
+                startDate: new Date('2026-08-01T00:00:00.000Z'),
+                endDate: new Date('2027-08-01T00:00:00.000Z'),
+                signedAt: new Date('2026-07-25T00:00:00.000Z'),
                 monthlyRent: 3500000,
                 customer: {
                   id: 'cust-1',
@@ -74,6 +78,9 @@ describe('MonthlySettlementService', () => {
         findUnique: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'inv-1', ...data })),
         update: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'inv-1', ...data })),
+      },
+      invoiceItem: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
       notification: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -133,6 +140,11 @@ describe('MonthlySettlementService', () => {
       expect(getPreviousVietnamPeriod('2026-01')).toBe('2025-12');
     });
 
+    it('calculates next period correctly', () => {
+      expect(getNextVietnamPeriod('2026-09')).toBe('2026-10');
+      expect(getNextVietnamPeriod('2026-12')).toBe('2027-01');
+    });
+
     it('detects last day of month accurately', () => {
       const lastDaySept = new Date('2026-09-30T10:00:00Z');
       expect(isLastDayOfVietnamMonth(lastDaySept)).toBe(true);
@@ -165,6 +177,55 @@ describe('MonthlySettlementService', () => {
       expect(item.roomPrice).toBe(3500000);
       expect(item.totalAmount).toBe(3500000 + 420000 + 200000);
     });
+
+    it('does not charge previous usage electricity for a first-month tenant', async () => {
+      prisma.room.findMany.mockResolvedValue([
+        {
+          id: 'room-1',
+          code: '101',
+          name: 'Phòng 101',
+          monthlyPrice: 3500000,
+          rentalType: 'WHOLE',
+          capacity: 2,
+          building: { id: 'bld-1', name: 'Tòa A', code: 'A' },
+          floor: { id: 'floor-1', name: 'Tầng 1', level: 1 },
+          contracts: [
+            {
+              id: 'contract-1',
+              code: 'HD-101',
+              status: 'ACTIVE',
+              startDate: new Date('2026-10-01T00:00:00.000Z'),
+              endDate: new Date('2027-10-01T00:00:00.000Z'),
+              signedAt: new Date('2026-09-03T00:00:00.000Z'),
+              monthlyRent: 3500000,
+              customer: {
+                id: 'cust-1',
+                fullName: 'Nguyễn Văn A',
+                phone: '0901234567',
+                identityNo: '001234567890',
+                gender: 'MALE',
+                zaloPhone: '0901234567',
+                zaloChatId: 'zalo-chat-1',
+              },
+            },
+          ],
+          roommates: [],
+        },
+      ]);
+
+      const res = await service.getOverview('tenant-1', { period: '2026-10' });
+      const item = res.items[0];
+
+      expect(item.hasContract).toBe(true);
+      expect(item.isFirstMonthNewTenant).toBe(true);
+      expect(item.usagePeriod).toBe('2026-09');
+      expect(item.electricityEligible).toBe(false);
+      expect(item.electricityKwh).toBe(0);
+      expect(item.electricityAmount).toBe(0);
+      expect(item.roomPrice).toBe(3500000);
+      expect(item.waterAmount).toBe(100000);
+      expect(item.totalAmount).toBe(3600000);
+    });
   });
 
   describe('closeMonth', () => {
@@ -182,11 +243,97 @@ describe('MonthlySettlementService', () => {
           {
             buildingCode: 'A',
             roomCode: '101',
-            period: '2026-09',
-            note: 'Chốt tháng tự động kỳ 2026-09',
+            period: '2026-08',
+            note: 'Khóa chỉ số điện sử dụng tháng 2026-08 cho kỳ thu 2026-09',
           },
         ],
       });
+    });
+
+    it('creates first-month invoice without previous usage electricity item', async () => {
+      prisma.room.findMany.mockResolvedValue([
+        {
+          id: 'room-1',
+          code: '101',
+          name: 'Phòng 101',
+          monthlyPrice: 3500000,
+          rentalType: 'WHOLE',
+          capacity: 2,
+          building: { id: 'bld-1', name: 'Tòa A', code: 'A' },
+          floor: { id: 'floor-1', name: 'Tầng 1', level: 1 },
+          contracts: [
+            {
+              id: 'contract-1',
+              code: 'HD-101',
+              status: 'ACTIVE',
+              startDate: new Date('2026-10-01T00:00:00.000Z'),
+              endDate: new Date('2027-10-01T00:00:00.000Z'),
+              signedAt: new Date('2026-09-03T00:00:00.000Z'),
+              monthlyRent: 3500000,
+              customer: {
+                id: 'cust-1',
+                fullName: 'Nguyễn Văn A',
+                phone: '0901234567',
+                identityNo: '001234567890',
+                gender: 'MALE',
+                zaloPhone: '0901234567',
+                zaloChatId: 'zalo-chat-1',
+              },
+            },
+          ],
+          roommates: [],
+        },
+      ]);
+
+      const res = await service.closeMonth('tenant-1', 'user-1', {
+        period: '2026-10',
+        autoSend: false,
+      });
+
+      expect(res.settledCount).toBe(1);
+      expect(hunonicService.lockPeriods).not.toHaveBeenCalled();
+      const createCall = prisma.invoice.create.mock.calls[0][0];
+      expect(createCall.data.period).toBe('2026-10');
+      expect(createCall.data.usagePeriod).toBe('2026-09');
+      expect(createCall.data.items.create).toEqual([
+        expect.objectContaining({ type: 'RENT', servicePeriod: '2026-10', amount: 3500000 }),
+        expect.objectContaining({ type: 'UTILITY_WATER', servicePeriod: '2026-10', amount: 100000 }),
+      ]);
+      expect(createCall.data.items.create).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'UTILITY_ELECTRICITY' })]),
+      );
+    });
+
+    it('skips settled invoices that already have payment activity', async () => {
+      prisma.invoice.findMany.mockResolvedValue([
+        {
+          id: 'inv-101',
+          code: 'INV-202609-101',
+          period: '2026-09',
+          status: 'PARTIALLY_PAID',
+          paidAmount: 100000,
+          contract: { roomId: 'room-1' },
+          createdAt: new Date('2026-09-01'),
+          items: [],
+          total: 4170000,
+        },
+      ]);
+      prisma.invoice.findUnique.mockResolvedValue({
+        id: 'inv-101',
+        code: 'INV-202609-101',
+        status: 'PARTIALLY_PAID',
+        paidAmount: 100000,
+      });
+
+      const res = await service.closeMonth('tenant-1', 'user-1', {
+        period: '2026-09',
+        autoSend: false,
+      });
+
+      expect(res.settledCount).toBe(0);
+      expect(res.skippedCount).toBe(1);
+      expect(prisma.invoiceItem.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.invoice.update).not.toHaveBeenCalled();
     });
   });
 
@@ -197,6 +344,7 @@ describe('MonthlySettlementService', () => {
         {
           id: 'inv-101',
           code: 'INV-202609-101',
+          period: '2026-09',
           contract: { roomId: 'room-1' },
           createdAt: new Date('2026-09-01'),
           items: [],

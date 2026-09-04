@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: homeland123
       POSTGRES_DB: homeland
     ports:
-      - "5433:5432"
+      - "5430:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

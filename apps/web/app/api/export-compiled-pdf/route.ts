@@ -34,14 +34,18 @@ const LANDLORDS: Record<string, any> = {
 function resolveTaiLieuPath(filename: string): string {
   const candidates = [
     path.join(process.cwd(), 'tai-lieu', filename),
+    path.join(process.cwd(), '..', 'tai-lieu', filename),
     path.join(process.cwd(), '..', '..', 'tai-lieu', filename),
     path.join('/app', 'tai-lieu', filename),
+    path.join('/app', 'apps', 'web', 'tai-lieu', filename),
+    path.join(process.cwd(), 'apps', 'web', 'tai-lieu', filename),
+    path.resolve('tai-lieu', filename),
     path.join('d:\\homeland-new\\homeland-saas\\tai-lieu', filename),
   ];
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
-  return path.join(process.cwd(), 'tai-lieu', filename);
+  return candidates[0];
 }
 
 function convertDocxToPdf(inputPath: string, outputPath: string) {
@@ -56,7 +60,8 @@ function convertDocxToPdf(inputPath: string, outputPath: string) {
     }
   }
 
-  const psScript = `
+  if (process.platform === 'win32') {
+    const psScript = `
 $word = New-Object -ComObject Word.Application;
 $word.Visible = $false;
 try {
@@ -67,8 +72,34 @@ try {
   $word.Quit();
 }
 `;
+    try {
+      execSync(`powershell -Command "${psScript.replace(/\n/g, ' ')}"`, { stdio: 'pipe' });
+      return;
+    } catch (e) {
+      console.warn('Word COM conversion failed on Windows:', e);
+    }
+  }
 
-  execSync(`powershell -Command "${psScript.replace(/\n/g, ' ')}"`, { stdio: 'inherit' });
+  // Linux / Docker environment: try libreoffice or soffice
+  try {
+    const outDir = path.dirname(resolvedOutput);
+    execSync(`libreoffice --headless --convert-to pdf "${resolvedInput}" --outdir "${outDir}"`, { stdio: 'pipe' });
+    const autoPdf = path.join(outDir, `${path.basename(resolvedInput, path.extname(resolvedInput))}.pdf`);
+    if (fs.existsSync(autoPdf) && autoPdf !== resolvedOutput) {
+      fs.renameSync(autoPdf, resolvedOutput);
+    }
+  } catch {
+    try {
+      const outDir = path.dirname(resolvedOutput);
+      execSync(`soffice --headless --convert-to pdf "${resolvedInput}" --outdir "${outDir}"`, { stdio: 'pipe' });
+      const autoPdf = path.join(outDir, `${path.basename(resolvedInput, path.extname(resolvedInput))}.pdf`);
+      if (fs.existsSync(autoPdf) && autoPdf !== resolvedOutput) {
+        fs.renameSync(autoPdf, resolvedOutput);
+      }
+    } catch (err2) {
+      console.warn('Docx to PDF conversion command not available or failed:', err2);
+    }
+  }
 }
 
 async function addImagePage(pdfDoc: PDFDocument, imgBuffer: Buffer, isPng: boolean) {

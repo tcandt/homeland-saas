@@ -54,11 +54,31 @@ export function getPreviousVietnamPeriod(period: string): string {
   return `${y}-${String(m).padStart(2, '0')}`;
 }
 
+export function getNextVietnamPeriod(period: string): string {
+  const [yStr, mStr] = period.split('-');
+  let y = parseInt(yStr, 10);
+  let m = parseInt(mStr, 10) + 1;
+  if (m > 12) {
+    m = 1;
+    y += 1;
+  }
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
 export function isLastDayOfVietnamMonth(date = new Date()): boolean {
   const vn = getVietnamDate(date);
   const tomorrow = new Date(vn);
   tomorrow.setDate(tomorrow.getDate() + 1);
   return tomorrow.getMonth() !== vn.getMonth();
+}
+
+export function getPeriodBounds(period: string): { start: Date; end: Date; year: number; month: number } {
+  const [yStr, mStr] = period.split('-');
+  const year = parseInt(yStr, 10);
+  const month = parseInt(mStr, 10);
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+  return { start, end, year, month };
 }
 
 @Injectable()
@@ -134,6 +154,12 @@ export class MonthlySettlementService {
 
   /**
    * Lấy dữ liệu tổng hợp chốt tháng cho toàn bộ các phòng
+   * Logic nghiệp vụ:
+   * - Kỳ thanh toán: Tháng M (Billing Month)
+   * - Kỳ sử dụng: Tháng M-1 (Usage Month)
+   * - Tiền phòng + Tiền nước: Tính cho kỳ tháng M (Prepaid / Current Month)
+   * - Tiền điện + Phí dịch vụ: Tính cho kỳ sử dụng tháng M-1 (Postpaid / Previous Usage Month)
+   * - Khách mới ký hợp đồng vào ở từ tháng M (startDate/moveInDate >= 01/M) sẽ KHÔNG bị tính tiền điện/dịch vụ tháng M-1.
    */
   async getOverview(
     tenantId: string,
@@ -146,6 +172,9 @@ export class MonthlySettlementService {
     },
   ) {
     const period = query.period || formatVietnamPeriod();
+    const usagePeriod = getPreviousVietnamPeriod(period);
+    const periodBounds = getPeriodBounds(period);
+    const usagePeriodBounds = getPeriodBounds(usagePeriod);
 
     // 1. Lấy danh sách các tòa nhà
     const buildings = await this.prisma.building.findMany({
@@ -172,7 +201,7 @@ export class MonthlySettlementService {
       }
     }
 
-    // 3. Lấy danh sách tất cả các phòng
+    // 3. Lấy danh sách tất cả các phòng cùng các hợp đồng
     const roomWhere: any = {
       tenantId,
       deletedAt: null,
@@ -191,8 +220,7 @@ export class MonthlySettlementService {
           include: {
             customer: true,
           },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
+          orderBy: { startDate: 'desc' },
         },
         roommates: {
           where: { deletedAt: null },
@@ -220,6 +248,10 @@ export class MonthlySettlementService {
       where: {
         tenantId,
         deletedAt: null,
+        OR: [
+          { period },
+          { code: { contains: period.replace('-', '') } },
+        ],
       },
       include: {
         items: true,
@@ -265,18 +297,28 @@ export class MonthlySettlementService {
       }
     }
 
-    // 6. Tổng hợp dữ liệu từng phòng
+    // 6. Tổng hợp dữ liệu từng phòng theo Eligibility Engine
     const items = [];
     for (const room of rooms) {
-      const activeContract = room.contracts?.[0] || null;
+      // Tìm hợp đồng có hiệu lực trong kỳ tháng M (dựa trên startDate & endDate, không phụ thuộc signedAt)
+      const activeContract = room.contracts.find((c) => {
+        const cStart = new Date(c.startDate);
+        const cEnd = new Date(c.endDate);
+        return cStart <= periodBounds.end && cEnd >= periodBounds.start;
+      }) || (room.contracts?.[0] || null);
+
       const representative = activeContract?.customer || null;
       const existingInvoice = invoiceByRoomId.get(room.id) || null;
 
-      // Tính toán chi phí chính xác
-      const hasContract = !!activeContract;
+      // Xác định tính hợp lệ:
+      // 1. Có hợp đồng đang hiệu lực trong kỳ tháng M:
+      const hasContract = !!activeContract && new Date(activeContract.startDate) <= periodBounds.end && new Date(activeContract.endDate) >= periodBounds.start;
+
+      // 2. Có ở trong kỳ sử dụng M-1 (để tính tiền điện & dịch vụ phát sinh M-1):
+      const isEligibleForPreviousUsage = hasContract && new Date(activeContract.startDate) <= usagePeriodBounds.end;
+      const isFirstMonthNewTenant = hasContract && !isEligibleForPreviousUsage;
 
       // Danh sách tất cả thành viên trong phòng:
-      // Đại diện (chủ hợp đồng) + Các roommate
       const allMembers = [];
       if (representative && hasContract) {
         const hasZalo = !!(representative.zaloChatId || representative.zaloUserId);
@@ -322,21 +364,47 @@ export class MonthlySettlementService {
 
       const membersCount = allMembers.length;
 
-      // 1. Tiền phòng: Theo đúng hợp đồng người đại diện, nếu phòng trống = 0
+      // Khoản 1: Tiền phòng tháng M (Prepaid)
       const roomPrice = hasContract ? Number(activeContract.monthlyRent || 0) : 0;
 
-      // 2. Tiền điện: Chỉ hiển thị phòng đang có hợp đồng, phòng trống = 0
-      const meter = meterMap.get(`${room.building.code}::${room.code}`) || meterMap.get(room.code) || null;
-      const electricityKwh = hasContract ? Number(meter?.energyMonthKwh || meter?.totalKwh || meter?.currentKwh || 0) : 0;
-      const electricityAmount = hasContract ? Number(meter?.moneyMonthVnd || meter?.estimatedCost || meter?.amount || 0) : 0;
-
-      // 3. Tiền nước: Tính tổng đầu người x 100.000đ/người. Nếu phòng trống = 0đ
+      // Khoản 2: Tiền nước tháng M (Prepaid) - Tính theo số người trong kỳ x 100.000đ/người
       const waterAmount = hasContract ? Math.max(1, membersCount) * 100000 : 0;
 
-      // 4. Phí dịch vụ: 0 nếu không có phát sinh
+      // Khoản 3: Tiền điện tháng M-1 (Postpaid) - Chỉ tính nếu khách đã ở trong kỳ M-1
+      const meter = meterMap.get(`${room.building.code}::${room.code}`) || meterMap.get(room.code) || null;
+      const nowVnPeriod = formatVietnamPeriod();
+
+      // Xác định số kWh và số tiền theo đúng kỳ sử dụng M-1:
+      // - Nếu kỳ sử dụng M-1 là tháng trước đó (usagePeriod < nowVnPeriod, vd: đang tháng 9/2026 xem kỳ tháng 9 nên M-1 là tháng 8/2026): lấy energyPrevMonthKwh & moneyPrevMonthVnd (Tổng T8)
+      // - Nếu kỳ sử dụng M-1 là tháng hiện tại (usagePeriod === nowVnPeriod, vd: đang tháng 9/2026 xem kỳ chốt tháng 10 nên M-1 là tháng 9/2026): lấy energyMonthKwh & moneyMonthVnd (Tiêu thụ T9)
+      let rawElectricityKwh = 0;
+      let rawElectricityAmount = 0;
+      if (meter) {
+        if (usagePeriod < nowVnPeriod) {
+          rawElectricityKwh = Number(meter.energyPrevMonthKwh ?? meter.energyMonthKwh ?? 0);
+          rawElectricityAmount = Number(meter.moneyPrevMonthVnd ?? meter.moneyMonthVnd ?? 0);
+        } else {
+          rawElectricityKwh = Number(meter.energyMonthKwh ?? 0);
+          rawElectricityAmount = Number(meter.moneyMonthVnd ?? 0);
+        }
+
+        // Nếu phòng áp dụng phương thức Tự thiết lập (Custom Rate Unit Price):
+        if (meter.rateMode === 'custom') {
+          const customUnit = Number(meter.customRateVnd || 3967);
+          const computedCustomAmount = Math.round(rawElectricityKwh * customUnit);
+          if (computedCustomAmount > 0) {
+            rawElectricityAmount = computedCustomAmount;
+          }
+        }
+      }
+
+      const electricityKwh = isEligibleForPreviousUsage ? rawElectricityKwh : 0;
+      const electricityAmount = isEligibleForPreviousUsage ? rawElectricityAmount : 0;
+
+      // Khoản 4: Phí dịch vụ tháng M-1 (Postpaid)
       const serviceAmount = 0;
 
-      // Nếu có invoice thật đã tạo, lấy số liệu từ invoice
+      // Nếu có invoice thật đã tạo, đồng bộ số liệu từ invoice
       let totalAmount = roomPrice + electricityAmount + waterAmount + serviceAmount;
       let finalRoomPrice = roomPrice;
       let finalElectricityAmount = electricityAmount;
@@ -382,6 +450,10 @@ export class MonthlySettlementService {
       // Trạng thái thanh toán
       const paymentStatus: string = !hasContract ? 'NONE' : (existingInvoice ? existingInvoice.status : 'ISSUED');
 
+      const isCustomRate = meter?.rateMode === 'custom';
+      const customRateVnd = isCustomRate ? Number(meter?.customRateVnd || 3967) : null;
+      const rateModeLabel = isCustomRate ? `Tự thiết lập (${(customRateVnd || 3967).toLocaleString('vi-VN')}đ/kWh)` : 'Bậc thang EVN';
+
       const item = {
         roomId: room.id,
         roomCode: room.code,
@@ -396,7 +468,12 @@ export class MonthlySettlementService {
         contractId: activeContract?.id || null,
         contractCode: activeContract?.code || null,
         contractStatus: activeContract?.status || null,
-        hasContract: !!activeContract,
+        contractStartDate: activeContract?.startDate ? new Date(activeContract.startDate).toISOString() : null,
+        contractSignedAt: activeContract?.signedAt ? new Date(activeContract.signedAt).toISOString() : null,
+        hasContract,
+        isFirstMonthNewTenant,
+        electricityEligible: isEligibleForPreviousUsage,
+        serviceEligible: isEligibleForPreviousUsage,
         representative: representative
           ? {
               id: representative.id,
@@ -413,6 +490,7 @@ export class MonthlySettlementService {
         membersCount: allMembers.length,
         members: allMembers,
         period,
+        usagePeriod,
         invoiceId: existingInvoice?.id || null,
         invoiceCode,
         roomPrice: finalRoomPrice,
@@ -423,9 +501,11 @@ export class MonthlySettlementService {
               oldReading: Number(meter.oldReadingKwh || 0),
               newReading: Number(meter.newReadingKwh || meter.energyMonthKwh || 0),
               powerW: Number(meter.powerCurrentW || 0),
-              isOnline: meter.lastStatus === 'on' || meter.isOnline === true,
+              isOnline: meter.status === 'on' || meter.lastStatus === 'on' || meter.isOnline === true,
               lastSyncedAt: meter.lastSyncedAt,
-              rateMode: meter.rateMode || 'residential',
+              rateMode: isCustomRate ? 'custom' : 'residential',
+              customRateVnd,
+              rateModeLabel,
             }
           : null,
         waterAmount: finalWaterAmount,
@@ -479,6 +559,7 @@ export class MonthlySettlementService {
 
     return {
       period,
+      usagePeriod,
       buildings,
       settings,
       stats: {
@@ -496,6 +577,31 @@ export class MonthlySettlementService {
     };
   }
 
+  async finalizeUsagePeriod(tenantId: string, input: { period?: string }) {
+    const usagePeriod = input.period || formatVietnamPeriod();
+    const billingPeriod = getNextVietnamPeriod(usagePeriod);
+    const overview = await this.getOverview(tenantId, { period: billingPeriod });
+    const lockRows = overview.items
+      .filter((item) => item.hasContract && item.electricityEligible && item.meterReading)
+      .map((item) => ({
+        buildingCode: item.buildingCode,
+        roomCode: item.roomCode,
+        period: usagePeriod,
+        note: `Khóa chỉ số điện sử dụng tháng ${usagePeriod} trước kỳ thu ${billingPeriod}`,
+      }));
+
+    if (lockRows.length > 0) {
+      await this.hunonicService.lockPeriods(tenantId, { rows: lockRows });
+    }
+
+    return {
+      success: true,
+      usagePeriod,
+      billingPeriod,
+      lockedCount: lockRows.length,
+    };
+  }
+
   /**
    * Chốt tháng: tạo/cập nhật hóa đơn và khóa chỉ số công tơ điện
    */
@@ -509,6 +615,7 @@ export class MonthlySettlementService {
     },
   ) {
     const period = input.period || formatVietnamPeriod();
+    const usagePeriod = getPreviousVietnamPeriod(period);
     const overview = await this.getOverview(tenantId, { period });
     let targetItems = overview.items;
 
@@ -517,10 +624,11 @@ export class MonthlySettlementService {
     }
 
     const settledInvoices = [];
+    const skippedInvoices = [];
     const lockRows = [];
 
     for (const item of targetItems) {
-      if (!item.hasContract || !item.representative) {
+      if (!item.hasContract || !item.representative || item.totalAmount <= 0) {
         continue;
       }
 
@@ -530,50 +638,84 @@ export class MonthlySettlementService {
         invoice = await this.prisma.invoice.findUnique({ where: { id: item.invoiceId } });
       }
 
+      if (invoice) {
+        const paidAmount = Number((invoice as any).paidAmount || 0);
+        const lockedStatuses = [
+          InvoiceStatus.PARTIALLY_PAID,
+          InvoiceStatus.PAID,
+          InvoiceStatus.CANCELLED,
+          InvoiceStatus.WRITTEN_OFF,
+        ];
+        if (paidAmount > 0 || lockedStatuses.includes(invoice.status)) {
+          skippedInvoices.push({
+            roomId: item.roomId,
+            roomCode: item.roomCode,
+            invoiceId: invoice.id,
+            invoiceCode: invoice.code,
+            status: invoice.status,
+            reason: 'Hóa đơn đã phát sinh thanh toán hoặc đã khóa trạng thái, không chốt lại để tránh sai sổ cái.',
+          });
+          continue;
+        }
+      }
+
       const invoiceCode = item.invoiceCode || `INV-${period.replace('-', '')}-${item.roomCode}`;
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 5); // Hạn thanh toán: 5 ngày kể từ ngày chốt
 
-      const itemsData = [
+      // Tạo các dòng chi tiết theo đúng kỳ dịch vụ (servicePeriod)
+      const itemsData: any[] = [
         {
           tenantId,
           type: InvoiceItemType.RENT,
-          description: `Tiền thuê phòng ${item.roomCode} - ${period}`,
+          description: `Tiền thuê phòng ${item.roomCode} - Kỳ tháng ${period}`,
+          servicePeriod: period,
           quantity: 1,
           unitPrice: item.roomPrice,
           amount: item.roomPrice,
         },
         {
           tenantId,
-          type: InvoiceItemType.UTILITY_ELECTRICITY,
-          description: `Tiền điện (${item.electricityKwh} kWh) - ${period}`,
-          quantity: 1,
-          unitPrice: item.electricityAmount,
-          amount: item.electricityAmount,
-        },
-        {
-          tenantId,
           type: InvoiceItemType.UTILITY_WATER,
-          description: `Tiền nước sinh hoạt - ${period}`,
+          description: `Tiền nước sinh hoạt (${item.membersCount} người) - Kỳ tháng ${period}`,
+          servicePeriod: period,
           quantity: 1,
           unitPrice: item.waterAmount,
           amount: item.waterAmount,
         },
-        {
+      ];
+
+      if (item.electricityEligible && item.electricityAmount > 0) {
+        itemsData.push({
+          tenantId,
+          type: InvoiceItemType.UTILITY_ELECTRICITY,
+          description: `Tiền điện (${item.electricityKwh} kWh) - Sử dụng tháng ${usagePeriod}`,
+          servicePeriod: usagePeriod,
+          quantity: 1,
+          unitPrice: item.electricityAmount,
+          amount: item.electricityAmount,
+        });
+      }
+
+      if (item.serviceEligible && item.serviceAmount > 0) {
+        itemsData.push({
           tenantId,
           type: InvoiceItemType.SERVICE,
-          description: `Phí dịch vụ & Quản lý - ${period}`,
+          description: `Phí dịch vụ & Quản lý - Sử dụng tháng ${usagePeriod}`,
+          servicePeriod: usagePeriod,
           quantity: 1,
           unitPrice: item.serviceAmount,
           amount: item.serviceAmount,
-        },
-      ];
+        });
+      }
 
       if (!invoice) {
         invoice = await this.prisma.invoice.create({
           data: {
             tenantId,
             code: invoiceCode,
+            period,
+            usagePeriod,
             contractId: item.contractId,
             customerId: item.representative.id,
             status: InvoiceStatus.ISSUED,
@@ -588,13 +730,22 @@ export class MonthlySettlementService {
           },
         });
       } else {
-        // Cập nhật trạng thái ISSUED nếu đang DRAFT
+        // Cập nhật hóa đơn và làm mới items
+        await this.prisma.invoiceItem.deleteMany({
+          where: { invoiceId: invoice.id },
+        });
+
         invoice = await this.prisma.invoice.update({
           where: { id: invoice.id },
           data: {
             status: InvoiceStatus.ISSUED,
+            period,
+            usagePeriod,
             subtotal: item.totalAmount,
             total: item.totalAmount,
+            items: {
+              create: itemsData,
+            },
           },
         });
       }
@@ -607,12 +758,14 @@ export class MonthlySettlementService {
         totalAmount: item.totalAmount,
       });
 
-      lockRows.push({
-        buildingCode: item.buildingCode,
-        roomCode: item.roomCode,
-        period,
-        note: `Chốt tháng tự động kỳ ${period}`,
-      });
+      if (item.electricityEligible) {
+        lockRows.push({
+          buildingCode: item.buildingCode,
+          roomCode: item.roomCode,
+          period: usagePeriod,
+          note: `Khóa chỉ số điện sử dụng tháng ${usagePeriod} cho kỳ thu ${period}`,
+        });
+      }
     }
 
     // Khóa kỳ công tơ điện trong Hunonic
@@ -648,8 +801,10 @@ export class MonthlySettlementService {
       success: true,
       period,
       settledCount: settledInvoices.length,
+      skippedCount: skippedInvoices.length,
       sentCount,
       invoices: settledInvoices,
+      skippedInvoices,
     };
   }
 

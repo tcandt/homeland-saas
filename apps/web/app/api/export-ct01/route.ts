@@ -4,16 +4,27 @@ import path from 'path';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 
+function resolveTaiLieuPath(filename: string): string {
+  const candidates = [
+    path.join(process.cwd(), 'tai-lieu', filename),
+    path.join(process.cwd(), '..', 'tai-lieu', filename),
+    path.join(process.cwd(), '..', '..', 'tai-lieu', filename),
+    path.join('/app', 'tai-lieu', filename),
+    path.join('/app', 'apps', 'web', 'tai-lieu', filename),
+    path.join(process.cwd(), 'apps', 'web', 'tai-lieu', filename),
+    path.resolve('tai-lieu', filename),
+    path.join('d:\\homeland-new\\homeland-saas\\tai-lieu', filename),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0];
+}
+
 export async function POST(request: Request) {
   try {
     const data = await request.json();
-    const candidates = [
-      path.join(process.cwd(), 'tai-lieu', 'CT01.docx'),
-      path.join(process.cwd(), '..', '..', 'tai-lieu', 'CT01.docx'),
-      path.join('/app', 'tai-lieu', 'CT01.docx'),
-      'd:\\homeland-new\\homeland-saas\\tai-lieu\\CT01.docx',
-    ];
-    let templatePath = candidates.find(p => fs.existsSync(p)) || candidates[0];
+    const templatePath = resolveTaiLieuPath('CT01.docx');
 
     // Check if the file exists
     if (!fs.existsSync(templatePath)) {

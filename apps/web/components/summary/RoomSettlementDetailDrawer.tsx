@@ -336,9 +336,14 @@ export default function RoomSettlementDetailDrawer({
                         <DoorClosed size={16} />
                       </div>
                       <div>
-                        <div className="font-bold text-text">Tiền thuê phòng</div>
+                        <div className="font-bold text-text flex items-center gap-2">
+                          Tiền thuê phòng
+                          <span className="rounded-md bg-indigo-500/10 px-1.5 py-0.2 text-[9px] font-black text-indigo-600">
+                            Kỳ T{item.period?.split('-')?.[1]} (Thu trước)
+                          </span>
+                        </div>
                         <div className="text-[11px] text-muted">
-                          {item.hasContract ? `Giá hợp đồng đại diện (${item.contractCode || "Đang hiệu lực"})` : "Phòng trống"}
+                          {item.hasContract ? `Theo hợp đồng (${item.contractCode || "Đang hiệu lực"})` : "Phòng trống"}
                         </div>
                       </div>
                     </div>
@@ -356,18 +361,38 @@ export default function RoomSettlementDetailDrawer({
                       <div>
                         <div className="font-bold text-text flex items-center gap-2">
                           Tiền điện công tơ
+                          <span className="rounded-md bg-amber-500/10 px-1.5 py-0.2 text-[9px] font-black text-amber-600">
+                            Sử dụng T{item.usagePeriod?.split('-')?.[1] || "trước"} (Thu sau)
+                          </span>
+                          {item.hasContract && item.meterReading && (
+                            item.meterReading.rateMode === "custom" ? (
+                              <span className="inline-flex items-center rounded-md bg-amber-500/15 px-1.5 py-0.2 text-[9px] font-bold text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                                ⚡ Tự thiết lập ({(item.meterReading.customRateVnd || 3967).toLocaleString('vi-VN')}đ/kWh)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-md bg-sky-500/10 px-1.5 py-0.2 text-[9px] font-bold text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                                ⚡ Bậc thang EVN
+                              </span>
+                            )
+                          )}
                           {item.hasContract && item.electricityKwh > 0 && (
                             <span className="rounded-md bg-amber-500/10 px-1.5 py-0.2 text-[10px] font-black text-amber-600">
                               {formatKwh(item.electricityKwh)}
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-muted">
-                          {item.hasContract && item.meterReading
-                            ? `Chỉ số: ${item.meterReading.oldReading} -> ${item.meterReading.newReading} kWh`
-                            : item.hasContract
-                            ? "Số liệu từ công tơ Hunonic"
-                            : "Phòng trống = 0đ"}
+                        <div className="text-[11px] text-muted mt-0.5">
+                          {item.isFirstMonthNewTenant ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                              Khách mới vào ở từ tháng {item.period} → Không tính tiền điện tháng {item.usagePeriod}
+                            </span>
+                          ) : item.hasContract && item.meterReading ? (
+                            `Phương thức: ${item.meterReading.rateModeLabel || 'Bậc thang EVN'} • Chỉ số: ${item.electricityKwh} kWh`
+                          ) : item.hasContract ? (
+                            "Số liệu từ công tơ Hunonic"
+                          ) : (
+                            "Phòng trống = 0đ"
+                          )}
                         </div>
                       </div>
                     </div>
@@ -383,7 +408,12 @@ export default function RoomSettlementDetailDrawer({
                         <Droplets size={16} />
                       </div>
                       <div>
-                        <div className="font-bold text-text">Tiền nước sinh hoạt</div>
+                        <div className="font-bold text-text flex items-center gap-2">
+                          Tiền nước sinh hoạt
+                          <span className="rounded-md bg-cyan-500/10 px-1.5 py-0.2 text-[9px] font-black text-cyan-600">
+                            Kỳ T{item.period?.split('-')?.[1]} (Thu trước)
+                          </span>
+                        </div>
                         <div className="text-[11px] text-muted">
                           {item.hasContract ? `${item.membersCount} người x 100.000 đ/người` : "Phòng trống = 0đ"}
                         </div>
@@ -402,7 +432,12 @@ export default function RoomSettlementDetailDrawer({
                           <Wifi size={16} />
                         </div>
                         <div>
-                          <div className="font-bold text-text">Phí dịch vụ & Quản lý</div>
+                          <div className="font-bold text-text flex items-center gap-2">
+                            Phí dịch vụ & Quản lý
+                            <span className="rounded-md bg-purple-500/10 px-1.5 py-0.2 text-[9px] font-black text-purple-600">
+                              Sử dụng T{item.usagePeriod?.split('-')?.[1] || "trước"}
+                            </span>
+                          </div>
                           <div className="text-[11px] text-muted">Wifi, Rác, Vệ sinh</div>
                         </div>
                       </div>

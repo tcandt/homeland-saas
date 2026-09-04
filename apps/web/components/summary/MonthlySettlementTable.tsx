@@ -135,11 +135,11 @@ export default function MonthlySettlementTable({
             <tr className="border-b border-border bg-muted/40 text-[11px] font-black uppercase tracking-wider text-muted select-none">
               <th className="py-3 px-3.5 text-center w-12">STT</th>
               <th className="py-3 px-3.5 min-w-[140px]">Phòng / Căn hộ</th>
-              <th className="py-3 px-3.5 min-w-[180px]">Đại diện & Thành viên</th>
+              <th className="py-3 px-3.5 min-w-[180px]">Đại diện & Cư dân</th>
               <th className="py-3 px-3.5 text-right min-w-[110px]">Tiền phòng</th>
-              <th className="py-3 px-3.5 text-right min-w-[120px]">Tiền điện</th>
-              <th className="py-3 px-3.5 text-right min-w-[110px]">Tiền nước (100k/người)</th>
-              <th className="py-3 px-3.5 text-right min-w-[130px]">Tổng tiền</th>
+              <th className="py-3 px-3.5 text-right min-w-[130px]">Điện (Tháng trước)</th>
+              <th className="py-3 px-3.5 text-right min-w-[120px]">Nước (100k/người)</th>
+              <th className="py-3 px-3.5 text-right min-w-[130px]">Tổng cộng</th>
               <th className="py-3 px-3.5 text-center min-w-[140px]">Trạng thái gửi</th>
               <th className="py-3 px-3.5 text-center min-w-[110px]">Thanh toán</th>
               <th className="py-3 px-3.5 text-center w-28">Hành động</th>
@@ -149,6 +149,7 @@ export default function MonthlySettlementTable({
             {items.map((item, idx) => {
               const isResending = isResendingRoomId === item.roomId;
               const hasContract = item.hasContract;
+              const isNewTenant = item.isFirstMonthNewTenant;
 
               return (
                 <tr
@@ -161,7 +162,7 @@ export default function MonthlySettlementTable({
                     {idx + 1}
                   </td>
 
-                  {/* Phòng (Loại bỏ box avatar thừa để gọn gàng) */}
+                  {/* Phòng */}
                   <td className="py-3.5 px-3.5">
                     <div className="min-w-0">
                       <div className="font-black text-text group-hover:text-primary transition-colors truncate text-sm">
@@ -194,21 +195,37 @@ export default function MonthlySettlementTable({
                     )}
                   </td>
 
-                  {/* Tiền phòng theo đúng hợp đồng */}
+                  {/* Tiền phòng theo kỳ tháng M */}
                   <td className="py-3.5 px-3.5 text-right font-bold text-text">
                     {hasContract ? formatVnd(item.roomPrice) : <span className="text-muted/60 font-normal">0 đ</span>}
                   </td>
 
-                  {/* Tiền điện: Chỉ hiển thị khi có HĐ, phòng trống = 0 */}
+                  {/* Tiền điện tháng M-1: Nếu là khách mới vào ở từ tháng M, chưa tính điện M-1 */}
                   <td className="py-3.5 px-3.5 text-right">
                     {hasContract && item.electricityAmount > 0 ? (
                       <div>
                         <div className="font-bold text-amber-600 dark:text-amber-400">
                           {formatVnd(item.electricityAmount)}
                         </div>
-                        <div className="text-[10px] text-muted font-medium">
-                          {formatKwh(item.electricityKwh)}
+                        <div className="text-[10px] text-muted font-medium flex items-center justify-end gap-1 mt-0.5">
+                          <span>{formatKwh(item.electricityKwh)}</span>
+                          {item.meterReading?.rateMode === "custom" ? (
+                            <span className="inline-flex items-center rounded-xs bg-amber-500/15 px-1 py-0.2 text-[9px] font-bold text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                              3.967đ
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-xs bg-sky-500/10 px-1 py-0.2 text-[9px] font-bold text-sky-700 dark:text-sky-300">
+                              EVN
+                            </span>
+                          )}
                         </div>
+                      </div>
+                    ) : isNewTenant ? (
+                      <div>
+                        <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                          Khách mới T{item.period?.split('-')?.[1]}
+                        </span>
+                        <div className="text-[10px] text-muted font-medium mt-0.5">Chưa ở T{item.usagePeriod?.split('-')?.[1]}</div>
                       </div>
                     ) : (
                       <div className="text-muted/60">

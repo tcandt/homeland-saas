@@ -22,7 +22,9 @@ export interface MeterReadingInfo {
   powerW: number;
   isOnline: boolean;
   lastSyncedAt?: string | null;
-  rateMode: string;
+  rateMode: 'residential' | 'custom' | string;
+  customRateVnd?: number | null;
+  rateModeLabel?: string;
 }
 
 export interface RoomSettlementItem {
@@ -39,7 +41,12 @@ export interface RoomSettlementItem {
   contractId: string | null;
   contractCode: string | null;
   contractStatus: string | null;
+  contractStartDate?: string | null;
+  contractSignedAt?: string | null;
   hasContract: boolean;
+  isFirstMonthNewTenant?: boolean;
+  electricityEligible?: boolean;
+  serviceEligible?: boolean;
   representative: {
     id: string;
     fullName: string;
@@ -54,6 +61,7 @@ export interface RoomSettlementItem {
   membersCount: number;
   members: RoomMember[];
   period: string;
+  usagePeriod?: string;
   invoiceId: string | null;
   invoiceCode: string;
   roomPrice: number;
@@ -72,6 +80,7 @@ export interface RoomSettlementItem {
 
 export interface SettlementOverviewResponse {
   period: string;
+  usagePeriod?: string;
   buildings: Array<{ id: string; name: string; code: string }>;
   settings: {
     autoCloseEnabled: boolean;

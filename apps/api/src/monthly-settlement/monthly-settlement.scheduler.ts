@@ -4,7 +4,6 @@ import { PrismaService } from '../prisma.service';
 import {
   MonthlySettlementService,
   formatVietnamPeriod,
-  getPreviousVietnamPeriod,
   isLastDayOfVietnamMonth,
   getVietnamDate,
 } from './monthly-settlement.service';
@@ -19,20 +18,20 @@ export class MonthlySettlementScheduler {
   ) {}
 
   /**
-   * Tự động chốt số liệu vào ngày cuối cùng của tháng lúc 23:50 (Múi giờ GMT+7 Việt Nam)
+   * 1. USAGE CUTOFF & METER LOCK: Tự động chốt và khóa chỉ số công tơ điện vào ngày cuối cùng của tháng lúc 23:50 (GMT+7)
    */
   @Cron('50 23 28-31 * *', {
     timeZone: 'Asia/Ho_Chi_Minh',
   })
   async handleAutoMonthEndClosing() {
-    this.logger.log('Checking month-end closing scheduled trigger (GMT+7)...');
+    this.logger.log('Checking month-end usage cutoff trigger (GMT+7)...');
     if (!isLastDayOfVietnamMonth()) {
       this.logger.log('Today is not the last day of the month in Vietnam timezone. Skipping.');
       return;
     }
 
-    const currentPeriod = formatVietnamPeriod();
-    this.logger.log(`Executing auto month-end settlement for period ${currentPeriod}...`);
+    const usagePeriod = formatVietnamPeriod();
+    this.logger.log(`Executing auto month-end meter cutoff & snapshot for usage period ${usagePeriod}...`);
 
     const tenants = await this.prisma.tenantOrg.findMany({
       where: { isActive: true },
@@ -43,37 +42,29 @@ export class MonthlySettlementScheduler {
       try {
         const settings = await this.settlementService.getSettings(tenant.id);
         if (settings.autoCloseEnabled !== false) {
-          const adminUser = await this.prisma.user.findFirst({
-            where: { tenantId: tenant.id },
-            select: { id: true },
-          });
-          const userId = adminUser?.id || 'system-scheduler';
-
-          const res = await this.settlementService.closeMonth(tenant.id, userId, {
-            period: currentPeriod,
-            autoSend: false, // Để dành gửi lúc 08:00 sáng ngày 01
+          const result = await this.settlementService.finalizeUsagePeriod(tenant.id, {
+            period: usagePeriod,
           });
           this.logger.log(
-            `Auto closed month for tenant ${tenant.name} (${tenant.id}): ${res.settledCount} rooms settled.`,
+            `Finalized meter usage cutoff for tenant ${tenant.name} (${tenant.id}) - Usage Period ${result.usagePeriod}: ${result.lockedCount} room periods locked.`,
           );
         }
       } catch (err: any) {
-        this.logger.error(`Failed auto month-end closing for tenant ${tenant.id}: ${err?.message}`);
+        this.logger.error(`Failed auto month-end usage cutoff for tenant ${tenant.id}: ${err?.message}`);
       }
     }
   }
 
   /**
-   * Tự động gửi thông báo thanh toán qua Zalo vào đúng 08:00 SÁNG NGÀY 01 HÀNG THÁNG (Múi giờ GMT+7 Việt Nam)
+   * 2. BILLING SETTLEMENT & PAYMENT DISPATCH: Tự động sinh hóa đơn kỳ mới & gửi Zalo lúc 08:00 SÁNG NGÀY 01 HÀNG THÁNG (GMT+7)
    */
   @Cron('0 8 1 * *', {
     timeZone: 'Asia/Ho_Chi_Minh',
   })
   async handleAutoSendMonthlyPaymentNotifications() {
-    this.logger.log('Triggering scheduled monthly payment notification dispatch at 08:00 AM on the 1st (GMT+7)...');
+    this.logger.log('Triggering scheduled monthly settlement & payment notification dispatch at 08:00 AM on the 1st (GMT+7)...');
 
-    const nowPeriod = formatVietnamPeriod();
-    const settledPeriod = getPreviousVietnamPeriod(nowPeriod); // Kỳ vừa kết thúc chốt hôm qua
+    const billingPeriod = formatVietnamPeriod(); // Tháng M mới bắt đầu (vd: 10/2026)
 
     const tenants = await this.prisma.tenantOrg.findMany({
       where: { isActive: true },
@@ -83,23 +74,26 @@ export class MonthlySettlementScheduler {
     for (const tenant of tenants) {
       try {
         const settings = await this.settlementService.getSettings(tenant.id);
-        if (settings.autoSendNotification !== false) {
-          const adminUser = await this.prisma.user.findFirst({
-            where: { tenantId: tenant.id },
-            select: { id: true },
-          });
-          const userId = adminUser?.id || 'system-scheduler';
+        const adminUser = await this.prisma.user.findFirst({
+          where: { tenantId: tenant.id },
+          select: { id: true },
+        });
+        const userId = adminUser?.id || 'system-scheduler';
 
-          const res = await this.settlementService.sendNotifications(tenant.id, userId, {
-            period: settledPeriod,
+        if (settings.autoCloseEnabled !== false) {
+          // Tạo hóa đơn tháng M (tiền phòng + nước tháng M, tiền điện + dịch vụ tháng M-1)
+          const resClose = await this.settlementService.closeMonth(tenant.id, userId, {
+            period: billingPeriod,
+            autoSend: settings.autoSendNotification !== false,
           });
+
           this.logger.log(
-            `Auto sent payment notifications for tenant ${tenant.name} (${tenant.id}) - Period ${settledPeriod}: ${res.sentCount} sent, ${res.failedCount} failed.`,
+            `Auto settlement executed for tenant ${tenant.name} (${tenant.id}) - Billing Period ${billingPeriod}: ${resClose.settledCount} rooms settled, ${resClose.sentCount} notifications sent.`,
           );
         }
       } catch (err: any) {
         this.logger.error(
-          `Failed auto sending payment notifications for tenant ${tenant.id}: ${err?.message}`,
+          `Failed auto monthly billing execution for tenant ${tenant.id}: ${err?.message}`,
         );
       }
     }

@@ -453,27 +453,33 @@ export default function SettingsZaloIntegration() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-text">Zalo Bot Token</label>
+              <label className="text-xs font-bold text-text flex items-center justify-between">
+                <span>Zalo Bot Token</span>
+                <span className="text-[10px] font-normal text-muted">(Chỉ sửa trong cấu hình)</span>
+              </label>
               <Input
                 type="password"
-                value={draft.botToken || ""}
-                onChange={(e) => setDraft((prev) => ({ ...prev, botToken: e.target.value }))}
-                placeholder={canEditSecrets ? "Nhập Bot Token" : "Chỉ admin@homeland.vn được sửa"}
-                disabled={!canEditSecrets}
+                value={draft.botToken ? "••••••••••••••••••••••••••••••••" : ""}
+                placeholder="Chưa cấu hình Bot Token"
+                disabled={true}
+                readOnly
                 data-testid="integration-secret-field"
-                className="h-9 text-xs font-mono"
+                className="h-9 text-xs font-mono bg-muted/20 cursor-not-allowed text-muted select-none"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-text">Webhook Secret Key</label>
+              <label className="text-xs font-bold text-text flex items-center justify-between">
+                <span>Webhook Secret Key</span>
+                <span className="text-[10px] font-normal text-muted">(Chỉ sửa trong cấu hình)</span>
+              </label>
               <Input
                 type="password"
-                value={draft.webhookSecret || ""}
-                onChange={(e) => setDraft((prev) => ({ ...prev, webhookSecret: e.target.value }))}
+                value={draft.webhookSecret ? "••••••••••••••••••••••••••••••••" : ""}
                 placeholder="Tự động tạo bởi hệ thống"
                 disabled={true}
+                readOnly
                 data-testid="integration-secret-field"
-                className="h-9 text-xs font-mono bg-muted/20 cursor-not-allowed"
+                className="h-9 text-xs font-mono bg-muted/20 cursor-not-allowed text-muted select-none"
               />
             </div>
           </div>

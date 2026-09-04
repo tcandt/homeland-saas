@@ -467,6 +467,8 @@ model Invoice {
   contractId   String?
   customerId   String
   code         String
+  period       String?
+  usagePeriod  String?
   status       InvoiceStatus @default(DRAFT)
   dueDate      DateTime
   subtotal     Decimal       @db.Decimal(14, 2)
@@ -488,6 +490,7 @@ model Invoice {
   allocations PaymentAllocation[]
 
   @@unique([tenantId, code])
+  @@index([tenantId, period])
   @@index([tenantId, customerId, dueDate, status])
   @@index([tenantId, status, dueDate])
   @@index([tenantId, contractId, status])
@@ -1496,6 +1499,7 @@ model InvoiceItem {
   invoiceId   String
   type        InvoiceItemType
   description String
+  servicePeriod String?
   quantity    Decimal         @db.Decimal(14, 2)
   unitPrice   Decimal         @db.Decimal(14, 2)
   amount      Decimal         @db.Decimal(14, 2)
@@ -1505,6 +1509,7 @@ model InvoiceItem {
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, invoiceId])
+  @@index([tenantId, servicePeriod])
 }
 
 model PaymentAllocation {

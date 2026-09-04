@@ -330,7 +330,10 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
         </div>
 
         <div className="md:hidden pt-0.5 shrink min-w-0 overflow-hidden pr-2">
-          <BrandLogo variant="compact" size="xs" showTagline={false} />
+          <h1 className="m-0 text-[20px] leading-[24px] font-[800] tracking-tight truncate w-full">
+            <span className="text-[#22c55e]">HomeLand</span>
+            <span className="text-text ml-[3px]">Premium</span>
+          </h1>
           <p className="m-0 text-muted text-[11px] font-medium truncate w-full">
             {getMobileSubtitle()}
           </p>

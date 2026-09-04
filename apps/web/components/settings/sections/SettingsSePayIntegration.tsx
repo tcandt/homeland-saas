@@ -466,20 +466,6 @@ export default function SettingsSePayIntegration() {
             <div className="flex items-center gap-2">
               <Button
                 type="button"
-                size="sm"
-                onClick={async () => {
-                  const payload: Partial<SePaySettings> = { ...draft };
-                  if (!canEditSecrets || !draft.webhookApiKey) delete payload.webhookApiKey;
-                  if (!canEditSecrets || !draft.hmacSecret) delete payload.hmacSecret;
-                  await save(payload as SePaySettings);
-                  toast.success("Đã lưu cấu hình SePay thành công!");
-                }}
-                className="h-8 rounded-xl px-3 text-xs font-bold bg-primary text-white"
-              >
-                Lưu SePay
-              </Button>
-              <Button
-                type="button"
                 variant="outline"
                 size="sm"
                 onClick={openConfigModal}
@@ -492,24 +478,31 @@ export default function SettingsSePayIntegration() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-text">API Key Webhook</label>
+              <label className="text-xs font-bold text-text flex items-center justify-between">
+                <span>API Key Webhook</span>
+                <span className="text-[10px] font-normal text-muted">(Chỉ sửa trong cấu hình)</span>
+              </label>
               <Input
                 type="password"
-                value={draft.webhookApiKey || ""}
-                onChange={(e) => setDraft((prev) => ({ ...prev, webhookApiKey: e.target.value }))}
-                placeholder={canEditSecrets ? "Nhập API Key" : "Chỉ admin@homeland.vn được sửa"}
-                disabled={!canEditSecrets}
+                value={draft.webhookApiKey ? "••••••••••••••••••••••••••••••••" : ""}
+                placeholder="Chưa cấu hình API Key"
+                disabled={true}
+                readOnly
                 data-testid="integration-secret-field"
-                className="h-9 text-xs font-mono"
+                className="h-9 text-xs font-mono bg-muted/20 cursor-not-allowed text-muted select-none"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-text">Tiền tố mã thanh toán</label>
+              <label className="text-xs font-bold text-text flex items-center justify-between">
+                <span>Tiền tố mã thanh toán</span>
+                <span className="text-[10px] font-normal text-muted">(Chỉ sửa trong cấu hình)</span>
+              </label>
               <Input
                 value={draft.paymentCodePrefix || "HL"}
-                onChange={(e) => setDraft((prev) => ({ ...prev, paymentCodePrefix: e.target.value }))}
                 placeholder="HL"
-                className="h-9 text-xs font-mono font-bold"
+                disabled={true}
+                readOnly
+                className="h-9 text-xs font-mono font-bold bg-muted/20 cursor-not-allowed text-muted select-none"
               />
             </div>
           </div>

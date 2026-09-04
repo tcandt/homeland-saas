@@ -53,6 +53,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     if (status) where.status = status;
     if (customerId) where.customerId = customerId;
     if (contractId) where.contractId = contractId;
+    if (period) where.period = period;
     
     if (overdue) {
       where.dueDate = { lt: new Date() };

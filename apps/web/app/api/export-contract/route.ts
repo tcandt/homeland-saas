@@ -5,18 +5,29 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { execSync } from 'child_process';
 
+function resolveTaiLieuPath(filename: string): string {
+  const candidates = [
+    path.join(process.cwd(), 'tai-lieu', filename),
+    path.join(process.cwd(), '..', 'tai-lieu', filename),
+    path.join(process.cwd(), '..', '..', 'tai-lieu', filename),
+    path.join('/app', 'tai-lieu', filename),
+    path.join('/app', 'apps', 'web', 'tai-lieu', filename),
+    path.join(process.cwd(), 'apps', 'web', 'tai-lieu', filename),
+    path.resolve('tai-lieu', filename),
+    path.join('d:\\homeland-new\\homeland-saas\\tai-lieu', filename),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0];
+}
+
 export async function POST(request: Request) {
   try {
     const data = await request.json();
     console.log('--- EXPORT CONTRACT PAYLOAD ---', data);
     
-    const candidates = [
-      path.join(process.cwd(), 'tai-lieu', 'HOP_DONG_1PN.docx'),
-      path.join(process.cwd(), '..', '..', 'tai-lieu', 'HOP_DONG_1PN.docx'),
-      path.join('/app', 'tai-lieu', 'HOP_DONG_1PN.docx'),
-      'd:\\homeland-new\\homeland-saas\\tai-lieu\\HOP_DONG_1PN.docx',
-    ];
-    let templatePath = candidates.find(p => fs.existsSync(p)) || candidates[0];
+    const templatePath = resolveTaiLieuPath('HOP_DONG_1PN.docx');
 
     // Check if the file exists
     if (!fs.existsSync(templatePath)) {
@@ -110,6 +121,16 @@ export async function POST(request: Request) {
     const url = new URL(request.url);
     const wantPdf = url.searchParams.get('format') === 'pdf' || data.format === 'pdf';
 
+    const safeCustomer = (data.hoTen || 'KhachHang')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D')
+      .replace(/[^a-zA-Z0-9\s]/g, '')
+      .trim()
+      .replace(/\s+/g, '_');
+    const safeRoom = (data.maPhong || '').replace(/[^a-zA-Z0-9]/g, '');
+
     if (wantPdf) {
       const tempDir = path.join(process.cwd(), 'scratch');
       if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
@@ -119,8 +140,10 @@ export async function POST(request: Request) {
 
       fs.writeFileSync(tempDocx, buf);
 
-      try {
-        const psScript = `
+      // Attempt Windows Word COM conversion
+      if (process.platform === 'win32') {
+        try {
+          const psScript = `
 $word = New-Object -ComObject Word.Application;
 $word.Visible = $false;
 try {
@@ -131,34 +154,53 @@ try {
   $word.Quit();
 }
 `;
-        execSync(`powershell -Command "${psScript.replace(/\n/g, ' ')}"`, { stdio: 'pipe' });
+          execSync(`powershell -Command "${psScript.replace(/\n/g, ' ')}"`, { stdio: 'pipe' });
 
-        if (fs.existsSync(tempPdf)) {
-          const pdfBuf = fs.readFileSync(tempPdf);
-          try { fs.unlinkSync(tempDocx); } catch {}
-          try { fs.unlinkSync(tempPdf); } catch {}
+          if (fs.existsSync(tempPdf)) {
+            const pdfBuf = fs.readFileSync(tempPdf);
+            try { fs.unlinkSync(tempDocx); } catch {}
+            try { fs.unlinkSync(tempPdf); } catch {}
 
-          const safeCustomer = (data.hoTen || 'KhachHang').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_');
-          const safeRoom = (data.maPhong || '').replace(/[^a-zA-Z0-9]/g, '');
-          const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
-
-          return new NextResponse(pdfBuf as any, {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/pdf',
-              'Content-Disposition': `inline; filename="${filename}"`,
-            },
-          });
+            const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
+            return new NextResponse(pdfBuf as any, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/pdf',
+                'Content-Disposition': `inline; filename="${filename}"`,
+              },
+            });
+          }
+        } catch (comErr) {
+          console.warn('Word COM conversion failed, falling back to docx:', comErr);
+          try { if (fs.existsSync(tempDocx)) fs.unlinkSync(tempDocx); } catch {}
+          try { if (fs.existsSync(tempPdf)) fs.unlinkSync(tempPdf); } catch {}
         }
-      } catch (comErr) {
-        console.warn('Word COM conversion failed, falling back to docx:', comErr);
-        try { if (fs.existsSync(tempDocx)) fs.unlinkSync(tempDocx); } catch {}
-        try { if (fs.existsSync(tempPdf)) fs.unlinkSync(tempPdf); } catch {}
+      } else {
+        // Linux / Docker environment: try libreoffice/soffice if available
+        try {
+          execSync(`libreoffice --headless --convert-to pdf "${tempDocx}" --outdir "${tempDir}"`, { stdio: 'pipe' });
+          if (fs.existsSync(tempPdf)) {
+            const pdfBuf = fs.readFileSync(tempPdf);
+            try { fs.unlinkSync(tempDocx); } catch {}
+            try { fs.unlinkSync(tempPdf); } catch {}
+
+            const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
+            return new NextResponse(pdfBuf as any, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/pdf',
+                'Content-Disposition': `inline; filename="${filename}"`,
+              },
+            });
+          }
+        } catch {
+          // LibreOffice not installed or conversion not possible; fall back to docx stream
+          try { if (fs.existsSync(tempDocx)) fs.unlinkSync(tempDocx); } catch {}
+          try { if (fs.existsSync(tempPdf)) fs.unlinkSync(tempPdf); } catch {}
+        }
       }
     }
 
-    const safeCustomer = (data.hoTen || 'KhachHang').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_');
-    const safeRoom = (data.maPhong || '').replace(/[^a-zA-Z0-9]/g, '');
     const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.docx`;
 
     return new NextResponse(buf as any, {

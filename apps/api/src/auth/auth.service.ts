@@ -234,19 +234,25 @@ export class AuthService {
     };
   }
 
-  async logout(userId: string) {
-    await this.prisma.user.update({ 
-      where: { id: userId }, 
-      data: { refreshTokenHash: null } 
-    });
+  async logout(userId?: string) {
+    if (userId) {
+      try {
+        await this.prisma.user.update({ 
+          where: { id: userId }, 
+          data: { refreshTokenHash: null } 
+        });
 
-    await this.audit.log({
-      action: 'LOGOUT_SUCCESS',
-      entity: 'User',
-      entityId: userId,
-      module: 'Auth',
-      userId: userId
-    });
+        await this.audit.log({
+          action: 'LOGOUT_SUCCESS',
+          entity: 'User',
+          entityId: userId,
+          module: 'Auth',
+          userId: userId
+        });
+      } catch (err) {
+        this.logger.warn(`Logout cleanup ignored for user ${userId}: ${String(err)}`);
+      }
+    }
 
     return { success: true };
   }

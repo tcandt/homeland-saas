@@ -1,9 +1,10 @@
 "use client";
 
-import React, { FormEvent, useState } from "react";
+import React, { FormEvent, useEffect, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock,
   Eye,
   EyeOff,
   Key,
@@ -11,11 +12,13 @@ import {
   Lock,
   LogOut,
   QrCode,
+  Save,
   Shield,
   ShieldAlert,
   ShieldCheck,
   Smartphone,
   Sparkles,
+  Timer,
 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -25,6 +28,21 @@ import toast from "react-hot-toast";
 import { authApi } from "@/lib/api/auth.api";
 import { ApiError } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/auth/auth-store";
+
+function formatTimeoutLabel(minutes: number): string {
+  if (!minutes || minutes <= 0) return "24 giờ";
+  if (minutes < 60) return `${minutes} phút`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (remainingMinutes === 0) {
+    if (hours >= 24 && hours % 24 === 0) {
+      const days = hours / 24;
+      return `${days} ngày (${hours}h)`;
+    }
+    return `${hours} giờ`;
+  }
+  return `${hours}h ${remainingMinutes}p`;
+}
 
 export default function SettingsSecurity() {
   const user = useAuthStore((state) => state.user);
@@ -48,6 +66,56 @@ export default function SettingsSecurity() {
   // Session state
   const [isLogoutOtherModalOpen, setIsLogoutOtherModalOpen] = useState(false);
   const [isLoggingOutOthers, setIsLoggingOutOthers] = useState(false);
+
+  // Session Idle Timeout state (in minutes)
+  const [idleTimeoutMinutes, setIdleTimeoutMinutes] = useState<number>(1440);
+  const [customMinutes, setCustomMinutes] = useState<string>("");
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("homeland_session_idle_timeout_minutes");
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          setIdleTimeoutMinutes(parsed);
+          return;
+        }
+      }
+    } catch {
+      // Ignore
+    }
+    setIdleTimeoutMinutes(1440);
+  }, []);
+
+  const saveTimeout = (minutes: number) => {
+    if (minutes <= 0) {
+      toast.error("Thời gian giữ phiên phải lớn hơn 0 phút");
+      return;
+    }
+    setIdleTimeoutMinutes(minutes);
+    try {
+      localStorage.setItem("homeland_session_idle_timeout_minutes", String(minutes));
+      window.dispatchEvent(new CustomEvent("homeland:session-timeout-updated"));
+    } catch {
+      // Ignore
+    }
+    toast.success(`Đã lưu thời gian giữ phiên: ${formatTimeoutLabel(minutes)}`);
+  };
+
+  const handleSelectPreset = (minutes: number) => {
+    saveTimeout(minutes);
+    setCustomMinutes("");
+  };
+
+  const handleSaveCustomTimeout = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseInt(customMinutes.trim(), 10);
+    if (isNaN(val) || val <= 0) {
+      toast.error("Vui lòng nhập số phút hợp lệ (ví dụ: 45, 180, 720...)");
+      return;
+    }
+    saveTimeout(val);
+  };
 
   const changePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -149,16 +217,96 @@ export default function SettingsSecurity() {
         </Card>
 
         <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3 shadow-2xs">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
-            <Smartphone size={16} />
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 shrink-0">
+            <Clock size={16} />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Thiết bị đăng nhập</div>
-            <div className="font-mono font-black text-[15px] text-text leading-tight">1 phiên hoạt động</div>
-            <div className="text-[10px] text-muted truncate mt-0.5">Thiết bị hiện tại (Desktop)</div>
+            <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Thời gian giữ phiên</div>
+            <div className="font-mono font-black text-[15px] text-text leading-tight truncate">{formatTimeoutLabel(idleTimeoutMinutes)}</div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Tự động ngắt khi không thao tác</div>
           </div>
         </Card>
       </div>
+
+      {/* Session Inactivity Timeout Configuration Card */}
+      <Card className="rounded-xl border border-border/70 bg-card p-4 shadow-2xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-border/50 pb-3 mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shrink-0">
+              <Timer size={16} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-xs font-black text-text">Thời gian giữ phiên đăng nhập (Inactivity Timeout)</h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 font-mono">
+                  Đang áp dụng: {formatTimeoutLabel(idleTimeoutMinutes)} ({idleTimeoutMinutes} phút)
+                </span>
+              </div>
+              <p className="text-[11px] text-muted font-medium mt-0.5">
+                Hệ thống sẽ duy trì trạng thái đăng nhập khi bạn làm việc. Nếu không có bất kỳ thao tác nào (chuột, bàn phím, cuộn) trong khoảng thời gian này, hệ thống sẽ tự động kết thúc phiên một cách an toàn.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3.5 pt-0.5">
+          {/* Preset Buttons */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-bold text-muted uppercase tracking-wider mr-1">Tùy chọn nhanh:</span>
+            {[
+              { label: "15 phút", value: 15 },
+              { label: "30 phút", value: 30 },
+              { label: "60 phút (1h)", value: 60 },
+              { label: "2 giờ", value: 120 },
+              { label: "8 giờ", value: 480 },
+              { label: "24 giờ (1 ngày)", value: 1440 },
+              { label: "7 ngày", value: 10080 },
+            ].map((preset) => {
+              const active = idleTimeoutMinutes === preset.value;
+              return (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => handleSelectPreset(preset.value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                    active
+                      ? "bg-primary text-white border-primary shadow-xs"
+                      : "bg-background border-border/70 text-text hover:border-primary/50 hover:bg-primary/5"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Custom Minute Input */}
+          <form onSubmit={handleSaveCustomTimeout} className="flex items-center gap-2 w-full sm:w-auto">
+            <span className="text-[11px] font-bold text-muted uppercase tracking-wider shrink-0">Tùy chỉnh:</span>
+            <div className="relative flex items-center">
+              <Input
+                type="number"
+                min={1}
+                max={525600}
+                value={customMinutes}
+                onChange={(e) => setCustomMinutes(e.target.value)}
+                placeholder="Số phút..."
+                className="h-8.5 w-28 rounded-lg text-xs font-mono pr-12 text-center"
+              />
+              <span className="absolute right-2.5 text-[11px] text-muted font-medium pointer-events-none">phút</span>
+            </div>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              className="h-8.5 rounded-lg px-3 text-xs font-bold shadow-xs shrink-0"
+            >
+              <Save size={13} className="mr-1.5" />
+              Lưu
+            </Button>
+          </form>
+        </div>
+      </Card>
 
       {/* Main Grid: Change Password & 2FA / Session */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">

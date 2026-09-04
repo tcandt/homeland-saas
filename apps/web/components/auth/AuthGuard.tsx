@@ -63,25 +63,49 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     const publicPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
     if (publicPaths.includes(pathname)) return;
 
+    const getTimeoutMs = () => {
+      try {
+        const stored = localStorage.getItem("homeland_session_idle_timeout_minutes");
+        if (stored) {
+          const parsed = parseInt(stored, 10);
+          if (!isNaN(parsed) && parsed > 0) {
+            return parsed * 60 * 1000;
+          }
+        }
+      } catch {
+        // Fallback to default
+      }
+      // Mặc định: 1440 phút = 24 giờ giữ phiên đăng nhập
+      return 24 * 60 * 60 * 1000;
+    };
+
     const logoutForIdle = () => {
+      // Clear session locally and redirect cleanly
       useAuthStore.getState().clearSession();
       router.replace("/login");
     };
 
     const resetIdleTimer = () => {
       if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
-      // Giữ session 24 giờ (86,400,000 ms) khi không tương tác
-      idleTimerRef.current = window.setTimeout(logoutForIdle, 24 * 60 * 60 * 1000);
+      idleTimerRef.current = window.setTimeout(logoutForIdle, getTimeoutMs());
     };
 
     const events: Array<keyof WindowEventMap> = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "focus"];
     events.forEach((eventName) => window.addEventListener(eventName, resetIdleTimer, { passive: true }));
+
+    const handleTimeoutUpdated = () => resetIdleTimer();
+    window.addEventListener("homeland:session-timeout-updated", handleTimeoutUpdated);
+    window.addEventListener("storage", (e) => {
+      if (e.key === "homeland_session_idle_timeout_minutes") resetIdleTimer();
+    });
+
     resetIdleTimer();
 
     return () => {
       if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
       events.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer));
+      window.removeEventListener("homeland:session-timeout-updated", handleTimeoutUpdated);
     };
   }, [mounted, isAuthenticated, pathname, router]);
 

@@ -636,7 +636,7 @@ export default function SystemUpdateLivePage() {
           {(!backups.data?.backups || backups.data.backups.length === 0) ? (
             <div className="p-6 text-center text-xs text-muted">Chưa có snapshot sao lưu nào.</div>
           ) : (
-            <div className="overflow-x-auto overflow-y-visible">
+            <div className="overflow-visible">
               <table className="w-full text-left text-xs">
                 <thead className="bg-muted/10 text-muted font-bold border-b border-border/50 text-[11px]">
                   <tr>
@@ -695,7 +695,7 @@ export default function SystemUpdateLivePage() {
                           {openDropdownId === b.id && (
                             <>
                               <div className="fixed inset-0 z-40" onClick={() => setOpenDropdownId(null)} />
-                              <div className="absolute right-0 top-full mt-1 w-40 rounded-xl border border-border/80 bg-card p-1 shadow-xl z-50 flex flex-col gap-0.5 text-left">
+                              <div className="absolute right-0 bottom-full mb-1 w-40 rounded-xl border border-border/80 bg-card p-1 shadow-xl z-50 flex flex-col gap-0.5 text-left">
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -820,27 +820,27 @@ export default function SystemUpdateLivePage() {
               />
             </div>
 
-            <div className="mt-2 flex items-center justify-end gap-2 pt-2 border-t border-border">
-              <Button
-                variant="outline"
-                size="sm"
+            {/* Actions */}
+            <div className="mt-5 flex items-center justify-end gap-3 pt-4 border-t border-border">
+              <button
+                type="button"
                 onClick={() => {
                   setSelectedSnapshotForRestore(null);
                   setRestorePassword("");
                 }}
                 disabled={isRestoring}
-                className="h-8.5 rounded-xl text-xs font-bold"
+                className="inline-flex h-10 items-center justify-center px-5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-transparent shadow-xs transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap disabled:opacity-50"
               >
                 Hủy
-              </Button>
+              </button>
               <button
                 type="button"
                 onClick={handleExecuteRestore}
                 disabled={isRestoring || !restorePassword}
-                className="h-8.5 px-3.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 text-white bg-blue-600 hover:bg-blue-700 transition cursor-pointer disabled:opacity-50"
+                className="inline-flex h-10 items-center justify-center gap-2 px-5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:from-blue-700 active:to-indigo-700 shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/35 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isRestoring ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
-                <span>{isRestoring ? "Đang khôi phục..." : "Xác nhận khôi phục"}</span>
+                {isRestoring ? <Loader2 size={15} className="animate-spin shrink-0" /> : <RotateCcw size={15} className="shrink-0" />}
+                <span className="whitespace-nowrap">{isRestoring ? "Đang khôi phục..." : "Xác nhận khôi phục"}</span>
               </button>
             </div>
           </div>
@@ -869,24 +869,23 @@ export default function SystemUpdateLivePage() {
             <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-2.5 text-muted text-[11px]">
               Hành động này sẽ giải phóng dung lượng ổ đĩa VPS và không thể hoàn tác file này.
             </div>
-            <div className="mt-2 flex items-center justify-end gap-2 pt-2 border-t border-border">
-              <Button
-                variant="outline"
-                size="sm"
+            <div className="mt-5 flex items-center justify-end gap-3 pt-4 border-t border-border">
+              <button
+                type="button"
                 onClick={() => setSnapshotToDelete(null)}
                 disabled={isDeleting}
-                className="h-8.5 rounded-xl text-xs font-bold"
+                className="inline-flex h-10 items-center justify-center px-5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-transparent shadow-xs transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap disabled:opacity-50"
               >
                 Hủy
-              </Button>
+              </button>
               <button
                 type="button"
                 onClick={handleDeleteSnapshot}
                 disabled={isDeleting}
-                className="h-8.5 px-3.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 text-white bg-rose-600 hover:bg-rose-700 transition cursor-pointer disabled:opacity-50"
+                className="inline-flex h-10 items-center justify-center gap-2 px-5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-red-600 via-rose-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:from-red-700 active:to-rose-700 shadow-md shadow-rose-600/25 hover:shadow-lg hover:shadow-rose-600/35 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                <span>{isDeleting ? "Đang xóa..." : "Xác nhận xóa"}</span>
+                {isDeleting ? <Loader2 size={15} className="animate-spin shrink-0" /> : <Trash2 size={15} className="shrink-0" />}
+                <span className="whitespace-nowrap">{isDeleting ? "Đang xóa..." : "Xác nhận xóa"}</span>
               </button>
             </div>
           </div>

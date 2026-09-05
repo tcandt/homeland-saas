@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { execSync } from 'child_process';
@@ -48,7 +49,30 @@ export async function POST(request: Request) {
       linebreaks: true,
     });
 
-    const defaultLandlord: Record<string, string> = {};
+    const LANDLORDS: Record<string, any> = {
+      TINH: {
+        hoTenChuNha: "NGUYỄN ĐỨC TÍNH",
+        ngaySinhChuNha: "13/03/1997",
+        cccdChuNha: "054097010677",
+        diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
+        dienThoaiChuNha: "0373129295 - 0567867889 ( Tính )",
+        chuTaiKhoan: "HKD NGUYEN DUC TINH",
+        soTaiKhoan: "8818406081",
+        nganHang: "BIDV",
+      },
+      THE: {
+        hoTenChuNha: "PHAN VĂN THỂ",
+        ngaySinhChuNha: "24/11/1994",
+        cccdChuNha: "066094006596 , Cấp ngày: 15/10/2025 tại Cục cảnh sát",
+        diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
+        dienThoaiChuNha: "0373129295 - 0567.79.2222 ( Thể )",
+        chuTaiKhoan: "HKD PHAN VAN THE",
+        soTaiKhoan: "8827905414",
+        nganHang: "BIDV",
+      },
+    };
+
+    const defaultLandlord = LANDLORDS[data.chuNha || "TINH"] || LANDLORDS["TINH"];
     const today = new Date();
     const defaultDay = String(today.getDate()).padStart(2, '0');
     const defaultMonth = String(today.getMonth() + 1).padStart(2, '0');
@@ -112,7 +136,7 @@ export async function POST(request: Request) {
     const safeRoom = (data.maPhong || '').replace(/[^a-zA-Z0-9]/g, '');
 
     if (wantPdf) {
-      const tempDir = path.join(process.cwd(), 'scratch');
+      const tempDir = path.join(os.tmpdir(), 'homeland-scratch');
       if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
       const tempId = `contract_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const tempDocx = path.join(tempDir, `${tempId}.docx`);
@@ -142,12 +166,14 @@ try {
             try { fs.unlinkSync(tempPdf); } catch {}
 
             const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
+            const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_');
+            const encodedFilename = encodeURIComponent(filename);
             return new NextResponse(pdfBuf as any, {
               status: 200,
               headers: {
                 'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="${filename}"`,
-        'Cache-Control': 'private, no-store',
+                'Content-Disposition': `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`,
+                'Cache-Control': 'private, no-store',
               },
             });
           }
@@ -157,39 +183,51 @@ try {
           try { if (fs.existsSync(tempPdf)) fs.unlinkSync(tempPdf); } catch {}
         }
       } else {
-        // Linux / Docker environment: try libreoffice/soffice if available
+        // Linux / Docker environment: try libreoffice or soffice if available
+        let converted = false;
         try {
           execSync(`libreoffice --headless --convert-to pdf "${tempDocx}" --outdir "${tempDir}"`, { stdio: 'pipe' });
-          if (fs.existsSync(tempPdf)) {
-            const pdfBuf = fs.readFileSync(tempPdf);
-            try { fs.unlinkSync(tempDocx); } catch {}
-            try { fs.unlinkSync(tempPdf); } catch {}
-
-            const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
-            return new NextResponse(pdfBuf as any, {
-              status: 200,
-              headers: {
-                'Content-Type': 'application/pdf',
-                'Content-Disposition': `inline; filename="${filename}"`,
-                'Cache-Control': 'private, no-store',
-              },
-            });
-          }
+          converted = fs.existsSync(tempPdf);
         } catch {
-          // LibreOffice not installed or conversion not possible; fall back to docx stream
-          try { if (fs.existsSync(tempDocx)) fs.unlinkSync(tempDocx); } catch {}
-          try { if (fs.existsSync(tempPdf)) fs.unlinkSync(tempPdf); } catch {}
+          try {
+            execSync(`soffice --headless --convert-to pdf "${tempDocx}" --outdir "${tempDir}"`, { stdio: 'pipe' });
+            converted = fs.existsSync(tempPdf);
+          } catch {}
         }
+
+        if (converted && fs.existsSync(tempPdf)) {
+          const pdfBuf = fs.readFileSync(tempPdf);
+          try { fs.unlinkSync(tempDocx); } catch {}
+          try { fs.unlinkSync(tempPdf); } catch {}
+
+          const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
+          const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_');
+          const encodedFilename = encodeURIComponent(filename);
+          return new NextResponse(pdfBuf as any, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`,
+              'Cache-Control': 'private, no-store',
+            },
+          });
+        }
+
+        // LibreOffice/soffice not installed or conversion not possible; fall back to docx stream
+        try { if (fs.existsSync(tempDocx)) fs.unlinkSync(tempDocx); } catch {}
+        try { if (fs.existsSync(tempPdf)) fs.unlinkSync(tempPdf); } catch {}
       }
     }
 
     const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.docx`;
+    const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_');
+    const encodedFilename = encodeURIComponent(filename);
 
     return new NextResponse(buf as any, {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Disposition': `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`,
         'Cache-Control': 'private, no-store',
       },
     });

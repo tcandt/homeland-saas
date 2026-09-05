@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Check, Plus, Settings2 } from "lucide-react";
+import { Building2, Check, Settings2 } from "lucide-react";
 import type { CockpitBuildingSpec } from "./building-cockpit.types";
 import { getBuildingMetrics } from "./building-cockpit-metrics";
 import { buildingTemplateRegistry, normalizeBuildingCode } from "./building-template-registry";
@@ -23,7 +23,6 @@ export default function BuildingPortfolioRail({
   activeBuildingCode,
   onSelectBuilding,
   onConfigureBuilding,
-  onAddBuilding,
   className,
 }: BuildingPortfolioRailProps) {
   const buildingsByCode = new Map(
@@ -33,19 +32,6 @@ export default function BuildingPortfolioRail({
 
   return (
     <section aria-label="Danh mục tòa nhà" className={cx("min-w-0", className)}>
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-xs font-black uppercase tracking-wider text-muted">Danh mục tòa nhà</h2>
-        {onAddBuilding && (
-          <button
-            type="button"
-            data-testid="add-building-button"
-            onClick={onAddBuilding}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white px-3 py-1.5 text-xs font-black shadow-xs transition-colors"
-          >
-            <Plus size={13} /> Thêm tòa nhà
-          </button>
-        )}
-      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-stretch">
           {buildingTemplateRegistry.map((descriptor) => {
             const building = buildingsByCode.get(descriptor.code);

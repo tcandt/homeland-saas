@@ -336,7 +336,7 @@ export default function SettingsBackup() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto overflow-y-visible">
+          <div className="overflow-visible">
             <table className="w-full text-left text-xs">
               <thead className="bg-muted/15 text-muted font-bold border-b border-border/60">
                 <tr>
@@ -398,7 +398,7 @@ export default function SettingsBackup() {
                               className="fixed inset-0 z-40"
                               onClick={() => setOpenDropdownId(null)}
                             />
-                            <div className="absolute right-0 top-full mt-1 w-44 rounded-xl border border-border/80 bg-card p-1.5 shadow-xl z-50 flex flex-col gap-0.5 text-left">
+                            <div className="absolute right-0 bottom-full mb-1 w-44 rounded-xl border border-border/80 bg-card p-1.5 shadow-xl z-50 flex flex-col gap-0.5 text-left">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -504,24 +504,23 @@ export default function SettingsBackup() {
             <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 text-muted text-[11px] leading-normal">
               Hành động này sẽ giải phóng dung lượng đĩa và không thể hoàn tác lại file sao lưu này.
             </div>
-            <div className="mt-3 flex items-center justify-end gap-2 pt-2 border-t border-border">
-              <Button
-                variant="outline"
-                size="sm"
+            <div className="mt-5 flex items-center justify-end gap-3 pt-4 border-t border-border">
+              <button
+                type="button"
                 onClick={() => setSnapshotToDelete(null)}
                 disabled={isDeleting}
-                className="h-8.5 rounded-xl text-xs font-bold cursor-pointer"
+                className="inline-flex h-10 items-center justify-center px-5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-transparent shadow-xs transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap disabled:opacity-50"
               >
                 Hủy
-              </Button>
+              </button>
               <button
                 type="button"
                 onClick={handleDeleteSnapshot}
                 disabled={isDeleting}
-                className="h-8.5 px-3.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 text-white bg-rose-600 hover:bg-rose-700 active:scale-98 transition cursor-pointer disabled:opacity-50"
+                className="inline-flex h-10 items-center justify-center gap-2 px-5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-red-600 via-rose-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:from-red-700 active:to-rose-700 shadow-md shadow-rose-600/25 hover:shadow-lg hover:shadow-rose-600/35 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                <span>{isDeleting ? "Đang xóa..." : "Xác nhận xóa"}</span>
+                {isDeleting ? <Loader2 size={15} className="animate-spin shrink-0" /> : <Trash2 size={15} className="shrink-0" />}
+                <span className="whitespace-nowrap">{isDeleting ? "Đang xóa..." : "Xác nhận xóa"}</span>
               </button>
             </div>
           </div>
@@ -659,24 +658,27 @@ export default function SettingsBackup() {
             </div>
 
             {/* Action buttons */}
-            <div className="mt-4 flex items-center justify-end gap-3 pt-3 border-t border-border">
-              <Button
-                variant="outline"
-                size="md"
+            <div className="mt-5 flex items-center justify-end gap-3 pt-4 border-t border-border">
+              <button
+                type="button"
                 onClick={() => setShowWipeModal(false)}
                 disabled={isWiping}
-                className="h-10 px-4 rounded-xl text-xs font-bold cursor-pointer"
+                className="inline-flex h-10 items-center justify-center px-5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-transparent shadow-xs transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap disabled:opacity-50"
               >
                 Hủy bỏ
-              </Button>
+              </button>
               <button
                 type="button"
                 onClick={handleExecuteWipeData}
                 disabled={isWiping || !isWipeFormValid}
-                className={`h-10 px-5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 text-white transition shadow-sm ${isWipeFormValid && !isWiping ? "bg-rose-600 hover:bg-rose-700 cursor-pointer shadow-rose-600/20" : "bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-60"}`}
+                className={`inline-flex h-10 items-center justify-center gap-2 px-5 rounded-xl text-xs font-bold text-white transition-all shadow-md active:scale-[0.98] whitespace-nowrap ${
+                  isWipeFormValid && !isWiping
+                    ? "bg-gradient-to-r from-red-600 via-rose-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:from-red-700 active:to-rose-700 shadow-rose-600/25 hover:shadow-lg hover:shadow-rose-600/35 cursor-pointer"
+                    : "bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-60"
+                }`}
               >
-                {isWiping ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                {isWiping ? "Đang xử lý đặt lại..." : isWipeFormValid ? "Xác nhận xóa & Đặt lại dữ liệu" : "Vui lòng nhập mật khẩu & cụm từ xác nhận"}
+                {isWiping ? <Loader2 size={15} className="animate-spin shrink-0" /> : <Trash2 size={15} className="shrink-0" />}
+                <span className="whitespace-nowrap">{isWiping ? "Đang xử lý đặt lại..." : isWipeFormValid ? "Xác nhận xóa & Đặt lại dữ liệu" : "Vui lòng nhập mật khẩu & cụm từ xác nhận"}</span>
               </button>
             </div>
           </div>
@@ -694,38 +696,37 @@ export default function SettingsBackup() {
               setRestorePassword("");
             }
           }}
-          maxWidth="max-w-xl"
+          maxWidth="max-w-md"
           title={
-            <span className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-lg font-black">
-              <RotateCcw size={20} className="shrink-0" />
-              Khôi phục dữ liệu từ bản sao lưu
+            <span className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-base font-black">
+              <RotateCcw size={18} className="shrink-0" />
+              Khôi phục dữ liệu từ Snapshot
             </span>
           }
         >
-          <div className="flex flex-col gap-4 text-xs leading-relaxed">
-            {/* Snapshot info */}
-            <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3.5 flex flex-col gap-1.5">
-              <div className="font-bold text-text text-xs flex items-center justify-between">
-                <span>Snapshot: <b className="font-mono text-primary">{selectedSnapshotForRestore?.name || (backups[0]?.name ?? "Bản sao lưu mới nhất")}</b></span>
-                <span className="text-[11px] text-muted">{formatDate(selectedSnapshotForRestore?.createdAt || backups[0]?.createdAt)}</span>
-              </div>
-              <div className="text-[11px] text-muted">
-                Dung lượng: <b className="font-mono text-text">{formatBytes(selectedSnapshotForRestore?.sizeBytes || backups[0]?.sizeBytes || 0)}</b> | ID: <span className="font-mono">{selectedSnapshotForRestore?.id || backups[0]?.id}</span>
+          <div className="flex flex-col gap-3 py-1 text-xs">
+            <p className="text-text font-medium leading-relaxed">
+              Hệ thống sẽ chuyển trạng thái dữ liệu về đúng thời điểm sao lưu của snapshot:
+            </p>
+
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 flex flex-col gap-1">
+              <span className="font-bold text-blue-700 dark:text-blue-300 font-mono text-xs">
+                {selectedSnapshotForRestore?.name}
+              </span>
+              <div className="flex items-center gap-3 text-[11px] text-muted">
+                <span>Dung lượng: {formatBytes(selectedSnapshotForRestore?.sizeBytes || 0)}</span>
+                <span>Tạo lúc: {selectedSnapshotForRestore?.createdAt ? new Date(selectedSnapshotForRestore.createdAt).toLocaleString("vi-VN") : "N/A"}</span>
               </div>
             </div>
 
-            {/* Warning */}
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 flex items-start gap-2.5">
-              <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <div className="text-xs text-text font-medium">
-                Hệ thống sẽ phục hồi lại trạng thái dữ liệu tại thời điểm chụp snapshot. Trước khi thực hiện, hệ thống sẽ tự động tạo một snapshot lưu lại hiện trạng hiện tại để bảo đảm an toàn tuyệt đối.
-              </div>
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-2.5 text-amber-700 dark:text-amber-400 text-[11px] leading-relaxed">
+              ⚠️ Lưu ý: Các dữ liệu phát sinh sau thời điểm snapshot này sẽ bị ghi đè. Hệ thống sẽ tự động tạo một snapshot an toàn ngay trước khi khôi phục.
             </div>
 
-            {/* Password input */}
-            <div className="flex flex-col gap-1.5">
+            {/* Input Password */}
+            <div className="flex flex-col gap-1.5 pt-1">
               <label className="font-bold text-text text-xs flex items-center gap-1.5">
-                <Lock size={13} className="text-muted" /> Mật khẩu tài khoản Quản trị viên:
+                <Lock size={13} className="text-muted" /> Xác nhận mật khẩu tài khoản Quản trị viên:
               </label>
               <input
                 type="password"
@@ -737,28 +738,27 @@ export default function SettingsBackup() {
             </div>
 
             {/* Actions */}
-            <div className="mt-3 flex items-center justify-end gap-2.5 pt-2 border-t border-border">
-              <Button
-                variant="outline"
-                size="md"
+            <div className="mt-5 flex items-center justify-end gap-3 pt-4 border-t border-border">
+              <button
+                type="button"
                 onClick={() => {
                   setShowRestoreModal(false);
                   setSelectedSnapshotForRestore(null);
                   setRestorePassword("");
                 }}
                 disabled={isRestoring}
-                className="h-9 px-3 rounded-xl text-xs font-bold cursor-pointer"
+                className="inline-flex h-10 items-center justify-center px-5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-transparent shadow-xs transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap disabled:opacity-50"
               >
                 Hủy bỏ
-              </Button>
+              </button>
               <button
                 type="button"
                 onClick={handleExecuteRestore}
                 disabled={isRestoring || !restorePassword}
-                className="h-9 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 text-white bg-blue-600 hover:bg-blue-700 active:scale-98 transition shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex h-10 items-center justify-center gap-2 px-5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:from-blue-700 active:to-indigo-700 shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/35 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isRestoring ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
-                {isRestoring ? "Đang khôi phục dữ liệu..." : "Xác nhận khôi phục"}
+                {isRestoring ? <Loader2 size={15} className="animate-spin shrink-0" /> : <RotateCcw size={15} className="shrink-0" />}
+                <span className="whitespace-nowrap">{isRestoring ? "Đang khôi phục dữ liệu..." : "Xác nhận khôi phục"}</span>
               </button>
             </div>
           </div>

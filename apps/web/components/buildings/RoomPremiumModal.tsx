@@ -37,6 +37,7 @@ import {
   Loader2,
   Camera,
   QrCode,
+  ChevronDown,
   MoreHorizontal,
   Zap,
   SlidersHorizontal,
@@ -46,6 +47,10 @@ import {
   Download,
   Droplets,
   AlertTriangle,
+  DoorOpen,
+  User,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 import { numberToWordsVietnamese } from "../../lib/utils/number-to-words";
@@ -60,6 +65,7 @@ import {
 import {
   CCCD_LIVE_SCAN_CONFIG,
   optimizeCccdCameraTrack,
+  safeStopAndClearScanner,
   stopCccdCameraTracks,
 } from "@/lib/utils/cccd-camera";
 import { Input } from "../ui/Input";
@@ -79,6 +85,7 @@ import { contractsApi } from "@/lib/api/contracts.api";
 import { hunonicApi } from "@/lib/api/hunonic.api";
 import { getAuthorizationHeader } from "@/lib/auth/auth-header";
 import { getRoomDisplayName } from "./building-labels";
+import { formatRoomDisplayLabel } from "../tenants/TenantFormModal";
 
 interface Props {
   roomId: string;
@@ -103,12 +110,16 @@ type TenantDraft = {
   name: string;
   phone: string;
   emergencyPhone: string;
+  email?: string;
   cccd: string;
   address: string;
   gender: string;
   birthDate: string;
   nationality: string;
   relationship?: string;
+  zaloChatId?: string;
+  zaloUserId?: string;
+  notes?: string;
 };
 
 type CT01Member = {
@@ -139,9 +150,27 @@ type ContractDraft = {
   ngayThanhToanDauTien: string;
 };
 
-const LANDLORDS: Record<string, any> = {
-  TINH: {},
-  THE: {},
+export const LANDLORDS: Record<string, any> = {
+  TINH: {
+    hoTenChuNha: "NGUYỄN ĐỨC TÍNH",
+    ngaySinhChuNha: "13/03/1997",
+    cccdChuNha: "054097010677",
+    diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
+    dienThoaiChuNha: "0373129295 - 0567867889 ( Tính )",
+    chuTaiKhoan: "HKD NGUYEN DUC TINH",
+    soTaiKhoan: "8818406081",
+    nganHang: "BIDV",
+  },
+  THE: {
+    hoTenChuNha: "PHAN VĂN THỂ",
+    ngaySinhChuNha: "24/11/1994",
+    cccdChuNha: "066094006596 , Cấp ngày: 15/10/2025 tại Cục cảnh sát",
+    diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
+    dienThoaiChuNha: "0373129295 - 0567.79.2222 ( Thể )",
+    chuTaiKhoan: "HKD PHAN VAN THE",
+    soTaiKhoan: "8827905414",
+    nganHang: "BIDV",
+  },
 };
 
 export const resolveBuildingLandlord = (
@@ -203,6 +232,15 @@ export const ROOM_TYPE_OPTIONS = [
   { label: "Khác", value: "Khác" },
 ];
 
+const ROOM_RENTAL_TYPE_OPTIONS = [
+  { label: "Thuê nguyên căn", value: "whole" },
+  { label: "Ở ghép", value: "shared" },
+];
+
+const getRoomRentalTypeSettingLabel = (rentalType?: Room["rentalType"]) =>
+  ROOM_RENTAL_TYPE_OPTIONS.find((option) => option.value === rentalType)?.label ||
+  ROOM_RENTAL_TYPE_OPTIONS[0].label;
+
 export const getStoredRoomType = (rId: string, fallback?: string) => {
   if (typeof window !== "undefined") {
     const stored = localStorage.getItem(`homeland_room_type_${rId}`);
@@ -215,12 +253,16 @@ const EMPTY_TENANT_DRAFT: TenantDraft = {
   name: "",
   phone: "",
   emergencyPhone: "",
+  email: "",
   cccd: "",
   address: "",
   gender: "",
   birthDate: "",
-  nationality: "",
+  nationality: "Việt Nam",
   relationship: "",
+  zaloChatId: "",
+  zaloUserId: "",
+  notes: "",
 };
 
 type QrMode = "camera" | "upload" | null;
@@ -796,15 +838,14 @@ export default function RoomPremiumModal({
     return () => {
       const scanner = qrScannerRef.current;
       qrScannerRef.current = null;
-      if (scanner) {
-        Promise.resolve(scanner.stop()).catch(() => undefined);
-        Promise.resolve(scanner.clear()).catch(() => undefined);
-      }
-      stopCccdCameraTracks(QR_CAMERA_ELEMENT_ID);
+      void safeStopAndClearScanner(scanner, QR_CAMERA_ELEMENT_ID);
     };
   }, [isQrScannerOpen, qrMode, showToast]);
 
   const closeQrScanner = () => {
+    const scanner = qrScannerRef.current;
+    qrScannerRef.current = null;
+    void safeStopAndClearScanner(scanner, QR_CAMERA_ELEMENT_ID);
     setIsQrScannerOpen(false);
     setIsQrMenuOpen(false);
     setQrMode(null);
@@ -901,13 +942,13 @@ export default function RoomPremiumModal({
         await onUpdateRoom(roomData.id, payload);
       } else {
         await roomsApi.update(roomData.id, payload);
+        showToast("Đã lưu thông tin phòng thành công!", "success");
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["rooms"] }),
         queryClient.invalidateQueries({ queryKey: ["buildings"] }),
       ]);
       setRoomData((prev) => (prev ? ({ ...prev, ...payload } as Room) : prev));
-      showToast("Đã lưu thông tin phòng thành công!", "success");
       onClose();
     } catch (err) {
       console.error("Failed to save room:", err);
@@ -1036,7 +1077,7 @@ export default function RoomPremiumModal({
       return [
         ...(roomData.sharedTenants || []).map((tenant: any) => ({
           ...tenant,
-          role: tenant.isRep ? "Đại diện HĐ" : "Người ở cùng",
+          role: tenant.isRep ? "Đại diện HĐ chính" : "Người ở cùng",
           isRep: !!tenant.isRep,
         })),
       ];
@@ -1045,7 +1086,7 @@ export default function RoomPremiumModal({
     // Cho thuê nguyên căn (Whole rental):
     // 1. Đại diện HĐ chính (roomData.tenant)
     const primaryTenant = roomData?.tenant
-      ? [{ ...roomData.tenant, role: "Đại diện HĐ", isRep: true }]
+      ? [{ ...roomData.tenant, role: "Đại diện HĐ chính", isRep: true }]
       : [];
 
     // 2. Đại diện HĐ thứ 2, 3... (từ sharedTenants có isRep hoặc contract.coRepresentatives)
@@ -1058,7 +1099,7 @@ export default function RoomPremiumModal({
       )
       .map((st: any) => ({
         ...st,
-        role: "Đại diện HĐ",
+        role: "Đại diện HĐ phụ",
         isRep: true,
       }));
 
@@ -1081,7 +1122,7 @@ export default function RoomPremiumModal({
         emergencyPhone: cr.emergencyPhone || "",
         idImages: cr.idImages || [],
         tempResidence: (cr as any).tempResidence || false,
-        role: "Đại diện HĐ",
+        role: "Đại diện HĐ phụ",
         isRep: true,
       }));
 
@@ -1176,13 +1217,16 @@ export default function RoomPremiumModal({
       const payload: any = {
         fullName: name,
         phone,
-        email: roomData?.tenant?.email?.trim() || null,
-        citizenId: tenantDraft.cccd.trim(),
+        email: tenantDraft.email?.trim() || roomData?.tenant?.email?.trim() || null,
+        citizenId: tenantDraft.cccd.trim() || null,
         gender: tenantDraft.gender.trim() || null,
         birthDate: birthDate || null,
         nationality: tenantDraft.nationality.trim() || null,
         address: tenantDraft.address.trim() || null,
         emergencyPhone: tenantDraft.emergencyPhone.trim() || null,
+        zaloChatId: tenantDraft.zaloChatId?.trim() || null,
+        zaloUserId: tenantDraft.zaloUserId?.trim() || null,
+        notes: tenantDraft.notes?.trim() || null,
         status: "ACTIVE",
         roomId: !isContractRepresentative ? roomId : null,
         relationship: (!isContractRepresentative && tenantDraft.relationship?.trim()) || null,
@@ -1686,95 +1730,106 @@ export default function RoomPremiumModal({
         />
         <div className="relative z-10 w-full max-w-[1360px] h-[92dvh] md:h-[88vh] max-h-[880px] bg-card border border-border/70 shadow-[0_24px_70px_rgba(0,0,0,0.22)] rounded-[24px] flex flex-col overflow-hidden animate-in zoom-in-[0.98] duration-200 box-border">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 md:px-7 py-3.5 border-b border-border/50 bg-card shrink-0 w-full">
+          <div className="flex items-center justify-between px-5 md:px-7 py-3 border-b border-border/60 bg-card shrink-0 w-full gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/15 shadow-sm">
-                <LayoutDashboard size={19} />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20">
+                <LayoutDashboard size={18} />
               </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="font-black text-[17px] md:text-[19px] tracking-tight text-text leading-none">
-                    {getRoomDisplayName(roomData)}
-                  </h2>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-primary/10 text-primary border border-primary/20 uppercase tracking-wider">
-                    {roomRentalTypeLabel}
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <h2 className="font-bold text-base md:text-[17px] tracking-tight text-text leading-none">
+                  {getRoomDisplayName(roomData)}
+                </h2>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-surface border border-border/60 text-muted uppercase">
+                  {roomRentalTypeLabel}
+                </span>
+                {roomData.status === "occupied" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Đang thuê
                   </span>
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${roomData.status === "occupied" || roomData.status === "expiring_soon"
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                    : "bg-surface text-muted border border-border/40"
-                    }`}>
-                    {roomData.status === "occupied" ? "● Đang thuê" : roomData.status === "expiring_soon" ? "● Sắp hết hạn" : "○ Phòng trống"}
+                ) : roomData.status === "expiring_soon" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    Sắp hết hạn
                   </span>
-                </div>
-                <div className="flex items-center gap-2 mt-1 text-[11px] font-semibold text-muted">
-                  <span className="text-text font-bold truncate max-w-[180px]">
-                    {tenantName || "Chưa có người ở"}
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-surface text-muted border border-border">
+                    <span className="w-1.5 h-1.5 rounded-full bg-muted/60" />
+                    Phòng trống
                   </span>
-                  <span>•</span>
-                  {rDebt > 0 ? (
-                    <span className="text-rose-500 font-bold">Nợ: {formatCompactMoney(rDebt)}</span>
-                  ) : (
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Không nợ</span>
-                  )}
-                  {daysLeft !== "-" && (
-                    <>
-                      <span>•</span>
-                      <span>HĐ còn: {daysLeft}</span>
-                    </>
-                  )}
-                </div>
+                )}
               </div>
             </div>
 
-            {/* Quick Actions (Close & Delete) - Removed redundant header save button */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsDeleteConfirmOpen(true)}
-                className="h-8.5 w-8.5 p-0 rounded-xl border-border/60 text-muted hover:text-rose-500 hover:border-rose-500/40 hover:bg-rose-500/10"
-                title="Xóa phòng này"
-              >
-                <Trash2 size={15} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
+            {/* Middle/Right Quick Meta Info & Close */}
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="hidden sm:flex items-center gap-2 text-xs text-muted">
+                <div className="flex items-center gap-1.5 font-bold text-text bg-surface/70 border border-border/50 px-2.5 py-1 rounded-lg">
+                  <User size={12} className="text-primary shrink-0" />
+                  <span className="truncate max-w-[170px]">{tenantName || "Chưa có người ở"}</span>
+                </div>
+                {rDebt > 0 ? (
+                  <div className="flex items-center gap-1 font-bold text-rose-500 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-lg">
+                    <AlertCircle size={12} className="shrink-0" />
+                    <span>Nợ: {formatCompactMoney(rDebt)}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                    <CheckCircle2 size={12} className="shrink-0" />
+                    <span>Không nợ</span>
+                  </div>
+                )}
+                {daysLeft !== "-" && (
+                  <div className="flex items-center gap-1 bg-surface/70 border border-border/50 px-2.5 py-1 rounded-lg">
+                    <Calendar size={12} className="text-muted shrink-0" />
+                    <span>HĐ còn: <strong className="text-text font-bold">{daysLeft}</strong></span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
                 onClick={onClose}
-                className="h-8.5 w-8.5 p-0 rounded-xl text-muted hover:text-text hover:bg-surface"
+                className="h-8.5 w-8.5 rounded-xl bg-surface hover:bg-surface/80 border border-border/60 text-muted hover:text-text flex items-center justify-center transition-colors cursor-pointer"
                 title="Đóng popup (Esc)"
               >
-                <X size={17} />
-              </Button>
+                <X size={16} />
+              </button>
             </div>
           </div>
 
           <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row w-full box-border max-w-full">
             {/* Sidebar Navigation */}
-            <div className="w-full md:w-[210px] lg:w-[220px] border-b md:border-b-0 md:border-r border-border/50 bg-surface/30 shrink-0 flex flex-col">
-              <div className="tabs-scroll overflow-x-auto max-w-full flex gap-1 p-2 md:flex-col md:p-3 scrollbar-hide">
+            <div className="w-full md:w-[200px] lg:w-[210px] border-b md:border-b-0 md:border-r border-border/60 bg-surface/20 p-2.5 shrink-0 flex flex-col justify-between overflow-hidden">
+              <div className="overflow-x-auto md:overflow-x-hidden md:overflow-y-auto max-w-full flex gap-1 p-0.5 md:flex-col md:p-0 md:gap-1 scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {tabs.map((tab) => {
                   const isActive = activeTab === tab.id;
                   return (
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id as TabKey)}
-                      className={`group flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl font-bold text-[12px] md:text-[13px] transition-all whitespace-nowrap shrink-0 text-left border ${isActive
-                        ? "bg-primary text-white border-primary shadow-sm shadow-primary/25 font-black"
-                        : "text-muted border-transparent hover:bg-card hover:text-text hover:border-border/40"
-                        }`}
+                      className={`group flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl font-bold text-[12px] md:text-[13px] transition-all whitespace-nowrap shrink-0 text-left border cursor-pointer ${
+                        isActive
+                          ? "bg-primary text-white border-primary shadow-xs font-black"
+                          : "text-muted border-transparent hover:bg-surface hover:text-text"
+                      }`}
                     >
                       <div className="flex items-center gap-2">
-                        {tab.icon}
+                        <span className={`transition-colors ${isActive ? "text-white" : "text-muted group-hover:text-primary"}`}>
+                          {tab.icon}
+                        </span>
                         <span>{tab.label}</span>
                       </div>
                       {tab.badge !== undefined && (
-                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black uppercase tracking-wider ${isActive
-                          ? "bg-white/20 text-white"
-                          : tab.badge === "Nợ" || tab.badge === "!"
-                            ? "bg-rose-500 text-white"
-                            : "bg-surface text-muted"
-                          }`}>
+                        <span
+                          className={`px-2 py-0.2 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${
+                            isActive
+                              ? "bg-white/25 text-white"
+                              : tab.badge === "Nợ" || tab.badge === "!"
+                              ? "bg-rose-500 text-white"
+                              : "bg-primary/10 text-primary border border-primary/15"
+                          }`}
+                        >
                           {tab.badge}
                         </span>
                       )}
@@ -1788,54 +1843,6 @@ export default function RoomPremiumModal({
               {/* TAB 1: KHÁCH THUÊ */}
               {activeTab === "rental_flow" && (
                 <div className="flex flex-col gap-5 animate-in w-full box-border">
-                  {/* Compact, elegant Room Rental Type bar */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border border-border/60 bg-card shadow-sm">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                        <Users size={18} />
-                      </div>
-                      <div>
-                        <span className="text-[11px] font-bold text-muted uppercase tracking-wider block">Hình thức cho thuê</span>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[14px] font-black text-text">
-                            {roomData.rentalType === "shared" ? "Cho thuê theo giường / Ở ghép" : "Cho thuê nguyên căn"}
-                          </span>
-                          <span className="text-[11px] text-muted hidden md:inline">
-                            {roomData.rentalType === "shared"
-                              ? "• Mỗi cư dân có hợp đồng riêng"
-                              : "• Mặc định thêm khách vào hợp đồng chính"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                      <span className="text-xs text-muted font-medium hidden lg:inline">Chuyển kiểu thuê:</span>
-                      <div className="inline-flex rounded-xl p-1 bg-surface border border-border/50">
-                        <button
-                          type="button"
-                          onClick={() => handleFieldChange("rentalType", "whole")}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${roomData.rentalType !== "shared"
-                            ? "bg-card text-primary shadow-sm font-black"
-                            : "text-muted hover:text-text"
-                            }`}
-                        >
-                          Nguyên căn
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleFieldChange("rentalType", "shared")}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${roomData.rentalType === "shared"
-                            ? "bg-card text-primary shadow-sm font-black"
-                            : "text-muted hover:text-text"
-                            }`}
-                        >
-                          Ở ghép
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Tenant List Header & Actions */}
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1873,17 +1880,7 @@ export default function RoomPremiumModal({
                           onClick={() => {
                             setIsContractRepresentative(shouldStartAsRepresentative);
                             setHouseholdRepId("");
-                            setTenantDraft({
-                              id: undefined,
-                              name: "",
-                              phone: "",
-                              cccd: "",
-                              birthDate: "",
-                              gender: "",
-                              nationality: "",
-                              address: "",
-                              emergencyPhone: "",
-                            });
+                            setTenantDraft({ ...EMPTY_TENANT_DRAFT });
                             setTenantModalStep(1);
                             setIsTenantModalOpen(true);
                           }}
@@ -1972,14 +1969,19 @@ export default function RoomPremiumModal({
                                           onClick={() => {
                                             setTenantDraft({
                                               id: t.id,
-                                              name: t.name || "",
+                                              name: t.name || (t as any).fullName || "",
                                               phone: t.phone || "",
+                                              email: t.email || "",
                                               cccd: (t as any).citizenId || t.cccd || "",
                                               birthDate: t.birthDate || "",
                                               gender: (t as any).gender || "",
-                                              nationality: t.nationality || "",
+                                              nationality: t.nationality || "Việt Nam",
                                               address: t.address || "",
                                               emergencyPhone: (t as any).emergencyPhone || "",
+                                              relationship: (t as any).relationship || "",
+                                              zaloChatId: (t as any).zaloChatId || "",
+                                              zaloUserId: (t as any).zaloUserId || "",
+                                              notes: (t as any).notes || "",
                                             });
                                             setTenantModalStep(1);
                                             setIsTenantModalOpen(true);
@@ -2253,14 +2255,11 @@ export default function RoomPremiumModal({
                                     hoTen: rep.name || rep.fullName || "..........................",
                                     ngaySinh: rep.birthDate ? formatBirthDateForDisplay(rep.birthDate) : "..........................",
                                     cccd: rep.citizenId || rep.identityNo || rep.cccd || "..........................",
-                                    diaChi: rep.address || "..........................",
+                                    diaChi: rep.address || rep.hometown || rep.permanentAddress || "..........................",
                                     dienThoai: rep.phone || rep.phoneNumber || "..........................",
-                                    dienThoaiNguoithan: rep.emergencyPhone || "-",
-                                    mucDichThue: c.purpose || "Để ở",
+                                    dienThoaiNguoithan: rep.relativePhone || rep.dienThoaiNguoithan || "-",
                                     tienThue: rentVal,
-                                    tienThueChu: rentVal ? numberToWordsVietnamese(rentVal) : "..........................",
                                     tienCoc: depositVal,
-                                    tienCocChu: depositVal ? numberToWordsVietnamese(depositVal) : "..........................",
                                     ngayBatDau: c.startDate ? formatBirthDateForDisplay(c.startDate) : "..........................",
                                     ngayKetThuc: c.endDate ? formatBirthDateForDisplay(c.endDate) : "..........................",
                                     maPhong: roomData.code || roomData.name || "..........................",
@@ -2284,7 +2283,7 @@ export default function RoomPremiumModal({
                                 const handleDownloadContractPdf = async (rep: any) => {
                                   const rowKey = rep.contract?.id || rep.id || "current";
                                   setIsDownloadingPdf(rowKey);
-                                  showToast("Đang tạo tệp PDF hợp đồng...", "info");
+                                  showToast("Đang chuẩn bị và kết xuất file PDF hợp đồng...", "info");
                                   try {
                                     const payload = buildContractPayload(rep);
                                     const res = await fetch("/api/export-contract?format=pdf", {
@@ -2292,21 +2291,40 @@ export default function RoomPremiumModal({
                                       headers: { "Content-Type": "application/json", ...getAuthorizationHeader() },
                                       body: JSON.stringify(payload),
                                     });
-                                    if (!res.ok) throw new Error("Không thể tải tệp PDF từ server");
+                                    if (!res.ok) {
+                                      const errData = await res.json().catch(() => null);
+                                      throw new Error(errData?.error || "Không thể tải tệp PDF từ server");
+                                    }
                                     const blob = await res.blob();
                                     const url = window.URL.createObjectURL(blob);
                                     const a = document.createElement("a");
+                                    a.style.display = "none";
                                     a.href = url;
                                     const isPdf = blob.type.includes("pdf");
                                     const ext = isPdf ? "pdf" : "docx";
-                                    const safeCustomer = (payload.hoTen || "KhachHang").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "_");
+                                    const safeCustomer = (payload.hoTen || "KhachHang")
+                                      .normalize("NFD")
+                                      .replace(/[\u0300-\u036f]/g, "")
+                                      .replace(/đ/g, "d")
+                                      .replace(/Đ/g, "D")
+                                      .replace(/[^a-zA-Z0-9\s]/g, "")
+                                      .trim()
+                                      .replace(/\s+/g, "_");
                                     const safeRoom = (payload.maPhong || "").replace(/[^a-zA-Z0-9]/g, "");
-                                    a.download = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ""}.${ext}`;
+                                    const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ""}.${ext}`;
+                                    a.download = filename;
                                     document.body.appendChild(a);
                                     a.click();
-                                    document.body.removeChild(a);
-                                    window.URL.revokeObjectURL(url);
-                                    showToast("Đã tải xuống hợp đồng PDF thành công!", "success");
+                                    setTimeout(() => {
+                                      document.body.removeChild(a);
+                                      window.URL.revokeObjectURL(url);
+                                    }, 250);
+
+                                    if (isPdf) {
+                                      showToast(`Đã tải xuống ${filename} thành công!`, "success");
+                                    } else {
+                                      showToast(`Đã tải xuống ${filename} (Word) thành công!`, "success");
+                                    }
                                   } catch (err: any) {
                                     console.warn("[DownloadContractPdf]", err);
                                     showToast(err?.message || "Có lỗi xảy ra khi tải xuống hợp đồng", "error");
@@ -2351,15 +2369,20 @@ export default function RoomPremiumModal({
                                             type="button"
                                             disabled={isDownloadingPdf === rowKey}
                                             onClick={() => handleDownloadContractPdf(rep)}
-                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-border/60 bg-surface hover:bg-surface/80 text-text hover:text-primary text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-primary/20 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-all cursor-pointer disabled:opacity-60 shadow-2xs"
                                             title="Tải xuống PDF hợp đồng"
                                           >
                                             {isDownloadingPdf === rowKey ? (
-                                              <Loader2 size={13} className="animate-spin text-primary" />
+                                              <>
+                                                <Loader2 size={13} className="animate-spin text-primary shrink-0" />
+                                                <span>Đang chuẩn bị file...</span>
+                                              </>
                                             ) : (
-                                              <Download size={13} />
+                                              <>
+                                                <Download size={13} className="shrink-0" />
+                                                <span className="hidden sm:inline">Tải PDF</span>
+                                              </>
                                             )}
-                                            <span className="hidden sm:inline">Tải PDF</span>
                                           </button>
                                           <button
                                             type="button"
@@ -2440,12 +2463,15 @@ export default function RoomPremiumModal({
 
               {/* TAB 4: TẠM TRÚ */}
               {activeTab === "temp_residence" && (
-                <div className="flex flex-col gap-5 animate-in w-full box-border">
-                  <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                    <h4 className="font-black text-[14px] uppercase text-text tracking-wide flex items-center gap-2">
-                      <ShieldAlert size={16} className="text-primary" /> Khai báo tạm trú (Mẫu CT01)
-                    </h4>
-                    <span className="text-[11px] font-bold text-muted">
+                <div className="flex flex-col gap-4 animate-in w-full box-border">
+                  <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert size={17} className="text-primary" />
+                      <h4 className="font-bold text-sm uppercase text-text tracking-wide">
+                        Khai báo tạm trú (Mẫu CT01)
+                      </h4>
+                    </div>
+                    <span className="text-xs text-muted">
                       Đồng bộ dữ liệu cư dân
                     </span>
                   </div>
@@ -2453,23 +2479,22 @@ export default function RoomPremiumModal({
                   {(() => {
                     const occupants = getOccupantsList();
 
-                    // IF NO TENANTS: Display clear, prominent empty state as requested
                     if (occupants.length === 0) {
                       return (
-                        <div className="p-12 text-center border-2 border-dashed border-border/60 rounded-2xl flex flex-col items-center justify-center bg-card shadow-sm my-2">
-                          <div className="h-14 w-14 rounded-2xl bg-muted/10 text-muted flex items-center justify-center mb-3">
-                            <ShieldAlert size={28} />
+                        <div className="p-10 text-center border border-dashed border-border/60 rounded-xl flex flex-col items-center justify-center bg-card my-2">
+                          <div className="h-12 w-12 rounded-xl bg-muted/10 text-muted flex items-center justify-center mb-2.5">
+                            <ShieldAlert size={24} />
                           </div>
-                          <h4 className="text-[15px] font-black text-text">Chưa có khách thuê</h4>
-                          <p className="text-xs text-muted max-w-sm mt-1.5 leading-relaxed">
+                          <h4 className="text-sm font-bold text-text">Chưa có khách thuê</h4>
+                          <p className="text-xs text-muted max-w-sm mt-1 leading-relaxed">
                             Phòng hiện đang trống. Sau khi thêm khách thuê hoặc ký hợp đồng, bạn có thể thực hiện thủ tục khai báo tạm trú (Mẫu CT01) cho cư dân tại đây.
                           </p>
                           <Button
                             size="sm"
-                            className="mt-4 bg-primary text-white hover:bg-primary/90"
+                            className="mt-3.5 bg-primary text-white hover:bg-primary/90 font-bold"
                             onClick={() => setActiveTab("rental_flow")}
                           >
-                            <UserPlus size={14} className="mr-1.5" /> Thêm khách thuê ngay
+                            <UserPlus size={13} className="mr-1.5" /> Thêm khách thuê ngay
                           </Button>
                         </div>
                       );
@@ -2481,41 +2506,42 @@ export default function RoomPremiumModal({
                     const isNoneDeclared = declaredCount === 0;
 
                     return (
-                      <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-3.5">
                         {/* Main room-wide status card */}
-                        <div className="border border-border/60 rounded-2xl p-5 bg-card flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
-                          <div className="flex flex-col gap-1">
+                        <div className="border border-border/60 rounded-xl p-3.5 bg-surface/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-black text-text">
+                              <span className="text-sm font-bold text-text">
                                 Khai báo tạm trú với Công an sở tại
                               </span>
                               {isAllDeclared && (
-                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                                   ✓ Đã khai báo ({declaredCount}/{occupants.length})
                                 </span>
                               )}
                               {isPartialDeclared && (
-                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                                   ⚠ Khai báo 1 phần ({declaredCount}/{occupants.length})
                                 </span>
                               )}
                               {isNoneDeclared && (
-                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
                                   • Chưa khai báo (0/{occupants.length})
                                 </span>
                               )}
                             </div>
                             <span className="text-xs text-muted">
-                              Quy định bắt buộc đối với khách thuê lưu trú qua đêm tại căn hộ. Bạn có thể khai báo cho từng khách hoặc khai báo toàn bộ.
+                              Quy định bắt buộc đối với khách thuê lưu trú qua đêm. Bạn có thể khai báo cho từng khách hoặc khai báo toàn bộ.
                             </span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <Button
                               type="button"
+                              size="sm"
                               variant={isAllDeclared ? "outline" : "primary"}
                               onClick={() => setIsTempResidenceConfirmOpen(true)}
                               disabled={isSavingTempResidence}
-                              className="shrink-0"
+                              className="shrink-0 h-8 font-bold text-xs"
                             >
                               {isAllDeclared ? "Hủy khai báo tất cả" : "Xác nhận đã khai báo tất cả"}
                             </Button>
@@ -2523,24 +2549,24 @@ export default function RoomPremiumModal({
                         </div>
 
                         {/* Occupants list breakdown */}
-                        <div className="flex flex-col gap-3 mt-1">
+                        <div className="flex flex-col gap-2 mt-1">
                           <div className="flex items-center justify-between">
-                            <h5 className="text-[12px] font-black uppercase text-muted tracking-wider">
+                            <h5 className="text-[11px] font-bold uppercase text-muted tracking-wider">
                               Danh sách người lưu trú ({occupants.length})
                             </h5>
-                            <span className="text-xs font-semibold text-muted">
-                              Đã khai báo: <strong className="text-text">{declaredCount}/{occupants.length}</strong> khách
+                            <span className="text-xs font-medium text-muted">
+                              Đã khai báo: <strong className="text-text font-bold">{declaredCount}/{occupants.length}</strong> khách
                             </span>
                           </div>
-                          <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
+                          <div className="border border-border/60 rounded-xl overflow-hidden bg-card">
                             <table className="w-full text-left border-collapse text-sm">
                               <thead>
-                                <tr className="bg-surface/50 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
-                                  <th className="px-4 py-3">Họ và tên</th>
-                                  <th className="px-4 py-3">CCCD / Định danh</th>
-                                  <th className="px-4 py-3">Vai trò</th>
-                                  <th className="px-4 py-3 text-center">Trạng thái tạm trú</th>
-                                  <th className="px-4 py-3 text-right">Thao tác</th>
+                                <tr className="bg-surface/50 text-[11px] font-bold uppercase text-muted tracking-wider border-b border-border/40">
+                                  <th className="px-4 py-2.5">Họ và tên</th>
+                                  <th className="px-4 py-2.5">CCCD / Định danh</th>
+                                  <th className="px-4 py-2.5">Vai trò</th>
+                                  <th className="px-4 py-2.5 text-center">Trạng thái tạm trú</th>
+                                  <th className="px-4 py-2.5 text-right">Thao tác</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-border/40">
@@ -2548,20 +2574,20 @@ export default function RoomPremiumModal({
                                   const isDeclared = Boolean(occ.tempResidence);
                                   return (
                                     <tr key={occ.id || idx} className="hover:bg-surface/40 transition-colors">
-                                      <td className="px-4 py-3">
+                                      <td className="px-4 py-2.5">
                                         <div className="flex flex-col">
                                           <span className="font-bold text-text">{occ.name || occ.fullName || "Khách thuê"}</span>
                                           {occ.phone && <span className="text-[11px] text-muted font-mono">{occ.phone}</span>}
                                         </div>
                                       </td>
-                                      <td className="px-4 py-3 text-text font-mono text-xs">{occ.cccd || occ.identityNo || "—"}</td>
-                                      <td className="px-4 py-3">
-                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${occ.isRep ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface text-muted border border-border/40'}`}>
+                                      <td className="px-4 py-2.5 text-text font-mono text-xs">{occ.cccd || occ.identityNo || "—"}</td>
+                                      <td className="px-4 py-2.5">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${occ.isRep ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface text-muted border border-border/40'}`}>
                                           {occ.role || (occ.isRep ? "Đại diện HĐ" : "Người ở cùng")}
                                         </span>
                                       </td>
-                                      <td className="px-4 py-3 text-center">
-                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${isDeclared
+                                      <td className="px-4 py-2.5 text-center">
+                                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold ${isDeclared
                                           ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                                           : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
                                           }`}>
@@ -2569,7 +2595,7 @@ export default function RoomPremiumModal({
                                           {isDeclared ? "Đã khai báo" : "Chưa khai báo"}
                                         </span>
                                       </td>
-                                      <td className="px-4 py-3 text-right">
+                                      <td className="px-4 py-2.5 text-right">
                                         <Button
                                           size="sm"
                                           variant={isDeclared ? "outline" : "primary"}
@@ -2578,7 +2604,7 @@ export default function RoomPremiumModal({
                                             setIsSingleTempResidenceConfirmOpen(true);
                                           }}
                                           disabled={isSavingTempResidence}
-                                          className={`h-8 text-xs font-bold gap-1 px-3 ${
+                                          className={`h-7 text-xs font-bold gap-1 px-2.5 ${
                                             isDeclared
                                               ? "text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 border-rose-200 dark:border-rose-900/40"
                                               : ""
@@ -2586,11 +2612,11 @@ export default function RoomPremiumModal({
                                         >
                                           {isDeclared ? (
                                             <>
-                                              <X size={13} /> Hủy khai báo
+                                              <X size={12} /> Hủy khai báo
                                             </>
                                           ) : (
                                             <>
-                                              <Check size={13} /> Khai báo
+                                              <Check size={12} /> Khai báo
                                             </>
                                           )}
                                         </Button>
@@ -2610,22 +2636,25 @@ export default function RoomPremiumModal({
 
               {/* TAB 5: CÀI ĐẶT PHÒNG */}
               {activeTab === "overview" && (
-                <div className="flex flex-col gap-5 animate-in w-full box-border">
-                  <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                    <h3 className="font-black text-[14px] md:text-[15px] uppercase tracking-wide text-text flex items-center gap-2">
-                      <SlidersHorizontal size={16} className="text-primary" /> Cài đặt & Thông số phòng
-                    </h3>
-                    <span className="text-[11px] font-bold text-muted">Mã: {roomData.code}</span>
+                <div className="flex flex-col gap-4 animate-in w-full box-border">
+                  <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <SlidersHorizontal size={17} className="text-primary" />
+                      <h3 className="font-bold text-sm uppercase tracking-wide text-text">
+                        Cài đặt & Thông số phòng
+                      </h3>
+                    </div>
+                    <span className="text-xs text-muted font-mono">Mã: {roomData.code}</span>
                   </div>
 
                   {/* Hunonic IoT & Utilities Card */}
-                  <div className="flex flex-col gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.04] p-4 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/15 pb-2.5">
-                      <div className="flex items-center gap-2 text-[13px] font-black text-text">
-                        <Zap size={17} className="text-emerald-500" /> Công tơ điện thông minh Hunonic & Tiện ích
+                  <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-2.5">
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-text">
+                        <Zap size={15} className="text-amber-500" /> Công tơ điện thông minh & Định mức tiện ích
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400">
+                        <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                           ● Tự động đồng bộ
                         </span>
                         <Button
@@ -2634,40 +2663,40 @@ export default function RoomPremiumModal({
                           variant="outline"
                           onClick={handleUpdateElectricity}
                           disabled={isUpdatingElectricity || isElectricityLoading}
-                          className="h-7 text-xs font-bold gap-1 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/15 cursor-pointer"
+                          className="h-7 text-xs font-bold gap-1 text-muted hover:text-text cursor-pointer"
                         >
-                          <RefreshCw size={12} className={isUpdatingElectricity || isElectricityLoading ? "animate-spin" : ""} />
-                          {isUpdatingElectricity ? "Đang cập nhật..." : "Cập nhật chỉ số điện"}
+                          <RefreshCw size={11} className={isUpdatingElectricity || isElectricityLoading ? "animate-spin" : ""} />
+                          {isUpdatingElectricity ? "Đang cập nhật..." : "Cập nhật chỉ số"}
                         </Button>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                       {electricity ? (
                         <>
-                          <div className="rounded-xl border border-border/40 bg-card p-3.5 shadow-sm">
-                            <div className="text-[11px] font-bold uppercase text-muted">Thiết bị đo</div>
-                            <div className="mt-1 text-[14px] font-black text-text truncate">{electricity.deviceName || electricity.displayName}</div>
+                          <div className="rounded-lg border border-border/40 bg-surface/40 p-3">
+                            <div className="text-[10px] font-bold uppercase text-muted">Thiết bị đo</div>
+                            <div className="mt-1 text-sm font-black text-text truncate">{electricity.deviceName || electricity.displayName}</div>
                           </div>
-                          <div className="rounded-xl border border-border/40 bg-card p-3.5 shadow-sm">
-                            <div className="text-[11px] font-bold uppercase text-muted">Số điện tháng này</div>
-                            <div className="mt-1 text-[14px] font-black text-text">{Number(electricity.energyMonthKwh || 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} kWh</div>
+                          <div className="rounded-lg border border-border/40 bg-surface/40 p-3">
+                            <div className="text-[10px] font-bold uppercase text-muted">Số điện tháng này</div>
+                            <div className="mt-1 text-sm font-black text-text">{Number(electricity.energyMonthKwh || 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} kWh</div>
                           </div>
-                          <div className="rounded-xl border border-border/40 bg-card p-3.5 shadow-sm">
-                            <div className="text-[11px] font-bold uppercase text-muted">Tiền điện tạm tính</div>
-                            <div className="mt-1 text-[14px] font-black text-emerald-600 dark:text-emerald-400">{formatCompactMoney(Number(electricity.moneyMonthVnd || 0))}</div>
+                          <div className="rounded-lg border border-border/40 bg-surface/40 p-3">
+                            <div className="text-[10px] font-bold uppercase text-muted">Tiền điện tạm tính</div>
+                            <div className="mt-1 text-sm font-black text-emerald-600 dark:text-emerald-400">{formatCompactMoney(Number(electricity.moneyMonthVnd || 0))}</div>
                           </div>
                         </>
                       ) : (
-                        <div className="col-span-2 sm:col-span-3 rounded-xl border border-dashed border-emerald-500/25 bg-card/60 p-3.5 text-[12px] font-semibold text-muted text-center flex items-center justify-center">
+                        <div className="col-span-2 sm:col-span-3 rounded-lg border border-dashed border-border/60 bg-surface/20 p-3 text-xs text-muted text-center flex items-center justify-center">
                           {isElectricityLoading ? "Đang tải dữ liệu công tơ điện..." : "Chưa liên kết công tơ Hunonic cho phòng này."}
                         </div>
                       )}
-                      <div className="rounded-xl border border-border/40 bg-card p-3.5 shadow-sm">
+                      <div className="rounded-lg border border-border/40 bg-surface/40 p-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold uppercase text-muted">Định mức nước</span>
-                          <Droplets size={13} className="text-sky-500" />
+                          <span className="text-[10px] font-bold uppercase text-muted">Định mức nước</span>
+                          <Droplets size={12} className="text-sky-500" />
                         </div>
-                        <div className="mt-1 text-[14px] font-black text-sky-600 dark:text-sky-400">100.000 đ / người</div>
+                        <div className="mt-1 text-sm font-black text-sky-600 dark:text-sky-400">100.000 đ / người</div>
                         <div className="text-[10px] text-muted font-medium mt-0.5">Thu theo số người ở</div>
                       </div>
                     </div>
@@ -2677,159 +2706,147 @@ export default function RoomPremiumModal({
                   {(() => {
                     const displayRent = (roomData.contract?.rentPrice ? Number(roomData.contract.rentPrice) : (roomData.monthlyPrice || roomData.price || 0)).toLocaleString("vi-VN") + " đ";
                     const displayStatus = roomData.status === "occupied" ? "Đang thuê" : roomData.status === "expiring_soon" ? "Hợp đồng sắp hết hạn" : roomData.status === "deposited" ? "Đã đặt cọc" : roomData.status === "maintenance" ? "Đang bảo trì" : "Trống (Có thể thuê)";
-                    const displayRentalType = roomData.rentalType === "shared" ? "Cho thuê theo giường / Phòng ở ghép" : "Cho thuê nguyên căn";
                     const currentRoomType = (roomData as any)?.roomType || getStoredRoomType(roomId, (currentRoom as any)?.roomType);
 
                     return (
-                      <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm flex flex-col gap-4">
-                        <h4 className="text-[12px] font-black uppercase tracking-wider text-muted border-b border-border/40 pb-2">
-                          Thông số cơ bản
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* 1. Tên phòng - Cố định theo tòa nhà */}
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex items-center justify-between gap-1">
-                              <label className="text-[11px] font-black text-muted uppercase">
-                                Tên phòng
-                              </label>
-                              <span className="text-[10px] font-bold text-muted bg-surface px-2 py-0.5 rounded-full border border-border/40">
-                                Cố định theo tòa nhà
-                              </span>
-                            </div>
+                      <div className="rounded-xl border border-border/60 bg-card p-4 flex flex-col gap-4">
+                        <div className="text-xs font-bold uppercase tracking-wider text-muted border-b border-border/40 pb-2">
+                          Thông số cấu hình phòng
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5">
+                          {/* 1. Tên phòng */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-bold text-muted uppercase">
+                              Tên phòng
+                            </label>
                             <Input
                               readOnly
                               disabled
                               value={roomData.name}
-                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
+                              className="bg-surface/50 cursor-not-allowed font-bold text-text h-9 text-xs border-border/60"
                             />
                           </div>
 
-                          {/* 2. Mã định danh phòng - Cố định theo tòa nhà */}
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex items-center justify-between gap-1">
-                              <label className="text-[11px] font-black text-muted uppercase">
-                                Mã định danh phòng
-                              </label>
-                              <span className="text-[10px] font-bold text-muted bg-surface px-2 py-0.5 rounded-full border border-border/40">
-                                Cố định theo tòa nhà
-                              </span>
-                            </div>
+                          {/* 2. Mã định danh phòng */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-bold text-muted uppercase">
+                              Mã phòng
+                            </label>
                             <Input
                               readOnly
                               disabled
                               value={roomData.code}
-                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
+                              className="bg-surface/50 cursor-not-allowed font-bold text-text h-9 text-xs border-border/60"
                             />
                           </div>
 
-                          {/* 3. Giá thuê niêm yết - Theo trạng thái hợp đồng */}
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex items-center justify-between gap-1">
-                              <label className="text-[11px] font-black text-muted uppercase">
-                                Giá thuê niêm yết (VNĐ / tháng)
-                              </label>
-                              <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
-                                Theo hợp đồng
-                              </span>
-                            </div>
+                          {/* 3. Giá thuê niêm yết */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-bold text-muted uppercase">
+                              Giá thuê niêm yết
+                            </label>
                             <Input
                               readOnly
                               disabled
                               value={displayRent}
-                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
+                              className="bg-surface/50 cursor-not-allowed font-bold text-text h-9 text-xs border-border/60"
                             />
                           </div>
 
-                          {/* 4. Trạng thái phòng - Theo trạng thái hợp đồng */}
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex items-center justify-between gap-1">
-                              <label className="text-[11px] font-black text-muted uppercase">
-                                Trạng thái phòng
-                              </label>
-                              <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
-                                Theo hợp đồng
-                              </span>
-                            </div>
+                          {/* 4. Trạng thái phòng */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-bold text-muted uppercase">
+                              Trạng thái phòng
+                            </label>
                             <Input
                               readOnly
                               disabled
                               value={displayStatus}
-                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
+                              className="bg-surface/50 cursor-not-allowed font-bold text-text h-9 text-xs border-border/60"
                             />
                           </div>
 
-                          {/* 5. Kiểu thuê phòng - Theo trạng thái hợp đồng */}
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex items-center justify-between gap-1">
-                              <label className="text-[11px] font-black text-muted uppercase">
-                                Kiểu thuê phòng
-                              </label>
-                              <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
-                                Theo hợp đồng
-                              </span>
+                          {/* 5. Kiểu thuê phòng */}
+                          <div className="flex flex-col gap-1">
+                            <label
+                              htmlFor="room-rental-type"
+                              className="text-[11px] font-bold text-text uppercase"
+                            >
+                              Kiểu thuê phòng
+                            </label>
+                            <div className="relative">
+                              <Select
+                                id="room-rental-type"
+                                value={roomData.rentalType || "whole"}
+                                onChange={(event) =>
+                                  handleFieldChange(
+                                    "rentalType",
+                                    event.target.value as Room["rentalType"],
+                                  )
+                                }
+                                options={ROOM_RENTAL_TYPE_OPTIONS}
+                                className="cursor-pointer pr-8 h-9 text-xs font-semibold"
+                              />
+                              <ChevronDown
+                                aria-hidden="true"
+                                size={14}
+                                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted"
+                              />
                             </div>
-                            <Input
-                              readOnly
-                              disabled
-                              value={displayRentalType}
-                              className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
-                            />
                           </div>
 
-                          {/* 6. Loại phòng - Tùy chỉnh (1 Phòng ngủ, 2 Phòng ngủ, Văn Phòng, Khác) */}
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex items-center justify-between gap-1">
-                              <label className="text-[11px] font-black text-muted uppercase">
-                                Loại phòng
-                              </label>
-                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                                Mặc định vào khách thuê
-                              </span>
-                            </div>
+                          {/* 6. Loại phòng */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-bold text-text uppercase">
+                              Loại phòng
+                            </label>
                             <Select
                               value={currentRoomType}
                               onChange={(e) => handleFieldChange("roomType" as any, e.target.value)}
                               options={ROOM_TYPE_OPTIONS}
+                              className="cursor-pointer h-9 text-xs font-semibold"
                             />
                           </div>
 
-                          {/* 7. Diện tích & Sức chứa */}
-                          <div className="grid grid-cols-2 gap-3 md:col-span-2">
-                            <div className="flex flex-col gap-1.5">
-                              <label className="text-[11px] font-black text-muted uppercase">
-                                Diện tích (m²)
-                              </label>
-                              <Input
-                                type="number"
-                                value={roomData.area ?? ""}
-                                onChange={(e) => handleFieldChange(
-                                  "area",
-                                  e.target.value === "" ? undefined : Number(e.target.value),
-                                )}
-                                placeholder="m²"
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                              <label className="text-[11px] font-black text-muted uppercase">
-                                Sức chứa (người)
-                              </label>
-                              <Input
-                                type="number"
-                                value={roomData.capacity ?? ""}
-                                onChange={(e) => handleFieldChange(
-                                  "capacity",
-                                  e.target.value === "" ? undefined : Number(e.target.value),
-                                )}
-                                placeholder="Số người"
-                              />
-                            </div>
+                          {/* 7. Diện tích */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-bold text-text uppercase">
+                              Diện tích (m²)
+                            </label>
+                            <Input
+                              type="number"
+                              value={roomData.area ?? ""}
+                              onChange={(e) => handleFieldChange(
+                                "area",
+                                e.target.value === "" ? undefined : Number(e.target.value),
+                              )}
+                              placeholder="m²"
+                              className="h-9 text-xs"
+                            />
+                          </div>
+
+                          {/* 8. Sức chứa */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-bold text-text uppercase">
+                              Sức chứa (người)
+                            </label>
+                            <Input
+                              type="number"
+                              value={roomData.capacity ?? ""}
+                              onChange={(e) => handleFieldChange(
+                                "capacity",
+                                e.target.value === "" ? undefined : Number(e.target.value),
+                              )}
+                              placeholder="Số người"
+                              className="h-9 text-xs"
+                            />
                           </div>
                         </div>
 
                         {/* Dedicated Save Button for Room Settings */}
                         <div className="flex justify-end pt-3 border-t border-border/40">
-                          <Button onClick={handleSave} disabled={isSavingRoom} className="bg-primary text-white hover:bg-primary/90 font-black px-6 shadow-sm">
-                            {isSavingRoom ? <Loader2 size={16} className="animate-spin mr-2" /> : <Save size={16} className="mr-2" />}
+                          <Button onClick={handleSave} disabled={isSavingRoom} className="bg-primary text-white hover:bg-primary/90 font-bold px-5 h-9 text-xs">
+                            {isSavingRoom ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Save size={14} className="mr-1.5" />}
                             {isSavingRoom ? "Đang lưu..." : "Lưu cài đặt phòng"}
                           </Button>
                         </div>
@@ -2846,21 +2863,21 @@ export default function RoomPremiumModal({
       <Modal
         isOpen={isTenantModalOpen}
         onClose={() => setIsTenantModalOpen(false)}
-        title="Thông tin khách hàng"
-        maxWidth="max-w-md"
+        title={tenantDraft.id ? "Cập nhật thông tin khách thuê" : `Thêm khách thuê ${getOccupantsList().length + 1}`}
+        maxWidth="max-w-xl"
         headerActions={
           <div className="relative">
-            <Button
+            <button
               type="button"
-              variant="outline"
-              size="sm"
               onClick={() => setIsQrMenuOpen((prev) => !prev)}
               aria-label="Quét QR"
-              title="Quét QR"
-              className="h-10 w-10 p-0 rounded-full border-[#6366f1]/30 text-[#6366f1] hover:bg-[#6366f1]/10 shadow-sm flex items-center justify-center"
+              title="Quét QR CCCD"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-black text-primary transition-all hover:bg-primary/20 hover:border-primary/40 shadow-xs cursor-pointer"
             >
-              <QrCode size={18} />
-            </Button>
+              <QrCode size={14} className="shrink-0 text-primary" />
+              <span>Quét QR</span>
+              <ChevronDown size={13} className="shrink-0 text-primary opacity-80" />
+            </button>
             {isQrMenuOpen && (
               <>
                 <div
@@ -2911,7 +2928,7 @@ export default function RoomPremiumModal({
             </Button>
             <Button onClick={handleSaveTenant} disabled={isExporting || isCheckingDuplicate}>
               {isExporting || isCheckingDuplicate ? <Loader2 className="animate-spin mr-2" size={16} /> : null}
-              {tenantModalStep === 1 && isContractRepresentative ? "Tiếp tục" : "Lưu thông tin"}
+              {tenantModalStep === 1 && isContractRepresentative ? "Tiếp tục" : "Lưu khách thuê"}
             </Button>
           </div>
         }
@@ -2928,11 +2945,29 @@ export default function RoomPremiumModal({
             <>
               <div className="flex items-center justify-between bg-indigo-50/50 p-3 rounded-lg border border-emerald-100">
                 <div className="flex flex-col mr-2">
-                  <span className="text-[12px] md:text-[13px] font-bold text-emerald-900">Đại diện hợp đồng</span>
+                  <span className="text-[12px] md:text-[13px] font-bold text-emerald-900">
+                    {roomData?.rentalType === "shared"
+                      ? "Đại diện hợp đồng chính"
+                      : (tenantDraft.id
+                          ? (getOccupantsList().find((occ) => occ.id === tenantDraft.id)?.role === "Đại diện HĐ phụ"
+                              ? "Đại diện hợp đồng phụ"
+                              : "Đại diện hợp đồng chính")
+                          : (getOccupantsList().length >= 1
+                              ? "Đại diện hợp đồng phụ"
+                              : "Đại diện hợp đồng chính")
+                        )}
+                  </span>
                   <span className="text-[10px] md:text-[11px] text-indigo-600">
                     {roomData?.rentalType === "shared"
-                      ? "Phòng ghép: khách này sẽ là đại diện hợp đồng"
-                      : "Nguyên căn: khách này sẽ là người thuê chính"}
+                      ? "Ở ghép: mặc định mỗi người sẽ là đại diện hợp đồng chính"
+                      : (tenantDraft.id
+                          ? (getOccupantsList().find((occ) => occ.id === tenantDraft.id)?.role === "Đại diện HĐ phụ"
+                              ? "Nguyên căn: khách này là người đại diện hợp đồng phụ"
+                              : "Nguyên căn: khách này là người đại diện hợp đồng chính")
+                          : (getOccupantsList().length >= 1
+                              ? "Nguyên căn: người thứ 2 trở lên sẽ là đại diện hợp đồng phụ"
+                              : "Nguyên căn: khách này sẽ là người đại diện hợp đồng chính")
+                        )}
                   </span>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -2952,9 +2987,9 @@ export default function RoomPremiumModal({
               </div>
 
               {!isContractRepresentative && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] font-black text-muted uppercase">THÀNH VIÊN CÙNG HỘ GĐ *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-sm font-bold text-text">THÀNH VIÊN CÙNG HỘ GĐ *</label>
                     <Select
                       value={householdRepId}
                       onChange={(e) => setHouseholdRepId(e.target.value)}
@@ -2964,8 +2999,8 @@ export default function RoomPremiumModal({
                       ]}
                     />
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] font-black text-muted uppercase">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-sm font-bold text-text">
                       Mối quan hệ *
                     </label>
                     <Input
@@ -2993,14 +3028,49 @@ export default function RoomPremiumModal({
                   </div>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5 col-span-2">
-                  <label className="text-[11px] font-black text-muted uppercase">
-                    Họ và tên *
-                  </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* 1. Chọn phòng (Fixed / Readonly) */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Chọn phòng</label>
+                  <div className="relative">
+                    <DoorOpen size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                    <Input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={formatRoomDisplayLabel(roomData)}
+                      className="pl-9 bg-muted/10 dark:bg-muted/10 cursor-not-allowed font-medium text-text border-border"
+                      title="Phòng hiện tại (cố định trong hồ sơ phòng)"
+                    />
+                  </div>
+                </div>
+
+                {/* 2. Kiểu thuê phòng (Fixed / Readonly) */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Kiểu thuê phòng</label>
+                  <div className="relative">
+                    <select
+                      disabled
+                      value={roomData?.rentalType === "shared" ? "shared" : "whole"}
+                      className="h-10 w-full rounded-xl border border-border bg-muted/10 px-3 pr-8 text-sm font-medium text-text appearance-none cursor-not-allowed"
+                    >
+                      <option value="whole">Thuê nguyên căn</option>
+                      <option value="shared">Ở ghép</option>
+                    </select>
+                    <ChevronDown
+                      size={15}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Họ và tên * */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Họ và tên *</label>
                   <Input
                     type="text"
-                    placeholder="Nguyễn Văn A"
+                    placeholder="Nhập họ và tên"
                     value={tenantDraft.name}
                     onChange={(event) =>
                       updateTenantDraft("name", event.target.value)
@@ -3012,14 +3082,17 @@ export default function RoomPremiumModal({
                         : ""
                     }
                   />
+                  {tenantFieldErrors.name && (
+                    <span className="text-xs text-rose-500">Vui lòng nhập họ và tên</span>
+                  )}
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[11px] font-black text-muted uppercase">
-                    Số điện thoại *
-                  </label>
+
+                {/* 4. Số điện thoại * */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Số điện thoại *</label>
                   <Input
                     type="tel"
-                    placeholder="0901234567"
+                    placeholder="Nhập số điện thoại"
                     value={tenantDraft.phone}
                     onChange={(event) =>
                       updateTenantDraft("phone", event.target.value)
@@ -3031,27 +3104,43 @@ export default function RoomPremiumModal({
                         : ""
                     }
                   />
+                  {tenantFieldErrors.phone && (
+                    <span className="text-xs text-rose-500">Vui lòng nhập số điện thoại</span>
+                  )}
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[11px] font-black text-muted uppercase">
-                    SĐT người thân (-)
-                  </label>
+
+                {/* 5. SĐT người thân */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">SĐT người thân</label>
                   <Input
                     type="tel"
-                    placeholder="0901234567"
-                    value={tenantDraft.emergencyPhone}
+                    placeholder="Nhập SĐT người thân / liên hệ khẩn cấp"
+                    value={tenantDraft.emergencyPhone || ""}
                     onChange={(event) =>
                       updateTenantDraft("emergencyPhone", event.target.value)
                     }
                   />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[11px] font-black text-muted uppercase">
-                    CCCD / CMND
-                  </label>
+
+                {/* 6. Email */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Email</label>
+                  <Input
+                    type="email"
+                    placeholder="Nhập email"
+                    value={tenantDraft.email || ""}
+                    onChange={(event) =>
+                      updateTenantDraft("email", event.target.value)
+                    }
+                  />
+                </div>
+
+                {/* 7. CCCD / CMND */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">CCCD / CMND</label>
                   <Input
                     type="text"
-                    placeholder="0123456789"
+                    placeholder="Nhập số CCCD"
                     value={tenantDraft.cccd}
                     onChange={(event) =>
                       updateTenantDraft("cccd", event.target.value)
@@ -3064,27 +3153,33 @@ export default function RoomPremiumModal({
                     }
                   />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[11px] font-black text-muted uppercase">
-                    Giới tính
-                  </label>
-                  <Select
-                    value={tenantDraft.gender}
-                    onChange={(event) =>
-                      updateTenantDraft("gender", event.target.value)
-                    }
-                    options={[
-                      { label: "Chọn giới tính", value: "" },
-                      { label: "Nam", value: "Nam" },
-                      { label: "Nữ", value: "Nữ" },
-                      { label: "Khác", value: "Khác" },
-                    ]}
-                  />
+
+                {/* 8. Giới tính */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Giới tính</label>
+                  <div className="relative">
+                    <select
+                      value={tenantDraft.gender || ""}
+                      onChange={(event) =>
+                        updateTenantDraft("gender", event.target.value)
+                      }
+                      className="h-10 w-full rounded-xl border border-border bg-card px-3 pr-8 text-sm font-medium text-text appearance-none focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+                    >
+                      <option value="">Chọn giới tính</option>
+                      <option value="Nam">Nam</option>
+                      <option value="Nữ">Nữ</option>
+                      <option value="Khác">Khác</option>
+                    </select>
+                    <ChevronDown
+                      size={15}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
+                    />
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[11px] font-black text-muted uppercase">
-                    Ngày sinh
-                  </label>
+
+                {/* 9. Ngày sinh */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Ngày sinh</label>
                   <Input
                     type="text"
                     inputMode="numeric"
@@ -3096,15 +3191,15 @@ export default function RoomPremiumModal({
                     className="h-10 appearance-none [text-align:left] [font-variant-numeric:tabular-nums]"
                   />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[11px] font-black text-muted uppercase">
-                    Quốc tịch
-                  </label>
+
+                {/* 10. Quốc tịch */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Quốc tịch</label>
                   <Input
                     type="text"
                     list="nationality-options"
-                    placeholder="Chọn hoặc điền quốc tịch..."
-                    value={tenantDraft.nationality}
+                    placeholder="Việt Nam"
+                    value={tenantDraft.nationality || ""}
                     onChange={(event) =>
                       updateTenantDraft("nationality", event.target.value)
                     }
@@ -3115,16 +3210,55 @@ export default function RoomPremiumModal({
                     ))}
                   </datalist>
                 </div>
-                <div className="flex flex-col gap-1.5 col-span-2">
-                  <label className="text-[11px] font-black text-muted uppercase">
-                    Địa chỉ thường trú
-                  </label>
+
+                {/* 11. Địa chỉ thường trú */}
+                <div className="sm:col-span-2 flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Địa chỉ thường trú</label>
                   <Input
                     type="text"
                     placeholder="Nhập địa chỉ..."
-                    value={tenantDraft.address}
+                    value={tenantDraft.address || ""}
                     onChange={(event) =>
                       updateTenantDraft("address", event.target.value)
+                    }
+                  />
+                </div>
+
+                {/* 12. Zalo chat ID */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Zalo chat ID</label>
+                  <Input
+                    type="text"
+                    placeholder="Dán chat_id từ webhook Bot"
+                    value={tenantDraft.zaloChatId || ""}
+                    onChange={(event) =>
+                      updateTenantDraft("zaloChatId", event.target.value)
+                    }
+                  />
+                </div>
+
+                {/* 13. Zalo user ID */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Zalo user ID</label>
+                  <Input
+                    type="text"
+                    placeholder="Dán user_id từ webhook Bot"
+                    value={tenantDraft.zaloUserId || ""}
+                    onChange={(event) =>
+                      updateTenantDraft("zaloUserId", event.target.value)
+                    }
+                  />
+                </div>
+
+                {/* 14. Ghi chú */}
+                <div className="sm:col-span-2 flex flex-col gap-1">
+                  <label className="text-sm font-bold text-text">Ghi chú</label>
+                  <textarea
+                    className="flex min-h-[88px] w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="Nhập ghi chú"
+                    value={tenantDraft.notes || ""}
+                    onChange={(event) =>
+                      updateTenantDraft("notes", event.target.value)
                     }
                   />
                 </div>
@@ -3139,8 +3273,8 @@ export default function RoomPremiumModal({
                   <label className="text-[11px] font-black text-muted uppercase">
                     Loại phòng
                   </label>
-                  <span className="text-[10px] font-bold text-muted bg-surface px-2 py-0.5 rounded-full border border-border/40">
-                    Theo cài đặt phòng
+                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                    {getRoomRentalTypeSettingLabel(roomData?.rentalType)}
                   </span>
                 </div>
                 <Input
@@ -3213,7 +3347,12 @@ export default function RoomPremiumModal({
                   type="text"
                   readOnly
                   disabled
-                  value={(currentBuilding as any)?.owner?.name || (currentBuilding as any)?.ownerName || LANDLORDS[resolvedLandlordKey]?.hoTenChuNha || ""}
+                  value={
+                    (currentBuilding as any)?.owner?.name ||
+                    (currentBuilding as any)?.ownerName ||
+                    LANDLORDS[resolvedLandlordKey]?.hoTenChuNha ||
+                    (resolvedLandlordKey === "THE" ? "PHAN VĂN THỂ" : "NGUYỄN ĐỨC TÍNH")
+                  }
                   className="bg-black/5 dark:bg-white/5 cursor-not-allowed font-bold text-text border-border/80"
                 />
               </div>

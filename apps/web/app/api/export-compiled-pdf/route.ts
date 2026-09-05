@@ -1,17 +1,36 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { execSync } from 'child_process';
 import { PDFDocument } from 'pdf-lib';
 import dayjs from 'dayjs';
 import { numberToWordsVietnamese } from '@/lib/utils/number-to-words';
-import { requireRoutePermission } from '@/lib/server/route-auth';
+import { requireRoutePermission, getInternalApiBaseUrl } from '@/lib/server/route-auth';
 
 const LANDLORDS: Record<string, any> = {
-  TINH: {},
-  THE: {},
+  TINH: {
+    hoTenChuNha: "NGUYỄN ĐỨC TÍNH",
+    ngaySinhChuNha: "13/03/1997",
+    cccdChuNha: "054097010677",
+    diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
+    dienThoaiChuNha: "0373129295 - 0567867889 ( Tính )",
+    chuTaiKhoan: "HKD NGUYEN DUC TINH",
+    soTaiKhoan: "8818406081",
+    nganHang: "BIDV",
+  },
+  THE: {
+    hoTenChuNha: "PHAN VĂN THỂ",
+    ngaySinhChuNha: "24/11/1994",
+    cccdChuNha: "066094006596 , Cấp ngày: 15/10/2025 tại Cục cảnh sát",
+    diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
+    dienThoaiChuNha: "0373129295 - 0567.79.2222 ( Thể )",
+    chuTaiKhoan: "HKD PHAN VAN THE",
+    soTaiKhoan: "8827905414",
+    nganHang: "BIDV",
+  },
 };
 
 function resolveTaiLieuPath(filename: string): string {
@@ -181,10 +200,7 @@ export async function POST(request: Request) {
     }
 
     const authHeader = auth.authorization;
-    let apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001/api/v1';
-    if (!apiBaseUrl.startsWith('http')) {
-      apiBaseUrl = 'http://127.0.0.1:3001/api/v1';
-    }
+    const apiBaseUrl = getInternalApiBaseUrl();
 
     // 1. Fetch Contract Details from the NestJS Backend API
     const contractRes = await fetch(`${apiBaseUrl}/contracts/${contractId}`, {
@@ -205,8 +221,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Contract not found' }, { status: 404 });
     }
 
-    // Prepare temp folder inside tai-lieu or os temp
-    const tempDir = path.join(path.dirname(resolveTaiLieuPath('CT01.docx')), 'temp_docx');
+    // Prepare temp folder inside os temp
+    const tempDir = path.join(os.tmpdir(), 'homeland-pdf');
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }

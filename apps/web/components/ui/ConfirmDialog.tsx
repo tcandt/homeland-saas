@@ -53,15 +53,15 @@ export default function ConfirmDialog({
   const variantStyles = {
     danger: {
       iconBg: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20",
-      btn: "bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-sm shadow-rose-600/20",
+      btn: "bg-gradient-to-r from-red-600 via-rose-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:from-red-700 active:to-rose-700 text-white shadow-md shadow-rose-600/25 hover:shadow-lg hover:shadow-rose-600/35",
     },
     warning: {
       iconBg: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20",
-      btn: "bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white shadow-sm shadow-amber-600/20",
+      btn: "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 active:from-amber-700 active:to-orange-700 text-white shadow-md shadow-amber-600/25 hover:shadow-lg hover:shadow-amber-600/35",
     },
     primary: {
       iconBg: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20",
-      btn: "bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white shadow-sm shadow-indigo-600/20",
+      btn: "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:from-blue-700 active:to-indigo-700 text-white shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/35",
     },
   }[variant];
 
@@ -111,7 +111,7 @@ export default function ConfirmDialog({
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="inline-flex h-9 items-center justify-center px-4 rounded-xl text-[13px] font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/80 shadow-xs transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+            className="inline-flex h-10 items-center justify-center px-5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-transparent shadow-xs transition-all cursor-pointer whitespace-nowrap disabled:opacity-50 active:scale-[0.98]"
           >
             {cancelText}
           </button>
@@ -119,15 +119,15 @@ export default function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={isLoading}
-            className={`inline-flex h-9 items-center justify-center gap-1.5 px-4.5 rounded-xl text-[13px] font-bold transition-all cursor-pointer disabled:opacity-60 disabled:pointer-events-none active:scale-[0.98] ${variantStyles.btn}`}
+            className={`inline-flex h-10 items-center justify-center gap-2 px-5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap disabled:opacity-60 disabled:pointer-events-none active:scale-[0.98] ${variantStyles.btn}`}
           >
             {isLoading ? (
               <>
-                <Loader2 size={14} className="animate-spin text-white" />
-                <span>Đang xử lý...</span>
+                <Loader2 size={15} className="animate-spin text-white shrink-0" />
+                <span className="whitespace-nowrap">Đang xử lý...</span>
               </>
             ) : (
-              <span>{confirmText}</span>
+              <span className="whitespace-nowrap">{confirmText}</span>
             )}
           </button>
         </div>

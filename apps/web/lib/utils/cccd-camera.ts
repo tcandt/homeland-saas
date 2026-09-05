@@ -40,3 +40,22 @@ export const stopCccdCameraTracks = (containerId: string) => {
   stream?.getTracks().forEach((track) => track.stop());
   if (video) video.srcObject = null;
 };
+
+export const safeStopAndClearScanner = async (scanner: any, containerId: string) => {
+  if (scanner) {
+    try {
+      if (scanner.isScanning) {
+        await scanner.stop();
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      await scanner.clear();
+    } catch {
+      // ignore
+    }
+  }
+  stopCccdCameraTracks(containerId);
+};
+

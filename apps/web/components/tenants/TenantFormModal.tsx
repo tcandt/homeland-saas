@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -8,14 +8,15 @@ import { CreateCustomerSchema } from "@homeland/shared";
 import { useCreateCustomerMutation, useUpdateCustomerMutation } from "@/lib/mutations/customers.mutations";
 import { customersApi } from "@/lib/api/customers.api";
 import { formatBirthDateForDisplay, normalizeVietnameseDate, parseCccdQrPayload } from "@/lib/utils/cccd-qr";
-import { CCCD_LIVE_SCAN_CONFIG, optimizeCccdCameraTrack, stopCccdCameraTracks } from "@/lib/utils/cccd-camera";
+import { CCCD_LIVE_SCAN_CONFIG, optimizeCccdCameraTrack, safeStopAndClearScanner, stopCccdCameraTracks } from "@/lib/utils/cccd-camera";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 import { Input } from "../ui/Input";
 import { useToast } from "@/components/ui/ToastContext";
 import { CccdUploadScannerModal } from "../common/CccdUploadScannerModal";
-import { AlertTriangle, Camera, ChevronDown, QrCode, Upload, X } from "lucide-react";
+import { AlertTriangle, Camera, Check, ChevronDown, DoorOpen, QrCode, Upload, X } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import { useRoomsQuery } from "@/lib/queries/rooms.queries";
 
 type FormData = z.infer<typeof CreateCustomerSchema>;
 type QrMode = "camera" | "upload" | null;
@@ -38,8 +39,73 @@ const EMPTY_VALUES: FormData = {
   address: "",
   zaloChatId: "",
   zaloUserId: "",
+  emergencyPhone: "",
   status: "ACTIVE",
   notes: "",
+  roomId: "",
+};
+
+export const formatShortBuilding = (buildingName?: string, buildingCode?: string) => {
+  const raw = (buildingCode || buildingName || "").trim();
+  if (!raw) return "";
+  const cleaned = raw
+    .replace(/^(Tòa\s*nhà|Toà\s*nhà|Tòa|Toà|Building|Block)\s+/i, "")
+    .trim();
+  return cleaned || raw;
+};
+
+export const formatRoomCode = (roomCodeOrName?: string) => {
+  const raw = (roomCodeOrName || "").trim();
+  if (!raw) return "";
+
+  // Strip leading "Phòng " or "Phòng: "
+  let cleaned = raw.replace(/^Phòng\s*:?\s*/i, "").trim();
+
+  // If starts with "PN" (e.g. "PN 32-07", "PN32-07", "PN-32-07")
+  if (/^PN\s*[-_.]?\s*(\d+.*)$/i.test(cleaned)) {
+    const after = cleaned.replace(/^PN\s*[-_.]?\s*/i, "").trim();
+    return after ? `PN ${after}` : cleaned;
+  }
+
+  // If starts with "P" followed by digits (e.g. "P25-01", "P-25-01", "P.25-01", "P 25-01") -> convert to "PN ..."
+  if (/^P\s*[-_.]?\s*(\d+.*)$/i.test(cleaned)) {
+    const after = cleaned.replace(/^P\s*[-_.]?\s*/i, "").trim();
+    return after ? `PN ${after}` : cleaned;
+  }
+
+  return cleaned;
+};
+
+export const formatRoomDisplayLabel = (room: any) => {
+  if (!room) return "";
+  const bShort = formatShortBuilding(room.buildingName || room.building?.name, room.buildingCode || room.building?.code);
+  const rCode = formatRoomCode(room.code || room.name || room.number);
+
+  if (bShort && rCode) {
+    return `${bShort} / ${rCode}`;
+  }
+  return rCode || bShort || "";
+};
+
+export const getRoomStatusSearchText = (status: string) => {
+  switch (status) {
+    case "vacant":
+    case "AVAILABLE":
+      return "trống phong trong vacant available";
+    case "occupied":
+    case "OCCUPIED":
+      return "đang ở đang thuê phong da o occupied";
+    case "deposited":
+    case "RESERVED":
+      return "đã cọc cọc dat coc reserved deposited";
+    case "expiring_soon":
+      return "sắp trống sắp hết hạn expiring";
+    case "maintenance":
+    case "MAINTENANCE":
+      return "bảo trì maintenance";
+    default:
+      return "";
+  }
 };
 
 const QR_CAMERA_ID = "tenant-qr-camera";
@@ -57,8 +123,10 @@ const buildFormPayload = (values: FormData) => {
     address: values.address?.trim() || null,
     zaloChatId: values.zaloChatId?.trim() || null,
     zaloUserId: values.zaloUserId?.trim() || null,
+    emergencyPhone: values.emergencyPhone?.trim() || null,
     status: values.status || "ACTIVE",
     notes: values.notes?.trim() || null,
+    roomId: values.roomId ? values.roomId : null,
   };
 };
 
@@ -70,6 +138,12 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
   const qrFileInputRef = useRef<HTMLInputElement | null>(null);
   const [scannerFile, setScannerFile] = useState<File | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+  const { data: rooms = [], isLoading: isLoadingRooms } = useRoomsQuery({ limit: 500 });
+  const [roomSearch, setRoomSearch] = useState("");
+  const [isRoomDropdownOpen, setIsRoomDropdownOpen] = useState(false);
+  const roomDropdownRef = useRef<HTMLDivElement>(null);
+  const roomInputRef = useRef<HTMLInputElement>(null);
 
   const [isQrMenuOpen, setIsQrMenuOpen] = useState(false);
   const [isQrOverlayOpen, setIsQrOverlayOpen] = useState(false);
@@ -97,8 +171,68 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
 
   const currentPhone = watch("phone") || "";
   const currentCitizenId = watch("citizenId") || "";
+  const selectedRoomId = watch("roomId") || "";
+  const [rentalType, setRentalType] = useState<"WHOLE" | "SHARED">("WHOLE");
 
-  // Kiểm tra trùng SĐT / CCCD bằng API nhẹ (không tải toàn bộ 1000 khách vào RAM)
+  const selectedRoom = useMemo(() => {
+    return rooms.find((r: any) => r.id === selectedRoomId) || null;
+  }, [rooms, selectedRoomId]);
+
+  useEffect(() => {
+    if (selectedRoom) {
+      const rawRentalType = String(selectedRoom.rentalType || selectedRoom.raw?.rentalType || "").toUpperCase();
+      if (rawRentalType === "SHARED") {
+        setRentalType("SHARED");
+      } else {
+        setRentalType("WHOLE");
+      }
+    }
+  }, [selectedRoom]);
+
+  const filteredRooms = useMemo(() => {
+    if (!roomSearch.trim()) return rooms;
+    const clean = (str: string) =>
+      str
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/g, "d")
+        .replace(/Đ/g, "D")
+        .toLowerCase()
+        .trim();
+    const query = clean(roomSearch).replace(/\s+/g, " ");
+    return rooms.filter((r: any) => {
+      const rawCode = clean(r.code || "");
+      const rawName = clean(r.name || "");
+      const bName = clean(r.buildingName || "");
+      const displayLabel = clean(formatRoomDisplayLabel(r));
+      const formattedCode = clean(formatRoomCode(r.code || r.name));
+      const statusText = clean(getRoomStatusSearchText(r.status));
+      return (
+        rawCode.includes(query) ||
+        rawName.includes(query) ||
+        bName.includes(query) ||
+        displayLabel.includes(query) ||
+        formattedCode.includes(query) ||
+        statusText.includes(query)
+      );
+    });
+  }, [rooms, roomSearch]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (roomDropdownRef.current && !roomDropdownRef.current.contains(event.target as Node)) {
+        setIsRoomDropdownOpen(false);
+        setRoomSearch("");
+      }
+    };
+    if (isRoomDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isRoomDropdownOpen]);
+
   useEffect(() => {
     const cleanPhone = currentPhone.replace(/[\s\-\.\(\)]/g, "").trim();
     const cleanCid = currentCitizenId.replace(/[\s\-\.]/g, "").trim();
@@ -150,6 +284,9 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
       setIsScannerOpen(false);
       setDuplicatePhoneCustomer(null);
       setDuplicateCitizenIdCustomer(null);
+      setRoomSearch("");
+      setIsRoomDropdownOpen(false);
+      setRentalType("WHOLE");
       return;
     }
 
@@ -165,11 +302,23 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
         address: tenant.address || "",
         zaloChatId: tenant.zaloChatId || "",
         zaloUserId: tenant.zaloUserId || "",
+        emergencyPhone: tenant.emergencyPhone || "",
         status: tenant.status || "ACTIVE",
         notes: tenant.notes || "",
+        roomId:
+          tenant.roomId ||
+          tenant.source?.roomId ||
+          tenant.room?.id ||
+          tenant.contracts?.[0]?.roomId ||
+          tenant.contracts?.[0]?.room?.id ||
+          "",
       });
+      if (tenant.rentalType) {
+        setRentalType(String(tenant.rentalType).toUpperCase() === "SHARED" ? "SHARED" : "WHOLE");
+      }
     } else {
       reset(EMPTY_VALUES);
+      setRentalType("WHOLE");
     }
   }, [isOpen, reset, tenant]);
 
@@ -215,9 +364,9 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
             setValue("address", parsed.address || "", { shouldDirty: true, shouldValidate: true });
 
             showToast("Đã nhận diện QR CCCD.", "success");
-            await Promise.resolve(scanner.stop()).catch(() => undefined);
-            await Promise.resolve(scanner.clear()).catch(() => undefined);
+            const activeScanner = qrScannerRef.current;
             qrScannerRef.current = null;
+            void safeStopAndClearScanner(activeScanner, QR_CAMERA_ID);
             setIsQrOverlayOpen(false);
             setQrMode(null);
             setIsQrMenuOpen(false);
@@ -235,28 +384,32 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
     void startScanner();
 
     return () => {
-      const scanner = qrScannerRef.current;
+      const activeScanner = qrScannerRef.current;
       qrScannerRef.current = null;
-      if (scanner) {
-        Promise.resolve(scanner.stop()).catch(() => undefined);
-        Promise.resolve(scanner.clear()).catch(() => undefined);
-      }
-      stopCccdCameraTracks(QR_CAMERA_ID);
+      void safeStopAndClearScanner(activeScanner, QR_CAMERA_ID);
     };
   }, [isQrOverlayOpen, qrMode, setValue, showToast]);
 
   const closeQrOverlay = () => {
-    const scanner = qrScannerRef.current;
+    const activeScanner = qrScannerRef.current;
     qrScannerRef.current = null;
-    if (scanner) {
-      Promise.resolve(scanner.stop()).catch(() => undefined);
-      Promise.resolve(scanner.clear()).catch(() => undefined);
-    }
-    stopCccdCameraTracks(QR_CAMERA_ID);
+    void safeStopAndClearScanner(activeScanner, QR_CAMERA_ID);
     setIsQrOverlayOpen(false);
     setQrMode(null);
     setQrStatus("");
     setIsQrMenuOpen(false);
+  };
+
+  const openQrCamera = () => {
+    setIsQrMenuOpen(false);
+    setIsQrOverlayOpen(true);
+    setQrMode("camera");
+    setQrStatus("Đang khởi tạo camera...");
+  };
+
+  const openQrUpload = () => {
+    setIsQrMenuOpen(false);
+    qrFileInputRef.current?.click();
   };
 
   const handleUploadSuccess = (decodedText: string) => {
@@ -278,16 +431,45 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
     setScannerFile(null);
   };
 
-  const openQrCamera = () => {
-    setIsQrMenuOpen(false);
-    setIsQrOverlayOpen(true);
-    setQrMode("camera");
-    setQrStatus("Đang khởi tạo camera...");
-  };
-
-  const openQrUpload = () => {
-    setIsQrMenuOpen(false);
-    window.setTimeout(() => qrFileInputRef.current?.click(), 0);
+  const getRoomStatusBadge = (status: string) => {
+    switch (status) {
+      case "vacant":
+      case "AVAILABLE":
+        return (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 shrink-0">
+            Trống
+          </span>
+        );
+      case "occupied":
+      case "OCCUPIED":
+        return (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60 shrink-0">
+            Đang ở
+          </span>
+        );
+      case "deposited":
+      case "RESERVED":
+        return (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/60 shrink-0">
+            Đã cọc
+          </span>
+        );
+      case "expiring_soon":
+        return (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400 border border-orange-200/60 dark:border-orange-800/60 shrink-0">
+            Sắp trống
+          </span>
+        );
+      case "maintenance":
+      case "MAINTENANCE":
+        return (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
+            Bảo trì
+          </span>
+        );
+      default:
+        return null;
+    }
   };
 
   const onSubmit = async (data: FormData) => {
@@ -330,12 +512,6 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
           onError: (error: any) => {
             const errorMsg = error?.message || "Có lỗi xảy ra khi cập nhật khách thuê";
             showToast(errorMsg, "error");
-            if (errorMsg.includes("Số điện thoại") || errorMsg.includes("SĐT")) {
-              setError("phone", { type: "manual", message: errorMsg });
-            }
-            if (errorMsg.includes("CCCD") || errorMsg.includes("CMND")) {
-              setError("citizenId", { type: "manual", message: errorMsg });
-            }
           },
         }
       );
@@ -350,16 +526,9 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
       onError: (error: any) => {
         const errorMsg = error?.message || "Có lỗi xảy ra khi thêm khách thuê";
         showToast(errorMsg, "error");
-        if (errorMsg.includes("Số điện thoại") || errorMsg.includes("SĐT")) {
-          setError("phone", { type: "manual", message: errorMsg });
-        }
-        if (errorMsg.includes("CCCD") || errorMsg.includes("CMND")) {
-          setError("citizenId", { type: "manual", message: errorMsg });
-        }
       },
     });
   };
-
 
   return (
     <Modal
@@ -367,194 +536,403 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
       onClose={onClose}
       title={isEdit ? "Cập nhật khách thuê" : "Thêm khách thuê mới"}
       maxWidth="max-w-xl"
-    >
-      <div data-testid="tenant-form-drawer">
-      <form onSubmit={handleSubmit(onSubmit)} className="mt-2 flex flex-col gap-4" data-testid="tenant-form">
-        <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200/80 dark:border-white/[0.06] bg-slate-50/60 dark:bg-slate-900/40 px-4 py-3">
-          <div>
-            <p className="text-[13px] font-extrabold uppercase tracking-[0.2em] text-muted">Thông tin khách hàng</p>
-            <p className="mt-1 text-sm text-muted">Có thể quét QR CCCD để tự điền nhanh dữ liệu.</p>
-          </div>
+      headerActions={
+        <div className="ml-auto relative flex items-center pr-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-lg border border-indigo-200/80 dark:border-indigo-800/80 bg-indigo-50/70 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 px-2.5 text-xs font-bold shadow-xs transition-all flex items-center gap-1.5"
+            onClick={() => setIsQrMenuOpen((value) => !value)}
+            data-testid="tenant-qr-button"
+            title="Quét mã QR CCCD để tự động điền"
+          >
+            <QrCode size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span className="font-bold text-[12px]">Quét QR</span>
+            <ChevronDown size={12} className={`text-indigo-500/70 dark:text-indigo-400/70 transition-transform duration-200 ${isQrMenuOpen ? "rotate-180" : ""}`} />
+          </Button>
 
-          <div className="relative">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-10 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-card px-3"
-              onClick={() => setIsQrMenuOpen((value) => !value)}
-              data-testid="tenant-qr-button"
-            >
-              <QrCode size={18} className="mr-2" />
-              QR
-              <ChevronDown size={14} className="ml-2" />
-            </Button>
-
-            {isQrMenuOpen && (
-              <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-card shadow-xl">
+          {isQrMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsQrMenuOpen(false)} />
+              <div className="absolute right-0 top-full mt-2 z-50 w-44 overflow-hidden rounded-xl border border-slate-200/90 dark:border-slate-800 bg-card shadow-2xl py-1 animate-in fade-in zoom-in-95 duration-150">
                 <button
                   type="button"
-                  onClick={openQrCamera}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-text hover:bg-surface"
+                  onClick={() => {
+                    setIsQrMenuOpen(false);
+                    openQrCamera();
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-semibold text-text hover:bg-surface transition-colors"
                 >
-                  <Camera size={16} />
+                  <Camera size={15} className="text-indigo-600 dark:text-indigo-400" />
                   Mở camera
                 </button>
                 <button
                   type="button"
-                  onClick={openQrUpload}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-text hover:bg-surface"
+                  onClick={() => {
+                    setIsQrMenuOpen(false);
+                    openQrUpload();
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-semibold text-text hover:bg-surface transition-colors"
                 >
-                  <Upload size={16} />
+                  <Upload size={15} className="text-indigo-600 dark:text-indigo-400" />
                   Tải ảnh lên
                 </button>
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
+      }
+    >
+      <div data-testid="tenant-form-drawer">
+        <form onSubmit={handleSubmit(onSubmit)} className="mt-1 flex flex-col gap-4" data-testid="tenant-form">
+          <input
+            ref={qrFileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                setScannerFile(file);
+                setIsScannerOpen(true);
+              }
+              event.currentTarget.value = "";
+            }}
+          />
 
-        <input
-          ref={qrFileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) {
-              setScannerFile(file);
-              setIsScannerOpen(true);
-            }
-            event.currentTarget.value = "";
-          }}
-        />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {/* 1. Chọn phòng */}
+            <div className="flex flex-col gap-1 relative" ref={roomDropdownRef}>
+              <label className="text-sm font-bold text-text">Chọn phòng</label>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2 flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Họ và tên</label>
-            <Input
-              placeholder="Nhập họ và tên"
-              {...register("fullName")}
-              error={errors.fullName?.message}
-              data-testid="input-fullName"
-            />
-          </div>
+              <div className="relative">
+                <div className="relative flex items-center">
+                  <DoorOpen size={16} className="absolute left-3 text-muted pointer-events-none" />
+                  <input
+                    ref={roomInputRef}
+                    type="text"
+                    value={
+                      isRoomDropdownOpen
+                        ? roomSearch
+                        : selectedRoom
+                        ? formatRoomDisplayLabel(selectedRoom)
+                        : roomSearch
+                    }
+                    onChange={(e) => {
+                      setRoomSearch(e.target.value);
+                      if (!isRoomDropdownOpen) setIsRoomDropdownOpen(true);
+                    }}
+                    onFocus={() => {
+                      setIsRoomDropdownOpen(true);
+                    }}
+                    placeholder={selectedRoom ? formatRoomDisplayLabel(selectedRoom) : "Nhập tìm hoặc chọn phòng..."}
+                    className="h-10 w-full rounded-xl border border-border bg-card pl-9 pr-14 text-sm font-medium text-text placeholder:text-muted/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                    data-testid="tenant-room-combobox-input"
+                  />
+                  <div className="absolute right-2 flex items-center gap-1">
+                    {(roomSearch || selectedRoomId) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setValue("roomId", "", { shouldDirty: true });
+                          setRoomSearch("");
+                          if (roomInputRef.current) {
+                            roomInputRef.current.focus();
+                          }
+                        }}
+                        className="p-1 text-muted hover:text-rose-500 rounded-md hover:bg-surface transition-colors"
+                        title="Bỏ chọn phòng"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRoomDropdownOpen((prev) => {
+                          const next = !prev;
+                          if (next && roomInputRef.current) {
+                            roomInputRef.current.focus();
+                          }
+                          return next;
+                        });
+                      }}
+                      className="p-1 text-muted hover:text-text rounded-md hover:bg-surface transition-colors"
+                      title="Mở danh sách phòng"
+                    >
+                      <ChevronDown
+                        size={15}
+                        className={`transition-transform duration-200 ${isRoomDropdownOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                  </div>
+                </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Số điện thoại</label>
-            <Input
-              placeholder="Nhập số điện thoại"
-              {...register("phone")}
-              error={errors.phone?.message}
-              data-testid="input-phone"
-            />
-            {duplicatePhoneCustomer && (
-              <div className="flex items-center gap-1.5 mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-200 dark:border-rose-900/50">
-                <AlertTriangle size={14} className="shrink-0" />
-                <span>
-                  SĐT này đã thuộc về khách <b>{duplicatePhoneCustomer.fullName || duplicatePhoneCustomer.name}</b>
-                </span>
+                {/* Droplist Dropdown */}
+                {isRoomDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-11 z-30 max-h-64 overflow-y-auto rounded-xl border border-slate-200/90 dark:border-slate-800 bg-card shadow-2xl py-1 text-sm animate-in fade-in zoom-in-95 duration-150">
+                    <div className="sticky top-0 z-10 bg-card border-b border-border/60 px-3 py-1.5 flex items-center justify-between text-[11px] font-bold text-muted uppercase tracking-wider">
+                      <span>{isLoadingRooms ? "Đang tải phòng..." : `Tìm thấy ${filteredRooms.length} phòng`}</span>
+                      {selectedRoomId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setValue("roomId", "", { shouldDirty: true });
+                            setRoomSearch("");
+                            setIsRoomDropdownOpen(false);
+                          }}
+                          className="text-rose-500 hover:underline capitalize font-semibold"
+                        >
+                          Bỏ chọn
+                        </button>
+                      )}
+                    </div>
+
+                    {isLoadingRooms ? (
+                      <div className="px-4 py-4 text-center text-xs text-muted">
+                        Đang tải danh sách phòng...
+                      </div>
+                    ) : filteredRooms.length === 0 ? (
+                      <div className="px-4 py-4 text-center text-xs text-muted">
+                        Không tìm thấy phòng nào phù hợp
+                      </div>
+                    ) : (
+                      filteredRooms.map((r: any) => {
+                        const isSelected = r.id === selectedRoomId;
+                        return (
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => {
+                              setValue("roomId", r.id, { shouldDirty: true, shouldValidate: true });
+                              setRoomSearch("");
+                              setIsRoomDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-3.5 py-2.5 text-left text-xs transition-colors hover:bg-surface ${
+                              isSelected ? "bg-primary/10 text-primary font-bold" : "text-text"
+                            }`}
+                          >
+                            <div className="flex flex-col gap-0.5 min-w-0 pr-2">
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="font-bold text-[13px]">{formatRoomDisplayLabel(r)}</span>
+                              </div>
+                              {r.price > 0 && (
+                                <span className="text-[10px] text-muted font-normal">
+                                  {new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(r.price)}/tháng
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {getRoomStatusBadge(r.status)}
+                              {isSelected && <Check size={14} className="text-primary shrink-0" />}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+              <input type="hidden" {...register("roomId")} />
+            </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">CCCD / CMND</label>
-            <Input
-              placeholder="Nhập số CCCD"
-              {...register("citizenId")}
-              error={errors.citizenId?.message}
-              data-testid="input-citizenId"
-            />
-            {duplicateCitizenIdCustomer && (
-              <div className="flex items-center gap-1.5 mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-200 dark:border-rose-900/50">
-                <AlertTriangle size={14} className="shrink-0" />
-                <span>
-                  Số CCCD này đã thuộc về khách <b>{duplicateCitizenIdCustomer.fullName || duplicateCitizenIdCustomer.name}</b>
-                </span>
+            {/* 2. Kiểu thuê phòng */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">Kiểu thuê phòng</label>
+              <div className="relative">
+                <select
+                  value={rentalType}
+                  onChange={(e) => setRentalType(e.target.value as "WHOLE" | "SHARED")}
+                  disabled={!!selectedRoom}
+                  className={`h-10 w-full rounded-xl border border-border bg-card px-3 pr-8 text-sm font-medium text-text appearance-none focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all ${
+                    selectedRoom
+                      ? "bg-slate-50 dark:bg-slate-800/60 text-text/90 cursor-not-allowed border-slate-200 dark:border-slate-700"
+                      : ""
+                  }`}
+                  data-testid="select-rental-type"
+                >
+                  <option value="WHOLE">Thuê nguyên căn</option>
+                  <option value="SHARED">Ở ghép</option>
+                </select>
+                <ChevronDown
+                  size={15}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
+                />
               </div>
-            )}
-          </div>
+              {selectedRoom && (
+                <span className="text-[11px] text-muted leading-tight">
+                  Đồng bộ theo cấu hình phòng. Đổi kiểu thuê tại Cài đặt phòng.
+                </span>
+              )}
+            </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Email</label>
-            <Input
-              placeholder="Nhập email"
-              {...register("email")}
-              error={errors.email?.message}
-              data-testid="input-email"
-            />
-          </div>
+            {/* 3. Họ và tên */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">
+                Họ và tên <span className="text-rose-500">*</span>
+              </label>
+              <Input
+                placeholder="Nhập họ và tên"
+                {...register("fullName")}
+                error={errors.fullName?.message}
+                data-testid="input-fullName"
+              />
+            </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Giới tính</label>
-            <Input
-              placeholder="Nam / Nữ"
-              {...register("gender")}
-              error={errors.gender?.message}
-              data-testid="input-gender"
-            />
-          </div>
+            {/* 4. Số điện thoại */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">
+                Số điện thoại <span className="text-rose-500">*</span>
+              </label>
+              <Input
+                placeholder="Nhập số điện thoại"
+                {...register("phone")}
+                error={errors.phone?.message}
+                data-testid="input-phone"
+              />
+              {duplicatePhoneCustomer && (
+                <div className="flex items-center gap-1.5 mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-200 dark:border-rose-900/50">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>
+                    SĐT này đã thuộc về khách <b>{duplicatePhoneCustomer.fullName || duplicatePhoneCustomer.name}</b>
+                  </span>
+                </div>
+              )}
+            </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Ngày sinh</label>
-            <Input
-              placeholder="DD/MM/YYYY"
-              {...register("birthDate")}
-              error={errors.birthDate?.message}
-              data-testid="input-birthDate"
-            />
-          </div>
+            {/* 5. SĐT người thân */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">SĐT người thân</label>
+              <Input
+                placeholder="Nhập SĐT người thân / liên hệ khẩn cấp"
+                {...register("emergencyPhone")}
+                error={errors.emergencyPhone?.message}
+                data-testid="input-emergencyPhone"
+              />
+            </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Quốc tịch</label>
-            <Input
-              placeholder="Việt Nam"
-              {...register("nationality")}
-              error={errors.nationality?.message}
-              data-testid="input-nationality"
-            />
-          </div>
+            {/* 6. Email */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">Email</label>
+              <Input
+                placeholder="Nhập email"
+                {...register("email")}
+                error={errors.email?.message}
+                data-testid="input-email"
+              />
+            </div>
 
-          <div className="sm:col-span-2 flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Địa chỉ thường trú</label>
-            <Input
-              placeholder="Nhập địa chỉ..."
-              {...register("address")}
-              error={errors.address?.message}
-              data-testid="input-address"
-            />
-          </div>
+            {/* 7. CCCD / CMND */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">CCCD / CMND</label>
+              <Input
+                placeholder="Nhập số CCCD"
+                {...register("citizenId")}
+                error={errors.citizenId?.message}
+                data-testid="input-citizenId"
+              />
+              {duplicateCitizenIdCustomer && (
+                <div className="flex items-center gap-1.5 mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-200 dark:border-rose-900/50">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>
+                    Số CCCD này đã thuộc về khách <b>{duplicateCitizenIdCustomer.fullName || duplicateCitizenIdCustomer.name}</b>
+                  </span>
+                </div>
+              )}
+            </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Zalo chat ID</label>
-            <Input
-              placeholder="Dán chat_id từ webhook Bot"
-              {...register("zaloChatId")}
-              error={errors.zaloChatId?.message}
-              data-testid="input-zaloChatId"
-            />
-          </div>
+            {/* 8. Giới tính */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">Giới tính</label>
+              <div className="relative">
+                <select
+                  {...register("gender")}
+                  className="h-10 w-full rounded-xl border border-border bg-card px-3 pr-8 text-sm font-medium text-text appearance-none focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+                  data-testid="select-gender"
+                >
+                  <option value="">Chọn giới tính</option>
+                  <option value="Nam">Nam</option>
+                  <option value="Nữ">Nữ</option>
+                  <option value="Khác">Khác</option>
+                </select>
+                <ChevronDown
+                  size={15}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
+                />
+              </div>
+              {errors.gender?.message && (
+                <span className="text-xs text-rose-500">{errors.gender.message}</span>
+              )}
+            </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Zalo user ID</label>
-            <Input
-              placeholder="Dán user_id từ webhook Bot"
-              {...register("zaloUserId")}
-              error={errors.zaloUserId?.message}
-              data-testid="input-zaloUserId"
-            />
-          </div>
+            {/* 9. Ngày sinh */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">Ngày sinh</label>
+              <Input
+                placeholder="DD/MM/YYYY"
+                {...register("birthDate")}
+                error={errors.birthDate?.message}
+                data-testid="input-birthDate"
+              />
+            </div>
 
-          <div className="sm:col-span-2 flex flex-col gap-1">
-            <label className="text-sm font-bold text-text">Ghi chú</label>
-            <textarea
-              className="flex min-h-[88px] w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder="Nhập ghi chú"
-              {...register("notes")}
-              data-testid="input-notes"
-            />
+            {/* 10. Quốc tịch */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">Quốc tịch</label>
+              <Input
+                placeholder="Việt Nam"
+                {...register("nationality")}
+                error={errors.nationality?.message}
+                data-testid="input-nationality"
+              />
+            </div>
+
+            {/* 11. Địa chỉ thường trú */}
+            <div className="sm:col-span-2 flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">Địa chỉ thường trú</label>
+              <Input
+                placeholder="Nhập địa chỉ..."
+                {...register("address")}
+                error={errors.address?.message}
+                data-testid="input-address"
+              />
+            </div>
+
+            {/* 12. Zalo chat ID */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">Zalo chat ID</label>
+              <Input
+                placeholder="Dán chat_id từ webhook Bot"
+                {...register("zaloChatId")}
+                error={errors.zaloChatId?.message}
+                data-testid="input-zaloChatId"
+              />
+            </div>
+
+            {/* 13. Zalo user ID */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">Zalo user ID</label>
+              <Input
+                placeholder="Dán user_id từ webhook Bot"
+                {...register("zaloUserId")}
+                error={errors.zaloUserId?.message}
+                data-testid="input-zaloUserId"
+              />
+            </div>
+
+            {/* 14. Ghi chú */}
+            <div className="sm:col-span-2 flex flex-col gap-1">
+              <label className="text-sm font-bold text-text">Ghi chú</label>
+              <textarea
+                className="flex min-h-[88px] w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                placeholder="Nhập ghi chú"
+                {...register("notes")}
+                data-testid="input-notes"
+              />
+            </div>
           </div>
-        </div>
 
         <div className="flex justify-end gap-3 pt-2">
           <Button type="button" variant="ghost" onClick={onClose} disabled={isPending} data-testid="tenant-form-cancel">

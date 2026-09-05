@@ -12,9 +12,22 @@ type AuthSuccess = {
 
 export type RouteAuthResult = AuthSuccess | { response: NextResponse };
 
-function apiBaseUrl() {
-  const configured = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api/v1";
-  return configured.startsWith("http") ? configured.replace(/\/$/, "") : "http://127.0.0.1:3001/api/v1";
+export function getInternalApiBaseUrl(): string {
+  const internalOrigin = process.env.INTERNAL_API_ORIGIN?.trim();
+  if (internalOrigin) {
+    const clean = internalOrigin.replace(/\/$/, "");
+    return clean.endsWith("/api/v1") ? clean : `${clean}/api/v1`;
+  }
+  const internalUrl = process.env.INTERNAL_API_URL?.trim() || process.env.API_URL?.trim();
+  if (internalUrl) {
+    const clean = internalUrl.replace(/\/$/, "");
+    return clean.endsWith("/api/v1") ? clean : `${clean}/api/v1`;
+  }
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim() || "";
+  if (configured.startsWith("http://") || configured.startsWith("https://")) {
+    return configured.replace(/\/$/, "");
+  }
+  return "http://127.0.0.1:3001/api/v1";
 }
 
 function hasRoutePermission(user: RouteUser, permission: string) {
@@ -29,7 +42,7 @@ export async function requireRoutePermission(request: Request, permission: strin
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl()}/auth/me`, {
+    const response = await fetch(`${getInternalApiBaseUrl()}/auth/me`, {
       headers: { Authorization: authorization },
       cache: "no-store",
     });
@@ -46,7 +59,8 @@ export async function requireRoutePermission(request: Request, permission: strin
     }
 
     return { authorization, user };
-  } catch {
+  } catch (err: any) {
+    console.error("[requireRoutePermission] Auth check failed:", err?.message || err);
     return { response: NextResponse.json({ error: "AUTH_CHECK_FAILED" }, { status: 503 }) };
   }
 }

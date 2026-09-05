@@ -29,6 +29,7 @@ export class BuildingsController {
   @ApiOperation({ summary: 'Get building details' })
   getDetail(@Param('id') id: string) {
     return this.buildingsService.getDetail(id, {
+      owner: { select: { id: true, code: true, name: true, phone: true, email: true } },
       floors: { where: { deletedAt: null } },
       rooms: {
         where: { deletedAt: null },

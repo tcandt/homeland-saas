@@ -106,13 +106,13 @@ export const Modal: React.FC<ModalProps> = ({
       />
       <div data-testid={testId} className={`relative w-full ${maxWidth} bg-card border border-slate-200/80 dark:border-white/[0.08] rounded-2xl shadow-modal dark:shadow-[0_25px_70px_-15px_rgba(0,0,0,0.85)] flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]`}>
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-200/70 dark:border-white/[0.06]">
+        <div className="flex items-center justify-between px-5 py-3.5 sm:px-6 sm:py-3.5 border-b border-slate-200/70 dark:border-white/[0.06]">
           <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
-            <h2 className="font-black text-xl text-text truncate">{title}</h2>
+            <h2 className="font-extrabold text-[17px] sm:text-lg text-text truncate tracking-tight">{title}</h2>
             {headerActions}
           </div>
-          <Button data-testid={closeButtonTestId} variant="ghost" size="icon" onClick={onClose} className="rounded-full -mr-2 shrink-0 hover:bg-slate-100 dark:hover:bg-white/10">
-            <X size={20} />
+          <Button data-testid={closeButtonTestId} variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 rounded-full -mr-1.5 shrink-0 text-muted hover:text-text hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
+            <X size={18} />
           </Button>
         </div>
         

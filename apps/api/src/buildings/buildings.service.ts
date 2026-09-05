@@ -99,6 +99,7 @@ export class BuildingsService extends BaseCrudService<Building> {
       : [{ displayOrder: 'asc' }, { createdAt: 'desc' }];
 
     return this.repository.paginate(where, page, limit, orderBy, {
+      owner: { select: { id: true, code: true, name: true, phone: true, email: true } },
       floors: {
         where: { deletedAt: null },
         include: {

@@ -27,8 +27,26 @@ export function PreviewContractModal({
   const [downloadFilename, setDownloadFilename] = useState<string>("HopDong_ThuePhong.pdf");
 
   const LANDLORDS: Record<string, any> = {
-    TINH: {},
-    THE: {},
+    TINH: {
+      hoTenChuNha: "NGUYỄN ĐỨC TÍNH",
+      ngaySinhChuNha: "13/03/1997",
+      cccdChuNha: "054097010677",
+      diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
+      dienThoaiChuNha: "0373129295 - 0567867889 ( Tính )",
+      chuTaiKhoan: "HKD NGUYEN DUC TINH",
+      soTaiKhoan: "8818406081",
+      nganHang: "BIDV",
+    },
+    THE: {
+      hoTenChuNha: "PHAN VĂN THỂ",
+      ngaySinhChuNha: "24/11/1994",
+      cccdChuNha: "066094006596 , Cấp ngày: 15/10/2025 tại Cục cảnh sát",
+      diaChiChuNha: "LK01.31 Khu đô thị Ân Phú , phường Tân An , tỉnh Đắk Lắk",
+      dienThoaiChuNha: "0373129295 - 0567.79.2222 ( Thể )",
+      chuTaiKhoan: "HKD PHAN VAN THE",
+      soTaiKhoan: "8827905414",
+      nganHang: "BIDV",
+    },
   };
 
   useEffect(() => {

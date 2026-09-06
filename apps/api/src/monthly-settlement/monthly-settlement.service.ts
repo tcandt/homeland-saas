@@ -427,6 +427,7 @@ export class MonthlySettlementService {
             : null,
           waterAmount: 0,
           serviceAmount: 0,
+          waterEligible: false,
           totalAmount: 0,
           notificationStatus: 'PENDING' as const,
           notificationSentAt: null,
@@ -519,7 +520,7 @@ export class MonthlySettlementService {
           ? contractMembersCount
           : Math.max(contractMembersCount, allMembers.length);
         const roomPrice = Number(activeContract.monthlyRent || 0);
-        const waterAmount = membersCount * 100000;
+        const waterAmount = isEligibleForPreviousUsage ? membersCount * 100000 : 0;
 
         let totalAmount = roomPrice + electricityAmount + waterAmount + serviceAmount;
         let finalRoomPrice = roomPrice;
@@ -596,6 +597,7 @@ export class MonthlySettlementService {
           hasContract,
           isFirstMonthNewTenant,
           electricityEligible: isEligibleForPreviousUsage,
+          waterEligible: isEligibleForPreviousUsage,
           serviceEligible: isEligibleForPreviousUsage,
           representative: representative
             ? {
@@ -785,32 +787,37 @@ export class MonthlySettlementService {
       dueDate.setDate(dueDate.getDate() + 5); // Hạn thanh toán: 5 ngày kể từ ngày chốt
 
       // Tạo các dòng chi tiết theo đúng kỳ dịch vụ (servicePeriod)
+      // Tiền thuê phòng thu trước (servicePeriod: period)
       const itemsData: any[] = [
         {
           tenantId,
           type: InvoiceItemType.RENT,
-          description: `Tiền thuê phòng ${item.roomCode} - Kỳ tháng ${period}`,
+          description: `Tiền thuê phòng ${item.roomCode} - Kỳ tháng ${period} (Thu trước)`,
           servicePeriod: period,
           quantity: 1,
           unitPrice: item.roomPrice,
           amount: item.roomPrice,
         },
-        {
+      ];
+
+      // Tiền nước, điện, phí dịch vụ thu sau theo tháng sử dụng (servicePeriod: usagePeriod)
+      if (item.waterEligible !== false && item.waterAmount > 0) {
+        itemsData.push({
           tenantId,
           type: InvoiceItemType.UTILITY_WATER,
-          description: `Tiền nước sinh hoạt (${item.membersCount} người) - Kỳ tháng ${period}`,
-          servicePeriod: period,
+          description: `Tiền nước sinh hoạt (${item.membersCount} người) - Sử dụng tháng ${usagePeriod} (Thu sau)`,
+          servicePeriod: usagePeriod,
           quantity: 1,
           unitPrice: item.waterAmount,
           amount: item.waterAmount,
-        },
-      ];
+        });
+      }
 
       if (item.electricityEligible && item.electricityAmount > 0) {
         itemsData.push({
           tenantId,
           type: InvoiceItemType.UTILITY_ELECTRICITY,
-          description: `Tiền điện (${item.electricityKwh} kWh) - Sử dụng tháng ${usagePeriod}`,
+          description: `Tiền điện (${item.electricityKwh} kWh) - Sử dụng tháng ${usagePeriod} (Thu sau)`,
           servicePeriod: usagePeriod,
           quantity: 1,
           unitPrice: item.electricityAmount,
@@ -822,7 +829,7 @@ export class MonthlySettlementService {
         itemsData.push({
           tenantId,
           type: InvoiceItemType.SERVICE,
-          description: `Phí dịch vụ & Quản lý - Sử dụng tháng ${usagePeriod}`,
+          description: `Phí dịch vụ & Quản lý - Sử dụng tháng ${usagePeriod} (Thu sau)`,
           servicePeriod: usagePeriod,
           quantity: 1,
           unitPrice: item.serviceAmount,

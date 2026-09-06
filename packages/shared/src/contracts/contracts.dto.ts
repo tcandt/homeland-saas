@@ -59,6 +59,14 @@ export const ContractSettlementInputSchema = z.object({
   note: z.string().max(2000).optional().nullable(),
 });
 
+export const MoveOutOccupantInputSchema = ContractSettlementInputSchema.partial().extend({
+  roomId: z.string().min(1, 'Room ID is required'),
+  customerId: z.string().min(1, 'Customer ID is required'),
+  contractId: z.string().min(1).optional().nullable(),
+  reason: z.string().max(1000).optional().nullable(),
+});
+
 export type CreateContractInput = z.infer<typeof CreateContractSchema>;
 export type UpdateContractInput = z.infer<typeof UpdateContractSchema>;
 export type ContractSettlementInput = z.infer<typeof ContractSettlementInputSchema>;
+export type MoveOutOccupantInput = z.infer<typeof MoveOutOccupantInputSchema>;

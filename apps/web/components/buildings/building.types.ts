@@ -46,6 +46,7 @@ export interface Contract {
   firstPaymentDate?: string;
   signedAt?: string;
   purpose?: string;
+  status?: string;
 }
 
 export interface SharedTenant extends Tenant {

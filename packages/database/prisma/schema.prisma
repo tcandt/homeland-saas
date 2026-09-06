@@ -178,9 +178,9 @@ model TenantOrg {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users     User[]
-  buildings Building[]
-  owners    Owner[]
+  users                    User[]
+  buildings                Building[]
+  owners                   Owner[]
   roomPaymentAccountRoutes RoomPaymentAccountRoute[]
 }
 
@@ -329,32 +329,33 @@ model Floor {
 }
 
 model Room {
-  id           String     @id @default(cuid())
+  id           String         @id @default(cuid())
   tenantId     String
   buildingId   String
   floorId      String
   code         String
   name         String
-  bedCount     Int        @default(1)
-  capacity     Int        @default(1)
-  area         Decimal?   @db.Decimal(10, 2)
-  monthlyPrice Decimal    @db.Decimal(14, 2)
+  bedCount     Int            @default(1)
+  capacity     Int            @default(1)
+  area         Decimal?       @db.Decimal(10, 2)
+  monthlyPrice Decimal        @db.Decimal(14, 2)
   rentalType   RoomRentalType @default(WHOLE)
-  status       RoomStatus @default(AVAILABLE)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  status       RoomStatus     @default(AVAILABLE)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
   deletedAt    DateTime?
   deletedBy    String?
   deleteReason String?
 
-  building             Building              @relation(fields: [buildingId], references: [id])
-  floor                Floor                 @relation(fields: [floorId], references: [id])
+  building             Building                  @relation(fields: [buildingId], references: [id])
+  floor                Floor                     @relation(fields: [floorId], references: [id])
   contracts            Contract[]
   deposits             Deposit[]
-  roommates            Customer[]            @relation("RoomRoommates")
+  roommates            Customer[]                @relation("RoomRoommates")
   hunonicMeterMappings HunonicMeterMapping[]
   hunonicMeterReadings HunonicMeterReading[]
   paymentAccountRoutes RoomPaymentAccountRoute[]
+  occupancies          Occupancy[]
 
   @@unique([tenantId, buildingId, code])
   @@index([tenantId, status])
@@ -388,9 +389,11 @@ model Customer {
   deletedBy      String?
   deleteReason   String?
 
-  contracts Contract[]
-  deposits  Deposit[]
-  invoices  Invoice[]
+  contracts       Contract[]
+  deposits        Deposit[]
+  invoices        Invoice[]
+  occupancies     Occupancy[]
+  contractParties ContractParty[]
 
   @@index([tenantId, phone])
   @@index([tenantId, zaloChatId])
@@ -416,21 +419,91 @@ model Contract {
   memberCount         Int            @default(1)
   attachments         String[]       @default([])
   coRepresentativeIds String[]       @default([])
+  actualMoveOutAt     DateTime?
+  terminationReason   String?
+  customerSnapshot    Json?
+  roomSnapshot        Json?
+  termsSnapshot       Json?
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
   deletedAt           DateTime?
   deletedBy           String?
   deleteReason        String?
 
-  room     Room      @relation(fields: [roomId], references: [id])
-  customer Customer  @relation(fields: [customerId], references: [id])
-  invoices Invoice[]
-  deposits Deposit[]
+  room        Room                @relation(fields: [roomId], references: [id])
+  customer    Customer            @relation(fields: [customerId], references: [id])
+  invoices    Invoice[]
+  deposits    Deposit[]
+  parties     ContractParty[]
+  occupancies Occupancy[]
+  settlement  ContractSettlement?
 
   @@unique([tenantId, code])
   @@index([tenantId, roomId, status])
   @@index([tenantId, customerId, status])
   @@index([tenantId, status, endDate])
+}
+
+model ContractParty {
+  id               String    @id @default(cuid())
+  tenantId         String
+  contractId       String
+  customerId       String?
+  role             String
+  identitySnapshot Json
+  signedAt         DateTime?
+  leftAt           DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  contract Contract  @relation(fields: [contractId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@unique([contractId, customerId, role])
+  @@index([tenantId, contractId])
+  @@index([tenantId, customerId])
+}
+
+model Occupancy {
+  id          String    @id @default(cuid())
+  tenantId    String
+  roomId      String
+  customerId  String
+  contractId  String?
+  role        String
+  joinedAt    DateTime  @default(now())
+  leftAt      DateTime?
+  leaveReason String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  room     Room      @relation(fields: [roomId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  contract Contract? @relation(fields: [contractId], references: [id])
+
+  @@index([tenantId, roomId, leftAt])
+  @@index([tenantId, customerId, leftAt])
+  @@index([tenantId, contractId, leftAt])
+}
+
+model ContractSettlement {
+  id                 String     @id @default(cuid())
+  tenantId           String
+  contractId         String     @unique
+  actualMoveOutAt    DateTime
+  roomTurnoverStatus RoomStatus
+  chargeTotal        Decimal    @db.Decimal(14, 2)
+  creditTotal        Decimal    @db.Decimal(14, 2)
+  netReceivable      Decimal    @db.Decimal(14, 2)
+  refundToCustomer   Decimal    @db.Decimal(14, 2)
+  utilitySnapshot    Json?
+  details            Json
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id])
+
+  @@index([tenantId, actualMoveOutAt])
 }
 
 model Deposit {
@@ -714,8 +787,8 @@ model BankAccount {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  owner           Owner?           @relation(fields: [ownerId], references: [id])
-  paymentRequests PaymentRequest[]
+  owner                    Owner?                    @relation(fields: [ownerId], references: [id])
+  paymentRequests          PaymentRequest[]
   roomPaymentAccountRoutes RoomPaymentAccountRoute[]
 
   @@unique([tenantId, accountNumber])
@@ -723,15 +796,15 @@ model BankAccount {
 }
 
 model RoomPaymentAccountRoute {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   tenantId      String
   roomId        String
   bankAccountId String
   validFrom     DateTime
   validTo       DateTime?
   note          String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   tenant      TenantOrg   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   room        Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
@@ -779,17 +852,17 @@ model PaymentRequest {
 }
 
 model PaymentWebhookLog {
-  id                    String          @id @default(cuid())
+  id                    String               @id @default(cuid())
   tenantId              String?
   provider              PaymentProvider
   providerTransactionId String
   payload               Json
   status                PaymentWebhookStatus @default(RECEIVED)
-  attemptCount          Int             @default(0)
+  attemptCount          Int                  @default(0)
   processingStartedAt   DateTime?
   processedAt           DateTime?
   lastError             String?
-  createdAt             DateTime        @default(now())
+  createdAt             DateTime             @default(now())
 
   @@unique([provider, providerTransactionId])
   @@index([status, createdAt])
@@ -797,15 +870,15 @@ model PaymentWebhookLog {
 }
 
 model CostCenter {
-  id        String   @id @default(cuid())
-  tenantId  String
-  ownerId   String?
+  id         String   @id @default(cuid())
+  tenantId   String
+  ownerId    String?
   buildingId String?
-  code      String
-  name      String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  code       String
+  name       String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   owner        Owner?        @relation(fields: [ownerId], references: [id])
   journalLines JournalLine[]
@@ -1494,17 +1567,17 @@ model DocumentTemplate {
 }
 
 model InvoiceItem {
-  id          String          @id @default(cuid())
-  tenantId    String
-  invoiceId   String
-  type        InvoiceItemType
-  description String
+  id            String          @id @default(cuid())
+  tenantId      String
+  invoiceId     String
+  type          InvoiceItemType
+  description   String
   servicePeriod String?
-  quantity    Decimal         @db.Decimal(14, 2)
-  unitPrice   Decimal         @db.Decimal(14, 2)
-  amount      Decimal         @db.Decimal(14, 2)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  quantity      Decimal         @db.Decimal(14, 2)
+  unitPrice     Decimal         @db.Decimal(14, 2)
+  amount        Decimal         @db.Decimal(14, 2)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 

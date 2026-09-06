@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Contract, ContractStatus, DepositStatus, InvoiceItemType, InvoiceStatus, ReceiptStatus, RoomStatus } from '@prisma/client';
-import { ContractSettlementInput, PaginatedResult } from '@homeland/shared';
+import { ContractSettlementInput, MoveOutOccupantInput, PaginatedResult } from '@homeland/shared';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
@@ -23,7 +23,8 @@ export class ContractsService extends BaseCrudService<Contract> {
   }
 
   async create(data: any, userId?: string, moduleName?: string): Promise<Contract> {
-    const created = await super.create(data, userId, moduleName);
+    const created = await super.create(await this.withContractSnapshots(data), userId, moduleName);
+    await this.syncContractHistory(created);
     if (Number(created.depositMoney || 0) > 0) {
       await this.syncContractDeposit(created);
     }
@@ -31,11 +32,60 @@ export class ContractsService extends BaseCrudService<Contract> {
   }
 
   async update(id: string, data: any, userId?: string, moduleName?: string): Promise<Contract> {
-    const updated = await super.update(id, data, userId, moduleName);
+    const current = await this.getDetail(id);
+    const canRefreshLegalSnapshot = [
+      ContractStatus.DRAFT,
+      ContractStatus.PENDING_APPROVAL,
+      ContractStatus.APPROVED,
+    ].includes(current.status);
+    let preparedData = data;
+    if (canRefreshLegalSnapshot) {
+      const refreshedSnapshots = await this.withContractSnapshots({
+        ...current,
+        ...data,
+        customerSnapshot: null,
+        roomSnapshot: null,
+        termsSnapshot: null,
+      });
+      preparedData = {
+        ...data,
+        customerSnapshot: refreshedSnapshots.customerSnapshot,
+        roomSnapshot: refreshedSnapshots.roomSnapshot,
+        termsSnapshot: refreshedSnapshots.termsSnapshot,
+      };
+    }
+    const updated = await super.update(id, preparedData, userId, moduleName);
+    await this.syncContractHistory(updated);
     if (data.depositMoney !== undefined || data.status !== undefined) {
       await this.syncContractDeposit(updated);
     }
     return updated;
+  }
+
+  override async softDelete(id: string, userId?: string, moduleName?: string): Promise<Contract> {
+    const contract = await this.prisma.tx.contract.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            invoices: { where: { deletedAt: null } },
+            deposits: { where: { deletedAt: null } },
+          },
+        },
+      },
+    });
+
+    if (!contract) {
+      throw new NotFoundException(`Contract with ID ${id} not found`);
+    }
+    if (contract.status !== ContractStatus.DRAFT) {
+      throw new ConflictException('CONTRACT_DELETE_REQUIRES_DRAFT_WITHOUT_HISTORY');
+    }
+    if (contract._count.invoices > 0 || contract._count.deposits > 0) {
+      throw new ConflictException('CONTRACT_DELETE_BLOCKED_BY_FINANCIAL_HISTORY');
+    }
+
+    return super.softDelete(id, userId, moduleName);
   }
 
   async syncContractDeposit(contract: any) {
@@ -124,7 +174,17 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
     if (status) where.status = mapStatusFilter(status);
     if (roomId) where.roomId = roomId;
-    if (customerId) where.customerId = customerId;
+    if (customerId) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
+        {
+          OR: [
+            { customerId },
+            { coRepresentativeIds: { has: customerId } },
+          ],
+        },
+      ];
+    }
 
     const orderBy = { [sort || 'createdAt']: order || 'desc' };
 
@@ -208,6 +268,8 @@ export class ContractsService extends BaseCrudService<Contract> {
       after: result.updatedContract,
       userId,
     });
+
+    await this.syncContractHistory(result.updatedContract);
 
     return result.updatedContract;
   }
@@ -293,6 +355,8 @@ export class ContractsService extends BaseCrudService<Contract> {
       userId,
     });
 
+    await this.syncContractHistory(result.updatedContract);
+
     return result.updatedContract;
   }
 
@@ -307,6 +371,136 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   async terminateContract(id: string, userId: string, input?: Partial<ContractSettlementInput>): Promise<Contract> {
     return this.finalizeContract(id, userId, ContractStatus.TERMINATED, input);
+  }
+
+  async moveOutOccupant(input: MoveOutOccupantInput, userId: string) {
+    const customer = await this.prisma.tx.customer.findUnique({
+      where: { id: input.customerId },
+    });
+    if (!customer) {
+      throw new NotFoundException(`Customer with ID ${input.customerId} not found`);
+    }
+
+    const contractInclude = {
+      customer: true,
+      room: { include: { building: true, floor: true } },
+    } as const;
+    let contract: any = null;
+
+    if (input.contractId) {
+      contract = await this.prisma.tx.contract.findFirst({
+        where: {
+          id: input.contractId,
+          roomId: input.roomId,
+          deletedAt: null,
+        },
+        include: contractInclude,
+      });
+    }
+
+    if (!contract) {
+      const partyFilter = {
+        roomId: input.roomId,
+        deletedAt: null,
+        OR: [
+          { customerId: input.customerId },
+          { coRepresentativeIds: { has: input.customerId } },
+        ],
+      };
+      contract = await this.prisma.tx.contract.findFirst({
+        where: {
+          ...partyFilter,
+          status: {
+            in: [
+              ContractStatus.ACTIVE,
+              ContractStatus.EXPIRING,
+              ContractStatus.APPROVED,
+              ContractStatus.PENDING_APPROVAL,
+              ContractStatus.DRAFT,
+            ],
+          },
+        },
+        include: contractInclude,
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!contract) {
+        contract = await this.prisma.tx.contract.findFirst({
+          where: partyFilter,
+          include: contractInclude,
+          orderBy: { updatedAt: 'desc' },
+        });
+      }
+    }
+
+    const isPrimary = contract?.customerId === input.customerId;
+    const isCoRepresentative = Array.isArray(contract?.coRepresentativeIds)
+      && contract.coRepresentativeIds.includes(input.customerId);
+    const isCurrentlyInRoom = customer.roomId === input.roomId;
+
+    if (contract && !isPrimary && !isCoRepresentative && !isCurrentlyInRoom) {
+      throw new ConflictException('OCCUPANT_NOT_LINKED_TO_CONTRACT_OR_ROOM');
+    }
+    if (!contract && !isCurrentlyInRoom) {
+      throw new ConflictException('OCCUPANT_NOT_IN_ROOM');
+    }
+
+    const actualMoveOutAt = this.resolveMoveOutDate(input.actualMoveOutDate || new Date());
+    const reason = String(input.reason || input.note || 'Trả phòng').trim();
+    const roomTurnoverStatus = this.resolveRoomTurnoverStatus(input.roomTurnoverStatus);
+
+    if (isPrimary && ACTIVE_LIKE_CONTRACT_STATUSES.includes(contract.status)) {
+      const roomCustomerIds = await this.prisma.tx.customer.findMany({
+        where: { roomId: input.roomId, deletedAt: null },
+        select: { id: true },
+      });
+      const {
+        roomId: _roomId,
+        customerId: _customerId,
+        contractId: _contractId,
+        reason: _reason,
+        ...settlementInput
+      } = input;
+      const updatedContract = await this.finalizeContract(
+        contract.id,
+        userId,
+        ContractStatus.TERMINATED,
+        {
+          ...settlementInput,
+          actualMoveOutDate: actualMoveOutAt,
+          roomTurnoverStatus,
+          note: input.note || reason,
+        },
+      );
+      const updatedRoom = await this.prisma.tx.room.findUnique({ where: { id: input.roomId } });
+      return {
+        mode: 'CONTRACT_SETTLED',
+        contractId: contract.id,
+        contractStatus: updatedContract.status,
+        roomStatus: updatedRoom?.status || roomTurnoverStatus,
+        removedCustomerIds: roomCustomerIds.map((item) => item.id),
+      };
+    }
+
+    if (
+      isPrimary
+      && [ContractStatus.DRAFT, ContractStatus.PENDING_APPROVAL, ContractStatus.APPROVED].includes(contract.status)
+    ) {
+      return this.cancelPreActiveContract(contract, userId, actualMoveOutAt, reason, roomTurnoverStatus);
+    }
+
+    if (isCoRepresentative && contract) {
+      return this.detachCoRepresentative(contract, customer, userId, actualMoveOutAt, reason, roomTurnoverStatus);
+    }
+
+    return this.detachSingleOccupant(
+      customer,
+      contract,
+      input.roomId,
+      userId,
+      actualMoveOutAt,
+      reason,
+      roomTurnoverStatus,
+    );
   }
 
   async completePendingSettlementRefund(id: string, userId: string, note?: string) {
@@ -427,6 +621,465 @@ export class ContractsService extends BaseCrudService<Contract> {
     };
   }
 
+  private async cancelPreActiveContract(
+    contract: any,
+    userId: string,
+    actualMoveOutAt: Date,
+    reason: string,
+    roomTurnoverStatus: RoomStatus,
+  ) {
+    const protectedDeposit = await this.prisma.tx.deposit.findFirst({
+      where: {
+        contractId: contract.id,
+        deletedAt: null,
+        status: { in: [DepositStatus.PAID, DepositStatus.CONVERTED_TO_CONTRACT] },
+      },
+    });
+    if (protectedDeposit) {
+      throw new ConflictException('CONTRACT_CANCELLATION_REQUIRES_DEPOSIT_REFUND');
+    }
+
+    await this.syncContractHistory(contract);
+    const snapshots = await this.withContractSnapshots(contract);
+    const contractCustomerIds = Array.from(new Set([
+      contract.customerId,
+      ...(Array.isArray(contract.coRepresentativeIds) ? contract.coRepresentativeIds : []),
+    ].filter(Boolean)));
+    const currentRoomCustomers = await this.prisma.tx.customer.findMany({
+      where: { roomId: contract.roomId, deletedAt: null },
+      select: { id: true },
+    });
+
+    const result = await this.prisma.tx.$transaction(async (tx) => {
+      const updatedContract = await tx.contract.update({
+        where: { id: contract.id },
+        data: {
+          status: ContractStatus.CANCELLED,
+          actualMoveOutAt,
+          terminationReason: reason,
+          customerSnapshot: contract.customerSnapshot || snapshots.customerSnapshot,
+          roomSnapshot: contract.roomSnapshot || snapshots.roomSnapshot,
+          termsSnapshot: contract.termsSnapshot || snapshots.termsSnapshot,
+        },
+      });
+      const remainingActiveContracts = await tx.contract.count({
+        where: {
+          roomId: contract.roomId,
+          status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+          id: { not: contract.id },
+          deletedAt: null,
+        },
+      });
+      const clearWholeRoom = remainingActiveContracts === 0 && contract.room?.rentalType !== 'SHARED';
+
+      await tx.customer.updateMany({
+        where: clearWholeRoom
+          ? { roomId: contract.roomId, deletedAt: null }
+          : { id: { in: contractCustomerIds }, roomId: contract.roomId, deletedAt: null },
+        data: { roomId: null },
+      });
+      await tx.occupancy.updateMany({
+        where: clearWholeRoom
+          ? { roomId: contract.roomId, leftAt: null }
+          : { contractId: contract.id, leftAt: null },
+        data: { leftAt: actualMoveOutAt, leaveReason: reason },
+      });
+      await tx.contractParty.updateMany({
+        where: { contractId: contract.id, leftAt: null },
+        data: { leftAt: actualMoveOutAt },
+      });
+      await tx.deposit.updateMany({
+        where: {
+          contractId: contract.id,
+          deletedAt: null,
+          status: { in: [DepositStatus.DRAFT, DepositStatus.PENDING] },
+        },
+        data: { status: DepositStatus.CANCELLED },
+      });
+
+      const remainingCustomers = await tx.customer.count({
+        where: { roomId: contract.roomId, deletedAt: null },
+      });
+      const targetRoomStatus = remainingActiveContracts > 0 || remainingCustomers > 0
+        ? RoomStatus.OCCUPIED
+        : roomTurnoverStatus;
+      const updatedRoom = await tx.room.update({
+        where: { id: contract.roomId },
+        data: { status: targetRoomStatus },
+      });
+
+      return { updatedContract, updatedRoom, clearWholeRoom };
+    });
+
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: this.entityName,
+      entityId: contract.id,
+      module: 'Contracts',
+      before: contract,
+      after: result.updatedContract,
+      userId,
+    });
+
+    return {
+      mode: 'CONTRACT_CANCELLED',
+      contractId: contract.id,
+      contractStatus: result.updatedContract.status,
+      roomStatus: result.updatedRoom.status,
+      removedCustomerIds: result.clearWholeRoom
+        ? currentRoomCustomers.map((item) => item.id)
+        : contractCustomerIds,
+    };
+  }
+
+  private async detachCoRepresentative(
+    contract: any,
+    customer: any,
+    userId: string,
+    actualMoveOutAt: Date,
+    reason: string,
+    roomTurnoverStatus: RoomStatus,
+  ) {
+    await this.syncContractHistory(contract);
+    const nextCoRepresentativeIds = contract.coRepresentativeIds.filter((id: string) => id !== customer.id);
+
+    const result = await this.prisma.tx.$transaction(async (tx) => {
+      const updatedContract = await tx.contract.update({
+        where: { id: contract.id },
+        data: { coRepresentativeIds: nextCoRepresentativeIds },
+      });
+      await tx.contractParty.updateMany({
+        where: {
+          contractId: contract.id,
+          customerId: customer.id,
+          role: 'CO_REPRESENTATIVE',
+          leftAt: null,
+        },
+        data: { leftAt: actualMoveOutAt },
+      });
+      await tx.occupancy.updateMany({
+        where: {
+          roomId: contract.roomId,
+          customerId: customer.id,
+          leftAt: null,
+        },
+        data: { leftAt: actualMoveOutAt, leaveReason: reason },
+      });
+
+      const otherActiveBindings = await tx.contract.count({
+        where: {
+          roomId: contract.roomId,
+          deletedAt: null,
+          status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+          OR: [
+            { customerId: customer.id },
+            { coRepresentativeIds: { has: customer.id } },
+          ],
+        },
+      });
+      if (otherActiveBindings === 0 && customer.roomId === contract.roomId) {
+        await tx.customer.update({
+          where: { id: customer.id },
+          data: { roomId: null },
+        });
+      }
+
+      const activeContracts = await tx.contract.count({
+        where: {
+          roomId: contract.roomId,
+          deletedAt: null,
+          status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+        },
+      });
+      const remainingCustomers = await tx.customer.count({
+        where: { roomId: contract.roomId, deletedAt: null },
+      });
+      const updatedRoom = await tx.room.update({
+        where: { id: contract.roomId },
+        data: {
+          status: activeContracts > 0 || remainingCustomers > 0
+            ? RoomStatus.OCCUPIED
+            : roomTurnoverStatus,
+        },
+      });
+
+      return { updatedContract, updatedRoom };
+    });
+
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: this.entityName,
+      entityId: contract.id,
+      module: 'Contracts',
+      before: contract,
+      after: result.updatedContract,
+      userId,
+    });
+
+    return {
+      mode: 'CO_REPRESENTATIVE_DETACHED',
+      contractId: contract.id,
+      contractStatus: result.updatedContract.status,
+      roomStatus: result.updatedRoom.status,
+      removedCustomerIds: [customer.id],
+    };
+  }
+
+  private async detachSingleOccupant(
+    customer: any,
+    contract: any,
+    targetRoomId: string,
+    userId: string,
+    actualMoveOutAt: Date,
+    reason: string,
+    roomTurnoverStatus: RoomStatus,
+  ) {
+    const before = { ...customer };
+    const result = await this.prisma.tx.$transaction(async (tx) => {
+      await tx.occupancy.updateMany({
+        where: {
+          roomId: targetRoomId,
+          customerId: customer.id,
+          leftAt: null,
+        },
+        data: { leftAt: actualMoveOutAt, leaveReason: reason },
+      });
+      if (contract) {
+        await tx.contractParty.updateMany({
+          where: { contractId: contract.id, customerId: customer.id, leftAt: null },
+          data: { leftAt: actualMoveOutAt },
+        });
+      }
+
+      const updatedCustomer = customer.roomId === targetRoomId
+        ? await tx.customer.update({ where: { id: customer.id }, data: { roomId: null } })
+        : customer;
+      const activeContracts = await tx.contract.count({
+        where: {
+          roomId: targetRoomId,
+          deletedAt: null,
+          status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+        },
+      });
+      const remainingCustomers = await tx.customer.count({
+        where: { roomId: targetRoomId, deletedAt: null },
+      });
+      const updatedRoom = await tx.room.update({
+        where: { id: targetRoomId },
+        data: {
+          status: activeContracts > 0 || remainingCustomers > 0
+            ? RoomStatus.OCCUPIED
+            : roomTurnoverStatus,
+        },
+      });
+      return { updatedCustomer, updatedRoom };
+    });
+
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: 'Customer',
+      entityId: customer.id,
+      module: 'Contracts',
+      before,
+      after: result.updatedCustomer,
+      userId,
+    });
+
+    return {
+      mode: contract ? 'TERMINAL_CONTRACT_OCCUPANT_DETACHED' : 'ROOMMATE_DETACHED',
+      contractId: contract?.id || null,
+      contractStatus: contract?.status || null,
+      roomStatus: result.updatedRoom.status,
+      removedCustomerIds: [customer.id],
+    };
+  }
+
+  private resolveRoomTurnoverStatus(
+    value?: string | null,
+  ): 'AVAILABLE' | 'CLEANING' | 'MAINTENANCE' {
+    if (value === 'CLEANING') return RoomStatus.CLEANING;
+    if (value === 'MAINTENANCE') return RoomStatus.MAINTENANCE;
+    return RoomStatus.AVAILABLE;
+  }
+
+  private async withContractSnapshots(data: any) {
+    const db = this.prisma.tx as any;
+    const [customer, room] = await Promise.all([
+      data.customerId && db.customer?.findUnique
+        ? db.customer.findUnique({ where: { id: data.customerId } })
+        : Promise.resolve(data.customer || null),
+      data.roomId && db.room?.findUnique
+        ? db.room.findUnique({
+            where: { id: data.roomId },
+            include: {
+              building: { select: { id: true, code: true, name: true, address: true } },
+              floor: { select: { id: true, name: true, level: true } },
+            },
+          })
+        : Promise.resolve(data.room || null),
+    ]);
+
+    const customerSnapshot = this.asJson({
+      id: customer?.id || data.customerId,
+      fullName: customer?.fullName || data.customer?.fullName || null,
+      phone: customer?.phone || data.customer?.phone || null,
+      email: customer?.email || data.customer?.email || null,
+      identityNo: customer?.identityNo || data.customer?.identityNo || null,
+      gender: customer?.gender || data.customer?.gender || null,
+      birthDate: customer?.birthDate || data.customer?.birthDate || null,
+      nationality: customer?.nationality || data.customer?.nationality || null,
+      address: customer?.address || data.customer?.address || null,
+      emergencyPhone: customer?.emergencyPhone || data.customer?.emergencyPhone || null,
+      idImages: customer?.idImages || data.customer?.idImages || [],
+    });
+    const roomSnapshot = this.asJson({
+      id: room?.id || data.roomId,
+      code: room?.code || data.room?.code || null,
+      name: room?.name || data.room?.name || null,
+      rentalType: room?.rentalType || data.room?.rentalType || null,
+      building: room?.building || data.room?.building || null,
+      floor: room?.floor || data.room?.floor || null,
+    });
+    const termsSnapshot = this.asJson({
+      code: data.code,
+      status: data.status,
+      startDate: data.startDate,
+      endDate: data.endDate,
+      signedAt: data.signedAt,
+      firstPaymentDate: data.firstPaymentDate,
+      monthlyRent: Number(data.monthlyRent || 0),
+      depositMoney: Number(data.depositMoney || 0),
+      memberCount: data.memberCount || 1,
+      purpose: data.purpose || null,
+      coRepresentativeIds: data.coRepresentativeIds || [],
+      attachments: data.attachments || [],
+    });
+
+    return {
+      ...data,
+      customerSnapshot: data.customerSnapshot || customerSnapshot,
+      roomSnapshot: data.roomSnapshot || roomSnapshot,
+      termsSnapshot: data.termsSnapshot || termsSnapshot,
+    };
+  }
+
+  private async syncContractHistory(contract: any) {
+    const db = this.prisma.tx as any;
+    if (!contract?.id || !contract?.tenantId || !db.contractParty || !db.occupancy) return;
+
+    const customerIds = Array.from(new Set([
+      contract.customerId,
+      ...(Array.isArray(contract.coRepresentativeIds) ? contract.coRepresentativeIds : []),
+    ].filter(Boolean))) as string[];
+    const customers = customerIds.length > 0
+      ? await db.customer.findMany({ where: { id: { in: customerIds } } })
+      : [];
+    const customerById = new Map(customers.map((item: any) => [item.id, item]));
+    const isCurrentContract = ![
+      ContractStatus.TERMINATED,
+      ContractStatus.EXPIRED,
+      ContractStatus.CANCELLED,
+    ].includes(contract.status);
+    const isActiveOccupancy = ACTIVE_LIKE_CONTRACT_STATUSES.includes(contract.status);
+    const now = contract.actualMoveOutAt || new Date();
+
+    for (const customerId of customerIds) {
+      const customer = customerById.get(customerId) as any;
+      const role = customerId === contract.customerId ? 'PRIMARY' : 'CO_REPRESENTATIVE';
+      const identitySnapshot = this.asJson({
+        id: customerId,
+        fullName: customer?.fullName || null,
+        phone: customer?.phone || null,
+        email: customer?.email || null,
+        identityNo: customer?.identityNo || null,
+        gender: customer?.gender || null,
+        birthDate: customer?.birthDate || null,
+        nationality: customer?.nationality || null,
+        address: customer?.address || null,
+        emergencyPhone: customer?.emergencyPhone || null,
+        idImages: customer?.idImages || [],
+      });
+      const existingParty = await db.contractParty.findFirst({
+        where: { contractId: contract.id, customerId, role },
+      });
+      if (existingParty) {
+        await db.contractParty.update({
+          where: { id: existingParty.id },
+          data: {
+            identitySnapshot,
+            leftAt: isCurrentContract ? null : existingParty.leftAt || now,
+          },
+        });
+      } else {
+        await db.contractParty.create({
+          data: {
+            tenantId: contract.tenantId,
+            contractId: contract.id,
+            customerId,
+            role,
+            identitySnapshot,
+            signedAt: contract.signedAt || null,
+            leftAt: isCurrentContract ? null : now,
+          },
+        });
+      }
+
+      if (isActiveOccupancy) {
+        const openOccupancy = await db.occupancy.findFirst({
+          where: {
+            roomId: contract.roomId,
+            customerId,
+            leftAt: null,
+            OR: [{ contractId: contract.id }, { contractId: null }],
+          },
+        });
+        if (openOccupancy) {
+          await db.occupancy.update({
+            where: { id: openOccupancy.id },
+            data: { contractId: contract.id, role },
+          });
+        } else {
+          await db.occupancy.create({
+            data: {
+              tenantId: contract.tenantId,
+              roomId: contract.roomId,
+              customerId,
+              contractId: contract.id,
+              role,
+              joinedAt: contract.startDate || new Date(),
+            },
+          });
+        }
+      }
+    }
+
+    await db.contractParty.updateMany({
+      where: {
+        contractId: contract.id,
+        role: 'CO_REPRESENTATIVE',
+        customerId: { notIn: customerIds.filter((id) => id !== contract.customerId) },
+        leftAt: null,
+      },
+      data: { leftAt: now },
+    });
+
+    if (isActiveOccupancy) {
+      await db.customer.updateMany({
+        where: { id: { in: customerIds } },
+        data: { roomId: contract.roomId },
+      });
+    } else {
+      await db.occupancy.updateMany({
+        where: { contractId: contract.id, leftAt: null },
+        data: { leftAt: now, leaveReason: contract.terminationReason || 'Hợp đồng đã kết thúc' },
+      });
+    }
+  }
+
+  private asJson(value: unknown) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
   private async finalizeContract(
     id: string,
     userId: string,
@@ -446,11 +1099,20 @@ export class ContractsService extends BaseCrudService<Contract> {
           roomTurnoverStatus: 'AVAILABLE',
           rentDaysCharged: 0,
         });
+    const snapshots = await this.withContractSnapshots(contract);
+    const terminationReason = String(input?.note || 'Trả phòng và quyết toán hợp đồng').trim();
 
     const result = await this.prisma.tx.$transaction(async (tx) => {
       const updatedContract = await tx.contract.update({
         where: { id },
-        data: { status: targetStatus },
+        data: {
+          status: targetStatus,
+          actualMoveOutAt: settlement.actualMoveOutDate,
+          terminationReason,
+          customerSnapshot: contract.customerSnapshot || snapshots.customerSnapshot,
+          roomSnapshot: contract.roomSnapshot || snapshots.roomSnapshot,
+          termsSnapshot: contract.termsSnapshot || snapshots.termsSnapshot,
+        },
       });
 
       const remainingActiveContracts = tx.contract?.count
@@ -477,6 +1139,7 @@ export class ContractsService extends BaseCrudService<Contract> {
           where: {
             tenantId: contract.tenantId,
             id: { in: contractCustomerIds },
+            roomId: contract.roomId,
             contracts: {
               none: {
                 roomId: contract.roomId,
@@ -502,6 +1165,24 @@ export class ContractsService extends BaseCrudService<Contract> {
           data: {
             roomId: null,
           },
+        });
+      }
+
+      if (tx.occupancy?.updateMany) {
+        await tx.occupancy.updateMany({
+          where: remainingActiveContracts === 0
+            ? { roomId: contract.roomId, leftAt: null }
+            : { contractId: contract.id, leftAt: null },
+          data: {
+            leftAt: settlement.actualMoveOutDate,
+            leaveReason: terminationReason,
+          },
+        });
+      }
+      if (tx.contractParty?.updateMany) {
+        await tx.contractParty.updateMany({
+          where: { contractId: contract.id, leftAt: null },
+          data: { leftAt: settlement.actualMoveOutDate },
         });
       }
 
@@ -590,6 +1271,35 @@ export class ContractsService extends BaseCrudService<Contract> {
                 ? DepositStatus.PENDING
                 : DepositStatus.REFUNDED,
           },
+        });
+      }
+
+
+      if (tx.contractSettlement?.upsert) {
+        await tx.contractSettlement.upsert({
+          where: { contractId: contract.id },
+          create: {
+            tenantId: contract.tenantId,
+            contractId: contract.id,
+            actualMoveOutAt: settlement.actualMoveOutDate,
+            roomTurnoverStatus: settlement.roomTurnoverStatus,
+            chargeTotal: settlement.totals.chargeTotal,
+            creditTotal: settlement.totals.creditTotal,
+            netReceivable: settlement.totals.netReceivable,
+            refundToCustomer: settlement.totals.refundToCustomer,
+            utilitySnapshot: settlement.utilitySnapshot,
+            details: settlement,
+          } as any,
+          update: {
+            actualMoveOutAt: settlement.actualMoveOutDate,
+            roomTurnoverStatus: settlement.roomTurnoverStatus,
+            chargeTotal: settlement.totals.chargeTotal,
+            creditTotal: settlement.totals.creditTotal,
+            netReceivable: settlement.totals.netReceivable,
+            refundToCustomer: settlement.totals.refundToCustomer,
+            utilitySnapshot: settlement.utilitySnapshot,
+            details: settlement,
+          } as any,
         });
       }
 

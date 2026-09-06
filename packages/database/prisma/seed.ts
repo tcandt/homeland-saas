@@ -32,6 +32,7 @@ async function main() {
     'room.read', 'room.create', 'room.update', 'room.delete',
     'customer.read', 'customer.create', 'customer.update', 'customer.delete',
     'contract.read', 'contract.create', 'contract.update', 'contract.delete', 'contract.sign',
+    'contract.submit', 'contract.approve', 'contract.activate', 'contract.terminate',
     'invoice.read', 'invoice.create', 'invoice.update', 'invoice.delete', 'invoice.collect',
     'deposit.read', 'deposit.create', 'deposit.update', 'deposit.delete', 'deposit.collect', 'deposit.refund', 'deposit.convert', 'deposit.cancel',
     'meter.read', 'meter.update', 'meter.sync',

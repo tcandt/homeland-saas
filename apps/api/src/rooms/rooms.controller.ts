@@ -4,6 +4,7 @@ import { RoomsService } from './rooms.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { CreateRoomSchema, UpdateRoomSchema, PaginationSchema } from '@homeland/shared';
+import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 
 @ApiTags('Rooms')
 @ApiBearerAuth()
@@ -35,8 +36,15 @@ export class RoomsController {
       building: { select: { id: true, name: true, code: true } },
       floor: { select: { id: true, name: true, level: true } },
       contracts: {
-        where: { deletedAt: null },
-        include: { customer: true },
+        where: { deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } },
+        include: {
+          customer: true,
+          parties: {
+            where: { role: 'CO_REPRESENTATIVE', leftAt: null },
+            include: { customer: true },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
       },
       roommates: {
         where: { deletedAt: null },

@@ -27,6 +27,26 @@ export type ContractSettlementPayload = {
   note?: string | null;
 };
 
+export type MoveOutOccupantPayload = Partial<ContractSettlementPayload> & {
+  roomId: string;
+  customerId: string;
+  contractId?: string | null;
+  reason?: string | null;
+};
+
+export type MoveOutOccupantResult = {
+  mode:
+    | "CONTRACT_SETTLED"
+    | "CONTRACT_CANCELLED"
+    | "CO_REPRESENTATIVE_DETACHED"
+    | "TERMINAL_CONTRACT_OCCUPANT_DETACHED"
+    | "ROOMMATE_DETACHED";
+  contractId: string | null;
+  contractStatus: string | null;
+  roomStatus: "AVAILABLE" | "CLEANING" | "MAINTENANCE" | "OCCUPIED";
+  removedCustomerIds: string[];
+};
+
 export const contractsApi = {
   list: (params?: { page?: number; limit?: number; search?: string; status?: string; roomId?: string; customerId?: string }) => {
     return apiClient.get('/contracts', { params });
@@ -66,6 +86,10 @@ export const contractsApi = {
 
   terminate: (id: string, payload?: Partial<ContractSettlementPayload>) => {
     return apiClient.post(`/contracts/${id}/terminate`, payload);
+  },
+
+  moveOutOccupant: (payload: MoveOutOccupantPayload) => {
+    return apiClient.post<MoveOutOccupantResult>('/contracts/occupant-move-out', payload);
   },
 
   completePendingSettlementRefund: (id: string, payload?: { note?: string }) => {

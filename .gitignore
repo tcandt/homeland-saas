@@ -91,8 +91,7 @@ deploy/public-testing/env.public-testing
 deploy/public-production/release/
 deploy/public-production/release.tgz
 
-# local document fixtures and restore experiments
-tai-lieu/
+# local restore experiments
 restore-list.txt
 restore.ts
 test.js

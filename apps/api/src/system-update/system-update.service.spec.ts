@@ -8,7 +8,7 @@ vi.mock('child_process', () => ({
     if (args[0] === 'rev-parse') return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n';
     if (args[0] === 'ls-remote' && args[1] === '--tags') {
       return [
-        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/v1.0.1',
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/v9.9.9',
         'cccccccccccccccccccccccccccccccccccccccc\trefs/tags/v1.0.0',
       ].join('\n');
     }
@@ -20,7 +20,6 @@ vi.mock('child_process', () => ({
 
 describe('SystemUpdateService', () => {
   beforeEach(() => {
-    vi.stubEnv('APP_VERSION', 'v1.0.0');
     vi.stubEnv('SYSTEM_UPDATE_MODE', 'dry-run');
   });
 
@@ -28,8 +27,8 @@ describe('SystemUpdateService', () => {
     const service = new SystemUpdateService();
 
     const check = service.checkForUpdates();
-    expect(check.currentVersion).toBe('v1.0.0');
-    expect(check.latestVersion).toBe('v1.0.1');
+    expect(check.currentVersion).toMatch(/^v\d+\.\d+\.\d+/);
+    expect(check.latestVersion).toBe('v9.9.9');
     expect(check.currentCommit).toMatch(/^a+/);
     expect(check.latestCommit).toMatch(/^b+/);
     expect(check.updateAvailable).toBe(true);

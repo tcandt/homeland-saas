@@ -3,7 +3,13 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { ContractsService } from './contracts.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
-import { CreateContractSchema, UpdateContractSchema, PaginationSchema, ContractSettlementInputSchema } from '@homeland/shared';
+import {
+  CreateContractSchema,
+  UpdateContractSchema,
+  PaginationSchema,
+  ContractSettlementInputSchema,
+  MoveOutOccupantInputSchema,
+} from '@homeland/shared';
 import { normalizeContractStatus } from './contracts.adapter';
 
 @ApiTags('Contracts')
@@ -27,6 +33,13 @@ export class ContractsController {
     return this.contractsService.listContracts(page, limit, search, status, roomId, customerId, sort, order, user.tenantId);
   }
 
+  @Post('occupant-move-out')
+  @RequirePermissions('contract.terminate')
+  @ApiOperation({ summary: 'Move an occupant out while preserving customer and contract history' })
+  moveOutOccupant(@Body() body: any, @CurrentUser('id') userId: string) {
+    return this.contractsService.moveOutOccupant(MoveOutOccupantInputSchema.parse(body), userId);
+  }
+
   @Get(':id')
   @RequirePermissions('contract.read')
   @ApiOperation({ summary: 'Get contract details' })
@@ -34,6 +47,8 @@ export class ContractsController {
     return this.contractsService.getDetail(id, {
       customer: true,
       room: { include: { building: true, floor: true } },
+      parties: { include: { customer: true }, orderBy: { createdAt: 'asc' } },
+      settlement: true,
     });
   }
 
@@ -92,28 +107,28 @@ export class ContractsController {
   }
 
   @Post(':id/submit')
-  @RequirePermissions('contract.update')
+  @RequirePermissions('contract.submit')
   @ApiOperation({ summary: 'Submit contract for approval' })
   submit(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.contractsService.submitContract(id, userId);
   }
 
   @Post(':id/approve')
-  @RequirePermissions('contract.update')
+  @RequirePermissions('contract.approve')
   @ApiOperation({ summary: 'Approve contract' })
   approve(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.contractsService.approveContract(id, userId);
   }
 
   @Post(':id/activate')
-  @RequirePermissions('contract.update')
+  @RequirePermissions('contract.activate')
   @ApiOperation({ summary: 'Activate contract' })
   activate(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.contractsService.activateContract(id, userId);
   }
 
   @Post(':id/terminate')
-  @RequirePermissions('contract.update')
+  @RequirePermissions('contract.terminate')
   @ApiOperation({ summary: 'Terminate contract' })
   terminate(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
     const input = body ? ContractSettlementInputSchema.partial().parse(body) : undefined;

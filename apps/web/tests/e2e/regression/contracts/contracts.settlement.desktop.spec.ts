@@ -571,6 +571,7 @@ test.describe("Contracts Settlement Desktop Regression", () => {
 
     await expect(admin.page.getByTestId("contract-pending-settlement-refund")).toBeVisible();
     await expect(admin.page.getByText("RC-SETTLE-001")).toBeVisible();
+    await expect(admin.page.getByTestId("btn-delete-contract")).toHaveCount(0);
 
     await admin.page.getByTestId("contract-complete-settlement-refund-open").click();
 
@@ -641,7 +642,7 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     const deductionCredit = admin.page.getByTestId("contract-settlement-credit-depositToDeduct");
     await expect(deductionCredit).toContainText("Deposit applied to outstanding debt");
     await expect(deductionCredit).toContainText("500.000đ");
-    await expect(admin.page.getByText("Thu thêm:").locator("..")).toContainText("400.000đ");
+    await expect(admin.page.getByTestId("contract-settlement-net-receivable")).toContainText("400.000đ");
   });
 
   test("terminates contract with maintenance turnover and completed refund surplus", async ({ admin }) => {
@@ -670,7 +671,7 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       });
 
     await expect(admin.page.getByText("Bảo trì trước khi mở bán")).toBeVisible();
-    await expect(admin.page.getByText("Hoàn khách:").locator("..")).toContainText("1.100.000đ");
+    await expect(admin.page.getByTestId("contract-settlement-refund-to-customer")).toContainText("1.100.000đ");
 
     await admin.page.getByTestId("btn-confirm-terminate-settlement").click();
 

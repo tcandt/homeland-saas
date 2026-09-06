@@ -419,11 +419,19 @@ export default function RoomSettlementDetailDrawer({
                         <div className="font-bold text-text flex items-center gap-2">
                           Tiền nước sinh hoạt
                           <span className="rounded-md bg-cyan-500/10 px-1.5 py-0.2 text-[9px] font-black text-cyan-600">
-                            Kỳ T{item.period?.split('-')?.[1]} (Thu trước)
+                            Sử dụng T{item.usagePeriod?.split('-')?.[1] || "trước"} (Thu sau)
                           </span>
                         </div>
                         <div className="text-[11px] text-muted">
-                          {item.hasContract ? `${item.membersCount} người x 100.000 đ/người` : "Phòng trống = 0đ"}
+                          {item.isFirstMonthNewTenant ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                              Khách mới vào ở từ tháng {item.period} → Không tính tiền nước tháng {item.usagePeriod}
+                            </span>
+                          ) : item.hasContract ? (
+                            `${item.membersCount} người x 100.000 đ/người`
+                          ) : (
+                            "Phòng trống = 0đ"
+                          )}
                         </div>
                       </div>
                     </div>
@@ -443,10 +451,18 @@ export default function RoomSettlementDetailDrawer({
                           <div className="font-bold text-text flex items-center gap-2">
                             Phí dịch vụ & Quản lý
                             <span className="rounded-md bg-purple-500/10 px-1.5 py-0.2 text-[9px] font-black text-purple-600">
-                              Sử dụng T{item.usagePeriod?.split('-')?.[1] || "trước"}
+                              Sử dụng T{item.usagePeriod?.split('-')?.[1] || "trước"} (Thu sau)
                             </span>
                           </div>
-                          <div className="text-[11px] text-muted">Wifi, Rác, Vệ sinh</div>
+                          <div className="text-[11px] text-muted">
+                            {item.isFirstMonthNewTenant ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                Khách mới vào ở từ tháng {item.period} → Không tính phí dịch vụ tháng {item.usagePeriod}
+                              </span>
+                            ) : (
+                              "Wifi, Rác, Vệ sinh"
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="text-right font-black text-text text-sm">

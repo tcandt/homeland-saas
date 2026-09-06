@@ -139,9 +139,9 @@ export default function MonthlySettlementTable({
               <th className="py-3 px-3.5 text-center w-12">STT</th>
               <th className="py-3 px-3.5 min-w-[140px]">Phòng / Căn hộ</th>
               <th className="py-3 px-3.5 min-w-[180px]">Đại diện & Cư dân</th>
-              <th className="py-3 px-3.5 text-right min-w-[110px]">Tiền phòng</th>
-              <th className="py-3 px-3.5 text-right min-w-[130px]">Điện (Tháng trước)</th>
-              <th className="py-3 px-3.5 text-right min-w-[120px]">Nước (100k/người)</th>
+              <th className="py-3 px-3.5 text-right min-w-[110px]">Tiền phòng (Thu trước)</th>
+              <th className="py-3 px-3.5 text-right min-w-[130px]">Điện (Thu sau)</th>
+              <th className="py-3 px-3.5 text-right min-w-[120px]">Nước (Thu sau)</th>
               <th className="py-3 px-3.5 text-right min-w-[130px]">Tổng cộng</th>
               <th className="py-3 px-3.5 text-center min-w-[140px]">Trạng thái gửi</th>
               <th className="py-3 px-3.5 text-center min-w-[110px]">Thanh toán</th>
@@ -198,12 +198,12 @@ export default function MonthlySettlementTable({
                     )}
                   </td>
 
-                  {/* Tiền phòng theo kỳ tháng M */}
+                  {/* Tiền phòng theo kỳ tháng M (Thu trước) */}
                   <td className="py-3.5 px-3.5 text-right font-bold text-text">
                     {hasContract ? formatVnd(item.roomPrice) : <span className="text-muted/60 font-normal">0 đ</span>}
                   </td>
 
-                  {/* Tiền điện tháng M-1: Nếu là khách mới vào ở từ tháng M, chưa tính điện M-1 */}
+                  {/* Tiền điện tháng M-1 (Thu sau): Nếu là khách mới vào ở từ tháng M, chưa tính điện M-1 */}
                   <td className="py-3.5 px-3.5 text-right">
                     {hasContract && item.electricityAmount > 0 ? (
                       <div>
@@ -238,11 +238,18 @@ export default function MonthlySettlementTable({
                     )}
                   </td>
 
-                  {/* Tiền nước: 100k/người x số thành viên */}
+                  {/* Tiền nước tháng M-1 (Thu sau): 100k/người x số thành viên */}
                   <td className="py-3.5 px-3.5 text-right">
                     {hasContract && item.waterAmount > 0 ? (
                       <div className="font-bold text-text">
                         {formatVnd(item.waterAmount)}
+                      </div>
+                    ) : isNewTenant ? (
+                      <div>
+                        <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                          0 đ
+                        </span>
+                        <div className="text-[10px] text-muted font-medium mt-0.5">Chưa ở T{item.usagePeriod?.split('-')?.[1]}</div>
                       </div>
                     ) : (
                       <span className="text-muted/60 font-normal">0 đ</span>

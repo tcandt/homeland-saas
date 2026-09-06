@@ -34,9 +34,15 @@ describe('ContractsService', () => {
         contract: {
           update: vi.fn(),
           count: vi.fn().mockResolvedValue(0),
+          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
         },
         customer: {
           updateMany: vi.fn(),
+          update: vi.fn(),
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([]),
+          findUnique: vi.fn().mockResolvedValue(null),
         },
         receipt: {
           create: vi.fn(),
@@ -50,6 +56,23 @@ describe('ContractsService', () => {
         },
         deposit: {
           create: vi.fn(),
+          findFirst: vi.fn().mockResolvedValue(null),
+          updateMany: vi.fn(),
+        },
+        contractParty: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn(),
+          update: vi.fn(),
+          updateMany: vi.fn(),
+        },
+        occupancy: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn(),
+          update: vi.fn(),
+          updateMany: vi.fn(),
+        },
+        contractSettlement: {
+          upsert: vi.fn(),
         },
         $transaction: vi.fn((callback) => callback(prismaService.tx)),
       },
@@ -74,6 +97,7 @@ describe('ContractsService', () => {
           provide: ContractsRepository,
           useValue: {
             findById: vi.fn(),
+            softDelete: vi.fn(),
           },
         },
         {
@@ -334,12 +358,19 @@ describe('ContractsService', () => {
       
       expect(prismaService.tx.contract.update).toHaveBeenCalledWith({
         where: { id: 'c1' },
-        data: { status: ContractStatus.TERMINATED },
+        data: expect.objectContaining({
+          status: ContractStatus.TERMINATED,
+          actualMoveOutAt: expect.any(Date),
+          customerSnapshot: expect.objectContaining({ id: 'cu1' }),
+          roomSnapshot: expect.objectContaining({ id: 'r1' }),
+          termsSnapshot: expect.objectContaining({ code: 'C-001' }),
+        }),
       });
       expect(prismaService.tx.customer.updateMany).toHaveBeenCalledWith({
         where: {
           tenantId: 't1',
           id: { in: ['cu1', 'cu2'] },
+          roomId: 'r1',
           contracts: {
             none: {
               roomId: 'r1',
@@ -364,6 +395,17 @@ describe('ContractsService', () => {
         data: { status: RoomStatus.AVAILABLE },
       });
       expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
+      expect(prismaService.tx.contractSettlement.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { contractId: 'c1' },
+          create: expect.objectContaining({
+            tenantId: 't1',
+            contractId: 'c1',
+            chargeTotal: 0,
+            creditTotal: 0,
+          }),
+        }),
+      );
       
       expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
         action: 'UPDATE',
@@ -414,6 +456,7 @@ describe('ContractsService', () => {
         where: {
           tenantId: 't1',
           id: { in: ['cu1'] },
+          roomId: 'r1',
           contracts: {
             none: {
               roomId: 'r1',
@@ -1110,7 +1153,13 @@ describe('ContractsService', () => {
 
       expect(prismaService.tx.contract.update).toHaveBeenCalledWith({
         where: { id: 'c1' },
-        data: { status: ContractStatus.EXPIRED },
+        data: expect.objectContaining({
+          status: ContractStatus.EXPIRED,
+          actualMoveOutAt: expect.any(Date),
+          customerSnapshot: expect.objectContaining({ id: 'cu1' }),
+          roomSnapshot: expect.objectContaining({ id: 'r1' }),
+          termsSnapshot: expect.objectContaining({ status: ContractStatus.ACTIVE }),
+        }),
       });
       expect(result).toEqual(updatedContract);
     });
@@ -1118,6 +1167,174 @@ describe('ContractsService', () => {
     it('should throw BadRequestException if contract is already EXPIRED', async () => {
       vi.spyOn(service, 'getDetail').mockResolvedValue({ id: 'c1', status: ContractStatus.EXPIRED } as any);
       await expect(service.expireContract('c1', 'user1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('moveOutOccupant', () => {
+    it('settles an active primary contract instead of deleting the customer or contract', async () => {
+      const customer = { id: 'cu1', tenantId: 't1', roomId: 'r1', fullName: 'Khách A' };
+      const contract = {
+        id: 'c1',
+        tenantId: 't1',
+        roomId: 'r1',
+        customerId: 'cu1',
+        status: ContractStatus.ACTIVE,
+        coRepresentativeIds: [],
+      };
+      prismaService.tx.customer.findUnique.mockResolvedValue(customer);
+      prismaService.tx.customer.findMany.mockResolvedValue([{ id: 'cu1' }]);
+      prismaService.tx.contract.findFirst.mockResolvedValue(contract);
+      prismaService.tx.room.findUnique.mockResolvedValue({ id: 'r1', status: RoomStatus.CLEANING });
+      const finalizeSpy = vi.spyOn(service as any, 'finalizeContract').mockResolvedValue({
+        ...contract,
+        status: ContractStatus.TERMINATED,
+      });
+
+      const result = await service.moveOutOccupant({
+        roomId: 'r1',
+        customerId: 'cu1',
+        contractId: 'c1',
+        actualMoveOutDate: '2026-09-05',
+        roomTurnoverStatus: 'CLEANING',
+        reason: 'Khách trả phòng',
+      }, 'user1');
+
+      expect(finalizeSpy).toHaveBeenCalledWith(
+        'c1',
+        'user1',
+        ContractStatus.TERMINATED,
+        expect.objectContaining({
+          roomTurnoverStatus: RoomStatus.CLEANING,
+          note: 'Khách trả phòng',
+        }),
+      );
+      expect(result).toEqual(expect.objectContaining({
+        mode: 'CONTRACT_SETTLED',
+        contractId: 'c1',
+        contractStatus: ContractStatus.TERMINATED,
+        removedCustomerIds: ['cu1'],
+      }));
+    });
+
+    it('falls back to the current room contract when the UI sends a stale contract id', async () => {
+      const customer = { id: 'cu1', tenantId: 't1', roomId: 'r1', fullName: 'Khách A' };
+      const contract = {
+        id: 'c-current',
+        tenantId: 't1',
+        roomId: 'r1',
+        customerId: 'cu1',
+        status: ContractStatus.ACTIVE,
+        coRepresentativeIds: [],
+      };
+      prismaService.tx.customer.findUnique.mockResolvedValue(customer);
+      prismaService.tx.customer.findMany.mockResolvedValue([{ id: 'cu1' }]);
+      prismaService.tx.contract.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(contract);
+      prismaService.tx.room.findUnique.mockResolvedValue({ id: 'r1', status: RoomStatus.AVAILABLE });
+      const finalizeSpy = vi.spyOn(service as any, 'finalizeContract').mockResolvedValue({
+        ...contract,
+        status: ContractStatus.TERMINATED,
+      });
+
+      const result = await service.moveOutOccupant({
+        roomId: 'r1',
+        customerId: 'cu1',
+        contractId: 'c-stale',
+        actualMoveOutDate: '2026-09-05',
+      }, 'user1');
+
+      expect(prismaService.tx.contract.findFirst).toHaveBeenCalledTimes(2);
+      expect(finalizeSpy).toHaveBeenCalledWith(
+        'c-current',
+        'user1',
+        ContractStatus.TERMINATED,
+        expect.objectContaining({ actualMoveOutDate: expect.any(Date) }),
+      );
+      expect(result).toEqual(expect.objectContaining({
+        mode: 'CONTRACT_SETTLED',
+        contractId: 'c-current',
+      }));
+    });
+
+    it('only closes occupancy for a roommate without a contract', async () => {
+      const customer = { id: 'cu2', tenantId: 't1', roomId: 'r1', fullName: 'Người ở cùng' };
+      prismaService.tx.customer.findUnique.mockResolvedValue(customer);
+      prismaService.tx.contract.findFirst.mockResolvedValue(null);
+      prismaService.tx.customer.update.mockResolvedValue({ ...customer, roomId: null });
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.AVAILABLE });
+
+      const result = await service.moveOutOccupant({
+        roomId: 'r1',
+        customerId: 'cu2',
+        reason: 'Chuyển chỗ ở',
+      }, 'user1');
+
+      expect(prismaService.tx.occupancy.updateMany).toHaveBeenCalledWith({
+        where: { roomId: 'r1', customerId: 'cu2', leftAt: null },
+        data: expect.objectContaining({ leaveReason: 'Chuyển chỗ ở', leftAt: expect.any(Date) }),
+      });
+      expect(prismaService.tx.customer.update).toHaveBeenCalledWith({
+        where: { id: 'cu2' },
+        data: { roomId: null },
+      });
+      expect(result.mode).toBe('ROOMMATE_DETACHED');
+    });
+
+    it('detaches a co-representative while keeping the contract active', async () => {
+      const customer = { id: 'cu2', tenantId: 't1', roomId: 'r1', fullName: 'Đồng đại diện' };
+      const contract = {
+        id: 'c1',
+        tenantId: 't1',
+        roomId: 'r1',
+        customerId: 'cu1',
+        status: ContractStatus.ACTIVE,
+        coRepresentativeIds: ['cu2', 'cu3'],
+      };
+      prismaService.tx.customer.findUnique.mockResolvedValue(customer);
+      prismaService.tx.contract.findFirst.mockResolvedValue(contract);
+      prismaService.tx.contract.update.mockResolvedValue({ ...contract, coRepresentativeIds: ['cu3'] });
+      prismaService.tx.contract.count
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(1);
+      prismaService.tx.customer.count.mockResolvedValue(1);
+      prismaService.tx.customer.update.mockResolvedValue({ ...customer, roomId: null });
+      prismaService.tx.room.update.mockResolvedValue({ id: 'r1', status: RoomStatus.OCCUPIED });
+      vi.spyOn(service as any, 'syncContractHistory').mockResolvedValue(undefined);
+
+      const result = await service.moveOutOccupant({
+        roomId: 'r1',
+        customerId: 'cu2',
+        contractId: 'c1',
+      }, 'user1');
+
+      expect(prismaService.tx.contract.update).toHaveBeenCalledWith({
+        where: { id: 'c1' },
+        data: { coRepresentativeIds: ['cu3'] },
+      });
+      expect(prismaService.tx.contractParty.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ customerId: 'cu2', role: 'CO_REPRESENTATIVE' }),
+        }),
+      );
+      expect(result).toEqual(expect.objectContaining({
+        mode: 'CO_REPRESENTATIVE_DETACHED',
+        contractStatus: ContractStatus.ACTIVE,
+        roomStatus: RoomStatus.OCCUPIED,
+      }));
+    });
+  });
+
+  describe('softDelete history protection', () => {
+    it('blocks deletion once a contract is no longer a history-free draft', async () => {
+      prismaService.tx.contract.findUnique.mockResolvedValue({
+        id: 'c1',
+        status: ContractStatus.ACTIVE,
+        _count: { invoices: 1, deposits: 1 },
+      });
+
+      await expect(service.softDelete('c1', 'user1')).rejects.toThrow(ConflictException);
+      expect((service as any).repository.softDelete).not.toHaveBeenCalled();
     });
   });
 

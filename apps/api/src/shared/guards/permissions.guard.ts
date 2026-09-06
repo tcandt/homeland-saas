@@ -18,6 +18,10 @@ export class PermissionsGuard implements CanActivate {
     'finance.settle': ['finance.update'],
     'finance.export': ['finance.read'],
     'finance.attachment.read': ['finance.read'],
+    'contract.submit': ['contract.update'],
+    'contract.approve': ['contract.update'],
+    'contract.activate': ['contract.update'],
+    'contract.terminate': ['contract.update'],
   };
 
   private hasPermission(userPermissions: string[], permission: string) {

@@ -89,6 +89,9 @@ export const adaptRoom = (apiRoom: any): Room => {
     emergencyPhone: activeContract.customer.emergencyPhone || "",
     idImages: activeContract.customer.idImages || [],
     tempResidence: isTempResidenceDeclared(activeContract.customer, apiRoom.id),
+    contractId: activeContract.id,
+    contractCode: activeContract.code,
+    contractStatus: activeContract.status,
   } : undefined;
 
   const contract = activeContract ? {
@@ -100,7 +103,8 @@ export const adaptRoom = (apiRoom: any): Room => {
     rentPrice: Number(activeContract.monthlyRent) || 0,
     firstPaymentDate: activeContract.firstPaymentDate,
     signedAt: activeContract.signedAt,
-    purpose: activeContract.purpose
+    purpose: activeContract.purpose,
+    status: activeContract.status,
   } : undefined;
   const activeRent = contract?.rentPrice && contract.rentPrice > 0 ? contract.rentPrice : 0;
 
@@ -128,6 +132,7 @@ export const adaptRoom = (apiRoom: any): Room => {
     firstPaymentDate: c.firstPaymentDate,
     signedAt: c.signedAt,
     purpose: c.purpose,
+    contractStatus: c.status,
     remainingDays: c.endDate ? Math.ceil((new Date(c.endDate).getTime() - Date.now()) / (1000 * 3600 * 24)) : 0,
     bedPosition: "",
     invoices: [],
@@ -138,7 +143,10 @@ export const adaptRoom = (apiRoom: any): Room => {
 
   // Co-representatives on any contract (e.g. 2nd representative on same contract)
   const contractCoReps = allContracts.flatMap((c: any) =>
-    (c.coRepresentatives || []).map((rep: any) => ({
+    [
+      ...(c.coRepresentatives || []),
+      ...(c.parties?.map((party: any) => party.customer).filter(Boolean) || []),
+    ].filter((rep, index, self) => rep && self.findIndex((item) => item?.id === rep.id) === index).map((rep: any) => ({
       id: rep.id,
       name: rep.fullName || rep.name,
       phone: rep.phone || "",
@@ -161,6 +169,7 @@ export const adaptRoom = (apiRoom: any): Room => {
       firstPaymentDate: c.firstPaymentDate,
       signedAt: c.signedAt,
       purpose: c.purpose,
+      contractStatus: c.status,
       remainingDays: c.endDate ? Math.ceil((new Date(c.endDate).getTime() - Date.now()) / (1000 * 3600 * 24)) : 0,
       bedPosition: "",
       invoices: [],
@@ -202,7 +211,32 @@ export const adaptRoom = (apiRoom: any): Room => {
   }));
 
   const isShared = mapApiRentalTypeToUi(apiRoom.rentalType) === "shared";
-  const sharedTenants = isShared ? [...allCoRepresentatives, ...roommatesList] : allCoRepresentatives;
+  const primarySharedTenant = isShared && tenant && activeContract
+    ? [{
+        ...tenant,
+        isRep: true,
+        contractId: activeContract.id,
+        contractCode: activeContract.code,
+        contractStatus: activeContract.status,
+        startDate: activeContract.startDate,
+        endDate: activeContract.endDate,
+        deposit: Number(activeContract.depositMoney) || 0,
+        rentPrice: Number(activeContract.monthlyRent) || 0,
+        remainingDays: activeContract.endDate
+          ? Math.ceil((new Date(activeContract.endDate).getTime() - Date.now()) / (1000 * 3600 * 24))
+          : 0,
+        bedPosition: "",
+        invoices: [],
+        paymentHistory: [],
+        debt: 0,
+        paymentStatus: "paid" as const,
+      }]
+    : [];
+  const sharedTenants = isShared
+    ? [...primarySharedTenant, ...allCoRepresentatives, ...roommatesList].filter(
+        (item, index, self) => item && self.findIndex((other) => other?.id === item.id) === index,
+      )
+    : allCoRepresentatives;
   const roommates = isShared ? [] : roommatesList;
 
   return {

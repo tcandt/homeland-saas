@@ -882,7 +882,7 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                   </Button>
                 ))}
 
-              {hasPermission("contract.delete") &&
+              {hasPermission("contract.delete") && detailContract.status === "DRAFT" &&
                 (showDeleteConfirm ? (
                   <div className="flex items-center gap-2 border-l border-border/50 pl-2 ml-2">
                     <span className="text-sm text-rose-500 font-bold">Xóa hẳn hợp đồng?</span>
@@ -1596,7 +1596,10 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                             Hoàn khách:
                           </span>
                         </div>
-                        <div className="mt-1 text-3xl font-mono font-black text-emerald-600 dark:text-emerald-400">
+                        <div
+                          data-testid="contract-settlement-refund-to-customer"
+                          className="mt-1 text-3xl font-mono font-black text-emerald-600 dark:text-emerald-400"
+                        >
                           {formatCurrency(refundToCustomer)}
                         </div>
                         <div className="mt-2 text-[11px] text-muted font-medium pt-2 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-1">
@@ -1629,7 +1632,10 @@ export default function OperationsContractDrawer({ contract, onClose }: { contra
                             Thu thêm:
                           </span>
                         </div>
-                        <div className="mt-1 text-3xl font-mono font-black text-rose-600 dark:text-rose-400">
+                        <div
+                          data-testid="contract-settlement-net-receivable"
+                          className="mt-1 text-3xl font-mono font-black text-rose-600 dark:text-rose-400"
+                        >
                           {formatCurrency(netReceivable)}
                         </div>
                         <div className="mt-2 text-[11px] text-muted font-medium pt-2 border-t border-rose-500/20 flex flex-wrap items-center justify-between gap-1">

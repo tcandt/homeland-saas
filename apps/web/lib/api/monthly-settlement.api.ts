@@ -53,6 +53,7 @@ export interface RoomSettlementItem {
   hasContract: boolean;
   isFirstMonthNewTenant?: boolean;
   electricityEligible?: boolean;
+  waterEligible?: boolean;
   serviceEligible?: boolean;
   representative: {
     id: string;

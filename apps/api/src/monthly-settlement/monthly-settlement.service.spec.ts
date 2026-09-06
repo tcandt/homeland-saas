@@ -220,11 +220,12 @@ describe('MonthlySettlementService', () => {
       expect(item.isFirstMonthNewTenant).toBe(true);
       expect(item.usagePeriod).toBe('2026-09');
       expect(item.electricityEligible).toBe(false);
+      expect(item.waterEligible).toBe(false);
       expect(item.electricityKwh).toBe(0);
       expect(item.electricityAmount).toBe(0);
+      expect(item.waterAmount).toBe(0);
       expect(item.roomPrice).toBe(3500000);
-      expect(item.waterAmount).toBe(100000);
-      expect(item.totalAmount).toBe(3600000);
+      expect(item.totalAmount).toBe(3500000);
     });
 
     it('splits shared room electricity by contract member count while keeping contract rent separate', async () => {
@@ -380,10 +381,12 @@ describe('MonthlySettlementService', () => {
       expect(createCall.data.usagePeriod).toBe('2026-09');
       expect(createCall.data.items.create).toEqual([
         expect.objectContaining({ type: 'RENT', servicePeriod: '2026-10', amount: 3500000 }),
-        expect.objectContaining({ type: 'UTILITY_WATER', servicePeriod: '2026-10', amount: 100000 }),
       ]);
       expect(createCall.data.items.create).not.toEqual(
         expect.arrayContaining([expect.objectContaining({ type: 'UTILITY_ELECTRICITY' })]),
+      );
+      expect(createCall.data.items.create).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'UTILITY_WATER' })]),
       );
     });
 

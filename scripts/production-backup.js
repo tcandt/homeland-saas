@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 function parseArguments(argv) {
   const options = {
     envFile: null,
+    envManagedExternally: false,
     outputDir: '.codex-backups/production',
     storageDir: 'storage',
     skipDb: false,
@@ -19,6 +20,8 @@ function parseArguments(argv) {
     if (argument === '--env-file') {
       options.envFile = argv[index + 1] || null;
       index += 1;
+    } else if (argument === '--env-managed-externally') {
+      options.envManagedExternally = true;
     } else if (argument === '--output-dir') {
       options.outputDir = argv[index + 1] || options.outputDir;
       index += 1;
@@ -35,6 +38,10 @@ function parseArguments(argv) {
     } else {
       throw new Error(`Unknown argument: ${argument}`);
     }
+  }
+
+  if (options.envFile && options.envManagedExternally) {
+    throw new Error('--env-file and --env-managed-externally cannot be used together.');
   }
 
   return options;
@@ -179,6 +186,7 @@ function runBackup(options) {
     completedAt: null,
     database: null,
     envFile: null,
+    envManagedExternally: options.envManagedExternally === true,
     storage: null,
     offHostLocation: null,
     errors: [],

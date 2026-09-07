@@ -32,9 +32,12 @@ RUN npm run build -w @homeland/shared
 RUN npm run db:generate
 RUN npm run build --workspace=api
 
-# Copy the entrypoint script
+# Copy the guarded update/backup runners used by SystemUpdateService. These are
+# runtime files, so they must exist in the final API image as well as in source.
 COPY scripts/docker-api-entrypoint.sh ./scripts/docker-api-entrypoint.sh
-RUN chmod +x ./scripts/docker-api-entrypoint.sh
+COPY scripts/update ./scripts/update
+COPY scripts/production-backup.js scripts/production-restore-check.js scripts/check-mojibake.js ./scripts/
+RUN chmod +x ./scripts/docker-api-entrypoint.sh ./scripts/update/*.sh
 
 # Build arguments for versioning
 ARG COMMIT_SHA

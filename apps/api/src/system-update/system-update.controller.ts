@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
@@ -13,8 +13,8 @@ export class SystemUpdateController {
   @Get('check')
   @RequirePermissions('setting.read')
   @ApiOperation({ summary: 'Check current and available source versions' })
-  check() {
-    return this.systemUpdateService.checkForUpdates();
+  check(@Query('refresh') refresh?: string) {
+    return this.systemUpdateService.checkForUpdates({ forceRefresh: refresh === 'true' || refresh === '1' });
   }
 
   @Get('status')
@@ -29,7 +29,7 @@ export class SystemUpdateController {
   @ApiOperation({ summary: 'Create a controlled update job' })
   install(
     @CurrentUser('email') email: string,
-    @Body() body: { targetVersion?: string; dryRun?: boolean },
+    @Body() body: { targetVersion?: string; targetRef?: string; dryRun?: boolean },
   ) {
     assertSystemUpdateAdmin(email);
     return this.systemUpdateService.startInstall(body || {});

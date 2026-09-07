@@ -112,5 +112,38 @@ test('fails stale or tampered backups', () => {
   assert.equal(result.ready, false);
   assert.ok(result.checks.some((check) => check.id === 'backup_age' && check.status === 'FAIL'));
   assert.ok(result.checks.some((check) => check.id === 'database_dump' && check.status === 'FAIL'));
+  assert.ok(result.checks.some((check) => check.id === 'env_file' && check.status === 'FAIL'));
   assert.ok(result.checks.some((check) => check.id === 'off_host_copy' && check.status === 'FAIL'));
+});
+
+test('accepts a missing env file only when the manifest marks it as host-managed', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'homeland-restore-check-host-env-'));
+  const backupId = 'backup-host-env';
+  const backupDir = path.join(root, backupId);
+  fs.mkdirSync(backupDir, { recursive: true });
+
+  const manifest = {
+    id: backupId,
+    status: 'SUCCESS',
+    completedAt: new Date().toISOString(),
+    database: writeFileRecord(backupDir, 'database.dump', 'dump'),
+    envFile: null,
+    envManagedExternally: true,
+    storage: { copied: false, files: [] },
+    offHostLocation: null,
+  };
+  const latest = path.join(root, 'latest-manifest.json');
+  fs.writeFileSync(latest, JSON.stringify(manifest, null, 2));
+
+  const result = runRestoreCheck({
+    manifest: latest,
+    maxAgeHours: 24,
+    requireOffHost: false,
+    pgRestore: 'pg_restore',
+    skipPgRestoreList: true,
+    json: false,
+  });
+
+  assert.equal(result.ready, true);
+  assert.ok(result.checks.some((check) => check.id === 'env_file' && check.status === 'PASS'));
 });

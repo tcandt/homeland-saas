@@ -36,32 +36,39 @@ export class AdminZaloAlertsService implements OnApplicationBootstrap {
     private readonly requestAnomalyTracker: RequestAnomalyTrackerService,
   ) {}
 
-  async onApplicationBootstrap() {
+  onApplicationBootstrap() {
     if (!shouldRunGeneralSchedulers()) return;
-    try {
-      await this.checkVersionUpgradeAndNotify();
-    } catch (err: any) {
+    void this.checkVersionUpgradeAndNotify().catch((err: any) => {
       this.logger.warn(`Failed to check version upgrade notification on startup: ${err?.message || err}`);
-    }
+    });
   }
 
   async checkVersionUpgradeAndNotify() {
-    const check = this.systemUpdateService.checkForUpdates();
+    const check = await this.systemUpdateService.checkForUpdates();
     const currentVersion = check.currentVersion;
+    const currentArtifact = artifactIdentity(currentVersion, check.currentCommit);
 
     const tenants = await this.getTenantsWithAdminGroup();
     for (const tenant of tenants) {
       const state = readAlertState(tenant.value);
       const lastRecordedVersion = state.lastRecordedActiveVersion;
+      const lastRecordedArtifact = state.lastRecordedActiveArtifact;
 
-      if (!lastRecordedVersion) {
+      if (!lastRecordedVersion && !lastRecordedArtifact) {
         await this.updateAlertState(tenant, {
           lastRecordedActiveVersion: currentVersion,
+          lastRecordedActiveArtifact: currentArtifact,
         });
         continue;
       }
 
-      if (lastRecordedVersion !== currentVersion) {
+      // Migrate legacy state without claiming a same-version deploy happened.
+      if (!lastRecordedArtifact && lastRecordedVersion === currentVersion) {
+        await this.updateAlertState(tenant, { lastRecordedActiveArtifact: currentArtifact });
+        continue;
+      }
+
+      if (lastRecordedArtifact !== currentArtifact) {
         const built = buildUpdateSuccessMessage({
           fromVersion: lastRecordedVersion,
           toVersion: currentVersion,
@@ -83,6 +90,7 @@ export class AdminZaloAlertsService implements OnApplicationBootstrap {
 
         await this.updateAlertState(tenant, {
           lastRecordedActiveVersion: currentVersion,
+          lastRecordedActiveArtifact: currentArtifact,
           lastUpdateSuccessAlertAt: new Date().toISOString(),
         });
       }
@@ -123,18 +131,19 @@ export class AdminZaloAlertsService implements OnApplicationBootstrap {
   async checkUpdateAvailableAlerts() {
     if (!shouldRunGeneralSchedulers()) return;
 
-    const check = this.systemUpdateService.checkForUpdates();
+    const check = await this.systemUpdateService.checkForUpdates();
     if (!check.updateAvailable) return;
+    const latestArtifact = artifactIdentity(check.latestVersion, check.latestCommit);
 
     const tenants = await this.getTenantsWithAdminGroup();
     for (const tenant of tenants) {
       const state = readAlertState(tenant.value);
-      const alreadySentForVersion = state.lastUpdateAlertVersion === check.latestVersion;
+      const alreadySentForArtifact = state.lastUpdateAlertArtifact === latestArtifact;
       const cooldownActive =
         state.lastUpdateAlertAt &&
         Date.now() - new Date(state.lastUpdateAlertAt).getTime() < this.updateCooldownMs;
 
-      if (alreadySentForVersion && cooldownActive) {
+      if (alreadySentForArtifact && cooldownActive) {
         continue;
       }
 
@@ -142,7 +151,7 @@ export class AdminZaloAlertsService implements OnApplicationBootstrap {
         currentVersion: check.currentVersion,
         latestVersion: check.latestVersion,
         checkedAt: check.checkedAt,
-        details: check.releaseHighlights || check.changelog,
+        details: check.releaseHighlights.length > 0 ? check.releaseHighlights : check.changelog,
       });
 
       try {
@@ -160,6 +169,7 @@ export class AdminZaloAlertsService implements OnApplicationBootstrap {
       await this.updateAlertState(tenant, {
         lastUpdateAlertAt: new Date().toISOString(),
         lastUpdateAlertVersion: check.latestVersion,
+        lastUpdateAlertArtifact: latestArtifact,
       });
     }
   }
@@ -275,4 +285,8 @@ function readAlertState(value: Record<string, any>) {
 
 function overloadSignature(snapshot: RequestAnomalySnapshot) {
   return [snapshot.totalRequests, snapshot.uniqueIps, snapshot.topSource || 'none', snapshot.topSourceRequests].join(':');
+}
+
+function artifactIdentity(version: string, commit?: string | null) {
+  return `${version}@${commit || 'unknown'}`.toLowerCase();
 }

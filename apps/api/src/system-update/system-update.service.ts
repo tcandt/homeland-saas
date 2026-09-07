@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { execFileSync, spawn } from 'child_process';
+import { execFile, execFileSync, spawn } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { isAbsolute, join, resolve } from 'path';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma.service';
 
@@ -27,12 +27,61 @@ type UpdateJob = {
   progressPercent: number;
   fromVersion: string;
   toVersion: string;
+  targetRef?: string;
   dryRun: boolean;
   startedAt: string;
   finishedAt?: string;
   logs: string[];
   manifestPath?: string;
   error?: string;
+};
+
+type VersionCandidate = {
+  version: string;
+  commit: string;
+  targetRef: string;
+  source: 'default-branch' | 'tag' | 'current';
+  semver: ParsedSemver;
+};
+
+type ParsedSemver = {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: string[];
+};
+
+type SourceResult<T> =
+  | { status: 'ok'; value: T }
+  | { status: 'error'; value: null; error: string };
+
+type BranchSourceResult =
+  | SourceResult<VersionCandidate | null>
+  | { status: 'unsupported'; value: null };
+
+type CommitRelation = 'ahead' | 'behind' | 'diverged' | 'identical';
+
+type SystemUpdateCheckResult = {
+  currentVersion: string;
+  latestVersion: string;
+  packageVersion: string;
+  currentCommit: string;
+  latestCommit: string;
+  targetRef: string;
+  updateAvailable: boolean;
+  mode: string;
+  canInstallAutomatically: boolean;
+  versionSource: VersionCandidate['source'];
+  versionCheckStatus: 'ok' | 'tag-only' | 'unavailable';
+  versionCheckError: string | null;
+  repository: string;
+  checkedAt: string;
+  changelog: string[];
+  releaseHighlights: string[];
+  rollback: {
+    supported: boolean;
+    note: string;
+  };
 };
 
 const SAFE_UPDATE_STEPS: Array<{ status: UpdateJobStatus; progressPercent: number; message: string }> = [
@@ -50,32 +99,99 @@ const SAFE_UPDATE_STEPS: Array<{ status: UpdateJobStatus; progressPercent: numbe
 export class SystemUpdateService {
   private readonly logger = new Logger(SystemUpdateService.name);
   private currentJob: UpdateJob | null = null;
-  private readonly repositoryUrl = process.env.SYSTEM_UPDATE_REPOSITORY || 'https://github.com/tcandt/homeland-saas.git';
+  private readonly repositoryUrl = stripRepositoryCredentials(
+    process.env.SYSTEM_UPDATE_REPOSITORY || 'https://github.com/tcandt/homeland-saas.git',
+  );
+  private readonly versionCheckCacheMs = readVersionCheckCacheMs();
+  private versionCheckCache: { expiresAt: number; value: SystemUpdateCheckResult } | null = null;
+  private versionCheckInFlight: Promise<SystemUpdateCheckResult> | null = null;
 
   constructor(private readonly prisma?: PrismaService) {}
 
-  checkForUpdates() {
+  async checkForUpdates(options: { forceRefresh?: boolean } = {}): Promise<SystemUpdateCheckResult> {
+    const now = Date.now();
+    if (!options.forceRefresh && this.versionCheckCache && this.versionCheckCache.expiresAt > now) {
+      return this.versionCheckCache.value;
+    }
+    if (this.versionCheckInFlight) return this.versionCheckInFlight;
+
+    const checkPromise = this.resolveVersionCheck();
+    this.versionCheckInFlight = checkPromise;
+    try {
+      const result = await checkPromise;
+      const cacheMs = result.versionCheckStatus === 'unavailable'
+        ? Math.min(this.versionCheckCacheMs, 30_000)
+        : this.versionCheckCacheMs;
+      this.versionCheckCache = { expiresAt: Date.now() + cacheMs, value: result };
+      return result;
+    } finally {
+      if (this.versionCheckInFlight === checkPromise) this.versionCheckInFlight = null;
+    }
+  }
+
+  private async resolveVersionCheck(): Promise<SystemUpdateCheckResult> {
     const currentCommit = getCurrentCommit();
-    const remoteCommit = getRemoteCommit(this.repositoryUrl);
     const packageVersion = readPackageVersion();
     const currentVersion = readCurrentVersion(packageVersion);
-    const latestRelease = getLatestReleaseVersion(this.repositoryUrl);
-    const latestVersion = latestRelease?.version || remoteCommit || currentVersion;
+    const remoteHeadPromise = getRemoteCommit(this.repositoryUrl);
+    const [releaseResult, branchResult] = await Promise.all([
+      getLatestReleaseVersion(this.repositoryUrl),
+      getRemoteDefaultBranchVersion(this.repositoryUrl, remoteHeadPromise),
+    ]);
+    const sourcesHealthy = releaseResult.status === 'ok' && branchResult.status !== 'error';
+    const latestRelease = releaseResult.status === 'ok' ? releaseResult.value : null;
+    const remoteBranch = branchResult.status === 'ok' ? branchResult.value : null;
+    const latestRemote = sourcesHealthy ? selectLatestRemoteVersion(latestRelease, remoteBranch) : null;
+    const latestCandidate = keepNewestVersion(currentVersion, currentCommit, latestRemote);
+    const latestVersion = latestCandidate.version;
+    const latestCommit = latestCandidate.commit;
+    const targetRef = latestCandidate.targetRef;
     const mode = process.env.SYSTEM_UPDATE_MODE || 'dry-run';
-    const updateAvailable = isUpdateAvailable(currentVersion, latestVersion, currentCommit, latestRelease?.commit || remoteCommit);
+    const sameVersionChangedCommit = compareDisplayVersions(currentVersion, latestVersion) === 0
+      && latestCandidate.source === 'default-branch'
+      && isCommitSha(currentCommit)
+      && isCommitSha(latestCommit)
+      && currentCommit.toLowerCase() !== latestCommit.toLowerCase();
+    const relationResult = sameVersionChangedCommit
+      ? await getGitHubCommitRelation(this.repositoryUrl, currentCommit, latestCommit)
+      : null;
+    const relationSafe = !relationResult
+      || (relationResult.status === 'ok' && relationResult.value === 'ahead');
+    const updateAvailable = sourcesHealthy && relationSafe && Boolean(latestRemote)
+      && isUpdateAvailable(currentVersion, latestVersion, relationResult?.status === 'ok' && relationResult.value === 'ahead');
+    const versionCheckStatus: SystemUpdateCheckResult['versionCheckStatus'] = !sourcesHealthy || !relationSafe
+      ? 'unavailable'
+      : branchResult.status === 'unsupported'
+        ? 'tag-only'
+        : 'ok';
+    const versionCheckError = versionCheckStatus === 'unavailable'
+      ? !sourcesHealthy
+        ? 'Không thể xác minh đầy đủ phiên bản từ GitHub. Hãy kiểm tra kết nối mạng và SYSTEM_UPDATE_GITHUB_TOKEN.'
+        : relationResult?.status === 'error'
+          ? 'Không thể xác minh commit hiện tại là tổ tiên của commit mới trên GitHub; hệ thống đã khóa cập nhật.'
+          : `Commit remote đang ở trạng thái ${relationResult?.value || 'không xác định'} so với bản đang chạy; hệ thống từ chối cập nhật để tránh lùi hoặc đổi nhánh.`
+      : versionCheckStatus === 'tag-only'
+        ? 'Repository không hỗ trợ kiểm tra package.json qua GitHub API; đang dùng release tag gần nhất.'
+        : null;
 
-    const changelog = buildChangelog(currentVersion, latestVersion, currentCommit, latestRelease?.commit || remoteCommit);
-    const releaseHighlights = getReleaseHighlights(currentVersion, latestVersion, currentCommit, latestRelease?.commit || remoteCommit);
+    const changelog = versionCheckStatus === 'unavailable'
+      ? [versionCheckError as string, 'Hệ thống đã khóa cập nhật để tránh cài nhầm phiên bản.']
+      : buildChangelog(currentVersion, latestVersion, currentCommit, latestCommit, updateAvailable);
+    const releaseHighlights = getReleaseHighlights(currentVersion, latestVersion, currentCommit, latestCommit, updateAvailable);
 
     return {
       currentVersion,
       latestVersion,
       packageVersion,
       currentCommit,
-      latestCommit: latestRelease?.commit || remoteCommit || currentCommit,
+      latestCommit,
+      targetRef,
       updateAvailable,
       mode,
-      canInstallAutomatically: mode === 'enabled',
+      canInstallAutomatically: mode === 'enabled' && updateAvailable && versionCheckStatus === 'ok',
+      versionSource: latestCandidate.source,
+      versionCheckStatus,
+      versionCheckError,
       repository: this.repositoryUrl,
       checkedAt: new Date().toISOString(),
       changelog,
@@ -96,16 +212,45 @@ export class SystemUpdateService {
     };
   }
 
-  startInstall(input: { targetVersion?: string; dryRun?: boolean }) {
-    const check = this.checkForUpdates();
-    const targetVersion = input.targetVersion || check.latestVersion;
-    return this.createControlledJob('install', check.currentVersion, targetVersion, input.dryRun ?? true);
+  async startInstall(input: { targetVersion?: string; targetRef?: string; dryRun?: boolean }) {
+    const check = await this.checkForUpdates({ forceRefresh: true });
+    if (check.versionCheckStatus !== 'ok' || !check.updateAvailable) {
+      throw new BadRequestException({
+        code: 'SYSTEM_UPDATE_NOT_AVAILABLE',
+        message: check.versionCheckStatus !== 'ok'
+          ? check.versionCheckError
+          : 'Hệ thống đang ở phiên bản mới nhất; không có bản cập nhật để cài đặt.',
+      });
+    }
+
+    const requestedTarget = input.targetRef || input.targetVersion;
+    const allowedTargets = new Set([check.targetRef, check.latestVersion, check.latestCommit].filter(Boolean));
+    if (requestedTarget && !allowedTargets.has(requestedTarget)) {
+      throw new BadRequestException({
+        code: 'SYSTEM_UPDATE_TARGET_STALE',
+        message: 'Phiên bản mục tiêu đã thay đổi. Vui lòng kiểm tra release mới nhất rồi thử lại.',
+      });
+    }
+
+    return this.createControlledJob(
+      'install',
+      check.currentVersion,
+      check.latestVersion,
+      input.dryRun ?? true,
+      check.targetRef,
+    );
   }
 
   startRollback(input: { targetVersion?: string; dryRun?: boolean }) {
     const currentVersion = getCurrentCommit();
-    const targetVersion = input.targetVersion || process.env.SYSTEM_UPDATE_PREVIOUS_VERSION || 'previous-version-required';
-    return this.createControlledJob('rollback', currentVersion, targetVersion, input.dryRun ?? true);
+    const targetVersion = input.targetVersion || process.env.SYSTEM_UPDATE_PREVIOUS_VERSION || undefined;
+    return this.createControlledJob(
+      'rollback',
+      currentVersion,
+      targetVersion || 'previous-installed-version',
+      input.dryRun ?? true,
+      targetVersion,
+    );
   }
 
   getBackupStatus() {
@@ -374,7 +519,13 @@ export class SystemUpdateService {
     };
   }
 
-  private createControlledJob(type: 'install' | 'rollback', fromVersion: string, toVersion: string, dryRun: boolean) {
+  private createControlledJob(
+    type: 'install' | 'rollback',
+    fromVersion: string,
+    toVersion: string,
+    dryRun: boolean,
+    targetRef?: string,
+  ) {
     if (this.currentJob && !isTerminalStatus(this.currentJob.status)) {
       throw new ConflictException({
         code: 'SYSTEM_UPDATE_JOB_RUNNING',
@@ -392,19 +543,19 @@ export class SystemUpdateService {
       progressPercent: 0,
       fromVersion,
       toVersion,
+      targetRef,
       dryRun: dryRun || mode !== 'enabled',
       startedAt: new Date().toISOString(),
       logs: [],
     };
     this.currentJob = job;
 
-    for (const step of SAFE_UPDATE_STEPS) {
-      job.status = step.status;
-      job.progressPercent = step.progressPercent;
-      job.logs.push(`${new Date().toISOString()} ${step.message}`);
-    }
-
     if (mode !== 'enabled' || job.dryRun) {
+      for (const step of SAFE_UPDATE_STEPS) {
+        job.status = step.status;
+        job.progressPercent = step.progressPercent;
+        job.logs.push(`${new Date().toISOString()} ${step.message}`);
+      }
       job.status = 'BLOCKED';
       job.progressPercent = 100;
       job.finishedAt = new Date().toISOString();
@@ -419,40 +570,62 @@ export class SystemUpdateService {
   private runSystemUpdateScript(job: UpdateJob) {
     const runner = buildRunnerCommand(job, this.repositoryUrl);
 
-    job.logs.push(`${new Date().toISOString()} Starting runner: ${job.type} ${shortSha(job.toVersion)}`);
+    job.logs.push(`${new Date().toISOString()} Starting runner: ${job.type} ${shortSha(job.targetRef || job.toVersion)}`);
     const child = spawn(runner.command, runner.args, {
       cwd: process.cwd(),
       windowsHide: true,
       env: process.env,
     });
 
-    child.stdout.on('data', (chunk) => {
-      for (const line of chunk.toString().split(/\r?\n/).filter(Boolean)) {
-        this.applyRunnerLine(job, line);
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
+    const drainLines = (stream: 'stdout' | 'stderr', flush = false) => {
+      const buffer = stream === 'stdout' ? stdoutBuffer : stderrBuffer;
+      const lines = buffer.split(/\r?\n/);
+      const remainder = lines.pop() || '';
+      if (stream === 'stdout') stdoutBuffer = flush ? '' : remainder;
+      else stderrBuffer = flush ? '' : remainder;
+      for (const rawLine of lines) {
+        if (!rawLine) continue;
+        const line = redactSensitiveText(rawLine);
+        if (stream === 'stdout') this.applyRunnerLine(job, line);
+        else job.logs.push(`${new Date().toISOString()} STDERR ${line}`);
       }
+      if (flush && remainder) {
+        const line = redactSensitiveText(remainder);
+        if (stream === 'stdout') this.applyRunnerLine(job, line);
+        else job.logs.push(`${new Date().toISOString()} STDERR ${line}`);
+      }
+    };
+
+    child.stdout.on('data', (chunk) => {
+      stdoutBuffer += chunk.toString();
+      drainLines('stdout');
     });
 
     child.stderr.on('data', (chunk) => {
-      for (const line of chunk.toString().split(/\r?\n/).filter(Boolean)) {
-        job.logs.push(`${new Date().toISOString()} STDERR ${line}`);
-      }
+      stderrBuffer += chunk.toString();
+      drainLines('stderr');
     });
 
     child.on('error', (error) => {
       job.status = 'FAILED';
-      job.error = error.message;
+      job.error = redactSensitiveText(error.message);
       job.progressPercent = 100;
       job.finishedAt = new Date().toISOString();
-      job.logs.push(`${job.finishedAt} Runner failed to start: ${error.message}`);
+      job.logs.push(`${job.finishedAt} Runner failed to start: ${job.error}`);
     });
 
     child.on('close', (code) => {
-      if (job.status === 'FAILED') return;
+      drainLines('stdout', true);
+      drainLines('stderr', true);
       job.progressPercent = 100;
       job.finishedAt = new Date().toISOString();
       if (code === 0) {
-        job.status = job.type === 'rollback' ? 'ROLLED_BACK' : 'DONE';
-        job.logs.push(`${job.finishedAt} Runner finished successfully.`);
+        if (!isTerminalStatus(job.status)) {
+          job.status = job.type === 'rollback' ? 'ROLLED_BACK' : 'DONE';
+        }
+        job.logs.push(`${job.finishedAt} Runner finished with status ${job.status}.`);
       } else {
         job.status = 'FAILED';
         job.error = `Runner exited with code ${code}`;
@@ -590,7 +763,11 @@ export class SystemUpdateService {
 }
 
 function buildRunnerCommand(job: UpdateJob, repositoryUrl: string) {
-  const updateRoot = process.env.SYSTEM_UPDATE_ROOT || join(process.cwd(), '.codex-update');
+  const configuredUpdateRoot = process.env.SYSTEM_UPDATE_ROOT || join(process.cwd(), '.codex-update');
+  const updateRoot = isAbsolute(configuredUpdateRoot)
+    ? configuredUpdateRoot
+    : resolve(process.cwd(), configuredUpdateRoot);
+  const targetRef = job.targetRef;
   if (process.platform === 'win32') {
     const scriptPath = join(process.cwd(), 'scripts', 'update', job.type === 'rollback' ? 'rollback-version.ps1' : 'install-version.ps1');
     const command = process.env.SYSTEM_UPDATE_POWERSHELL_PATH || 'powershell.exe';
@@ -600,14 +777,14 @@ function buildRunnerCommand(job: UpdateJob, repositoryUrl: string) {
       'Bypass',
       '-File',
       scriptPath,
-      '-TargetVersion',
-      job.toVersion,
       '-Workspace',
       process.cwd(),
       '-UpdateRoot',
       updateRoot,
     ];
+    if (targetRef) args.push('-TargetVersion', targetRef);
     if (job.type === 'install') {
+      args.push('-TargetDisplayVersion', job.toVersion);
       args.push('-Repository', repositoryUrl);
     }
     return { command, args };
@@ -617,39 +794,24 @@ function buildRunnerCommand(job: UpdateJob, repositoryUrl: string) {
   const command = process.env.SYSTEM_UPDATE_SHELL_PATH || 'bash';
   const args = [
     scriptPath,
-    '--target-version',
-    job.toVersion,
     '--workspace',
     process.cwd(),
     '--update-root',
     updateRoot,
   ];
+  if (targetRef) args.push('--target-version', targetRef);
   if (job.type === 'install') {
+    args.push('--target-display-version', job.toVersion);
     args.push('--repository', repositoryUrl);
   }
   return { command, args };
 }
 
 function getCurrentCommit() {
-  return process.env.COMMIT_SHA || safeGit(['rev-parse', 'HEAD']) || 'unknown';
+  return process.env.COMMIT_SHA || safeLocalGit(['rev-parse', 'HEAD']) || 'unknown';
 }
 
-function getAuthenticatedRepoUrl(url: string) {
-  const token = process.env.SYSTEM_UPDATE_GITHUB_TOKEN || process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (!token) return url;
-  if (url.startsWith('https://github.com/')) {
-    return url.replace('https://github.com/', `https://${token}@github.com/`);
-  }
-  return url;
-}
-
-function getRemoteCommit(repositoryUrl: string) {
-  const targetUrl = getAuthenticatedRepoUrl(repositoryUrl);
-  const output = safeGit(['ls-remote', targetUrl, 'HEAD']);
-  return output?.split(/\s+/)[0] || null;
-}
-
-function safeGit(args: string[]) {
+function safeLocalGit(args: string[]) {
   try {
     return execFileSync('git', args, {
       cwd: process.cwd(),
@@ -660,6 +822,88 @@ function safeGit(args: string[]) {
   } catch {
     return null;
   }
+}
+
+function runRemoteGit(args: string[], repositoryUrl: string): Promise<SourceResult<string>> {
+  return new Promise((resolve) => {
+    execFile('git', args, {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: buildGitEnvironment(repositoryUrl),
+      timeout: 10000,
+    }, (error, stdout) => {
+      if (error) {
+        resolve({ status: 'error', value: null, error: 'Git remote command failed.' });
+        return;
+      }
+      resolve({ status: 'ok', value: String(stdout || '').trim() });
+    });
+  });
+}
+
+function buildGitEnvironment(repositoryUrl: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+  };
+  const token = getSystemUpdateToken();
+  if (!token || !isGitHubHttpsRepository(repositoryUrl)) return env;
+
+  const configuredCount = Number(env.GIT_CONFIG_COUNT || '0');
+  const nextIndex = Number.isSafeInteger(configuredCount) && configuredCount >= 0 ? configuredCount : 0;
+  env.GIT_CONFIG_COUNT = String(nextIndex + 1);
+  env[`GIT_CONFIG_KEY_${nextIndex}`] = 'http.extraHeader';
+  env[`GIT_CONFIG_VALUE_${nextIndex}`] = `Authorization: Basic ${Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')}`;
+  return env;
+}
+
+function isGitHubHttpsRepository(repositoryUrl: string) {
+  try {
+    const url = new URL(repositoryUrl);
+    return url.protocol === 'https:' && url.hostname.toLowerCase() === 'github.com';
+  } catch {
+    return false;
+  }
+}
+
+function stripRepositoryCredentials(repositoryUrl: string) {
+  try {
+    const url = new URL(repositoryUrl);
+    if (!url.username && !url.password) return repositoryUrl;
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch {
+    return repositoryUrl;
+  }
+}
+
+function getSystemUpdateToken() {
+  return process.env.SYSTEM_UPDATE_GITHUB_TOKEN || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
+}
+
+function redactSensitiveText(value: unknown) {
+  let redacted = String(value ?? '');
+  for (const token of [
+    process.env.SYSTEM_UPDATE_GITHUB_TOKEN,
+    process.env.GITHUB_TOKEN,
+    process.env.GH_TOKEN,
+  ].filter((candidate): candidate is string => Boolean(candidate))) {
+    redacted = redacted.split(token).join('[REDACTED]');
+    const encoded = encodeURIComponent(token);
+    redacted = redacted.split(encoded).join('[REDACTED]');
+    const basic = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64');
+    redacted = redacted.split(basic).join('[REDACTED]');
+  }
+  return redacted
+    .replace(/https:\/\/[^\s/@]+:[^\s/@]+@github\.com/gi, 'https://[REDACTED]@github.com')
+    .replace(/authorization:\s*(?:basic|bearer)\s+[^\s]+/gi, 'Authorization: [REDACTED]');
+}
+
+function readVersionCheckCacheMs() {
+  const configured = Number(process.env.SYSTEM_UPDATE_CHECK_CACHE_MS || 5 * 60 * 1000);
+  if (!Number.isFinite(configured)) return 5 * 60 * 1000;
+  return Math.max(0, Math.min(Math.trunc(configured), 60 * 60 * 1000));
 }
 
 function readPackageVersion() {
@@ -679,48 +923,277 @@ function readPackageVersion() {
         }
       }
     }
-    return process.env.APP_VERSION || process.env.npm_package_version || '1.0.0';
+    return process.env.APP_VERSION || process.env.npm_package_version || 'unknown';
   } catch {
-    return process.env.APP_VERSION || process.env.npm_package_version || '1.0.0';
+    return process.env.APP_VERSION || process.env.npm_package_version || 'unknown';
   }
 }
 
 function readCurrentVersion(packageVersion: string) {
-  const pkgSemver = parseSemver(packageVersion);
-  if (pkgSemver) {
-    return normalizeDisplayVersion(packageVersion);
+  for (const candidate of [process.env.APP_VERSION, process.env.VERSION, packageVersion]) {
+    if (parseSemver(candidate)) {
+      return normalizeDisplayVersion(candidate);
+    }
   }
-  return normalizeDisplayVersion(process.env.APP_VERSION || process.env.VERSION || packageVersion);
+  return normalizeDisplayVersion(packageVersion);
 }
 
-function getLatestReleaseVersion(repositoryUrl: string) {
-  const targetUrl = getAuthenticatedRepoUrl(repositoryUrl);
-  const output = safeGit(['ls-remote', '--tags', '--refs', targetUrl, 'v*']);
-  if (!output) return null;
-
-  const tags = output
-    .split(/\r?\n/)
-    .map((line) => {
-      const [commit, ref] = line.trim().split(/\s+/);
-      const tag = ref?.replace(/^refs\/tags\//, '');
-      const semver = parseSemver(tag);
-      return commit && tag && semver ? { commit, version: normalizeDisplayVersion(tag), semver } : null;
-    })
-    .filter((item): item is { commit: string; version: string; semver: [number, number, number] } => Boolean(item))
-    .sort((a, b) => compareSemver(a.semver, b.semver));
-
-  return tags.at(-1) || null;
+async function getRemoteCommit(repositoryUrl: string): Promise<SourceResult<string>> {
+  const result = await runRemoteGit(['ls-remote', repositoryUrl, 'HEAD'], repositoryUrl);
+  if (result.status === 'error') return result;
+  const commit = result.value.split(/\s+/)[0] || '';
+  if (!isCommitSha(commit)) {
+    return { status: 'error', value: null, error: 'Git remote HEAD did not return a commit.' };
+  }
+  return { status: 'ok', value: commit };
 }
 
-function isUpdateAvailable(currentVersion: string, latestVersion: string, currentCommit: string, latestCommit?: string | null) {
+async function getLatestReleaseVersion(repositoryUrl: string): Promise<SourceResult<VersionCandidate | null>> {
+  const gitResult = await runRemoteGit(['ls-remote', '--tags', repositoryUrl, 'v*'], repositoryUrl);
+  if (gitResult.status === 'ok') {
+    return { status: 'ok', value: selectLatestCandidate(parseGitTagOutput(gitResult.value)) };
+  }
+
+  const repository = parseGitHubRepository(repositoryUrl);
+  if (!repository) {
+    return { status: 'error', value: null, error: 'Could not query remote release tags.' };
+  }
+  const apiResult = await getGitHubTagCandidates(repository);
+  if (apiResult.status === 'error') return apiResult;
+  return { status: 'ok', value: selectLatestCandidate(apiResult.value) };
+}
+
+function parseGitTagOutput(output: string): VersionCandidate[] {
+  const tagsByVersion = new Map<string, VersionCandidate & { peeled: boolean }>();
+  for (const line of output.split(/\r?\n/)) {
+    const [commit, rawRef] = line.trim().split(/\s+/);
+    if (!isCommitSha(commit) || !rawRef) continue;
+    const peeled = rawRef.endsWith('^{}');
+    const tag = rawRef.replace(/^refs\/tags\//, '').replace(/\^\{\}$/, '');
+    const semver = parseSemver(tag);
+    if (!semver || !isRemoteVersionAllowed(semver)) continue;
+    const version = normalizeDisplayVersion(tag);
+    const existing = tagsByVersion.get(version);
+    if (!existing || peeled) {
+      tagsByVersion.set(version, {
+        commit,
+        version,
+        targetRef: commit,
+        source: 'tag',
+        semver,
+        peeled,
+      });
+    }
+  }
+  return [...tagsByVersion.values()];
+}
+
+async function getGitHubTagCandidates(
+  repository: { owner: string; name: string },
+): Promise<SourceResult<VersionCandidate[]>> {
+  const candidates: VersionCandidate[] = [];
+  const pageSize = 100;
+  const maxPages = 10;
+  for (let page = 1; page <= maxPages; page += 1) {
+    const result = await fetchGitHubJson<Array<{ name?: string; commit?: { sha?: string } }>>(
+      `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/tags?per_page=${pageSize}&page=${page}`,
+    );
+    if (result.status === 'error') return result;
+    if (!Array.isArray(result.value)) {
+      return { status: 'error', value: null, error: 'GitHub tags response was invalid.' };
+    }
+    for (const item of result.value) {
+      const semver = parseSemver(item.name);
+      const commit = item.commit?.sha || '';
+      if (!semver || !isRemoteVersionAllowed(semver) || !isCommitSha(commit)) continue;
+      candidates.push({
+        version: normalizeDisplayVersion(item.name),
+        commit,
+        targetRef: commit,
+        source: 'tag',
+        semver,
+      });
+    }
+    if (result.value.length < pageSize) return { status: 'ok', value: candidates };
+  }
+  return { status: 'error', value: null, error: 'GitHub tag list exceeded the safe pagination limit.' };
+}
+
+async function getRemoteDefaultBranchVersion(
+  repositoryUrl: string,
+  remoteHeadPromise: Promise<SourceResult<string>>,
+): Promise<BranchSourceResult> {
+  const repository = parseGitHubRepository(repositoryUrl);
+  if (!repository || typeof fetch !== 'function') return { status: 'unsupported', value: null };
+
+  const apiHeadPromise = fetchGitHubJson<Array<{ sha?: string }>>(
+    `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/commits?per_page=1`,
+  );
+  const [gitHead, apiHead] = await Promise.all([remoteHeadPromise, apiHeadPromise]);
+  const apiCommit = apiHead.status === 'ok' && Array.isArray(apiHead.value) ? apiHead.value[0]?.sha || '' : '';
+  const commit = isCommitSha(apiCommit)
+    ? apiCommit
+    : gitHead.status === 'ok' && isCommitSha(gitHead.value)
+      ? gitHead.value
+      : '';
+  if (!commit) {
+    return { status: 'error', value: null, error: 'Could not resolve the remote default-branch commit.' };
+  }
+
+  const packageResult = await fetchGitHubJson<{ content?: string; encoding?: string }>(
+    `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/contents/package.json?ref=${encodeURIComponent(commit)}`,
+  );
+  if (packageResult.status === 'error') return packageResult;
+  const payload = packageResult.value;
+  if (!payload?.content || payload.encoding !== 'base64') {
+    return { status: 'error', value: null, error: 'Remote package.json response was invalid.' };
+  }
+
+  try {
+    const packageJson = JSON.parse(Buffer.from(payload.content.replace(/\s/g, ''), 'base64').toString('utf8'));
+    const semver = parseSemver(packageJson?.version);
+    if (!semver) {
+      return { status: 'error', value: null, error: 'Remote package.json has no valid semantic version.' };
+    }
+    if (!isRemoteVersionAllowed(semver)) return { status: 'ok', value: null };
+    return {
+      status: 'ok',
+      value: {
+        version: normalizeDisplayVersion(packageJson.version),
+        commit,
+        targetRef: commit,
+        source: 'default-branch',
+        semver,
+      },
+    };
+  } catch {
+    return { status: 'error', value: null, error: 'Remote package.json could not be parsed.' };
+  }
+}
+
+async function getGitHubCommitRelation(
+  repositoryUrl: string,
+  currentCommit: string,
+  latestCommit: string,
+): Promise<SourceResult<CommitRelation>> {
+  const repository = parseGitHubRepository(repositoryUrl);
+  if (!repository) {
+    return { status: 'error', value: null, error: 'Commit ancestry checks require a GitHub repository.' };
+  }
+  const result = await fetchGitHubJson<{ status?: string }>(
+    `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/compare/${encodeURIComponent(currentCommit)}...${encodeURIComponent(latestCommit)}`,
+  );
+  if (result.status === 'error') return result;
+  if (!['ahead', 'behind', 'diverged', 'identical'].includes(result.value?.status || '')) {
+    return { status: 'error', value: null, error: 'GitHub compare response was invalid.' };
+  }
+  return { status: 'ok', value: result.value.status as CommitRelation };
+}
+
+async function fetchGitHubJson<T>(url: string): Promise<SourceResult<T>> {
+  try {
+    const response = await fetch(url, {
+      headers: getGitHubApiHeaders(),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      return { status: 'error', value: null, error: `GitHub API returned HTTP ${response.status}.` };
+    }
+    return { status: 'ok', value: await response.json() as T };
+  } catch {
+    return { status: 'error', value: null, error: 'GitHub API request failed.' };
+  }
+}
+
+function getGitHubApiHeaders() {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'homeland-system-update',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  const token = getSystemUpdateToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+function parseGitHubRepository(repositoryUrl: string) {
+  const sshMatch = repositoryUrl.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/i);
+  if (sshMatch) return { owner: sshMatch[1], name: sshMatch[2].replace(/\.git$/i, '') };
+
+  try {
+    const url = new URL(repositoryUrl);
+    if (url.hostname.toLowerCase() !== 'github.com') return null;
+    const [owner, rawName] = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
+    if (!owner || !rawName) return null;
+    return { owner, name: rawName.replace(/\.git$/i, '') };
+  } catch {
+    return null;
+  }
+}
+
+function selectLatestRemoteVersion(
+  latestRelease: VersionCandidate | null,
+  remoteBranch: VersionCandidate | null,
+): VersionCandidate | null {
+  const candidates: VersionCandidate[] = [];
+  if (remoteBranch) candidates.push(remoteBranch);
+  if (latestRelease) {
+    candidates.push({
+      ...latestRelease,
+      targetRef: latestRelease.commit,
+      source: 'tag',
+    });
+  }
+  return selectLatestCandidate(candidates);
+}
+
+function selectLatestCandidate(candidates: VersionCandidate[]) {
+  const sourcePriority: Record<VersionCandidate['source'], number> = {
+    current: 0,
+    tag: 1,
+    'default-branch': 2,
+  };
+  return [...candidates].sort((a, b) => (
+    compareSemver(a.semver, b.semver) || sourcePriority[a.source] - sourcePriority[b.source]
+  )).at(-1) || null;
+}
+
+function keepNewestVersion(
+  currentVersion: string,
+  currentCommit: string,
+  latestRemote: VersionCandidate | null,
+): VersionCandidate {
+  const currentSemver = parseSemver(currentVersion) || { major: 0, minor: 0, patch: 0, prerelease: [] };
+  if (!latestRemote || compareSemver(currentSemver, latestRemote.semver) > 0) {
+    return {
+      version: currentVersion,
+      commit: currentCommit,
+      targetRef: currentCommit,
+      source: 'current',
+      semver: currentSemver,
+    };
+  }
+  return latestRemote;
+}
+
+function isUpdateAvailable(currentVersion: string, latestVersion: string, sameVersionRemoteAhead = false) {
   const currentSemver = parseSemver(currentVersion);
   const latestSemver = parseSemver(latestVersion);
-  if (currentSemver && latestSemver) return compareSemver(currentSemver, latestSemver) < 0;
-  return Boolean(latestCommit && currentCommit !== latestCommit);
+  if (currentSemver && latestSemver) {
+    const comparison = compareSemver(currentSemver, latestSemver);
+    if (comparison !== 0) return comparison < 0;
+  }
+  return sameVersionRemoteAhead;
 }
 
-function buildChangelog(currentVersion: string, latestVersion: string, currentCommit: string, latestCommit: string | null) {
-  if (!latestCommit || !isUpdateAvailable(currentVersion, latestVersion, currentCommit, latestCommit)) {
+function buildChangelog(
+  currentVersion: string,
+  latestVersion: string,
+  currentCommit: string,
+  latestCommit: string | null,
+  updateAvailable: boolean,
+) {
+  if (!latestCommit || !updateAvailable) {
     return [
       'Đang chạy version mới nhất theo release tag hoặc không đọc được remote.',
       'Không có thay đổi mới để cài đặt ở thời điểm kiểm tra.',
@@ -728,33 +1201,50 @@ function buildChangelog(currentVersion: string, latestVersion: string, currentCo
   }
 
   const range = `${shortSha(currentCommit)}..${shortSha(latestCommit)}`;
+  const sameVersion = compareDisplayVersions(currentVersion, latestVersion) === 0;
   return [
-    `Phát hiện version mới ${latestVersion} so với hiện tại ${currentVersion}.`,
+    sameVersion
+      ? `Phát hiện commit mới ${shortSha(latestCommit)} trên nhánh mặc định cho ${latestVersion}.`
+      : `Phát hiện version mới ${latestVersion} so với hiện tại ${currentVersion}.`,
     `Cần review commit range ${range} trên GitHub trước khi bật update thật.`,
     'Quy trình an toàn bắt buộc backup DB/env/source, build, preflight, health check và kế hoạch rollback.',
   ];
 }
 
-function getReleaseHighlights(currentVersion: string, latestVersion: string, currentCommit: string, latestCommit: string | null): string[] {
-  if (!latestCommit || !isUpdateAvailable(currentVersion, latestVersion, currentCommit, latestCommit)) {
+function getReleaseHighlights(
+  currentVersion: string,
+  latestVersion: string,
+  currentCommit: string,
+  latestCommit: string | null,
+  updateAvailable: boolean,
+): string[] {
+  if (!latestCommit || !updateAvailable) {
     return [];
   }
 
   // 1. Try to read recent commit summaries via git if available
   try {
-    const gitLog = safeGit(['log', '--pretty=format:%s', '-n', '5', `${currentVersion}..${latestVersion}`]);
+    const range = isCommitSha(currentCommit) && isCommitSha(latestCommit)
+      ? `${currentCommit}..${latestCommit}`
+      : `${currentVersion}..${latestVersion}`;
+    const gitLog = safeLocalGit(['log', '--pretty=format:%s', '-n', '5', range]);
     if (gitLog) {
       const lines = gitLog.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
       if (lines.length > 0) return lines;
     }
   } catch {}
 
-  // 2. Default clean bullet points
+  // 2. Factual fallback when the remote commit is not present in the local clone.
   return [
-    `Nâng cấp hệ thống từ ${currentVersion} lên ${latestVersion}.`,
-    'Tối ưu hóa hiệu năng, cập nhật giao diện và tăng cường bảo mật.',
-    'Sửa lỗi và nâng cao độ ổn định cho toàn bộ dịch vụ.',
+    `Source mục tiêu: ${latestVersion} tại commit ${shortSha(latestCommit)}.`,
+    `Khoảng commit cần review: ${shortSha(currentCommit)}..${shortSha(latestCommit)}.`,
   ];
+}
+
+function compareDisplayVersions(a: string, b: string) {
+  const aSemver = parseSemver(a);
+  const bSemver = parseSemver(b);
+  return aSemver && bSemver ? compareSemver(aSemver, bSemver) : null;
 }
 
 function shortSha(value: string) {
@@ -766,16 +1256,51 @@ function normalizeDisplayVersion(value?: string) {
   return value.startsWith('v') ? value : `v${value}`;
 }
 
-function parseSemver(value?: string): [number, number, number] | null {
-  const match = value?.match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+function parseSemver(value?: string): ParsedSemver | null {
+  const match = value?.match(
+    /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/,
+  );
+  if (!match) return null;
+  const [major, minor, patch] = match.slice(1, 4).map(Number);
+  if (![major, minor, patch].every(Number.isSafeInteger)) return null;
+  const prerelease = match[4]?.split('.') || [];
+  if (prerelease.some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith('0'))) return null;
+  return { major, minor, patch, prerelease };
 }
 
-function compareSemver(a: [number, number, number], b: [number, number, number]) {
-  for (let index = 0; index < 3; index += 1) {
-    if (a[index] !== b[index]) return a[index] - b[index];
+function compareSemver(a: ParsedSemver, b: ParsedSemver) {
+  for (const key of ['major', 'minor', 'patch'] as const) {
+    if (a[key] !== b[key]) return a[key] < b[key] ? -1 : 1;
+  }
+  if (a.prerelease.length === 0 && b.prerelease.length === 0) return 0;
+  if (a.prerelease.length === 0) return 1;
+  if (b.prerelease.length === 0) return -1;
+
+  const length = Math.max(a.prerelease.length, b.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const aPart = a.prerelease[index];
+    const bPart = b.prerelease[index];
+    if (aPart === undefined) return -1;
+    if (bPart === undefined) return 1;
+    if (aPart === bPart) continue;
+    const aNumeric = /^\d+$/.test(aPart);
+    const bNumeric = /^\d+$/.test(bPart);
+    if (aNumeric && bNumeric) {
+      if (aPart.length !== bPart.length) return aPart.length < bPart.length ? -1 : 1;
+      return aPart < bPart ? -1 : 1;
+    }
+    if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+    return aPart < bPart ? -1 : 1;
   }
   return 0;
+}
+
+function isRemoteVersionAllowed(version: ParsedSemver) {
+  return version.prerelease.length === 0 || process.env.SYSTEM_UPDATE_ALLOW_PRERELEASE === 'true';
+}
+
+function isCommitSha(value?: string) {
+  return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value || '');
 }
 
 function isTerminalStatus(status: UpdateJobStatus) {

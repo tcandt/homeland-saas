@@ -37,17 +37,16 @@ import AppShell from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
-import { systemUpdateApi, SystemUpdateJob, BackupManifestInfo } from "@/lib/api/system-update.api";
+import { systemUpdateApi, SystemUpdateCheck, SystemUpdateJob, BackupManifestInfo } from "@/lib/api/system-update.api";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import toast from "react-hot-toast";
-import webPackage from "../../package.json";
 
 const UPDATE_STAGES = [
   { key: "CHECKING", label: "Kiểm tra Version", percent: 8, icon: GitBranch },
   { key: "DOWNLOADING", label: "Tải Mã Nguồn", percent: 22, icon: Layers },
   { key: "BACKING_UP", label: "Tạo Snapshot", percent: 38, icon: Database },
-  { key: "BUILDING", label: "Auto-Prune & Build", percent: 56, icon: Cpu },
-  { key: "MIGRATING", label: "Đồng Bộ Schema", percent: 78, icon: HardDrive },
+  { key: "BUILDING", label: "Build Image Sạch", percent: 56, icon: Cpu },
+  { key: "MIGRATING", label: "Kiểm Tra Migration", percent: 78, icon: HardDrive },
   { key: "RESTARTING", label: "Khởi Động Lại", percent: 88, icon: Server },
   { key: "HEALTH_CHECK", label: "Kiểm Tra Health", percent: 96, icon: ShieldCheck },
   { key: "DONE", label: "Hoàn Tất", percent: 100, icon: CheckCircle2 },
@@ -62,14 +61,66 @@ function formatBytes(bytes?: number) {
 }
 
 function shortVersion(value?: string) {
-  if (!value || value === "unknown") return "v1.2.4";
+  if (!value || value === "unknown") return "---";
   return value.startsWith("v") ? value : `v${value}`;
+}
+
+const TERMINAL_UPDATE_STATUSES = new Set(["IDLE", "DONE", "FAILED", "BLOCKED", "ROLLED_BACK"]);
+
+type InstallTargetSnapshot = {
+  version: string;
+  ref: string;
+};
+
+function isSystemUpdateJobRunning(job?: SystemUpdateJob) {
+  return Boolean(job && !TERMINAL_UPDATE_STATUSES.has(job.status));
+}
+
+function getInstallDisabledReason(input: {
+  info?: SystemUpdateCheck;
+  job?: SystemUpdateJob;
+  isChecking: boolean;
+  checkError?: unknown;
+  isStatusChecking: boolean;
+  statusError?: unknown;
+  canRunSystemUpdate: boolean;
+  isPreparing: boolean;
+}) {
+  if (input.isPreparing) return "Đang xác nhận lại phiên bản và trạng thái hệ thống";
+  if (input.isChecking) return "Đang kiểm tra phiên bản mới nhất từ GitHub";
+  if (input.checkError || input.info?.versionCheckStatus === "unavailable") {
+    const requestError = typeof input.checkError === "string"
+      ? input.checkError
+      : input.checkError instanceof Error
+        ? input.checkError.message
+        : null;
+    return requestError || input.info?.versionCheckError || "Không thể kiểm tra phiên bản mới nhất từ GitHub";
+  }
+  if (!input.info) return "Chưa có kết quả kiểm tra phiên bản từ GitHub";
+  if (input.info.versionCheckStatus === "tag-only") {
+    return "Chỉ đọc được release tags; chưa xác minh được phiên bản trên nhánh mặc định";
+  }
+  if (input.info.versionCheckStatus !== "ok") return "Trạng thái kiểm tra phiên bản không hợp lệ";
+  if (!input.info.updateAvailable) return "Hệ thống đang ở phiên bản mới nhất";
+  if (!input.info.canInstallAutomatically && input.info.mode !== "dry-run") {
+    return "Chế độ cập nhật tự động chưa được bật";
+  }
+  if (!input.canRunSystemUpdate) return "Tài khoản không có quyền chạy cập nhật hệ thống";
+  if (!input.info.latestVersion || !input.info.targetRef) return "Phiên bản mục tiêu chưa đầy đủ";
+  if (isSystemUpdateJobRunning(input.job)) return "Một tiến trình cập nhật hoặc rollback đang chạy";
+  if (input.isStatusChecking) return "Đang kiểm tra trạng thái tiến trình hệ thống";
+  if (input.statusError || !input.job) return "Không thể xác nhận trạng thái tiến trình hệ thống";
+  return null;
 }
 
 export default function SystemUpdateLivePage() {
   const user = useAuthStore((state) => state.user);
   const [confirmMode, setConfirmMode] = useState<"install" | "rollback" | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isPreparingInstall, setIsPreparingInstall] = useState(false);
+  const [installTarget, setInstallTarget] = useState<InstallTargetSnapshot | null>(null);
+  const [versionRefreshError, setVersionRefreshError] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [fontSize, setFontSize] = useState<"sm" | "xs">("xs");
@@ -95,7 +146,7 @@ export default function SystemUpdateLivePage() {
   const status = useSWR("system-update-status-full", () => systemUpdateApi.status(), {
     revalidateOnFocus: true,
     refreshInterval: (data) =>
-      data && !["IDLE", "DONE", "FAILED", "BLOCKED", "ROLLED_BACK"].includes(data.status) ? 1200 : 4000,
+      data && !TERMINAL_UPDATE_STATUSES.has(data.status) ? 1200 : 4000,
   });
 
   // 3. Fetch snapshots list
@@ -106,8 +157,41 @@ export default function SystemUpdateLivePage() {
 
   const info = check.data;
   const job = status.data as SystemUpdateJob | undefined;
-  const isJobRunning = Boolean(job && !["IDLE", "DONE", "FAILED", "BLOCKED", "ROLLED_BACK"].includes(job.status));
-  const isUpToDate = !info?.updateAvailable;
+  const isJobRunning = isSystemUpdateJobRunning(job);
+  const isChecking = check.isLoading || check.isValidating || isRefreshing;
+  const effectiveCheckError = versionRefreshError || check.error;
+  const versionCheckFailed = Boolean(effectiveCheckError || info?.versionCheckStatus === "unavailable");
+  const versionCheckDegraded = info?.versionCheckStatus === "tag-only";
+  const isUpToDate = info?.updateAvailable === false && !versionCheckFailed && !versionCheckDegraded;
+  const canRunSystemUpdate = Boolean(
+    (user?.email || "").toLowerCase() === "admin@homeland.vn" &&
+    (user?.roles?.includes("ADMIN") || user?.permissions?.includes("system.update.run")),
+  );
+  const installDisabledReason = getInstallDisabledReason({
+    info,
+    job,
+    isChecking,
+    checkError: effectiveCheckError,
+    isStatusChecking: !job && (status.isLoading || status.isValidating),
+    statusError: status.error,
+    canRunSystemUpdate,
+    isPreparing: isPreparingInstall,
+  });
+  const canInstall = installDisabledReason === null;
+
+  useEffect(() => {
+    if (!check.error && info?.checkedAt) setVersionRefreshError(null);
+  }, [check.error, info?.checkedAt]);
+
+  useEffect(() => {
+    if (confirmMode !== "install" || !installTarget || !info) return;
+    const targetChanged = info.latestVersion !== installTarget.version || info.targetRef !== installTarget.ref;
+    if (!targetChanged && info.versionCheckStatus === "ok") return;
+
+    setConfirmMode(null);
+    setInstallTarget(null);
+    toast.error("Nguồn cập nhật đã thay đổi hoặc không còn xác minh được. Vui lòng xác nhận lại.");
+  }, [confirmMode, info, installTarget]);
 
   const logs = useMemo(() => {
     const rawLogs = job?.logs || [];
@@ -124,12 +208,78 @@ export default function SystemUpdateLivePage() {
   }, [logs.length, autoScroll]);
 
   const handleRefresh = async () => {
+    setIsRefreshing(true);
     try {
-      await Promise.all([check.mutate(), status.mutate(), backups.mutate()]);
-      toast.success("Đã đồng bộ thông tin mới nhất từ máy chủ GitHub");
-    } catch {
-      toast.error("Không thể kết nối máy chủ");
+      const [refreshedInfo] = await Promise.all([
+        systemUpdateApi.check(true),
+        status.mutate(),
+        backups.mutate(),
+      ]);
+      await check.mutate(refreshedInfo, { revalidate: false });
+      setVersionRefreshError(null);
+      if (refreshedInfo.versionCheckStatus === "unavailable") {
+        toast.error(refreshedInfo.versionCheckError || "Không thể kiểm tra phiên bản mới nhất từ GitHub");
+        return;
+      }
+      if (refreshedInfo.versionCheckStatus === "tag-only") {
+        toast.error("Chỉ đọc được release tags; chưa xác minh được phiên bản trên nhánh mặc định");
+        return;
+      }
+      toast.success("Đã kiểm tra phiên bản mới nhất trên nhánh mặc định GitHub");
+    } catch (error: any) {
+      const message = error?.message || "Không thể kết nối máy chủ";
+      setVersionRefreshError(message);
+      toast.error(message);
+    } finally {
+      setIsRefreshing(false);
     }
+  };
+
+  const openInstallConfirmation = async () => {
+    if (!canInstall) {
+      toast.error(installDisabledReason || "Chưa thể bắt đầu cập nhật");
+      return;
+    }
+
+    setIsPreparingInstall(true);
+    try {
+      const [freshInfo, freshJob] = await Promise.all([
+        systemUpdateApi.check(true).catch((error: any) => {
+          setVersionRefreshError(error?.message || "Không thể kiểm tra phiên bản mới nhất từ GitHub");
+          throw error;
+        }),
+        status.mutate(),
+      ]);
+      await check.mutate(freshInfo, { revalidate: false });
+      setVersionRefreshError(null);
+      const refreshedDisabledReason = getInstallDisabledReason({
+        info: freshInfo,
+        job: freshJob,
+        isChecking: false,
+        checkError: null,
+        isStatusChecking: false,
+        statusError: null,
+        canRunSystemUpdate,
+        isPreparing: false,
+      });
+      if (refreshedDisabledReason) {
+        toast.error(refreshedDisabledReason);
+        return;
+      }
+
+      setInstallTarget({ version: freshInfo.latestVersion, ref: freshInfo.targetRef });
+      setConfirmMode("install");
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể xác nhận phiên bản và trạng thái hệ thống");
+    } finally {
+      setIsPreparingInstall(false);
+    }
+  };
+
+  const closeConfirmation = () => {
+    if (isSubmitting) return;
+    setConfirmMode(null);
+    setInstallTarget(null);
   };
 
   const handleCopyLogs = () => {
@@ -151,17 +301,49 @@ export default function SystemUpdateLivePage() {
 
   const startJob = async () => {
     if (!confirmMode) return;
+    if (confirmMode === "install") {
+      const targetStillMatches = Boolean(
+        installTarget &&
+        info?.versionCheckStatus === "ok" &&
+        info.latestVersion === installTarget.version &&
+        info.targetRef === installTarget.ref,
+      );
+      if (!canInstall || !targetStillMatches) {
+        toast.error(installDisabledReason || "Nguồn cập nhật đã thay đổi. Vui lòng xác nhận lại.");
+        setConfirmMode(null);
+        setInstallTarget(null);
+        return;
+      }
+    }
     setIsSubmitting(true);
     setClearedLogsCount(0);
     try {
-      const payload = { targetVersion: confirmMode === "install" ? info?.latestVersion : undefined, dryRun: false };
+      const freshJob = await status.mutate();
+      if (!freshJob || isSystemUpdateJobRunning(freshJob)) {
+        toast.error(freshJob ? "Một tiến trình cập nhật hoặc rollback đang chạy" : "Không thể xác nhận trạng thái tiến trình hệ thống");
+        setConfirmMode(null);
+        setInstallTarget(null);
+        return;
+      }
+      const payload = {
+        targetVersion: confirmMode === "install" ? installTarget?.version : undefined,
+        targetRef: confirmMode === "install" ? installTarget?.ref : undefined,
+        dryRun: info?.mode !== "enabled",
+      };
       const nextJob = confirmMode === "install"
         ? await systemUpdateApi.install(payload)
         : await systemUpdateApi.rollback(payload);
       await status.mutate(nextJob, { revalidate: false });
       setConfirmMode(null);
-      toast.success(confirmMode === "install" ? "🚀 Đã khởi chạy tiến trình cập nhật" : "🔄 Đã khởi chạy tiến trình rollback");
+      setInstallTarget(null);
+      toast.success(confirmMode === "install"
+        ? info?.mode === "dry-run" ? "Đã chạy mô phỏng cập nhật an toàn" : "Đã khởi chạy tiến trình cập nhật"
+        : "Đã khởi chạy tiến trình rollback");
     } catch (error: any) {
+      if (["SYSTEM_UPDATE_TARGET_STALE", "SYSTEM_UPDATE_NOT_AVAILABLE"].includes(error?.code)) {
+        setConfirmMode(null);
+        setInstallTarget(null);
+      }
       toast.error(error?.message || "Không thể thực hiện tác vụ");
     } finally {
       setIsSubmitting(false);
@@ -267,6 +449,10 @@ export default function SystemUpdateLivePage() {
                 <span className={`text-[10px] px-2 py-0.2 rounded-md font-bold border flex items-center gap-1 ${
                   isJobRunning
                     ? "bg-primary/15 text-primary border-primary/30 animate-pulse"
+                    : isChecking
+                    ? "bg-slate-500/10 text-muted border-border/70"
+                    : versionCheckFailed || versionCheckDegraded
+                    ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20"
                     : isUpToDate
                     ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                     : "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
@@ -274,6 +460,14 @@ export default function SystemUpdateLivePage() {
                   {isJobRunning ? (
                     <>
                       <RefreshCcw size={10} className="animate-spin" /> Đang cập nhật ({job?.progressPercent}%)
+                    </>
+                  ) : isChecking ? (
+                    <>
+                      <RefreshCcw size={10} className="animate-spin" /> Đang kiểm tra GitHub
+                    </>
+                  ) : versionCheckFailed || versionCheckDegraded ? (
+                    <>
+                      <AlertTriangle size={10} /> {versionCheckFailed ? "Chưa kiểm tra được GitHub" : "Chỉ đọc được release tags"}
                     </>
                   ) : isUpToDate ? (
                     <>
@@ -288,51 +482,80 @@ export default function SystemUpdateLivePage() {
               </div>
 
               <div className="flex items-center gap-2 text-[11px] text-muted flex-wrap">
-                <span>Repo: <code className="font-mono text-text font-semibold">tcandt/homeland-saas</code></span>
+                <span>Repo: <code className="font-mono text-text font-semibold">{info?.repository || "---"}</code></span>
                 <span className="opacity-40">•</span>
-                <span>Commit: <code className="font-mono text-primary font-bold">{info?.currentCommit?.slice(0, 7) || "a8f506c"}</code></span>
+                <span>Commit: <code className="font-mono text-primary font-bold">{info?.currentCommit?.slice(0, 7) || "---"}</code></span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap shrink-0">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              isLoading={check.isLoading || status.isLoading}
-              className="h-8 gap-1.5 rounded-lg border-border/70 text-xs font-bold shadow-2xs hover:border-primary/50"
-            >
-              <RefreshCcw size={12} className={check.isLoading ? "animate-spin" : ""} />
-              <span>Kiểm tra Release</span>
-            </Button>
+          <div className="flex min-w-0 shrink-0 flex-col items-start gap-1.5 sm:items-end">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                isLoading={isRefreshing || check.isLoading || status.isLoading}
+                aria-busy={isRefreshing || check.isLoading || status.isLoading}
+                className="h-8 min-h-11 gap-1.5 rounded-lg border-border/70 text-xs font-bold shadow-2xs hover:border-primary/50 sm:min-h-0"
+              >
+                {!isRefreshing && !check.isLoading && !status.isLoading && <RefreshCcw size={12} />}
+                <span>Kiểm tra Release</span>
+              </Button>
 
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setConfirmMode("rollback")}
-              disabled={isJobRunning}
-              className="h-8 gap-1.5 rounded-lg border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 text-xs font-bold shadow-2xs"
-            >
-              <RotateCcw size={12} />
-              <span>Rollback</span>
-            </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setInstallTarget(null);
+                  setConfirmMode("rollback");
+                }}
+                disabled={isJobRunning || (!job && (status.isLoading || status.isValidating)) || Boolean(status.error) || !canRunSystemUpdate}
+                className="h-8 min-h-11 gap-1.5 rounded-lg border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 text-xs font-bold shadow-2xs sm:min-h-0"
+              >
+                <RotateCcw size={12} />
+                <span>Rollback</span>
+              </Button>
 
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              onClick={() => setConfirmMode("install")}
-              disabled={isJobRunning}
-              className="h-8 gap-1.5 rounded-lg px-3.5 text-xs font-bold shadow-sm shadow-primary/20 bg-primary hover:bg-primary/90 cursor-pointer"
-            >
-              <Rocket size={13} />
-              <span>{isUpToDate ? "Cập Nhật Lại" : "Nâng Cấp Ngay"}</span>
-            </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={openInstallConfirmation}
+                disabled={!canInstall}
+                isLoading={isPreparingInstall}
+                aria-busy={isPreparingInstall}
+                aria-describedby={!canInstall ? "update-install-disabled-reason" : undefined}
+                className="h-8 min-h-11 gap-1.5 rounded-lg px-3.5 text-xs font-bold shadow-sm shadow-primary/20 bg-primary hover:bg-primary/90 disabled:shadow-none disabled:saturate-50 sm:min-h-0"
+              >
+                {!isPreparingInstall && <Rocket size={13} />}
+                <span>{info?.mode === "dry-run" ? "Mô Phỏng Cập Nhật" : "Cập Nhật Phiên Bản Mới"}</span>
+              </Button>
+            </div>
+            {!canInstall && (
+              <p id="update-install-disabled-reason" className="max-w-xl text-left text-[11px] font-medium text-muted sm:text-right">
+                {installDisabledReason}
+              </p>
+            )}
           </div>
         </div>
+
+        {(versionCheckFailed || versionCheckDegraded) && (
+          <div
+            className="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] font-medium text-amber-800 dark:text-amber-200"
+            role="status"
+            aria-live="polite"
+          >
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              {versionCheckDegraded
+                ? "Chỉ đọc được release tags; chưa xác minh được phiên bản trên nhánh mặc định. Cập nhật đã bị khóa."
+                : info?.versionCheckError || "Không thể kiểm tra đầy đủ phiên bản mới nhất từ GitHub."}
+            </span>
+          </div>
+        )}
 
         {/* ========================================================================= */}
         {/* 2. 4 COMPACT SYSTEM METRICS (SLEEK HORIZONTAL TILES)                       */}
@@ -347,7 +570,7 @@ export default function SystemUpdateLivePage() {
               <div className="min-w-0">
                 <div className="text-[11px] text-muted font-bold truncate">Version hiện tại</div>
                 <div className="font-mono font-black text-sm sm:text-base text-text">
-                  {shortVersion(info?.currentVersion || webPackage.version)}
+                  {shortVersion(info?.currentVersion)}
                 </div>
               </div>
             </div>
@@ -363,9 +586,9 @@ export default function SystemUpdateLivePage() {
                 <Sparkles size={15} />
               </span>
               <div className="min-w-0">
-                <div className="text-[11px] text-muted font-bold truncate">Release Target</div>
+                <div className="text-[11px] text-muted font-bold truncate">{versionCheckDegraded ? "Release tag gần nhất" : "Release Target"}</div>
                 <div className="font-mono font-black text-sm sm:text-base text-purple-600 dark:text-purple-400">
-                  {shortVersion(info?.latestVersion || info?.currentVersion || webPackage.version)}
+                  {versionCheckFailed ? "---" : shortVersion(info?.latestVersion)}
                 </div>
               </div>
             </div>
@@ -381,14 +604,14 @@ export default function SystemUpdateLivePage() {
                 <ShieldCheck size={15} />
               </span>
               <div className="min-w-0">
-                <div className="text-[11px] text-muted font-bold truncate">Chống tràn ổ VPS</div>
+                <div className="text-[11px] text-muted font-bold truncate">Dọn image có kiểm soát</div>
                 <div className="font-black text-sm sm:text-base text-emerald-600 dark:text-emerald-400">
-                  Auto-Prune
+                  Prune 2 giai đoạn
                 </div>
               </div>
             </div>
             <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold shrink-0">
-              Active
+              Có kiểm soát
             </span>
           </div>
 
@@ -399,14 +622,14 @@ export default function SystemUpdateLivePage() {
                 <Database size={15} />
               </span>
               <div className="min-w-0">
-                <div className="text-[11px] text-muted font-bold truncate">Schema Postgres</div>
+                <div className="text-[11px] text-muted font-bold truncate">Migration Postgres</div>
                 <div className="font-black text-sm sm:text-base text-amber-600 dark:text-amber-400">
-                  Auto Push
+                  Migrate Deploy
                 </div>
               </div>
             </div>
             <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shrink-0">
-              Prisma
+              Host Gate
             </span>
           </div>
         </div>
@@ -422,9 +645,16 @@ export default function SystemUpdateLivePage() {
                 Tiến Trình Thực Thi Triển Khai
               </span>
             </div>
-            <span className="font-mono font-black text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20">
-              {currentPercent}%
-            </span>
+            <div className="flex items-center gap-2">
+              {job?.status === "BLOCKED" && (
+                <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                  {job.dryRun ? "Mô phỏng hoàn tất" : "Đã chuẩn bị — chờ kích hoạt"}
+                </span>
+              )}
+              <span className="font-mono font-black text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20">
+                {currentPercent}%
+              </span>
+            </div>
           </div>
 
           {/* Slim Progress Bar */}
@@ -567,7 +797,7 @@ export default function SystemUpdateLivePage() {
                 <p className="text-[11px] italic">
                   {isJobRunning
                     ? "Đang kết nối luồng sự kiện từ tiến trình VPS..."
-                    : "Nhấn 'Nâng Cấp Ngay' hoặc chạy script update trên VPS để theo dõi log thời gian thực."}
+                    : "Nhấn 'Cập Nhật Phiên Bản Mới' hoặc chạy host updater trên VPS để theo dõi log thời gian thực."}
                 </p>
               </div>
             ) : (
@@ -748,32 +978,57 @@ export default function SystemUpdateLivePage() {
       {/* Confirmation Modal for Update/Rollback */}
       <Modal
         isOpen={Boolean(confirmMode)}
-        onClose={() => setConfirmMode(null)}
+        onClose={closeConfirmation}
         title={confirmMode === "install" ? "Xác nhận nâng cấp phiên bản hệ thống" : "Xác nhận Rollback phiên bản"}
         footer={
           <div className="flex items-center justify-end gap-2 w-full">
-            <Button variant="outline" size="sm" onClick={() => setConfirmMode(null)} disabled={isSubmitting} className="h-8.5 rounded-xl text-xs font-bold">
+            <Button variant="outline" size="sm" onClick={closeConfirmation} disabled={isSubmitting} className="h-8.5 min-h-11 rounded-xl text-xs font-bold sm:min-h-0">
               Hủy
             </Button>
             <Button
               variant="primary"
               size="sm"
               onClick={startJob}
-              disabled={isSubmitting}
-              className={`h-8.5 gap-1.5 rounded-xl px-4 text-xs font-bold ${confirmMode === "rollback" ? "bg-amber-600 hover:bg-amber-700" : ""}`}
+              disabled={isSubmitting || (confirmMode === "install" && !canInstall)}
+              aria-busy={isSubmitting}
+              aria-describedby={confirmMode === "install" && !canInstall ? "update-install-modal-disabled-reason" : undefined}
+              className={`h-8.5 min-h-11 gap-1.5 rounded-xl px-4 text-xs font-bold sm:min-h-0 ${confirmMode === "rollback" ? "bg-amber-600 hover:bg-amber-700" : ""}`}
             >
               {isSubmitting ? <RefreshCcw size={13} className="animate-spin" /> : <Rocket size={13} />}
-              <span>{confirmMode === "install" ? "Bắt đầu cập nhật ngay" : "Bắt đầu rollback"}</span>
+              <span>{isSubmitting
+                ? "Đang xác nhận trạng thái..."
+                : confirmMode === "install"
+                  ? info?.mode === "dry-run" ? "Chạy mô phỏng" : "Bắt đầu cập nhật ngay"
+                  : "Bắt đầu rollback"}</span>
             </Button>
           </div>
         }
       >
         <div className="flex flex-col gap-3 py-1 text-xs">
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-muted leading-relaxed">
-            Hệ thống sẽ tự động dọn dẹp Docker Build Cache, tạo bản Snapshot sao lưu dữ liệu toàn phần, sau đó build container mới và đồng bộ schema database.
+            {info?.mode === "dry-run"
+              ? "Chế độ mô phỏng chỉ hiển thị các bước dự kiến, không tải source, dừng dịch vụ hoặc thay đổi dữ liệu."
+              : "Hệ thống sẽ tạo Snapshot và chuẩn bị source đúng Git SHA. Với Docker Compose, host updater sẽ kiểm tra migration, prune image rác an toàn, dừng container ứng dụng, build/migrate/health check, rồi mới xóa image ứng dụng cũ."}
           </div>
+          {confirmMode === "install" && installTarget && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xl border border-border/70 bg-background p-3">
+              <dt className="font-semibold text-muted">Phiên bản mục tiêu</dt>
+              <dd className="font-mono font-bold text-text">{installTarget.version}</dd>
+              <dt className="font-semibold text-muted">Git ref</dt>
+              <dd className="break-all font-mono text-text">{installTarget.ref}</dd>
+            </dl>
+          )}
+          {confirmMode === "install" && !canInstall && (
+            <p
+              id="update-install-modal-disabled-reason"
+              className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 font-medium text-amber-800 dark:text-amber-200"
+              role="status"
+            >
+              {installDisabledReason}
+            </p>
+          )}
           <p className="font-bold text-text">
-            Bạn có chắc chắn muốn {confirmMode === "install" ? "nâng cấp phiên bản hệ thống lên bản mới nhất" : "khôi phục (rollback) về bản build trước"} không?
+            Bạn có chắc chắn muốn {confirmMode === "install" ? `nâng cấp phiên bản hệ thống lên ${installTarget?.version || "mục tiêu đã xác minh"}` : "khôi phục (rollback) về bản build trước"} không?
           </p>
         </div>
       </Modal>

@@ -83,6 +83,19 @@ function checkFileRecord(backupDir, label, record) {
   return pass(label, `${label} exists and matches checksum.`);
 }
 
+function checkEnvironmentRecord(backupDir, manifest) {
+  if (manifest.envFile) {
+    return checkFileRecord(backupDir, 'env_file', manifest.envFile);
+  }
+  if (manifest.envManagedExternally === true) {
+    return pass(
+      'env_file',
+      'Environment is explicitly managed by the deployment host and is not part of this backup bundle.',
+    );
+  }
+  return fail('env_file', 'env_file is missing from the backup manifest.');
+}
+
 function runPgRestoreList(options, backupDir, databaseRecord) {
   if (options.skipPgRestoreList || !databaseRecord) {
     return pass('pg_restore_list', 'pg_restore --list check skipped.');
@@ -143,7 +156,7 @@ function runRestoreCheck(options) {
       : fail('backup_age', `Backup is missing a valid completedAt or is older than ${options.maxAgeHours}h.`),
   );
   checks.push(checkFileRecord(backupDir, 'database_dump', manifest.database));
-  checks.push(checkFileRecord(backupDir, 'env_file', manifest.envFile));
+  checks.push(checkEnvironmentRecord(backupDir, manifest));
   checks.push(...checkStorageRecords(backupDir, manifest.storage));
   checks.push(
     !options.requireOffHost || manifest.offHostLocation

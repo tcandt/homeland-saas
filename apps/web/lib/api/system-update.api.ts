@@ -6,9 +6,13 @@ export type SystemUpdateCheck = {
   packageVersion: string;
   currentCommit: string;
   latestCommit: string;
+  targetRef: string;
   updateAvailable: boolean;
   mode: string;
   canInstallAutomatically: boolean;
+  versionSource: 'default-branch' | 'tag' | 'current';
+  versionCheckStatus: 'ok' | 'tag-only' | 'unavailable';
+  versionCheckError: string | null;
   repository: string;
   checkedAt: string;
   changelog: string[];
@@ -25,6 +29,7 @@ export type SystemUpdateJob = {
   progressPercent: number;
   fromVersion?: string;
   toVersion?: string;
+  targetRef?: string;
   dryRun?: boolean;
   startedAt?: string;
   finishedAt?: string;
@@ -58,9 +63,11 @@ export type SystemBackupStatus = {
 };
 
 export const systemUpdateApi = {
-  check: () => apiClient.get<SystemUpdateCheck>('/system-update/check'),
+  check: (forceRefresh = false) => apiClient.get<SystemUpdateCheck>(
+    forceRefresh ? '/system-update/check?refresh=true' : '/system-update/check',
+  ),
   status: () => apiClient.get<SystemUpdateJob>('/system-update/status'),
-  install: (payload: { targetVersion?: string; dryRun?: boolean }) =>
+  install: (payload: { targetVersion?: string; targetRef?: string; dryRun?: boolean }) =>
     apiClient.post<SystemUpdateJob>('/system-update/install', payload),
   rollback: (payload: { targetVersion?: string; dryRun?: boolean }) =>
     apiClient.post<SystemUpdateJob>('/system-update/rollback', payload),

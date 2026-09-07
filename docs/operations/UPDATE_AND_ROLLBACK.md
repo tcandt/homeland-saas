@@ -31,7 +31,7 @@ flowchart TD
 | --- | --- | --- |
 | API module | `apps/api/src/system-update/system-update.module.ts` | Đăng ký controller/service |
 | API controller | `apps/api/src/system-update/system-update.controller.ts` | Route check/status/install/rollback, chặn write nếu không phải `admin@homeland.vn` |
-| API service | `apps/api/src/system-update/system-update.service.ts` | Đọc local SHA, remote SHA, tạo changelog an toàn, tạo job progress |
+| API service | `apps/api/src/system-update/system-update.service.ts` | Đọc version đang chạy, `package.json` trên nhánh mặc định, release tag và SHA mục tiêu bất biến; tạo changelog/job an toàn |
 | Web API client | `apps/web/lib/api/system-update.api.ts` | Gọi endpoint system update |
 | Web UI | `apps/web/components/settings/sections/SettingsSystemUpdate.tsx` | Card version, changelog, progress, modal xác nhận |
 | Settings registry | `apps/web/app/settings/page.tsx` | Thêm section `system-update` |
@@ -39,7 +39,10 @@ flowchart TD
 
 ## Trạng thái hiện tại
 
-- `[x]` Check current commit và remote HEAD.
+- `[x]` Check current commit, remote HEAD, version trong `package.json` của nhánh mặc định và release tag.
+- `[x]` Nếu Git CLI không xác thực được, dùng GitHub API với cùng `SYSTEM_UPDATE_GITHUB_TOKEN` làm fallback.
+- `[x]` Phân biệt rõ `ok`, `tag-only`, `unavailable`; không còn coi lỗi GitHub là "đang ở phiên bản mới nhất".
+- `[x]` Khóa nút và API install khi không có version mới hoặc kết quả kiểm tra không hợp lệ.
 - `[x]` Hiển thị update available/changelog cơ bản.
 - `[x]` Popup xác nhận cập nhật/rollback.
 - `[x]` Job progress và log.
@@ -52,6 +55,25 @@ flowchart TD
 - `[x]` Switch active version manifest có khóa `SYSTEM_UPDATE_ALLOW_SWITCH=true`.
 - `[x]` Restart service thật bằng service manager production khi `SYSTEM_UPDATE_RESTART_COMMAND` đã được cấu hình.
 - `[x]` Health check thật và auto rollback app manifest về release trước khi restart/health fail.
+
+## Nguồn xác định phiên bản
+
+`APP_VERSION` là version của artifact đang chạy. Version mới nhất được chọn theo semantic version lớn nhất giữa:
+
+1. `version` trong `package.json` tại commit HEAD của nhánh mặc định trên GitHub.
+2. Release tag dạng `vMAJOR.MINOR.PATCH`.
+
+Khi version mới chỉ có trên nhánh mặc định (ví dụ `package.json=1.2.9` nhưng tag cao nhất mới là `v1.2.8`), API hiển thị `v1.2.9` và dùng commit SHA của HEAD làm `targetRef` để checkout chính xác. Với annotated tag, API dùng commit SHA đã dereference thay vì SHA của tag object.
+
+Nếu `package.json` vẫn cùng version nhưng HEAD có SHA khác, API chỉ mở cập nhật khi GitHub Compare xác nhận HEAD remote ở trạng thái `ahead` so với commit đang chạy. Trạng thái `behind`, `diverged` hoặc không xác minh được đều bị khóa để tránh vô tình hạ cấp/đổi nhánh. Nhánh mặc định được ưu tiên hơn tag khi hai nguồn khai báo cùng SemVer.
+
+Nếu không xác minh đầy đủ được cả nhánh mặc định và danh sách tag, API trả `versionCheckStatus=unavailable`, UI hiển thị lỗi và khóa cập nhật. Không tự động cài prerelease trừ khi chủ động đặt `SYSTEM_UPDATE_ALLOW_PRERELEASE=true`. Build metadata SemVer có dấu `+` bị từ chối vì không hợp lệ trong Docker image tag; dùng version/release tag không có build metadata. Kết quả kiểm tra được cache mặc định 5 phút (`SYSTEM_UPDATE_CHECK_CACHE_MS=300000`) và nút Làm mới sẽ bỏ qua cache.
+
+Với repository private, phải cấu hình token chỉ có quyền đọc nội dung. Token được truyền cho Git bằng process environment/header tạm thời, không ghép vào URL clone và không lưu trong `.git/config`:
+
+```env
+SYSTEM_UPDATE_GITHUB_TOKEN=<github-token-read-only>
+```
 
 ## Bật runner thật sau này
 
@@ -106,7 +128,9 @@ Biến môi trường:
 | --- | --- | --- |
 | `APP_VERSION` | `unknown` | Version đang chạy để UI hiển thị dạng `v1.1.4`; khi build Docker có thể truyền bằng build arg `APP_VERSION` |
 | `SYSTEM_UPDATE_MODE` | `dry-run` | `enabled` mới chạy runner thật |
-| `SYSTEM_UPDATE_ROOT` | `.codex-update` | Nơi lưu release và manifest |
+| `SYSTEM_UPDATE_CHECK_CACHE_MS` | `300000` | TTL cache kiểm tra GitHub; tối đa 1 giờ |
+| `SYSTEM_UPDATE_ALLOW_PRERELEASE` | `false` | Chỉ đặt `true` khi chủ động nhận bản prerelease |
+| `SYSTEM_UPDATE_ROOT` | `<workspace>/.codex-update` | Nơi lưu release và manifest; runner chuẩn hóa thành đường dẫn tuyệt đối trước khi restart |
 | `SYSTEM_UPDATE_ENV_FILE` | `<workspace>/.env` | Env file dùng cho backup và copy sang release mới |
 | `SYSTEM_UPDATE_STORAGE_DIR` | `STORAGE_DIR` hoặc `<workspace>/storage` | Storage root đưa vào backup bundle |
 | `SYSTEM_UPDATE_BACKUP_OUTPUT_DIR` | `<workspace>/.codex-backups/system-update` | Nơi ghi backup bundle của update runner |
@@ -171,7 +195,7 @@ SYSTEM_UPDATE_MODE=enabled
 SYSTEM_UPDATE_ALLOW_SWITCH=false
 SYSTEM_UPDATE_RUN_BUILD=true
 SYSTEM_UPDATE_RESTART_COMMAND=
-SYSTEM_UPDATE_ROOT=.codex-update
+SYSTEM_UPDATE_ROOT=/opt/homeland/.codex-update
 SYSTEM_UPDATE_API_HEALTH_URL=http://127.0.0.1:3001/api/v1/health/ready
 SYSTEM_UPDATE_WEB_HEALTH_URL=http://127.0.0.1:3000/login
 ```
@@ -206,6 +230,8 @@ Sau đó bấm Rollback trên UI.
 
 Runner hỗ trợ rollback một bước bằng `last-install-manifest.json`: khi update, hệ thống lưu `previousReleasePath`; khi rollback về `currentVersion` của lần update gần nhất, `restart-pm2.sh` sẽ đọc lại path này và reload PM2 về source cũ. Nếu cần rollback xa hơn một version hoặc rollback kèm thay đổi schema dữ liệu, phải dùng backup DB tương ứng và xác nhận thủ công trước khi switch.
 
+`SYSTEM_UPDATE_ROOT` và `SYSTEM_UPDATE_BACKUP_OUTPUT_DIR` được chuẩn hóa thành đường dẫn tuyệt đối rồi truyền qua PM2. Không đặt state dưới thư mục release tương đối, vì process mới chạy với `cwd` mới và sẽ không tìm thấy manifest rollback của release trước.
+
 ## Docker + Linux
 
 Phù hợp khi API/Web/PostgreSQL/Redis chạy bằng Docker Compose.
@@ -218,7 +244,7 @@ File liên quan:
 | `Dockerfile.web` | Build Next.js production |
 | `docker-compose.yml` | PostgreSQL + Redis |
 | `docker-compose.app.yml` | API + Web production services |
-| `scripts/update/restart-docker.sh` | Host-side rebuild/recreate API/Web + health check |
+| `scripts/update/restart-docker.sh` | Host-side stop application containers, clean build, migrate one-off, restart/health, rồi mới xóa image cũ |
 
 Khởi chạy Docker production:
 
@@ -238,32 +264,49 @@ SYSTEM_UPDATE_API_HEALTH_URL=http://api:3001/api/v1/health/ready
 SYSTEM_UPDATE_WEB_HEALTH_URL=http://web:3000/login
 ```
 
-Ở mức này API container sẽ backup/clone/build/preflight trong volume `.codex-update`, nhưng không restart container.
+Ở mức này API container sẽ backup/clone/build/preflight trong volume `.codex-update`, nhưng không restart container. Job kết thúc ở trạng thái chờ kích hoạt; nó chỉ có nghĩa release đã được chuẩn bị, không có nghĩa Docker production đã chuyển version.
 
 Docker restart có 2 phương án:
 
-1. Host-controlled, khuyến nghị:
+1. Host-controlled, bắt buộc cho Compose hiện tại:
 
-   Chạy update mức 2 từ UI, sau khi PASS thì SSH vào host và chạy:
+   Chạy update mức 2 từ UI, sau khi PASS thì SSH vào host và chạy wrapper. Nếu version có release tag tương ứng:
 
    ```bash
-   ./scripts/update/restart-docker.sh
+   ./deploy/public-production/update-public-production.sh v1.2.9
    ```
 
-   Cách này không cần mount Docker socket vào API container.
+   Nếu version mới chỉ có trên nhánh mặc định và chưa có tag, phải truyền thêm commit SHA bất biến mà API trả về:
 
-2. Web-controlled Docker restart, chỉ dùng khi đã chấp nhận rủi ro:
-
-   - Cài Docker CLI trong API image hoặc dùng image có Docker CLI.
-   - Mount Docker socket vào API container.
-   - Cấu hình:
-
-   ```env
-   SYSTEM_UPDATE_ALLOW_SWITCH=true
-   SYSTEM_UPDATE_RESTART_COMMAND="./scripts/update/restart-docker.sh"
+   ```bash
+   ./deploy/public-production/update-public-production.sh v1.2.9 <target-commit-sha>
    ```
 
-   Docker socket gần tương đương quyền root trên host. Không bật trên production nếu chưa có giới hạn network, audit và backup off-host.
+   Wrapper fetch ref, tạo detached Git worktree theo đúng commit, kiểm tra `package.json` của worktree khớp version yêu cầu rồi mới build. Với bundle không có `.git`, wrapper chỉ chấp nhận source package có version khớp chính xác. Có thể truyền một release root đã được xác minh bằng `HOMELAND_RELEASE_ROOT=/absolute/path`.
+
+   Runner thực hiện theo thứ tự cố định:
+
+   1. Giữ exclusive host-update lock, validate Compose và xác nhận có `api`, `web`.
+   2. Kiểm tra `_prisma_migrations` bằng one-off container của release đang chạy. Database thiếu lịch sử hoặc có migration lỗi bị từ chối trước downtime; không tự baseline database vận hành.
+   3. Thu image ID hiện tại, từ chối image dùng chung/nhiều tag, đồng thời giữ image cũ làm recovery point.
+   4. Prune dangling image trước downtime nhưng giữ nguyên mọi image đang được container tham chiếu, đặc biệt image rollback.
+   5. Stop riêng `web`, `notification_worker`, `api`; PostgreSQL, Redis và named volumes tiếp tục chạy.
+   6. Build `api`/`web` bằng `--pull --no-cache` từ immutable release source.
+   7. Chạy duy nhất `prisma migrate deploy` bằng one-off container trong khi API/Web/worker vẫn dừng.
+   8. Recreate application containers, lấy host port thực từ `docker compose port`, rồi health check API/Web.
+   9. Chỉ sau khi health PASS mới xóa image ứng dụng cũ và prune dangling image lần cuối; không chạy `system prune`, `volume prune` hoặc builder prune.
+
+   Nếu stop/build/migration/start/health thất bại, runner retag image cũ và recreate application containers bằng env backup. Wrapper cũng phục hồi file env. Named volume dữ liệu không bị xóa. Migration production vẫn phải được review theo nguyên tắc backward-compatible; recovery container không tự đảo migration dữ liệu.
+
+### Database vận hành cũ thiếu migration history
+
+Nếu database đã có bảng nghiệp vụ nhưng không có `_prisma_migrations`, host updater dừng ngay ở preflight, trước khi stop container. Đây là trạng thái cần DBA xử lý có kiểm soát, không phải database rỗng và **không** được chạy tự động theo runbook baseline tại `DATABASE_BASELINE.md`.
+
+Trước khi mở lại update gate, DBA phải tạo restore point, khôi phục một bản sao cô lập, so sánh schema thực tế với toàn bộ migration đã phát hành, xác định drift/failed history, rồi phê duyệt một kế hoạch forward-fix hoặc reconciliation migration history có audit. Chỉ retry production sau khi bản sao restore chạy `prisma migrate status`/`prisma migrate deploy` thành công và database vận hành có migration history nhất quán. Updater không tự ghi, baseline hay sửa bảng `_prisma_migrations`.
+
+2. Không chạy `restart-docker.sh` trực tiếp từ API container.
+
+   API là một trong các service bị stop; nếu nó tự gọi runner, process cập nhật sẽ bị giết giữa chừng. Runner kiểm tra container hiện tại và fail-closed trước downtime. Không mount Docker socket vào API. Nếu cần tự động hoàn toàn, dùng host agent/systemd job hoặc một updater service độc lập không nằm trong `stop_services`, có audit và quyền Docker được giới hạn riêng.
 
 ## Compose registry cho production VPS
 

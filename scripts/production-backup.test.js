@@ -17,12 +17,21 @@ test('parses backup CLI arguments', () => {
     '--skip-db',
   ]), {
     envFile: '.env.production',
+    envManagedExternally: false,
     outputDir: '.backups',
     storageDir: 'storage',
     skipDb: true,
     skipStorage: false,
     pgDump: process.env.PG_DUMP_PATH || 'pg_dump',
   });
+});
+
+test('requires an explicit and exclusive externally-managed env declaration', () => {
+  assert.equal(parseArguments(['--env-managed-externally']).envManagedExternally, true);
+  assert.throws(
+    () => parseArguments(['--env-file', '.env.production', '--env-managed-externally']),
+    /cannot be used together/,
+  );
 });
 
 test('walkFiles skips symlinks and returns files', () => {
@@ -43,6 +52,7 @@ test('creates a backup manifest without database when --skip-db is used', () => 
 
   const manifest = runBackup({
     envFile: null,
+    envManagedExternally: false,
     outputDir,
     storageDir: storage,
     skipDb: true,

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { authoritativeJournalLineWhere } from './journal-effect.policy';
 
 @Injectable()
 export class FinanceLedgerService {
@@ -7,16 +8,16 @@ export class FinanceLedgerService {
 
   async getAccountBalance(tenantId: string, accountId: string) {
     const debits = await this.prisma.journalLine.aggregate({
-      where: { tenantId, accountId, type: 'DEBIT' },
+      where: authoritativeJournalLineWhere(tenantId, { accountId, type: 'DEBIT' }),
       _sum: { amount: true }
     });
     
     const credits = await this.prisma.journalLine.aggregate({
-      where: { tenantId, accountId, type: 'CREDIT' },
+      where: authoritativeJournalLineWhere(tenantId, { accountId, type: 'CREDIT' }),
       _sum: { amount: true }
     });
 
-    const account = await this.prisma.chartOfAccount.findUnique({ where: { id: accountId } });
+    const account = await this.prisma.chartOfAccount.findFirst({ where: { tenantId, id: accountId } });
     
     let balance = 0;
     if (account?.type === 'ASSET' || account?.type === 'EXPENSE') {

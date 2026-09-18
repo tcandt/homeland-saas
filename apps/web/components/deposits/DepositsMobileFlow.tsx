@@ -9,6 +9,8 @@ import { Button } from "../ui/Button";
 import { ErrorState } from "../ui/ErrorState";
 import { EmptyState } from "../ui/EmptyState";
 import OperationsDepositDrawer from "./OperationsDepositDrawer";
+import DepositQrModal from "./DepositQrModal";
+import { useDepositStore } from "@/lib/stores/deposit.store";
 
 function formatMoney(amount: number) {
   return new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(amount);
@@ -22,7 +24,7 @@ function normalizeDeposits(responseData: any): UI_Deposit[] {
 }
 
 export default function DepositsMobileFlow() {
-  const [selectedDeposit, setSelectedDeposit] = useState<any | null>(null);
+  const { selectedDeposit, setSelectedDeposit } = useDepositStore();
   const { data, isLoading, isError } = useDepositsQuery({ page: 1, limit: 50 });
   const responseData = data?.data as any;
   const deposits = useMemo(() => normalizeDeposits(responseData), [responseData]);
@@ -157,8 +159,6 @@ export default function DepositsMobileFlow() {
           )}
         </div>
       </section>
-
-      <OperationsDepositDrawer deposit={selectedDeposit} onClose={() => setSelectedDeposit(null)} />
     </div>
   );
 }

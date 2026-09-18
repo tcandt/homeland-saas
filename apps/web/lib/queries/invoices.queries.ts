@@ -1,21 +1,45 @@
-import { useQuery } from '@tanstack/react-query';
-import { invoicesApi } from '../api/invoices.api';
+import { useQuery } from "@tanstack/react-query";
+import { InvoiceListParams, invoicesApi } from "../api/invoices.api";
+
+export type InvoiceQueryOptions = {
+  /** Do not fetch a finance-scoped list until its exact rental cycle is known. */
+  requireRentalCycle?: boolean;
+  enabled?: boolean;
+};
+
+export function shouldEnableInvoicesQuery(
+  params?: InvoiceListParams,
+  options: InvoiceQueryOptions = {},
+) {
+  return (options.enabled ?? true) &&
+    (!options.requireRentalCycle || Boolean(params?.rentalCycleId));
+}
 
 export const invoiceKeys = {
-  all: ['invoices'] as const,
-  lists: () => [...invoiceKeys.all, 'list'] as const,
+  all: ["invoices"] as const,
+  lists: () => [...invoiceKeys.all, "list"] as const,
   list: (params: any) => [...invoiceKeys.lists(), params] as const,
-  details: () => [...invoiceKeys.all, 'detail'] as const,
+  details: () => [...invoiceKeys.all, "detail"] as const,
   detail: (id: string) => [...invoiceKeys.details(), id] as const,
 };
 
-export const useInvoicesQuery = (params?: { page?: number; limit?: number; search?: string; status?: string; roomId?: string; customerId?: string; contractId?: string; period?: string; overdue?: boolean }) => {
+export const useInvoicesQuery = (
+  params?: InvoiceListParams,
+  options: InvoiceQueryOptions = {},
+) => {
   return useQuery({
     queryKey: invoiceKeys.list(params),
+    enabled: shouldEnableInvoicesQuery(params, options),
     queryFn: async () => {
       const response = await invoicesApi.list(params);
-      const payload = Array.isArray(response) ? { items: response } : (response as any) || {};
-      const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.data) ? payload.data : [];
+      const payload = Array.isArray(response)
+        ? { items: response }
+        : (response as any) || {};
+      const items = Array.isArray(payload.items)
+        ? payload.items
+        : Array.isArray(payload.data)
+          ? payload.data
+          : [];
       return {
         data: items,
         meta: {
@@ -40,7 +64,7 @@ export const useInvoiceDetailQuery = (id: string) => {
   });
 };
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 export const useIssueInvoiceMutation = () => {
   const queryClient = useQueryClient();
@@ -56,8 +80,17 @@ export const useIssueInvoiceMutation = () => {
 export const usePayInvoiceMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, amount, provider, providerRef }: { id: string; amount: number; provider?: string; providerRef?: string }) => 
-      invoicesApi.pay(id, amount, provider, providerRef),
+    mutationFn: ({
+      id,
+      amount,
+      provider,
+      providerRef,
+    }: {
+      id: string;
+      amount: number;
+      provider: "MANUAL";
+      providerRef: string;
+    }) => invoicesApi.pay(id, amount, provider, providerRef),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
       queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id) });

@@ -50,6 +50,7 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import { hunonicApi, HunonicLockedPeriodRow, HunonicRateApplyPayload } from "@/lib/api/hunonic.api";
+import { formatHunonicHistoryValue, resolveHunonicRateMode } from "@/lib/hunonic/presentation";
 import toast from "react-hot-toast";
 
 function formatCurrency(value?: number | string | null) {
@@ -74,6 +75,11 @@ function formatDateTime(value?: string | null) {
   } catch {
     return value;
   }
+}
+
+function formatCustomRate(rate?: number | string | null) {
+  const value = Number(rate);
+  return Number.isFinite(value) && value > 0 ? `${formatCurrency(value)}/kWh` : "Chưa có đơn giá từ Hunonic";
 }
 
 function isMeterOnline(meter: any): boolean {
@@ -570,10 +576,15 @@ export function ElectricityManagerContent() {
       const energyKwh = Number(m.energyMonthKwh || m.totalKwh || m.currentKwh || 0);
       const cost = Number(m.moneyMonthVnd || m.estimatedCost || m.amount || 0);
       const powerW = Number(m.powerCurrentW || 0);
-      const rateInfo = rateByRoomKey.get(m.id) || rateByRoomKey.get(`${m.buildingCode}::${m.roomCode}`);
-      const isCustomRate = rateInfo?.currentMode === "custom" || m.rateMode === "custom";
-      const customPrice = rateInfo?.customRateVnd || m.customRateVnd || 3500;
-      const rateLabel = isCustomRate ? `Tự thiết lập (${customPrice}đ/kWh)` : "Bậc thang EVN";
+      const rateInfo =
+        rateByRoomKey.get(m.id) ||
+        rateByRoomKey.get(m.providerRootId) ||
+        rateByRoomKey.get(m.providerMeterId) ||
+        rateByRoomKey.get(`${m.buildingCode}::${m.roomCode}`) ||
+        rateByRoomKey.get(`${m.buildingCode}:${m.roomCode}`);
+      const isCustomRate = resolveHunonicRateMode(rateInfo?.currentMode, m.rateMode) === "custom";
+      const customPrice = rateInfo?.customRateVnd ?? m.customRateVnd;
+      const rateLabel = isCustomRate ? `Tự thiết lập (${formatCustomRate(customPrice)})` : "Bậc thang EVN";
 
       return [
         `"${m.roomCode || ""}"`,
@@ -617,8 +628,8 @@ export function ElectricityManagerContent() {
         `"${r.roomCode || ""}"`,
         `"${r.displayName || ""}"`,
         `"${r.deviceName || ""}"`,
-        r.energyMonthKwh || 0,
-        r.moneyMonthVnd || 0,
+        r.energyMonthKwh ?? "",
+        r.moneyMonthVnd ?? "",
         `"${r.isLocked ? "Đã chốt" : "Chưa chốt"}"`,
       ]);
       const csvContent = "\uFEFF" + [headers.join(","), ...csvRows.map((e) => e.join(","))].join("\n");
@@ -944,9 +955,9 @@ export function ElectricityManagerContent() {
                         rateByRoomKey.get(`${meter.buildingCode}::${meter.roomCode}`) ||
                         rateByRoomKey.get(`${meter.buildingCode}:${meter.roomCode}`);
 
-                      const currentMode = rateInfo?.currentMode || meter.rateMode || "residential";
+                      const currentMode = resolveHunonicRateMode(rateInfo?.currentMode, meter.rateMode);
                       const isCustomRate = currentMode === "custom";
-                      const customPrice = rateInfo?.customRateVnd || meter.customRateVnd || 3500;
+                      const customPrice = rateInfo?.customRateVnd ?? meter.customRateVnd;
                       const isActionOpen = openActionRowId === meterId;
 
                       return (
@@ -1012,7 +1023,7 @@ export function ElectricityManagerContent() {
                             <td className="py-2 px-3">
                               {isCustomRate ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                  <Zap size={10} /> Tự thiết lập ({formatCurrency(customPrice)}/kWh)
+                                  <Zap size={10} /> Tự thiết lập ({formatCustomRate(customPrice)})
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
@@ -1149,9 +1160,9 @@ export function ElectricityManagerContent() {
                   rateByRoomKey.get(`${meter.buildingCode}::${meter.roomCode}`) ||
                   rateByRoomKey.get(`${meter.buildingCode}:${meter.roomCode}`);
 
-                const currentMode = rateInfo?.currentMode || meter.rateMode || "residential";
+                const currentMode = resolveHunonicRateMode(rateInfo?.currentMode, meter.rateMode);
                 const isCustomRate = currentMode === "custom";
-                const customPrice = rateInfo?.customRateVnd || meter.customRateVnd || 3500;
+                const customPrice = rateInfo?.customRateVnd ?? meter.customRateVnd;
 
                 return (
                   <Card
@@ -1201,7 +1212,7 @@ export function ElectricityManagerContent() {
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] text-muted">Phương thức:</span>
                         <span className="font-bold text-[10px] text-text">
-                          {isCustomRate ? `Tự lập (${customPrice}đ)` : "Bậc thang EVN"}
+                          {isCustomRate ? `Tự lập (${formatCustomRate(customPrice)})` : "Bậc thang EVN"}
                         </span>
                       </div>
                       {Number(meter.energyPrevMonthKwh || 0) > 0 && (
@@ -1676,6 +1687,11 @@ export function ElectricityManagerContent() {
             {/* TAB CONTENT 1: CHỈ SỐ ĐIỆN THEO KỲ */}
             {historyTab === "readings" && (
               <div className="rounded-xl border border-border overflow-hidden min-h-[300px]">
+                {Number((historyDataRes as any)?.data?.summary?.dataQuality?.incompletePeriods ?? (historyDataRes as any)?.summary?.dataQuality?.incompletePeriods ?? 0) > 0 && (
+                  <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+                    <AlertCircle size={14} /> Có chỉ số thiếu trường từ Hunonic; tổng chỉ cộng các giá trị được nhà cung cấp trả về và các dòng này không dùng để chốt kỳ.
+                  </div>
+                )}
                 <div className="overflow-x-auto max-h-[460px]">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-muted/30 text-[10px] font-bold text-muted uppercase sticky top-0 bg-background z-10 border-b border-border">
@@ -1745,10 +1761,10 @@ export function ElectricityManagerContent() {
                                 </div>
                               </td>
                               <td className="py-2 px-3 text-right font-mono font-black text-amber-600 dark:text-amber-400">
-                                {formatKwh(r.energyMonthKwh || r.totalKwh || 0)}
+                                {formatHunonicHistoryValue(r.energyMonthKwh ?? r.totalKwh, formatKwh)}
                               </td>
                               <td className="py-2 px-3 text-right font-mono font-bold text-primary">
-                                {formatCurrency(r.moneyMonthVnd || r.estimatedCost || 0)}
+                                {formatHunonicHistoryValue(r.moneyMonthVnd ?? r.estimatedCost, formatCurrency)}
                               </td>
                               <td className="py-2 px-3 text-center">
                                 {isLocked ? (

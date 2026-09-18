@@ -57,8 +57,9 @@ export class PaymentsController {
     @Body() body: { logId: string; sourceType: 'INVOICE' | 'DEPOSIT'; sourceCode: string },
     @CurrentUser('tenantId') tenantId: string,
     @CurrentUser('id') userId: string,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
   ) {
-    return this.paymentsService.manualAssignSePayTransaction(tenantId, userId, body as any);
+    return this.paymentsService.manualAssignSePayTransaction(tenantId, userId, body as any, idempotencyKey || '');
   }
 
   @Post('sepay/resolve-overpayment')

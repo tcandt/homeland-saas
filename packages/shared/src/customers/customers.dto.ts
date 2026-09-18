@@ -2,10 +2,15 @@ import { z } from 'zod';
 
 export const CustomerStatusEnum = z.enum(['ACTIVE', 'INACTIVE']);
 
+const OptionalEmailSchema = z.preprocess(
+  (value) => typeof value === 'string' && value.trim() === '' ? null : value,
+  z.string().trim().email('Email không hợp lệ').optional().nullable(),
+);
+
 export const CreateCustomerSchema = z.object({
   fullName: z.string().min(1, 'Full name is required'),
   phone: z.string().min(1, 'Phone is required'),
-  email: z.string().email().optional().nullable(),
+  email: OptionalEmailSchema,
   citizenId: z.string().optional().nullable(),
   gender: z.string().optional().nullable(),
   birthDate: z.string().optional().nullable(),

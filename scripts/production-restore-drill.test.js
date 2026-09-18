@@ -7,9 +7,31 @@ const path = require('path');
 const {
   parseArguments,
   parseDatabaseIdentity,
+  normalizePostgresCliUrl,
+  isHarmlessTransactionTimeoutCompatibilityWarning,
   runRestoreDrill,
   validateRestoreTarget,
 } = require('./production-restore-drill');
+
+test('accepts only the single harmless transaction_timeout compatibility warning', () => {
+  assert.equal(isHarmlessTransactionTimeoutCompatibilityWarning({
+    status: 1,
+    stderr: 'ERROR: unrecognized configuration parameter "transaction_timeout"\nwarning: errors ignored on restore: 1',
+  }), true);
+  assert.equal(isHarmlessTransactionTimeoutCompatibilityWarning({
+    status: 1,
+    stderr: 'ERROR: unrecognized configuration parameter "transaction_timeout"\nERROR: relation failed\nwarning: errors ignored on restore: 2',
+  }), false);
+});
+
+test('removes Prisma-only parameters from the pg_restore target URL', () => {
+  const normalized = normalizePostgresCliUrl(
+    'postgresql://user:pass@127.0.0.1:5432/homeland_restore_drill?schema=public&sslmode=require',
+  );
+  const parsed = new URL(normalized);
+  assert.equal(parsed.searchParams.has('schema'), false);
+  assert.equal(parsed.searchParams.get('sslmode'), 'require');
+});
 
 function writeManifest() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'homeland-restore-drill-'));

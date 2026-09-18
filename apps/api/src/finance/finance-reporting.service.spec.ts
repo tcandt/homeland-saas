@@ -9,6 +9,7 @@ describe('FinanceReportingService', () => {
         findFirst: vi.fn(),
         create: vi.fn(),
         count: vi.fn().mockResolvedValue(0),
+        aggregate: vi.fn(),
         update: vi.fn(),
         findMany: vi.fn().mockResolvedValue([]),
       },
@@ -861,7 +862,9 @@ describe('FinanceReportingService', () => {
         aggregate: vi
           .fn()
           .mockResolvedValueOnce({ _sum: { amount: 2500000 } })
-          .mockResolvedValueOnce({ _sum: { amount: 600000 } }),
+          .mockResolvedValueOnce({ _sum: { amount: 0 } })
+          .mockResolvedValueOnce({ _sum: { amount: 600000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 0 } }),
       },
       contract: {
         findMany: vi.fn().mockResolvedValue([
@@ -1027,9 +1030,13 @@ describe('FinanceReportingService', () => {
         aggregate: vi
           .fn()
           .mockResolvedValueOnce({ _sum: { amount: 12000000 } })
-          .mockResolvedValueOnce({ _sum: { amount: 2500000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 0 } })
+          .mockResolvedValueOnce({ _sum: { amount: 2800000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 0 } })
           .mockResolvedValueOnce({ _sum: { amount: 8000000 } })
-          .mockResolvedValueOnce({ _sum: { amount: 1000000 } }),
+          .mockResolvedValueOnce({ _sum: { amount: 0 } })
+          .mockResolvedValueOnce({ _sum: { amount: 1000000 } })
+          .mockResolvedValueOnce({ _sum: { amount: 0 } }),
       },
       expense: {
         findFirst: vi.fn(),
@@ -1039,10 +1046,8 @@ describe('FinanceReportingService', () => {
         findMany: vi.fn().mockResolvedValue([]),
         aggregate: vi
           .fn()
-          .mockResolvedValueOnce({ _sum: { amount: 2800000 } })
           .mockResolvedValueOnce({ _sum: { amount: 500000 } })
           .mockResolvedValueOnce({ _sum: { amount: 300000 } })
-          .mockResolvedValueOnce({ _sum: { amount: 900000 } })
           .mockResolvedValueOnce({ _sum: { amount: 1300000 } })
           .mockResolvedValueOnce({ _sum: { amount: 200000 } }),
       },
@@ -1079,6 +1084,19 @@ describe('FinanceReportingService', () => {
       profitAfterAdvance: 8100000,
       buildings: [{ id: 'building-3', code: 'LK01-32', name: 'LK01-32' }],
     });
+    expect(prisma.journalLine.aggregate).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        costCenter: { tenantId: 'tenant-1', ownerId: 'owner-1' },
+        journalEntry: expect.objectContaining({ status: { in: ['POSTED', 'REVERSED'] } }),
+      }),
+    }));
+    expect(prisma.journalLine.aggregate).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ costCenter: { tenantId: 'tenant-1', ownerId: 'owner-2' } }),
+    }));
+    // Expense records are retained for advance/drill-down metadata only; they
+    // are not added again to the journal-derived owner P&L.
+    expect(prisma.expense.aggregate).toHaveBeenCalledTimes(4);
   });
 
   it('returns owner detail with electricity revenue attached to building and room breakdown', async () => {
@@ -1086,10 +1104,12 @@ describe('FinanceReportingService', () => {
     journalAggregate
       .mockResolvedValueOnce({ _sum: { amount: 2500000 } })
       .mockResolvedValueOnce({ _sum: { amount: 0 } })
-      .mockResolvedValueOnce({ _sum: { amount: 2500000 } })
       .mockResolvedValueOnce({ _sum: { amount: 600000 } })
-      .mockResolvedValueOnce({ _sum: { amount: 999999 } })
-      .mockResolvedValueOnce({ _sum: { amount: 500000 } });
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 2500000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 600000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } });
 
     const expenseAggregate = vi.fn().mockResolvedValue({ _sum: { amount: 0 } });
     expenseAggregate

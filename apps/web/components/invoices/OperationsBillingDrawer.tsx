@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   AlertTriangle,
   Banknote,
@@ -137,6 +137,7 @@ export default function OperationsBillingDrawer({
   const [showPayModal, setShowPayModal] = useState(false);
   const [payMethod, setPayMethod] = useState<"CASH" | "BANK_TRANSFER">("BANK_TRANSFER");
   const [customPayAmount, setCustomPayAmount] = useState<string>("");
+  const paymentOperationRef = useRef<{ key: string; providerRef: string } | null>(null);
 
   if (!invoice) return null;
 
@@ -297,12 +298,28 @@ export default function OperationsBillingDrawer({
       return;
     }
 
+    // Keep the same operation reference while this payment attempt is retried.
+    // The backend treats tenant + provider + providerRef as the idempotency boundary.
+    const operationKey = `${invoice.id}:MANUAL:${payVal}`;
+    if (paymentOperationRef.current?.key !== operationKey) {
+      paymentOperationRef.current = {
+        key: operationKey,
+        providerRef: crypto.randomUUID(),
+      };
+    }
+
     payMutation.mutate(
-      { id: invoice.id, amount: payVal },
+      {
+        id: invoice.id,
+        amount: payVal,
+        provider: "MANUAL",
+        providerRef: paymentOperationRef.current.providerRef,
+      },
       {
         onSuccess: () => {
           setShowPayModal(false);
           setCustomPayAmount("");
+          paymentOperationRef.current = null;
           toast.success(
             `Đã ghi nhận thu ${formatVnd(payVal)} (${payMethod === "CASH" ? "Tiền mặt" : "Chuyển khoản VietQR"}) thành công!`
           );

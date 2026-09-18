@@ -25,18 +25,21 @@ describe('PaymentsService', () => {
         findFirst: vi.fn(),
         findUnique: vi.fn().mockResolvedValue(null),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         create: vi.fn(),
       },
       task: {
         create: vi.fn(),
         findFirst: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       creditNote: {
         create: vi.fn(),
       },
       journalEntry: {
         findFirst: vi.fn(),
+        create: vi.fn(),
       },
       chartOfAccount: {
         findFirst: vi.fn(),
@@ -82,6 +85,9 @@ describe('PaymentsService', () => {
     );
     if (!prisma.$transaction) {
       prisma.$transaction = vi.fn().mockImplementation(async (callback: any) => callback(prisma));
+    }
+    if (!prisma.$queryRaw) {
+      prisma.$queryRaw = vi.fn().mockResolvedValue([{ lock: 'locked' }]);
     }
 
     const invoicesService = {
@@ -147,7 +153,7 @@ describe('PaymentsService', () => {
 
     const { service, prisma, invoicesService } = createService({
       appSetting: {
-        findMany: vi.fn().mockResolvedValue([{ value: { authMode: 'hmac', hmacSecret: 'hmac-secret-1' } }]),
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { authMode: 'hmac', hmacSecret: 'hmac-secret-1' } }]),
         findUnique: vi.fn(),
       },
       paymentWebhookLog: {
@@ -162,6 +168,7 @@ describe('PaymentsService', () => {
           sourceId: 'invoice-1',
           status: PaymentRequestStatus.PENDING,
           amount: 100000,
+          bankAccountNumber: '123456789',
         }),
         update: vi.fn(),
       },
@@ -196,7 +203,7 @@ describe('PaymentsService', () => {
 
     const { service } = createService({
       appSetting: {
-        findMany: vi.fn().mockResolvedValue([{ value: { authMode: 'hmac', hmacSecret: 'hmac-secret-1' } }]),
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { authMode: 'hmac', hmacSecret: 'hmac-secret-1' } }]),
         findUnique: vi.fn(),
       },
     });
@@ -224,7 +231,7 @@ describe('PaymentsService', () => {
 
     const { service, prisma, invoicesService } = createService({
       appSetting: {
-        findMany: vi.fn().mockResolvedValue([{ value: { authMode: 'dual', webhookApiKey: 'dual-key-1', hmacSecret: 'dual-secret-1' } }]),
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { authMode: 'dual', webhookApiKey: 'dual-key-1', hmacSecret: 'dual-secret-1' } }]),
         findUnique: vi.fn(),
       },
       paymentWebhookLog: {
@@ -239,6 +246,7 @@ describe('PaymentsService', () => {
           sourceId: 'invoice-1',
           status: PaymentRequestStatus.PENDING,
           amount: 100000,
+          bankAccountNumber: '123456789',
         }),
         update: vi.fn(),
       },
@@ -263,7 +271,7 @@ describe('PaymentsService', () => {
     });
     const { service, prisma } = createService({
       appSetting: {
-        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
       },
       paymentWebhookLog: {
@@ -300,7 +308,7 @@ describe('PaymentsService', () => {
   it('matches pending payment request by payment code and bank account number', async () => {
     const { service, prisma, invoicesService, auditService, communicationService } = createService({
       appSetting: {
-        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
       },
       paymentWebhookLog: {
@@ -315,6 +323,7 @@ describe('PaymentsService', () => {
           sourceId: 'invoice-1',
           status: PaymentRequestStatus.PENDING,
           amount: 100000,
+          bankAccountNumber: '123456789',
         }),
         update: vi.fn(),
       },
@@ -331,12 +340,12 @@ describe('PaymentsService', () => {
 
     expect(prisma.paymentRequest.findFirst).toHaveBeenCalledWith({
       where: {
+        tenantId: { in: ['tenant-1'] },
         provider: PaymentProvider.SEPAY,
         paymentCode: 'PAY-TENANT-ABC-XYZ',
-        bankAccountNumber: '123456789',
       },
     });
-    expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 100000, 'SEPAY', 'txn-1', 'SEPAY_WEBHOOK');
+    expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 100000, 'SEPAY', 'txn-1', 'SEPAY_WEBHOOK', 'tenant-1');
     expect(prisma.paymentRequest.update).toHaveBeenCalledWith({
       where: { id: 'request-1' },
       data: expect.objectContaining({
@@ -354,6 +363,50 @@ describe('PaymentsService', () => {
         userId: 'SEPAY_WEBHOOK',
       }),
     );
+  });
+
+  it('binds SePay credentials to the tenant that owns the payment request', async () => {
+    const findFirst = vi.fn().mockImplementation(async ({ where }) => {
+      const allowedTenants = where.tenantId?.in || [];
+      return allowedTenants.includes('tenant-b')
+        ? {
+            id: 'request-b',
+            tenantId: 'tenant-b',
+            sourceType: PaymentSourceType.INVOICE,
+            sourceId: 'invoice-b',
+            status: PaymentRequestStatus.PENDING,
+            amount: 100000,
+          }
+        : null;
+    });
+    const { service, prisma, invoicesService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([
+          { tenantId: 'tenant-a', value: { authMode: 'api_key', webhookApiKey: 'tenant-a-key' } },
+        ]),
+      },
+      paymentWebhookLog: {
+        upsert: vi.fn().mockResolvedValue({ id: 'log-tenant-boundary', processedAt: null }),
+        update: vi.fn(),
+      },
+      paymentRequest: { findFirst },
+    });
+
+    await service.handleSePayWebhook({
+      id: 'txn-tenant-boundary',
+      code: 'PAY-TENANT-B-001',
+      transferType: 'in',
+      transferAmount: 100000,
+      accountNumber: 'BANK-B',
+    }, 'Apikey tenant-a-key');
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({ tenantId: { in: ['tenant-a'] } }),
+    });
+    expect(invoicesService.pay).not.toHaveBeenCalled();
+    expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'NEEDS_REVIEW' }),
+    }));
   });
 
   it('creates invoice payment requests with the owner bank account', async () => {
@@ -627,7 +680,7 @@ describe('PaymentsService', () => {
   it('does not confirm SePay webhooks when the transfer amount is short', async () => {
     const { service, prisma, invoicesService, auditService, communicationService } = createService({
       appSetting: {
-        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
       },
       paymentWebhookLog: {
@@ -691,7 +744,7 @@ describe('PaymentsService', () => {
   it('confirms SePay webhooks with overpayment using the requested amount', async () => {
     const { service, prisma, invoicesService, auditService, communicationService } = createService({
       appSetting: {
-        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
       },
       paymentWebhookLog: {
@@ -720,7 +773,7 @@ describe('PaymentsService', () => {
       transferAmount: 120000,
     }, 'Apikey db-key');
 
-    expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 100000, 'SEPAY', 'txn-over', 'SEPAY_WEBHOOK');
+    expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 100000, 'SEPAY', 'txn-over', 'SEPAY_WEBHOOK', 'tenant-1');
     expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-1',
@@ -746,7 +799,7 @@ describe('PaymentsService', () => {
   it('ignores SePay webhooks with no payment code content', async () => {
     const { service, prisma, invoicesService, auditService } = createService({
       appSetting: {
-        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
       },
       paymentWebhookLog: {
@@ -781,7 +834,7 @@ describe('PaymentsService', () => {
   it('alerts when SePay webhook lands on the wrong bank account for a pending request', async () => {
     const { service, prisma, invoicesService, communicationService, auditService } = createService({
       appSetting: {
-        findMany: vi.fn().mockResolvedValue([{ value: { webhookApiKey: 'db-key' } }]),
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { webhookApiKey: 'db-key' } }]),
         findUnique: vi.fn(),
       },
       paymentWebhookLog: {
@@ -791,7 +844,6 @@ describe('PaymentsService', () => {
       paymentRequest: {
         findFirst: vi
           .fn()
-          .mockResolvedValueOnce(null)
           .mockResolvedValueOnce({
             id: 'request-1',
             tenantId: 'tenant-1',
@@ -1125,10 +1177,20 @@ describe('PaymentsService', () => {
       bankAccount: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'bank-1',
+          ownerId: 'owner-a',
           bankName: 'ACB',
           accountNumber: '123456789',
           accountName: 'Owner A',
         }),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'bank-1',
+            ownerId: 'owner-a',
+            bankName: 'ACB',
+            accountNumber: '123456789',
+            accountName: 'Owner A',
+          },
+        ]),
       },
       invoice: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1147,6 +1209,16 @@ describe('PaymentsService', () => {
           },
         }),
       },
+      room: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'room-1',
+          code: 'R-01',
+          name: 'Room 01',
+          rentalType: 'SHARED',
+          buildingId: 'building-1',
+          building: { id: 'building-1', code: 'B-01', name: 'Building 01', ownerId: 'owner-a' },
+        }),
+      },
     });
     invoicesService.pay.mockResolvedValue({ id: 'invoice-1' });
 
@@ -1155,7 +1227,7 @@ describe('PaymentsService', () => {
         logId: 'log-1',
         sourceType: PaymentSourceType.INVOICE,
         sourceCode: 'INV-001',
-      }),
+      }, 'manual-1'),
     ).resolves.toMatchObject({
       success: true,
       paymentCode: 'PAY-TENANT-MANUAL-001',
@@ -1172,7 +1244,7 @@ describe('PaymentsService', () => {
         bankAccountNumber: '123456789',
       }),
     });
-    expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 90000, 'SEPAY', 'txn-manual-1', 'user-1');
+    expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 90000, 'SEPAY', 'txn-manual-1', 'user-1', 'tenant-1');
     expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
       where: { id: 'log-1' },
       data: expect.objectContaining({
@@ -1192,6 +1264,216 @@ describe('PaymentsService', () => {
     );
   });
 
+  it('keeps a manually collected SePay deposit reclaimable when request completion fails', async () => {
+    const { service, prisma, depositsService } = createService({
+      paymentWebhookLog: {
+        upsert: vi.fn(),
+        update: vi.fn(),
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'log-deposit-retry-1',
+          tenantId: 'tenant-1',
+          status: 'RECEIVED',
+          payload: {
+            id: 'txn-deposit-retry-1',
+            code: 'PAY-TENANT-DEPOSIT-RETRY-1',
+            transferType: 'in',
+            transferAmount: 100000,
+            accountNumber: '123456789',
+          },
+        }),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'request-deposit-retry-1' }),
+        update: vi.fn().mockRejectedValue(new Error('REQUEST_COMPLETION_FAILED')),
+      },
+      deposit: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'deposit-retry-1',
+          tenantId: 'tenant-1',
+          code: 'DEP-RETRY-1',
+          amount: 100000,
+          status: 'DRAFT',
+          roomId: 'room-1',
+          room: { buildingId: 'building-1', building: { ownerId: 'owner-a' } },
+        }),
+      },
+      room: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'room-1', code: 'R-01', name: 'Room 01', rentalType: 'SHARED', buildingId: 'building-1',
+          building: { id: 'building-1', code: 'B-01', name: 'Building 01', ownerId: 'owner-a' },
+        }),
+      },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1', ownerId: 'owner-a', bankName: 'ACB', accountNumber: '123456789', accountName: 'Owner A',
+        }),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'bank-1', ownerId: 'owner-a', bankName: 'ACB', accountNumber: '123456789', accountName: 'Owner A' },
+        ]),
+      },
+    });
+    depositsService.collect.mockResolvedValue({ depositId: 'deposit-retry-1', replayed: false });
+
+    await expect(service.manualAssignSePayTransaction('tenant-1', 'user-1', {
+      logId: 'log-deposit-retry-1', sourceType: PaymentSourceType.DEPOSIT, sourceCode: 'DEP-RETRY-1',
+    }, 'manual-deposit-retry-1')).rejects.toThrow('REQUEST_COMPLETION_FAILED');
+
+    expect(depositsService.collect).toHaveBeenCalledWith(
+      'deposit-retry-1',
+      'Manual SePay assignment txn-deposit-retry-1',
+      'user-1',
+      'sepay:txn-deposit-retry-1',
+    );
+    expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
+      where: { id: 'log-deposit-retry-1' },
+      data: expect.objectContaining({ status: 'FAILED', processedAt: undefined }),
+    });
+  });
+
+  it('replays a manual SePay invoice assignment after request completion fails without another financial command', async () => {
+    const logPayload = {
+      id: 'txn-invoice-retry-1',
+      code: 'PAY-TENANT-INVOICE-RETRY-1',
+      transferType: 'in',
+      transferAmount: 90000,
+      accountNumber: '123456789',
+    };
+    let storedRequest: any = null;
+    let invoiceSettled = false;
+    const paymentRows: any[] = [];
+    const allocationRows: any[] = [];
+    const request = {
+      id: 'request-invoice-retry-1',
+      tenantId: 'tenant-1',
+      provider: PaymentProvider.SEPAY,
+      sourceType: PaymentSourceType.INVOICE,
+      sourceId: 'invoice-retry-1',
+      paymentCode: 'PAY-TENANT-INVOICE-RETRY-1',
+      amount: 90000,
+      bankAccountNumber: '123456789',
+      bankName: 'ACB',
+      bankAccountName: 'Owner A',
+      bankAccountId: 'bank-1',
+      metadata: {},
+      status: PaymentRequestStatus.PENDING,
+    };
+    const { service, prisma, invoicesService } = createService({
+      paymentWebhookLog: {
+        upsert: vi.fn(),
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'log-invoice-retry-1',
+            tenantId: 'tenant-1',
+            status: 'RECEIVED',
+            payload: logPayload,
+          })
+          .mockResolvedValueOnce({
+            id: 'log-invoice-retry-1',
+            tenantId: 'tenant-1',
+            status: 'FAILED',
+            payload: logPayload,
+          }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockImplementation(async () => storedRequest),
+        create: vi.fn().mockImplementation(async ({ data }: any) => {
+          storedRequest = { ...request, ...data };
+          return storedRequest;
+        }),
+        update: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('REQUEST_COMPLETION_FAILED'))
+          .mockResolvedValue({}),
+      },
+      payment: {
+        findFirst: vi.fn().mockImplementation(async () =>
+          invoiceSettled
+            ? {
+                id: 'payment-retry-1',
+                invoiceId: 'invoice-retry-1',
+                amount: 90000,
+                status: 'CONFIRMED',
+              }
+            : null,
+        ),
+      },
+      invoice: {
+        findFirst: vi.fn().mockImplementation(async () => ({
+          id: 'invoice-retry-1',
+          tenantId: 'tenant-1',
+          code: 'INV-RETRY-1',
+          total: 90000,
+          paidAmount: invoiceSettled ? 90000 : 0,
+          creditAmount: 0,
+          status: invoiceSettled ? 'PAID' : 'ISSUED',
+          contract: {
+            roomId: 'room-1',
+            room: { buildingId: 'building-1', building: { ownerId: 'owner-a' } },
+          },
+        })),
+      },
+      room: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'room-1', code: 'R-01', name: 'Room 01', rentalType: 'SHARED', buildingId: 'building-1',
+          building: { id: 'building-1', code: 'B-01', name: 'Building 01', ownerId: 'owner-a' },
+        }),
+      },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1', ownerId: 'owner-a', bankName: 'ACB', accountNumber: '123456789', accountName: 'Owner A',
+        }),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'bank-1', ownerId: 'owner-a', bankName: 'ACB', accountNumber: '123456789', accountName: 'Owner A' },
+        ]),
+      },
+    });
+    invoicesService.pay.mockImplementation(async () => {
+      invoiceSettled = true;
+      paymentRows.push({ id: 'payment-retry-1', providerRef: 'txn-invoice-retry-1' });
+      allocationRows.push({ paymentId: 'payment-retry-1', invoiceId: 'invoice-retry-1', amount: 90000 });
+      return { id: 'invoice-retry-1' };
+    });
+
+    const command = () => service.manualAssignSePayTransaction(
+      'tenant-1',
+      'user-1',
+      { logId: 'log-invoice-retry-1', sourceType: PaymentSourceType.INVOICE, sourceCode: 'INV-RETRY-1' },
+      'manual-invoice-retry-1',
+    );
+    await expect(command()).rejects.toThrow('REQUEST_COMPLETION_FAILED');
+    await expect(command()).resolves.toMatchObject({ success: true, amount: 90000 });
+
+    expect(invoicesService.pay).toHaveBeenCalledTimes(1);
+    expect(invoicesService.pay).toHaveBeenCalledWith(
+      'invoice-retry-1', 90000, 'SEPAY', 'txn-invoice-retry-1', 'user-1', 'tenant-1',
+    );
+    expect(invoiceSettled).toBe(true);
+    expect(paymentRows).toHaveLength(1);
+    expect(allocationRows).toEqual([
+      { paymentId: 'payment-retry-1', invoiceId: 'invoice-retry-1', amount: 90000 },
+    ]);
+    expect(prisma.creditNote.create).not.toHaveBeenCalled();
+    expect(storedRequest.metadata).toMatchObject({
+      manualAssigned: true,
+      idempotencyKey: 'manual-invoice-retry-1',
+      requestHash: expect.any(String),
+    });
+    expect(prisma.paymentRequest.update).toHaveBeenLastCalledWith({
+      where: { id: 'request-invoice-retry-1' },
+      data: expect.objectContaining({
+        status: PaymentRequestStatus.CONFIRMED,
+        providerTransactionId: 'txn-invoice-retry-1',
+      }),
+    });
+    expect(prisma.paymentWebhookLog.update).toHaveBeenLastCalledWith({
+      where: { id: 'log-invoice-retry-1' },
+      data: expect.objectContaining({ status: 'PROCESSED', tenantId: 'tenant-1' }),
+    });
+  });
+
   it('rejects manual deposit assignment when transferred amount does not equal deposit amount', async () => {
     const { service } = createService({
       paymentWebhookLog: {
@@ -1202,8 +1484,9 @@ describe('PaymentsService', () => {
           payload: {
             id: 'txn-manual-2',
             code: 'PAY-TENANT-MANUAL-002',
-            transferType: 'in',
-            transferAmount: 50000,
+          transferType: 'in',
+          transferAmount: 50000,
+            accountNumber: '123456789',
           },
         }),
       },
@@ -1225,6 +1508,15 @@ describe('PaymentsService', () => {
           },
         }),
       },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1',
+          ownerId: 'owner-a',
+          bankName: 'ACB',
+          accountNumber: '123456789',
+          accountName: 'Owner A',
+        }),
+      },
     });
 
     await expect(
@@ -1232,12 +1524,12 @@ describe('PaymentsService', () => {
         logId: 'log-1',
         sourceType: PaymentSourceType.DEPOSIT,
         sourceCode: 'DEP-001',
-      }),
+      }, 'manual-deposit-mismatch-1'),
     ).rejects.toThrow('Số tiền giao dịch phải đúng bằng tiền cọc');
   });
 
-  it('resolves invoice overpayment into customer credit balance', async () => {
-    const { service, prisma, journalEntryService, auditService } = createService({
+  it('resolves invoice overpayment into customer credit balance atomically', async () => {
+    const { service, prisma, auditService } = createService({
       paymentWebhookLog: {
         upsert: vi.fn(),
         update: vi.fn(),
@@ -1279,6 +1571,7 @@ describe('PaymentsService', () => {
       },
       journalEntry: {
         findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'journal-over-1' }),
       },
       chartOfAccount: {
         findFirst: vi
@@ -1309,15 +1602,16 @@ describe('PaymentsService', () => {
         remainingAmount: 20000,
       }),
     });
-    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith(
-      'tenant-1',
+    expect(prisma.journalEntry.create).toHaveBeenCalledWith(
       expect.objectContaining({
+        data: expect.objectContaining({
         sourceType: 'ADJUSTMENT',
         sourceId: 'credit-note-1',
-        lines: [
+        lines: { create: [
           expect.objectContaining({ accountId: 'bank-account', type: 'DEBIT', amount: 20000 }),
           expect.objectContaining({ accountId: 'liability-account', type: 'CREDIT', amount: 20000 }),
-        ],
+        ] },
+        }),
       }),
     );
     expect(auditService.log).toHaveBeenCalledWith(
@@ -1464,14 +1758,17 @@ describe('PaymentsService', () => {
       overpaymentAmount: 30000,
     });
 
-    expect(prisma.task.update).toHaveBeenCalledWith({
-      where: { id: 'task-over-3' },
+    expect(prisma.task.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: 'task-over-3', tenantId: 'tenant-1' }),
       data: expect.objectContaining({
         status: 'DONE',
       }),
     });
-    expect(prisma.paymentRequest.update).toHaveBeenCalledWith({
-      where: { id: 'request-over-3' },
+    expect(prisma.paymentRequest.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: 'request-over-3',
+        tenantId: 'tenant-1',
+      }),
       data: expect.objectContaining({
         metadata: expect.objectContaining({
           overpaymentRefundCompletedBy: 'user-1',

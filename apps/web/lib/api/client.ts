@@ -1,6 +1,6 @@
-import { useAuthStore } from '@/lib/auth/auth-store';
+import { useAuthStore } from '../auth/auth-store';
 import { shouldRecoverSessionFromUnauthorized } from './auth-unauthorized-policy';
-import { clearMobileLoginCredentials, readMobileLoginCredentials, shouldUseMobileSessionRecovery } from '@/lib/auth/mobile-session-recovery';
+import { clearMobileLoginCredentials, readMobileLoginCredentials, shouldUseMobileSessionRecovery } from '../auth/mobile-session-recovery';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001/api/v1';
 let refreshPromise: Promise<string | null> | null = null;

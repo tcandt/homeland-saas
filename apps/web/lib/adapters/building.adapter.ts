@@ -2,6 +2,7 @@ import type { Building, Floor, Room } from '@/components/buildings/building.type
 import { BuildingResponse } from '../api/buildings.api';
 import { FloorResponse } from '../api/floors.api';
 import { RoomResponse } from '../api/rooms.api';
+import { getRoomUiStatus, isNonTerminalContract } from './room-status.adapter';
 
 const toOptionalNumber = (value: unknown): number | undefined => {
   if (value === null || value === undefined || value === '') return undefined;
@@ -60,21 +61,17 @@ export const adaptRoom = (apiRoom: any): Room => {
   const allContracts = (apiRoom.contracts && apiRoom.contracts.length > 0)
     ? apiRoom.contracts.filter((c: any) => !c.deletedAt)
     : [];
-  const activeContract = allContracts.length > 0 ? allContracts[0] : null;
-  // Map Prisma status to UI status, but prefer active/active-like contract data when available
-  let uiStatus = "vacant" as any;
+  const activeContract = allContracts.find((c: any) => isNonTerminalContract(c)) || null;
+
+  const baseUiStatus = getRoomUiStatus(apiRoom);
+  let uiStatus: "occupied" | "vacant" | "deposited" | "maintenance" | "expiring_soon" = baseUiStatus;
   if (activeContract) {
     const endDateMs = activeContract.endDate ? new Date(activeContract.endDate).getTime() : 0;
-    const daysRemaining = Number.isFinite(endDateMs) ? Math.ceil((endDateMs - Date.now()) / (1000 * 3600 * 24)) : null;
+    const daysRemaining = Number.isFinite(endDateMs) && endDateMs > 0 ? Math.ceil((endDateMs - Date.now()) / (1000 * 3600 * 24)) : null;
     if (activeContract.status === "EXPIRING" || (daysRemaining !== null && daysRemaining > 0 && daysRemaining <= 30)) {
       uiStatus = "expiring_soon";
-    } else {
-      uiStatus = "occupied";
     }
-  } else if (apiRoom.status === "OCCUPIED") uiStatus = "occupied";
-  else if (apiRoom.status === "MAINTENANCE") uiStatus = "maintenance";
-  else if (apiRoom.status === "RESERVED") uiStatus = "deposited";
-  else if (apiRoom.status === "AVAILABLE" || apiRoom.status === "CLEANING") uiStatus = "vacant";
+  }
 
   const tenant = activeContract && activeContract.customer ? {
     id: activeContract.customer.id,

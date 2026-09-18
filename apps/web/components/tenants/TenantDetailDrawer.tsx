@@ -28,6 +28,7 @@ import {
   PlusCircle,
   ExternalLink,
   MapPin,
+  AlertTriangle,
 } from "lucide-react";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
@@ -65,6 +66,7 @@ function formatMoney(value: number) {
 export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | null; onClose: () => void }) {
   const [isEditFormOpen, setIsEditFormOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     info: true,
     contract: true,
@@ -131,11 +133,12 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
   };
 
   const handleDelete = () => {
+    setDeleteError(null);
     if (hasContract) {
-      showToast(
-        `Không thể xóa khách thuê "${fullName}" vì vẫn còn hợp đồng (${activeContract?.code || "đang có hiệu lực"}). Bạn phải chấm dứt hoặc thanh lý hợp đồng trước!`,
-        "error"
+      setDeleteError(
+        `Không thể xóa khách thuê "${fullName}" vì vẫn còn hợp đồng (${activeContract?.code || "đang có hiệu lực"}) tại Phòng ${roomLabel}. Bạn cần thanh lý hoặc chấm dứt hợp đồng trước.`
       );
+      setIsDeleteModalOpen(true);
       return;
     }
     setIsDeleteModalOpen(true);
@@ -143,14 +146,13 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
 
   const confirmDelete = () => {
     if (hasContract) {
-      showToast(
-        `Không thể xóa khách thuê "${fullName}" vì vẫn còn hợp đồng (${activeContract?.code || "đang có hiệu lực"}). Bạn phải chấm dứt hoặc thanh lý hợp đồng trước!`,
-        "error"
+      setDeleteError(
+        `Không thể xóa khách thuê "${fullName}" vì vẫn còn hợp đồng (${activeContract?.code || "đang có hiệu lực"}) tại Phòng ${roomLabel}. Bạn cần thanh lý hoặc chấm dứt hợp đồng trước.`
       );
-      setIsDeleteModalOpen(false);
       return;
     }
 
+    setDeleteError(null);
     deleteMutation.mutate(tenant.id, {
       onSuccess: () => {
         showToast("Đã xóa khách thuê thành công.", "success");
@@ -158,7 +160,9 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
         onClose();
       },
       onError: (error: any) => {
-        showToast(error?.message || "Không thể xóa khách thuê do còn dữ liệu liên kết.", "error");
+        const errorMsg = error?.message || error?.response?.data?.message || "Không thể xóa khách thuê do còn dữ liệu ràng buộc trong hệ thống.";
+        setDeleteError(errorMsg);
+        showToast(errorMsg, "error");
       },
     });
   };
@@ -527,24 +531,51 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
 
       <Modal
         isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setDeleteError(null);
+        }}
         title="Xác nhận xóa khách thuê"
         footer={
           <div className="flex justify-end gap-3 w-full">
-            <Button variant="outline" onClick={() => setIsDeleteModalOpen(false)} disabled={deleteMutation.isPending}>
-              Hủy
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsDeleteModalOpen(false);
+                setDeleteError(null);
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteError ? "Đóng" : "Hủy"}
             </Button>
-            <Button onClick={confirmDelete} className="bg-rose-500 text-white hover:bg-rose-600" disabled={deleteMutation.isPending}>
-              {deleteMutation.isPending ? "Đang xóa..." : "Xóa khách thuê"}
-            </Button>
+            {!deleteError && !hasContract && (
+              <Button onClick={confirmDelete} className="bg-rose-500 text-white hover:bg-rose-600" disabled={deleteMutation.isPending}>
+                {deleteMutation.isPending ? "Đang xóa..." : "Xóa khách thuê"}
+              </Button>
+            )}
           </div>
         }
       >
         <div className="py-2 flex flex-col gap-3">
-          <p className="text-sm text-text font-medium">
-            Bạn có chắc chắn muốn xóa khách thuê <span className="font-black">{fullName}</span> không?
-          </p>
-          <p className="text-xs text-muted">Hành động này không thể hoàn tác. Dữ liệu khách thuê sẽ bị xóa khỏi hệ thống.</p>
+          {deleteError ? (
+            <div role="alert" className="p-3.5 rounded-xl border border-rose-300 bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={18} className="text-rose-600 shrink-0" />
+                <span className="text-xs font-bold">Không thể thực hiện xóa hồ sơ</span>
+              </div>
+              <p className="text-xs leading-relaxed">{deleteError}</p>
+              <p className="text-[11px] text-muted dark:text-muted-foreground mt-1">
+                Gợi ý: Mở phòng liên quan để thực hiện quy trình trả phòng / thanh lý hợp đồng trước khi xóa hồ sơ khách.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-text font-medium">
+                Bạn có chắc chắn muốn xóa khách thuê <span className="font-black">{fullName}</span> không?
+              </p>
+              <p className="text-xs text-muted">Hành động này không thể hoàn tác. Dữ liệu khách thuê sẽ bị xóa khỏi hệ thống.</p>
+            </>
+          )}
         </div>
       </Modal>
     </>

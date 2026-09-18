@@ -11,10 +11,15 @@ describe('ReportsService', () => {
     const report = await new ReportsService(prisma).getCashFlow('tenant-1');
 
     expect(aggregate).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      where: expect.objectContaining({ account: { code: { in: ['1000', '1100'] } }, type: 'DEBIT' }),
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        journalEntry: expect.objectContaining({ tenantId: 'tenant-1', status: { in: ['POSTED', 'REVERSED'] } }),
+        account: expect.objectContaining({ tenantId: 'tenant-1', type: 'ASSET' }),
+        type: 'DEBIT',
+      }),
     }));
     expect(aggregate).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      where: expect.objectContaining({ account: { code: { in: ['1000', '1100'] } }, type: 'CREDIT' }),
+      where: expect.objectContaining({ type: 'CREDIT' }),
     }));
     expect(report).toMatchObject({ totalInflow: 5_000_000, totalOutflow: 1_500_000, netCashFlow: 3_500_000 });
   });
@@ -28,10 +33,14 @@ describe('ReportsService', () => {
     const report = await new ReportsService(prisma).getProfitLoss('tenant-1');
 
     expect(findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      where: expect.objectContaining({ account: { type: 'REVENUE' } }),
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        journalEntry: expect.objectContaining({ tenantId: 'tenant-1', status: { in: ['POSTED', 'REVERSED'] } }),
+        account: { tenantId: 'tenant-1', type: 'REVENUE' },
+      }),
     }));
     expect(findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      where: expect.objectContaining({ account: { type: 'EXPENSE' } }),
+      where: expect.objectContaining({ account: { tenantId: 'tenant-1', type: 'EXPENSE' } }),
     }));
     expect(report).toMatchObject({ revenue: 3_800_000, expenses: 1_000_000, netProfit: 2_800_000 });
   });

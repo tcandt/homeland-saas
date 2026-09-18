@@ -2,15 +2,53 @@ import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { ClsService } from 'nestjs-cls';
 
-const TENANT_AWARE_MODELS = [
+export const TENANT_AWARE_MODELS = [
   'Building', 'Floor', 'Room', 'Customer', 'Contract', 
   'Deposit', 'Invoice', 'Payment', 'CreditNote', 'Task', 
   'SalesLead', 'NotificationJob', 'User', 'AuditLog',
   'AppSetting', 'PaymentRequest', 'PaymentWebhookLog',
   'Owner', 'BankAccount', 'CashAccount', 'ChartOfAccount',
   'CostCenter', 'Expense', 'Receipt', 'JournalEntry', 'JournalLine',
-  'Reconciliation', 'ContractParty', 'Occupancy', 'ContractSettlement'
+  'Reconciliation', 'ContractParty', 'Occupancy', 'ContractSettlement', 'RentalCycle',
+  'RoomHold', 'DepositOperation', 'DepositLedgerEntry', 'OutboxEvent'
 ];
+
+const TENANT_FILTER_OPERATIONS = new Set([
+  'findMany',
+  'findFirst',
+  'findFirstOrThrow',
+  'findUnique',
+  'findUniqueOrThrow',
+  'count',
+  'aggregate',
+  'groupBy',
+  'updateMany',
+  'deleteMany',
+]);
+
+export function applyTenantScope(model: string, operation: string, args: any, tenantId: string) {
+  const scopedArgs = args || {};
+  if (!TENANT_AWARE_MODELS.includes(model)) return scopedArgs;
+
+  if (TENANT_FILTER_OPERATIONS.has(operation)) {
+    scopedArgs.where = { ...scopedArgs.where, tenantId };
+  } else if (['create', 'createMany'].includes(operation)) {
+    if (scopedArgs.data) {
+      if (Array.isArray(scopedArgs.data)) {
+        scopedArgs.data = scopedArgs.data.map((data: any) => ({ ...data, tenantId }));
+      } else {
+        scopedArgs.data = { ...scopedArgs.data, tenantId };
+      }
+    }
+  } else if (['update', 'delete'].includes(operation)) {
+    scopedArgs.where = { ...scopedArgs.where, tenantId };
+  } else if (operation === 'upsert') {
+    scopedArgs.where = { ...scopedArgs.where, tenantId };
+    scopedArgs.create = { ...scopedArgs.create, tenantId };
+  }
+
+  return scopedArgs;
+}
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -38,24 +76,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       query: {
         $allModels: {
           async $allOperations({ model, operation, args, query }) {
-            const a = args as any;
-            if (TENANT_AWARE_MODELS.includes(model as string)) {
-              if (['findMany', 'findFirst', 'findUnique', 'count', 'updateMany', 'deleteMany'].includes(operation)) {
-                a.where = { ...a.where, tenantId };
-              } else if (['create', 'createMany'].includes(operation)) {
-                if (a.data) {
-                  if (Array.isArray(a.data)) {
-                    a.data = a.data.map((d: any) => ({ ...d, tenantId }));
-                  } else {
-                    a.data = { ...a.data, tenantId };
-                  }
-                }
-              } else if (['update', 'delete'].includes(operation)) {
-                // Ensure the updated/deleted record belongs to the tenant
-                a.where = { ...a.where, tenantId };
-              }
-            }
-            return query(args);
+            return query(applyTenantScope(model as string, operation, args, tenantId));
           },
         },
       },

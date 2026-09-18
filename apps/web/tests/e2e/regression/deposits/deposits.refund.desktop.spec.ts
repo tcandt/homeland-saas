@@ -7,6 +7,8 @@ type DepositItem = {
   type: string;
   status: string;
   amount: number;
+  availableBalance?: number;
+  pendingOperationId?: string | null;
   note: string | null;
   expiredAt: string | null;
   createdAt: string;
@@ -29,12 +31,16 @@ type DepositItem = {
 };
 
 function createDeposit(overrides: Partial<DepositItem>): DepositItem {
+  const status = overrides.status || "PENDING";
+  const amount = overrides.amount ?? 5000000;
   return {
     id: overrides.id || "dep-1",
     code: overrides.code || "DEP-001",
     type: overrides.type || "SECURITY",
-    status: overrides.status || "PENDING",
-    amount: overrides.amount ?? 5000000,
+    status,
+    amount,
+    availableBalance: overrides.availableBalance ?? (status === "PAID" ? amount : 0),
+    pendingOperationId: overrides.pendingOperationId ?? null,
     note: overrides.note ?? "Khách giữ phòng",
     expiredAt: overrides.expiredAt ?? "2026-08-10T00:00:00.000Z",
     createdAt: overrides.createdAt || "2026-08-09T08:00:00.000Z",
@@ -59,8 +65,12 @@ function createDeposit(overrides: Partial<DepositItem>): DepositItem {
 
 async function mockDeposits(page: any) {
   let cancelPayload: any = null;
+  let cancelIdempotencyKey: string | undefined;
   let completePendingRefundPayload: any = null;
+  let completePendingRefundOperationId: string | undefined;
+  let completePendingRefundIdempotencyKey: string | undefined;
   let refundPayload: any = null;
+  let refundIdempotencyKey: string | undefined;
 
   const deposits: DepositItem[] = [
     createDeposit({
@@ -84,6 +94,7 @@ async function mockDeposits(page: any) {
       amount: 4500000,
       note: "Khách đổi lịch, đang chờ hoàn tiền",
       refundSummary: {
+        operationId: "operation-refund-pending-1",
         receiptId: "receipt-1",
         receiptCode: "RC-001",
         receiptStatus: "PENDING",
@@ -95,10 +106,11 @@ async function mockDeposits(page: any) {
         pending: true,
         completed: false,
       },
+      pendingOperationId: "operation-refund-pending-1",
     }),
   ];
 
-  await page.route("**/api/v1/deposits*", async (route: any) => {
+  await page.route(/\/api\/v1\/deposits(\?.*)?$/, async (route: any) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -112,9 +124,11 @@ async function mockDeposits(page: any) {
     });
   });
 
-  await page.route("**/api/v1/deposits/*/refund", async (route: any) => {
+  await page.route(/\/api\/v1\/deposits\/([^/]+)\/refund$/, async (route: any) => {
     refundPayload = route.request().postDataJSON?.() || {};
-    const id = route.request().url().split("/").slice(-2)[0];
+    refundIdempotencyKey = route.request().headers()['idempotency-key'];
+    const match = route.request().url().match(/\/api\/v1\/deposits\/([^/]+)\/refund/);
+    const id = match ? match[1] : undefined;
     const current = deposits.find((deposit) => deposit.id === id);
 
     await route.fulfill({
@@ -130,36 +144,44 @@ async function mockDeposits(page: any) {
     });
   });
 
-  await page.route("**/api/v1/deposits/*/cancel", async (route: any) => {
+  await page.route(/\/api\/v1\/deposits\/([^/]+)\/commands\/cancel$/, async (route: any) => {
     cancelPayload = route.request().postDataJSON?.() || {};
-    const id = route.request().url().split("/").slice(-2)[0];
+    cancelIdempotencyKey = route.request().headers()['idempotency-key'];
+    const match = route.request().url().match(/\/api\/v1\/deposits\/([^/]+)\/commands\/cancel$/);
+    const id = match ? match[1] : undefined;
     const current = deposits.find((deposit) => deposit.id === id);
 
     if (current) {
-      const resolutionAmount = Number(cancelPayload.resolutionAmount || 0);
-      const refundableAmount =
-        cancelPayload.resolutionAction === "REFUND"
-          ? resolutionAmount
-          : Math.max(Number(current.amount || 0) - resolutionAmount, 0);
+      const refundableAmount = Number(cancelPayload.refundAmount || 0);
 
       current.status = "CANCELLED";
       current.note = cancelPayload.reason || current.note;
       current.updatedAt = "2026-08-12T08:00:00.000Z";
+      const isCompleted = cancelPayload.receiptStatus === "COMPLETED" || cancelPayload.refundStatus === "COMPLETED";
+
       current.refundSummary =
         refundableAmount > 0
           ? {
+              operationId: `operation-${id}`,
               receiptId: `receipt-${id}`,
               receiptCode: `RC-${current.code}`,
-              receiptStatus: cancelPayload.receiptStatus || "PENDING",
+              receiptStatus: isCompleted ? "COMPLETED" : "PENDING",
               receiptAmount: refundableAmount,
               receiptDescription: `Hoàn phần dư cọc ${current.code}`,
               taskId: `task-${id}`,
               taskTitle: `Hoàn cọc ${current.code}`,
-              taskStatus: cancelPayload.receiptStatus === "COMPLETED" ? "DONE" : "IN_PROGRESS",
-              pending: cancelPayload.receiptStatus !== "COMPLETED",
-              completed: cancelPayload.receiptStatus === "COMPLETED",
+              taskStatus: isCompleted ? "DONE" : "IN_PROGRESS",
+              pending: !isCompleted,
+              completed: isCompleted,
             }
           : null;
+      if (refundableAmount > 0 && !isCompleted) {
+        current.pendingOperationId = `operation-${id}`;
+        current.availableBalance = refundableAmount;
+      } else {
+        current.pendingOperationId = null;
+        current.availableBalance = 0;
+      }
     }
 
     await route.fulfill({
@@ -175,10 +197,37 @@ async function mockDeposits(page: any) {
     });
   });
 
-  await page.route("**/api/v1/deposits/*/refund/complete", async (route: any) => {
-    completePendingRefundPayload = route.request().postDataJSON?.() || {};
-    const id = route.request().url().split("/").slice(-3)[0];
+  await page.route(/\/api\/v1\/deposits\/([^/]+)\/cancel$/, async (route: any) => {
+    cancelPayload = route.request().postDataJSON?.() || {};
+    cancelIdempotencyKey = route.request().headers()['idempotency-key'];
+    const match = route.request().url().match(/\/api\/v1\/deposits\/([^/]+)\/cancel$/);
+    const id = match ? match[1] : undefined;
     const current = deposits.find((deposit) => deposit.id === id);
+    if (current) {
+      current.status = "CANCELLED";
+      current.note = cancelPayload.reason || current.note;
+      current.updatedAt = "2026-08-12T08:00:00.000Z";
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: current }),
+    });
+  });
+
+  await page.route(/\/api\/v1\/deposits\/operations\/([^/]+)\/refund\/complete$/, async (route: any) => {
+    completePendingRefundPayload = route.request().postDataJSON?.() || {};
+    completePendingRefundIdempotencyKey = route.request().headers()['idempotency-key'];
+    const match = route.request().url().match(/\/api\/v1\/deposits\/operations\/([^/]+)\/refund\/complete$/);
+    completePendingRefundOperationId = match ? match[1] : undefined;
+    const current = deposits.find(
+      (deposit) => deposit.pendingOperationId === completePendingRefundOperationId,
+    );
+
+    if (!current) {
+      await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ message: "Operation not found" }) });
+      return;
+    }
 
     if (current?.refundSummary) {
       current.refundSummary = {
@@ -188,6 +237,8 @@ async function mockDeposits(page: any) {
         pending: false,
         completed: true,
       };
+      current.pendingOperationId = null;
+      current.availableBalance = 0;
       current.updatedAt = "2026-08-12T09:00:00.000Z";
     }
 
@@ -206,8 +257,9 @@ async function mockDeposits(page: any) {
     });
   });
 
-  await page.route("**/api/v1/deposits/*", async (route: any) => {
-    const id = route.request().url().split("/").pop();
+  await page.route(/\/api\/v1\/deposits\/([^/?]+)$/, async (route: any) => {
+    const match = route.request().url().match(/\/api\/v1\/deposits\/([^/?]+)$/);
+    const id = match ? match[1] : undefined;
     const current = deposits.find((deposit) => deposit.id === id);
 
     await route.fulfill({
@@ -222,8 +274,12 @@ async function mockDeposits(page: any) {
 
   return {
     getCancelPayload: () => cancelPayload,
+    getCancelIdempotencyKey: () => cancelIdempotencyKey,
     getCompletePendingRefundPayload: () => completePendingRefundPayload,
+    getCompletePendingRefundOperationId: () => completePendingRefundOperationId,
+    getCompletePendingRefundIdempotencyKey: () => completePendingRefundIdempotencyKey,
     getRefundPayload: () => refundPayload,
+    getRefundIdempotencyKey: () => refundIdempotencyKey,
   };
 }
 
@@ -258,25 +314,22 @@ test.describe("Deposits Refund Desktop Regression", () => {
 
     await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
 
-    await admin.page.evaluate(() => {
-      const promptQueue = ["Khách đổi kế hoạch", "DEDUCT", "2500000"];
-      const confirmQueue = [false];
-
-      window.prompt = () => promptQueue.shift() ?? null;
-      window.confirm = () => confirmQueue.shift() ?? true;
-      window.alert = () => undefined;
-    });
-
     await admin.page.getByTestId("deposit-action-cancel").click();
+    await expect(admin.page.getByTestId("deposit-cancel-modal")).toBeVisible();
+    await admin.page.getByTestId("deposit-cancel-reason").fill("Khách đổi kế hoạch");
+    await admin.page.getByTestId("deposit-cancel-keep-amount").fill("7500000");
+    await admin.page.getByTestId("deposit-cancel-deduct-amount").fill("2500000");
+    await admin.page.getByTestId("deposit-cancel-submit").click();
 
     await expect
       .poll(() => mock.getCancelPayload(), { timeout: 10000 })
       .toMatchObject({
         reason: "Khách đổi kế hoạch",
-        resolutionAction: "DEDUCT",
-        resolutionAmount: 2500000,
-        receiptStatus: "PENDING",
+        refundAmount: 0,
+        keepAmount: 7500000,
+        deductAmount: 2500000,
       });
+    expect(mock.getCancelIdempotencyKey()).toMatch(/^cancel-/);
   });
 
   test("cancels paid deposit with keep flow payload", async ({ admin }) => {
@@ -290,22 +343,18 @@ test.describe("Deposits Refund Desktop Regression", () => {
 
     await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
 
-    await admin.page.evaluate(() => {
-      const promptQueue = ["Giu coc theo chinh sach", "KEEP", "4000000"];
-      window.prompt = () => promptQueue.shift() ?? null;
-      window.confirm = () => true;
-      window.alert = () => undefined;
-    });
-
     await admin.page.getByTestId("deposit-action-cancel").click();
+    await expect(admin.page.getByTestId("deposit-cancel-modal")).toBeVisible();
+    await admin.page.getByTestId("deposit-cancel-reason").fill("Giữ cọc theo chính sách");
+    await admin.page.getByTestId("deposit-cancel-submit").click();
 
     await expect
       .poll(() => mock.getCancelPayload(), { timeout: 10000 })
       .toMatchObject({
-        reason: "Giu coc theo chinh sach",
-        resolutionAction: "KEEP",
-        resolutionAmount: 4000000,
-        receiptStatus: "COMPLETED",
+        reason: "Giữ cọc theo chính sách",
+        refundAmount: 0,
+        keepAmount: 10000000,
+        deductAmount: 0,
       });
   });
 
@@ -319,22 +368,22 @@ test.describe("Deposits Refund Desktop Regression", () => {
 
     await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
 
-    await admin.page.evaluate(() => {
-      const promptQueue = ["Giữ một phần theo chính sách", "KEEP", "4000000"];
-      window.prompt = () => promptQueue.shift() ?? null;
-      window.confirm = () => false;
-      window.alert = () => undefined;
-    });
-
     await admin.page.getByTestId("deposit-action-cancel").click();
+    await expect(admin.page.getByTestId("deposit-cancel-modal")).toBeVisible();
+    await admin.page.getByTestId("deposit-cancel-reason").fill("Giữ một phần theo chính sách");
+    await admin.page.getByTestId("deposit-cancel-refund-amount").fill("6000000");
+    await admin.page.getByTestId("deposit-cancel-keep-amount").fill("4000000");
+    await admin.page.getByTestId("deposit-cancel-refund-status").selectOption("PENDING");
+    await admin.page.getByTestId("deposit-cancel-submit").click();
 
     await expect
       .poll(() => mock.getCancelPayload(), { timeout: 10000 })
       .toMatchObject({
         reason: "Giữ một phần theo chính sách",
-        resolutionAction: "KEEP",
-        resolutionAmount: 4000000,
-        receiptStatus: "PENDING",
+        refundAmount: 6000000,
+        keepAmount: 4000000,
+        deductAmount: 0,
+        refundStatus: "PENDING",
       });
 
     await expect(admin.page.getByTestId("refund-center-item-dep-paid")).toBeVisible();
@@ -345,18 +394,19 @@ test.describe("Deposits Refund Desktop Regression", () => {
     const drawer = admin.page.getByTestId("deposit-detail-drawer");
     await expect(drawer.getByText("RC-DEP-PAID")).toBeVisible();
     await expect(drawer.getByText("6.000.000đ")).toBeVisible();
-    await expect(drawer.getByTestId("deposit-action-complete-refund")).toBeVisible();
+    await expect(admin.page.getByTestId("deposit-action-complete-refund")).toBeVisible();
 
-    await admin.page.evaluate(() => {
-      window.prompt = () => "Đã chuyển khoản hoàn dư cọc";
-      window.confirm = () => true;
-    });
-    await drawer.getByTestId("deposit-action-complete-refund").click();
+    await admin.page.getByTestId("deposit-action-complete-refund").click();
+    await expect(admin.page.getByTestId("deposit-complete-refund-modal")).toBeVisible();
+    await admin.page.getByTestId("deposit-complete-refund-note").fill("Đã chuyển khoản hoàn dư cọc");
+    await admin.page.getByTestId("deposit-complete-refund-submit").click();
 
     await expect
       .poll(() => mock.getCompletePendingRefundPayload(), { timeout: 10000 })
       .toMatchObject({ note: "Đã chuyển khoản hoàn dư cọc" });
-    await expect(drawer.getByTestId("deposit-action-complete-refund")).not.toBeVisible();
+    expect(mock.getCompletePendingRefundOperationId()).toBe("operation-dep-paid");
+    expect(mock.getCompletePendingRefundIdempotencyKey()).toMatch(/^complete-refund-/);
+    await expect(admin.page.getByTestId("deposit-action-complete-refund")).not.toBeVisible();
   });
 
   test("completes a pending refund from refund center", async ({ admin }) => {
@@ -369,20 +419,18 @@ test.describe("Deposits Refund Desktop Regression", () => {
     await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
     await expect(admin.page.getByTestId("deposit-action-complete-refund")).toBeVisible();
 
-    await admin.page.evaluate(() => {
-      const promptQueue = ["Da chuyen khoan hoan coc"];
-      window.prompt = () => promptQueue.shift() ?? null;
-      window.confirm = () => true;
-      window.alert = () => undefined;
-    });
-
     await admin.page.getByTestId("deposit-action-complete-refund").click();
+    await expect(admin.page.getByTestId("deposit-complete-refund-modal")).toBeVisible();
+    await admin.page.getByTestId("deposit-complete-refund-note").fill("Đã chuyển khoản hoàn cọc");
+    await admin.page.getByTestId("deposit-complete-refund-submit").click();
 
     await expect
       .poll(() => mock.getCompletePendingRefundPayload(), { timeout: 10000 })
       .toMatchObject({
-        note: "Da chuyen khoan hoan coc",
+        note: "Đã chuyển khoản hoàn cọc",
       });
+    expect(mock.getCompletePendingRefundOperationId()).toBe("operation-refund-pending-1");
+    expect(mock.getCompletePendingRefundIdempotencyKey()).toMatch(/^complete-refund-/);
   });
 
   test("refunds a paid deposit immediately with explicit amount", async ({ admin }) => {
@@ -396,22 +444,21 @@ test.describe("Deposits Refund Desktop Regression", () => {
 
     await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
 
-    await admin.page.evaluate(() => {
-      const promptQueue = ["Hoan coc theo thoa thuan", "3200000"];
-      window.prompt = () => promptQueue.shift() ?? null;
-      window.confirm = () => true;
-      window.alert = () => undefined;
-    });
-
     await admin.page.getByTestId("deposit-action-refund").click();
+    await expect(admin.page.getByTestId("deposit-refund-modal")).toBeVisible();
+    await admin.page.getByTestId("deposit-refund-reason").fill("Hoàn cọc theo thỏa thuận");
+    await admin.page.getByTestId("deposit-refund-amount").fill("3200000");
+    await admin.page.getByTestId("deposit-refund-status").selectOption("COMPLETED");
+    await admin.page.getByTestId("deposit-refund-submit").click();
 
     await expect
       .poll(() => mock.getRefundPayload(), { timeout: 10000 })
       .toMatchObject({
-        reason: "Hoan coc theo thoa thuan",
+        reason: "Hoàn cọc theo thỏa thuận",
         receiptStatus: "COMPLETED",
         refundAmount: 3200000,
       });
+    expect(mock.getRefundIdempotencyKey()).toMatch(/^refund-/);
   });
 
   test("cancels an unpaid deposit without paid-resolution payload", async ({ admin }) => {
@@ -425,25 +472,22 @@ test.describe("Deposits Refund Desktop Regression", () => {
 
     await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
 
-    await admin.page.evaluate(() => {
-      const promptQueue = ["Khach khong chuyen coc dung han"];
-      window.prompt = () => promptQueue.shift() ?? null;
-      window.confirm = () => true;
-      window.alert = () => undefined;
-    });
-
     await admin.page.getByTestId("deposit-action-cancel").click();
+    await expect(admin.page.getByTestId("deposit-cancel-modal")).toBeVisible();
+    await admin.page.getByTestId("deposit-cancel-reason").fill("Khách không chuyển cọc đúng hạn");
+    await admin.page.getByTestId("deposit-cancel-submit").click();
 
     await expect
       .poll(() => mock.getCancelPayload(), { timeout: 10000 })
       .toMatchObject({
-        reason: "Khach khong chuyen coc dung han",
+        reason: "Khách không chuyển cọc đúng hạn",
       });
 
     await expect
       .poll(() => mock.getCancelPayload(), { timeout: 10000 })
       .not.toMatchObject({
-        resolutionAction: expect.anything(),
+        refundAmount: expect.anything(),
       });
+    expect(mock.getCancelIdempotencyKey()).toMatch(/^cancel-/);
   });
 });

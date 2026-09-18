@@ -78,6 +78,14 @@ function fileRecord(baseDir, filePath) {
   };
 }
 
+function normalizePostgresCliUrl(databaseUrl) {
+  const parsed = new URL(databaseUrl);
+  for (const key of ['schema', 'connection_limit', 'pool_timeout', 'pgbouncer', 'statement_cache_size']) {
+    parsed.searchParams.delete(key);
+  }
+  return parsed.toString();
+}
+
 function copyFileWithParents(sourceRoot, targetRoot, sourcePath) {
   const relative = path.relative(sourceRoot, sourcePath);
   const targetPath = path.join(targetRoot, relative);
@@ -113,7 +121,8 @@ function runPgDump(options, backupDir) {
 
   const dumpPath = path.join(backupDir, 'database.dump');
   ensureInside(backupDir, dumpPath);
-  const result = spawnSync(options.pgDump, ['--format=custom', '--no-owner', '--no-acl', '--file', dumpPath, databaseUrl], {
+  const cliDatabaseUrl = normalizePostgresCliUrl(databaseUrl);
+  const result = spawnSync(options.pgDump, ['--format=custom', '--no-owner', '--no-acl', '--file', dumpPath, cliDatabaseUrl], {
     stdio: 'pipe',
     encoding: 'utf8',
   });
@@ -229,6 +238,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  normalizePostgresCliUrl,
   parseArguments,
   runBackup,
   walkFiles,

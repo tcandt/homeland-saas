@@ -9,4 +9,8 @@ export class DomainEventPublisher {
   publish(eventName: string, event: DomainEventInterface) {
     this.eventEmitter.emit(eventName, event);
   }
+
+  async publishAsync(eventName: string, event: DomainEventInterface) {
+    await this.eventEmitter.emitAsync(eventName, event);
+  }
 }

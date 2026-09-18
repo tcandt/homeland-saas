@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Phase 8 & 9: Financial Reconciliation Flow",
+    "animation": "trace",
+    "visual_preset": "blueprint",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "ui", "label": "Giao Diện (UI)" },
+    { "id": "processing", "label": "Xử Lý Thanh Toán" },
+    { "id": "data", "label": "Dữ Liệu & Sổ Cái" },
+    { "id": "reports", "label": "Báo Cáo (Reports)" }
+  ],
+  "nodes": [
+    { "id": "invoice", "lane": "ui", "col": 0, "type": "frontend", "label": "Hóa Đơn / Cọc", "sublabel": "Chờ thanh toán", "width": 140 },
+    { "id": "payment_form", "lane": "ui", "col": 1, "type": "frontend", "label": "Màn Hình Thu", "sublabel": "Nhập số tiền", "width": 140 },
+    { "id": "payment_api", "lane": "processing", "col": 1, "type": "backend", "label": "Payment API", "sublabel": "Xác thực", "width": 140 },
+    { "id": "allocation", "lane": "processing", "col": 2, "type": "backend", "label": "Phân Bổ Tiền", "sublabel": "Allocation", "width": 140 },
+    { "id": "ledger", "lane": "data", "col": 3, "type": "database", "label": "Sổ Cái", "sublabel": "Financial Ledger", "width": 140 },
+    { "id": "invoice_paid", "lane": "ui", "col": 3, "type": "frontend", "label": "Cập Nhật UI", "sublabel": "PAID", "width": 140 },
+    { "id": "reconciliation", "lane": "reports", "col": 4, "type": "backend", "label": "Engine Đối Soát", "sublabel": "Reconciliation", "width": 140 },
+    { "id": "dashboard", "lane": "reports", "col": 5, "type": "frontend", "label": "Dashboard", "sublabel": "Tổng hợp thời gian thực", "width": 140 }
+  ],
+  "edges": [
+    { "id": "e1", "from": "invoice", "to": "payment_form", "variant": "default" },
+    { "id": "e2", "from": "payment_form", "to": "payment_api", "label": "Xác nhận", "variant": "emphasis" },
+    { "id": "e3", "from": "payment_api", "to": "allocation", "variant": "default" },
+    { "id": "e4", "from": "allocation", "to": "ledger", "label": "Ghi nhận Cash In", "variant": "emphasis" },
+    { "id": "e5", "from": "allocation", "to": "invoice_paid", "variant": "default" },
+    { "id": "e6", "from": "ledger", "to": "reconciliation", "label": "Đọc số liệu", "variant": "dashed" },
+    { "id": "e7", "from": "reconciliation", "to": "dashboard", "label": "Hiển thị", "variant": "emphasis" }
+  ]
+}

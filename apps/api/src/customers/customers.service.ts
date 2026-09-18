@@ -505,32 +505,70 @@ export class CustomersService extends BaseCrudService<Customer> {
     sort?: string,
     order?: string
   ): Promise<PaginatedResult<Customer>> {
-    const where: any = {};
+    const filters: any[] = [];
     if (search) {
-      where.OR = [
-        { fullName: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: search, mode: 'insensitive' } },
-        { identityNo: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-        { zaloChatId: { contains: search, mode: 'insensitive' } },
-        { zaloUserId: { contains: search, mode: 'insensitive' } },
-      ];
+      filters.push({
+        OR: [
+          { fullName: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search, mode: 'insensitive' } },
+          { identityNo: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { zaloChatId: { contains: search, mode: 'insensitive' } },
+          { zaloUserId: { contains: search, mode: 'insensitive' } },
+        ],
+      });
     }
     if (status) {
-      // Map status enum to Contract relation queries
+      // A customer can be staying as a roommate without owning a contract.
       if (status === 'ACTIVE' || status === 'Đang thuê') {
-        where.contracts = { some: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } };
+        filters.push({
+          OR: [
+            { contracts: { some: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
+            { occupancies: { some: { leftAt: null } } },
+          ],
+        });
       } else if (status === 'INACTIVE' || status === 'Đã trả phòng') {
-        where.contracts = { none: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } };
+        filters.push({
+          contracts: { none: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } },
+        });
+        filters.push({ occupancies: { none: { leftAt: null } } });
       } else if (status === 'DEBT' || status === 'Đang nợ') {
-        where.invoices = { some: { status: 'OVERDUE' } };
+        filters.push({ invoices: { some: { status: 'OVERDUE' } } });
       }
     }
 
+    const where: any = filters.length > 0 ? { AND: filters } : {};
     const orderBy = { [sort || 'createdAt']: order || 'desc' };
 
     return this.repository.paginate(where, page, limit, orderBy, {
-      _count: { select: { contracts: true } }
+      room: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          building: { select: { id: true, code: true, name: true } },
+        },
+      },
+      occupancies: {
+        where: { leftAt: null },
+        orderBy: { joinedAt: 'desc' },
+        take: 1,
+        select: {
+          id: true,
+          contractId: true,
+          role: true,
+          joinedAt: true,
+          room: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              building: { select: { id: true, code: true, name: true } },
+            },
+          },
+        },
+      },
+      _count: { select: { contracts: true } },
     });
   }
 }

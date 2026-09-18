@@ -30,6 +30,10 @@ import { useResendSingleNotificationMutation } from "@/lib/queries/monthly-settl
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { getTenantAvatar } from "@/components/tenants/TenantDetailDrawer";
+import {
+  BillingProvenanceBadge,
+  ElectricityMismatchAlert,
+} from "./BillingSnapshotPresentation";
 import toast from "react-hot-toast";
 
 interface RoomSettlementDetailDrawerProps {
@@ -165,6 +169,8 @@ export default function RoomSettlementDetailDrawer({
             onClick={onClose}
             className="h-8 w-8 rounded-full border border-border/80 bg-background flex items-center justify-center text-muted hover:text-text hover:bg-muted/40 transition-colors shrink-0"
             title="Đóng (ESC)"
+            aria-label="Đóng chi tiết chốt tháng"
+            data-testid="settlement-detail-close"
           >
             <X size={15} />
           </button>
@@ -336,6 +342,22 @@ export default function RoomSettlementDetailDrawer({
                   )}
                 </div>
 
+                {item.hasContract && (
+                  <p
+                    data-testid="settlement-invoice-snapshot-notice"
+                    className="border-b border-border bg-sky-500/5 px-4 py-2 text-[11px] font-medium text-muted"
+                  >
+                    {item.billingDataSource === "LOCKED_SNAPSHOT"
+                      ? "Hóa đơn giữ nguyên snapshot đã chốt; dữ liệu hiện tại chỉ dùng để đối soát và không ghi đè hóa đơn."
+                      : "Dữ liệu chưa khóa, chỉ tạm tính; cần chốt trước khi dùng để lập hoặc gửi hóa đơn."}
+                    {item.billingDataSource === "LOCKED_SNAPSHOT" && (
+                      <span className="ml-1 font-mono text-[10px] text-text" data-testid="settlement-invoice-snapshot-trace">
+                        [{item.billingSnapshotId || "không có mã"} · kỳ {item.usagePeriod || "không rõ"}]
+                      </span>
+                    )}
+                  </p>
+                )}
+
                 <div className="divide-y divide-border/60 text-xs">
                   {/* Tiền phòng */}
                   <div className="p-3.5 flex items-center justify-between">
@@ -388,6 +410,14 @@ export default function RoomSettlementDetailDrawer({
                               {formatKwh(item.electricityKwh)}
                             </span>
                           )}
+                          <BillingProvenanceBadge
+                            hasContract={item.hasContract}
+                            dataSource={item.billingDataSource}
+                            snapshotId={item.billingSnapshotId}
+                            usagePeriod={item.usagePeriod}
+                            testId={`settlement-detail-provenance-${item.roomId}`}
+                            className="text-[9px] font-black"
+                          />
                         </div>
                         <div className="text-[11px] text-muted mt-0.5">
                           {item.isFirstMonthNewTenant ? (
@@ -408,6 +438,11 @@ export default function RoomSettlementDetailDrawer({
                       {formatVnd(item.electricityAmount)}
                     </div>
                   </div>
+
+                  <ElectricityMismatchAlert
+                    reconciliation={item.electricityReconciliation}
+                    testId={`settlement-detail-electricity-mismatch-${item.roomId}`}
+                  />
 
                   {/* Tiền nước */}
                   <div className="p-3.5 flex items-center justify-between">

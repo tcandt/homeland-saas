@@ -1,0 +1,89 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Booking Deposit Flow",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "ui",
+      "label": "UI (Frontend)"
+    },
+    {
+      "id": "api",
+      "label": "API (Backend)"
+    },
+    {
+      "id": "db",
+      "label": "Database"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "ui_invoice_modal",
+      "label": "Lập Hóa đơn / Cọc",
+      "type": "frontend",
+      "lane": "ui",
+      "col": 0,
+      "width": 140
+    },
+    {
+      "id": "api_deposit_create",
+      "label": "API: Create Deposit",
+      "type": "backend",
+      "lane": "api",
+      "col": 1,
+      "width": 140
+    },
+    {
+      "id": "db_deposit",
+      "label": "Deposit Table",
+      "type": "database",
+      "lane": "db",
+      "col": 2
+    },
+    {
+      "id": "contract_creation",
+      "label": "Tạo Hợp đồng",
+      "type": "frontend",
+      "lane": "ui",
+      "col": 3
+    },
+    {
+      "id": "convert_deposit",
+      "label": "Chuyển Cọc giữ chỗ\nsang Cọc HĐ",
+      "type": "backend",
+      "lane": "api",
+      "col": 4,
+      "width": 210
+    }
+  ],
+  "edges": [
+    {
+      "from": "ui_invoice_modal",
+      "to": "api_deposit_create",
+      "label": "Tạo phiếu cọc\n(BOOKING)"
+    },
+    {
+      "from": "api_deposit_create",
+      "to": "db_deposit",
+      "label": "Lưu Deposit"
+    },
+    {
+      "from": "db_deposit",
+      "to": "contract_creation",
+      "label": "Cọc đã HELD\ncho phép tạo HĐ"
+    },
+    {
+      "from": "contract_creation",
+      "to": "convert_deposit",
+      "label": "Xác nhận & Cấn trừ"
+    },
+    {
+      "from": "convert_deposit",
+      "to": "db_deposit",
+      "label": "Update type: SECURITY"
+    }
+  ]
+}

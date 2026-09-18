@@ -10,7 +10,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import { useCustomersQuery } from "@/lib/queries/customers.queries";
+import { useCustomersQuery } from "../../lib/queries/customers.queries";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
@@ -22,15 +22,31 @@ export type ExistingCustomerOption = {
   identityNo?: string | null;
   address?: string | null;
   roomId?: string | null;
+  occupancies?: Array<{
+    id?: string;
+    roomId?: string;
+    leftAt?: string | null;
+    room?: { id?: string; code?: string; name?: string };
+  }>;
+  contracts?: Array<{
+    id?: string;
+    status?: string;
+    roomId?: string;
+    deletedAt?: string | null;
+  }>;
   _count?: {
     contracts?: number;
   };
 };
 
+import { maskPhone, maskCccd } from "../../lib/adapters/tenant-masking.adapter";
+export { maskPhone, maskCccd };
+
 type TenantSourcePickerModalProps = {
   isOpen: boolean;
   currentRoomId: string;
   currentOccupantIds: string[];
+  initialSearch?: string;
   onClose: () => void;
   onCreateNew: () => void;
   onSelectExisting: (customer: ExistingCustomerOption) => Promise<boolean>;
@@ -40,6 +56,7 @@ export default function TenantSourcePickerModal({
   isOpen,
   currentRoomId,
   currentOccupantIds,
+  initialSearch,
   onClose,
   onCreateNew,
   onSelectExisting,
@@ -51,11 +68,18 @@ export default function TenantSourcePickerModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setView("choose");
-    setSearch("");
-    setDebouncedSearch("");
+    if (initialSearch && initialSearch.trim()) {
+      setView("existing");
+      const trimmed = initialSearch.trim();
+      setSearch(trimmed);
+      setDebouncedSearch(trimmed);
+    } else {
+      setView("choose");
+      setSearch("");
+      setDebouncedSearch("");
+    }
     setSelectingCustomerId(null);
-  }, [isOpen]);
+  }, [isOpen, initialSearch]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -206,17 +230,23 @@ export default function TenantSourcePickerModal({
             ) : (
               <div className="flex flex-col gap-1.5">
                 {availableCustomers.map((customer: ExistingCustomerOption) => {
-                  const isInAnotherRoom = Boolean(customer.roomId && customer.roomId !== currentRoomId);
-                  const isInCurrentRoom = customer.roomId === currentRoomId;
-                  const isAssignedToRoom = isInAnotherRoom || isInCurrentRoom;
+                  const occupancies = customer.occupancies || [];
+                  const activeOccupancy = Array.isArray(occupancies) ? occupancies.find((occ: any) => !occ.leftAt) : null;
+                  const activeRoom = activeOccupancy?.room || (customer as any).room;
+                  const activeRoomId = activeOccupancy?.roomId || (activeOccupancy?.room?.id);
+
+                  const isInAnotherRoom = Boolean(activeOccupancy && activeRoomId && activeRoomId !== currentRoomId);
+                  const isInCurrentRoom = Boolean(occupantIdSet.has(customer.id) || (activeOccupancy && activeRoomId === currentRoomId));
                   const isSelecting = selectingCustomerId === customer.id;
+                  const isBlocked = isInCurrentRoom || isInAnotherRoom;
+
                   return (
                     <button
                       key={customer.id}
                       type="button"
                       data-testid={`existing-tenant-${customer.id}`}
                       onClick={() => handleSelect(customer)}
-                      disabled={Boolean(selectingCustomerId) || isAssignedToRoom}
+                      disabled={Boolean(selectingCustomerId) || isBlocked}
                       className="flex min-h-[72px] w-full items-center gap-3 rounded-xl border border-transparent bg-card px-3 py-2.5 text-left transition-colors hover:border-primary/30 hover:bg-primary/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-black text-primary">
@@ -227,16 +257,22 @@ export default function TenantSourcePickerModal({
                           {customer.fullName || "Khách chưa có tên"}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted">
-                          {customer.phone || "Chưa có SĐT"}
-                          {customer.identityNo ? ` · CCCD ${customer.identityNo}` : ""}
+                          {customer.phone ? maskPhone(customer.phone) : "Chưa có SĐT"}
+                          {customer.identityNo ? ` · CCCD ${maskCccd(customer.identityNo)}` : ""}
                         </span>
                         <span className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
-                          {isAssignedToRoom ? (
+                          {isInCurrentRoom ? (
                             <span className="text-amber-600 dark:text-amber-400">
-                              {isInCurrentRoom ? "Đã có trong phòng hiện tại" : "Đang được gắn với phòng khác"}
+                              Đã có trong phòng hiện tại
+                            </span>
+                          ) : isInAnotherRoom ? (
+                            <span className="text-rose-600 dark:text-rose-400">
+                              Đang ở tại {activeRoom?.code || activeRoom?.name || "phòng khác"} (Cần trả phòng trước)
                             </span>
                           ) : (
-                            <span className="text-emerald-600 dark:text-emerald-400">Có thể kiểm tra và chọn</span>
+                            <span className="text-emerald-600 dark:text-emerald-400">
+                              Hồ sơ cũ có thể tái sử dụng
+                            </span>
                           )}
                           {Number(customer._count?.contracts || 0) > 0 && (
                             <span className="text-muted">

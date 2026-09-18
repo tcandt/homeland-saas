@@ -453,10 +453,15 @@ export class SystemUpdateService {
         const dump = JSON.parse(readFileSync(dataDumpPath, 'utf8'));
         await this.prisma.$transaction(async (tx) => {
           // 1. Clear current operational tables
+          await (tx as any).$executeRawUnsafe?.("SET LOCAL app.allow_deposit_ledger_mutation = 'on'");
           await (tx as any).paymentAllocation?.deleteMany({ where: { tenantId } }).catch(() => null);
           await (tx as any).payment?.deleteMany({ where: { tenantId } }).catch(() => null);
           await (tx as any).invoiceItem?.deleteMany({ where: { invoice: { tenantId } } }).catch(() => null);
           await (tx as any).invoice?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).outboxEvent?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).depositLedgerEntry?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).depositOperation?.deleteMany({ where: { tenantId } }).catch(() => null);
+          await (tx as any).roomHold?.deleteMany({ where: { tenantId } }).catch(() => null);
           await (tx as any).deposit?.deleteMany({ where: { tenantId } }).catch(() => null);
           await (tx as any).contractTenant?.deleteMany({ where: { tenantId } }).catch(() => null);
           await (tx as any).contract?.deleteMany({ where: { tenantId } }).catch(() => null);
@@ -684,6 +689,7 @@ export class SystemUpdateService {
 
     if (scope === 'ALL_BUSINESS_DATA' || scope === 'DEMO_DATA') {
       await this.prisma.$transaction(async (tx) => {
+        await (tx as any).$executeRawUnsafe?.("SET LOCAL app.allow_deposit_ledger_mutation = 'on'");
         // 1. Payment allocations & payments
         const pAlloc = await (tx as any).paymentAllocation?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
         const pWebhooks = await (tx as any).paymentWebhookLog?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
@@ -695,28 +701,34 @@ export class SystemUpdateService {
         const invItems = await (tx as any).invoiceItem?.deleteMany({ where: { invoice: { tenantId } } }).catch(() => ({ count: 0 }));
         const invoices = await (tx as any).invoice?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
 
-        // 3. Deposits
+        // 3. CORE-04/05 outbox, immutable deposit ledger and holds must be removed before deposits.
+        const outboxEvents = await (tx as any).outboxEvent?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const depositLedgerEntries = await (tx as any).depositLedgerEntry?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const depositOperations = await (tx as any).depositOperation?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+        const roomHolds = await (tx as any).roomHold?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+
+        // 4. Deposits
         const deposits = await (tx as any).deposit?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
 
-        // 4. Contracts & ContractTenants
+        // 5. Contracts & ContractTenants
         const cTenants = await (tx as any).contractTenant?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
         const contracts = await (tx as any).contract?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
 
-        // 5. Meter readings & routes
+        // 6. Meter readings & routes
         const meterReadings = await (tx as any).hunonicMeterReading?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
         const meterMappings = await (tx as any).hunonicMeterMapping?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
         const routes = await (tx as any).roomPaymentAccountRoute?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
 
-        // 6. Customers (Khách thuê)
+        // 7. Customers (Khách thuê)
         const customers = await (tx as any).customer?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
 
-        // 7. Finance transactions
+        // 8. Finance transactions
         const expenses = await (tx as any).expense?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
         const receipts = await (tx as any).receipt?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
         const jLines = await (tx as any).journalLine?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
         const jEntries = await (tx as any).journalEntry?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
 
-        // 8. BẢO TỒN NGUYÊN VẸN TÒA NHÀ, TẦNG, PHÒNG - Chỉ đặt lại trạng thái phòng về "Trống" (AVAILABLE)
+        // 9. BẢO TỒN NGUYÊN VẸN TÒA NHÀ, TẦNG, PHÒNG - Chỉ đặt lại trạng thái phòng về "Trống" (AVAILABLE)
         await (tx as any).room?.updateMany({
           where: { tenantId },
           data: {
@@ -727,7 +739,7 @@ export class SystemUpdateService {
           },
         });
 
-        // 9. Tasks, incidents, notifications
+        // 10. Tasks, incidents, notifications
         const incidents = await (tx as any).incident?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
         const tasks = await (tx as any).task?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
         const notifs = await (tx as any).notificationQueue?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
@@ -739,6 +751,10 @@ export class SystemUpdateService {
         deletedCounts.deposits = deposits?.count ?? 0;
         deletedCounts.invoices = invoices?.count ?? 0;
         deletedCounts.payments = payments?.count ?? 0;
+        deletedCounts.depositLedgerEntries = depositLedgerEntries?.count ?? 0;
+        deletedCounts.depositOperations = depositOperations?.count ?? 0;
+        deletedCounts.roomHolds = roomHolds?.count ?? 0;
+        deletedCounts.outboxEvents = outboxEvents?.count ?? 0;
       });
     } else if (scope === 'DRAFT_TRANSACTIONS') {
       await this.prisma.$transaction(async (tx) => {

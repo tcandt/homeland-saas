@@ -42,6 +42,7 @@ services:
     environment:
       PORT: ${API_CONTAINER_PORT}
       NODE_ENV: production
+      DEPLOY_ENV: staging
       DATABASE_URL: postgresql://homeland:${POSTGRES_PASSWORD}@postgres:5432/homeland?schema=public
       REDIS_URL: redis://redis:6379
       APP_URL: http://localhost:${API_HOST_PORT}

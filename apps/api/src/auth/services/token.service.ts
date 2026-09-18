@@ -19,14 +19,14 @@ export class TokenService {
   ) {}
 
   generateAccessToken(payload: JwtPayload): string {
-    return this.jwtService.sign(payload, {
+    return this.jwtService.sign({ ...payload, tokenType: 'access' }, {
       expiresIn: this.configService.get('auth.jwtExpiresIn') || '15m',
     });
   }
 
   generateRefreshToken(payload: JwtPayload): string {
     // For refresh tokens, we can use JWT with a longer expiration
-    return this.jwtService.sign(payload, {
+    return this.jwtService.sign({ ...payload, tokenType: 'refresh' }, {
       expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') || '7d',
     });
   }
@@ -44,10 +44,18 @@ export class TokenService {
   }
 
   verifyAccessToken(token: string): any {
-    return this.jwtService.verify(token);
+    const payload = this.jwtService.verify(token);
+    if (payload?.tokenType !== 'access') {
+      throw new Error('Invalid access token type');
+    }
+    return payload;
   }
 
   verifyRefreshToken(token: string): any {
-    return this.jwtService.verify(token);
+    const payload = this.jwtService.verify(token);
+    if (payload?.tokenType !== 'refresh') {
+      throw new Error('Invalid refresh token type');
+    }
+    return payload;
   }
 }

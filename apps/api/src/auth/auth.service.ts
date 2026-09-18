@@ -100,11 +100,11 @@ export class AuthService {
       mustChangePassword: user.mustChangePassword,
     };
 
-    const accessToken = this.jwtService.sign(payload, {
+    const accessToken = this.jwtService.sign({ ...payload, tokenType: 'access' }, {
       expiresIn: this.configService.get('auth.jwtExpiresIn'),
     });
 
-    const refreshToken = this.jwtService.sign(payload, {
+    const refreshToken = this.jwtService.sign({ ...payload, tokenType: 'refresh' }, {
       expiresIn: this.configService.get('auth.jwtRefreshExpiresIn'),
     });
 
@@ -196,8 +196,8 @@ export class AuthService {
     const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
 
     const payload = { sub: user.id, tenantId: user.tenantId, email: user.email, roles, permissions, mustChangePassword: user.mustChangePassword };
-    const accessToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
-    const refreshToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
+    const accessToken = this.jwtService.sign({ ...payload, tokenType: 'access' }, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
+    const refreshToken = this.jwtService.sign({ ...payload, tokenType: 'refresh' }, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
 
     await this.prisma.user.update({
@@ -234,25 +234,19 @@ export class AuthService {
     };
   }
 
-  async logout(userId?: string) {
-    if (userId) {
-      try {
-        await this.prisma.user.update({ 
-          where: { id: userId }, 
-          data: { refreshTokenHash: null } 
-        });
+  async logout(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { refreshTokenHash: null },
+    });
 
-        await this.audit.log({
-          action: 'LOGOUT_SUCCESS',
-          entity: 'User',
-          entityId: userId,
-          module: 'Auth',
-          userId: userId
-        });
-      } catch (err) {
-        this.logger.warn(`Logout cleanup ignored for user ${userId}: ${String(err)}`);
-      }
-    }
+    await this.audit.log({
+      action: 'LOGOUT_SUCCESS',
+      entity: 'User',
+      entityId: userId,
+      module: 'Auth',
+      userId,
+    });
 
     return { success: true };
   }
@@ -285,8 +279,8 @@ export class AuthService {
       mustChangePassword: false,
       passwordChangeDeferred: true,
     };
-    const accessToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
-    const refreshToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
+    const accessToken = this.jwtService.sign({ ...payload, tokenType: 'access' }, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
+    const refreshToken = this.jwtService.sign({ ...payload, tokenType: 'refresh' }, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
 
     await this.prisma.user.update({
@@ -315,6 +309,9 @@ export class AuthService {
   async refresh(refreshToken: string) {
     try {
       const decoded = this.jwtService.verify(refreshToken);
+      if (decoded?.tokenType !== 'refresh') {
+        throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_INVALID, message: 'Invalid refresh token type' });
+      }
       const user = await this.prisma.user.findUnique({
         where: { id: decoded.sub },
         include: {
@@ -351,8 +348,8 @@ export class AuthService {
         passwordChangeDeferred,
       };
 
-      const newAccessToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
-      const newRefreshToken = this.jwtService.sign(payload, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
+      const newAccessToken = this.jwtService.sign({ ...payload, tokenType: 'access' }, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
+      const newRefreshToken = this.jwtService.sign({ ...payload, tokenType: 'refresh' }, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
 
       const newHashedRefreshToken = await bcrypt.hash(newRefreshToken, 10);
       await this.prisma.user.update({

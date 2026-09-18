@@ -10,6 +10,7 @@ import { EmptyState } from "../ui/EmptyState";
 import { ErrorState } from "../ui/ErrorState";
 import { LoadingState } from "../ui/LoadingState";
 import { getTenantAvatar, default as TenantDetailDrawer } from "./TenantDetailDrawer";
+import { getTenantRentalStatus } from "@/lib/adapters/room-status.adapter";
 
 type TenantRow = {
   id: string;
@@ -100,56 +101,23 @@ export default function TenantGrid() {
       const debt = Number(customer.kpis?.totalDebt || activeContract?.debt || 0);
       const endDate = activeContract?.endDate;
       const days = contractDays(endDate);
+      const openOccupancy = Array.isArray(customer.occupancies)
+        ? customer.occupancies.find((occupancy: any) => !occupancy.leftAt)
+        : null;
+      const occupancyRoom = openOccupancy?.room;
 
-      // Compute precise rental status based on contract reality
-      let rentalStatus = "NO_CONTRACT";
-      let statusLabel = "Chưa thuê";
-      let statusVariant: "success" | "warning" | "error" | "neutral" | "primary" = "neutral";
-
-      if (activeContract) {
-        if (activeContract.status === "ACTIVE" || activeContract.status === "APPROVED") {
-          if (days > 0 && days <= 30) {
-            rentalStatus = "EXPIRING";
-            statusLabel = "Sắp hết HĐ";
-            statusVariant = "warning";
-          } else if (days === 0 && endDate && new Date(endDate).getTime() < Date.now()) {
-            rentalStatus = "EXPIRED";
-            statusLabel = "Hết hạn HĐ";
-            statusVariant = "error";
-          } else {
-            rentalStatus = "ACTIVE";
-            statusLabel = "Đang thuê";
-            statusVariant = "success";
-          }
-        } else if (activeContract.status === "EXPIRING") {
-          rentalStatus = "EXPIRING";
-          statusLabel = "Sắp hết HĐ";
-          statusVariant = "warning";
-        } else if (activeContract.status === "DRAFT" || activeContract.status === "PENDING_APPROVAL") {
-          rentalStatus = "DRAFT";
-          statusLabel = "Chờ ký HĐ";
-          statusVariant = "primary";
-        }
-      } else if (customer.room || (customer.rooms && customer.rooms.length > 0)) {
-        rentalStatus = "ACTIVE";
-        statusLabel = "Ở ghép";
-        statusVariant = "success";
-      } else if (latestTerminatedContract) {
-        rentalStatus = "TERMINATED";
-        statusLabel = "Đã trả phòng";
-        statusVariant = "neutral";
-      }
+      const { status: rentalStatus, statusLabel, statusVariant } = getTenantRentalStatus(customer, customerContracts);
 
       const gender = customer.gender || "Nam";
       const fullName = customer.fullName || customer.name || "Khách thuê";
 
       const roomLabel = activeContract
         ? (activeContract.room?.name || activeContract.room?.code || activeContract.room?.number || "N/A")
-        : (customer.room?.name || customer.room?.code || customer.rooms?.[0]?.name || customer.rooms?.[0]?.code || "N/A");
+        : (occupancyRoom?.name || occupancyRoom?.code || customer.room?.name || customer.room?.code || customer.rooms?.[0]?.name || customer.rooms?.[0]?.code || "N/A");
 
       const buildingName = activeContract
         ? (activeContract.room?.building?.name || "Chưa có tòa")
-        : (customer.room?.building?.name || customer.rooms?.[0]?.building?.name || "Chưa có tòa");
+        : (occupancyRoom?.building?.name || customer.room?.building?.name || customer.rooms?.[0]?.building?.name || "Chưa có tòa");
 
       return {
         id: customer.id,

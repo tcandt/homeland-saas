@@ -1,4 +1,12 @@
-import { apiClient } from './client';
+import { apiClient } from "./client";
+
+function requireIdempotencyKey(idempotencyKey: string) {
+  const normalized = String(idempotencyKey || "").trim();
+  if (normalized.length < 8 || normalized.length > 128) {
+    throw new Error("IDEMPOTENCY_KEY_REQUIRED");
+  }
+  return normalized;
+}
 
 export type ContractSettlementPayload = {
   actualMoveOutDate: string;
@@ -48,16 +56,23 @@ export type MoveOutOccupantResult = {
 };
 
 export const contractsApi = {
-  list: (params?: { page?: number; limit?: number; search?: string; status?: string; roomId?: string; customerId?: string }) => {
-    return apiClient.get('/contracts', { params });
+  list: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    roomId?: string;
+    customerId?: string;
+  }) => {
+    return apiClient.get("/contracts", { params });
   },
-  
+
   getDetail: (id: string) => {
     return apiClient.get(`/contracts/${id}`);
   },
 
   create: (data: any) => {
-    return apiClient.post('/contracts', data);
+    return apiClient.post("/contracts", data);
   },
 
   update: (id: string, data: any) => {
@@ -76,8 +91,15 @@ export const contractsApi = {
     return apiClient.post(`/contracts/${id}/approve`);
   },
 
-  activate: (id: string) => {
-    return apiClient.post(`/contracts/${id}/activate`);
+  activate: (id: string, idempotencyKey: string) => {
+    const commandKey = requireIdempotencyKey(idempotencyKey);
+    return apiClient.post(
+      `/contracts/${id}/activate`,
+      {},
+      {
+        headers: { "Idempotency-Key": commandKey },
+      },
+    );
   },
 
   previewSettlement: (id: string, payload: ContractSettlementPayload) => {
@@ -89,14 +111,23 @@ export const contractsApi = {
   },
 
   moveOutOccupant: (payload: MoveOutOccupantPayload) => {
-    return apiClient.post<MoveOutOccupantResult>('/contracts/occupant-move-out', payload);
+    return apiClient.post<MoveOutOccupantResult>(
+      "/contracts/occupant-move-out",
+      payload,
+    );
   },
 
-  completePendingSettlementRefund: (id: string, payload?: { note?: string }) => {
-    return apiClient.post(`/contracts/${id}/settlement-refund/complete`, payload || {});
+  completePendingSettlementRefund: (
+    id: string,
+    payload?: { note?: string },
+  ) => {
+    return apiClient.post(
+      `/contracts/${id}/settlement-refund/complete`,
+      payload || {},
+    );
   },
 
   expire: (id: string) => {
     return apiClient.post(`/contracts/${id}/expire`);
-  }
+  },
 };

@@ -25,7 +25,6 @@ import { Card } from "../ui/Card";
 import { ErrorState } from "../ui/ErrorState";
 import { EmptyState } from "../ui/EmptyState";
 import { LoadingState } from "../ui/LoadingState";
-import OperationsDepositDrawer from "./OperationsDepositDrawer";
 import DepositQrModal from "./DepositQrModal";
 import ConfirmDialog from "../ui/ConfirmDialog";
 
@@ -89,14 +88,14 @@ const getTypeMeta = (type: string) => {
 };
 
 export default function OperationsDepositList() {
-  const [selectedDeposit, setSelectedDeposit] = useState<UI_Deposit | null>(null);
   const [qrModalDeposit, setQrModalDeposit] = useState<UI_Deposit | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; deposit: UI_Deposit } | null>(null);
   const [depositToDelete, setDepositToDelete] = useState<UI_Deposit | null>(null);
 
   const { 
     searchQuery, statusFilter, typeFilter, buildingFilter, page, limit,
-    setPage
+    setPage,
+    setSelectedDeposit
   } = useDepositStore();
 
   const deleteMutation = useDeleteDepositMutation();
@@ -330,12 +329,6 @@ export default function OperationsDepositList() {
           </div>
         </div>
       </section>
-
-      {/* Detail Drawer */}
-      <OperationsDepositDrawer 
-        deposit={selectedDeposit} 
-        onClose={() => setSelectedDeposit(null)} 
-      />
 
       {/* QR Modal */}
       {qrModalDeposit && (

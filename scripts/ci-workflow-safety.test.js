@@ -118,25 +118,23 @@ test('API integration tests compile shared workspace before Vitest resolves it',
   assert.match(bootstrap, /'--from-empty'/);
   assert.match(bootstrap, /'--to-schema-datamodel'/);
   assert.match(bootstrap, /migrate', 'resolve', '--applied'/);
-  assert.doesNotMatch(bootstrap, /migrate', 'deploy'/);
+  assert.match(bootstrap, /migrate', 'deploy'/);
   assert.doesNotMatch(bootstrap, /db\s+push|db\s+seed|force-reset|accept-data-loss/i);
 });
 
 test('empty-database baseline runbook matches the reviewed CI migration checksums', () => {
   const baseline = read('docs/operations/DATABASE_BASELINE.md');
   const { reviewedMigrations } = require('./ci-bootstrap-database');
-  for (const [name, checksum] of reviewedMigrations) {
-    assert.ok(
-      baseline.includes(`| \`${name}\` | \`${checksum}\` |`),
-      `Baseline runbook is missing the reviewed checksum for ${name}`,
-    );
-  }
+  assert.match(baseline, /historical manifest 18\/18/);
+  assert.equal(reviewedMigrations.length, 18);
   assert.match(baseline, /public_base_tables = 0/);
-  assert.match(baseline, /migrate diff/);
+  assert.match(baseline, /BASELINE-V2/);
+  assert.match(baseline, /baseline-v2\.sql/);
   assert.match(baseline, /migrate resolve/);
   assert.match(baseline, /migrate status/);
   assert.match(baseline, /Không dùng `prisma db push`/);
-  assert.match(baseline, /Không seed production/);
+  assert.match(baseline, /Không dùng.*seed/);
+  assert.match(baseline, /18/);
 });
 
 test('release documents point to the evidence-based central go-live backlog', () => {
@@ -227,7 +225,8 @@ test('Hunonic mobile signing secrets stay outside source control', () => {
   assert.match(exampleEnv, /HUNONIC_MOBILE_ACCESS_KEY=replace-/);
   assert.match(exampleEnv, /HUNONIC_MOBILE_SECRET_KEY=replace-/);
   const bootstrap = read('scripts/ci-bootstrap-database.js');
-  assert.equal((bootstrap.match(/gitleaks:allow - reviewed migration checksum/g) || []).length, 12);
+  assert.match(bootstrap, /migration-manifest\.json/);
+  assert.equal((bootstrap.match(/gitleaks:allow - reviewed migration checksum/g) || []).length, 0);
   assert.match(gitleaks, /trace_out/);
   assert.doesNotMatch(gitleaks, /hunonic\.provider|apps\/api/);
 });

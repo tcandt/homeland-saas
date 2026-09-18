@@ -96,6 +96,14 @@ function parseDatabaseIdentity(databaseUrl) {
   }
 }
 
+function normalizePostgresCliUrl(databaseUrl) {
+  const parsed = new URL(databaseUrl);
+  for (const key of ['schema', 'connection_limit', 'pool_timeout', 'pgbouncer', 'statement_cache_size']) {
+    parsed.searchParams.delete(key);
+  }
+  return parsed.toString();
+}
+
 function validateRestoreTarget(databaseUrl, confirmTargetDb) {
   if (!databaseUrl) {
     return fail('restore_target', 'Missing --database-url or RESTORE_DRILL_DATABASE_URL.');
@@ -136,6 +144,15 @@ function runCommand(id, command, args, options = {}) {
   }
 
   return pass(id, options.successMessage || `${command} completed successfully.`);
+}
+
+function isHarmlessTransactionTimeoutCompatibilityWarning(result) {
+  const output = [result?.stderr, result?.stdout].filter(Boolean).join('\n');
+  const errorCount = (output.match(/ERROR:/g) || []).length;
+  return result?.status === 1
+    && errorCount === 1
+    && /unrecognized configuration parameter ["']transaction_timeout["']/i.test(output)
+    && /errors ignored on restore:\s*1/i.test(output);
 }
 
 function runRestoreDrill(options, deps = {}) {
@@ -179,19 +196,25 @@ function runRestoreDrill(options, deps = {}) {
     '--no-owner',
     '--no-acl',
     '--dbname',
-    options.databaseUrl,
+    normalizePostgresCliUrl(options.databaseUrl),
     dumpPath,
   ], {
     stdio: 'pipe',
     encoding: 'utf8',
   });
+  const harmlessCompatibilityWarning = isHarmlessTransactionTimeoutCompatibilityWarning(restoreResult);
   checks.push(
-    restoreResult.status === 0
-      ? pass('pg_restore_drill', 'Database dump restored into the isolated drill database.')
+    restoreResult.status === 0 || harmlessCompatibilityWarning
+      ? pass(
+          'pg_restore_drill',
+          harmlessCompatibilityWarning
+            ? 'Database restored; ignored the single PostgreSQL client/server compatibility SET transaction_timeout warning.'
+            : 'Database dump restored into the isolated drill database.',
+        )
       : fail('pg_restore_drill', [restoreResult.stderr, restoreResult.stdout].filter(Boolean).join('\n').trim() || 'pg_restore drill failed.'),
   );
 
-  if (!options.skipMigrateStatus && restoreResult.status === 0) {
+  if (!options.skipMigrateStatus && (restoreResult.status === 0 || harmlessCompatibilityWarning)) {
     checks.push(runCommand('prisma_migrate_status', options.prisma, [
       'migrate',
       'status',
@@ -246,6 +269,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  normalizePostgresCliUrl,
+  isHarmlessTransactionTimeoutCompatibilityWarning,
   formatHumanReport,
   parseArguments,
   parseDatabaseIdentity,

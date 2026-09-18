@@ -8,8 +8,12 @@ import OperationsDepositFilters from "@/components/deposits/OperationsDepositFil
 import OperationsDepositList from "@/components/deposits/OperationsDepositList";
 import OperationsRefundCenter from "@/components/deposits/OperationsRefundCenter";
 import DepositsMobileFlow from "@/components/deposits/DepositsMobileFlow";
+import OperationsDepositDrawer from "@/components/deposits/OperationsDepositDrawer";
+import { useDepositStore } from "@/lib/stores/deposit.store";
 
 export default function DepositsPage() {
+  const { selectedDeposit, setSelectedDeposit } = useDepositStore();
+
   return (
     <AppShell>
       <div data-testid="deposits-root" className="-m-4 h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background md:h-[calc(100dvh-80px)] xl:overflow-hidden">
@@ -22,9 +26,9 @@ export default function DepositsPage() {
         </div>
 
         {/* Desktop View */}
-        <div className="hidden min-h-full w-full grid-cols-1 gap-2.5 p-2 md:grid md:p-3 2xl:h-full 2xl:min-h-0 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,16vw)]">
+        <div className="hidden min-h-full w-full grid-cols-1 gap-2.5 p-2 md:grid md:p-3 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(310px,16vw)]">
           {/* Main Left Workspace */}
-          <div className="flex min-w-0 flex-col gap-2.5 2xl:min-h-0">
+          <div className="flex min-w-0 flex-col gap-2.5 xl:min-h-0">
             {/* 1. Compact 4-Card KPI Grid */}
             <OperationsDepositKpi />
 
@@ -39,11 +43,16 @@ export default function DepositsPage() {
           </div>
 
           {/* Right Sidebar: Refund & Cancellation Center */}
-          <div className="hidden 2xl:block min-w-0">
+          <div className="hidden xl:block min-w-0">
             <OperationsRefundCenter />
           </div>
         </div>
       </div>
+
+      <OperationsDepositDrawer
+        deposit={selectedDeposit}
+        onClose={() => setSelectedDeposit(null)}
+      />
     </AppShell>
   );
 }

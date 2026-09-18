@@ -50,43 +50,86 @@ describe('CustomersService', () => {
   });
 
   describe('listCustomers', () => {
-    it('should query active status via contracts relation', async () => {
+    const listInclude = {
+      room: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          building: { select: { id: true, code: true, name: true } },
+        },
+      },
+      occupancies: {
+        where: { leftAt: null },
+        orderBy: { joinedAt: 'desc' },
+        take: 1,
+        select: {
+          id: true,
+          contractId: true,
+          role: true,
+          joinedAt: true,
+          room: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              building: { select: { id: true, code: true, name: true } },
+            },
+          },
+        },
+      },
+      _count: { select: { contracts: true } },
+    };
+
+    it('should query active status via either contracts or open occupancy', async () => {
       await service.listCustomers(1, 10, undefined, 'ACTIVE');
       expect(repository.paginate).toHaveBeenCalledWith(
-        { contracts: { some: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
+        {
+          AND: [{
+            OR: [
+              { contracts: { some: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
+              { occupancies: { some: { leftAt: null } } },
+            ],
+          }],
+        },
         1,
         10,
         { createdAt: 'desc' },
-        { _count: { select: { contracts: true } } }
+        listInclude,
       );
     });
 
-    it('should query inactive status via contracts relation', async () => {
+    it('should query inactive status via contracts and occupancy relations', async () => {
       await service.listCustomers(1, 10, undefined, 'INACTIVE');
       expect(repository.paginate).toHaveBeenCalledWith(
-        { contracts: { none: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
+        {
+          AND: [
+            { contracts: { none: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
+            { occupancies: { none: { leftAt: null } } },
+          ],
+        },
         1,
         10,
         { createdAt: 'desc' },
-        { _count: { select: { contracts: true } } }
+        listInclude,
       );
     });
 
     it('should query debt status via invoices relation', async () => {
       await service.listCustomers(1, 10, undefined, 'DEBT');
       expect(repository.paginate).toHaveBeenCalledWith(
-        { invoices: { some: { status: 'OVERDUE' } } },
+        { AND: [{ invoices: { some: { status: 'OVERDUE' } } }] },
         1,
         10,
         { createdAt: 'desc' },
-        { _count: { select: { contracts: true } } }
+        listInclude,
       );
     });
 
     it('should apply search filters correctly', async () => {
       await service.listCustomers(1, 10, 'john', undefined);
       expect(repository.paginate).toHaveBeenCalledWith(
-        {
+        { AND: [{
           OR: [
             { fullName: { contains: 'john', mode: 'insensitive' } },
             { phone: { contains: 'john', mode: 'insensitive' } },
@@ -95,11 +138,11 @@ describe('CustomersService', () => {
             { zaloChatId: { contains: 'john', mode: 'insensitive' } },
             { zaloUserId: { contains: 'john', mode: 'insensitive' } },
           ],
-        },
+        }] },
         1,
         10,
         { createdAt: 'desc' },
-        { _count: { select: { contracts: true } } }
+        listInclude,
       );
     });
   });

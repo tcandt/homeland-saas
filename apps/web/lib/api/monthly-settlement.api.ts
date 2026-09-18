@@ -17,6 +17,10 @@ export interface RoomMember {
 }
 
 export interface MeterReadingInfo {
+  snapshotId?: string | null;
+  snapshotStatus?: string | null;
+  sourceReadingId?: string | null;
+  meterMappingId?: string | null;
   oldReading: number;
   newReading: number;
   powerW: number;
@@ -25,6 +29,7 @@ export interface MeterReadingInfo {
   rateMode: 'residential' | 'custom' | string;
   customRateVnd?: number | null;
   rateModeLabel?: string;
+  dataSource?: 'LOCKED_SNAPSHOT' | 'PERSISTED_READING' | 'LIVE_MAPPING' | string;
 }
 
 export interface RoomSettlementItem {
@@ -68,6 +73,8 @@ export interface RoomSettlementItem {
   } | null;
   membersCount: number;
   members: RoomMember[];
+  occupancySource?: 'OCCUPANCY' | 'LEGACY_CONTRACT_FALLBACK' | string;
+  snapshotOccupants?: Array<Record<string, unknown>> | null;
   period: string;
   usagePeriod?: string;
   invoiceId: string | null;
@@ -76,6 +83,15 @@ export interface RoomSettlementItem {
   electricityKwh: number;
   electricityAmount: number;
   meterReading: MeterReadingInfo | null;
+  billingSnapshotId?: string | null;
+  billingDataSource?: 'LOCKED_SNAPSHOT' | 'PERSISTED_READING' | 'LIVE_MAPPING' | string;
+  electricityReconciliation?: {
+    currentKwh: number;
+    currentAmount: number;
+    deltaKwh: number;
+    deltaAmount: number;
+    status: 'MATCHED' | 'MISMATCHED';
+  } | null;
   waterAmount: number;
   serviceAmount: number;
   totalAmount: number;

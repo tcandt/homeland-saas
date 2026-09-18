@@ -6,6 +6,8 @@ export interface UI_Deposit {
   type: string;
   status: string;
   amount: number;
+  availableBalance?: number;
+  pendingOperationId?: string | null;
   expiredAt: string | null;
   note: string | null;
   createdAt: string;
@@ -26,12 +28,19 @@ export interface UI_Deposit {
 
 export const depositAdapter = {
   toUI(apiDeposit: any): UI_Deposit {
+    const rawAvailableBalance = apiDeposit.availableBalance;
+    const availableBalance = rawAvailableBalance === null || rawAvailableBalance === undefined
+      ? undefined
+      : Number(rawAvailableBalance);
+
     return {
       id: apiDeposit.id,
       code: apiDeposit.code || '-',
       type: apiDeposit.type || 'BOOKING',
       status: apiDeposit.status,
       amount: Number(apiDeposit.amount) || 0,
+      availableBalance: Number.isFinite(availableBalance) ? availableBalance : undefined,
+      pendingOperationId: apiDeposit.pendingOperationId ?? apiDeposit.refundSummary?.operationId ?? null,
       expiredAt: apiDeposit.expiredAt,
       note: apiDeposit.note,
       createdAt: apiDeposit.createdAt,

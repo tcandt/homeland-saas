@@ -1,61 +1,118 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { ContractsService } from './contracts.service';
-import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
-import { CurrentUser } from '../shared/decorators/current-user.decorator';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  Headers,
+} from "@nestjs/common";
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+} from "@nestjs/swagger";
+import { ContractsService } from "./contracts.service";
+import { RequirePermissions } from "../shared/decorators/require-permissions.decorator";
+import { CurrentUser } from "../shared/decorators/current-user.decorator";
 import {
   CreateContractSchema,
   UpdateContractSchema,
   PaginationSchema,
   ContractSettlementInputSchema,
   MoveOutOccupantInputSchema,
-} from '@homeland/shared';
-import { normalizeContractStatus } from './contracts.adapter';
+  RenewContractSchema,
+  TransferOccupantInputSchema,
+} from "@homeland/shared";
+import { normalizeContractStatus } from "./contracts.adapter";
 
-@ApiTags('Contracts')
+@ApiTags("Contracts")
 @ApiBearerAuth()
-@Controller('contracts')
+@Controller("contracts")
 export class ContractsController {
   constructor(private readonly contractsService: ContractsService) {}
 
   @Get()
-  @RequirePermissions('contract.read')
-  @ApiOperation({ summary: 'List contracts' })
-  @ApiQuery({ name: 'page', required: false })
-  @ApiQuery({ name: 'limit', required: false })
-  @ApiQuery({ name: 'search', required: false })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'roomId', required: false })
-  @ApiQuery({ name: 'customerId', required: false })
+  @RequirePermissions("contract.read")
+  @ApiOperation({ summary: "List contracts" })
+  @ApiQuery({ name: "page", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "search", required: false })
+  @ApiQuery({ name: "status", required: false })
+  @ApiQuery({ name: "roomId", required: false })
+  @ApiQuery({ name: "customerId", required: false })
   list(@Query() query: any, @CurrentUser() user: any) {
     const { page, limit, search, sort, order } = PaginationSchema.parse(query);
     const { status, roomId, customerId } = query;
-    return this.contractsService.listContracts(page, limit, search, status, roomId, customerId, sort, order, user.tenantId);
+    return this.contractsService.listContracts(
+      page,
+      limit,
+      search,
+      status,
+      roomId,
+      customerId,
+      sort,
+      order,
+      user.tenantId,
+    );
   }
 
-  @Post('occupant-move-out')
-  @RequirePermissions('contract.terminate')
-  @ApiOperation({ summary: 'Move an occupant out while preserving customer and contract history' })
-  moveOutOccupant(@Body() body: any, @CurrentUser('id') userId: string) {
-    return this.contractsService.moveOutOccupant(MoveOutOccupantInputSchema.parse(body), userId);
+  @Post("occupant-move-out")
+  @RequirePermissions("contract.terminate")
+  @ApiOperation({
+    summary:
+      "Move an occupant out while preserving customer and contract history",
+  })
+  moveOutOccupant(
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.contractsService.moveOutOccupant(
+      MoveOutOccupantInputSchema.parse(body),
+      userId,
+      tenantId,
+      idempotencyKey,
+    );
   }
 
-  @Get(':id')
-  @RequirePermissions('contract.read')
-  @ApiOperation({ summary: 'Get contract details' })
-  getDetail(@Param('id') id: string) {
+  @Post("occupant-transfer")
+  @RequirePermissions("contract.update")
+  @ApiOperation({ summary: "Transfer one shared-room occupant without moving historical finance" })
+  transferOccupant(
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.contractsService.transferOccupant(
+      TransferOccupantInputSchema.parse(body),
+      userId,
+      tenantId,
+      idempotencyKey,
+    );
+  }
+
+  @Get(":id")
+  @RequirePermissions("contract.read")
+  @ApiOperation({ summary: "Get contract details" })
+  getDetail(@Param("id") id: string) {
     return this.contractsService.getDetail(id, {
       customer: true,
       room: { include: { building: true, floor: true } },
-      parties: { include: { customer: true }, orderBy: { createdAt: 'asc' } },
+      parties: { include: { customer: true }, orderBy: { createdAt: "asc" } },
       settlement: true,
     });
   }
 
   @Post()
-  @RequirePermissions('contract.create')
-  @ApiOperation({ summary: 'Create contract' })
-  create(@Body() body: any, @CurrentUser('id') userId: string) {
+  @RequirePermissions("contract.create")
+  @ApiOperation({ summary: "Create contract" })
+  create(@Body() body: any, @CurrentUser("id") userId: string) {
     const input = CreateContractSchema.parse(body);
     const data = {
       customerId: input.customerId,
@@ -68,18 +125,43 @@ export class ContractsController {
       depositMoney: input.depositAmount,
       memberCount: input.memberCount ?? 1,
       signedAt: input.signedAt ? new Date(input.signedAt) : undefined,
-      firstPaymentDate: input.firstPaymentDate ? new Date(input.firstPaymentDate) : undefined,
+      firstPaymentDate: input.firstPaymentDate
+        ? new Date(input.firstPaymentDate)
+        : undefined,
       purpose: input.purpose,
       attachments: input.attachments || [],
       coRepresentativeIds: input.coRepresentativeIds || [],
     };
-    return this.contractsService.create(data, userId, 'Contracts');
+    return this.contractsService.create(data, userId, "Contracts");
   }
 
-  @Patch(':id')
-  @RequirePermissions('contract.update')
-  @ApiOperation({ summary: 'Update contract' })
-  update(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+  @Post(":id/renew")
+  @RequirePermissions("contract.create")
+  @ApiOperation({ summary: "Create a new draft contract version for renewal" })
+  renew(
+    @Param("id") id: string,
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.contractsService.renewContract(
+      id,
+      RenewContractSchema.parse(body),
+      userId,
+      tenantId,
+      idempotencyKey,
+    );
+  }
+
+  @Patch(":id")
+  @RequirePermissions("contract.update")
+  @ApiOperation({ summary: "Update contract" })
+  update(
+    @Param("id") id: string,
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+  ) {
     const input = UpdateContractSchema.parse(body);
     const data: any = {};
     if (input.customerId) data.customerId = input.customerId;
@@ -89,71 +171,118 @@ export class ContractsController {
     if (input.startDate) data.startDate = new Date(input.startDate);
     if (input.endDate) data.endDate = new Date(input.endDate);
     if (input.rentAmount !== undefined) data.monthlyRent = input.rentAmount;
-    if (input.depositAmount !== undefined) data.depositMoney = input.depositAmount;
+    if (input.depositAmount !== undefined)
+      data.depositMoney = input.depositAmount;
     if (input.signedAt) data.signedAt = new Date(input.signedAt);
-    if (input.firstPaymentDate) data.firstPaymentDate = new Date(input.firstPaymentDate);
+    if (input.firstPaymentDate)
+      data.firstPaymentDate = new Date(input.firstPaymentDate);
     if (input.purpose !== undefined) data.purpose = input.purpose;
     if (input.attachments !== undefined) data.attachments = input.attachments;
-    if (input.coRepresentativeIds !== undefined) data.coRepresentativeIds = input.coRepresentativeIds;
-    
-    return this.contractsService.update(id, data, userId, 'Contracts');
+    if (input.coRepresentativeIds !== undefined)
+      data.coRepresentativeIds = input.coRepresentativeIds;
+
+    return this.contractsService.update(id, data, userId, "Contracts");
   }
 
-  @Delete(':id')
-  @RequirePermissions('contract.delete')
-  @ApiOperation({ summary: 'Soft delete contract' })
-  remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.contractsService.softDelete(id, userId, 'Contracts');
+  @Delete(":id")
+  @RequirePermissions("contract.delete")
+  @ApiOperation({ summary: "Soft delete contract" })
+  remove(@Param("id") id: string, @CurrentUser("id") userId: string) {
+    return this.contractsService.softDelete(id, userId, "Contracts");
   }
 
-  @Post(':id/submit')
-  @RequirePermissions('contract.submit')
-  @ApiOperation({ summary: 'Submit contract for approval' })
-  submit(@Param('id') id: string, @CurrentUser('id') userId: string) {
+  @Post(":id/submit")
+  @RequirePermissions("contract.submit")
+  @ApiOperation({ summary: "Submit contract for approval" })
+  submit(@Param("id") id: string, @CurrentUser("id") userId: string) {
     return this.contractsService.submitContract(id, userId);
   }
 
-  @Post(':id/approve')
-  @RequirePermissions('contract.approve')
-  @ApiOperation({ summary: 'Approve contract' })
-  approve(@Param('id') id: string, @CurrentUser('id') userId: string) {
+  @Post(":id/approve")
+  @RequirePermissions("contract.approve")
+  @ApiOperation({ summary: "Approve contract" })
+  approve(@Param("id") id: string, @CurrentUser("id") userId: string) {
     return this.contractsService.approveContract(id, userId);
   }
 
-  @Post(':id/activate')
-  @RequirePermissions('contract.activate')
-  @ApiOperation({ summary: 'Activate contract' })
-  activate(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.contractsService.activateContract(id, userId);
+  @Post(":id/activate")
+  @RequirePermissions("contract.activate")
+  @ApiOperation({ summary: "Activate contract" })
+  activate(
+    @Param("id") id: string,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.contractsService.activateContract(
+      id,
+      userId,
+      tenantId,
+      idempotencyKey,
+    );
   }
 
-  @Post(':id/terminate')
-  @RequirePermissions('contract.terminate')
-  @ApiOperation({ summary: 'Terminate contract' })
-  terminate(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
-    const input = body ? ContractSettlementInputSchema.partial().parse(body) : undefined;
-    return this.contractsService.terminateContract(id, userId, input);
-  }
-
-  @Post(':id/settlement-refund/complete')
-  @RequirePermissions('contract.update')
-  @ApiOperation({ summary: 'Mark a pending settlement refund as completed' })
-  completePendingSettlementRefund(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
-    return this.contractsService.completePendingSettlementRefund(id, userId, body?.note);
-  }
-
-  @Post(':id/expire')
-  @RequirePermissions('contract.update')
-  @ApiOperation({ summary: 'Expire contract' })
-  expire(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.contractsService.expireContract(id, userId);
-  }
-
-  @Post(':id/settlement-preview')
-  @RequirePermissions('contract.read')
-  @ApiOperation({ summary: 'Preview final settlement for contract termination' })
-  settlementPreview(@Param('id') id: string, @Body() body: any) {
+  @Post(":id/terminate")
+  @RequirePermissions("contract.terminate")
+  @ApiOperation({ summary: "Terminate contract" })
+  terminate(
+    @Param("id") id: string,
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
     const input = ContractSettlementInputSchema.parse(body);
-    return this.contractsService.previewSettlement(id, input);
+    return this.contractsService.terminateContract(
+      id,
+      userId,
+      input,
+      tenantId,
+      idempotencyKey,
+    );
+  }
+
+  @Post(":id/settlement-refund/complete")
+  @RequirePermissions("contract.update")
+  @ApiOperation({ summary: "Mark a pending settlement refund as completed" })
+  completePendingSettlementRefund(
+    @Param("id") id: string,
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.contractsService.completePendingSettlementRefund(
+      id,
+      userId,
+      body?.note,
+      tenantId,
+      idempotencyKey,
+    );
+  }
+
+  @Post(":id/expire")
+  @RequirePermissions("contract.update")
+  @ApiOperation({ summary: "Expire contract" })
+  expire(
+    @Param("id") id: string,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    return this.contractsService.expireContract(id, userId, tenantId);
+  }
+
+  @Post(":id/settlement-preview")
+  @RequirePermissions("contract.read")
+  @ApiOperation({
+    summary: "Preview final settlement for contract termination",
+  })
+  settlementPreview(
+    @Param("id") id: string,
+    @Body() body: any,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    const input = ContractSettlementInputSchema.parse(body);
+    return this.contractsService.previewSettlement(id, input, tenantId);
   }
 }

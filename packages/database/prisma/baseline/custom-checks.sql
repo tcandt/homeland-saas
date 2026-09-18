@@ -1,0 +1,12 @@
+-- Custom constraints not represented by the Prisma datamodel. Applied only by
+-- scripts/ci-bootstrap-database.js after the generated final schema exists.
+ALTER TABLE "RoomHold" ADD CONSTRAINT "RoomHold_active_state_check" CHECK (("status" = 'ACTIVE' AND "activeResourceKey" IS NOT NULL AND "releasedAt" IS NULL) OR ("status" <> 'ACTIVE' AND "activeResourceKey" IS NULL));
+ALTER TABLE "DepositLedgerEntry" ADD CONSTRAINT "DepositLedgerEntry_positive_amount_check" CHECK ("amount" > 0);
+ALTER TABLE "DepositLedgerEntry" ADD CONSTRAINT "DepositLedgerEntry_non_zero_effect_check" CHECK ("balanceEffect" <> 0);
+ALTER TABLE "DepositLedgerEntry" ADD CONSTRAINT "DepositLedgerEntry_effect_bound_check" CHECK (ABS("balanceEffect") = "amount");
+ALTER TABLE "BillingSnapshot" ADD CONSTRAINT "BillingSnapshot_usage_non_negative_check" CHECK ("usageKwh" >= 0);
+ALTER TABLE "BillingSnapshot" ADD CONSTRAINT "BillingSnapshot_electricity_non_negative_check" CHECK ("electricityAmount" >= 0);
+ALTER TABLE "BillingSnapshot" ADD CONSTRAINT "BillingSnapshot_water_non_negative_check" CHECK ("waterAmount" >= 0);
+ALTER TABLE "BillingSnapshot" ADD CONSTRAINT "BillingSnapshot_occupant_count_check" CHECK ("occupantCount" >= 0);
+ALTER TABLE "BillingSnapshot" ADD CONSTRAINT "BillingSnapshot_status_locked_check" CHECK ("status" = 'LOCKED');
+ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_billing_kind_shape_check" CHECK (("billingKind" IS NULL AND "baseInvoiceKey" IS NULL AND "adjustmentOfInvoiceId" IS NULL AND "adjustmentReason" IS NULL AND "adjustmentCreatedBy" IS NULL AND "adjustmentRequestHash" IS NULL AND "adjustmentIdempotencyKey" IS NULL) OR ("billingKind" IN ('ENTRY', 'MONTHLY_BASE') AND "baseInvoiceKey" IS NOT NULL AND "adjustmentOfInvoiceId" IS NULL AND "adjustmentReason" IS NULL AND "adjustmentCreatedBy" IS NULL AND "adjustmentRequestHash" IS NULL AND "adjustmentIdempotencyKey" IS NULL) OR ("billingKind" IN ('DEBIT_ADJUSTMENT', 'CREDIT_ADJUSTMENT') AND "baseInvoiceKey" IS NULL AND "adjustmentOfInvoiceId" IS NOT NULL AND length(trim(COALESCE("adjustmentReason", ''))) > 0 AND length(trim(COALESCE("adjustmentCreatedBy", ''))) > 0 AND length(trim(COALESCE("adjustmentRequestHash", ''))) > 0 AND length(trim(COALESCE("adjustmentIdempotencyKey", ''))) BETWEEN 8 AND 128 AND "subtotal" > 0 AND "total" > 0 AND "discount" = 0 AND ("billingKind" <> 'CREDIT_ADJUSTMENT' OR ("paidAmount" = 0 AND "creditAmount" = 0))));

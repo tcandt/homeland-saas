@@ -1,57 +1,115 @@
-import { Controller, Get, Post, Delete, Param, Body, Query, BadRequestException } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { InvoicesService } from './invoices.service';
-import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
-import { CurrentUser } from '../shared/decorators/current-user.decorator';
-import { PaginationSchema, CreateInvoiceSchema } from '@homeland/shared';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Body,
+  Query,
+  Headers,
+  BadRequestException,
+} from "@nestjs/common";
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+} from "@nestjs/swagger";
+import { InvoicesService } from "./invoices.service";
+import { RequirePermissions } from "../shared/decorators/require-permissions.decorator";
+import { CurrentUser } from "../shared/decorators/current-user.decorator";
+import {
+  PaginationSchema,
+  CreateInvoiceSchema,
+  CreateInvoiceAdjustmentSchema,
+} from "@homeland/shared";
 
-@ApiTags('Invoices')
+@ApiTags("Invoices")
 @ApiBearerAuth()
-@Controller('invoices')
+@Controller("invoices")
 export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Get()
-  @RequirePermissions('invoice.read')
-  @ApiOperation({ summary: 'List invoices' })
-  @ApiQuery({ name: 'page', required: false })
-  @ApiQuery({ name: 'limit', required: false })
-  @ApiQuery({ name: 'search', required: false })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'roomId', required: false })
-  @ApiQuery({ name: 'customerId', required: false })
-  @ApiQuery({ name: 'contractId', required: false })
-  @ApiQuery({ name: 'period', required: false })
-  @ApiQuery({ name: 'overdue', required: false })
-  list(@Query() query: any) {
+  @RequirePermissions("invoice.read")
+  @ApiOperation({ summary: "List invoices" })
+  @ApiQuery({ name: "page", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "search", required: false })
+  @ApiQuery({ name: "status", required: false })
+  @ApiQuery({ name: "roomId", required: false })
+  @ApiQuery({ name: "customerId", required: false })
+  @ApiQuery({ name: "contractId", required: false })
+  @ApiQuery({ name: "rentalCycleId", required: false })
+  @ApiQuery({ name: "period", required: false })
+  @ApiQuery({ name: "overdue", required: false })
+  list(@Query() query: any, @CurrentUser("tenantId") tenantId: string) {
     const { page, limit, search, sort, order } = PaginationSchema.parse(query);
-    const { status, roomId, customerId, contractId, period } = query;
-    const overdue = query.overdue === 'true';
-    return this.invoicesService.listInvoices(page, limit, search, status, roomId, customerId, contractId, period, overdue, sort, order);
+    const { status, roomId, customerId, contractId, rentalCycleId, period } =
+      query;
+    const overdue = query.overdue === "true";
+    return this.invoicesService.listInvoices(
+      page,
+      limit,
+      search,
+      status,
+      roomId,
+      customerId,
+      contractId,
+      rentalCycleId,
+      period,
+      overdue,
+      sort,
+      order,
+      tenantId,
+    );
   }
 
-  @Get(':id')
-  @RequirePermissions('invoice.read')
-  @ApiOperation({ summary: 'Get invoice details' })
-  getDetail(@Param('id') id: string) {
-    return this.invoicesService.getDetail(id);
+  @Get(":id")
+  @RequirePermissions("invoice.read")
+  @ApiOperation({ summary: "Get invoice details" })
+  getDetail(
+    @Param("id") id: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    return this.invoicesService.getDetailWithFamily(id, tenantId);
+  }
+
+  @Post(":baseInvoiceId/adjustments")
+  @RequirePermissions("invoice.create")
+  @ApiOperation({ summary: "Create an immutable debit or credit adjustment" })
+  createAdjustment(
+    @Param("baseInvoiceId") baseInvoiceId: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Body() body: unknown,
+    @CurrentUser("tenantId") tenantId: string,
+    @CurrentUser("id") userId: string,
+  ) {
+    const input = CreateInvoiceAdjustmentSchema.parse(body);
+    return this.invoicesService.createAdjustment(
+      tenantId,
+      baseInvoiceId,
+      idempotencyKey || "",
+      input,
+      userId,
+    );
   }
 
   @Post()
-  @RequirePermissions('invoice.create')
-  @ApiOperation({ summary: 'Create DRAFT invoice' })
+  @RequirePermissions("invoice.create")
+  @ApiOperation({ summary: "Create DRAFT invoice" })
   create(
     @Body() body: any,
-    @CurrentUser('id') userId: string,
-    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
   ) {
     const input = CreateInvoiceSchema.parse(body);
     const rawItems: any[] = Array.isArray(body.items) ? body.items : [];
 
     const itemsData = rawItems.map((item) => ({
       tenantId: tenantId,
-      type: item.type || 'RENT',
-      description: item.name || item.description || 'Khoản thu',
+      type: item.type || "RENT",
+      description: item.name || item.description || "Khoản thu",
       servicePeriod: item.servicePeriod || input.period,
       quantity: Number(item.quantity) || 1,
       unitPrice: Number(item.unitPrice || item.amount) || 0,
@@ -72,53 +130,88 @@ export class InvoicesController {
       creditAmount: 0,
       ...(itemsData.length > 0 ? { items: { create: itemsData } } : {}),
     };
-    return this.invoicesService.create(data, userId, 'Invoices');
+    return this.invoicesService.create(data, userId, "Invoices", {
+      tenantId,
+      roomId: input.roomId,
+      rentalCycleId: input.rentalCycleId,
+    });
   }
 
-  @Post('mark-overdue')
-  @RequirePermissions('invoice.update')
-  @ApiOperation({ summary: 'Mark due invoices as OVERDUE' })
-  markOverdue(@CurrentUser('tenantId') tenantId: string) {
-    return this.invoicesService.markOverdueInvoices(tenantId);
+  @Post("mark-overdue")
+  @RequirePermissions("invoice.update")
+  @ApiOperation({ summary: "Mark due invoices as OVERDUE" })
+  markOverdue(
+    @CurrentUser("tenantId") tenantId: string,
+    @CurrentUser("id") userId: string,
+  ) {
+    return this.invoicesService.markOverdueInvoices(tenantId, userId);
   }
 
-  @Post(':id/issue')
-  @RequirePermissions('invoice.update') // Assuming manager can issue
-  @ApiOperation({ summary: 'Issue a DRAFT invoice' })
-  issue(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.invoicesService.issue(id, userId);
+  @Post(":id/issue")
+  @RequirePermissions("invoice.update") // Assuming manager can issue
+  @ApiOperation({ summary: "Issue a DRAFT invoice" })
+  issue(
+    @Param("id") id: string,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    return this.invoicesService.issue(id, userId, tenantId);
   }
 
-  @Post(':id/pay')
-  @RequirePermissions('invoice.update') // Assuming finance can pay
-  @ApiOperation({ summary: 'Record a payment against an invoice' })
-  pay(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
-    if (!body.amount || typeof body.amount !== 'number') {
-      throw new BadRequestException('Amount is required and must be a number');
+  @Post(":id/pay")
+  @RequirePermissions("invoice.update") // Assuming finance can pay
+  @ApiOperation({ summary: "Record a payment against an invoice" })
+  pay(
+    @Param("id") id: string,
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    if (!body.amount || typeof body.amount !== "number") {
+      throw new BadRequestException("Amount is required and must be a number");
     }
-    const provider = body.provider || 'MANUAL';
-    const providerRef = body.providerRef || '';
-    return this.invoicesService.pay(id, body.amount, provider, providerRef, userId);
+    const provider = body.provider || "MANUAL";
+    const providerRef = body.providerRef || "";
+    return this.invoicesService.pay(
+      id,
+      body.amount,
+      provider,
+      providerRef,
+      userId,
+      tenantId,
+    );
   }
 
-  @Post(':id/cancel')
-  @RequirePermissions('invoice.update') // Assuming manager can cancel
-  @ApiOperation({ summary: 'Cancel an invoice' })
-  cancel(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.invoicesService.cancel(id, userId);
+  @Post(":id/cancel")
+  @RequirePermissions("invoice.update") // Assuming manager can cancel
+  @ApiOperation({ summary: "Cancel an invoice" })
+  cancel(
+    @Param("id") id: string,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    return this.invoicesService.cancel(id, userId, tenantId);
   }
 
-  @Post(':id/writeoff')
-  @RequirePermissions('invoice.update') // Assuming finance can writeoff
-  @ApiOperation({ summary: 'Write off an invoice' })
-  writeoff(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.invoicesService.writeoff(id, userId);
+  @Post(":id/writeoff")
+  @RequirePermissions("invoice.update") // Assuming finance can writeoff
+  @ApiOperation({ summary: "Write off an invoice" })
+  writeoff(
+    @Param("id") id: string,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    return this.invoicesService.writeoff(id, userId, tenantId);
   }
 
-  @Delete(':id')
-  @RequirePermissions('invoice.delete')
-  @ApiOperation({ summary: 'Soft delete invoice' })
-  remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.invoicesService.softDelete(id, userId, 'Invoices');
+  @Delete(":id")
+  @RequirePermissions("invoice.delete")
+  @ApiOperation({ summary: "Soft delete invoice" })
+  remove(
+    @Param("id") id: string,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    return this.invoicesService.softDelete(id, userId, "Invoices", tenantId);
   }
 }

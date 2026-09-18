@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { depositsApi, DepositListResponse } from '../api/deposits.api';
+import { depositsApi, DepositListResponse, RentalCycleFinanceSummary, RoomFinanceSummary } from '../api/deposits.api';
 import { depositAdapter, UI_Deposit } from '../adapters/deposit.adapter';
 
 export const useDepositsQuery = (params: any) => {
@@ -44,5 +44,26 @@ export const useDepositStatsQuery = (buildingId?: string) => {
       return response;
     },
     staleTime: 30000,
+  });
+};
+
+export const useRentalCycleFinanceSummaryQuery = (rentalCycleId?: string | null) => {
+  return useQuery({
+    queryKey: ['rental-cycle-finance-summary', rentalCycleId],
+    queryFn: async () => {
+      if (!rentalCycleId) return null;
+      const response = await depositsApi.getRentalCycleFinanceSummary(rentalCycleId);
+      return response;
+    },
+    enabled: !!rentalCycleId,
+  });
+};
+
+/** Query key includes the room ID so a previous room's financial truth can never render for the next room. */
+export const useRoomFinanceSummaryQuery = (roomId?: string | null) => {
+  return useQuery<RoomFinanceSummary | null>({
+    queryKey: ['room-finance-summary', roomId],
+    queryFn: async () => roomId ? depositsApi.getRoomFinanceSummary(roomId) : null,
+    enabled: Boolean(roomId),
   });
 };

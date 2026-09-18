@@ -4,10 +4,11 @@ import { Public } from './shared/decorators/public.decorator';
 import { InternalTokenGuard } from './shared/guards/internal-token.guard';
 import * as fs from 'fs';
 import { notificationWorkerHeartbeatPath, resolveAppRuntimeRole } from './shared/config/runtime-mode';
+import { SchemaDiagnosticsService } from './schema-diagnostics.service';
 
 @Controller('health')
 export class HealthController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly schemaDiagnostics?: SchemaDiagnosticsService) {}
 
   /** Liveness check: is the process running? */
   @Public()
@@ -79,7 +80,6 @@ export class HealthController {
 
   /** Build metadata verification */
   @Public()
-  @UseGuards(InternalTokenGuard)
   @Get('build-info')
   getBuildInfo() {
     const heartbeatPath = notificationWorkerHeartbeatPath();
@@ -101,5 +101,13 @@ export class HealthController {
       runtimeRole: resolveAppRuntimeRole(),
       notificationWorkerHeartbeat,
     };
+  }
+
+  @Public()
+  @UseGuards(InternalTokenGuard)
+  @Get('staging-diagnostics')
+  getStagingDiagnostics() {
+    if (!this.schemaDiagnostics) throw new Error('Schema diagnostics service unavailable');
+    return this.schemaDiagnostics.getDiagnostics();
   }
 }

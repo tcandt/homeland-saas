@@ -1,7 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const webBaseUrl = process.env.E2E_WEB_BASE_URL || 'http://127.0.0.1:3000';
-const apiBaseUrl = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3001';
+const requiredE2E = ['E2E_WEB_BASE_URL', 'E2E_API_BASE_URL'];
+const missingE2E = requiredE2E.filter((name) => !process.env[name]);
+if (missingE2E.length) {
+  throw new Error(`E2E configuration missing: ${missingE2E.join(', ')}. Provide staging URLs before running Playwright.`);
+}
+const webBaseUrl = process.env.E2E_WEB_BASE_URL!;
+const apiBaseUrl = process.env.E2E_API_BASE_URL!;
 
 export default defineConfig({
     testDir: './tests/e2e',
@@ -27,47 +32,16 @@ export default defineConfig({
       },
     },
     ignoreSnapshots: !!process.env.CI,
+    // Homeland desktop-only validation baseline: minimum supported viewport is 1366×720.
     projects: [
       {
-              name: 'Desktop 1920',
-              use: { ...devices['Desktop Chrome'], viewport: { width: 1920, height: 1080 } },
+              name: 'Desktop 1366',
+              use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 720 } },
       },
       {
               name: 'Laptop 1440',
               use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
       },
-      {
-              name: 'Tablet 1024',
-              use: { ...devices['iPad (gen 7)'], viewport: { width: 1024, height: 768 } },
-      },
-      {
-              name: 'iPad Mini',
-              use: { ...devices['iPad Mini'], viewport: { width: 768, height: 1024 } },
-      },
-      {
-              name: 'Mobile 430',
-              use: { ...devices['iPhone 14 Pro Max'], viewport: { width: 430, height: 932 } },
-      },
-      {
-              name: 'Mobile 390',
-              use: { ...devices['iPhone 12'], viewport: { width: 390, height: 844 } },
-      },
-      {
-              name: 'Mobile 375',
-              use: { ...devices['iPhone 11'], viewport: { width: 375, height: 667 } },
-      },
-      {
-              name: 'Release Mobile 430',
-              use: { ...devices['Pixel 7'], viewport: { width: 430, height: 932 } },
-      },
-      {
-              name: 'Release Mobile 390',
-              use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } },
-      },
-      {
-              name: 'Release Mobile 375',
-              use: { ...devices['Pixel 7'], viewport: { width: 375, height: 667 } },
-      }
         ],
     webServer: process.env.VERIFY_PROD ? undefined : [
       {

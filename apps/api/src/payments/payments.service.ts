@@ -1,5 +1,13 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { AuditAction, JournalSourceType, PaymentProvider, PaymentRequestStatus, PaymentSourceType, Prisma, SettingScope } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  AuditAction,
+  JournalSourceType,
+  PaymentProvider,
+  PaymentRequestStatus,
+  PaymentSourceType,
+  Prisma,
+  SettingScope,
+} from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { DepositsService } from '../deposits/deposits.service';
@@ -8,7 +16,7 @@ import { NotificationChannel } from '../automation/automation.constants';
 import { JournalEntryService } from '../finance/journal-entry.service';
 import { AuditService } from '../shared/audit/audit.service';
 import { buildRoomContext } from '../shared/context/room-context';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { ZaloProvider } from '../communication/providers/communication.providers';
 
 type SePayWebhookPayload = {
@@ -214,14 +222,15 @@ export class PaymentsService {
     return recipient;
   }
 
-  private async createOverpaymentJournalEntry(
+  private async createOverpaymentJournalEntryInTransaction(
+    tx: any,
     tenantId: string,
     creditNoteId: string,
     paymentCode: string,
     amount: number,
     resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD',
   ) {
-    const existing = await this.prisma.journalEntry.findFirst({
+    const existing = await tx.journalEntry.findFirst({
       where: {
         tenantId,
         sourceType: JournalSourceType.ADJUSTMENT,
@@ -231,10 +240,10 @@ export class PaymentsService {
     });
     if (existing) return existing;
 
-    const bankAccount = await this.prisma.chartOfAccount.findFirst({
+    const bankAccount = await tx.chartOfAccount.findFirst({
       where: { tenantId, code: '1100' },
     });
-    const customerCreditLiability = await this.prisma.chartOfAccount.findFirst({
+    const customerCreditLiability = await tx.chartOfAccount.findFirst({
       where: { tenantId, code: '1300' },
     });
 
@@ -242,33 +251,38 @@ export class PaymentsService {
       throw new BadRequestException('Khong tim thay tai khoan ke toan de ghi nhan tien thua.');
     }
 
-    return this.journalEntryService.createJournalEntry(tenantId, {
-      code: `JE-OVERPAY-${Date.now()}`,
-      sourceType: JournalSourceType.ADJUSTMENT,
-      sourceId: creditNoteId,
-      description:
-        resolution === 'CARRY_FORWARD'
-          ? `Ghi nhan tien thua SePay ${paymentCode} de can tru ky sau`
-          : `Ghi nhan tien thua SePay ${paymentCode} vao du co khach hang`,
-      entryDate: new Date(),
-      status: 'POSTED',
-      lines: [
-        {
-          accountId: bankAccount.id,
-          type: 'DEBIT',
-          amount,
-          description: 'Tien thua da vao ngan hang',
+    return tx.journalEntry.create({
+      data: {
+        code: `JE-OVERPAY-${creditNoteId}`,
+        tenantId,
+        sourceType: JournalSourceType.ADJUSTMENT,
+        sourceId: creditNoteId,
+        description:
+          resolution === 'CARRY_FORWARD'
+            ? `Ghi nhan tien thua SePay ${paymentCode} de can tru ky sau`
+            : `Ghi nhan tien thua SePay ${paymentCode} vao du co khach hang`,
+        entryDate: new Date(),
+        status: 'POSTED',
+        lines: {
+          create: [
+            {
+              accountId: bankAccount.id,
+              type: 'DEBIT',
+              amount,
+              description: 'Tien thua da vao ngan hang',
+            },
+            {
+              accountId: customerCreditLiability.id,
+              type: 'CREDIT',
+              amount,
+              description:
+                resolution === 'CARRY_FORWARD'
+                  ? 'No phai tra khach de can tru ky sau'
+                  : 'No phai tra khach dang nam giu',
+            },
+          ],
         },
-        {
-          accountId: customerCreditLiability.id,
-          type: 'CREDIT',
-          amount,
-          description:
-            resolution === 'CARRY_FORWARD'
-              ? 'No phai tra khach de can tru ky sau'
-              : 'No phai tra khach dang nam giu',
-        },
-      ],
+      },
     });
   }
 
@@ -288,7 +302,9 @@ export class PaymentsService {
   }
 
   private normalizeSePayAuthMode(value: unknown): SePayAuthMode {
-    const normalized = String(value || '').trim().toLowerCase();
+    const normalized = String(value || '')
+      .trim()
+      .toLowerCase();
     if (normalized === 'hmac') return 'hmac';
     if (normalized === 'dual') return 'dual';
     if (normalized === 'none') return 'none';
@@ -309,11 +325,11 @@ export class PaymentsService {
 
   private verifySePayHmac(secret: string, timestamp: string, rawBody: string, signature: string) {
     if (!secret || !timestamp || !rawBody || !signature) return false;
-    const cleanSignature = String(signature).replace(/^sha256=/i, '').trim().toLowerCase();
-    const expected = createHmac('sha256', secret)
-      .update(`${timestamp}.${rawBody}`)
-      .digest('hex')
+    const cleanSignature = String(signature)
+      .replace(/^sha256=/i, '')
+      .trim()
       .toLowerCase();
+    const expected = createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex').toLowerCase();
     return this.constantTimeEquals(expected, cleanSignature);
   }
 
@@ -433,7 +449,9 @@ export class PaymentsService {
 
     try {
       await this.prisma.$transaction(async (tx) => {
-        await (tx as any).roomPaymentAccountRoute.deleteMany({ where: { tenantId } });
+        await (tx as any).roomPaymentAccountRoute.deleteMany({
+          where: { tenantId },
+        });
         if (normalized.length > 0) {
           await (tx as any).roomPaymentAccountRoute.createMany({
             data: normalized.map((assignment) => ({
@@ -497,9 +515,8 @@ export class PaymentsService {
     if (!value) return null;
     const trimmed = String(value).trim();
     if (!trimmed) return null;
-    const normalized = trimmed.length <= 10
-      ? `${trimmed}T${boundary === 'start' ? '00:00:00.000' : '23:59:59.999'}Z`
-      : trimmed;
+    const normalized =
+      trimmed.length <= 10 ? `${trimmed}T${boundary === 'start' ? '00:00:00.000' : '23:59:59.999'}Z` : trimmed;
     const date = new Date(normalized);
     return Number.isNaN(date.getTime()) ? null : date;
   }
@@ -516,11 +533,13 @@ export class PaymentsService {
     const active = assignments.filter((assignment) => this.isRoutingAssignmentActive(assignment, at));
     if (active.length === 0) return null;
 
-    return [...active].sort((left, right) => {
-      const leftFrom = this.parseRoutingDate(left.validFrom, 'start')?.getTime() || 0;
-      const rightFrom = this.parseRoutingDate(right.validFrom, 'start')?.getTime() || 0;
-      return rightFrom - leftFrom;
-    })[0] || null;
+    return (
+      [...active].sort((left, right) => {
+        const leftFrom = this.parseRoutingDate(left.validFrom, 'start')?.getTime() || 0;
+        const rightFrom = this.parseRoutingDate(right.validFrom, 'start')?.getTime() || 0;
+        return rightFrom - leftFrom;
+      })[0] || null
+    );
   }
 
   private maskAccountNumber(value?: string | null) {
@@ -530,7 +549,11 @@ export class PaymentsService {
     return `${'*'.repeat(Math.max(0, normalized.length - 4))}${normalized.slice(-4)}`;
   }
 
-  private formatBankAccountLabel(bankAccount: { bankName: string; accountNumber: string; accountName?: string | null }) {
+  private formatBankAccountLabel(bankAccount: {
+    bankName: string;
+    accountNumber: string;
+    accountName?: string | null;
+  }) {
     return `${bankAccount.bankName} • ${this.maskAccountNumber(bankAccount.accountNumber)}${bankAccount.accountName ? ` • ${bankAccount.accountName}` : ''}`;
   }
 
@@ -570,7 +593,11 @@ export class PaymentsService {
 
   private async resolveBankAccount(
     tenantId: string,
-    options: { ownerId?: string | null; roomId?: string | null; bankAccountId?: string | null } = {},
+    options: {
+      ownerId?: string | null;
+      roomId?: string | null;
+      bankAccountId?: string | null;
+    } = {},
   ): Promise<ResolvedSePayBankAccount> {
     const sepayConfig = await this.resolveSePayConfig(tenantId);
     if (sepayConfig.enabled === false) {
@@ -611,6 +638,9 @@ export class PaymentsService {
           },
         });
         if (routeBankAccount) {
+          if (ownerId && routeBankAccount.ownerId !== ownerId) {
+            throw new BadRequestException('Tài khoản nhận tiền theo phòng không thuộc owner của phòng.');
+          }
           return {
             bankAccount: routeBankAccount,
             source: 'ROOM',
@@ -631,22 +661,30 @@ export class PaymentsService {
     }
 
     const defaultBankAccountId = await this.resolveOwnerDefaultBankAccountId(tenantId, ownerId);
-    const defaultBankAccount = defaultBankAccountId ? await this.prisma.bankAccount.findFirst({
-      where: {
-        tenantId,
-        id: defaultBankAccountId,
-        isActive: true,
-        ...(ownerId ? { ownerId } : {}),
-      },
-    }) : null;
+    const defaultBankAccount = defaultBankAccountId
+      ? await this.prisma.bankAccount.findFirst({
+          where: {
+            tenantId,
+            id: defaultBankAccountId,
+            isActive: true,
+            ...(ownerId ? { ownerId } : {}),
+          },
+        })
+      : null;
 
-    const bankAccount = defaultBankAccount || await this.prisma.bankAccount.findFirst({
+    const ownerBankAccount = await this.prisma.bankAccount.findFirst({
       where: { tenantId, isActive: true, ...(ownerId ? { ownerId } : {}) },
       orderBy: { createdAt: 'asc' },
-    }) || await this.prisma.bankAccount.findFirst({
-      where: { tenantId, isActive: true },
-      orderBy: { createdAt: 'asc' },
     });
+    const bankAccount =
+      defaultBankAccount ||
+      ownerBankAccount ||
+      (!ownerId
+        ? await this.prisma.bankAccount.findFirst({
+            where: { tenantId, isActive: true },
+            orderBy: { createdAt: 'asc' },
+          })
+        : null);
 
     if (!bankAccount) {
       throw new BadRequestException('Không tìm thấy tài khoản ngân hàng để tạo QR SePay');
@@ -654,9 +692,7 @@ export class PaymentsService {
 
     return {
       bankAccount,
-      source: ownerId
-        ? (defaultBankAccount ? 'OWNER_DEFAULT' : 'OWNER_FALLBACK')
-        : 'GLOBAL_FALLBACK',
+      source: ownerId ? (defaultBankAccount ? 'OWNER_DEFAULT' : 'OWNER_FALLBACK') : 'GLOBAL_FALLBACK',
       roomRoute,
       room: room
         ? {
@@ -704,7 +740,11 @@ export class PaymentsService {
     memoPrefix: string,
     userId?: string,
     metadata?: Prisma.InputJsonValue,
-    allocation?: { ownerId?: string | null; buildingId?: string | null; roomId?: string | null },
+    allocation?: {
+      ownerId?: string | null;
+      buildingId?: string | null;
+      roomId?: string | null;
+    },
   ): Promise<PaymentRequestResponse> {
     const sepayConfig = await this.resolveSePayConfig(tenantId);
     const resolved = await this.resolveBankAccount(tenantId, {
@@ -713,7 +753,7 @@ export class PaymentsService {
     });
     const bankAccount = resolved.bankAccount;
     const paymentCodePrefix = String(sepayConfig.paymentCodePrefix || memoPrefix || 'PAY');
-    
+
     // Check if a pending payment request already exists for this source (e.g. invoice)
     const existingPending = await this.prisma.paymentRequest.findFirst({
       where: {
@@ -725,9 +765,13 @@ export class PaymentsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const roomContext = allocation?.roomId || allocation?.buildingId
-      ? { roomId: allocation?.roomId || null, buildingId: allocation?.buildingId || null }
-      : {};
+    const roomContext =
+      allocation?.roomId || allocation?.buildingId
+        ? {
+            roomId: allocation?.roomId || null,
+            buildingId: allocation?.buildingId || null,
+          }
+        : {};
 
     if (existingPending) {
       const memo = existingPending.paymentCode;
@@ -779,13 +823,19 @@ export class PaymentsService {
     // Generate clean concise payment code (e.g. HD31010826 or COC31010826)
     let paymentCode = randomCode(paymentCodePrefix, tenantId);
     if (sourceType === PaymentSourceType.INVOICE) {
-      const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(/[^a-zA-Z0-9]/g, '');
+      const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(
+        /[^a-zA-Z0-9]/g,
+        '',
+      );
       const cleanRoom = roomRaw.slice(-4) || '3101';
       const now = new Date();
       const monthYear = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
       paymentCode = `HD${cleanRoom}${monthYear}`;
     } else if (sourceType === PaymentSourceType.DEPOSIT) {
-      const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(/[^a-zA-Z0-9]/g, '');
+      const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(
+        /[^a-zA-Z0-9]/g,
+        '',
+      );
       const cleanRoom = roomRaw.slice(-4) || '3101';
       const now = new Date();
       const monthYear = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
@@ -799,7 +849,13 @@ export class PaymentsService {
     if (existingCode) {
       let counter = 1;
       let candidateCode = `${paymentCode}${counter}`;
-      while (await this.prisma.paymentRequest.findUnique({ where: { tenantId_paymentCode: { tenantId, paymentCode: candidateCode } } })) {
+      while (
+        await this.prisma.paymentRequest.findUnique({
+          where: {
+            tenantId_paymentCode: { tenantId, paymentCode: candidateCode },
+          },
+        })
+      ) {
         counter++;
         candidateCode = `${paymentCode}${counter}`;
       }
@@ -995,7 +1051,11 @@ export class PaymentsService {
     const roomAndBuilding = buildingName
       ? `${roomCode} - ${buildingName.toLowerCase().startsWith('tòa') ? buildingName : `Tòa nhà ${buildingName}`}`
       : roomCode;
-    const periodStr = invoice.period || (invoice.createdAt ? `Tháng ${String(new Date(invoice.createdAt).getMonth() + 1).padStart(2, '0')}/${new Date(invoice.createdAt).getFullYear()}` : 'Tháng hiện tại');
+    const periodStr =
+      invoice.period ||
+      (invoice.createdAt
+        ? `Tháng ${String(new Date(invoice.createdAt).getMonth() + 1).padStart(2, '0')}/${new Date(invoice.createdAt).getFullYear()}`
+        : 'Tháng hiện tại');
 
     await this.communicationService.dispatchDirect({
       tenantId: invoice.tenantId,
@@ -1156,11 +1216,25 @@ export class PaymentsService {
   async manualAssignSePayTransaction(
     tenantId: string,
     userId: string,
-    payload: { logId: string; sourceType: PaymentSourceType; sourceCode: string },
+    payload: {
+      logId: string;
+      sourceType: PaymentSourceType;
+      sourceCode: string;
+    },
+    idempotencyKeyInput: string,
   ) {
+    const idempotencyKey = this.requireSePayCommandIdempotencyKey(idempotencyKeyInput);
+    const normalizedSourceCode = String(payload.sourceCode || '').trim();
+    const requestHash = this.hashSePayManualAssignment({
+      tenantId,
+      logId: payload.logId,
+      sourceType: payload.sourceType,
+      sourceCode: normalizedSourceCode,
+    });
     const log = await this.prisma.paymentWebhookLog.findFirst({
       where: {
         id: payload.logId,
+        tenantId,
       },
     });
     if (!log) {
@@ -1168,6 +1242,26 @@ export class PaymentsService {
     }
 
     const rawPayload = log.payload as SePayWebhookPayload;
+    const priorManualAssignment = this.readManualAssignmentState(rawPayload);
+    if (priorManualAssignment) {
+      return this.replayManualAssignment(priorManualAssignment, idempotencyKey, requestHash);
+    }
+    if (log.status === 'PROCESSED') {
+      throw new ConflictException('Giao dịch SePay này đã được xử lý và không thể gán lại.');
+    }
+
+    const claimed = await this.claimManualSePayWebhookLog(log.id, tenantId);
+    if (!claimed) {
+      const current = await this.prisma.paymentWebhookLog.findFirst({ where: { id: log.id, tenantId } });
+      const currentManualAssignment = this.readManualAssignmentState(current?.payload as SePayWebhookPayload);
+      if (currentManualAssignment) {
+        return this.replayManualAssignment(currentManualAssignment, idempotencyKey, requestHash);
+      }
+      throw new ConflictException('SEPAY_MANUAL_ASSIGNMENT_IN_PROGRESS');
+    }
+
+    let financialSideEffectCompleted = false;
+    try {
     const paymentCode = this.resolveWebhookPaymentCode(rawPayload);
     if (!paymentCode) {
       throw new BadRequestException('Giao dịch không có payment code để gán thủ công.');
@@ -1180,28 +1274,48 @@ export class PaymentsService {
 
     const transactionId = this.resolveWebhookTransactionId(rawPayload);
     const providerAmount = Number(rawPayload.transferAmount ?? rawPayload.amount ?? 0);
-    const accountNumber = String(rawPayload.accountNumber || rawPayload.account_number || rawPayload.bank_account_xid || '').trim();
+    const accountNumber = String(
+      rawPayload.accountNumber || rawPayload.account_number || rawPayload.bank_account_xid || '',
+    ).trim();
 
     if (!providerAmount || providerAmount <= 0) {
       throw new BadRequestException('Số tiền giao dịch không hợp lệ.');
+    }
+    if (!accountNumber) {
+      throw new BadRequestException('Giao dịch SePay thiếu số tài khoản nhận tiền để xác minh.');
     }
 
     const existingRequest = await this.prisma.paymentRequest.findFirst({
       where: {
         tenantId,
+        provider: PaymentProvider.SEPAY,
         paymentCode,
       },
     });
 
-    if (existingRequest?.status === PaymentRequestStatus.CONFIRMED && existingRequest.providerTransactionId !== transactionId) {
+    if (
+      existingRequest?.status === PaymentRequestStatus.CONFIRMED &&
+      existingRequest.providerTransactionId !== transactionId
+    ) {
       throw new BadRequestException('Payment code này đã được xác nhận bởi giao dịch khác.');
     }
+
+    let source: {
+      type: PaymentSourceType;
+      id: string;
+      ownerId: string | null;
+      buildingId: string | null;
+      roomId: string | null;
+      room: any;
+      contract: any | null;
+      expectedAmount: number;
+    };
 
     if (payload.sourceType === PaymentSourceType.INVOICE) {
       const invoice = await this.prisma.invoice.findFirst({
         where: {
           tenantId,
-          code: payload.sourceCode,
+          code: normalizedSourceCode,
           deletedAt: null,
         },
         include: {
@@ -1220,82 +1334,21 @@ export class PaymentsService {
         throw new BadRequestException('Không tìm thấy hóa đơn để gán.');
       }
 
-      const remaining = Number(invoice.total || 0) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0);
-      if (providerAmount > remaining) {
-        throw new BadRequestException(`Số tiền giao dịch vượt số dư hóa đơn ${remaining}. Hãy xử lý thừa tiền ở bước riêng.`);
-      }
-
-      const bankAccount = accountNumber
-        ? await this.prisma.bankAccount.findFirst({ where: { tenantId, accountNumber } })
-        : (await this.resolveBankAccount(tenantId, { ownerId: invoice.contract?.room?.building?.ownerId })).bankAccount;
-
-      const request =
-        existingRequest ||
-        (await this.prisma.paymentRequest.create({
-          data: {
-            tenantId,
-            ownerId: invoice.contract?.room?.building?.ownerId || null,
-            buildingId: invoice.contract?.room?.buildingId || null,
-            roomId: invoice.contract?.roomId || null,
-            bankAccountId: bankAccount?.id || null,
-            sourceType: PaymentSourceType.INVOICE,
-            sourceId: invoice.id,
-            provider: PaymentProvider.SEPAY,
-            paymentCode,
-            amount: providerAmount,
-            bankName: bankAccount?.bankName || String(rawPayload.gateway || 'SEPAY'),
-            bankAccountNumber: accountNumber || bankAccount?.accountNumber || '',
-            bankAccountName: bankAccount?.accountName || null,
-            qrUrl: '',
-            metadata: {
-              manualAssigned: true,
-              sourceCode: payload.sourceCode,
-              logId: payload.logId,
-              assignedBy: userId,
-              ...buildRoomContext(invoice.contract?.room, invoice.contract),
-            },
-          },
-        }));
-
-      if (existingRequest) {
-        await this.prisma.paymentRequest.update({
-          where: { id: existingRequest.id },
-          data: {
-            sourceType: PaymentSourceType.INVOICE,
-            sourceId: invoice.id,
-            amount: providerAmount,
-            ownerId: invoice.contract?.room?.building?.ownerId || null,
-            buildingId: invoice.contract?.room?.buildingId || null,
-            roomId: invoice.contract?.roomId || null,
-            bankAccountId: bankAccount?.id || existingRequest.bankAccountId || null,
-            bankName: bankAccount?.bankName || existingRequest.bankName,
-            bankAccountNumber: accountNumber || existingRequest.bankAccountNumber,
-            bankAccountName: bankAccount?.accountName || existingRequest.bankAccountName,
-            metadata: {
-              manualAssigned: true,
-              sourceCode: payload.sourceCode,
-              logId: payload.logId,
-              assignedBy: userId,
-            },
-          },
-        });
-      }
-
-      await this.invoicesService.pay(invoice.id, providerAmount, 'SEPAY', transactionId, userId);
-
-      await this.prisma.paymentRequest.update({
-        where: { id: request.id },
-        data: {
-          status: PaymentRequestStatus.CONFIRMED,
-          providerTransactionId: transactionId,
-          paidAt: new Date(),
-        },
-      });
+      source = {
+        type: PaymentSourceType.INVOICE,
+        id: invoice.id,
+        ownerId: invoice.contract?.room?.building?.ownerId || null,
+        buildingId: invoice.contract?.room?.buildingId || null,
+        roomId: invoice.contract?.roomId || null,
+        room: invoice.contract?.room || null,
+        contract: invoice.contract || null,
+        expectedAmount: Number(invoice.total || 0),
+      };
     } else if (payload.sourceType === PaymentSourceType.DEPOSIT) {
       const deposit = await this.prisma.deposit.findFirst({
         where: {
           tenantId,
-          code: payload.sourceCode,
+          code: normalizedSourceCode,
           deletedAt: null,
         },
         include: {
@@ -1313,78 +1366,180 @@ export class PaymentsService {
       if (providerAmount !== Number(deposit.amount || 0)) {
         throw new BadRequestException(`Số tiền giao dịch phải đúng bằng tiền cọc ${Number(deposit.amount || 0)}.`);
       }
-
-      const bankAccount = accountNumber
-        ? await this.prisma.bankAccount.findFirst({ where: { tenantId, accountNumber } })
-        : (await this.resolveBankAccount(tenantId, { ownerId: deposit.room?.building?.ownerId })).bankAccount;
-
-      const request =
-        existingRequest ||
-        (await this.prisma.paymentRequest.create({
-          data: {
-            tenantId,
-            ownerId: deposit.room?.building?.ownerId || null,
-            buildingId: deposit.room?.buildingId || null,
-            roomId: deposit.roomId,
-            bankAccountId: bankAccount?.id || null,
-            sourceType: PaymentSourceType.DEPOSIT,
-            sourceId: deposit.id,
-            provider: PaymentProvider.SEPAY,
-            paymentCode,
-            amount: providerAmount,
-            bankName: bankAccount?.bankName || String(rawPayload.gateway || 'SEPAY'),
-            bankAccountNumber: accountNumber || bankAccount?.accountNumber || '',
-            bankAccountName: bankAccount?.accountName || null,
-            qrUrl: '',
-            metadata: {
-              manualAssigned: true,
-              sourceCode: payload.sourceCode,
-              logId: payload.logId,
-              assignedBy: userId,
-              ...buildRoomContext(deposit.room),
-            },
-          },
-        }));
-
-      if (existingRequest) {
-        await this.prisma.paymentRequest.update({
-          where: { id: existingRequest.id },
-          data: {
-            sourceType: PaymentSourceType.DEPOSIT,
-            sourceId: deposit.id,
-            amount: providerAmount,
-            ownerId: deposit.room?.building?.ownerId || null,
-            buildingId: deposit.room?.buildingId || null,
-            roomId: deposit.roomId,
-            bankAccountId: bankAccount?.id || existingRequest.bankAccountId || null,
-            bankName: bankAccount?.bankName || existingRequest.bankName,
-            bankAccountNumber: accountNumber || existingRequest.bankAccountNumber,
-            bankAccountName: bankAccount?.accountName || existingRequest.bankAccountName,
-            metadata: {
-              manualAssigned: true,
-              sourceCode: payload.sourceCode,
-              logId: payload.logId,
-              assignedBy: userId,
-            },
-          },
-        });
-      }
-
-      await this.depositsService.collect(deposit.id, `Manual SePay assignment ${transactionId}`, userId);
-
-      await this.prisma.paymentRequest.update({
-        where: { id: request.id },
-        data: {
-          status: PaymentRequestStatus.CONFIRMED,
-          providerTransactionId: transactionId,
-          paidAt: new Date(),
-        },
-      });
+      source = {
+        type: PaymentSourceType.DEPOSIT,
+        id: deposit.id,
+        ownerId: deposit.room?.building?.ownerId || null,
+        buildingId: deposit.room?.buildingId || null,
+        roomId: deposit.roomId || null,
+        room: deposit.room || null,
+        contract: null,
+        expectedAmount: Number(deposit.amount || 0),
+      };
     } else {
       throw new BadRequestException('Loại nguồn thanh toán không hỗ trợ.');
     }
 
-    await this.markSePayWebhookLog(log.id, 'PROCESSED', { tenantId });
+    if (
+      existingRequest &&
+      (existingRequest.sourceType !== source.type || existingRequest.sourceId !== source.id)
+    ) {
+      throw new ConflictException('Payment code đã gắn với nguồn thanh toán khác.');
+    }
+
+    const resolvedBank = await this.resolveBankAccount(tenantId, {
+      ownerId: source.ownerId,
+      roomId: source.roomId,
+    });
+    const expectedBankAccountNumber = existingRequest?.bankAccountNumber || resolvedBank.bankAccount.accountNumber;
+    const bankAccount = await this.resolveManualReceivingBankAccount(
+      tenantId,
+      accountNumber,
+      expectedBankAccountNumber,
+      source.ownerId,
+    );
+    const manualMetadata = {
+      manualAssigned: true,
+      sourceCode: normalizedSourceCode,
+      logId: payload.logId,
+      assignedBy: userId,
+      idempotencyKey,
+      requestHash,
+      sepayProviderAccountNumberRaw: accountNumber,
+      sepayProviderAccountNumberNormalized: this.normalizeBankAccountNumber(accountNumber),
+      expectedBankAccountNumberRaw: expectedBankAccountNumber,
+      expectedBankAccountNumberNormalized: this.normalizeBankAccountNumber(expectedBankAccountNumber),
+      ...buildRoomContext(source.room, source.contract),
+    };
+    this.validateManualAssignmentRequestClaim(
+      existingRequest,
+      idempotencyKey,
+      requestHash,
+      source.type,
+      source.id,
+    );
+    const request =
+      existingRequest ||
+      (await this.createManualSePayPaymentRequest({
+        tenantId,
+        ownerId: source.ownerId,
+        buildingId: source.buildingId,
+        roomId: source.roomId,
+        bankAccountId: bankAccount.id,
+        sourceType: source.type,
+        sourceId: source.id,
+        paymentCode,
+        amount: providerAmount,
+        bankName: bankAccount.bankName || String(rawPayload.gateway || 'SEPAY'),
+        bankAccountNumber: expectedBankAccountNumber,
+        bankAccountName: bankAccount.accountName || null,
+        metadata: manualMetadata,
+      }));
+
+    if (existingRequest) {
+      await this.prisma.paymentRequest.update({
+        where: { id: existingRequest.id },
+        data: {
+          bankAccountId: bankAccount.id,
+          bankName: bankAccount.bankName || existingRequest.bankName,
+          bankAccountNumber: expectedBankAccountNumber,
+          bankAccountName: bankAccount.accountName || existingRequest.bankAccountName,
+          metadata: { ...((existingRequest.metadata as any) || {}), ...manualMetadata },
+        },
+      });
+    }
+
+      if (source.type === PaymentSourceType.INVOICE) {
+      const existingPayment = await this.prisma.payment.findFirst({
+        where: {
+          tenantId,
+          provider: 'SEPAY',
+          providerRef: transactionId,
+          deletedAt: null,
+        },
+        select: { id: true, invoiceId: true, amount: true, status: true },
+      });
+        if (existingPayment) {
+          if (
+            existingPayment.invoiceId !== source.id ||
+            Number(existingPayment.amount) !== providerAmount ||
+            existingPayment.status !== 'CONFIRMED'
+          ) {
+            throw new ConflictException('PAYMENT_PROVIDER_REFERENCE_CONFLICT');
+          }
+        } else {
+          const invoice = await this.prisma.invoice.findFirst({
+            where: { id: source.id, tenantId, deletedAt: null },
+            select: { total: true, paidAmount: true, creditAmount: true },
+          });
+          const remaining =
+            Number(invoice?.total || 0) - Number(invoice?.paidAmount || 0) - Number(invoice?.creditAmount || 0);
+          if (providerAmount > remaining) {
+            throw new BadRequestException(
+              `Số tiền giao dịch vượt số dư hóa đơn ${remaining}. Hãy xử lý thừa tiền ở bước riêng.`,
+            );
+          }
+          await this.invoicesService.pay(source.id, providerAmount, 'SEPAY', transactionId, userId, tenantId);
+        }
+      } else {
+      const currentDeposit = await this.prisma.deposit.findFirst({
+        where: { id: source.id, tenantId, deletedAt: null },
+        select: { status: true },
+      });
+        if (currentDeposit?.status === 'DRAFT' || currentDeposit?.status === 'PENDING') {
+          await this.depositsService.collect(
+            source.id,
+            `Manual SePay assignment ${transactionId}`,
+            userId,
+            `sepay:${transactionId}`,
+          );
+        }
+      }
+      financialSideEffectCompleted = true;
+
+    await this.prisma.paymentRequest.update({
+      where: { id: request.id },
+      data: {
+        status: PaymentRequestStatus.CONFIRMED,
+        providerTransactionId: transactionId,
+        paidAt: new Date(),
+      },
+    });
+
+    const result = {
+      success: true,
+      paymentCode,
+      sourceType: source.type,
+      sourceCode: normalizedSourceCode,
+      amount: providerAmount,
+    };
+
+    await this.prisma.paymentWebhookLog.update({
+      where: { id: log.id },
+      data: {
+        payload: {
+          ...(rawPayload as any),
+          homeLandManualAssignment: {
+            idempotencyKey,
+            requestHash,
+            assignedAt: new Date().toISOString(),
+            assignedBy: userId,
+            sourceType: source.type,
+            sourceId: source.id,
+            sourceCode: normalizedSourceCode,
+            providerAccountNumberRaw: accountNumber,
+            providerAccountNumberNormalized: this.normalizeBankAccountNumber(accountNumber),
+            expectedBankAccountNumberRaw: expectedBankAccountNumber,
+            expectedBankAccountNumberNormalized: this.normalizeBankAccountNumber(expectedBankAccountNumber),
+            result,
+          },
+        } as any,
+        status: 'PROCESSED' as any,
+        tenantId,
+        processedAt: new Date(),
+        lastError: null,
+      } as any,
+    });
 
     await this.auditService.log({
       action: AuditAction.UPDATE,
@@ -1398,30 +1553,41 @@ export class PaymentsService {
         paymentCode,
         sourceType: existingRequest?.sourceType || null,
         sourceId: existingRequest?.sourceId || null,
+        bankAccountNumber: existingRequest?.bankAccountNumber || null,
       },
       after: {
         logId: log.id,
         paymentCode,
-        sourceType: payload.sourceType,
-        sourceCode: payload.sourceCode,
+        sourceType: source.type,
+        sourceCode: normalizedSourceCode,
         amount: providerAmount,
         transactionId,
+        idempotencyKey,
+        requestHash,
+        providerAccountNumberRaw: accountNumber,
+        providerAccountNumberNormalized: this.normalizeBankAccountNumber(accountNumber),
+        expectedBankAccountNumberRaw: expectedBankAccountNumber,
+        expectedBankAccountNumberNormalized: this.normalizeBankAccountNumber(expectedBankAccountNumber),
       },
     });
 
-    return {
-      success: true,
-      paymentCode,
-      sourceType: payload.sourceType,
-      sourceCode: payload.sourceCode,
-      amount: providerAmount,
-    };
+    return result;
+    } catch (error: any) {
+      await this.markSePayWebhookLog(log.id, financialSideEffectCompleted ? 'FAILED' : 'NEEDS_REVIEW', {
+        tenantId,
+        error: String(error?.message || error || 'Manual SePay assignment failed').slice(0, 1000),
+      }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async resolveSePayOverpayment(
     tenantId: string,
     userId: string,
-    payload: { logId: string; resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD' | 'REFUND_PENDING' },
+    payload: {
+      logId: string;
+      resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD' | 'REFUND_PENDING';
+    },
   ) {
     const log = await this.prisma.paymentWebhookLog.findFirst({
       where: { id: payload.logId, tenantId },
@@ -1436,7 +1602,7 @@ export class PaymentsService {
       throw new BadRequestException('Log SePay không có payment code hợp lệ.');
     }
 
-    const request = await this.prisma.paymentRequest.findFirst({
+    const initialRequest = await this.prisma.paymentRequest.findFirst({
       where: {
         tenantId,
         provider: PaymentProvider.SEPAY,
@@ -1446,25 +1612,34 @@ export class PaymentsService {
         owner: true,
       },
     });
-    if (!request) {
+    if (!initialRequest) {
       throw new BadRequestException('Không tìm thấy payment request tương ứng.');
     }
-    if (request.sourceType !== PaymentSourceType.INVOICE && request.sourceType !== PaymentSourceType.DEPOSIT) {
+    if (initialRequest.sourceType !== PaymentSourceType.INVOICE && initialRequest.sourceType !== PaymentSourceType.DEPOSIT) {
       throw new BadRequestException('Nguồn thanh toán này chưa hỗ trợ xử lý tiền thừa.');
     }
 
     const providerAmount = Number(rawPayload.transferAmount ?? rawPayload.amount ?? 0);
-    const requestedAmount = Number(request.amount || 0);
+    const requestedAmount = Number(initialRequest.amount || 0);
     const overpaidAmount = providerAmount - requestedAmount;
     if (overpaidAmount <= 0) {
       throw new BadRequestException('Giao dịch này không có tiền thừa để xử lý.');
     }
 
-    const existingResolution = (request.metadata as any)?.overpaymentResolution || rawPayload?.overpaymentResolution;
-    if (existingResolution) {
-      throw new BadRequestException('Tiền thừa của giao dịch này đã được xử lý.');
-    }
-
+    const resolved = await this.prisma.$transaction(async (tx) => {
+      await this.lockSePayOverpayment(tx, tenantId, initialRequest.id);
+      const request = await tx.paymentRequest.findFirst({
+        where: { id: initialRequest.id, tenantId },
+        include: { owner: true },
+      });
+      if (!request) throw new BadRequestException('Không tìm thấy payment request tương ứng.');
+      const existingResolution = (request.metadata as any)?.overpaymentResolution || rawPayload?.overpaymentResolution;
+      if (existingResolution) {
+        if (existingResolution !== payload.resolution) {
+          throw new BadRequestException('Tiền thừa của giao dịch này đã được xử lý.');
+        }
+        return { replayed: true, request, existingResolution };
+      }
     const metadata = {
       ...((request.metadata as any) || {}),
       overpaymentResolution: payload.resolution,
@@ -1481,7 +1656,7 @@ export class PaymentsService {
           ? `Hoàn lại tiền thừa SePay cho hóa đơn ${request.sourceId}`
           : `Hoàn lại tiền thừa SePay cho phiếu cọc ${request.sourceId}`;
 
-      pendingRefundTask = await this.prisma.task.create({
+      pendingRefundTask = await tx.task.create({
         data: {
           tenantId,
           title,
@@ -1496,7 +1671,7 @@ export class PaymentsService {
       let customerId = '';
       let sourceInvoiceId: string | null = null;
       if (request.sourceType === PaymentSourceType.INVOICE) {
-        const invoice = await this.prisma.invoice.findFirst({
+        const invoice = await tx.invoice.findFirst({
           where: { tenantId, id: request.sourceId, deletedAt: null },
           select: {
             id: true,
@@ -1510,7 +1685,7 @@ export class PaymentsService {
         customerId = invoice.customerId;
         sourceInvoiceId = invoice.id;
       } else {
-        const deposit = await this.prisma.deposit.findFirst({
+        const deposit = await tx.deposit.findFirst({
           where: { tenantId, id: request.sourceId, deletedAt: null },
           select: {
             id: true,
@@ -1524,7 +1699,7 @@ export class PaymentsService {
         customerId = deposit.customerId;
       }
 
-      const creditNote = await this.prisma.creditNote.create({
+      const creditNote = await tx.creditNote.create({
         data: {
           tenantId,
           customerId,
@@ -1538,7 +1713,8 @@ export class PaymentsService {
         },
       });
 
-      await this.createOverpaymentJournalEntry(
+      await this.createOverpaymentJournalEntryInTransaction(
+        tx,
         tenantId,
         creditNote.id,
         paymentCode,
@@ -1547,14 +1723,14 @@ export class PaymentsService {
       );
     }
 
-    await this.prisma.paymentRequest.update({
+    await tx.paymentRequest.update({
       where: { id: request.id },
       data: {
         metadata: metadata as any,
       },
     });
 
-    await this.prisma.paymentWebhookLog.update({
+    await tx.paymentWebhookLog.update({
       where: { id: log.id },
       data: {
         payload: {
@@ -1569,25 +1745,38 @@ export class PaymentsService {
       },
     });
 
+      return { replayed: false, request, pendingRefundTask };
+    });
+
+    if (resolved.replayed) {
+      return {
+        success: true,
+        paymentCode,
+        resolution: payload.resolution,
+        overpaidAmount,
+        replayed: true,
+      };
+    }
+
     await this.auditService.log({
       action: AuditAction.UPDATE,
       module: 'Payments',
       entity: 'SePayOverpaymentResolution',
-      entityId: request.id,
+      entityId: resolved.request.id,
       tenantId,
       userId,
       before: {
-        requestId: request.id,
+        requestId: resolved.request.id,
         paymentCode,
-        resolution: existingResolution || null,
+        resolution: null,
         amount: requestedAmount,
       },
       after: {
-        requestId: request.id,
+        requestId: resolved.request.id,
         paymentCode,
         resolution: payload.resolution,
         overpaidAmount,
-        ownerId: request.ownerId || null,
+        ownerId: resolved.request.ownerId || null,
       },
     });
 
@@ -1599,11 +1788,7 @@ export class PaymentsService {
     };
   }
 
-  async completeSePayOverpaymentRefund(
-    tenantId: string,
-    userId: string,
-    payload: { logId: string; note?: string },
-  ) {
+  async completeSePayOverpaymentRefund(tenantId: string, userId: string, payload: { logId: string; note?: string }) {
     const log = await this.prisma.paymentWebhookLog.findFirst({
       where: { id: payload.logId, tenantId },
     });
@@ -1663,36 +1848,45 @@ export class PaymentsService {
       overpaymentRefundCompletionNote: completionNote || null,
     };
 
-    const updatedTask = await this.prisma.task.update({
-      where: { id: task.id },
-      data: {
-        status: 'DONE' as any,
-        description: completionNote
-          ? `${task.description || ''}\nHoàn tất hoàn dư: ${completionNote}`.trim()
-          : task.description,
-      },
-    });
-
-    await this.prisma.paymentRequest.update({
-      where: { id: request.id },
-      data: {
-        metadata: nextMetadata as any,
-      },
-    });
-
-    await this.prisma.paymentWebhookLog.update({
-      where: { id: log.id },
-      data: {
-        payload: {
-          ...rawPayload,
-          overpaymentResolution: 'REFUND_PENDING',
-          overpaymentRefundCompletedAt: completedAtIso,
-          overpaymentRefundCompletedBy: userId,
-          overpaymentRefundCompletionNote: completionNote || null,
-          overpaymentTaskId: task.id,
-          overpaymentTaskTitle: task.title,
-        } as any,
-      },
+    const updatedTask = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.paymentRequest.updateMany({
+        where: {
+          id: request.id,
+          tenantId,
+          metadata: request.metadata as any,
+        },
+        data: { metadata: nextMetadata as any },
+      });
+      if (claimed.count !== 1) {
+        throw new ConflictException('SEPAY_OVERPAYMENT_REFUND_CONCURRENT_UPDATE');
+      }
+      const completed = await tx.task.updateMany({
+        where: { id: task.id, tenantId, deletedAt: null, status: 'TODO' as any },
+        data: {
+          status: 'DONE' as any,
+          description: completionNote
+            ? `${task.description || ''}\nHoàn tất hoàn dư: ${completionNote}`.trim()
+            : task.description,
+        },
+      });
+      if (completed.count !== 1) {
+        throw new ConflictException('SEPAY_OVERPAYMENT_REFUND_TASK_CONCURRENT_UPDATE');
+      }
+      await tx.paymentWebhookLog.update({
+        where: { id: log.id },
+        data: {
+          payload: {
+            ...rawPayload,
+            overpaymentResolution: 'REFUND_PENDING',
+            overpaymentRefundCompletedAt: completedAtIso,
+            overpaymentRefundCompletedBy: userId,
+            overpaymentRefundCompletionNote: completionNote || null,
+            overpaymentTaskId: task.id,
+            overpaymentTaskTitle: task.title,
+          } as any,
+        },
+      });
+      return { id: task.id };
     });
 
     await this.auditService.log({
@@ -1739,10 +1933,141 @@ export class PaymentsService {
     return match?.[0] || '';
   }
 
-  private async claimSePayWebhookLog(logId: string) {
+  private normalizeBankAccountNumber(value?: string | null) {
+    return String(value || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+  }
+
+  private requireSePayCommandIdempotencyKey(value: string) {
+    const key = String(value || '').trim();
+    if (!key || key.length > 200) {
+      throw new BadRequestException('SEPAY_IDEMPOTENCY_KEY_REQUIRED');
+    }
+    return key;
+  }
+
+  private hashSePayManualAssignment(input: {
+    tenantId: string;
+    logId: string;
+    sourceType: PaymentSourceType;
+    sourceCode: string;
+  }) {
+    return createHash('sha256')
+      .update(JSON.stringify({ ...input, sourceCode: input.sourceCode.trim().toUpperCase() }))
+      .digest('hex');
+  }
+
+  private readManualAssignmentState(payload?: SePayWebhookPayload | null) {
+    const state = (payload as any)?.homeLandManualAssignment;
+    return state && typeof state === 'object' ? state : null;
+  }
+
+  private replayManualAssignment(state: any, idempotencyKey: string, requestHash: string) {
+    if (state.idempotencyKey !== idempotencyKey) {
+      throw new ConflictException('SEPAY_MANUAL_ASSIGNMENT_IDEMPOTENCY_KEY_REUSED');
+    }
+    if (state.requestHash !== requestHash) {
+      throw new ConflictException('SEPAY_MANUAL_ASSIGNMENT_IDEMPOTENCY_KEY_COLLISION');
+    }
+    return state.result;
+  }
+
+  private validateManualAssignmentRequestClaim(
+    request: any | null,
+    idempotencyKey: string,
+    requestHash: string,
+    sourceType: PaymentSourceType,
+    sourceId: string,
+  ) {
+    if (!request) return;
+    if (request.sourceType !== sourceType || request.sourceId !== sourceId) {
+      throw new ConflictException('SEPAY_PAYMENT_CODE_SOURCE_CONFLICT');
+    }
+    const metadata = (request.metadata as any) || {};
+    if (!metadata.manualAssigned && !metadata.idempotencyKey && !metadata.requestHash) return;
+    if (metadata.idempotencyKey !== idempotencyKey) {
+      throw new ConflictException('SEPAY_MANUAL_ASSIGNMENT_IDEMPOTENCY_KEY_REUSED');
+    }
+    if (metadata.requestHash !== requestHash) {
+      throw new ConflictException('SEPAY_MANUAL_ASSIGNMENT_IDEMPOTENCY_KEY_COLLISION');
+    }
+  }
+
+  private async resolveManualReceivingBankAccount(
+    tenantId: string,
+    providerAccountNumber: string,
+    expectedAccountNumber: string,
+    expectedOwnerId?: string | null,
+  ) {
+    const normalizedProvider = this.normalizeBankAccountNumber(providerAccountNumber);
+    const normalizedExpected = this.normalizeBankAccountNumber(expectedAccountNumber);
+    if (!normalizedProvider || !normalizedExpected || normalizedProvider !== normalizedExpected) {
+      throw new BadRequestException('SEPAY_RECEIVING_BANK_ACCOUNT_MISMATCH');
+    }
+
+    const candidates = await this.prisma.bankAccount.findMany({
+      where: { tenantId, isActive: true },
+      select: { id: true, ownerId: true, bankName: true, accountNumber: true, accountName: true },
+    });
+    const matches = candidates.filter(
+      (candidate) => this.normalizeBankAccountNumber(candidate.accountNumber) === normalizedExpected,
+    );
+    if (matches.length !== 1) {
+      throw new BadRequestException('SEPAY_RECEIVING_BANK_ACCOUNT_AMBIGUOUS_OR_UNKNOWN');
+    }
+    if (expectedOwnerId && matches[0].ownerId !== expectedOwnerId) {
+      throw new BadRequestException('SEPAY_RECEIVING_BANK_OWNER_MISMATCH');
+    }
+    return matches[0];
+  }
+
+  private async createManualSePayPaymentRequest(data: any) {
+    try {
+      return await this.prisma.paymentRequest.create({ data });
+    } catch (error: any) {
+      if (String(error?.code || '') !== 'P2002') throw error;
+      const existing = await this.prisma.paymentRequest.findFirst({
+        where: { tenantId: data.tenantId, provider: PaymentProvider.SEPAY, paymentCode: data.paymentCode },
+      });
+      if (!existing || existing.sourceType !== data.sourceType || existing.sourceId !== data.sourceId) {
+        throw new ConflictException('SEPAY_PAYMENT_CODE_SOURCE_CONFLICT');
+      }
+      return existing;
+    }
+  }
+
+  private async claimManualSePayWebhookLog(logId: string, tenantId: string) {
     const claimed = await this.prisma.paymentWebhookLog.updateMany({
       where: {
         id: logId,
+        tenantId,
+        processedAt: null,
+        status: { in: ['RECEIVED', 'FAILED', 'NEEDS_REVIEW'] as any },
+      } as any,
+      data: {
+        status: 'PROCESSING' as any,
+        processingStartedAt: new Date(),
+        lastError: null,
+        attemptCount: { increment: 1 },
+      } as any,
+    });
+    return claimed.count === 1;
+  }
+
+  private async lockSePayOverpayment(tx: any, tenantId: string, paymentRequestId: string) {
+    const lockKey = `${tenantId}:sepay-overpayment:${paymentRequestId}`;
+    await tx.$queryRaw(
+      Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))::text AS "lock"`,
+    );
+  }
+
+  private async claimSePayWebhookLog(logId: string, tenantId?: string) {
+    const claimed = await this.prisma.paymentWebhookLog.updateMany({
+      where: {
+        id: logId,
+        ...(tenantId ? { tenantId } : {}),
         processedAt: null,
         status: { in: ['RECEIVED', 'FAILED'] as any },
       } as any,
@@ -1776,7 +2101,7 @@ export class PaymentsService {
   async getSePayStatus(tenantId: string) {
     const settings = await this.resolveSePayConfig(tenantId);
     const latestWebhook = await this.prisma.paymentWebhookLog.findFirst({
-      where: { provider: PaymentProvider.SEPAY },
+      where: { tenantId, provider: PaymentProvider.SEPAY },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -1801,7 +2126,10 @@ export class PaymentsService {
       lastWebhookStatus: latestWebhook?.status || null,
       lastWebhookProcessedAt: latestWebhook?.processedAt || null,
       lastWebhookError: latestWebhook?.lastError || null,
-      lastWebhookAccountNumber: String((latestWebhook?.payload as any)?.accountNumber || (latestWebhook?.payload as any)?.account_number || '').trim() || null,
+      lastWebhookAccountNumber:
+        String(
+          (latestWebhook?.payload as any)?.accountNumber || (latestWebhook?.payload as any)?.account_number || '',
+        ).trim() || null,
     };
   }
 
@@ -1891,7 +2219,9 @@ export class PaymentsService {
             roomId: room.id,
           });
           const assignment = assignmentMap.get(room.id) || null;
-          const mappedBankAccount = assignment?.bankAccountId ? bankAccountById.get(assignment.bankAccountId) || null : null;
+          const mappedBankAccount = assignment?.bankAccountId
+            ? bankAccountById.get(assignment.bankAccountId) || null
+            : null;
           return {
             id: room.id,
             code: room.code,
@@ -1914,7 +2244,12 @@ export class PaymentsService {
 
   async previewSePayQr(
     tenantId: string,
-    payload: { amount?: number; memo?: string; roomId?: string; bankAccountId?: string } = {},
+    payload: {
+      amount?: number;
+      memo?: string;
+      roomId?: string;
+      bankAccountId?: string;
+    } = {},
   ) {
     const sepayConfig = await this.resolveSePayConfig(tenantId);
     const amount = Math.max(1000, Number(payload.amount || 123000));
@@ -1924,7 +2259,8 @@ export class PaymentsService {
     });
     const bankAccount = resolved.bankAccount;
     const prefix = String(sepayConfig.paymentCodePrefix || 'HL').trim() || 'HL';
-    const memo = String(payload.memo || '').trim() || `${prefix}TEST${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const memo =
+      String(payload.memo || '').trim() || `${prefix}TEST${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
     return {
       bankName: bankAccount.bankName,
       bankLabel: this.formatBankAccountLabel(bankAccount),
@@ -1953,7 +2289,12 @@ export class PaymentsService {
 
   async sendPreviewSePayQrToAdminGroup(
     tenantId: string,
-    payload: { amount?: number; memo?: string; roomId?: string; bankAccountId?: string },
+    payload: {
+      amount?: number;
+      memo?: string;
+      roomId?: string;
+      bankAccountId?: string;
+    },
   ) {
     const zaloSettings = await this.prisma.appSetting.findUnique({
       where: {
@@ -1971,7 +2312,9 @@ export class PaymentsService {
     }
 
     const preview = await this.previewSePayQr(tenantId, payload);
-    const roomLabel = preview.roomCode ? `${preview.roomCode}${preview.buildingName ? ` • ${preview.buildingName}` : ''}` : 'Không gắn phòng';
+    const roomLabel = preview.roomCode
+      ? `${preview.roomCode}${preview.buildingName ? ` • ${preview.buildingName}` : ''}`
+      : 'Không gắn phòng';
 
     const builtCaption = [
       `QR test SePay • ${roomLabel}`,
@@ -1997,7 +2340,10 @@ export class PaymentsService {
     };
   }
 
-  async testSePayReconciliation(tenantId: string, payload: { paymentCode?: string; amount?: number; accountNumber?: string }) {
+  async testSePayReconciliation(
+    tenantId: string,
+    payload: { paymentCode?: string; amount?: number; accountNumber?: string },
+  ) {
     const paymentCode = String(payload.paymentCode || '').trim();
     if (!paymentCode) throw new BadRequestException('SEPAY_TEST_PAYMENT_CODE_REQUIRED');
 
@@ -2029,17 +2375,25 @@ export class PaymentsService {
       overpayment: actualAmount > expectedAmount,
       expectedBankAccount: request.bankAccountNumber,
       actualBankAccount: accountNumber,
-      bankMatches: !accountNumber || accountNumber === request.bankAccountNumber,
+      bankMatches:
+        !accountNumber ||
+        this.normalizeBankAccountNumber(accountNumber) === this.normalizeBankAccountNumber(request.bankAccountNumber),
     };
   }
 
   async handleSePayWebhook(
     payload: SePayWebhookPayload,
-    authorizationOrHeaders: string | { authorization?: string; signature?: string; timestamp?: string; rawBody?: string } = {},
+    authorizationOrHeaders:
+      | string
+      | {
+          authorization?: string;
+          signature?: string;
+          timestamp?: string;
+          rawBody?: string;
+        } = {},
   ) {
-    const headers = typeof authorizationOrHeaders === 'string'
-      ? { authorization: authorizationOrHeaders }
-      : authorizationOrHeaders;
+    const headers =
+      typeof authorizationOrHeaders === 'string' ? { authorization: authorizationOrHeaders } : authorizationOrHeaders;
     const webhookSettings = await this.prisma.appSetting.findMany({
       where: {
         key: 'sepay',
@@ -2051,10 +2405,10 @@ export class PaymentsService {
       },
     });
 
-    const authMatched = webhookSettings.some((setting) => {
+    const matchedTenantIds = webhookSettings.flatMap((setting) => {
       const config = (setting.value as any) || {};
       const authMode = this.normalizeSePayAuthMode(config.authMode);
-      if (authMode === 'none') return true;
+      if (authMode === 'none') return setting.tenantId ? [setting.tenantId] : [];
 
       const apiKey = String(config.webhookApiKey || '').trim();
       const hmacSecret = String(config.hmacSecret || '').trim();
@@ -2078,12 +2432,12 @@ export class PaymentsService {
         this.verifySePayTimestamp(timestamp) &&
         this.verifySePayHmac(hmacSecret, timestamp, rawBody, signature);
 
-      if (authMode === 'hmac') return hmacOk;
-      if (authMode === 'dual') return apiKeyOk || hmacOk;
-      return apiKeyOk;
+      const matched = authMode === 'hmac' ? hmacOk : authMode === 'dual' ? apiKeyOk || hmacOk : apiKeyOk;
+      return matched && setting.tenantId ? [setting.tenantId] : [];
     });
 
-    if (!authMatched) {
+    const authenticatedTenantIds = [...new Set(matchedTenantIds)];
+    if (authenticatedTenantIds.length !== 1) {
       throw new UnauthorizedException('Unauthorized SePay webhook');
     }
 
@@ -2098,32 +2452,41 @@ export class PaymentsService {
 
     PaymentsService.processingSePayTransactionIds.add(transactionId);
     try {
-      return await this.processSePayWebhookPayload(payload, transactionId);
+      return await this.processSePayWebhookPayload(payload, transactionId, authenticatedTenantIds);
     } catch (error: any) {
-      await this.prisma.paymentWebhookLog.update({
-        where: {
-          provider_providerTransactionId: {
-            provider: PaymentProvider.SEPAY,
-            providerTransactionId: transactionId,
+      await this.prisma.paymentWebhookLog
+        .update({
+          where: {
+            provider_providerTransactionId: {
+              provider: PaymentProvider.SEPAY,
+              providerTransactionId: transactionId,
+            },
           },
-        },
-        data: {
-          status: 'FAILED' as any,
-          lastError: String(error?.message || error || 'Unknown SePay webhook processing error').slice(0, 1000),
-        } as any,
-      }).catch(() => undefined);
+          data: {
+            status: 'FAILED' as any,
+            lastError: String(error?.message || error || 'Unknown SePay webhook processing error').slice(0, 1000),
+          } as any,
+        })
+        .catch(() => undefined);
       throw error;
     } finally {
       PaymentsService.processingSePayTransactionIds.delete(transactionId);
     }
   }
 
-  private async processSePayWebhookPayload(payload: SePayWebhookPayload, transactionId: string) {
+  private async processSePayWebhookPayload(
+    payload: SePayWebhookPayload,
+    transactionId: string,
+    authenticatedTenantIds: string[],
+  ) {
     const providerAmount = Number(payload.transferAmount ?? payload.amount ?? 0);
     const transferType = String(payload.transferType || payload.transfer_type || '').toLowerCase();
     const paymentCode = this.resolveWebhookPaymentCode(payload);
-    const accountNumber = String(payload.accountNumber || payload.account_number || payload.bank_account_xid || '').trim();
+    const accountNumber = String(
+      payload.accountNumber || payload.account_number || payload.bank_account_xid || '',
+    ).trim();
 
+    const webhookTenantId = authenticatedTenantIds[0];
     const log = await this.prisma.paymentWebhookLog.upsert({
       where: {
         provider_providerTransactionId: {
@@ -2132,6 +2495,7 @@ export class PaymentsService {
         },
       },
       create: {
+        tenantId: webhookTenantId,
         provider: PaymentProvider.SEPAY,
         providerTransactionId: transactionId,
         payload,
@@ -2139,6 +2503,7 @@ export class PaymentsService {
       } as any,
       update: {
         payload,
+        tenantId: webhookTenantId,
       } as any,
     });
 
@@ -2146,7 +2511,7 @@ export class PaymentsService {
       return { success: true };
     }
 
-    const claimed = await this.claimSePayWebhookLog(log.id);
+    const claimed = await this.claimSePayWebhookLog(log.id, webhookTenantId);
     if (!claimed) {
       return { success: true };
     }
@@ -2156,21 +2521,20 @@ export class PaymentsService {
       return { success: true };
     }
 
-    const request = await this.prisma.paymentRequest.findFirst({
+    const requestByCode = await this.prisma.paymentRequest.findFirst({
       where: {
+        tenantId: { in: authenticatedTenantIds },
         provider: PaymentProvider.SEPAY,
         paymentCode,
-        ...(accountNumber ? { bankAccountNumber: accountNumber } : {}),
       },
     });
-    const requestByCode =
-      request ||
-      (await this.prisma.paymentRequest.findFirst({
-        where: {
-          provider: PaymentProvider.SEPAY,
-          paymentCode,
-        },
-      }));
+    const normalizedAccountNumber = this.normalizeBankAccountNumber(accountNumber);
+    const request =
+      requestByCode &&
+      (!normalizedAccountNumber ||
+        this.normalizeBankAccountNumber(requestByCode.bankAccountNumber) === normalizedAccountNumber)
+        ? requestByCode
+        : null;
 
     if (
       !request &&
@@ -2178,7 +2542,7 @@ export class PaymentsService {
       requestByCode.status === PaymentRequestStatus.PENDING &&
       accountNumber &&
       requestByCode.bankAccountNumber &&
-      requestByCode.bankAccountNumber !== accountNumber
+      this.normalizeBankAccountNumber(requestByCode.bankAccountNumber) !== normalizedAccountNumber
     ) {
       await this.logPaymentAudit(
         requestByCode.tenantId,
@@ -2211,7 +2575,9 @@ export class PaymentsService {
     }
 
     if (!request || request.status !== PaymentRequestStatus.PENDING) {
-      await this.markSePayWebhookLog(log.id, 'NEEDS_REVIEW', { tenantId: requestByCode?.tenantId || null });
+      await this.markSePayWebhookLog(log.id, 'NEEDS_REVIEW', {
+        tenantId: requestByCode?.tenantId || null,
+      });
       return { success: true };
     }
 
@@ -2244,7 +2610,9 @@ export class PaymentsService {
         expectedBankAccount: request.bankAccountNumber,
         actualBankAccount: accountNumber || request.bankAccountNumber,
       });
-      await this.markSePayWebhookLog(log.id, 'NEEDS_REVIEW', { tenantId: request.tenantId });
+      await this.markSePayWebhookLog(log.id, 'NEEDS_REVIEW', {
+        tenantId: request.tenantId,
+      });
       return { success: true };
     }
 
@@ -2290,10 +2658,22 @@ export class PaymentsService {
         select: { id: true },
       });
       if (!existingPayment) {
-        await this.invoicesService.pay(request.sourceId, Number(request.amount), 'SEPAY', transactionId, 'SEPAY_WEBHOOK');
+        await this.invoicesService.pay(
+          request.sourceId,
+          Number(request.amount),
+          'SEPAY',
+          transactionId,
+          'SEPAY_WEBHOOK',
+          request.tenantId,
+        );
       }
     } else if (request.sourceType === PaymentSourceType.DEPOSIT) {
-      await this.depositsService.collect(request.sourceId, `SePay transaction ${transactionId}`, 'SEPAY_WEBHOOK');
+      await this.depositsService.collect(
+        request.sourceId,
+        `SePay transaction ${transactionId}`,
+        'SEPAY_WEBHOOK',
+        `sepay:${transactionId}`,
+      );
     }
 
     await this.prisma.paymentRequest.update({

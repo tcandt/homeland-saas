@@ -24,13 +24,25 @@ export const CreateContractSchema = z.object({
   rentAmount: z.number().min(0),
   depositAmount: z.number().min(0),
   memberCount: z.number().int().min(1).optional(),
-  status: ContractStatusEnum.default('ACTIVE'),
+  status: ContractStatusEnum.default('DRAFT'),
   notes: z.string().optional().nullable(),
   attachments: z.array(z.string()).optional(),
   coRepresentativeIds: z.array(z.string()).optional(),
 });
 
 export const UpdateContractSchema = CreateContractSchema.partial();
+
+/** A renewal is a new contract version, never an update to the source. */
+export const RenewContractSchema = z.object({
+  startDate: z.string().or(z.date()),
+  endDate: z.string().or(z.date()),
+  rentAmount: z.number().min(0).optional(),
+  depositAmount: z.number().min(0).optional(),
+  memberCount: z.number().int().min(1).optional(),
+  firstPaymentDate: z.string().or(z.date()).optional().nullable(),
+  purpose: z.string().max(2000).optional().nullable(),
+  coRepresentativeIds: z.array(z.string().min(1)).optional(),
+});
 
 export const ContractSettlementInputSchema = z.object({
   actualMoveOutDate: z.string().or(z.date()),
@@ -66,7 +78,20 @@ export const MoveOutOccupantInputSchema = ContractSettlementInputSchema.partial(
   reason: z.string().max(1000).optional().nullable(),
 });
 
+/** A transfer always names both the source contract/cycle and the target room. */
+export const TransferOccupantInputSchema = z.object({
+  contractId: z.string().min(1, 'Contract ID is required'),
+  rentalCycleId: z.string().min(1, 'Rental cycle ID is required'),
+  customerId: z.string().min(1, 'Customer ID is required'),
+  sourceRoomId: z.string().min(1, 'Source room ID is required'),
+  targetRoomId: z.string().min(1, 'Target room ID is required'),
+  transferAt: z.string().or(z.date()),
+  reason: z.string().max(1000).optional().nullable(),
+});
+
 export type CreateContractInput = z.infer<typeof CreateContractSchema>;
 export type UpdateContractInput = z.infer<typeof UpdateContractSchema>;
+export type RenewContractInput = z.infer<typeof RenewContractSchema>;
 export type ContractSettlementInput = z.infer<typeof ContractSettlementInputSchema>;
 export type MoveOutOccupantInput = z.infer<typeof MoveOutOccupantInputSchema>;
+export type TransferOccupantInput = z.infer<typeof TransferOccupantInputSchema>;

@@ -4,7 +4,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { parseArguments, runBackup, walkFiles } = require('./production-backup');
+const { normalizePostgresCliUrl, parseArguments, runBackup, walkFiles } = require('./production-backup');
+
+test('removes Prisma-only query parameters before invoking PostgreSQL CLI tools', () => {
+  const normalized = normalizePostgresCliUrl(
+    'postgresql://user:pass@127.0.0.1:5432/homeland?schema=public&connection_limit=10&sslmode=require',
+  );
+  const parsed = new URL(normalized);
+  assert.equal(parsed.searchParams.has('schema'), false);
+  assert.equal(parsed.searchParams.has('connection_limit'), false);
+  assert.equal(parsed.searchParams.get('sslmode'), 'require');
+});
 
 test('parses backup CLI arguments', () => {
   assert.deepEqual(parseArguments([

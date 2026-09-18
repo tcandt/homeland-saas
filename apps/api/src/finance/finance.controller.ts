@@ -37,6 +37,12 @@ export class FinanceController {
     return this.reportingService.getProfitLoss(req.user.tenantId);
   }
 
+  @Get('reconciliation')
+  @RequirePermissions('finance.read')
+  async getReconciliation(@Request() req, @Query() query: any) {
+    return this.reportingService.getReconciliation(req.user.tenantId, query);
+  }
+
   @Get('debt-summary')
   @RequirePermissions('finance.read')
   async getDebtSummary(@Request() req) {

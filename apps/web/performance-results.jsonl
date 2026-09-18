@@ -110,3 +110,7 @@
 {"route":"/ai","ttfb":25,"lcp":1103,"domContentLoaded":279,"jsErrors":0,"consoleErrors":0}
 {"route":"/notifications","ttfb":91,"lcp":991,"domContentLoaded":255,"jsErrors":0,"consoleErrors":1}
 {"route":"/automation","ttfb":89,"lcp":1272,"domContentLoaded":330,"jsErrors":0,"consoleErrors":1}
+{"route":"/buildings","ttfb":7,"lcp":744,"domContentLoaded":90,"jsErrors":0,"consoleErrors":1}
+{"route":"/","ttfb":7,"lcp":512,"domContentLoaded":105,"jsErrors":0,"consoleErrors":1}
+{"route":"/documents","ttfb":11,"lcp":264,"domContentLoaded":80,"jsErrors":0,"consoleErrors":1}
+{"route":"/finance","ttfb":9,"lcp":404,"domContentLoaded":96,"jsErrors":0,"consoleErrors":17}

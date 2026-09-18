@@ -1,5 +1,17 @@
 import { apiClient } from './client';
 
+export type ManualSePayAssignment = {
+  logId: string;
+  sourceType: 'INVOICE' | 'DEPOSIT';
+  sourceCode: string;
+};
+
+// This reference identifies the logical assignment, rather than a browser attempt.
+// Percent encoding keeps the three source fields unambiguous when IDs or codes contain
+// separators, so a rejected request can safely be retried with the same operation key.
+export const manualSePayAssignmentIdempotencyKey = (payload: ManualSePayAssignment) =>
+  `sepay-manual:${encodeURIComponent(payload.logId)}:${payload.sourceType}:${encodeURIComponent(payload.sourceCode.trim())}`;
+
 export const financeApi = {
   getLedger: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/ledger', { params });
@@ -46,8 +58,10 @@ export const financeApi = {
   getSePayReconciliationAudit: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/sepay/reconciliation-audit', { params });
   },
-  manualAssignSePayTransaction: async (payload: { logId: string; sourceType: 'INVOICE' | 'DEPOSIT'; sourceCode: string }) => {
-    return await apiClient.post<any>('/payments/sepay/manual-assign', payload);
+  manualAssignSePayTransaction: async (payload: ManualSePayAssignment, idempotencyKey = manualSePayAssignmentIdempotencyKey(payload)) => {
+    return await apiClient.post<any>('/payments/sepay/manual-assign', payload, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
   },
   resolveSePayOverpayment: async (payload: { logId: string; resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD' | 'REFUND_PENDING' }) => {
     return await apiClient.post<any>('/payments/sepay/resolve-overpayment', payload);

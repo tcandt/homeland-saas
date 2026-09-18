@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import { RoomSettlementItem } from "@/lib/api/monthly-settlement.api";
 import { Button } from "@/components/ui/Button";
+import {
+  BillingProvenanceBadge,
+  ElectricityMismatchAlert,
+} from "./BillingSnapshotPresentation";
 
 interface MonthlySettlementTableProps {
   items: RoomSettlementItem[];
@@ -214,7 +218,7 @@ export default function MonthlySettlementTable({
                           <span>{formatKwh(item.electricityKwh)}</span>
                           {item.meterReading?.rateMode === "custom" ? (
                             <span className="inline-flex items-center rounded-xs bg-amber-500/15 px-1 py-0.2 text-[9px] font-bold text-amber-700 dark:text-amber-300 border border-amber-500/20">
-                              3.967đ
+                              {Number(item.meterReading.customRateVnd || 0).toLocaleString("vi-VN")}đ
                             </span>
                           ) : (
                             <span className="inline-flex items-center rounded-xs bg-sky-500/10 px-1 py-0.2 text-[9px] font-bold text-sky-700 dark:text-sky-300">
@@ -234,6 +238,22 @@ export default function MonthlySettlementTable({
                       <div className="text-muted/60">
                         <div>0 đ</div>
                         <div className="text-[10px]">0 kWh</div>
+                      </div>
+                    )}
+                    {hasContract && (
+                      <div className="mt-1 flex flex-wrap items-center justify-end gap-1 text-[9px] font-bold">
+                        <BillingProvenanceBadge
+                          hasContract={hasContract}
+                          dataSource={item.billingDataSource}
+                          snapshotId={item.billingSnapshotId}
+                          usagePeriod={item.usagePeriod}
+                          testId={`settlement-provenance-${item.roomId}`}
+                        />
+                        <ElectricityMismatchAlert
+                          reconciliation={item.electricityReconciliation}
+                          compact
+                          testId={`settlement-electricity-mismatch-${item.roomId}`}
+                        />
                       </div>
                     )}
                   </td>
@@ -300,6 +320,8 @@ export default function MonthlySettlementTable({
                                   : "text-muted opacity-40 cursor-not-allowed bg-muted/20"
                                 }`}
                               title={repHasZalo ? "Gửi thông báo Zalo" : "Khách chưa đăng ký Zalo Bot"}
+                              aria-label={`Gửi thông báo Zalo cho phòng ${item.roomCode}`}
+                              data-testid={`settlement-resend-zalo-${item.roomId}`}
                             >
                               <Send size={12} />
                               <span className="hidden sm:inline">Zalo</span>

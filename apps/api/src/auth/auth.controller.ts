@@ -73,12 +73,11 @@ export class AuthController {
     return this.authService.resetPassword(input);
   }
 
-  @Public()
   @Post('logout')
   @ApiBearerAuth()
   @AllowPasswordChangeRequired()
   @ApiOperation({ summary: 'Logout and revoke refresh token' })
-  logout(@CurrentUser('id') userId?: string) {
+  logout(@CurrentUser('id') userId: string) {
     return this.authService.logout(userId);
   }
 

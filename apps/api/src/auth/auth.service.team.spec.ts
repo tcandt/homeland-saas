@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller';
+import { IS_PUBLIC_KEY } from '../shared/decorators/public.decorator';
 
 describe('AuthService team directory', () => {
   it('returns the forced password flag in the login user and signed tokens', async () => {
@@ -35,7 +37,24 @@ describe('AuthService team directory', () => {
     expect(jwtService.sign).toHaveBeenCalledWith(expect.objectContaining({
       sub: 'system-admin',
       mustChangePassword: true,
+      tokenType: 'access',
     }), expect.any(Object));
+    expect(jwtService.sign).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      tokenType: 'refresh',
+    }), expect.any(Object));
+  });
+
+  it('protects logout and revokes the stored refresh session', async () => {
+    const prisma: any = { user: { update: vi.fn().mockResolvedValue({ id: 'user-1' }) } };
+    const audit: any = { log: vi.fn().mockResolvedValue(undefined) };
+    const service = new AuthService(prisma, {} as any, {} as any, audit, {} as any);
+
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, AuthController.prototype.logout)).not.toBe(true);
+    await expect(service.logout('user-1')).resolves.toEqual({ success: true });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { refreshTokenHash: null },
+    });
   });
 
   it('lists only non-deleted tenant users without credential fields', async () => {
@@ -357,7 +376,7 @@ describe('AuthService team directory', () => {
       },
     };
     const jwtService: any = {
-      verify: vi.fn().mockReturnValue({ sub: 'owner-a-user', passwordChangeDeferred: true }),
+      verify: vi.fn().mockReturnValue({ sub: 'owner-a-user', passwordChangeDeferred: true, tokenType: 'refresh' }),
       sign: vi.fn().mockReturnValueOnce('next-access-token').mockReturnValueOnce('next-refresh-token'),
     };
     const config: any = { get: vi.fn().mockReturnValue('1h') };

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { authoritativeJournalLineWhere, cashAccountWhere, normalBalance } from '../finance/journal-effect.policy';
 
 @Injectable()
 export class ReportsService {
@@ -8,18 +9,14 @@ export class ReportsService {
   async getCashFlow(tenantId: string) {
     const inflow = await this.prisma.journalLine.aggregate({
       where: {
-        journalEntry: { tenantId, status: 'POSTED' },
-        account: { code: { in: ['1000', '1100'] } },
-        type: 'DEBIT'
+        ...authoritativeJournalLineWhere(tenantId, { account: { tenantId, ...cashAccountWhere }, type: 'DEBIT' }),
       },
       _sum: { amount: true }
     });
 
     const outflow = await this.prisma.journalLine.aggregate({
       where: {
-        journalEntry: { tenantId, status: 'POSTED' },
-        account: { code: { in: ['1000', '1100'] } },
-        type: 'CREDIT'
+        ...authoritativeJournalLineWhere(tenantId, { account: { tenantId, ...cashAccountWhere }, type: 'CREDIT' }),
       },
       _sum: { amount: true }
     });
@@ -29,8 +26,7 @@ export class ReportsService {
       totalOutflow: Number(outflow._sum.amount || 0),
       netCashFlow: Number(inflow._sum.amount || 0) - Number(outflow._sum.amount || 0),
       chartData: [
-        { month: 'T1', inflow: 20000000, outflow: 5000000 },
-        { month: 'T2', inflow: Number(inflow._sum.amount || 0), outflow: Number(outflow._sum.amount || 0) }
+        { month: 'Current', inflow: Number(inflow._sum.amount || 0), outflow: Number(outflow._sum.amount || 0) },
       ]
     };
   }
@@ -38,29 +34,18 @@ export class ReportsService {
   async getProfitLoss(tenantId: string) {
     const revenueLines = await this.prisma.journalLine.findMany({
       where: {
-        journalEntry: { tenantId, status: 'POSTED' },
-        account: { type: 'REVENUE' },
+        ...authoritativeJournalLineWhere(tenantId, { account: { tenantId, type: 'REVENUE' } }),
       }
     });
 
     const expenseLines = await this.prisma.journalLine.findMany({
       where: {
-        journalEntry: { tenantId, status: 'POSTED' },
-        account: { type: 'EXPENSE' },
+        ...authoritativeJournalLineWhere(tenantId, { account: { tenantId, type: 'EXPENSE' } }),
       }
     });
 
-    const calculateNet = (lines: any[], normalType: 'CREDIT' | 'DEBIT') => {
-      let sum = 0;
-      for (const l of lines) {
-        if (l.type === normalType) sum += Number(l.amount);
-        else sum -= Number(l.amount);
-      }
-      return sum;
-    };
-
-    const totalRevenue = calculateNet(revenueLines, 'CREDIT');
-    const totalExpenses = calculateNet(expenseLines, 'DEBIT');
+    const totalRevenue = normalBalance(revenueLines, 'CREDIT');
+    const totalExpenses = normalBalance(expenseLines, 'DEBIT');
 
     return {
       revenue: totalRevenue,

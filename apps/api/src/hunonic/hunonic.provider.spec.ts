@@ -21,6 +21,7 @@ function formBody(call: unknown[]) {
 describe('HunonicProvider electricity rates', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('reuses one login and sends a complete custom-rate payload', async () => {
@@ -120,5 +121,31 @@ describe('HunonicProvider electricity rates', () => {
       'Hunonic residential electricity rates are empty.',
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a zero-valued graph point as a Hunonic monthly observation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-17T00:00:00.000Z'));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ status: true, data: { token_id: 'token-1' } }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: true,
+        data: [{ id: 'home-1', rooms: [{ id: 'room-1', devices: [{ id: 'device-1', root_id: 'root-1', root_type: 'elmeter', name: 'Meter 1' }] }] }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({ status: true, data: { token_id: 'token-2' } }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: true,
+        data: { graph_data: [{ label: '2026-07', value: 1.5 }, { label: '2026-08', value: 0, amount: 0 }, { label: '2026-09', value: 2.5, amount: 10000 }] },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new HunonicProvider({ username: '0900000000', password: 'secret', ...mobileSigning });
+    const result = await provider.fetchRecentMonthlyHistory(3);
+
+    expect(result.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ period: '2026-08', energy_month_kwh: 0, money_month_vnd: 0 }),
+      expect.objectContaining({ period: '2026-09', energy_month_kwh: 2.5, money_month_vnd: 10000 }),
+    ]));
+    expect(result.skippedIncompletePoints).toBe(1);
   });
 });

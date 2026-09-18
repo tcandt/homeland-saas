@@ -1,0 +1,99 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Quy trình chốt Điện/Nước và Lên hóa đơn cuối tháng",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "ui",
+      "label": "Frontend (UI / Summary)"
+    },
+    {
+      "id": "api",
+      "label": "Backend (API / Batch)"
+    },
+    {
+      "id": "iot",
+      "label": "Hunonic IoT (Smart Meter)"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "sync_meters",
+      "label": "Đồng bộ Chỉ số điện",
+      "type": "frontend",
+      "lane": "ui",
+      "col": 0,
+      "width": 140
+    },
+    {
+      "id": "iot_service",
+      "label": "Hunonic API",
+      "type": "external",
+      "lane": "iot",
+      "col": 1,
+      "width": 100
+    },
+    {
+      "id": "display_meters",
+      "label": "Hiển thị tiêu thụ",
+      "type": "frontend",
+      "lane": "ui",
+      "col": 2,
+      "width": 140
+    },
+    {
+      "id": "batch_lock",
+      "label": "Click 'Chốt tháng ngay'",
+      "type": "frontend",
+      "lane": "ui",
+      "col": 3,
+      "width": 170
+    },
+    {
+      "id": "api_settlement",
+      "label": "Batch Settlement Logic",
+      "type": "backend",
+      "lane": "api",
+      "col": 4,
+      "width": 170
+    },
+    {
+      "id": "invoice_gen",
+      "label": "Phát hành Hóa Đơn",
+      "type": "database",
+      "lane": "api",
+      "col": 5,
+      "width": 140
+    }
+  ],
+  "edges": [
+    {
+      "from": "sync_meters",
+      "to": "iot_service",
+      "label": "Fetch data"
+    },
+    {
+      "from": "iot_service",
+      "to": "display_meters",
+      "label": "Return indexes"
+    },
+    {
+      "from": "display_meters",
+      "to": "batch_lock",
+      "label": "Review & Confirm"
+    },
+    {
+      "from": "batch_lock",
+      "to": "api_settlement",
+      "label": "Call /settlement/lock"
+    },
+    {
+      "from": "api_settlement",
+      "to": "invoice_gen",
+      "label": "Auto Generate"
+    }
+  ]
+}

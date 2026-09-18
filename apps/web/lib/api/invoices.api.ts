@@ -1,16 +1,29 @@
-import { apiClient } from './client';
+import { apiClient } from "./client";
+
+export type InvoiceListParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  roomId?: string;
+  customerId?: string;
+  contractId?: string;
+  rentalCycleId?: string;
+  period?: string;
+  overdue?: boolean;
+};
 
 export const invoicesApi = {
-  list: (params?: { page?: number; limit?: number; search?: string; status?: string; roomId?: string; customerId?: string; contractId?: string; period?: string; overdue?: boolean }) => {
-    return apiClient.get('/invoices', { params });
+  list: (params?: InvoiceListParams) => {
+    return apiClient.get("/invoices", { params });
   },
-  
+
   getDetail: (id: string) => {
     return apiClient.get(`/invoices/${id}`);
   },
 
   create: (data: any) => {
-    return apiClient.post('/invoices', data);
+    return apiClient.post("/invoices", data);
   },
 
   update: (id: string, data: any) => {
@@ -25,8 +38,17 @@ export const invoicesApi = {
     return apiClient.post(`/invoices/${id}/issue`);
   },
 
-  pay: (id: string, amount: number, provider?: string, providerRef?: string) => {
-    return apiClient.post(`/invoices/${id}/pay`, { amount, provider, providerRef });
+  pay: (
+    id: string,
+    amount: number,
+    provider: "MANUAL",
+    providerRef: string,
+  ) => {
+    return apiClient.post(`/invoices/${id}/pay`, {
+      amount,
+      provider,
+      providerRef,
+    });
   },
 
   cancel: (id: string) => {
@@ -35,5 +57,5 @@ export const invoicesApi = {
 
   writeoff: (id: string) => {
     return apiClient.post(`/invoices/${id}/writeoff`);
-  }
+  },
 };

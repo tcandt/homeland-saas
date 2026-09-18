@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
-import { financeApi } from "@/lib/api/finance.api";
+import { financeApi, manualSePayAssignmentIdempotencyKey } from "@/lib/api/finance.api";
 import { financeKeys, useSePayReconciliationQuery } from "@/lib/queries/finance.queries";
 
 const statusOptions = [
@@ -135,11 +135,15 @@ export default function SePayReconciliationSummary() {
 
     setIsSubmitting(true);
     try {
-      await financeApi.manualAssignSePayTransaction({
+      const assignment = {
         logId: activeRow.id,
         sourceType,
         sourceCode: sourceCode.trim(),
-      });
+      };
+      await financeApi.manualAssignSePayTransaction(
+        assignment,
+        manualSePayAssignmentIdempotencyKey(assignment),
+      );
       await queryClient.invalidateQueries({ queryKey: financeKeys.all });
       toast.success("Đã gán thủ công giao dịch SePay.");
       closeAssignModal();

@@ -49,6 +49,7 @@ import { schedulesEnabled, validateEnvironment } from './shared/config/environme
 import { InternalTokenGuard } from './shared/guards/internal-token.guard';
 import { IpSecurityModule } from './shared/security/ip-security.module';
 import { GeoIpGuard } from './shared/security/geo-ip.guard';
+import { SchemaDiagnosticsService } from './schema-diagnostics.service';
 
 @Module({
   imports: [
@@ -166,6 +167,7 @@ import { GeoIpGuard } from './shared/security/geo-ip.guard';
   ],
   controllers: [HealthController],
   providers: [
+    SchemaDiagnosticsService,
     { provide: APP_GUARD, useClass: GeoIpGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },

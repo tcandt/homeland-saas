@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   X,
   CheckCircle2,
@@ -36,6 +36,7 @@ import {
   useCompletePendingDepositRefundMutation,
   useConvertContractMutation,
   useCancelDepositMutation,
+  useCancelUnpaidDepositMutation,
 } from "../../lib/mutations/deposits.mutations";
 import { useDepositDetailQuery } from "../../lib/queries/deposits.queries";
 import { useToast } from "../ui/ToastContext";
@@ -47,20 +48,28 @@ import { Badge } from "../ui/Badge";
 import DepositQrModal from "./DepositQrModal";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 
-type DepositResolutionAction = "REFUND" | "KEEP" | "DEDUCT";
-
 const currencyFormatter = new Intl.NumberFormat("vi-VN");
+
+function createIdempotencyKey(action: string) {
+  const suffix = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${action}-${suffix}`.slice(0, 128);
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "Chưa có";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Chưa có" : date.toLocaleDateString("vi-VN");
+  return Number.isNaN(date.getTime())
+    ? "Chưa có"
+    : date.toLocaleDateString("vi-VN");
 }
 
 function formatDateTime(value?: string | null) {
   if (!value) return "Chưa có";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Chưa có" : date.toLocaleString("vi-VN");
+  return Number.isNaN(date.getTime())
+    ? "Chưa có"
+    : date.toLocaleString("vi-VN");
 }
 
 function formatCurrency(value?: number | null) {
@@ -87,31 +96,49 @@ export default function OperationsDepositDrawer({
 
   const collectMutation = useCollectDepositMutation();
   const refundMutation = useRefundDepositMutation();
-  const completePendingRefundMutation = useCompletePendingDepositRefundMutation();
+  const completePendingRefundMutation =
+    useCompletePendingDepositRefundMutation();
   const convertMutation = useConvertContractMutation();
   const cancelMutation = useCancelDepositMutation();
+  const cancelUnpaidMutation = useCancelUnpaidDepositMutation();
 
   // Sub-modal states
   const [showQrModal, setShowQrModal] = useState(false);
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
-  const [isCompletePendingModalOpen, setIsCompletePendingModalOpen] = useState(false);
+  const [isCompletePendingModalOpen, setIsCompletePendingModalOpen] =
+    useState(false);
 
   // Form states for Refund Modal
   const [refundReason, setRefundReason] = useState("");
   const [refundAmountInput, setRefundAmountInput] = useState("");
-  const [refundReceiptStatus, setRefundReceiptStatus] = useState<"COMPLETED" | "PENDING">("COMPLETED");
+  const [refundReceiptStatus, setRefundReceiptStatus] = useState<
+    "COMPLETED" | "PENDING"
+  >("COMPLETED");
   const [refundAttachmentInput, setRefundAttachmentInput] = useState("");
 
   // Form states for Cancel Modal
   const [cancelReason, setCancelReason] = useState("");
-  const [cancelResolutionAction, setCancelResolutionAction] = useState<DepositResolutionAction>("KEEP");
-  const [cancelResolutionAmount, setCancelResolutionAmount] = useState("");
-  const [cancelReceiptStatus, setCancelReceiptStatus] = useState<"COMPLETED" | "PENDING">("COMPLETED");
+  const [cancelRefundAmount, setCancelRefundAmount] = useState("");
+  const [cancelKeepAmount, setCancelKeepAmount] = useState("");
+  const [cancelDeductAmount, setCancelDeductAmount] = useState("");
+  const [cancelReceiptStatus, setCancelReceiptStatus] = useState<
+    "COMPLETED" | "PENDING"
+  >("COMPLETED");
+
+  // Form states for Convert Modal
+  const [convertSecurityRequired, setConvertSecurityRequired] = useState("");
+  const [convertExcessAction, setConvertExcessAction] = useState<
+    "CREDIT" | "REFUND"
+  >("CREDIT");
 
   // Form state for Complete Pending Refund Modal
   const [completePendingNote, setCompletePendingNote] = useState("");
+
+  // Shared idempotency key for actions
+  const [actionIdempotencyKey, setActionIdempotencyKey] = useState("");
+  const collectIdempotencyKeyRef = useRef("");
 
   if (!detailDeposit) return null;
 
@@ -121,22 +148,30 @@ export default function OperationsDepositDrawer({
   const isConverted = detailDeposit.status === "CONVERTED_TO_CONTRACT";
   const isRefunded = detailDeposit.status === "REFUNDED";
   const isCancelled = detailDeposit.status === "CANCELLED";
-  const isDraft = detailDeposit.status === "DRAFT" || detailDeposit.status === "PENDING";
+  const isDraft =
+    detailDeposit.status === "DRAFT" || detailDeposit.status === "PENDING";
   const refundSummary = detailDeposit.refundSummary;
   const refundPending = !!refundSummary?.pending;
+  const availableBalance = detailDeposit.availableBalance;
+  const hasAuthoritativeBalance = Number.isFinite(availableBalance);
+  const coreDataUnavailable = detailQuery.isError || (detailQuery.isSuccess && !hasAuthoritativeBalance);
+  const pendingOperationUnavailable = refundPending && !detailDeposit.pendingOperationId;
 
   // Check if this deposit belongs to a contract
-  const isContractDeposit =
-    Boolean(detailDeposit.contractId || detailDeposit.contractCode || isConverted);
+  const isContractDeposit = Boolean(
+    detailDeposit.contractId || detailDeposit.contractCode || isConverted,
+  );
 
   // Only allow standalone refund for room booking/holding deposits
-  const isBookingDeposit = detailDeposit.type === "BOOKING" || detailDeposit.type === "RESERVATION";
+  const isBookingDeposit =
+    detailDeposit.type === "BOOKING" || detailDeposit.type === "RESERVATION";
   const avatarUrl = getTenantAvatar(
     (detailDeposit as any).customerAvatar || (detailDeposit as any).avatar,
     detailDeposit.customerName,
-    (detailDeposit as any).gender
+    (detailDeposit as any).gender,
   );
   const canRefundDirectly = !isContractDeposit && isPaid;
+
   const wasEverCollected =
     isPaid ||
     Boolean((detailDeposit as any).paidAt) ||
@@ -149,37 +184,75 @@ export default function OperationsDepositDrawer({
       case "DRAFT":
       case "PENDING":
         return {
-          label: isContractDeposit ? "Chờ thu cọc hợp đồng" : "Chờ thu cọc giữ phòng",
+          label: isContractDeposit
+            ? "Chờ thu cọc hợp đồng"
+            : "Chờ thu cọc giữ phòng",
           variant: "neutral" as const,
-          bg: isContractDeposit ? "bg-purple-500/10 text-purple-600 border-purple-500/20" : "bg-sky-500/10 text-sky-600 border-sky-500/20",
+          bg: isContractDeposit
+            ? "bg-purple-500/10 text-purple-600 border-purple-500/20"
+            : "bg-sky-500/10 text-sky-600 border-sky-500/20",
         };
       case "PAID":
         return {
-          label: isContractDeposit ? "Đã thu cọc hợp đồng" : "Đã thu cọc giữ phòng",
+          label: isContractDeposit
+            ? "Đã thu cọc hợp đồng"
+            : "Đã thu cọc giữ phòng",
           variant: "success" as const,
           bg: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
         };
       case "CONVERTED_TO_CONTRACT":
-        return { label: "Đã chuyển HĐ", variant: "primary" as const, bg: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20" };
+        return {
+          label: "Đã chuyển HĐ",
+          variant: "primary" as const,
+          bg: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+        };
       case "REFUNDED":
-        return { label: "Đã hoàn cọc", variant: "warning" as const, bg: "bg-amber-500/10 text-amber-600 border-amber-500/20" };
+        return {
+          label: "Đã hoàn cọc",
+          variant: "warning" as const,
+          bg: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+        };
       case "CANCELLED":
-        return { label: "Đã hủy", variant: "error" as const, bg: "bg-rose-500/10 text-rose-600 border-rose-500/20" };
+        return {
+          label: "Đã hủy",
+          variant: "error" as const,
+          bg: "bg-rose-500/10 text-rose-600 border-rose-500/20",
+        };
       default:
-        return { label: status, variant: "neutral" as const, bg: "bg-slate-500/10 text-slate-600 border-slate-500/20" };
+        return {
+          label: status,
+          variant: "neutral" as const,
+          bg: "bg-slate-500/10 text-slate-600 border-slate-500/20",
+        };
     }
   };
 
   const getTypeConfig = (type: string) => {
     switch (type) {
       case "SECURITY":
-        return { label: "Cọc bảo đảm HĐ", icon: ShieldCheck, color: "text-indigo-600 bg-indigo-500/10 border-indigo-500/20" };
+        return {
+          label: "Cọc bảo đảm HĐ",
+          icon: ShieldCheck,
+          color: "text-indigo-600 bg-indigo-500/10 border-indigo-500/20",
+        };
       case "BOOKING":
-        return { label: "Cọc giữ phòng", icon: Bookmark, color: "text-amber-600 bg-amber-500/10 border-amber-500/20" };
+        return {
+          label: "Cọc giữ phòng",
+          icon: Bookmark,
+          color: "text-amber-600 bg-amber-500/10 border-amber-500/20",
+        };
       case "RESERVATION":
-        return { label: "Phí giữ chỗ", icon: Bookmark, color: "text-sky-600 bg-sky-500/10 border-sky-500/20" };
+        return {
+          label: "Phí giữ chỗ",
+          icon: Bookmark,
+          color: "text-sky-600 bg-sky-500/10 border-sky-500/20",
+        };
       default:
-        return { label: type, icon: Bookmark, color: "text-slate-600 bg-slate-500/10 border-slate-500/20" };
+        return {
+          label: type,
+          icon: Bookmark,
+          color: "text-slate-600 bg-slate-500/10 border-slate-500/20",
+        };
     }
   };
 
@@ -188,46 +261,38 @@ export default function OperationsDepositDrawer({
 
   // --- Handlers ---
   const handleCollect = () => {
+    if (!collectIdempotencyKeyRef.current) {
+      collectIdempotencyKeyRef.current = createIdempotencyKey("collect");
+    }
     collectMutation.mutate(
-      { id: detailDeposit.id },
+      {
+        id: detailDeposit.id,
+        idempotencyKey: collectIdempotencyKeyRef.current,
+      },
       {
         onSuccess: () => {
+          collectIdempotencyKeyRef.current = "";
           showToast("Đã xác nhận thu tiền cọc thành công!", "success");
         },
         onError: (err: any) => {
-          showToast(err?.response?.data?.message || "Lỗi khi thu tiền cọc", "error");
+          showToast(
+            err?.response?.data?.message || "Lỗi khi thu tiền cọc",
+            "error",
+          );
         },
       },
     );
   };
 
   const openRefundModal = () => {
-    const promptReason = typeof window !== "undefined" && typeof window.prompt === "function" ? window.prompt("Lý do hoàn cọc:") : null;
-    if (promptReason !== null) {
-      if (!promptReason.trim()) {
-        showToast("Vui lòng nhập lý do hoàn cọc", "error");
-        return;
-      }
-      const promptAmountStr = window.prompt("Số tiền hoàn cọc:", String(amount));
-      const parsedAmount = Number(promptAmountStr ?? amount);
-      const isCompleted = typeof window.confirm === "function" ? window.confirm("Đã hoàn tất thanh toán?") : true;
-      refundMutation.mutate(
-        {
-          id: detailDeposit.id,
-          reason: promptReason.trim(),
-          receiptStatus: isCompleted ? "COMPLETED" : "PENDING",
-          refundAmount: Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : amount,
-        },
-        {
-          onSuccess: () => showToast("Đã tạo lệnh hoàn cọc thành công!", "success"),
-          onError: (err: any) => showToast(err?.response?.data?.message || "Lỗi khi hoàn cọc", "error"),
-        }
-      );
+    if (!hasAuthoritativeBalance || availableBalance === undefined) {
+      showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể hoàn tiền.", "error");
       return;
     }
 
+    setActionIdempotencyKey(createIdempotencyKey("refund"));
     setRefundReason("");
-    setRefundAmountInput(String(amount));
+    setRefundAmountInput(String(availableBalance));
     setRefundReceiptStatus("COMPLETED");
     setRefundAttachmentInput("");
     setIsRefundModalOpen(true);
@@ -239,8 +304,14 @@ export default function OperationsDepositDrawer({
       return;
     }
     const parsedAmount = Number(refundAmountInput.trim());
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || parsedAmount > amount) {
-      showToast(`Số tiền hoàn không hợp lệ (Tối đa ${amountStr})`, "error");
+    if (
+      !Number.isFinite(parsedAmount) ||
+      parsedAmount <= 0 ||
+      !hasAuthoritativeBalance ||
+      availableBalance === undefined ||
+      parsedAmount > availableBalance
+    ) {
+      showToast(`Số tiền hoàn không hợp lệ (Tối đa ${formatCurrency(availableBalance)})`, "error");
       return;
     }
 
@@ -253,6 +324,7 @@ export default function OperationsDepositDrawer({
         receiptStatus: refundReceiptStatus,
         attachmentUrls,
         refundAmount: parsedAmount,
+        idempotencyKey: actionIdempotencyKey,
       },
       {
         onSuccess: () => {
@@ -260,58 +332,26 @@ export default function OperationsDepositDrawer({
           setIsRefundModalOpen(false);
         },
         onError: (err: any) => {
-          showToast(err?.response?.data?.message || "Lỗi khi hoàn cọc", "error");
+          showToast(
+            err?.response?.data?.message || "Lỗi khi hoàn cọc",
+            "error",
+          );
         },
       },
     );
   };
 
   const openCancelModal = () => {
-    const promptReason = typeof window !== "undefined" && typeof window.prompt === "function" ? window.prompt("Lý do hủy phiếu cọc:") : null;
-    if (promptReason !== null) {
-      if (!promptReason.trim()) {
-        showToast("Vui lòng nhập lý do hủy phiếu cọc", "error");
-        return;
-      }
-
-      if (!isPaid) {
-        cancelMutation.mutate(
-          { id: detailDeposit.id, reason: promptReason.trim() },
-          {
-            onSuccess: () => showToast("Đã hủy phiếu cọc thành công!", "success"),
-            onError: (err: any) => showToast(err?.response?.data?.message || "Lỗi khi hủy phiếu cọc", "error"),
-          }
-        );
-        return;
-      }
-
-      const promptAction = (window.prompt("Hành động xử lý (KEEP/REFUND/DEDUCT):", "KEEP") || "KEEP").toUpperCase();
-      const promptAmountStr = window.prompt("Số tiền xử lý:", String(amount));
-      const parsedAmount = Number(promptAmountStr ?? amount);
-      const isCompleted = typeof window.confirm === "function" ? window.confirm("Đã hoàn tất thanh toán?") : true;
-
-      const validAction = (["KEEP", "REFUND", "DEDUCT"].includes(promptAction) ? promptAction : "KEEP") as "KEEP" | "REFUND" | "DEDUCT";
-      const refundableAmount = validAction === "REFUND" ? parsedAmount : Math.max(amount - parsedAmount, 0);
-
-      cancelMutation.mutate(
-        {
-          id: detailDeposit.id,
-          reason: promptReason.trim(),
-          resolutionAction: validAction,
-          resolutionAmount: Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : amount,
-          receiptStatus: refundableAmount > 0 ? (isCompleted ? "COMPLETED" : "PENDING") : (isCompleted ? "COMPLETED" : undefined),
-        },
-        {
-          onSuccess: () => showToast("Đã hủy và xử lý cọc thành công!", "success"),
-          onError: (err: any) => showToast(err?.response?.data?.message || "Lỗi khi xử lý cọc", "error"),
-        }
-      );
+    if (isPaid && (!hasAuthoritativeBalance || availableBalance === undefined)) {
+      showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể xử lý cọc.", "error");
       return;
     }
 
+    setActionIdempotencyKey(createIdempotencyKey("cancel"));
     setCancelReason("");
-    setCancelResolutionAction("KEEP");
-    setCancelResolutionAmount(String(amount));
+    setCancelRefundAmount("");
+    setCancelKeepAmount(isPaid ? String(availableBalance) : "");
+    setCancelDeductAmount("");
     setCancelReceiptStatus("COMPLETED");
     setIsCancelModalOpen(true);
   };
@@ -323,37 +363,55 @@ export default function OperationsDepositDrawer({
     }
 
     if (!isPaid) {
-      cancelMutation.mutate(
-        { id: detailDeposit.id, reason: cancelReason.trim() },
+      cancelUnpaidMutation.mutate(
+        {
+          id: detailDeposit.id,
+          reason: cancelReason.trim(),
+          idempotencyKey: actionIdempotencyKey,
+        },
         {
           onSuccess: () => {
             showToast("Đã hủy phiếu cọc thành công!", "success");
             setIsCancelModalOpen(false);
           },
           onError: (err: any) => {
-            showToast(err?.response?.data?.message || "Lỗi khi hủy phiếu cọc", "error");
+            showToast(
+              err?.response?.data?.message || "Lỗi khi hủy phiếu cọc",
+              "error",
+            );
           },
         },
       );
       return;
     }
 
-    const parsedAmount = Number(cancelResolutionAmount.trim());
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || parsedAmount > amount) {
-      showToast(`Số tiền xử lý không hợp lệ (Tối đa ${amountStr})`, "error");
+    const parsedRefund = Number(cancelRefundAmount) || 0;
+    const parsedKeep = Number(cancelKeepAmount) || 0;
+    const parsedDeduct = Number(cancelDeductAmount) || 0;
+    const totalAllocated = parsedRefund + parsedKeep + parsedDeduct;
+    if (!hasAuthoritativeBalance || availableBalance === undefined) {
+      showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể xử lý cọc.", "error");
       return;
     }
 
-    const refundableAmount =
-      cancelResolutionAction === "REFUND" ? parsedAmount : Math.max(amount - parsedAmount, 0);
+    if (totalAllocated !== availableBalance) {
+      showToast(
+        `Tổng phân bổ (${formatCurrency(totalAllocated)}) phải bằng đúng số dư ledger (${formatCurrency(availableBalance)})`,
+        "error",
+      );
+      return;
+    }
 
     cancelMutation.mutate(
       {
         id: detailDeposit.id,
         reason: cancelReason.trim(),
-        resolutionAction: cancelResolutionAction,
-        resolutionAmount: parsedAmount,
-        receiptStatus: refundableAmount > 0 ? cancelReceiptStatus : undefined,
+        availableBalance,
+        refundAmount: parsedRefund,
+        keepAmount: parsedKeep,
+        deductAmount: parsedDeduct,
+        receiptStatus: parsedRefund > 0 ? cancelReceiptStatus : undefined,
+        idempotencyKey: actionIdempotencyKey,
       },
       {
         onSuccess: () => {
@@ -361,56 +419,99 @@ export default function OperationsDepositDrawer({
           setIsCancelModalOpen(false);
         },
         onError: (err: any) => {
-          showToast(err?.response?.data?.message || "Lỗi khi xử lý cọc", "error");
+          showToast(
+            err?.response?.data?.message || "Lỗi khi xử lý cọc",
+            "error",
+          );
         },
       },
     );
   };
 
   const openConvertModal = () => {
+    if (!hasAuthoritativeBalance || availableBalance === undefined) {
+      showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể lên hợp đồng.", "error");
+      return;
+    }
+    setActionIdempotencyKey(createIdempotencyKey("convert"));
+    setConvertSecurityRequired(String(availableBalance));
+    setConvertExcessAction("CREDIT");
     setIsConvertModalOpen(true);
   };
 
   const submitConvert = () => {
-    convertMutation.mutate(detailDeposit.id, {
-      onSuccess: () => {
-        showToast("Đã chuyển phiếu cọc thành hợp đồng thành công!", "success");
-        setIsConvertModalOpen(false);
-        onClose();
-      },
-      onError: (err: any) => {
-        showToast(err?.response?.data?.message || "Lỗi khi chuyển hợp đồng", "error");
-      },
-    });
-  };
-
-  const openCompletePendingModal = () => {
-    const promptNote = typeof window !== "undefined" && typeof window.prompt === "function" ? window.prompt("Ghi chú xác nhận hoàn cọc:") : null;
-    if (promptNote !== null) {
-      completePendingRefundMutation.mutate(
-        { id: detailDeposit.id, note: promptNote.trim() || undefined },
-        {
-          onSuccess: () => showToast("Đã xác nhận hoàn tất phiếu chi hoàn cọc!", "success"),
-          onError: (err: any) => showToast(err?.response?.data?.message || "Lỗi khi xác nhận hoàn cọc", "error"),
-        }
-      );
+    if (!hasAuthoritativeBalance || availableBalance === undefined) {
+      showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể lên hợp đồng.", "error");
+      return;
+    }
+    const requiredAmt = Number(convertSecurityRequired);
+    if (!Number.isFinite(requiredAmt) || requiredAmt <= 0) {
+      showToast("Vui lòng nhập mức cọc yêu cầu hợp lệ", "error");
       return;
     }
 
+    convertMutation.mutate(
+      {
+        id: detailDeposit.id,
+        securityRequired: requiredAmt,
+        contractId: detailDeposit.contractId || undefined,
+        excessAction: convertExcessAction,
+        idempotencyKey: actionIdempotencyKey,
+      },
+      {
+        onSuccess: () => {
+          showToast(
+            "Đã chuyển phiếu cọc thành hợp đồng thành công!",
+            "success",
+          );
+          setIsConvertModalOpen(false);
+          onClose();
+        },
+        onError: (err: any) => {
+          showToast(
+            err?.response?.data?.message || "Lỗi khi chuyển hợp đồng",
+            "error",
+          );
+        },
+      },
+    );
+  };
+
+  const openCompletePendingModal = () => {
+    if (!detailDeposit.pendingOperationId) {
+      showToast("Không tìm thấy mã tác vụ hoàn tiền đang chờ từ CORE.", "error");
+      return;
+    }
+
+    setActionIdempotencyKey(createIdempotencyKey("complete-refund"));
     setCompletePendingNote("");
     setIsCompletePendingModalOpen(true);
   };
 
   const submitCompletePendingRefund = () => {
+    const operationId = detailDeposit.pendingOperationId;
+    if (!operationId) {
+      showToast("Lỗi: Không tìm thấy ID tác vụ (operationId)", "error");
+      return;
+    }
+
     completePendingRefundMutation.mutate(
-      { id: detailDeposit.id, note: completePendingNote.trim() || undefined },
+      {
+        operationId,
+        depositId: detailDeposit.id,
+        note: completePendingNote,
+        idempotencyKey: actionIdempotencyKey,
+      },
       {
         onSuccess: () => {
           showToast("Đã xác nhận hoàn tất phiếu chi hoàn cọc!", "success");
           setIsCompletePendingModalOpen(false);
         },
         onError: (err: any) => {
-          showToast(err?.response?.data?.message || "Lỗi khi xác nhận hoàn cọc", "error");
+          showToast(
+            err?.response?.data?.message || "Lỗi khi xác nhận hoàn cọc",
+            "error",
+          );
         },
       },
     );
@@ -440,17 +541,23 @@ export default function OperationsDepositDrawer({
                 <span className="font-mono font-bold text-xs text-primary px-2.5 py-0.5 rounded-lg bg-primary/10 border border-primary/20 shrink-0">
                   {detailDeposit.code || detailDeposit.id}
                 </span>
-                <span data-testid="deposit-status-badge" className={`text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-wide ${statusConfig.bg}`}>
+                <span
+                  data-testid="deposit-status-badge"
+                  className={`text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-wide ${statusConfig.bg}`}
+                >
                   {statusConfig.label}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-muted font-medium mt-0.5 flex-wrap">
                 <span className="inline-flex items-center gap-1 font-bold text-text">
                   <Home size={12} className="text-primary" />
-                  {detailDeposit.roomCode || "Chưa xếp phòng"} · {detailDeposit.buildingName || "Tòa nhà"}
+                  {detailDeposit.roomCode || "Chưa xếp phòng"} ·{" "}
+                  {detailDeposit.buildingName || "Tòa nhà"}
                 </span>
                 <span>•</span>
-                <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${typeConfig.color}`}>
+                <span
+                  className={`inline-flex items-center gap-1 text-[11px] font-bold ${typeConfig.color}`}
+                >
                   <typeConfig.icon size={11} />
                   {typeConfig.label}
                 </span>
@@ -470,6 +577,17 @@ export default function OperationsDepositDrawer({
         footer={
           <div className="flex w-full items-center justify-between flex-wrap gap-2.5">
             <div className="flex items-center gap-2">
+              {canShowVietQr && (
+                <Button
+                  type="button"
+                  onClick={() => setShowQrModal(true)}
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-xl border-sky-500/30 text-sky-600 hover:bg-sky-500/10 font-bold text-xs shadow-2xs cursor-pointer"
+                >
+                  <QrCode size={14} className="mr-1.5" /> Mã VietQR / Gửi Zalo
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -480,7 +598,93 @@ export default function OperationsDepositDrawer({
               </Button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Nút Hủy cọc (Chỉ cho cọc chưa lên HĐ) */}
+              {isDraft && (
+                <Button
+                  data-testid="deposit-action-cancel"
+                  onClick={openCancelModal}
+                  disabled={cancelMutation.isPending || cancelUnpaidMutation.isPending}
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 rounded-xl text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 font-bold text-xs cursor-pointer"
+                >
+                  <X size={14} className="mr-1.5" /> Hủy phiếu
+                </Button>
+              )}
+
+              {isPaid && !isContractDeposit && (
+                <Button
+                  data-testid="deposit-action-cancel"
+                  onClick={openCancelModal}
+                  disabled={cancelMutation.isPending || detailQuery.isLoading || !hasAuthoritativeBalance}
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 rounded-xl text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 font-bold text-xs cursor-pointer"
+                >
+                  <ShieldMinus size={14} className="mr-1.5" /> Hủy & xử lý cọc
+                </Button>
+              )}
+
+              {/* Nút Hoàn cọc (Chỉ bấm được cho cọc giữ phòng trước, không hoàn trực tiếp cọc HĐ) */}
+              {canRefundDirectly && (
+                <Button
+                  data-testid="deposit-action-refund"
+                  onClick={openRefundModal}
+                  disabled={refundMutation.isPending || detailQuery.isLoading || !hasAuthoritativeBalance}
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-xl border-amber-500/30 text-amber-600 hover:bg-amber-500/10 font-bold text-xs cursor-pointer"
+                >
+                  <RefreshCcw size={14} className="mr-1.5" /> Hoàn cọc giữ phòng
+                </Button>
+              )}
+
+              {/* Nút Xác nhận đã hoàn tiền (khi có phiếu chi chờ duyệt) */}
+              {refundPending && (
+                <Button
+                  data-testid="deposit-action-complete-refund"
+                  onClick={openCompletePendingModal}
+                  disabled={completePendingRefundMutation.isPending || pendingOperationUnavailable}
+                  size="sm"
+                  className="h-9 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-sm cursor-pointer"
+                >
+                  <CheckCircle2 size={14} className="mr-1.5" /> Xác nhận đã hoàn tiền
+                </Button>
+              )}
+
+              {/* Nút Thu tiền cọc */}
+              {isDraft && (
+                <Button
+                  data-testid="deposit-action-collect"
+                  onClick={handleCollect}
+                  disabled={collectMutation.isPending}
+                  size="sm"
+                  className="h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm cursor-pointer"
+                >
+                  {collectMutation.isPending ? (
+                    <Loader2 size={14} className="mr-1.5 animate-spin" />
+                  ) : (
+                    <Banknote size={14} className="mr-1.5" />
+                  )}
+                  Thu tiền cọc
+                </Button>
+              )}
+
+              {/* Nút Lên hợp đồng (cho cọc giữ chỗ đã thu tiền) */}
+              {isPaid && !isContractDeposit && (
+                <Button
+                  data-testid="deposit-action-convert"
+                  onClick={openConvertModal}
+                  disabled={convertMutation.isPending || detailQuery.isLoading || !hasAuthoritativeBalance}
+                  variant="primary"
+                  size="sm"
+                  className="h-9 rounded-xl font-bold text-xs shadow-sm cursor-pointer"
+                >
+                  <PenTool size={14} className="mr-1.5" /> Lên hợp đồng
+                </Button>
+              )}
+
               <Button
                 variant="ghost"
                 size="sm"
@@ -494,6 +698,21 @@ export default function OperationsDepositDrawer({
         }
       >
         <div className="flex flex-col gap-4">
+          {(coreDataUnavailable || pendingOperationUnavailable) && (isPaid || refundPending) && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs font-semibold leading-relaxed text-rose-700 dark:text-rose-300"
+            >
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>
+                Dữ liệu CORE chưa đầy đủ
+                {coreDataUnavailable ? ": chưa có số dư ledger xác thực" : ""}
+                {coreDataUnavailable && pendingOperationUnavailable ? "; " : ""}
+                {pendingOperationUnavailable ? ": chưa có mã tác vụ hoàn tiền đang chờ" : ""}.
+                Các thao tác tài chính liên quan đã được khóa để tránh xử lý sai tiền.
+              </span>
+            </div>
+          )}
           {/* 4 KPI STAT BOXES (CLEAN, NO DUPLICATE GIANT HERO CARD) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div className="bg-surface/50 border border-border/70 rounded-2xl p-3 shadow-2xs">
@@ -508,7 +727,9 @@ export default function OperationsDepositDrawer({
               <span className="text-[10px] font-black uppercase tracking-wider text-muted block">
                 Đã thu
               </span>
-              <span className={`text-sm sm:text-base font-black mt-0.5 block font-mono ${wasEverCollected ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}>
+              <span
+                className={`text-sm sm:text-base font-black mt-0.5 block font-mono ${wasEverCollected ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}
+              >
                 {wasEverCollected ? amountStr : "0đ"}
               </span>
             </div>
@@ -525,7 +746,9 @@ export default function OperationsDepositDrawer({
                 Hạn giữ cọc
               </span>
               <span className="text-xs font-bold text-text mt-0.5 block font-mono">
-                {isContractDeposit ? "Theo hợp đồng" : formatDate(detailDeposit.expiredAt)}
+                {isContractDeposit
+                  ? "Theo hợp đồng"
+                  : formatDate(detailDeposit.expiredAt)}
               </span>
             </div>
           </div>
@@ -535,7 +758,8 @@ export default function OperationsDepositDrawer({
             {/* Left Card: Thông tin phiếu cọc */}
             <div className="rounded-2xl border border-border/70 bg-card p-4 sm:p-5 flex flex-col gap-3 shadow-2xs">
               <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-muted border-b border-border/50 pb-2.5">
-                <FileText size={14} className="text-primary" /> Thông tin phiếu cọc
+                <FileText size={14} className="text-primary" /> Thông tin phiếu
+                cọc
               </h4>
 
               {/* Thông báo nghiệp vụ cọc bảo đảm hợp đồng */}
@@ -544,9 +768,15 @@ export default function OperationsDepositDrawer({
                   <Info size={16} className="shrink-0 text-indigo-600 mt-0.5" />
                   <div>
                     <span className="font-bold block mb-0.5">
-                      Cọc bảo đảm hợp đồng {detailDeposit.contractCode ? `(${detailDeposit.contractCode})` : ""}
+                      Cọc bảo đảm hợp đồng{" "}
+                      {detailDeposit.contractCode
+                        ? `(${detailDeposit.contractCode})`
+                        : ""}
                     </span>
-                    Khoản tiền cọc này gắn liền với Hợp đồng thuê (thường thanh toán kèm tiền phòng ngay lần đầu tiên khách nhận phòng). Khi thanh lý hợp đồng, hệ thống sẽ tự động tính toán, khấu trừ điện nước/hư hại và hoàn cọc tại mục <b>Hợp đồng</b>.
+                    Khoản tiền cọc này gắn liền với Hợp đồng thuê (thường thanh
+                    toán kèm tiền phòng ngay lần đầu tiên khách nhận phòng). Khi
+                    thanh lý hợp đồng, hệ thống sẽ tự động tính toán, khấu trừ
+                    điện nước/hư hại và hoàn cọc tại mục <b>Hợp đồng</b>.
                   </div>
                 </div>
               )}
@@ -556,9 +786,13 @@ export default function OperationsDepositDrawer({
                   <User size={13} /> Khách hàng
                 </span>
                 <div className="text-right">
-                  <span className="font-bold text-text block">{detailDeposit.customerName || "Chưa có tên"}</span>
+                  <span className="font-bold text-text block">
+                    {detailDeposit.customerName || "Chưa có tên"}
+                  </span>
                   {detailDeposit.customerPhone && (
-                    <span className="font-mono text-muted text-[11px] block">{detailDeposit.customerPhone}</span>
+                    <span className="font-mono text-muted text-[11px] block">
+                      {detailDeposit.customerPhone}
+                    </span>
                   )}
                 </div>
               </div>
@@ -568,7 +802,10 @@ export default function OperationsDepositDrawer({
                   <Home size={13} /> Phòng gán cọc
                 </span>
                 <span className="font-bold text-text">
-                  {detailDeposit.roomCode || "Chưa gán phòng"} {detailDeposit.buildingName ? `(${detailDeposit.buildingName})` : ""}
+                  {detailDeposit.roomCode || "Chưa gán phòng"}{" "}
+                  {detailDeposit.buildingName
+                    ? `(${detailDeposit.buildingName})`
+                    : ""}
                 </span>
               </div>
 
@@ -584,7 +821,9 @@ export default function OperationsDepositDrawer({
               )}
 
               <div className="p-3 rounded-xl bg-surface/40 border border-border/40">
-                <span className="text-[11px] font-bold text-muted block mb-1">Ghi chú phiếu cọc</span>
+                <span className="text-[11px] font-bold text-muted block mb-1">
+                  Ghi chú phiếu cọc
+                </span>
                 <div className="text-xs font-medium text-text whitespace-pre-wrap leading-relaxed">
                   {detailDeposit.note || "Không có ghi chú"}
                 </div>
@@ -597,16 +836,45 @@ export default function OperationsDepositDrawer({
                   </span>
                   <div className="flex items-center justify-between text-xs pt-1">
                     <span className="text-muted">Mã phiếu chi:</span>
-                    <span className="font-bold font-mono text-text">{refundSummary.receiptCode || "Chưa có"}</span>
+                    <span className="font-bold font-mono text-text">
+                      {refundSummary.receiptCode || "Chưa có"}
+                    </span>
                   </div>
+                  {refundSummary.receiptDescription && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted">Nội dung chi:</span>
+                      <span className="font-bold text-text">
+                        {refundSummary.receiptDescription}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted">Trạng thái:</span>
-                    <span className="font-bold text-text">{refundSummary.taskStatus || refundSummary.receiptStatus || "-"}</span>
+                    <span className="font-bold text-text">
+                      {refundSummary.taskStatus ||
+                        refundSummary.receiptStatus ||
+                        "-"}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted">Số tiền hoàn:</span>
-                    <span className="font-black text-amber-700 dark:text-amber-400">{formatCurrency(refundSummary.receiptAmount)}</span>
+                    <span className="font-black text-amber-700 dark:text-amber-400">
+                      {formatCurrency(refundSummary.receiptAmount)}
+                    </span>
                   </div>
+                  {(refundSummary.taskStatus === "PENDING" ||
+                    refundSummary.receiptStatus === "PENDING") && (
+                    <div className="mt-1 flex justify-end">
+                      <Button
+                        size="sm"
+                        className="bg-amber-500 hover:bg-amber-600 text-white font-bold"
+                        onClick={openCompletePendingModal}
+                        disabled={!detailDeposit.pendingOperationId}
+                      >
+                        Hoàn tất hoàn cọc
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -615,10 +883,13 @@ export default function OperationsDepositDrawer({
             <div className="rounded-2xl border border-border/70 bg-card p-4 sm:p-5 flex flex-col gap-3.5 shadow-2xs">
               <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
                 <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-muted">
-                  <RefreshCcw size={14} className="text-primary" /> Tiến trình xử lý phiếu cọc
+                  <RefreshCcw size={14} className="text-primary" /> Tiến trình
+                  xử lý phiếu cọc
                 </h4>
                 <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-surface border border-border/60 text-muted">
-                  {isBookingDeposit ? "6 Bước cọc giữ phòng" : "5 Bước cọc hợp đồng"}
+                  {isBookingDeposit
+                    ? "6 Bước cọc giữ phòng"
+                    : "5 Bước cọc hợp đồng"}
                 </span>
               </div>
 
@@ -647,17 +918,22 @@ export default function OperationsDepositDrawer({
                       <div className="flex-1 min-w-0 pb-3">
                         <div className="p-2.5 rounded-xl bg-surface/50 border border-border/50">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-black text-text">1. Tạo cọc giữ phòng</span>
+                            <span className="text-xs font-black text-text">
+                              1. Tạo cọc giữ phòng
+                            </span>
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                               Đã tạo
                             </span>
                           </div>
                           <p className="text-[11px] text-muted leading-relaxed mt-0.5">
-                            Khởi tạo phiếu cọc giữ chỗ phòng {detailDeposit.roomCode || ""}
+                            Khởi tạo phiếu cọc giữ chỗ phòng{" "}
+                            {detailDeposit.roomCode || ""}
                           </p>
                           <div className="flex items-center gap-1 text-[10px] font-bold text-muted mt-1.5 pt-1.5 border-t border-border/30 font-mono">
                             <Clock3 size={11} className="text-primary/70" />
-                            <span>{formatDateTime(detailDeposit.createdAt)}</span>
+                            <span>
+                              {formatDateTime(detailDeposit.createdAt)}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -671,22 +947,32 @@ export default function OperationsDepositDrawer({
                         </div>
                         {/* Pipe 2 -> 3 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
-                          <div className={`h-full ${wasEverCollected ? "w-[2px] bg-emerald-500" : "w-[2px] bg-gradient-to-b from-emerald-500 to-amber-500"}`} />
-                          <div className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-emerald-500/30 text-emerald-600" : "border-amber-500/40 text-amber-600"}`}>
-                            <ChevronDown size={10} className={`stroke-[2.5] ${!wasEverCollected ? "animate-bounce" : ""}`} />
+                          <div
+                            className={`h-full ${wasEverCollected ? "w-[2px] bg-emerald-500" : "w-[2px] bg-gradient-to-b from-emerald-500 to-amber-500"}`}
+                          />
+                          <div
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-emerald-500/30 text-emerald-600" : "border-amber-500/40 text-amber-600"}`}
+                          >
+                            <ChevronDown
+                              size={10}
+                              className={`stroke-[2.5] ${!wasEverCollected ? "animate-bounce" : ""}`}
+                            />
                           </div>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 pb-3">
                         <div className="p-2.5 rounded-xl bg-surface/50 border border-border/50">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-black text-text">2. Tạo HĐ giữ chỗ</span>
+                            <span className="text-xs font-black text-text">
+                              2. Tạo HĐ giữ chỗ
+                            </span>
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                               Đã lập thỏa thuận
                             </span>
                           </div>
                           <p className="text-[11px] text-muted leading-relaxed mt-0.5">
-                            Lập thỏa thuận đặt cọc giữ phòng trước khi vào ở chính thức
+                            Lập thỏa thuận đặt cọc giữ phòng trước khi vào ở
+                            chính thức
                           </p>
                         </div>
                       </div>
@@ -695,43 +981,63 @@ export default function OperationsDepositDrawer({
                     {/* B3: Thanh toán tiền cọc */}
                     <div className="relative flex gap-3 group">
                       <div className="flex flex-col items-center shrink-0 w-9">
-                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all relative ${
-                          wasEverCollected
-                            ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
-                            : "bg-amber-500/15 border-2 border-amber-500 text-amber-600 dark:text-amber-400 ring-4 ring-amber-500/25 shadow-md"
-                        }`}>
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all relative ${
+                            wasEverCollected
+                              ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
+                              : "bg-amber-500/15 border-2 border-amber-500 text-amber-600 dark:text-amber-400 ring-4 ring-amber-500/25 shadow-md"
+                          }`}
+                        >
                           {!wasEverCollected && (
                             <span className="absolute -inset-1 rounded-full bg-amber-500/30 animate-ping opacity-75 pointer-events-none" />
                           )}
-                          {wasEverCollected ? <Check size={15} className="stroke-[3]" /> : <Banknote size={15} className="animate-pulse" />}
+                          {wasEverCollected ? (
+                            <Check size={15} className="stroke-[3]" />
+                          ) : (
+                            <Banknote size={15} className="animate-pulse" />
+                          )}
                         </div>
                         {/* Pipe 3 -> 4 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
-                          <div className={`h-full ${wasEverCollected ? "w-[2px] bg-emerald-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`} />
-                          <div className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-emerald-500/30 text-emerald-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}>
+                          <div
+                            className={`h-full ${wasEverCollected ? "w-[2px] bg-emerald-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
+                          />
+                          <div
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-emerald-500/30 text-emerald-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
+                          >
                             <ChevronDown size={10} className="stroke-[2.5]" />
                           </div>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 pb-3">
-                        <div className={`p-2.5 rounded-xl transition-all ${
-                          wasEverCollected
-                            ? "bg-surface/50 border border-border/50"
-                            : "bg-gradient-to-r from-amber-500/[0.08] via-amber-500/[0.03] to-transparent border-2 border-amber-500/50 dark:border-amber-500/40 shadow-xs"
-                        }`}>
+                        <div
+                          className={`p-2.5 rounded-xl transition-all ${
+                            wasEverCollected
+                              ? "bg-surface/50 border border-border/50"
+                              : "bg-gradient-to-r from-amber-500/[0.08] via-amber-500/[0.03] to-transparent border-2 border-amber-500/50 dark:border-amber-500/40 shadow-xs"
+                          }`}
+                        >
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`text-xs font-black ${wasEverCollected ? "text-text" : "text-amber-900 dark:text-amber-200"}`}>
+                            <span
+                              className={`text-xs font-black ${wasEverCollected ? "text-text" : "text-amber-900 dark:text-amber-200"}`}
+                            >
                               3. Thanh toán tiền cọc
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
-                              wasEverCollected
-                                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 flex items-center gap-1.5"
-                            }`}>
-                              {wasEverCollected ? "Đã thanh toán" : "Chờ thanh toán"}
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                                wasEverCollected
+                                  ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                  : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 flex items-center gap-1.5"
+                              }`}
+                            >
+                              {wasEverCollected
+                                ? "Đã thanh toán"
+                                : "Chờ thanh toán"}
                             </span>
                           </div>
-                          <p className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-amber-900/80 dark:text-amber-200/80 font-medium"}`}>
+                          <p
+                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-amber-900/80 dark:text-amber-200/80 font-medium"}`}
+                          >
                             {wasEverCollected
                               ? `Đã thanh toán tiền cọc giữ phòng: ${amountStr}`
                               : "Tạo hóa đơn cọc giữ phòng và gửi thông tin thanh toán tới Zalo bot khách hàng"}
@@ -743,40 +1049,58 @@ export default function OperationsDepositDrawer({
                     {/* B4: Xác nhận thanh toán */}
                     <div className="relative flex gap-3 group">
                       <div className="flex flex-col items-center shrink-0 w-9">
-                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
-                          wasEverCollected
-                            ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
-                            : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
-                        }`}>
-                          {wasEverCollected ? <Check size={15} className="stroke-[3]" /> : <CircleDashed size={14} />}
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
+                            wasEverCollected
+                              ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
+                              : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
+                          }`}
+                        >
+                          {wasEverCollected ? (
+                            <Check size={15} className="stroke-[3]" />
+                          ) : (
+                            <CircleDashed size={14} />
+                          )}
                         </div>
                         {/* Pipe 4 -> 5 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
-                          <div className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`} />
-                          <div className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}>
+                          <div
+                            className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
+                          />
+                          <div
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
+                          >
                             <ChevronDown size={10} className="stroke-[2.5]" />
                           </div>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 pb-3">
-                        <div className={`p-2.5 rounded-xl transition-all ${
-                          wasEverCollected
-                            ? "bg-surface/50 border border-border/50"
-                            : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
-                        }`}>
+                        <div
+                          className={`p-2.5 rounded-xl transition-all ${
+                            wasEverCollected
+                              ? "bg-surface/50 border border-border/50"
+                              : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
+                          }`}
+                        >
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}>
+                            <span
+                              className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                            >
                               4. Xác nhận thanh toán
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
-                              wasEverCollected
-                                ? "font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
-                            }`}>
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                                wasEverCollected
+                                  ? "font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                  : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
+                              }`}
+                            >
                               {wasEverCollected ? "Đã nhận đủ" : "Chờ xác nhận"}
                             </span>
                           </div>
-                          <p className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}>
+                          <p
+                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
+                          >
                             {wasEverCollected
                               ? `Đã nhận đủ ${amountStr} tiền cọc giữ phòng vào tài khoản`
                               : "Hệ thống tự động xác nhận ngay khi nhận được thanh toán"}
@@ -784,7 +1108,13 @@ export default function OperationsDepositDrawer({
                           {wasEverCollected && (
                             <div className="flex items-center gap-1 text-[10px] font-bold text-muted mt-1.5 pt-1.5 border-t border-border/30 font-mono">
                               <Clock3 size={11} className="text-primary/70" />
-                              <span>{(detailDeposit as any).paidAt ? formatDateTime((detailDeposit as any).paidAt) : formatDateTime(detailDeposit.updatedAt)}</span>
+                              <span>
+                                {(detailDeposit as any).paidAt
+                                  ? formatDateTime(
+                                      (detailDeposit as any).paidAt,
+                                    )
+                                  : formatDateTime(detailDeposit.updatedAt)}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -794,40 +1124,60 @@ export default function OperationsDepositDrawer({
                     {/* B5: Hợp đồng giữ chỗ có hiệu lực */}
                     <div className="relative flex gap-3 group">
                       <div className="flex flex-col items-center shrink-0 w-9">
-                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
-                          wasEverCollected
-                            ? "bg-indigo-600 text-white ring-4 ring-indigo-600/15"
-                            : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
-                        }`}>
-                          {wasEverCollected ? <Check size={15} className="stroke-[3]" /> : <CircleDashed size={14} />}
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
+                            wasEverCollected
+                              ? "bg-indigo-600 text-white ring-4 ring-indigo-600/15"
+                              : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
+                          }`}
+                        >
+                          {wasEverCollected ? (
+                            <Check size={15} className="stroke-[3]" />
+                          ) : (
+                            <CircleDashed size={14} />
+                          )}
                         </div>
                         {/* Pipe 5 -> 6 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
-                          <div className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`} />
-                          <div className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}>
+                          <div
+                            className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
+                          />
+                          <div
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
+                          >
                             <ChevronDown size={10} className="stroke-[2.5]" />
                           </div>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 pb-3">
-                        <div className={`p-2.5 rounded-xl transition-all ${
-                          wasEverCollected
-                            ? "bg-surface/50 border border-border/50"
-                            : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
-                        }`}>
+                        <div
+                          className={`p-2.5 rounded-xl transition-all ${
+                            wasEverCollected
+                              ? "bg-surface/50 border border-border/50"
+                              : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
+                          }`}
+                        >
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}>
+                            <span
+                              className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                            >
                               5. Hợp đồng giữ chỗ có hiệu lực
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
-                              wasEverCollected
-                                ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
-                                : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
-                            }`}>
-                              {wasEverCollected ? "Có hiệu lực" : "Chờ kích hoạt"}
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                                wasEverCollected
+                                  ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
+                                  : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
+                              }`}
+                            >
+                              {wasEverCollected
+                                ? "Có hiệu lực"
+                                : "Chờ kích hoạt"}
                             </span>
                           </div>
-                          <p className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}>
+                          <p
+                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
+                          >
                             {wasEverCollected
                               ? `Hợp đồng giữ chỗ có hiệu lực, phòng ${detailDeposit.roomCode || ""} được khóa giữ chỗ thành công`
                               : "Sẽ kích hoạt hiệu lực giữ chỗ ngay sau khi nhận đủ tiền cọc"}
@@ -838,21 +1188,27 @@ export default function OperationsDepositDrawer({
 
                     {/* B6: Thông báo sắp tới hạn & Lên HĐ chính thức */}
                     {(() => {
-                      const isCompleted = isConverted || Boolean(detailDeposit.contractId) || isRefunded || isCancelled;
+                      const isCompleted =
+                        isConverted ||
+                        Boolean(detailDeposit.contractId) ||
+                        isRefunded ||
+                        isCancelled;
                       return (
                         <div className="relative flex gap-3 group">
                           <div className="flex flex-col items-center shrink-0 w-9">
-                            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
-                              isRefunded
-                                ? "bg-amber-500 text-white ring-4 ring-amber-500/20"
-                                : isCancelled
-                                ? "bg-rose-500 text-white ring-4 ring-rose-500/20"
-                                : isConverted || detailDeposit.contractId
-                                ? "bg-indigo-600 text-white ring-4 ring-indigo-600/15"
-                                : wasEverCollected
-                                ? "bg-sky-500 text-white ring-4 ring-sky-500/20"
-                                : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
-                            }`}>
+                            <div
+                              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
+                                isRefunded
+                                  ? "bg-amber-500 text-white ring-4 ring-amber-500/20"
+                                  : isCancelled
+                                    ? "bg-rose-500 text-white ring-4 ring-rose-500/20"
+                                    : isConverted || detailDeposit.contractId
+                                      ? "bg-indigo-600 text-white ring-4 ring-indigo-600/15"
+                                      : wasEverCollected
+                                        ? "bg-sky-500 text-white ring-4 ring-sky-500/20"
+                                        : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
+                              }`}
+                            >
                               {isRefunded ? (
                                 <RefreshCcw size={15} />
                               ) : isCancelled ? (
@@ -867,58 +1223,72 @@ export default function OperationsDepositDrawer({
                             </div>
                           </div>
                           <div className="flex-1 min-w-0 pb-0">
-                            <div className={`p-2.5 rounded-xl transition-all ${
-                              isCompleted || wasEverCollected
-                                ? "bg-surface/50 border border-border/50"
-                                : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
-                            }`}>
+                            <div
+                              className={`p-2.5 rounded-xl transition-all ${
+                                isCompleted || wasEverCollected
+                                  ? "bg-surface/50 border border-border/50"
+                                  : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
+                              }`}
+                            >
                               <div className="flex items-center justify-between gap-2">
-                                <span className={`text-xs ${isCompleted || wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}>
+                                <span
+                                  className={`text-xs ${isCompleted || wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                                >
                                   {isRefunded
                                     ? "6. Đã hoàn cọc"
                                     : isCancelled
-                                    ? "6. Đã hủy phiếu cọc"
-                                    : isConverted || detailDeposit.contractId
-                                    ? "6. Đã lên HĐ chính thức"
-                                    : "6. Thông báo sắp tới hạn"}
+                                      ? "6. Đã hủy phiếu cọc"
+                                      : isConverted || detailDeposit.contractId
+                                        ? "6. Đã lên HĐ chính thức"
+                                        : "6. Thông báo sắp tới hạn"}
                                 </span>
-                                <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
-                                  isRefunded
-                                    ? "font-black bg-amber-500/10 text-amber-600 border-amber-500/20"
-                                    : isCancelled
-                                    ? "font-black bg-rose-500/10 text-rose-600 border-rose-500/20"
-                                    : isConverted || detailDeposit.contractId
-                                    ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
-                                    : wasEverCollected
-                                    ? "font-bold bg-sky-500/10 text-sky-600 border-sky-500/20"
-                                    : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
-                                }`}>
+                                <span
+                                  className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                                    isRefunded
+                                      ? "font-black bg-amber-500/10 text-amber-600 border-amber-500/20"
+                                      : isCancelled
+                                        ? "font-black bg-rose-500/10 text-rose-600 border-rose-500/20"
+                                        : isConverted ||
+                                            detailDeposit.contractId
+                                          ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
+                                          : wasEverCollected
+                                            ? "font-bold bg-sky-500/10 text-sky-600 border-sky-500/20"
+                                            : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
+                                  }`}
+                                >
                                   {isRefunded
                                     ? "Đã hoàn"
                                     : isCancelled
-                                    ? "Đã hủy"
-                                    : isConverted || detailDeposit.contractId
-                                    ? "Đã lên HĐ"
-                                    : wasEverCollected
-                                    ? "Đang theo dõi"
-                                    : "Chờ đóng cọc"}
+                                      ? "Đã hủy"
+                                      : isConverted || detailDeposit.contractId
+                                        ? "Đã lên HĐ"
+                                        : wasEverCollected
+                                          ? "Đang theo dõi"
+                                          : "Chờ đóng cọc"}
                                 </span>
                               </div>
-                              <p className={`text-[11px] leading-relaxed mt-0.5 ${isCompleted || wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}>
+                              <p
+                                className={`text-[11px] leading-relaxed mt-0.5 ${isCompleted || wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
+                              >
                                 {isRefunded
                                   ? "Đã hoàn lại tiền cọc giữ phòng cho khách qua kế toán"
                                   : isCancelled
-                                  ? "Phiếu cọc giữ phòng đã bị hủy hoặc thu hồi"
-                                  : isConverted || detailDeposit.contractId
-                                  ? `Đã chuyển cọc giữ phòng thành Hợp đồng thuê: ${detailDeposit.contractCode || "Liên kết"}`
-                                  : wasEverCollected
-                                  ? `Tự động thông báo cho Admin khi cọc giữ phòng sắp tới hạn (${formatDate(detailDeposit.expiredAt)}) để bố trí sắp xếp`
-                                  : "Chỉ theo dõi sau khi nhận đủ tiền cọc giữ phòng"}
+                                    ? "Phiếu cọc giữ phòng đã bị hủy hoặc thu hồi"
+                                    : isConverted || detailDeposit.contractId
+                                      ? `Đã chuyển cọc giữ phòng thành Hợp đồng thuê: ${detailDeposit.contractCode || "Liên kết"}`
+                                      : wasEverCollected
+                                        ? `Tự động thông báo cho Admin khi cọc giữ phòng sắp tới hạn (${formatDate(detailDeposit.expiredAt)}) để bố trí sắp xếp`
+                                        : "Chỉ theo dõi sau khi nhận đủ tiền cọc giữ phòng"}
                               </p>
                               {(isRefunded || isCancelled) && (
                                 <div className="flex items-center gap-1 text-[10px] font-bold text-muted mt-1.5 pt-1.5 border-t border-border/30 font-mono">
-                                  <Clock3 size={11} className="text-primary/70" />
-                                  <span>{formatDateTime(detailDeposit.updatedAt)}</span>
+                                  <Clock3
+                                    size={11}
+                                    className="text-primary/70"
+                                  />
+                                  <span>
+                                    {formatDateTime(detailDeposit.updatedAt)}
+                                  </span>
                                 </div>
                               )}
                             </div>
@@ -942,26 +1312,40 @@ export default function OperationsDepositDrawer({
                         </div>
                         {/* Pipe 1 -> 2 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
-                          <div className={`h-full ${wasEverCollected ? "w-[2px] bg-emerald-500" : "w-[2px] bg-gradient-to-b from-emerald-500 to-amber-500"}`} />
-                          <div className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-emerald-500/30 text-emerald-600" : "border-amber-500/40 text-amber-600"}`}>
-                            <ChevronDown size={10} className={`stroke-[2.5] ${!wasEverCollected ? "animate-bounce" : ""}`} />
+                          <div
+                            className={`h-full ${wasEverCollected ? "w-[2px] bg-emerald-500" : "w-[2px] bg-gradient-to-b from-emerald-500 to-amber-500"}`}
+                          />
+                          <div
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-emerald-500/30 text-emerald-600" : "border-amber-500/40 text-amber-600"}`}
+                          >
+                            <ChevronDown
+                              size={10}
+                              className={`stroke-[2.5] ${!wasEverCollected ? "animate-bounce" : ""}`}
+                            />
                           </div>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 pb-3">
                         <div className="p-2.5 rounded-xl bg-surface/50 border border-border/50">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-black text-text">1. Tạo phiếu HĐ</span>
+                            <span className="text-xs font-black text-text">
+                              1. Tạo phiếu HĐ
+                            </span>
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                               Đã tạo
                             </span>
                           </div>
                           <p className="text-[11px] text-muted leading-relaxed mt-0.5">
-                            Cọc bảo đảm gắn liền với Hợp đồng thuê {detailDeposit.contractCode ? `(${detailDeposit.contractCode})` : ""}
+                            Cọc bảo đảm gắn liền với Hợp đồng thuê{" "}
+                            {detailDeposit.contractCode
+                              ? `(${detailDeposit.contractCode})`
+                              : ""}
                           </p>
                           <div className="flex items-center gap-1 text-[10px] font-bold text-muted mt-1.5 pt-1.5 border-t border-border/30 font-mono">
                             <Clock3 size={11} className="text-primary/70" />
-                            <span>{formatDateTime(detailDeposit.createdAt)}</span>
+                            <span>
+                              {formatDateTime(detailDeposit.createdAt)}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -970,49 +1354,69 @@ export default function OperationsDepositDrawer({
                     {/* B2: Thanh toán tiền cọc */}
                     <div className="relative flex gap-3 group">
                       <div className="flex flex-col items-center shrink-0 w-9">
-                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all relative ${
-                          wasEverCollected
-                            ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
-                            : "bg-amber-500/15 border-2 border-amber-500 text-amber-600 dark:text-amber-400 ring-4 ring-amber-500/25 shadow-md"
-                        }`}>
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all relative ${
+                            wasEverCollected
+                              ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
+                              : "bg-amber-500/15 border-2 border-amber-500 text-amber-600 dark:text-amber-400 ring-4 ring-amber-500/25 shadow-md"
+                          }`}
+                        >
                           {!wasEverCollected && (
                             <span className="absolute -inset-1 rounded-full bg-amber-500/30 animate-ping opacity-75 pointer-events-none" />
                           )}
-                          {wasEverCollected ? <Check size={15} className="stroke-[3]" /> : <Banknote size={15} className="animate-pulse" />}
+                          {wasEverCollected ? (
+                            <Check size={15} className="stroke-[3]" />
+                          ) : (
+                            <Banknote size={15} className="animate-pulse" />
+                          )}
                         </div>
                         {/* Pipe 2 -> 3 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
-                          <div className={`h-full ${wasEverCollected ? "w-[2px] bg-emerald-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`} />
-                          <div className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-emerald-500/30 text-emerald-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}>
+                          <div
+                            className={`h-full ${wasEverCollected ? "w-[2px] bg-emerald-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
+                          />
+                          <div
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-emerald-500/30 text-emerald-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
+                          >
                             <ChevronDown size={10} className="stroke-[2.5]" />
                           </div>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 pb-3">
-                        <div className={`p-2.5 rounded-xl transition-all ${
-                          wasEverCollected
-                            ? "bg-surface/50 border border-border/50"
-                            : "bg-gradient-to-r from-amber-500/[0.08] via-amber-500/[0.03] to-transparent border-2 border-amber-500/50 dark:border-amber-500/40 shadow-xs"
-                        }`}>
+                        <div
+                          className={`p-2.5 rounded-xl transition-all ${
+                            wasEverCollected
+                              ? "bg-surface/50 border border-border/50"
+                              : "bg-gradient-to-r from-amber-500/[0.08] via-amber-500/[0.03] to-transparent border-2 border-amber-500/50 dark:border-amber-500/40 shadow-xs"
+                          }`}
+                        >
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`text-xs font-black ${wasEverCollected ? "text-text" : "text-amber-900 dark:text-amber-200"}`}>
+                            <span
+                              className={`text-xs font-black ${wasEverCollected ? "text-text" : "text-amber-900 dark:text-amber-200"}`}
+                            >
                               2. Thanh toán tiền cọc
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
-                              wasEverCollected
-                                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 flex items-center gap-1.5"
-                            }`}>
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                                wasEverCollected
+                                  ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                  : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 flex items-center gap-1.5"
+                              }`}
+                            >
                               {!wasEverCollected && (
                                 <span className="relative flex h-2 w-2">
                                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                                   <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                                 </span>
                               )}
-                              {wasEverCollected ? "Đã thanh toán" : "Chờ thanh toán"}
+                              {wasEverCollected
+                                ? "Đã thanh toán"
+                                : "Chờ thanh toán"}
                             </span>
                           </div>
-                          <p className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-amber-900/80 dark:text-amber-200/80 font-medium"}`}>
+                          <p
+                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-amber-900/80 dark:text-amber-200/80 font-medium"}`}
+                          >
                             {wasEverCollected
                               ? `Đã thanh toán qua hóa đơn kèm tiền phòng & dịch vụ`
                               : "Hóa đơn (Tiền phòng tháng + Tiền cọc HĐ + Tiền nước) và thông tin thanh toán đã gửi tới Zalo bot khách hàng"}
@@ -1024,40 +1428,58 @@ export default function OperationsDepositDrawer({
                     {/* B3: Đã nhận tiền cọc */}
                     <div className="relative flex gap-3 group">
                       <div className="flex flex-col items-center shrink-0 w-9">
-                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
-                          wasEverCollected
-                            ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
-                            : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
-                        }`}>
-                          {wasEverCollected ? <Check size={15} className="stroke-[3]" /> : <CircleDashed size={14} />}
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
+                            wasEverCollected
+                              ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
+                              : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
+                          }`}
+                        >
+                          {wasEverCollected ? (
+                            <Check size={15} className="stroke-[3]" />
+                          ) : (
+                            <CircleDashed size={14} />
+                          )}
                         </div>
                         {/* Pipe 3 -> 4 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
-                          <div className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`} />
-                          <div className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}>
+                          <div
+                            className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
+                          />
+                          <div
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
+                          >
                             <ChevronDown size={10} className="stroke-[2.5]" />
                           </div>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 pb-3">
-                        <div className={`p-2.5 rounded-xl transition-all ${
-                          wasEverCollected
-                            ? "bg-surface/50 border border-border/50"
-                            : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
-                        }`}>
+                        <div
+                          className={`p-2.5 rounded-xl transition-all ${
+                            wasEverCollected
+                              ? "bg-surface/50 border border-border/50"
+                              : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
+                          }`}
+                        >
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}>
+                            <span
+                              className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                            >
                               3. Đã nhận tiền cọc
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
-                              wasEverCollected
-                                ? "font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
-                            }`}>
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                                wasEverCollected
+                                  ? "font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                  : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
+                              }`}
+                            >
                               {wasEverCollected ? "Đã nhận đủ" : "Chờ thu tiền"}
                             </span>
                           </div>
-                          <p className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}>
+                          <p
+                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
+                          >
                             {wasEverCollected
                               ? `Đã nhận đủ số tiền cọc bảo đảm hợp đồng: ${amountStr}`
                               : "Chưa nhận được tiền cọc bảo đảm (thường thanh toán kèm tiền phòng khi khách nhận phòng lần đầu)"}
@@ -1065,7 +1487,13 @@ export default function OperationsDepositDrawer({
                           {wasEverCollected && (
                             <div className="flex items-center gap-1 text-[10px] font-bold text-muted mt-1.5 pt-1.5 border-t border-border/30 font-mono">
                               <Clock3 size={11} className="text-primary/70" />
-                              <span>{(detailDeposit as any).paidAt ? formatDateTime((detailDeposit as any).paidAt) : formatDateTime(detailDeposit.updatedAt)}</span>
+                              <span>
+                                {(detailDeposit as any).paidAt
+                                  ? formatDateTime(
+                                      (detailDeposit as any).paidAt,
+                                    )
+                                  : formatDateTime(detailDeposit.updatedAt)}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -1075,40 +1503,60 @@ export default function OperationsDepositDrawer({
                     {/* B4: HĐ có hiệu lực */}
                     <div className="relative flex gap-3 group">
                       <div className="flex flex-col items-center shrink-0 w-9">
-                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
-                          wasEverCollected
-                            ? "bg-indigo-600 text-white ring-4 ring-indigo-600/15"
-                            : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
-                        }`}>
-                          {wasEverCollected ? <Check size={15} className="stroke-[3]" /> : <CircleDashed size={14} />}
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
+                            wasEverCollected
+                              ? "bg-indigo-600 text-white ring-4 ring-indigo-600/15"
+                              : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
+                          }`}
+                        >
+                          {wasEverCollected ? (
+                            <Check size={15} className="stroke-[3]" />
+                          ) : (
+                            <CircleDashed size={14} />
+                          )}
                         </div>
                         {/* Pipe 4 -> 5 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
-                          <div className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-200 dark:border-slate-800 w-0"}`} />
-                          <div className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-600"}`}>
+                          <div
+                            className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-200 dark:border-slate-800 w-0"}`}
+                          />
+                          <div
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-600"}`}
+                          >
                             <ChevronDown size={10} className="stroke-[2.5]" />
                           </div>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 pb-3">
-                        <div className={`p-2.5 rounded-xl transition-all ${
-                          wasEverCollected
-                            ? "bg-surface/50 border border-border/50"
-                            : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
-                        }`}>
+                        <div
+                          className={`p-2.5 rounded-xl transition-all ${
+                            wasEverCollected
+                              ? "bg-surface/50 border border-border/50"
+                              : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
+                          }`}
+                        >
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}>
+                            <span
+                              className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                            >
                               4. HĐ có hiệu lực
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
-                              wasEverCollected
-                                ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
-                                : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
-                            }`}>
-                              {wasEverCollected ? "Có hiệu lực" : "Chờ kích hoạt"}
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                                wasEverCollected
+                                  ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
+                                  : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
+                              }`}
+                            >
+                              {wasEverCollected
+                                ? "Có hiệu lực"
+                                : "Chờ kích hoạt"}
                             </span>
                           </div>
-                          <p className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}>
+                          <p
+                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
+                          >
                             {wasEverCollected
                               ? `Hợp đồng thuê ${detailDeposit.contractCode || "liên kết"} chính thức có hiệu lực pháp lý`
                               : "Sẽ kích hoạt đầy đủ hiệu lực hợp đồng ngay sau khi hoàn tất thu tiền cọc"}
@@ -1120,15 +1568,17 @@ export default function OperationsDepositDrawer({
                     {/* B5: Lưu giữ cọc hợp đồng (Bước cuối cùng không có pipe) */}
                     <div className="relative flex gap-3 group">
                       <div className="flex flex-col items-center shrink-0 w-9">
-                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
-                          isRefunded
-                            ? "bg-amber-500 text-white ring-4 ring-amber-500/20"
-                            : isCancelled
-                            ? "bg-rose-500 text-white ring-4 ring-rose-500/20"
-                            : wasEverCollected
-                            ? "bg-indigo-500/10 border border-indigo-500 text-indigo-600 ring-4 ring-indigo-500/15"
-                            : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
-                        }`}>
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
+                            isRefunded
+                              ? "bg-amber-500 text-white ring-4 ring-amber-500/20"
+                              : isCancelled
+                                ? "bg-rose-500 text-white ring-4 ring-rose-500/20"
+                                : wasEverCollected
+                                  ? "bg-indigo-500/10 border border-indigo-500 text-indigo-600 ring-4 ring-indigo-500/15"
+                                  : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
+                          }`}
+                        >
                           {isRefunded ? (
                             <RefreshCcw size={15} />
                           ) : isCancelled ? (
@@ -1141,52 +1591,62 @@ export default function OperationsDepositDrawer({
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 pb-0">
-                        <div className={`p-2.5 rounded-xl transition-all ${
-                          wasEverCollected || isRefunded || isCancelled
-                            ? "bg-surface/50 border border-border/50"
-                            : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
-                        }`}>
+                        <div
+                          className={`p-2.5 rounded-xl transition-all ${
+                            wasEverCollected || isRefunded || isCancelled
+                              ? "bg-surface/50 border border-border/50"
+                              : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
+                          }`}
+                        >
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`text-xs ${wasEverCollected || isRefunded || isCancelled ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}>
+                            <span
+                              className={`text-xs ${wasEverCollected || isRefunded || isCancelled ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                            >
                               {isRefunded
                                 ? "5. Đã hoàn cọc khi thanh lý HĐ"
                                 : isCancelled
-                                ? "5. Đã hủy / Phạt cọc"
-                                : wasEverCollected
-                                ? "5. Lưu giữ cọc hợp đồng"
-                                : "5. Lưu giữ cọc hợp đồng"}
+                                  ? "5. Đã hủy / Phạt cọc"
+                                  : wasEverCollected
+                                    ? "5. Lưu giữ cọc hợp đồng"
+                                    : "5. Lưu giữ cọc hợp đồng"}
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
-                              isRefunded
-                                ? "font-black bg-amber-500/10 text-amber-600 border-amber-500/20"
-                                : isCancelled
-                                ? "font-black bg-rose-500/10 text-rose-600 border-rose-500/20"
-                                : wasEverCollected
-                                ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
-                                : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
-                            }`}>
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                                isRefunded
+                                  ? "font-black bg-amber-500/10 text-amber-600 border-amber-500/20"
+                                  : isCancelled
+                                    ? "font-black bg-rose-500/10 text-rose-600 border-rose-500/20"
+                                    : wasEverCollected
+                                      ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
+                                      : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
+                              }`}
+                            >
                               {isRefunded
                                 ? "Hoàn tất"
                                 : isCancelled
-                                ? "Đã hủy"
-                                : wasEverCollected
-                                ? "Đang lưu giữ"
-                                : "Chưa kích hoạt"}
+                                  ? "Đã hủy"
+                                  : wasEverCollected
+                                    ? "Đang lưu giữ"
+                                    : "Chưa kích hoạt"}
                             </span>
                           </div>
-                          <p className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected || isRefunded || isCancelled ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}>
+                          <p
+                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected || isRefunded || isCancelled ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
+                          >
                             {isRefunded
                               ? "Đã đối soát, khấu trừ hư hại/điện nước và hoàn lại cọc khi kết thúc HĐ"
                               : isCancelled
-                              ? "Khoản cọc đã bị hủy hoặc thu hồi theo biên bản thanh lý"
-                              : wasEverCollected
-                              ? "Tiền cọc được lưu giữ an toàn theo suốt thời hạn của hợp đồng thuê"
-                              : "Khoản cọc sẽ được kích hoạt lưu giữ bảo đảm ngay sau khi thu đủ tiền"}
+                                ? "Khoản cọc đã bị hủy hoặc thu hồi theo biên bản thanh lý"
+                                : wasEverCollected
+                                  ? "Tiền cọc được lưu giữ an toàn theo suốt thời hạn của hợp đồng thuê"
+                                  : "Khoản cọc sẽ được kích hoạt lưu giữ bảo đảm ngay sau khi thu đủ tiền"}
                           </p>
                           {(isRefunded || isCancelled) && (
                             <div className="flex items-center gap-1 text-[10px] font-bold text-muted mt-1.5 pt-1.5 border-t border-border/30 font-mono">
                               <Clock3 size={11} className="text-primary/70" />
-                              <span>{formatDateTime(detailDeposit.updatedAt)}</span>
+                              <span>
+                                {formatDateTime(detailDeposit.updatedAt)}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -1202,6 +1662,7 @@ export default function OperationsDepositDrawer({
 
       {/* --- SUB-MODAL 1: XÁC NHẬN HOÀN CỌC GIỮ PHÒNG --- */}
       <Modal
+        testId="deposit-refund-modal"
         isOpen={isRefundModalOpen}
         onClose={() => {
           if (refundMutation.isPending) return;
@@ -1220,6 +1681,7 @@ export default function OperationsDepositDrawer({
               Hủy bỏ
             </Button>
             <Button
+              data-testid="deposit-refund-submit"
               size="sm"
               className="bg-amber-500 hover:bg-amber-600 text-white font-bold"
               onClick={submitRefund}
@@ -1233,17 +1695,21 @@ export default function OperationsDepositDrawer({
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs">
             <span className="text-muted font-bold">Số tiền cọc gốc:</span>
-            <span className="font-black text-amber-700 dark:text-amber-400 text-sm">{amountStr}</span>
+            <span className="font-black text-amber-700 dark:text-amber-400 text-sm">
+              {amountStr}
+            </span>
           </div>
 
           <div>
             <label className="text-xs font-bold text-text block mb-1">
-              Số tiền hoàn lại cho khách (VNĐ) <span className="text-rose-500">*</span>
+              Số tiền hoàn lại cho khách (VNĐ){" "}
+              <span className="text-rose-500">*</span>
             </label>
             <Input
+              data-testid="deposit-refund-amount"
               type="number"
               min="1000"
-              max={amount}
+              max={availableBalance}
               value={refundAmountInput}
               onChange={(e) => setRefundAmountInput(e.target.value)}
               placeholder="Nhập số tiền hoàn lại..."
@@ -1255,6 +1721,7 @@ export default function OperationsDepositDrawer({
               Lý do hoàn cọc <span className="text-rose-500">*</span>
             </label>
             <textarea
+              data-testid="deposit-refund-reason"
               value={refundReason}
               onChange={(e) => setRefundReason(e.target.value)}
               placeholder="Ví dụ: Khách đổi kế hoạch không thuê nữa / hoàn lại theo thỏa thuận..."
@@ -1267,11 +1734,19 @@ export default function OperationsDepositDrawer({
               Hình thức chi tiền
             </label>
             <Select
+              data-testid="deposit-refund-status"
               value={refundReceiptStatus}
               onChange={(e) => setRefundReceiptStatus(e.target.value as any)}
               options={[
-                { label: "Đã chi tiền ngay cho khách (Phiếu chi Hoàn tất)", value: "COMPLETED" },
-                { label: "Tạo phiếu chi chờ thủ quỹ duyệt chuyển tiền (Phiếu chi Chờ xử lý)", value: "PENDING" },
+                {
+                  label: "Đã chi tiền ngay cho khách (Phiếu chi Hoàn tất)",
+                  value: "COMPLETED",
+                },
+                {
+                  label:
+                    "Tạo phiếu chi chờ thủ quỹ duyệt chuyển tiền (Phiếu chi Chờ xử lý)",
+                  value: "PENDING",
+                },
               ]}
             />
           </div>
@@ -1291,9 +1766,10 @@ export default function OperationsDepositDrawer({
 
       {/* --- SUB-MODAL 2: HỦY PHIẾU CỌC --- */}
       <Modal
+        testId="deposit-cancel-modal"
         isOpen={isCancelModalOpen}
         onClose={() => {
-          if (cancelMutation.isPending) return;
+          if (cancelMutation.isPending || cancelUnpaidMutation.isPending) return;
           setIsCancelModalOpen(false);
         }}
         maxWidth="max-w-md"
@@ -1304,15 +1780,16 @@ export default function OperationsDepositDrawer({
               variant="outline"
               size="sm"
               onClick={() => setIsCancelModalOpen(false)}
-              disabled={cancelMutation.isPending}
+              disabled={cancelMutation.isPending || cancelUnpaidMutation.isPending}
             >
               Đóng
             </Button>
             <Button
+              data-testid="deposit-cancel-submit"
               size="sm"
               className="bg-rose-500 hover:bg-rose-600 text-white font-bold"
               onClick={submitCancel}
-              isLoading={cancelMutation.isPending}
+              isLoading={cancelMutation.isPending || cancelUnpaidMutation.isPending}
             >
               Xác nhận hủy phiếu
             </Button>
@@ -1321,9 +1798,13 @@ export default function OperationsDepositDrawer({
       >
         <div className="flex flex-col gap-4">
           <div className="flex items-start gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
-            <AlertTriangle size={15} className="shrink-0 mt-0.5 text-rose-500" />
+            <AlertTriangle
+              size={15}
+              className="shrink-0 mt-0.5 text-rose-500"
+            />
             <div>
-              Hành động hủy phiếu đặt cọc <b>{detailDeposit.code}</b> không thể hoàn tác.
+              Hành động hủy phiếu đặt cọc <b>{detailDeposit.code}</b> không thể
+              hoàn tác.
             </div>
           </div>
 
@@ -1332,6 +1813,7 @@ export default function OperationsDepositDrawer({
               Lý do hủy phiếu <span className="text-rose-500">*</span>
             </label>
             <textarea
+              data-testid="deposit-cancel-reason"
               value={cancelReason}
               onChange={(e) => setCancelReason(e.target.value)}
               placeholder="Nhập lý do hủy phiếu đặt cọc..."
@@ -1341,46 +1823,86 @@ export default function OperationsDepositDrawer({
 
           {isPaid && (
             <>
-              <div>
-                <label className="text-xs font-bold text-text block mb-1">
-                  Cách xử lý tiền cọc đã thu ({amountStr})
-                </label>
-                <Select
-                  value={cancelResolutionAction}
-                  onChange={(e) => setCancelResolutionAction(e.target.value as any)}
-                  options={[
-                    { label: "Giữ lại toàn bộ cọc (Phạt cọc không hoàn lại)", value: "KEEP" },
-                    { label: "Hoàn lại một phần hoặc toàn bộ tiền cho khách", value: "REFUND" },
-                    { label: "Khấu trừ chi phí giữ phòng", value: "DEDUCT" },
-                  ]}
-                />
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-border">
+                <div className="flex justify-between items-center mb-3 pb-2 border-b border-border">
+                  <span className="text-xs font-bold text-text">
+                    Số tiền có thể xử lý:
+                  </span>
+                  <span className="text-sm font-bold text-primary">
+                    {formatCurrency(
+                      availableBalance,
+                    )}{" "}
+                    VNĐ
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label htmlFor="cancelRefundAmount" className="text-xs font-medium text-text block mb-1">
+                      Hoàn lại cho khách (VNĐ)
+                    </label>
+                    <Input
+                      data-testid="deposit-cancel-refund-amount"
+                      id="cancelRefundAmount"
+                      type="number"
+                      min="0"
+                      value={cancelRefundAmount}
+                      onChange={(e) => setCancelRefundAmount(e.target.value)}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="cancelKeepAmount" className="text-xs font-medium text-text block mb-1">
+                      Phạt / Giữ lại (VNĐ)
+                    </label>
+                    <Input
+                      data-testid="deposit-cancel-keep-amount"
+                      id="cancelKeepAmount"
+                      type="number"
+                      min="0"
+                      value={cancelKeepAmount}
+                      onChange={(e) => setCancelKeepAmount(e.target.value)}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="cancelDeductAmount" className="text-xs font-medium text-text block mb-1">
+                      Khấu trừ chi phí khác (VNĐ)
+                    </label>
+                    <Input
+                      data-testid="deposit-cancel-deduct-amount"
+                      id="cancelDeductAmount"
+                      type="number"
+                      min="0"
+                      value={cancelDeductAmount}
+                      onChange={(e) => setCancelDeductAmount(e.target.value)}
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-text block mb-1">
-                  Số tiền {cancelResolutionAction === "REFUND" ? "hoàn lại" : cancelResolutionAction === "KEEP" ? "giữ lại" : "khấu trừ"} (VNĐ)
-                </label>
-                <Input
-                  type="number"
-                  min="1000"
-                  max={amount}
-                  value={cancelResolutionAmount}
-                  onChange={(e) => setCancelResolutionAmount(e.target.value)}
-                  placeholder="Nhập số tiền..."
-                />
-              </div>
-
-              {cancelResolutionAction === "REFUND" && (
+              {Number(cancelRefundAmount) > 0 && (
                 <div>
-                  <label className="text-xs font-bold text-text block mb-1">
-                    Hình thức chi tiền hoàn
+                  <label htmlFor="cancelReceiptStatus" className="text-xs font-bold text-text block mb-1">
+                    Trạng thái chi tiền hoàn
                   </label>
                   <Select
+                    data-testid="deposit-cancel-refund-status"
+                    id="cancelReceiptStatus"
                     value={cancelReceiptStatus}
-                    onChange={(e) => setCancelReceiptStatus(e.target.value as any)}
+                    onChange={(e) =>
+                      setCancelReceiptStatus(e.target.value as any)
+                    }
                     options={[
-                      { label: "Đã chi tiền ngay cho khách (Hoàn tất)", value: "COMPLETED" },
-                      { label: "Tạo phiếu chi chờ duyệt (Chờ xử lý)", value: "PENDING" },
+                      {
+                        label: "Đã chi tiền ngay cho khách (Hoàn tất)",
+                        value: "COMPLETED",
+                      },
+                      {
+                        label: "Tạo lệnh hoàn chờ xử lý (Kế toán duyệt)",
+                        value: "PENDING",
+                      },
                     ]}
                   />
                 </div>
@@ -1392,6 +1914,7 @@ export default function OperationsDepositDrawer({
 
       {/* --- SUB-MODAL 3: CHUYỂN HỢP ĐỒNG --- */}
       <Modal
+        testId="deposit-convert-modal"
         isOpen={isConvertModalOpen}
         onClose={() => {
           if (convertMutation.isPending) return;
@@ -1410,6 +1933,7 @@ export default function OperationsDepositDrawer({
               Hủy bỏ
             </Button>
             <Button
+              data-testid="deposit-convert-submit"
               variant="primary"
               size="sm"
               onClick={submitConvert}
@@ -1420,18 +1944,86 @@ export default function OperationsDepositDrawer({
           </div>
         }
       >
-        <div className="flex flex-col gap-3 text-xs leading-relaxed">
+        <div className="flex flex-col gap-4 text-xs leading-relaxed">
           <p className="text-text">
-            Bạn đang chuyển phiếu cọc <b>{detailDeposit.code}</b> của khách hàng <b>{detailDeposit.customerName}</b> ({amountStr}) sang trạng thái <b>Đã lên hợp đồng</b>.
+            Chuyển phiếu cọc <b>{detailDeposit.code}</b> của{" "}
+            <b>{detailDeposit.customerName}</b> sang trạng thái{" "}
+            <b>Đã lên hợp đồng</b>.
           </p>
-          <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-300">
-            Số tiền cọc này sẽ được chuyển thành cọc bảo đảm của hợp đồng thuê phòng tương ứng.
+
+          <div className="space-y-3">
+            <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-border">
+              <span className="font-bold">Tiền cọc hiện có:</span>
+              <span className="text-primary font-bold text-sm">
+                {formatCurrency(
+                  availableBalance,
+                )}{" "}
+                VNĐ
+              </span>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-text block mb-1">
+                Tiền cọc bảo đảm theo Hợp đồng mới (VNĐ){" "}
+                <span className="text-rose-500">*</span>
+              </label>
+              <Input
+                data-testid="deposit-convert-security-required"
+                type="number"
+                min="0"
+                value={convertSecurityRequired}
+                onChange={(e) => setConvertSecurityRequired(e.target.value)}
+                placeholder="Nhập tiền cọc bảo đảm..."
+              />
+            </div>
+
+            {(() => {
+              const available = availableBalance;
+              if (available === undefined) return null;
+              const required = Number(convertSecurityRequired) || 0;
+              if (required < available) {
+                return (
+                  <div>
+                    <label className="text-xs font-bold text-text block mb-1">
+                      Xử lý phần tiền cọc dư (
+                      {formatCurrency(available - required)} VNĐ)
+                    </label>
+                    <Select
+                      data-testid="deposit-convert-excess-action"
+                      value={convertExcessAction}
+                      onChange={(e) =>
+                        setConvertExcessAction(e.target.value as any)
+                      }
+                      options={[
+                        {
+                          label: "Ghi có vào dư nợ (Trừ vào tiền nhà)",
+                          value: "CREDIT",
+                        },
+                        {
+                          label: "Hoàn lại tiền thừa cho khách",
+                          value: "REFUND",
+                        },
+                      ]}
+                    />
+                  </div>
+                );
+              } else if (required > available) {
+                return (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300">
+                    Khách cần đóng thêm{" "}
+                    <b>{formatCurrency(required - available)} VNĐ</b>.
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </div>
         </div>
       </Modal>
 
       {/* --- SUB-MODAL 4: XÁC NHẬN HOÀN TẤT CHI TIỀN HOÀN CỌC --- */}
       <Modal
+        testId="deposit-complete-refund-modal"
         isOpen={isCompletePendingModalOpen}
         onClose={() => {
           if (completePendingRefundMutation.isPending) return;
@@ -1450,6 +2042,7 @@ export default function OperationsDepositDrawer({
               Hủy bỏ
             </Button>
             <Button
+              data-testid="deposit-complete-refund-submit"
               size="sm"
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
               onClick={submitCompletePendingRefund}
@@ -1462,13 +2055,15 @@ export default function OperationsDepositDrawer({
       >
         <div className="flex flex-col gap-3">
           <p className="text-xs text-text leading-relaxed">
-            Xác nhận rằng phiếu chi hoàn cọc cho khách hàng đã được hoàn tất thanh toán.
+            Xác nhận rằng phiếu chi hoàn cọc cho khách hàng đã được hoàn tất
+            thanh toán.
           </p>
           <div>
             <label className="text-xs font-bold text-text block mb-1">
               Ghi chú / Mã giao dịch ngân hàng
             </label>
             <Input
+              data-testid="deposit-complete-refund-note"
               value={completePendingNote}
               onChange={(e) => setCompletePendingNote(e.target.value)}
               placeholder="Ví dụ: Đã CK Vietcombank FT123456789..."

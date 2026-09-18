@@ -1,0 +1,13 @@
+{
+  "fixtureId": "core1004-uat-v1",
+  "runId": "${E2E_RUN_ID}",
+  "syntheticOnly": true,
+  "tenantIds": ["uat-${FIXTURE_ID}-tenant"],
+  "ownerIds": ["uat-${FIXTURE_ID}-owner-a", "uat-${FIXTURE_ID}-owner-b"],
+  "flows": [
+    "booking-hold", "deposit-insufficient", "deposit-exact", "deposit-excess-refund",
+    "contract-activation", "invoice-payment-retry", "shared-room-a-b", "renewal",
+    "transfer-shared-leave", "final-settlement-move-out", "reconciliation-drilldown"
+  ],
+  "provisioning": "approved-staging-fixture-procedure-required"
+}

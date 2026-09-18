@@ -43,6 +43,14 @@ enum ContractStatus {
   CANCELLED
 }
 
+enum RentalCycleStatus {
+  PLANNED
+  RESERVED
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
 enum InvoiceStatus {
   DRAFT
   ISSUED
@@ -100,6 +108,55 @@ enum DepositStatus {
   CONVERTED_TO_CONTRACT
   CANCELLED
   REFUNDED
+}
+
+enum RoomHoldKind {
+  WHOLE
+  SHARED_SLOT
+}
+
+enum RoomHoldStatus {
+  ACTIVE
+  EXPIRED
+  RELEASED
+  CONVERTED
+  CANCELLED
+}
+
+enum DepositLedgerEntryType {
+  CASH_IN
+  TRANSFER_OUT
+  TRANSFER_IN
+  REFUND
+  KEEP
+  DEDUCT
+  CREDIT
+  REVERSAL
+}
+
+enum DepositOperationType {
+  COLLECT
+  CONVERT_TO_SECURITY
+  REFUND
+  CANCEL
+  COMPLETE_REFUND
+  RENEW_HOLD
+  TRANSFER_HOLD
+  RELEASE_HOLD
+  REVERSE_LEDGER
+}
+
+enum DepositOperationStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
 }
 
 enum NotificationStatus {
@@ -182,6 +239,7 @@ model TenantOrg {
   buildings                Building[]
   owners                   Owner[]
   roomPaymentAccountRoutes RoomPaymentAccountRoute[]
+  outboxEvents             OutboxEvent[]
 }
 
 model Owner {
@@ -354,8 +412,11 @@ model Room {
   roommates            Customer[]                @relation("RoomRoommates")
   hunonicMeterMappings HunonicMeterMapping[]
   hunonicMeterReadings HunonicMeterReading[]
+  billingSnapshots     BillingSnapshot[]
   paymentAccountRoutes RoomPaymentAccountRoute[]
   occupancies          Occupancy[]
+  rentalCycles         RentalCycle[]
+  roomHolds            RoomHold[]
 
   @@unique([tenantId, buildingId, code])
   @@index([tenantId, status])
@@ -394,6 +455,7 @@ model Customer {
   invoices        Invoice[]
   occupancies     Occupancy[]
   contractParties ContractParty[]
+  rentalCycles    RentalCycle[]
 
   @@index([tenantId, phone])
   @@index([tenantId, zaloChatId])
@@ -402,45 +464,84 @@ model Customer {
   @@index([tenantId, deletedAt])
 }
 
-model Contract {
-  id                  String         @id @default(cuid())
-  tenantId            String
-  roomId              String
-  customerId          String
-  code                String
-  status              ContractStatus @default(DRAFT)
-  startDate           DateTime
-  endDate             DateTime
-  signedAt            DateTime?
-  purpose             String?
-  firstPaymentDate    DateTime?
-  monthlyRent         Decimal        @db.Decimal(14, 2)
-  depositMoney        Decimal        @db.Decimal(14, 2)
-  memberCount         Int            @default(1)
-  attachments         String[]       @default([])
-  coRepresentativeIds String[]       @default([])
-  actualMoveOutAt     DateTime?
-  terminationReason   String?
-  customerSnapshot    Json?
-  roomSnapshot        Json?
-  termsSnapshot       Json?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  deletedAt           DateTime?
-  deletedBy           String?
-  deleteReason        String?
+model RentalCycle {
+  id               String            @id @default(cuid())
+  tenantId         String
+  customerId       String
+  roomId           String
+  status           RentalCycleStatus @default(PLANNED)
+  expectedMoveInAt DateTime?
+  actualMoveInAt   DateTime?
+  actualEndAt      DateTime?
+  closedReason     String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
-  room        Room                @relation(fields: [roomId], references: [id])
-  customer    Customer            @relation(fields: [customerId], references: [id])
-  invoices    Invoice[]
-  deposits    Deposit[]
-  parties     ContractParty[]
-  occupancies Occupancy[]
-  settlement  ContractSettlement?
+  customer             Customer             @relation(fields: [customerId], references: [id])
+  room                 Room                 @relation(fields: [roomId], references: [id])
+  contracts            Contract[]
+  deposits             Deposit[]
+  occupancies          Occupancy[]
+  invoices             Invoice[]
+  payments             Payment[]
+  settlements          ContractSettlement[]
+  roomHolds            RoomHold[]
+  depositLedgerEntries DepositLedgerEntry[]
+  depositOperations    DepositOperation[]
+
+  @@index([tenantId, customerId, status])
+  @@index([tenantId, roomId, status])
+  @@index([tenantId, status, expectedMoveInAt])
+}
+
+model Contract {
+  id                       String         @id @default(cuid())
+  tenantId                 String
+  roomId                   String
+  customerId               String
+  rentalCycleId            String?
+  code                     String
+  status                   ContractStatus @default(DRAFT)
+  startDate                DateTime
+  endDate                  DateTime
+  signedAt                 DateTime?
+  purpose                  String?
+  firstPaymentDate         DateTime?
+  monthlyRent              Decimal        @db.Decimal(14, 2)
+  depositMoney             Decimal        @db.Decimal(14, 2)
+  memberCount              Int            @default(1)
+  attachments              String[]       @default([])
+  coRepresentativeIds      String[]       @default([])
+  actualMoveOutAt          DateTime?
+  terminationReason        String?
+  customerSnapshot         Json?
+  roomSnapshot             Json?
+  termsSnapshot            Json?
+  moveInSnapshot           Json?
+  activatedAt              DateTime?
+  activationIdempotencyKey String?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+  deletedAt                DateTime?
+  deletedBy                String?
+  deleteReason             String?
+
+  room                 Room                 @relation(fields: [roomId], references: [id])
+  customer             Customer             @relation(fields: [customerId], references: [id])
+  rentalCycle          RentalCycle?         @relation(fields: [rentalCycleId], references: [id])
+  invoices             Invoice[]
+  deposits             Deposit[]
+  parties              ContractParty[]
+  occupancies          Occupancy[]
+  settlement           ContractSettlement?
+  depositLedgerEntries DepositLedgerEntry[]
+  depositOperations    DepositOperation[]
 
   @@unique([tenantId, code])
+  @@unique([tenantId, activationIdempotencyKey])
   @@index([tenantId, roomId, status])
   @@index([tenantId, customerId, status])
+  @@index([tenantId, rentalCycleId])
   @@index([tenantId, status, endDate])
 }
 
@@ -465,31 +566,35 @@ model ContractParty {
 }
 
 model Occupancy {
-  id          String    @id @default(cuid())
-  tenantId    String
-  roomId      String
-  customerId  String
-  contractId  String?
-  role        String
-  joinedAt    DateTime  @default(now())
-  leftAt      DateTime?
-  leaveReason String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  tenantId      String
+  roomId        String
+  customerId    String
+  contractId    String?
+  rentalCycleId String?
+  role          String
+  joinedAt      DateTime  @default(now())
+  leftAt        DateTime?
+  leaveReason   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  room     Room      @relation(fields: [roomId], references: [id])
-  customer Customer  @relation(fields: [customerId], references: [id])
-  contract Contract? @relation(fields: [contractId], references: [id])
+  room        Room         @relation(fields: [roomId], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  contract    Contract?    @relation(fields: [contractId], references: [id])
+  rentalCycle RentalCycle? @relation(fields: [rentalCycleId], references: [id])
 
   @@index([tenantId, roomId, leftAt])
   @@index([tenantId, customerId, leftAt])
   @@index([tenantId, contractId, leftAt])
+  @@index([tenantId, rentalCycleId, leftAt])
 }
 
 model ContractSettlement {
   id                 String     @id @default(cuid())
   tenantId           String
   contractId         String     @unique
+  rentalCycleId      String?
   actualMoveOutAt    DateTime
   roomTurnoverStatus RoomStatus
   chargeTotal        Decimal    @db.Decimal(14, 2)
@@ -501,96 +606,237 @@ model ContractSettlement {
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
-  contract Contract @relation(fields: [contractId], references: [id])
+  contract    Contract     @relation(fields: [contractId], references: [id])
+  rentalCycle RentalCycle? @relation(fields: [rentalCycleId], references: [id])
 
   @@index([tenantId, actualMoveOutAt])
+  @@index([tenantId, rentalCycleId])
 }
 
 model Deposit {
-  id           String        @id @default(cuid())
-  tenantId     String
-  code         String
-  type         DepositType   @default(BOOKING)
-  roomId       String
-  customerId   String
-  contractId   String?
-  amount       Decimal       @db.Decimal(14, 2)
-  status       DepositStatus @default(DRAFT)
-  expiredAt    DateTime?
-  note         String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  deletedAt    DateTime?
-  deletedBy    String?
-  deleteReason String?
+  id            String        @id @default(cuid())
+  tenantId      String
+  code          String
+  type          DepositType   @default(BOOKING)
+  roomId        String
+  customerId    String
+  contractId    String?
+  rentalCycleId String?
+  amount        Decimal       @db.Decimal(14, 2)
+  status        DepositStatus @default(DRAFT)
+  expiredAt     DateTime?
+  note          String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+  deletedBy     String?
+  deleteReason  String?
 
-  room     Room      @relation(fields: [roomId], references: [id])
-  customer Customer  @relation(fields: [customerId], references: [id])
-  contract Contract? @relation(fields: [contractId], references: [id])
+  room             Room                 @relation(fields: [roomId], references: [id])
+  customer         Customer             @relation(fields: [customerId], references: [id])
+  contract         Contract?            @relation(fields: [contractId], references: [id])
+  rentalCycle      RentalCycle?         @relation(fields: [rentalCycleId], references: [id])
+  roomHolds        RoomHold[]
+  ledgerEntries    DepositLedgerEntry[]
+  sourceOperations DepositOperation[]   @relation("DepositOperationSource")
+  targetOperations DepositOperation[]   @relation("DepositOperationTarget")
 
   @@unique([tenantId, code])
   @@index([tenantId, roomId, status])
   @@index([tenantId, customerId, status])
   @@index([tenantId, status, expiredAt])
+  @@index([tenantId, rentalCycleId, status])
+}
+
+model RoomHold {
+  id                String         @id @default(cuid())
+  tenantId          String
+  rentalCycleId     String
+  depositId         String?
+  roomId            String
+  kind              RoomHoldKind
+  resourceKey       String
+  activeResourceKey String?        @unique
+  status            RoomHoldStatus @default(ACTIVE)
+  expiresAt         DateTime
+  releasedAt        DateTime?
+  releaseReason     String?
+  idempotencyKey    String
+  createdBy         String?
+  createdAt         DateTime       @default(now())
+
+  rentalCycle RentalCycle @relation(fields: [rentalCycleId], references: [id])
+  deposit     Deposit?    @relation(fields: [depositId], references: [id])
+  room        Room        @relation(fields: [roomId], references: [id])
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, roomId, status, expiresAt])
+  @@index([tenantId, rentalCycleId, status])
+  @@index([tenantId, depositId, status])
+}
+
+model DepositOperation {
+  id              String                 @id @default(cuid())
+  tenantId        String
+  rentalCycleId   String
+  sourceDepositId String
+  targetDepositId String?
+  contractId      String?
+  type            DepositOperationType
+  status          DepositOperationStatus @default(PENDING)
+  idempotencyKey  String
+  requestHash     String
+  result          Json?
+  errorCode       String?
+  receiptId       String?
+  createdBy       String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  completedAt     DateTime?
+
+  rentalCycle   RentalCycle          @relation(fields: [rentalCycleId], references: [id])
+  sourceDeposit Deposit              @relation("DepositOperationSource", fields: [sourceDepositId], references: [id])
+  targetDeposit Deposit?             @relation("DepositOperationTarget", fields: [targetDepositId], references: [id])
+  contract      Contract?            @relation(fields: [contractId], references: [id])
+  ledgerEntries DepositLedgerEntry[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, sourceDepositId, status])
+  @@index([tenantId, rentalCycleId, status])
+  @@index([tenantId, receiptId])
+}
+
+model DepositLedgerEntry {
+  id             String                 @id @default(cuid())
+  tenantId       String
+  rentalCycleId  String
+  depositId      String
+  contractId     String?
+  operationId    String
+  type           DepositLedgerEntryType
+  amount         Decimal                @db.Decimal(14, 2)
+  balanceEffect  Decimal                @db.Decimal(14, 2)
+  idempotencyKey String
+  sourceType     String
+  sourceId       String
+  reversalOfId   String?                @unique
+  metadata       Json?
+  createdBy      String?
+  createdAt      DateTime               @default(now())
+
+  rentalCycle RentalCycle          @relation(fields: [rentalCycleId], references: [id])
+  deposit     Deposit              @relation(fields: [depositId], references: [id])
+  contract    Contract?            @relation(fields: [contractId], references: [id])
+  operation   DepositOperation     @relation(fields: [operationId], references: [id])
+  reversalOf  DepositLedgerEntry?  @relation("DepositLedgerReversal", fields: [reversalOfId], references: [id])
+  reversals   DepositLedgerEntry[] @relation("DepositLedgerReversal")
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, depositId, createdAt])
+  @@index([tenantId, rentalCycleId, createdAt])
+  @@index([tenantId, operationId])
+  @@index([tenantId, sourceType, sourceId])
+}
+
+model OutboxEvent {
+  id             String            @id @default(cuid())
+  tenantId       String
+  aggregateType  String
+  aggregateId    String
+  eventName      String
+  payload        Json
+  idempotencyKey String
+  status         OutboxEventStatus @default(PENDING)
+  attempts       Int               @default(0)
+  availableAt    DateTime          @default(now())
+  lastError      String?
+  publishedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  tenant TenantOrg @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([status, availableAt, createdAt])
+  @@index([tenantId, aggregateType, aggregateId])
 }
 
 model Invoice {
-  id           String        @id @default(cuid())
-  tenantId     String
-  contractId   String?
-  customerId   String
-  code         String
-  period       String?
-  usagePeriod  String?
-  status       InvoiceStatus @default(DRAFT)
-  dueDate      DateTime
-  subtotal     Decimal       @db.Decimal(14, 2)
-  discount     Decimal       @default(0) @db.Decimal(14, 2)
-  total        Decimal       @db.Decimal(14, 2)
-  paidAmount   Decimal       @default(0) @db.Decimal(14, 2)
-  creditAmount Decimal       @default(0) @db.Decimal(14, 2)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  deletedAt    DateTime?
-  deletedBy    String?
-  deleteReason String?
+  id                       String        @id @default(cuid())
+  tenantId                 String
+  contractId               String?
+  rentalCycleId            String?
+  customerId               String
+  code                     String
+  period                   String?
+  usagePeriod              String?
+  status                   InvoiceStatus @default(DRAFT)
+  dueDate                  DateTime
+  subtotal                 Decimal       @db.Decimal(14, 2)
+  discount                 Decimal       @default(0) @db.Decimal(14, 2)
+  total                    Decimal       @db.Decimal(14, 2)
+  paidAmount               Decimal       @default(0) @db.Decimal(14, 2)
+  creditAmount             Decimal       @default(0) @db.Decimal(14, 2)
+  billingKind              String?
+  baseInvoiceKey           String?
+  adjustmentOfInvoiceId    String?
+  adjustmentReason         String?
+  adjustmentCreatedBy      String?
+  adjustmentRequestHash    String?
+  adjustmentIdempotencyKey String?
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+  deletedAt                DateTime?
+  deletedBy                String?
+  deleteReason             String?
 
-  contract    Contract?           @relation(fields: [contractId], references: [id])
-  customer    Customer            @relation(fields: [customerId], references: [id])
-  payments    Payment[]
-  creditNotes CreditNote[]
-  items       InvoiceItem[]
-  allocations PaymentAllocation[]
+  contract     Contract?           @relation(fields: [contractId], references: [id])
+  rentalCycle  RentalCycle?        @relation(fields: [rentalCycleId], references: [id])
+  customer     Customer            @relation(fields: [customerId], references: [id])
+  payments     Payment[]
+  creditNotes  CreditNote[]
+  items        InvoiceItem[]
+  allocations  PaymentAllocation[]
+  adjustmentOf Invoice?            @relation("InvoiceAdjustments", fields: [tenantId, adjustmentOfInvoiceId], references: [tenantId, id], onDelete: Restrict)
+  adjustments  Invoice[]           @relation("InvoiceAdjustments")
 
+  @@unique([tenantId, id])
   @@unique([tenantId, code])
+  @@unique([tenantId, baseInvoiceKey])
+  @@unique([tenantId, adjustmentIdempotencyKey])
   @@index([tenantId, period])
   @@index([tenantId, customerId, dueDate, status])
   @@index([tenantId, status, dueDate])
   @@index([tenantId, contractId, status])
+  @@index([tenantId, rentalCycleId, status])
+  @@index([tenantId, adjustmentOfInvoiceId])
   @@index([tenantId, deletedAt])
 }
 
 model Payment {
-  id           String        @id @default(cuid())
-  tenantId     String
-  invoiceId    String
-  amount       Decimal       @db.Decimal(14, 2)
-  provider     String
-  providerRef  String?
-  status       PaymentStatus @default(PENDING)
-  paidAt       DateTime?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  deletedAt    DateTime?
-  deletedBy    String?
-  deleteReason String?
+  id            String        @id @default(cuid())
+  tenantId      String
+  invoiceId     String
+  rentalCycleId String?
+  amount        Decimal       @db.Decimal(14, 2)
+  provider      String
+  providerRef   String?
+  status        PaymentStatus @default(PENDING)
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+  deletedBy     String?
+  deleteReason  String?
 
   invoice     Invoice             @relation(fields: [invoiceId], references: [id])
+  rentalCycle RentalCycle?        @relation(fields: [rentalCycleId], references: [id])
   allocations PaymentAllocation[]
 
   @@index([tenantId, invoiceId, status])
   @@index([tenantId, provider, providerRef])
   @@index([tenantId, status, paidAt])
+  @@index([tenantId, rentalCycleId, status])
 }
 
 model CreditNote {
@@ -1203,9 +1449,10 @@ model HunonicMeterMapping {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  building Building?             @relation(fields: [buildingId], references: [id], onDelete: SetNull)
-  room     Room?                 @relation(fields: [roomId], references: [id], onDelete: SetNull)
-  readings HunonicMeterReading[]
+  building         Building?             @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  room             Room?                 @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  readings         HunonicMeterReading[]
+  billingSnapshots BillingSnapshot[]
 
   @@unique([tenantId, providerMeterId])
   @@index([tenantId, buildingCode, roomCode])
@@ -1226,15 +1473,84 @@ model HunonicMeterReading {
   energyPrevMonthKwh Decimal? @db.Decimal(14, 3)
   moneyPrevMonthVnd  Decimal? @db.Decimal(14, 0)
   currentMonth       String?
+  sourceProvider     String   @default("hunonic")
+  sourceProviderMeterId String
+  sourcePeriod       String
+  observedAt         DateTime
+  payloadHash        String
+  aggregateBasis     String   @default("MONTHLY_AGGREGATE_V1")
   raw                Json?
   createdAt          DateTime @default(now())
 
-  meterMapping HunonicMeterMapping @relation(fields: [meterMappingId], references: [id], onDelete: Cascade)
-  room         Room?               @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  meterMapping     HunonicMeterMapping @relation(fields: [meterMappingId], references: [id], onDelete: Cascade)
+  room             Room?               @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  billingSnapshots BillingSnapshot[]
 
-  @@unique([tenantId, meterMappingId, readingAt])
+  @@unique([tenantId, meterMappingId, payloadHash])
   @@index([tenantId, roomId, readingAt])
   @@index([tenantId, readingAt])
+}
+
+model BillingSnapshot {
+  id                    String   @id @default(cuid())
+  tenantId              String
+  roomId                String
+  meterMappingId        String?
+  sourceReadingId       String?
+  billingPeriod         String
+  usagePeriod           String
+  status                String   @default("LOCKED")
+  provider              String   @default("hunonic")
+  startReadingKwh       Decimal? @db.Decimal(14, 3)
+  endReadingKwh         Decimal? @db.Decimal(14, 3)
+  usageKwh              Decimal  @db.Decimal(14, 3)
+  pricingMode           String
+  unitRateVnd           Decimal? @db.Decimal(14, 2)
+  electricityAmount     Decimal  @db.Decimal(14, 2)
+  waterRatePerPersonVnd Decimal  @default(100000) @db.Decimal(14, 2)
+  waterAmount           Decimal  @db.Decimal(14, 2)
+  occupantCount         Int
+  occupants             Json
+  allocations           Json
+  policyVersion         String
+  aggregateBasis        String   @default("MONTHLY_AGGREGATE_V1")
+  sourcePayloadHash     String
+  sourceProvenance      Json
+  lockedAt              DateTime @default(now())
+  lockedBy              String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  room          Room                 @relation(fields: [roomId], references: [id])
+  meterMapping  HunonicMeterMapping? @relation(fields: [meterMappingId], references: [id], onDelete: Restrict)
+  sourceReading HunonicMeterReading? @relation(fields: [sourceReadingId], references: [id], onDelete: Restrict)
+  invoiceItems  InvoiceItem[]
+
+  @@unique([tenantId, roomId, usagePeriod])
+  @@index([tenantId, billingPeriod])
+  @@index([tenantId, status, usagePeriod])
+  @@index([tenantId, meterMappingId, usagePeriod])
+}
+
+model MonthlySettlementRun {
+  id             String    @id @default(cuid())
+  tenantId       String
+  billingPeriod  String
+  scopeKey       String
+  status         String    @default("RUNNING")
+  idempotencyKey String
+  requestHash    String
+  result         Json?
+  errorCode      String?
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([tenantId, billingPeriod, scopeKey])
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, startedAt])
 }
 
 model HunonicSyncLog {
@@ -1567,21 +1883,24 @@ model DocumentTemplate {
 }
 
 model InvoiceItem {
-  id            String          @id @default(cuid())
-  tenantId      String
-  invoiceId     String
-  type          InvoiceItemType
-  description   String
-  servicePeriod String?
-  quantity      Decimal         @db.Decimal(14, 2)
-  unitPrice     Decimal         @db.Decimal(14, 2)
-  amount        Decimal         @db.Decimal(14, 2)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id                String          @id @default(cuid())
+  tenantId          String
+  invoiceId         String
+  billingSnapshotId String?
+  type              InvoiceItemType
+  description       String
+  servicePeriod     String?
+  quantity          Decimal         @db.Decimal(14, 2)
+  unitPrice         Decimal         @db.Decimal(14, 2)
+  amount            Decimal         @db.Decimal(14, 2)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice         Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  billingSnapshot BillingSnapshot? @relation(fields: [billingSnapshotId], references: [id], onDelete: Restrict)
 
   @@index([tenantId, invoiceId])
+  @@index([tenantId, billingSnapshotId])
   @@index([tenantId, servicePeriod])
 }
 

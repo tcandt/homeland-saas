@@ -1,12 +1,19 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Optional } from '@nestjs/common';
 import { BaseCrudService } from '../shared/services/base-crud.service';
-import { Deposit, DepositStatus, ReceiptStatus } from '@prisma/client';
+import {
+  Deposit,
+  DepositOperationStatus,
+  DepositStatus,
+  ReceiptStatus,
+  RentalCycleStatus,
+} from '@prisma/client';
 import { DepositsRepository } from './deposits.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { PaginatedResult } from '@homeland/shared';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { PrismaService } from '../prisma.service';
 import { buildRoomContext } from '../shared/context/room-context';
+import { DepositCoreService } from './deposit-core.service';
 
 @Injectable()
 export class DepositsService extends BaseCrudService<Deposit> {
@@ -15,12 +22,53 @@ export class DepositsService extends BaseCrudService<Deposit> {
     auditService: AuditService,
     private readonly eventPublisher: DomainEventPublisher,
     private readonly prisma: PrismaService,
+    @Optional() private readonly depositCoreService?: DepositCoreService,
   ) {
     super(repository, auditService, 'Deposit');
   }
 
   async create(data: any, userId?: string, moduleName?: string) {
-    const record = await super.create(data, userId, moduleName);
+    let record = await super.create(data, userId, moduleName);
+    if (this.prisma.tx.rentalCycle?.findFirst) {
+      record = await this.prisma.tx.$transaction(async (tx) => {
+        const current = record as any;
+        let rentalCycleId = current.rentalCycleId || null;
+        if (!rentalCycleId && current.contractId) {
+          const contract = await tx.contract.findFirst({
+            where: { id: current.contractId, tenantId: current.tenantId, deletedAt: null },
+            select: { rentalCycleId: true },
+          });
+          rentalCycleId = contract?.rentalCycleId || null;
+        }
+        if (!rentalCycleId) {
+          const existing = await tx.rentalCycle.findFirst({
+            where: {
+              tenantId: current.tenantId,
+              customerId: current.customerId,
+              roomId: current.roomId,
+              status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED] },
+              contracts: { none: {} },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          const cycle = existing || await tx.rentalCycle.create({
+            data: {
+              tenantId: current.tenantId,
+              customerId: current.customerId,
+              roomId: current.roomId,
+              status: current.status === DepositStatus.PAID
+                ? RentalCycleStatus.RESERVED
+                : RentalCycleStatus.PLANNED,
+            },
+          });
+          rentalCycleId = cycle.id;
+        }
+        return tx.deposit.update({
+          where: { id: current.id },
+          data: { rentalCycleId },
+        });
+      });
+    }
     const deposit = await this.getDetail((record as any).id);
 
     this.eventPublisher.publish('deposit.created', {
@@ -66,6 +114,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
           tenantId: true,
           roomId: true,
           customerId: true,
+          rentalCycleId: true,
           depositMoney: true,
           status: true,
         },
@@ -86,6 +135,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
               roomId: c.roomId,
               customerId: c.customerId,
               contractId: c.id,
+              rentalCycleId: c.rentalCycleId || null,
               amount: c.depositMoney,
               status: depositStatus,
               note: `Cọc bảo đảm hợp đồng ${c.code}`,
@@ -354,17 +404,34 @@ export class DepositsService extends BaseCrudService<Deposit> {
     if (!deposit) {
       return null;
     }
+
+    const refundSummary = await this.getRefundSummary(deposit);
+    const availableBalance = this.depositCoreService
+      ? await this.depositCoreService.getBalance(deposit.tenantId, deposit.id)
+      : undefined;
+
     return {
       ...deposit,
-      refundSummary: await this.getRefundSummary(deposit),
+      ...(availableBalance === undefined ? {} : { availableBalance }),
+      pendingOperationId: refundSummary?.pending ? refundSummary.operationId : null,
+      refundSummary,
     };
   }
 
-  async collect(id: string, note: string | null, userId: string) {
+  async collect(id: string, note: string | null, userId: string, idempotencyKey?: string, holdExpiresAt?: string | null) {
     const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING) {
       throw new BadRequestException('Can only collect DRAFT or PENDING deposits');
+    }
+
+    if (this.depositCoreService) {
+      const result = await this.depositCoreService.collect(deposit.tenantId, id, {
+        idempotencyKey: idempotencyKey || `collect:${id}`,
+        note,
+        holdExpiresAt: holdExpiresAt || deposit.expiredAt || null,
+      }, userId);
+      return result as any;
     }
 
     const updateData = { status: DepositStatus.PAID, note: note || deposit.note };
@@ -402,11 +469,25 @@ export class DepositsService extends BaseCrudService<Deposit> {
     return updated;
   }
 
-  async refund(id: string, reason: string, userId: string, receiptStatus?: 'PENDING' | 'COMPLETED', attachmentUrls?: string[], refundAmountInput?: number) {
+  async refund(id: string, reason: string, userId: string, receiptStatus?: 'PENDING' | 'COMPLETED', attachmentUrls?: string[], refundAmountInput?: number, idempotencyKey?: string) {
     const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.PAID) {
       throw new BadRequestException('Can only refund PAID deposits');
+    }
+
+    if (this.depositCoreService) {
+      const balance = await this.depositCoreService.getBalance(deposit.tenantId, id);
+      const refundAmount = refundAmountInput === undefined ? balance : Number(refundAmountInput);
+      const result = await this.depositCoreService.cancel(deposit.tenantId, id, {
+        idempotencyKey: idempotencyKey || `refund:${id}:${refundAmount}`,
+        reason,
+        refundAmount,
+        keepAmount: Math.max(balance - refundAmount, 0),
+        deductAmount: 0,
+        refundStatus: receiptStatus,
+      }, userId);
+      return result as any;
     }
 
     const normalizedReason = String(reason || '').trim();
@@ -567,9 +648,30 @@ export class DepositsService extends BaseCrudService<Deposit> {
     return result.updatedDeposit;
   }
 
-  async completePendingRefund(id: string, userId: string, note?: string) {
+  async completePendingRefund(id: string, userId: string, note?: string, idempotencyKey?: string) {
     const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
+
+    if (this.depositCoreService) {
+      const operation = await this.prisma.tx.depositOperation.findFirst({
+        where: {
+          tenantId: deposit.tenantId,
+          sourceDepositId: id,
+          status: 'PENDING',
+          receiptId: { not: null },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!operation) throw new BadRequestException('DEPOSIT_REFUND_PENDING_NOT_FOUND');
+      const result = await this.depositCoreService.completePendingRefund(
+        deposit.tenantId,
+        operation.id,
+        idempotencyKey || `complete-refund:${operation.id}`,
+        userId,
+      );
+      return result as any;
+    }
+
     if (deposit.status !== DepositStatus.REFUNDED && deposit.status !== DepositStatus.CANCELLED) {
       throw new BadRequestException('Can only complete pending refund for REFUNDED or CANCELLED deposits');
     }
@@ -679,6 +781,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
     resolutionAmountInput?: number,
     receiptStatus?: 'PENDING' | 'COMPLETED',
     attachmentUrls?: string[],
+    idempotencyKey?: string,
   ) {
     const deposit = await this.getDetail(id);
     if (!deposit) throw new BadRequestException('Deposit not found');
@@ -695,6 +798,27 @@ export class DepositsService extends BaseCrudService<Deposit> {
       const resolvedAmount = Number.isFinite(requestedAmount) ? requestedAmount : 0;
       if (resolvedAmount <= 0 || resolvedAmount > originalAmount) {
         throw new BadRequestException('DEPOSIT_RESOLUTION_AMOUNT_INVALID');
+      }
+
+      if (this.depositCoreService) {
+        const balance = await this.depositCoreService.getBalance(deposit.tenantId, id);
+        if (resolvedAmount > balance) throw new BadRequestException('DEPOSIT_RESOLUTION_AMOUNT_INVALID');
+        const refundAmount = resolutionAction === 'REFUND' ? resolvedAmount : Math.max(balance - resolvedAmount, 0);
+        const keepAmount = resolutionAction === 'KEEP'
+          ? resolvedAmount
+          : resolutionAction === 'REFUND'
+            ? Math.max(balance - resolvedAmount, 0)
+            : 0;
+        const deductAmount = resolutionAction === 'DEDUCT' ? resolvedAmount : 0;
+        const result = await this.depositCoreService.cancel(deposit.tenantId, id, {
+          idempotencyKey: idempotencyKey || `cancel:${id}:${resolutionAction}:${resolvedAmount}`,
+          reason,
+          refundAmount,
+          keepAmount,
+          deductAmount,
+          refundStatus: receiptStatus,
+        }, userId);
+        return result as any;
       }
 
       const normalizedReason = String(reason || '').trim();
@@ -963,7 +1087,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
   private async getRefundSummary(deposit: any) {
     if (!deposit?.id || !deposit?.code) return null;
 
-    const [receipt, task] = await Promise.all([
+    const [receipt, task, pendingOperation] = await Promise.all([
       this.prisma.receipt.findFirst({
         where: {
           tenantId: deposit.tenantId,
@@ -978,14 +1102,32 @@ export class DepositsService extends BaseCrudService<Deposit> {
         },
         orderBy: { createdAt: 'desc' },
       }),
+      this.depositCoreService
+        ? this.prisma.tx.depositOperation.findFirst({
+            where: {
+              tenantId: deposit.tenantId,
+              sourceDepositId: deposit.id,
+              status: DepositOperationStatus.PENDING,
+              receiptId: { not: null },
+            },
+            select: {
+              id: true,
+              receiptId: true,
+              status: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve(null),
     ]);
 
-    if (!receipt && !task) return null;
+    if (!receipt && !task && !pendingOperation) return null;
 
     const receiptStatus = String(receipt?.status || '');
     const taskStatus = String(task?.status || '');
 
     return {
+      operationId: pendingOperation?.id || null,
       receiptId: receipt?.id || null,
       receiptCode: receipt?.code || null,
       receiptStatus: receipt?.status || null,

@@ -63,8 +63,8 @@ export interface HunonicMonthlyHistoryPoint {
   period: string;
   year: number;
   month: number;
-  energy_month_kwh: number;
-  money_month_vnd: number;
+  energy_month_kwh: number | null;
+  money_month_vnd: number | null;
   raw?: unknown;
 }
 
@@ -131,12 +131,13 @@ export class HunonicProvider {
     });
   }
 
-  async fetchRecentMonthlyHistory(monthCount = 12): Promise<{ dashboard: HunonicDashboardData; history: HunonicMonthlyHistoryPoint[] }> {
+  async fetchRecentMonthlyHistory(monthCount = 12): Promise<{ dashboard: HunonicDashboardData; history: HunonicMonthlyHistoryPoint[]; skippedIncompletePoints: number }> {
     const dashboard = await this.fetchDashboardData();
     const session = await this.createSession();
     const months = getRecentMonths(monthCount);
     const years = Array.from(new Set(months.map((month) => month.year)));
     const history: HunonicMonthlyHistoryPoint[] = [];
+    let skippedIncompletePoints = 0;
 
     const tokenId = session.source === 'mobile' ? session.tokenId : null;
 
@@ -180,27 +181,33 @@ export class HunonicProvider {
         for (const month of months.filter((item) => item.year === year)) {
           const item = pointsByPeriod.get(month.period);
           if (!item) continue;
-          const energyKwh = numberOrNull(item.value) || 0;
-          const moneyVnd = numberOrNull(item.amount) || 0;
-          if (energyKwh > 0 || moneyVnd > 0) {
-            history.push({
-              provider_meter_id: meter.provider_meter_id,
-              provider_root_id: meter.provider_root_id,
-              provider_device_id: meter.provider_device_id,
-              name: meter.name,
-              period: month.period,
-              year: month.year,
-              month: month.month,
-              energy_month_kwh: energyKwh,
-              money_month_vnd: moneyVnd,
-              raw: item,
-            });
+          // A zero in graph_data is an observed monthly reading, not an
+          // absence of data.  Incomplete points cannot meet the immutable
+          // monthly-evidence constraint, so do not manufacture a missing field.
+          const energyKwh = numberOrNull(item.value);
+          const moneyVnd = numberOrNull(item.amount);
+          if (energyKwh === null && moneyVnd === null) continue;
+          if (energyKwh === null || moneyVnd === null) {
+            skippedIncompletePoints += 1;
+            continue;
           }
+          history.push({
+            provider_meter_id: meter.provider_meter_id,
+            provider_root_id: meter.provider_root_id,
+            provider_device_id: meter.provider_device_id,
+            name: meter.name,
+            period: month.period,
+            year: month.year,
+            month: month.month,
+            energy_month_kwh: energyKwh,
+            money_month_vnd: moneyVnd,
+            raw: item,
+          });
         }
       }
     }
 
-    return { dashboard, history };
+    return { dashboard, history, skippedIncompletePoints };
   }
 
   async fetchElectricityRateGroups(rootId: string): Promise<HunonicElectricityRateGroup[]> {

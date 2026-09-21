@@ -648,6 +648,7 @@ export default function RoomPremiumModal({
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [zaloCommandCopied, setZaloCommandCopied] = useState(false);
   const { showToast } = useToast();
   const closeTenantModal = () => {
     setIsTenantModalOpen(false);
@@ -679,6 +680,18 @@ export default function RoomPremiumModal({
     setTenantModalStep(1);
     setIsTenantModalOpen(true);
     return true;
+  };
+
+  const copyZaloRegistrationCommand = async () => {
+    const command = `DK ${zaloWaiting?.phone || "<SĐT>"} ${zaloWaiting?.roomCode || "<MÃ PHÒNG>"}`;
+    try {
+      await navigator.clipboard.writeText(command);
+      setZaloCommandCopied(true);
+      showToast("Đã copy cú pháp đăng ký Zalo");
+      window.setTimeout(() => setZaloCommandCopied(false), 1800);
+    } catch {
+      showToast("Không thể copy cú pháp đăng ký Zalo", "error");
+    }
   };
 
   useEffect(() => {
@@ -5476,9 +5489,31 @@ export default function RoomPremiumModal({
                 <div className="text-[11px] font-black uppercase text-muted">
                   Cú pháp gửi cho khách
                 </div>
-                <div className="mt-1 rounded-lg bg-black/[0.04] px-3 py-2 font-mono text-sm font-bold text-text dark:bg-white/[0.06]">
-                  DK {zaloWaiting.phone || "<SĐT>"}{" "}
-                  {zaloWaiting.roomCode || "<MÃ PHÒNG>"}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  title="Bấm để copy cú pháp"
+                  aria-label="Copy cú pháp đăng ký Zalo"
+                  onClick={copyZaloRegistrationCommand}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      void copyZaloRegistrationCommand();
+                    }
+                  }}
+                  className={`mt-1 flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 font-mono text-sm font-bold text-text transition-colors dark:bg-white/[0.06] ${
+                    zaloCommandCopied
+                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+                      : "bg-black/[0.04] hover:bg-primary/10 dark:hover:bg-white/[0.12]"
+                  }`}
+                >
+                  <span>
+                    DK {zaloWaiting.phone || "<SĐT>"}{" "}
+                    {zaloWaiting.roomCode || "<MÃ PHÒNG>"}
+                  </span>
+                  <span className="shrink-0 font-sans text-[10px] font-black uppercase tracking-wide text-muted">
+                    {zaloCommandCopied ? "Đã copy" : "Copy"}
+                  </span>
                 </div>
                 <div className="mt-2 text-xs leading-relaxed text-muted">
                   Khách: <b>{zaloWaiting.customerName}</b>

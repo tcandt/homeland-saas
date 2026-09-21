@@ -179,8 +179,8 @@ describe("LK08 image maps", () => {
     expect(roomHotspots["2"]?.left).toBe("379,409 185,421 185,722 421,704");
     expect(roomHotspots["2"]?.middle).toBe("624,396 376,409 413,638 660,621");
     expect(roomHotspots["2"]?.right).toBe("734,385 930,371 1007,660 801,676");
-    expect(roomHotspots["1"]?.left).toBe("391,763 627,745 667,971 425,990");
-    expect(roomHotspots["1"]?.middle).toBe("187,770 391,764 432,1054 187,1072");
+    expect(roomHotspots["1"]?.left).toBe("187,770 391,764 432,1054 187,1072");
+    expect(roomHotspots["1"]?.middle).toBe("391,763 627,745 667,971 425,990");
     expect(roomHotspots["1"]?.right).toBe("742,740 937,725 1011,1013 805,1028");
     expect(roomHotspots.ground?.right).toBe("668,1095 959,1074 1002,1340 720,1361");
     expect(getOverviewFloorHotspots("LK01_STANDARD")["3"]).toBe("129,35 934,9 1023,300 222,360");
@@ -213,8 +213,8 @@ describe("LK08 image maps", () => {
     expect(containsPoint(floorHotspots.ground, 1010, 1220)).toBe(false);
     expect(containsPoint(floorHotspots.ground, 960, 1328)).toBe(true);
     expect(containsPoint(floorHotspots.ground, 980, 1352)).toBe(false);
-    expect(containsPoint(roomHotspots["1"]!.left!, 500, 880)).toBe(true);
-    expect(containsPoint(roomHotspots["1"]!.middle!, 300, 880)).toBe(true);
+    expect(containsPoint(roomHotspots["1"]!.left!, 300, 880)).toBe(true);
+    expect(containsPoint(roomHotspots["1"]!.middle!, 500, 880)).toBe(true);
     expect(containsPoint(roomHotspots["1"]!.right!, 900, 880)).toBe(true);
     expect(containsPoint(roomHotspots.ground!.right!, 870, 1210)).toBe(true);
     expect(containsPoint(roomHotspots.ground!.right!, 620, 1210)).toBe(false);

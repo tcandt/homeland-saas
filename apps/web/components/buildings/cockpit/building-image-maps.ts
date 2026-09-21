@@ -225,8 +225,8 @@ export const lk08OverviewRoomHotspots: Partial<Record<CockpitFloorId, Partial<Re
     right: "734,385 930,371 1007,660 801,676",
   },
   "1": {
-    left: "391,763 627,745 667,971 425,990",
-    middle: "187,770 391,764 432,1054 187,1072",
+    left: "187,770 391,764 432,1054 187,1072",
+    middle: "391,763 627,745 667,971 425,990",
     right: "742,740 937,725 1011,1013 805,1028",
   },
   ground: {

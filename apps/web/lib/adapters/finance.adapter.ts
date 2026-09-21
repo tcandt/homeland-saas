@@ -52,7 +52,7 @@ export const financeAdapter = {
       id: line.id,
       journalId: line.journalEntry?.id || line.journalId || line.id,
       journalCode: line.journalEntry?.code || line.journalCode || 'JRN-001',
-      date: line.createdAt || line.date || new Date().toISOString(),
+      date: line.journalEntry?.entryDate || line.entryDate || line.date || line.createdAt || new Date().toISOString(),
       description: line.description || line.journalEntry?.description || '',
       accountCode: line.account?.code || line.accountCode || '',
       accountName: line.account?.name || line.accountName || '',

@@ -40,7 +40,7 @@ describe('DepositsService', () => {
         $transaction: vi.fn((callback) => callback(prisma.tx)),
       },
     };
-    const auditService = { log: vi.fn() };
+    const auditService = { log: vi.fn().mockResolvedValue(true) };
     const eventPublisher = { publish: vi.fn() };
     return {
       prisma,
@@ -743,5 +743,55 @@ describe('DepositsService', () => {
     expect(stats.kpi.securityFund).toBe(5000000);
     expect(stats.kpi.bookingFund).toBe(3000000);
     expect(stats.pipeline).toHaveLength(5);
+  });
+
+  describe('cleanupOrphanDeposits', () => {
+    it('must use soft-delete (updateMany) to clean up orphan deposits', async () => {
+      const { service, prisma, auditService } = createService();
+      
+      prisma.deposit.findMany.mockResolvedValue([
+        { id: '1', roomId: 'r1', customerId: 'c1', type: 'BOOKING', status: 'PAID', room: { id: 'r1', deletedAt: null }, customer: { id: 'c1', deletedAt: null } },
+        { id: '2', roomId: 'r2', customerId: 'c1', type: 'BOOKING', status: 'PAID', room: null, customer: { id: 'c1' } },
+        { id: '3', roomId: 'r1', customerId: 'c2', type: 'BOOKING', status: 'PAID', room: { id: 'r1' }, customer: { id: 'c2', deletedAt: new Date() } },
+        { id: '4', roomId: 'r1', customerId: 'c1', type: 'SECURITY', status: 'PAID', room: { id: 'r1' }, customer: { id: 'c1' }, contractId: 'con1', contract: { id: 'con1', deletedAt: new Date() } },
+        { id: '5', roomId: 'r1', customerId: 'c1', type: 'BOOKING', status: 'DRAFT', room: { id: 'r1' }, customer: { id: 'c1' } },
+        { id: '6', roomId: 'r1', customerId: 'c1', type: 'BOOKING', status: 'PENDING', room: { id: 'r1' }, customer: { id: 'c1' } },
+      ]);
+      prisma.deposit.updateMany = vi.fn().mockResolvedValue({ count: 4 });
+      prisma.deposit.deleteMany = vi.fn().mockResolvedValue({ count: 4 });
+
+      const res = await service.cleanupOrphanDeposits('tenant-1', 'user-1');
+      
+      expect(res.success).toBe(true);
+      expect(res.deletedCount).toBe(4);
+      
+      const deletedIds = ['2', '3', '4', '6'];
+      
+      // MUST use soft delete via updateMany
+      expect(prisma.deposit.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: deletedIds }, tenantId: 'tenant-1', deletedAt: null },
+        data: { deletedAt: expect.any(Date) }
+      });
+      
+      expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'UPDATE',
+        entityId: 'CLEANUP',
+      }));
+    });
+
+    it('must NOT use hard-delete (deleteMany) to clean up orphan deposits', async () => {
+      const { service, prisma } = createService();
+      
+      prisma.deposit.findMany.mockResolvedValue([
+        { id: '2', roomId: 'r2', customerId: 'c1', type: 'BOOKING', status: 'PAID', room: null, customer: { id: 'c1' } },
+      ]);
+      prisma.deposit.updateMany = vi.fn().mockResolvedValue({ count: 1 });
+      prisma.deposit.deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+
+      await service.cleanupOrphanDeposits('tenant-1', 'user-1');
+      
+      // MUST NOT use hard delete
+      expect(prisma.deposit.deleteMany).not.toHaveBeenCalled();
+    });
   });
 });

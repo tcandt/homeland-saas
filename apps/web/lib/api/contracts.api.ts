@@ -75,6 +75,10 @@ export const contractsApi = {
     return apiClient.post("/contracts", data);
   },
 
+  convertBookingHold: (id: string, data: any) => {
+    return apiClient.post(`/contracts/${id}/convert-booking-hold`, data);
+  },
+
   update: (id: string, data: any) => {
     return apiClient.patch(`/contracts/${id}`, data);
   },

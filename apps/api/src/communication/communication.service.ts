@@ -33,10 +33,44 @@ function normalizeDispatchContext(context: any) {
   return {
     ...baseContext,
     ...roomContext,
+    roomAndBuilding: [roomContext.roomCode, roomContext.buildingName].filter(Boolean).join(' - '),
   };
 }
 
 const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { name: string; subject?: string; body: string }> = {
+  SYSTEM_ALERT: {
+    name: 'Thông báo HomeLand',
+    subject: '{{title}}',
+    body: '{{message}}',
+  },
+  INVOICE_ZALO_PAYMENT_CONFIRMATION: {
+    name: 'Xác nhận thanh toán hóa đơn',
+    subject: 'HomeLand - Đã nhận thanh toán {{metadata.code}}',
+    body: `HomeLand - Đã nhận thanh toán
+
+Kính gửi: {{customerName}}
+Hóa đơn: {{metadata.code}}
+Số tiền ghi nhận: {{paymentAmount}} đ
+Đã thanh toán: {{amount}} đ
+Trạng thái: {{paymentStatusLabel}}
+{{roomAndBuilding}}
+
+Cảm ơn quý khách.`,
+  },
+  DEPOSIT_ZALO_PAYMENT_CONFIRMATION: {
+    name: 'Xác nhận thanh toán tiền cọc',
+    subject: 'HomeLand - Đã nhận tiền cọc {{metadata.code}}',
+    body: `HomeLand - Đã nhận tiền cọc
+
+Kính gửi: {{customerName}}
+Phiếu cọc/hóa đơn: {{metadata.code}}
+Số tiền ghi nhận: {{paymentAmount}} đ
+Đã thanh toán: {{amount}} đ
+Trạng thái: {{paymentStatusLabel}}
+{{roomAndBuilding}}
+
+Cảm ơn quý khách.`,
+  },
   INVOICE_ZALO_PAYMENT_REQUEST: {
     name: 'Yêu cầu thanh toán hóa đơn',
     subject: 'HomeLand - Hóa đơn tiền nhà {{period}}',

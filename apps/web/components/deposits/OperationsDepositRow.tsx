@@ -28,6 +28,7 @@ export default function OperationsDepositRow({
 
   const getStatusBadge = (status: string, type?: string) => {
     const isSecurity = type === "SECURITY";
+    const isBookingHold = type === "BOOKING" || type === "RESERVATION";
     switch (status) {
       case "DRAFT":
         return { label: "Nháp", color: "text-[#0ea5e9] bg-[#0ea5e9]/10 border-[#0ea5e9]/20" };
@@ -38,7 +39,7 @@ export default function OperationsDepositRow({
         };
       case "PAID":
         return {
-          label: isSecurity ? "Đã thu cọc hợp đồng" : "Đã thu cọc giữ phòng",
+          label: isBookingHold ? "Đã thu cọc HĐ giữ chỗ" : isSecurity ? "Đã thu cọc hợp đồng" : "Đã thu cọc giữ phòng",
           color: "text-[#10b981] bg-[#10b981]/10 border-[#10b981]/20"
         };
       case "CONVERTED_TO_CONTRACT":

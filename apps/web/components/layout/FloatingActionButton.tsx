@@ -23,6 +23,7 @@ export default function FloatingActionButton() {
 
   const isCoreOps = isBuildings || isRooms || isTenants || isContracts || isDeposits || isInvoices;
   const hasMenu = isFinance || isCoreOps || isTasks || isSales || isSettings;
+  const isDirectInvoiceCreationDisabled = true;
 
   const handleClick = () => {
     if (hasMenu) {
@@ -211,7 +212,11 @@ export default function FloatingActionButton() {
                 <span className="text-[13px] font-bold text-text">Thu tiền</span>
                 <div className="w-8 h-8 rounded-full bg-[#0ea5e9]/10 flex items-center justify-center"><Receipt size={14} className="text-[#0ea5e9]" /></div>
               </button>
-              <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
+              <button
+                disabled={isDirectInvoiceCreationDisabled}
+                title="Tạm khóa: tạo hóa đơn từ Tòa nhà → Phòng → Khách thuê."
+                className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-card"
+              >
                 <span className="text-[13px] font-bold text-text">Tạo hóa đơn</span>
                 <div className="w-8 h-8 rounded-full bg-[#6366f1]/10 flex items-center justify-center"><Plus size={14} className="text-[#6366f1]" /></div>
               </button>

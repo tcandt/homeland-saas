@@ -44,6 +44,47 @@ export class FinanceReportingService {
     private readonly communicationService: CommunicationService,
   ) {}
 
+  private normalizeVietnamese(value: unknown): string {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D')
+      .toLowerCase();
+  }
+
+  private isDepositInvoiceItem(item: { type?: unknown; description?: unknown; amount?: unknown } | null | undefined): boolean {
+    if (!item || Number(item.amount || 0) <= 0) return false;
+    const haystack = this.normalizeVietnamese(`${item.type || ''} ${item.description || ''}`);
+    const mentionsDeposit =
+      haystack.includes('tien coc') ||
+      haystack.includes('dat coc') ||
+      haystack.includes('coc hop dong') ||
+      haystack.includes('coc giu phong') ||
+      haystack.includes('coc bao dam') ||
+      haystack.includes('security deposit') ||
+      haystack.includes('booking deposit');
+    const isPenaltyOrRefund =
+      haystack.includes('phat coc') ||
+      haystack.includes('hoan coc') ||
+      haystack.includes('khau tru coc') ||
+      haystack.includes('tru coc');
+    return mentionsDeposit && !isPenaltyOrRefund;
+  }
+
+  private sumDepositInvoiceItems(items: Array<{ type?: unknown; description?: unknown; amount?: unknown }> = []): number {
+    return items
+      .filter((item) => this.isDepositInvoiceItem(item))
+      .reduce((total, item) => total + Number(item.amount || 0), 0);
+  }
+
+  private isBookingDepositInvoice(invoice: { period?: unknown; billingKind?: unknown } | null | undefined): boolean {
+    if (!invoice) return false;
+    const period = this.normalizeVietnamese(invoice.period);
+    const billingKind = String(invoice.billingKind || '').toUpperCase();
+    return period === 'coc giu phong' || billingKind === 'BOOKING_HOLD' || billingKind === 'BOOKING_DEPOSIT';
+  }
+
   /**
    * The reconciliation surface deliberately starts from journal lines.  Source
    * documents are resolved only for lineage and filtering; they never add or
@@ -246,7 +287,7 @@ export class FinanceReportingService {
 
   private reconciliationGroups(lines: any[], key: string) {
     const groups = new Map<string, any>();
-    for (const line of lines) {
+    for (const line of lines as any[]) {
       const id = line.dimensions[key] || '__unresolved__';
       const group = groups.get(id) || { id: line.dimensions[key] || null, bucket: line.dimensions[key] ? null : 'UNRESOLVED', ...this.reconciliationTotals([]) };
       const totals = this.reconciliationTotals([line]);
@@ -429,14 +470,14 @@ export class FinanceReportingService {
 
   async getBuildingProfitSummary(tenantId: string, options: { year?: string; month?: string } = {}) {
     const period = this.buildPeriodRange(options.year, options.month);
-    const buildings = await this.prisma.building.findMany({
+    const buildings = (await this.prisma.building.findMany({
       where: { tenantId, deletedAt: null },
       include: {
         owner: { select: { id: true, code: true, name: true } },
         rooms: { where: { deletedAt: null }, select: { id: true, code: true, name: true, status: true } },
       },
       orderBy: { displayOrder: 'asc' },
-    });
+    })) || [];
 
     return Promise.all(buildings.map(async (building) => {
       const occupiedRooms = building.rooms.filter((room) => room.status !== 'AVAILABLE').length;
@@ -448,6 +489,7 @@ export class FinanceReportingService {
             tenantId,
             contract: { room: { buildingId: building.id } },
             status: 'OVERDUE' as any,
+            period: { not: 'Cọc giữ phòng' },
             deletedAt: null,
           },
         }),
@@ -457,6 +499,8 @@ export class FinanceReportingService {
             invoice: {
               deletedAt: null,
               createdAt: period,
+              status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE', 'PAID'] as any },
+              period: { not: 'Cọc giữ phòng' },
               contract: {
                 room: {
                   buildingId: building.id,
@@ -466,9 +510,12 @@ export class FinanceReportingService {
           },
           select: {
             type: true,
+            description: true,
             amount: true,
             invoice: {
               select: {
+                period: true,
+                status: true,
                 contract: {
                   select: {
                     room: {
@@ -517,6 +564,8 @@ export class FinanceReportingService {
             },
             deletedAt: null,
             createdAt: period,
+            status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE', 'PAID'] as any },
+            period: { not: 'Cọc giữ phòng' },
           },
           select: {
             id: true,
@@ -569,19 +618,25 @@ export class FinanceReportingService {
         }),
       ]);
 
-      const { revenue, expense } = journalTotals;
-      const profit = revenue - expense;
-      const expenseRatio = revenue > 0 ? (expense / revenue) * 100 : expense > 0 ? 100 : 0;
-      const rentRevenue = revenueItems
+      const journalRevenue = Number(journalTotals.revenue || 0);
+      const { expense } = journalTotals;
+      const operationalRevenueItems = revenueItems.filter((item) => !this.isDepositInvoiceItem(item));
+      const rentRevenue = operationalRevenueItems
         .filter((item) => item.type === 'RENT')
         .reduce((total, item) => total + Number(item.amount || 0), 0);
-      const electricityRevenue = revenueItems
+      const electricityRevenue = operationalRevenueItems
         .filter((item) => item.type === 'UTILITY_ELECTRICITY')
         .reduce((total, item) => total + Number(item.amount || 0), 0);
-      const waterServiceRevenue = revenueItems
+      const waterServiceRevenue = operationalRevenueItems
         .filter((item) => item.type === 'UTILITY_WATER' || item.type === 'SERVICE')
         .reduce((total, item) => total + Number(item.amount || 0), 0);
-      const otherRevenue = Math.max(0, revenue - rentRevenue - electricityRevenue - waterServiceRevenue);
+      const operationalInvoiceRevenue = operationalRevenueItems.reduce((total, item) => total + Number(item.amount || 0), 0);
+      const revenue = journalRevenue > 0 ? journalRevenue : operationalInvoiceRevenue;
+      const otherRevenue = operationalRevenueItems
+        .filter((item) => item.type !== 'RENT' && item.type !== 'UTILITY_ELECTRICITY' && item.type !== 'UTILITY_WATER' && item.type !== 'SERVICE')
+        .reduce((total, item) => total + Number(item.amount || 0), 0);
+      const profit = revenue - expense;
+      const expenseRatio = revenue > 0 ? (expense / revenue) * 100 : expense > 0 ? 100 : 0;
       const roomBreakdownMap = new Map<string, any>();
 
       for (const room of building.rooms) {
@@ -605,7 +660,7 @@ export class FinanceReportingService {
         });
       }
 
-      for (const item of revenueItems) {
+      for (const item of operationalRevenueItems) {
         const room = item.invoice?.contract?.room;
         if (!room) continue;
         const current = roomBreakdownMap.get(room.id) || {
@@ -2159,9 +2214,11 @@ export class FinanceReportingService {
       include: { buildings: { select: { id: true, code: true, name: true } } },
       orderBy: { code: 'asc' },
     });
+    const buildingRows = await this.getBuildingProfitSummary(tenantId);
 
     return Promise.all(owners.map(async (owner) => {
-      const [journalTotals, advancedByOwner, owedToOtherOwners] = await Promise.all([
+      const bankCashPeriod = this.buildPeriodRange(String(new Date().getFullYear()));
+      const [journalTotals, advancedByOwner, owedToOtherOwners, bankCash] = await Promise.all([
         this.getJournalProfitTotals(tenantId, { costCenter: { tenantId, ownerId: owner.id } }),
         this.prisma.expense.aggregate({
           where: { tenantId, paidByOwnerId: owner.id, ownerId: { not: owner.id }, status: { in: ['APPROVED', 'PAID'] as any }, deletedAt: null },
@@ -2171,9 +2228,15 @@ export class FinanceReportingService {
           where: { tenantId, ownerId: owner.id, paidByOwnerId: { not: null }, NOT: { paidByOwnerId: owner.id }, status: { in: ['APPROVED', 'PAID'] as any }, deletedAt: null },
           _sum: { amount: true },
         }),
+        this.getOwnerConfirmedBankCash(tenantId, owner.id, bankCashPeriod),
       ]);
 
-      const { revenue, expense } = journalTotals;
+      const ownerBuildingIds = new Set(owner.buildings.map((building) => building.id));
+      const breakdownRevenue = buildingRows
+        .filter((row: any) => ownerBuildingIds.has(row.building.id))
+        .reduce((total: number, row: any) => total + Number(row.revenue || 0), 0);
+      const revenue = Number(journalTotals.revenue || 0) > 0 ? Number(journalTotals.revenue) : breakdownRevenue;
+      const { expense } = journalTotals;
       const advanced = Number(advancedByOwner._sum.amount || 0);
       const payableAdvance = Number(owedToOtherOwners._sum.amount || 0);
 
@@ -2186,8 +2249,203 @@ export class FinanceReportingService {
         advanceReceivable: advanced,
         advancePayable: payableAdvance,
         profitAfterAdvance: revenue - expense - payableAdvance + advanced,
+        bankConfirmedAmount: bankCash.confirmedAmount,
+        bankConfirmedCount: bankCash.confirmedCount,
+        bankConfirmedAccounts: bankCash.accounts,
+        bankCashPeriod: {
+          year: new Date().getFullYear(),
+          startDate: bankCashPeriod.gte,
+          endDate: bankCashPeriod.lte,
+        },
       };
     }));
+  }
+
+  private async getOwnerConfirmedBankCash(
+    tenantId: string,
+    ownerId: string,
+    period?: Record<string, any>,
+  ) {
+    const requests = await this.prisma.paymentRequest.findMany({
+      where: {
+        tenantId,
+        status: 'CONFIRMED' as any,
+        ...(period ? { paidAt: period } : {}),
+        OR: [
+          { ownerId },
+          { bankAccount: { ownerId } },
+        ],
+      },
+      select: {
+        id: true,
+        amount: true,
+        sourceType: true,
+        sourceId: true,
+        paidAt: true,
+        bankAccount: {
+          select: {
+            id: true,
+            bankName: true,
+            accountNumber: true,
+            accountName: true,
+            ownerId: true,
+          },
+        },
+      },
+      orderBy: { paidAt: 'desc' },
+    });
+
+    const accountMap = new Map<string, any>();
+    for (const request of requests) {
+      const bank = request.bankAccount;
+      const key = bank?.id || `owner:${ownerId}`;
+      const current = accountMap.get(key) || {
+        id: bank?.id || null,
+        bankName: bank?.bankName || null,
+        accountNumber: bank?.accountNumber || null,
+        accountName: bank?.accountName || null,
+        confirmedAmount: 0,
+        confirmedCount: 0,
+        latestPaidAt: null,
+      };
+      current.confirmedAmount += Number(request.amount || 0);
+      current.confirmedCount += 1;
+      current.latestPaidAt = current.latestPaidAt || request.paidAt || null;
+      accountMap.set(key, current);
+    }
+
+    return {
+      confirmedAmount: requests.reduce((total, request) => total + Number(request.amount || 0), 0),
+      confirmedCount: requests.length,
+      accounts: Array.from(accountMap.values()).sort((left, right) => right.confirmedAmount - left.confirmedAmount),
+    };
+  }
+
+  private async getOwnerConfirmedDepositCash(
+    tenantId: string,
+    ownerId: string,
+    period?: Record<string, any>,
+  ) {
+    const requests = await this.prisma.paymentRequest.findMany({
+      where: {
+        tenantId,
+        status: 'CONFIRMED' as any,
+        ...(period ? { paidAt: period } : {}),
+        OR: [
+          { ownerId },
+          { bankAccount: { ownerId } },
+        ],
+      },
+      select: {
+        id: true,
+        amount: true,
+        sourceType: true,
+        sourceId: true,
+        buildingId: true,
+        roomId: true,
+      },
+      orderBy: { paidAt: 'desc' },
+    });
+
+    const invoiceIds = requests
+      .filter((request) => String(request.sourceType) === 'INVOICE')
+      .map((request) => request.sourceId)
+      .filter(Boolean);
+    const depositIds = requests
+      .filter((request) => String(request.sourceType) === 'DEPOSIT')
+      .map((request) => request.sourceId)
+      .filter(Boolean);
+
+    const [depositInvoices, deposits] = await Promise.all([
+      invoiceIds.length
+        ? this.prisma.invoice.findMany({
+            where: {
+              tenantId,
+              id: { in: invoiceIds },
+              deletedAt: null,
+            },
+            select: {
+              id: true,
+              period: true,
+              billingKind: true,
+              total: true,
+              items: { select: { type: true, description: true, amount: true } },
+              contract: { select: { roomId: true, room: { select: { buildingId: true } } } },
+            },
+          })
+        : Promise.resolve([]),
+      depositIds.length
+        ? this.prisma.deposit.findMany({
+            where: {
+              tenantId,
+              id: { in: depositIds },
+              deletedAt: null,
+            },
+            select: {
+              id: true,
+              roomId: true,
+              room: { select: { buildingId: true } },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const invoiceContext = new Map(
+      (
+        depositInvoices
+          .map((invoice: any) => {
+            const depositItemAmount = this.sumDepositInvoiceItems(invoice.items || []);
+            const amount = depositItemAmount > 0
+              ? depositItemAmount
+              : this.isBookingDepositInvoice(invoice)
+                ? Number(invoice.total || 0)
+                : 0;
+            if (amount <= 0) return null;
+            return [
+              invoice.id,
+              {
+                roomId: invoice.contract?.roomId || null,
+                buildingId: invoice.contract?.room?.buildingId || null,
+                amount,
+              },
+            ] as const;
+          })
+          .filter(Boolean) as Array<readonly [string, { roomId: string | null; buildingId: string | null; amount: number }]>
+      ),
+    );
+    const depositContext = new Map(
+      deposits.map((deposit: any) => [
+        deposit.id,
+        { roomId: deposit.roomId || null, buildingId: deposit.room?.buildingId || null },
+      ]),
+    );
+
+    const byBuilding: Record<string, number> = {};
+    const byRoom: Record<string, number> = {};
+    let total = 0;
+
+    for (const request of requests) {
+      const sourceType = String(request.sourceType);
+      const context: any =
+        sourceType === 'INVOICE'
+          ? invoiceContext.get(request.sourceId)
+          : sourceType === 'DEPOSIT'
+            ? depositContext.get(request.sourceId)
+            : null;
+      if (!context) continue;
+      const amount =
+        sourceType === 'INVOICE' && context.amount != null
+          ? Math.min(Number(context.amount || 0), Number(request.amount || 0))
+          : Number(request.amount || 0);
+      if (amount <= 0) continue;
+      total += amount;
+      const buildingId = request.buildingId || context.buildingId;
+      const roomId = request.roomId || context.roomId;
+      if (buildingId) byBuilding[buildingId] = (byBuilding[buildingId] || 0) + amount;
+      if (roomId) byRoom[roomId] = (byRoom[roomId] || 0) + amount;
+    }
+
+    return { total, byBuilding, byRoom };
   }
 
   async getOwnerProfitDetail(tenantId: string, ownerId: string, options: { year?: string; month?: string } = {}) {
@@ -2198,7 +2456,7 @@ export class FinanceReportingService {
     if (!owner) throw new BadRequestException('OWNER_NOT_FOUND');
 
     const period = this.buildPeriodRange(options.year, options.month);
-    const [journalTotals, advancedByOwner, owedToOtherOwners] = await Promise.all([
+    const [journalTotals, advancedByOwner, owedToOtherOwners, bankCash, depositCash] = await Promise.all([
       this.getJournalProfitTotals(tenantId, { costCenter: { tenantId, ownerId: owner.id } }, period),
       this.prisma.expense.aggregate({
         where: {
@@ -2223,23 +2481,37 @@ export class FinanceReportingService {
         },
         _sum: { amount: true },
       }),
+      this.getOwnerConfirmedBankCash(tenantId, owner.id, period),
+      this.getOwnerConfirmedDepositCash(tenantId, owner.id, period),
     ]);
 
     const ownerBuildingIds = new Set(owner.buildings.map((building) => building.id));
     const buildingBreakdown = (await this.getBuildingProfitSummary(tenantId, options))
       .filter((row) => ownerBuildingIds.has(row.building.id))
-      .map((row) => ({
-        building: row.building,
-        owner: row.owner,
-        revenue: row.revenue,
-        revenueBreakdown: row.revenueBreakdown,
-        roomBreakdown: row.roomBreakdown,
-        expense: row.expense,
-        profit: row.profit,
-        margin: row.margin,
-        overdueInvoices: row.overdueInvoices,
-        alerts: row.alerts,
-      }));
+      .map((row) => {
+        const buildingDepositAmount = depositCash.byBuilding[row.building.id] || 0;
+        return {
+          building: row.building,
+          owner: row.owner,
+          revenue: row.revenue,
+          depositAmount: buildingDepositAmount,
+          totalReceived: Number(row.revenue || 0) + buildingDepositAmount,
+          revenueBreakdown: row.revenueBreakdown,
+          roomBreakdown: (row.roomBreakdown || []).map((roomRow: any) => {
+            const roomDepositAmount = depositCash.byRoom[roomRow.room?.id] || 0;
+            return {
+              ...roomRow,
+              depositAmount: roomDepositAmount,
+              totalReceived: Number(roomRow.revenue || 0) + roomDepositAmount,
+            };
+          }),
+          expense: row.expense,
+          profit: row.profit,
+          margin: row.margin,
+          overdueInvoices: row.overdueInvoices,
+          alerts: row.alerts,
+        };
+      });
 
     const expenseRows = await this.getExpenses(tenantId, {
       ownerId: owner.id,
@@ -2263,7 +2535,9 @@ export class FinanceReportingService {
       };
     }));
 
-    const { revenue, expense } = journalTotals;
+    const breakdownRevenue = buildingBreakdown.reduce((total, row: any) => total + Number(row.revenue || 0), 0);
+    const revenue = Number(journalTotals.revenue || 0) > 0 ? Number(journalTotals.revenue || 0) : breakdownRevenue;
+    const { expense } = journalTotals;
     const advanceReceivable = Number(advancedByOwner._sum.amount || 0);
     const advancePayable = Number(owedToOtherOwners._sum.amount || 0);
 
@@ -2283,6 +2557,11 @@ export class FinanceReportingService {
         advanceReceivable,
         advancePayable,
         profitAfterAdvance: revenue - expense - advancePayable + advanceReceivable,
+        bankConfirmedAmount: bankCash.confirmedAmount,
+        bankConfirmedCount: bankCash.confirmedCount,
+        bankConfirmedAccounts: bankCash.accounts,
+        depositAmount: depositCash.total,
+        totalReceived: revenue + depositCash.total,
       },
       buildingBreakdown,
       expenses: expenseRows,
@@ -2311,10 +2590,108 @@ export class FinanceReportingService {
       aggregate('EXPENSE', 'DEBIT'),
       aggregate('EXPENSE', 'CREDIT'),
     ]);
+    const depositInvoiceRevenue = await this.getDepositInvoiceRevenueJournalTotal(tenantId, scope, entryDate);
     return {
-      revenue: Number(revenueCredit._sum.amount || 0) - Number(revenueDebit._sum.amount || 0),
+      revenue: Number(revenueCredit._sum.amount || 0) - Number(revenueDebit._sum.amount || 0) - depositInvoiceRevenue,
       expense: Number(expenseDebit._sum.amount || 0) - Number(expenseCredit._sum.amount || 0),
     };
+  }
+
+  private async getDepositInvoiceRevenueJournalTotal(
+    tenantId: string,
+    scope: Record<string, any> = {},
+    entryDate?: Record<string, any>,
+  ) {
+    if (!this.prisma.journalLine.findMany) {
+      return this.getBookingHoldInvoiceRevenueJournalTotal(tenantId, scope, entryDate);
+    }
+
+    const lines = await this.prisma.journalLine.findMany({
+      where: authoritativeJournalLineWhere(
+        tenantId,
+        { ...scope, account: { tenantId, type: 'REVENUE' } },
+        {
+          sourceType: 'INVOICE',
+          ...(entryDate ? { entryDate } : {}),
+        },
+      ),
+      include: { journalEntry: { select: { sourceId: true } } },
+    });
+
+    const invoiceIds = Array.from(
+      new Set(lines.map((line: any) => line.journalEntry?.sourceId || line.sourceId).filter(Boolean)),
+    );
+    if (!invoiceIds.length) return 0;
+
+    const invoices = await this.prisma.invoice.findMany({
+      where: { tenantId, id: { in: invoiceIds }, deletedAt: null },
+      select: {
+        id: true,
+        period: true,
+        billingKind: true,
+        total: true,
+        items: { select: { type: true, description: true, amount: true } },
+      },
+    });
+    const invoiceMap = new Map(invoices.map((invoice: any) => [invoice.id, invoice]));
+    const revenueByInvoice = new Map<string, number>();
+
+    for (const line of lines as any[]) {
+      const sourceId = line.journalEntry?.sourceId || line.sourceId;
+      if (!sourceId) continue;
+      const signedAmount = (line.type === 'CREDIT' ? 1 : -1) * Number(line.amount || 0);
+      revenueByInvoice.set(sourceId, (revenueByInvoice.get(sourceId) || 0) + signedAmount);
+    }
+
+    let total = 0;
+    for (const [invoiceId, revenueAmount] of revenueByInvoice.entries()) {
+      const invoice = invoiceMap.get(invoiceId) as any;
+      if (!invoice || revenueAmount <= 0) continue;
+      const depositItemAmount = this.sumDepositInvoiceItems(invoice.items || []);
+      const amountToRemove = depositItemAmount > 0
+        ? depositItemAmount
+        : this.isBookingDepositInvoice(invoice)
+          ? Number(invoice.total || 0) || revenueAmount
+          : 0;
+      total += Math.min(revenueAmount, amountToRemove);
+    }
+
+    return total;
+  }
+
+  private async getBookingHoldInvoiceRevenueJournalTotal(
+    tenantId: string,
+    scope: Record<string, any> = {},
+    entryDate?: Record<string, any>,
+  ) {
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        period: 'Cọc giữ phòng',
+      },
+      select: { id: true },
+    });
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+    if (!invoiceIds.length) return 0;
+    if (!this.prisma.journalLine.findMany) return 0;
+
+    const lines = await this.prisma.journalLine.findMany({
+      where: authoritativeJournalLineWhere(
+        tenantId,
+        { ...scope, account: { tenantId, type: 'REVENUE' } },
+        {
+          sourceType: 'INVOICE',
+          sourceId: { in: invoiceIds },
+          ...(entryDate ? { entryDate } : {}),
+        },
+      ),
+    });
+
+    return lines.reduce(
+      (total: number, line: any) => total + (line.type === 'CREDIT' ? 1 : -1) * Number(line.amount || 0),
+      0,
+    );
   }
 
   private async resolveCostCenter(tenantId: string, costCenterId?: string, buildingId?: string) {

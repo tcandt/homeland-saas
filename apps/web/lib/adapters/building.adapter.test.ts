@@ -57,6 +57,26 @@ describe("adaptRoom optional numeric fields", () => {
     expect(room.contract?.rentPrice).toBe(7_300_000);
   });
 
+  it("shows pending contract customer on the room without marking the room occupied", () => {
+    const room = adaptRoom(apiRoom({
+      contracts: [{
+        id: "contract-draft-01",
+        code: "HD-DRAFT-001",
+        status: "DRAFT",
+        startDate: "2026-09-20",
+        endDate: "2027-09-20",
+        monthlyRent: 7_300_000,
+        depositMoney: 14_600_000,
+        customer: { id: "customer-draft-01", fullName: "Huỳnh Hoàng Hạnh", phone: "0900000000" },
+      }],
+    }));
+
+    expect(room.status).toBe("deposited");
+    expect(room.tenant?.id).toBe("customer-draft-01");
+    expect(room.tenant?.name).toBe("Huỳnh Hoàng Hạnh");
+    expect(room.contract?.status).toBe("DRAFT");
+  });
+
   it("maps API rentalType to UI rentalType", () => {
     expect(adaptRoom(apiRoom({ rentalType: "SHARED" })).rentalType).toBe("shared");
     expect(adaptRoom(apiRoom({ rentalType: "WHOLE" })).rentalType).toBe("whole");

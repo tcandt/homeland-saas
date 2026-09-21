@@ -688,79 +688,162 @@ export class SystemUpdateService {
     const deletedCounts: Record<string, number> = {};
 
     if (scope === 'ALL_BUSINESS_DATA' || scope === 'DEMO_DATA') {
-      await this.prisma.$transaction(async (tx) => {
-        await (tx as any).$executeRawUnsafe?.("SET LOCAL app.allow_deposit_ledger_mutation = 'on'");
-        // 1. Payment allocations & payments
-        const pAlloc = await (tx as any).paymentAllocation?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const pWebhooks = await (tx as any).paymentWebhookLog?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const pRequests = await (tx as any).paymentRequest?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const payments = await (tx as any).payment?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const creditNotes = await (tx as any).creditNote?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const txAny = tx as any;
+          const deleteMany = async (modelName: string, args: Record<string, unknown>) => {
+            const delegate = txAny[modelName];
+            if (typeof delegate?.deleteMany !== 'function') return { count: 0 };
+            return delegate.deleteMany(args);
+          };
+          const updateMany = async (modelName: string, args: Record<string, unknown>) => {
+            const delegate = txAny[modelName];
+            if (typeof delegate?.updateMany !== 'function') return { count: 0 };
+            return delegate.updateMany(args);
+          };
 
-        // 2. Invoices & items
-        const invItems = await (tx as any).invoiceItem?.deleteMany({ where: { invoice: { tenantId } } }).catch(() => ({ count: 0 }));
-        const invoices = await (tx as any).invoice?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+          await txAny.$executeRawUnsafe?.("SET LOCAL app.allow_deposit_ledger_mutation = 'on'");
+          await setAdminWipeTriggers(txAny, false);
 
-        // 3. CORE-04/05 outbox, immutable deposit ledger and holds must be removed before deposits.
-        const outboxEvents = await (tx as any).outboxEvent?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const depositLedgerEntries = await (tx as any).depositLedgerEntry?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const depositOperations = await (tx as any).depositOperation?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const roomHolds = await (tx as any).roomHold?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+          try {
+            // Delete leaf/dependent rows first. Do not swallow DB errors inside this
+            // transaction: PostgreSQL marks the transaction as aborted after the
+            // first failed statement, so catching here only hides the real FK/order
+            // error and surfaces a misleading 25P02 on a later query.
+            const pAlloc = await deleteMany('paymentAllocation', { where: { tenantId } });
+            const pWebhooks = await deleteMany('paymentWebhookLog', { where: { tenantId } });
+            const pRequests = await deleteMany('paymentRequest', { where: { tenantId } });
+            const creditNotes = await deleteMany('creditNote', { where: { tenantId } });
+            const payments = await deleteMany('payment', { where: { tenantId } });
 
-        // 4. Deposits
-        const deposits = await (tx as any).deposit?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+            const invItems = await deleteMany('invoiceItem', { where: { tenantId } });
+            await updateMany('invoice', {
+              where: { tenantId, adjustmentOfInvoiceId: { not: null } },
+              data: { adjustmentOfInvoiceId: null },
+            });
+            const invoices = await deleteMany('invoice', { where: { tenantId } });
 
-        // 5. Contracts & ContractTenants
-        const cTenants = await (tx as any).contractTenant?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const contracts = await (tx as any).contract?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+            const jLines = await deleteMany('journalLine', { where: { tenantId } });
+            const jEntries = await deleteMany('journalEntry', { where: { tenantId } });
+            const outboxEvents = await deleteMany('outboxEvent', { where: { tenantId } });
+            const depositLedgerEntries = await deleteMany('depositLedgerEntry', { where: { tenantId } });
+            const depositOperations = await deleteMany('depositOperation', { where: { tenantId } });
+            const roomHolds = await deleteMany('roomHold', { where: { tenantId } });
+            const contractSettlements = await deleteMany('contractSettlement', { where: { tenantId } });
+            const occupancies = await deleteMany('occupancy', { where: { tenantId } });
+            const contractParties = await deleteMany('contractParty', { where: { tenantId } });
+            const cTenants = await deleteMany('contractTenant', { where: { tenantId } });
 
-        // 6. Meter readings & routes
-        const meterReadings = await (tx as any).hunonicMeterReading?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const meterMappings = await (tx as any).hunonicMeterMapping?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const routes = await (tx as any).roomPaymentAccountRoute?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+            const deposits = await deleteMany('deposit', { where: { tenantId } });
+            const contracts = await deleteMany('contract', { where: { tenantId } });
+            const rentalCycles = await deleteMany('rentalCycle', { where: { tenantId } });
 
-        // 7. Customers (Khách thuê)
-        const customers = await (tx as any).customer?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+            const billingSnapshots = await deleteMany('billingSnapshot', { where: { tenantId } });
+            const meterReadings = await deleteMany('hunonicMeterReading', { where: { tenantId } });
+            const meterMappings = await deleteMany('hunonicMeterMapping', { where: { tenantId } });
+            const syncLogs = await deleteMany('hunonicSyncLog', { where: { tenantId } });
+            const monthlySettlementRuns = await deleteMany('monthlySettlementRun', { where: { tenantId } });
+            const routes = await deleteMany('roomPaymentAccountRoute', { where: { tenantId } });
 
-        // 8. Finance transactions
-        const expenses = await (tx as any).expense?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const receipts = await (tx as any).receipt?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const jLines = await (tx as any).journalLine?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const jEntries = await (tx as any).journalEntry?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
+            const expenses = await deleteMany('expense', { where: { tenantId } });
+            const receipts = await deleteMany('receipt', { where: { tenantId } });
+            const incidents = await deleteMany('incident', { where: { tenantId } });
+            const tasks = await deleteMany('task', { where: { tenantId } });
+            const notifs = await deleteMany('notificationQueue', { where: { tenantId } });
+            const jobs = await deleteMany('notificationJob', { where: { tenantId } });
+            const leads = await deleteMany('salesLead', { where: { tenantId } });
+            const customers = await deleteMany('customer', { where: { tenantId } });
 
-        // 9. BẢO TỒN NGUYÊN VẸN TÒA NHÀ, TẦNG, PHÒNG - Chỉ đặt lại trạng thái phòng về "Trống" (AVAILABLE)
-        await (tx as any).room?.updateMany({
-          where: { tenantId },
-          data: {
-            status: 'AVAILABLE',
-            deletedAt: null,
-            deletedBy: null,
-            deleteReason: null,
-          },
+            // Preserve buildings/floors/rooms, but reset room operational status.
+            await updateMany('room', {
+              where: { tenantId },
+              data: {
+                status: 'AVAILABLE',
+                deletedAt: null,
+                deletedBy: null,
+                deleteReason: null,
+              },
+            });
+
+            deletedCounts.customers = customers?.count ?? 0;
+            deletedCounts.contracts = contracts?.count ?? 0;
+            deletedCounts.contractParties = contractParties?.count ?? 0;
+            deletedCounts.contractTenants = cTenants?.count ?? 0;
+            deletedCounts.contractSettlements = contractSettlements?.count ?? 0;
+            deletedCounts.occupancies = occupancies?.count ?? 0;
+            deletedCounts.rentalCycles = rentalCycles?.count ?? 0;
+            deletedCounts.deposits = deposits?.count ?? 0;
+            deletedCounts.invoices = invoices?.count ?? 0;
+            deletedCounts.invoiceItems = invItems?.count ?? 0;
+            deletedCounts.payments = payments?.count ?? 0;
+            deletedCounts.paymentAllocations = pAlloc?.count ?? 0;
+            deletedCounts.paymentWebhookLogs = pWebhooks?.count ?? 0;
+            deletedCounts.paymentRequests = pRequests?.count ?? 0;
+            deletedCounts.creditNotes = creditNotes?.count ?? 0;
+            deletedCounts.depositLedgerEntries = depositLedgerEntries?.count ?? 0;
+            deletedCounts.depositOperations = depositOperations?.count ?? 0;
+            deletedCounts.roomHolds = roomHolds?.count ?? 0;
+            deletedCounts.outboxEvents = outboxEvents?.count ?? 0;
+            deletedCounts.billingSnapshots = billingSnapshots?.count ?? 0;
+            deletedCounts.hunonicMeterReadings = meterReadings?.count ?? 0;
+            deletedCounts.hunonicMeterMappings = meterMappings?.count ?? 0;
+            deletedCounts.hunonicSyncLogs = syncLogs?.count ?? 0;
+            deletedCounts.monthlySettlementRuns = monthlySettlementRuns?.count ?? 0;
+            deletedCounts.roomPaymentAccountRoutes = routes?.count ?? 0;
+            deletedCounts.expenses = expenses?.count ?? 0;
+            deletedCounts.receipts = receipts?.count ?? 0;
+            deletedCounts.journalLines = jLines?.count ?? 0;
+            deletedCounts.journalEntries = jEntries?.count ?? 0;
+            deletedCounts.incidents = incidents?.count ?? 0;
+            deletedCounts.tasks = tasks?.count ?? 0;
+            deletedCounts.notificationQueue = notifs?.count ?? 0;
+            deletedCounts.notificationJobs = jobs?.count ?? 0;
+            deletedCounts.salesLeads = leads?.count ?? 0;
+          } finally {
+            await setAdminWipeTriggers(txAny, true).catch(() => undefined);
+          }
         });
-
-        // 10. Tasks, incidents, notifications
-        const incidents = await (tx as any).incident?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const tasks = await (tx as any).task?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const notifs = await (tx as any).notificationQueue?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const jobs = await (tx as any).notificationJob?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-        const leads = await (tx as any).salesLead?.deleteMany({ where: { tenantId } }).catch(() => ({ count: 0 }));
-
-        deletedCounts.customers = customers?.count ?? 0;
-        deletedCounts.contracts = contracts?.count ?? 0;
-        deletedCounts.deposits = deposits?.count ?? 0;
-        deletedCounts.invoices = invoices?.count ?? 0;
-        deletedCounts.payments = payments?.count ?? 0;
-        deletedCounts.depositLedgerEntries = depositLedgerEntries?.count ?? 0;
-        deletedCounts.depositOperations = depositOperations?.count ?? 0;
-        deletedCounts.roomHolds = roomHolds?.count ?? 0;
-        deletedCounts.outboxEvents = outboxEvents?.count ?? 0;
-      });
+      } catch (error) {
+        this.logger.error(
+          `Failed to wipe operational data for tenant ${tenantId}: ${extractErrorMessage(error)}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+        throw new ConflictException(
+          `Không thể xóa dữ liệu vận hành do ràng buộc dữ liệu: ${extractErrorMessage(error)}`,
+        );
+      }
     } else if (scope === 'DRAFT_TRANSACTIONS') {
       await this.prisma.$transaction(async (tx) => {
-        await (tx as any).invoice?.deleteMany({ where: { tenantId, status: 'DRAFT' } }).catch(() => ({ count: 0 }));
-        await (tx as any).deposit?.deleteMany({ where: { tenantId, status: 'DRAFT' } }).catch(() => ({ count: 0 }));
-        await (tx as any).contract?.deleteMany({ where: { tenantId, status: 'DRAFT' } }).catch(() => ({ count: 0 }));
+        const txAny = tx as any;
+        const deleteMany = async (modelName: string, args: Record<string, unknown>) => {
+          const delegate = txAny[modelName];
+          if (typeof delegate?.deleteMany !== 'function') return { count: 0 };
+          return delegate.deleteMany(args);
+        };
+        const updateMany = async (modelName: string, args: Record<string, unknown>) => {
+          const delegate = txAny[modelName];
+          if (typeof delegate?.updateMany !== 'function') return { count: 0 };
+          return delegate.updateMany(args);
+        };
+
+        await txAny.$executeRawUnsafe?.("SET LOCAL app.allow_deposit_ledger_mutation = 'on'");
+        await deleteMany('paymentAllocation', { where: { invoice: { tenantId, status: 'DRAFT' } } });
+        await deleteMany('payment', { where: { invoice: { tenantId, status: 'DRAFT' } } });
+        await deleteMany('creditNote', { where: { sourceInvoice: { tenantId, status: 'DRAFT' } } });
+        await deleteMany('invoiceItem', { where: { invoice: { tenantId, status: 'DRAFT' } } });
+        await updateMany('invoice', {
+          where: { tenantId, status: 'DRAFT', adjustmentOfInvoiceId: { not: null } },
+          data: { adjustmentOfInvoiceId: null },
+        });
+        await deleteMany('invoice', { where: { tenantId, status: 'DRAFT' } });
+        await deleteMany('roomHold', { where: { deposit: { tenantId, status: 'DRAFT' } } });
+        await deleteMany('depositLedgerEntry', { where: { deposit: { tenantId, status: 'DRAFT' } } });
+        await deleteMany('depositOperation', { where: { sourceDeposit: { tenantId, status: 'DRAFT' } } });
+        await deleteMany('deposit', { where: { tenantId, status: 'DRAFT' } });
+        await deleteMany('contractSettlement', { where: { contract: { tenantId, status: 'DRAFT' } } });
+        await deleteMany('occupancy', { where: { contract: { tenantId, status: 'DRAFT' } } });
+        await deleteMany('contractParty', { where: { contract: { tenantId, status: 'DRAFT' } } });
+        await deleteMany('contract', { where: { tenantId, status: 'DRAFT' } });
       });
     } else if (scope === 'OLD_LOGS') {
       const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -1317,6 +1400,49 @@ function isRemoteVersionAllowed(version: ParsedSemver) {
 
 function isCommitSha(value?: string) {
   return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value || '');
+}
+
+function extractErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return 'Lỗi không xác định';
+  }
+}
+
+async function setAdminWipeTriggers(tx: { $executeRawUnsafe?: (query: string) => Promise<unknown> }, enabled: boolean) {
+  if (typeof tx.$executeRawUnsafe !== 'function') return;
+  const action = enabled ? 'ENABLE' : 'DISABLE';
+  await tx.$executeRawUnsafe(`
+DO $$
+DECLARE
+  trigger_specs TEXT[][] := ARRAY[
+    ARRAY['Invoice', 'Invoice_protect_economic_fields'],
+    ARRAY['InvoiceItem', 'InvoiceItem_protect_issued_items'],
+    ARRAY['BillingSnapshot', 'BillingSnapshot_immutable'],
+    ARRAY['HunonicMeterReading', 'HunonicMeterReading_immutable']
+  ];
+  spec TEXT[];
+BEGIN
+  FOREACH spec SLICE 1 IN ARRAY trigger_specs LOOP
+    IF to_regclass(format('public.%I', spec[1])) IS NOT NULL
+       AND EXISTS (
+         SELECT 1
+           FROM pg_trigger t
+           JOIN pg_class c ON c.oid = t.tgrelid
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public'
+            AND c.relname = spec[1]
+            AND t.tgname = spec[2]
+            AND NOT t.tgisinternal
+       ) THEN
+      EXECUTE format('ALTER TABLE %I ${action} TRIGGER %I', spec[1], spec[2]);
+    END IF;
+  END LOOP;
+END $$;
+`);
 }
 
 function isTerminalStatus(status: UpdateJobStatus) {

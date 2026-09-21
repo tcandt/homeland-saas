@@ -125,13 +125,27 @@ export class DepositsController {
   @Post()
   @RequirePermissions('deposit.create')
   @ApiOperation({ summary: 'Create deposit' })
-  create(@Body() body: any, @CurrentUser('id') userId: string) {
+  create(
+    @Body() body: any,
+    @Headers('idempotency-key') idempotencyHeader: string | undefined,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
     const input = CreateDepositSchema.parse(body);
-    // Note: generate code on backend if not provided. In real world, generate sequence.
-    const code = input.code || `DEP-${Math.floor(Math.random() * 1000000)}`;
     const status = input.status || (body?.status as any) || 'PENDING';
-    const createInput = { ...input, code, status };
-    return this.depositsService.create(createInput, userId, 'Deposits');
+    return this.depositCoreService.create(tenantId, {
+      code: input.code,
+      roomId: input.roomId,
+      customerId: input.customerId,
+      contractId: input.contractId,
+      rentalCycleId: input.rentalCycleId,
+      type: input.type,
+      amount: input.amount,
+      expiredAt: input.expiredAt,
+      note: input.note,
+      status,
+      idempotencyKey: idempotencyHeader || body?.idempotencyKey || '',
+    }, userId);
   }
 
   @Patch(':id')

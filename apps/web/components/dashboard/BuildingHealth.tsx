@@ -11,6 +11,7 @@ export default function BuildingHealth() {
     rooms: Number(building.rooms || 0),
     health: Number(building.fillRate || 0),
     occupied: Number(building.occupied || 0),
+    reserved: Number(building.reserved || building.hold || building.deposited || 0),
     empty: Number(building.vacant || 0),
     warning: Number(building.warning || 0),
     warningType: building.status || "Ổn định",
@@ -47,6 +48,7 @@ export default function BuildingHealth() {
                 <ProgressRing value={building.health} />
 
                 <Metric value={building.comingSoon ? "—" : `${building.occupied}/${building.rooms}`} label="Đang thuê" />
+                <Metric value={building.comingSoon ? "—" : String(building.reserved)} label="Cọc giữ" />
                 <Metric value={building.comingSoon ? "—" : String(building.empty)} label="Phòng trống" />
 
                 <div className="text-center w-[95px]">
@@ -79,7 +81,7 @@ export default function BuildingHealth() {
 
                 <div className="flex items-center gap-2 shrink-0">
                   <div className="flex flex-col items-end justify-center">
-                    <div className="text-[10px] font-bold text-[#22c55e] mb-[2px]">{building.comingSoon ? "Chưa có thông tin phòng" : `${building.empty} phòng trống`}</div>
+                    <div className="text-[10px] font-bold text-[#22c55e] mb-[2px]">{building.comingSoon ? "Chưa có thông tin phòng" : `${building.reserved} cọc · ${building.empty} trống`}</div>
                     <div className={`text-[10px] font-bold ${building.warningColor}`}>{building.warning} {building.warningType}</div>
                   </div>
                   <ChevronRight size={16} className="text-muted" />

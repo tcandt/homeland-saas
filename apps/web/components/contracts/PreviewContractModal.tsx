@@ -49,6 +49,17 @@ export function PreviewContractModal({
     },
   };
 
+  const readMoneyFromText = (text: string | null | undefined, label: string) => {
+    const source = String(text || "");
+    const index = source.toLowerCase().indexOf(label.toLowerCase());
+    if (index < 0) return 0;
+    const value = source
+      .slice(index + label.length)
+      .match(/[:：]\s*([\d.,]+)/)?.[1];
+    const numeric = Number(String(value || "").replace(/\D/g, ""));
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
   useEffect(() => {
     if (!isOpen || !contract) {
       if (pdfBlobUrl) {
@@ -102,8 +113,32 @@ export function PreviewContractModal({
         const depositAmount = Number(
           contract.depositMoney || contract.deposit || contract.depositAmount || contract.tienCoc || 0
         );
+        const isBookingHold =
+          contract.contractTemplate === "BOOKING_HOLD" ||
+          contract.isBookingHold === true ||
+          String(contract.loaiHopDong || "").toUpperCase() === "BOOKING_HOLD" ||
+          String(contract.purpose || "").toLowerCase().includes("cọc giữ phòng");
+        const bookingContractDeposit = isBookingHold
+          ? readMoneyFromText(contract.purpose, "Tiền cọc hợp đồng")
+          : 0;
+        const expectedMoveInDate =
+          contract.ngayDuKienVaoO ||
+          contract.ngayGiuPhongDen ||
+          contract.ngayBatDau ||
+          (contract.startDate ? dayjs(contract.startDate).format("DD/MM/YYYY") : "");
+        const firstMonthAmount = Number(
+          contract.tienThueThangDau ||
+          contract.monthlyRent ||
+          contract.rentPrice ||
+          contract.rentAmount ||
+          contract.tienThue ||
+          0
+        );
 
         const payloadData = {
+          contractTemplate: isBookingHold ? "BOOKING_HOLD" : contract.contractTemplate || "RENTAL",
+          loaiHopDong: isBookingHold ? "BOOKING_HOLD" : contract.loaiHopDong || "RENTAL",
+          isBookingHold,
           hoTen:
             contract.hoTen ||
             contract.customer?.fullName ||
@@ -151,11 +186,28 @@ export function PreviewContractModal({
           tienCocChu: depositAmount ? numberToWordsVietnamese(depositAmount) : "..........................",
           ngayBatDau: contract.ngayBatDau || (contract.startDate ? dayjs(contract.startDate).format("DD/MM/YYYY") : ".........................."),
           ngayKetThuc: contract.ngayKetThuc || (contract.endDate ? dayjs(contract.endDate).format("DD/MM/YYYY") : ".........................."),
+          ngayGiuPhongDen: contract.ngayGiuPhongDen || expectedMoveInDate || "..........................",
+          ngayDuKienVaoO: contract.ngayDuKienVaoO || expectedMoveInDate || "..........................",
+          tienThueThangDau: contract.tienThueThangDau || firstMonthAmount || "",
+          tienCocThueNha: contract.tienCocThueNha || (bookingContractDeposit > 0 ? bookingContractDeposit : ""),
+          phiKhac: contract.phiKhac || (isBookingHold ? "........" : ""),
+          tongThanhToanKhiNhanPhong:
+            contract.tongThanhToanKhiNhanPhong ||
+            (isBookingHold ? firstMonthAmount + bookingContractDeposit : firstMonthAmount) ||
+            "",
+          tongThanhToanKhiNhanPhongChu:
+            contract.tongThanhToanKhiNhanPhongChu ||
+            (firstMonthAmount || bookingContractDeposit
+              ? numberToWordsVietnamese(
+                  isBookingHold ? firstMonthAmount + bookingContractDeposit : firstMonthAmount,
+                )
+              : ""),
           maPhong: contract.maPhong || contract.room?.code || contract.room?.name || contract.roomCode || "..........................",
           soPhongNgu: contract.soPhongNgu || (contract.room as any)?.roomType || "1 phòng ngủ",
           thoiHanThue: contract.thoiHanThue || "1 năm",
           toaNha: contract.toaNha || contract.buildingName || "..........................",
           diachiToanha: contract.diachiToanha || contract.buildingAddress || "..........................",
+          quanLyToaNha: contract.quanLyToaNha || "0373.129.295 Nhân",
           chuNha: contract.chuNha || "TINH",
           ...landlordInfo,
         };

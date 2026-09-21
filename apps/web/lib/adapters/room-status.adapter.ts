@@ -55,6 +55,36 @@ export function isNonTerminalContract(contract: ContractCandidate | null | undef
   return !TERMINAL_CONTRACT_STATUSES.has(status);
 }
 
+export function isPendingContract(contract: ContractCandidate | null | undefined): boolean {
+  if (!contract || contract.deletedAt) return false;
+  const status = String(contract.status || "").toUpperCase();
+  return PENDING_CONTRACT_STATUSES.has(status);
+}
+
+function isBookingHoldContract(contract: ContractCandidate | null | undefined): boolean {
+  if (!contract) return false;
+  const text = [
+    contract.code,
+    contract.type,
+    contract.contractType,
+    contract.contractTemplate,
+    contract.loaiHopDong,
+    contract.purpose,
+    contract.title,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return (
+    contract.isBookingHold === true ||
+    text.includes("booking_hold") ||
+    text.includes("cọc giữ phòng") ||
+    text.includes("coc giu phong") ||
+    text.includes("giữ phòng") ||
+    String(contract.code || "").toUpperCase().startsWith("HD-COC")
+  );
+}
+
 export function hasOpenOccupancy(occupancies: RoomOccupancyCandidate[] | null | undefined): boolean {
   if (!Array.isArray(occupancies) || occupancies.length === 0) return false;
   return occupancies.some((occ) => !occ.leftAt && occ.status !== "TERMINATED" && occ.status !== "CANCELLED");
@@ -77,9 +107,10 @@ export function hasActiveHold(holds: RoomHoldCandidate[] | null | undefined, asO
  * 1. MAINTENANCE status -> "maintenance"
  * 2. Active contract (ACTIVE, APPROVED, EXPIRING) -> "occupied"
  * 3. Open occupancy (!leftAt) -> "occupied"
- * 4. Active hold (ACTIVE and not expired) -> "deposited"
- * 5. RESERVED status with valid hold -> "deposited"
- * 6. Everything else (AVAILABLE, CLEANING, expired/terminated contracts, historical roommates without open occupancy) -> "vacant"
+ * 4. Pending contract (DRAFT/PENDING_APPROVAL) -> "deposited" / in-progress, not occupied yet
+ * 5. Active hold (ACTIVE and not expired) -> "deposited"
+ * 6. RESERVED status with valid hold -> "deposited"
+ * 7. Everything else (AVAILABLE, CLEANING, expired/terminated contracts, historical roommates without open occupancy) -> "vacant"
  */
 export function getRoomUiStatus(room: any, asOf: Date = new Date()): RoomUiStatus {
   if (!room) return "vacant";
@@ -105,6 +136,11 @@ export function getRoomUiStatus(room: any, asOf: Date = new Date()): RoomUiStatu
   ];
   if (hasOpenOccupancy(occupancies)) {
     return "occupied";
+  }
+
+  const pendingContract = contracts.find((c) => isPendingContract(c));
+  if (pendingContract) {
+    return "deposited";
   }
 
   // 3. Check active room holds
@@ -163,6 +199,9 @@ export function getTenantRentalStatus(
 
   if (activeContract) {
     const s = String(activeContract.status || "").toUpperCase();
+    if (isBookingHoldContract(activeContract)) {
+      return { status: "DRAFT", statusLabel: "Chờ ký HĐ cọc giữ phòng", statusVariant: "primary" };
+    }
     if (s === "ACTIVE" || s === "APPROVED") {
       if (activeContract.endDate) {
         const endTime = new Date(activeContract.endDate).getTime();

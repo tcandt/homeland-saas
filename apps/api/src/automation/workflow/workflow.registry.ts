@@ -27,17 +27,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
     triggerEvent: 'deposit.collected',
     steps: [
       {
-        name: 'Create Journal Entry',
-        type: 'CREATE_JOURNAL_ENTRY',
-        order: 1,
-      },
-      {
         name: 'Notify Customer via Zalo',
         type: 'SEND_PAYMENT_CONFIRMATION_ZALO',
-        order: 2,
+        order: 1,
         params: {
           templateCode: 'DEPOSIT_ZALO_PAYMENT_CONFIRMATION',
         },
+      },
+      {
+        name: 'Create Journal Entry',
+        type: 'CREATE_JOURNAL_ENTRY',
+        order: 2,
       },
       {
         name: 'Notify Admin Group via Zalo',
@@ -48,9 +48,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        order: 4,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
         name: 'Notify Customer',
         type: 'CREATE_IN_APP_NOTIFICATION',
-        order: 4,
+        order: 5,
         params: {
           templateCode: 'DEPOSIT_COLLECTED'
         }
@@ -58,17 +66,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
       {
         name: 'Invalidate Dashboard Cache',
         type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 5,
+        order: 6,
       },
       {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 6,
+        order: 7,
       },
       {
         name: 'Write Automation Audit',
         type: 'WRITE_AUTOMATION_AUDIT',
-        order: 7,
+        order: 8,
       }
     ]
   },
@@ -98,14 +106,50 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
     triggerEvent: 'invoice.paid',
     steps: [
       {
+        name: 'Notify Customer via Zalo',
+        type: 'SEND_PAYMENT_CONFIRMATION_ZALO',
+        order: 1,
+        params: {
+          templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
+        },
+      },
+      {
         name: 'Create Journal Entry',
         type: 'CREATE_JOURNAL_ENTRY',
-        order: 1,
+        order: 2,
       },
+      {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 3,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        order: 4,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 5,
+      }
+    ]
+  },
+  {
+    name: 'invoice.payment.recorded.workflow',
+    description: 'Process a partial invoice payment',
+    triggerEvent: 'invoice.payment.recorded',
+    steps: [
       {
         name: 'Notify Customer via Zalo',
         type: 'SEND_PAYMENT_CONFIRMATION_ZALO',
-        order: 2,
+        order: 1,
         params: {
           templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
         },
@@ -119,11 +163,24 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
+        name: 'Create Journal Entry',
+        type: 'CREATE_JOURNAL_ENTRY',
+        order: 2,
+      },
+      {
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        order: 4,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 4,
-      }
-    ]
+        order: 5,
+      },
+    ],
   },
   {
     name: 'deposit.refund_requested.workflow',

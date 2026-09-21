@@ -1,7 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ZaloRegistrationService } from './zalo-registration.service';
+import { ZaloRegistrationService, parseRegisterCommand } from './zalo-registration.service';
 
 describe('ZaloRegistrationService', () => {
+  it('normalizes room prefixes used by the waiting-registration popup', () => {
+    expect(parseRegisterCommand('DK 0567867889 PN 31-03')).toMatchObject({
+      phones: ['0567867889'],
+      roomNumber: '31-03',
+    });
+    expect(parseRegisterCommand('DK 0567867889 P.31-03')).toMatchObject({
+      roomNumber: '31-03',
+    });
+    expect(parseRegisterCommand('ĐK 0567867889 phòng 31.03')).toMatchObject({
+      roomNumber: '31.03',
+    });
+  });
+
   function createService() {
     const prisma = {
       room: {
@@ -63,6 +76,19 @@ describe('ZaloRegistrationService', () => {
       roomId: 'room-1',
       contractId: 'contract-1',
     });
+    expect(prisma.room.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          contracts: expect.objectContaining({
+            where: expect.objectContaining({
+              status: expect.objectContaining({
+                in: expect.arrayContaining(['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'EXPIRING']),
+              }),
+            }),
+          }),
+        }),
+      }),
+    );
     expect(prisma.customer.update).toHaveBeenCalledWith({
       where: { id: 'customer-1' },
       data: {

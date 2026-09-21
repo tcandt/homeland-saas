@@ -39,6 +39,9 @@ export default function BuildingPortfolioRail({
             const isSelected = descriptor.code === normalizedActiveCode;
             const metrics = building && !isPending ? getBuildingMetrics(building) : null;
             const hasMetrics = Boolean(metrics && metrics.totalRooms > 0);
+            const allocatedRate = hasMetrics
+              ? Math.round(((metrics!.occupiedRooms + metrics!.depositedRooms) / metrics!.totalRooms) * 100)
+              : 0;
             const statusLabel = isPending
               ? "Coming Soon"
               : building?.statusLabel || "Chưa đồng bộ";
@@ -113,28 +116,47 @@ export default function BuildingPortfolioRail({
 
                   {/* Middle Bar: Progress & Occupancy */}
                   <div>
-                    <div className="flex items-center justify-between text-[11px] font-bold">
-                      <span className="text-text font-semibold">
-                        {hasMetrics ? `${metrics!.occupiedRooms}/${metrics!.totalRooms} phòng đã thuê` : "—"}
-                      </span>
-                      <span className={cx("font-black text-[11px]", hasMetrics ? "text-primary" : "text-muted")}>
-                        {hasMetrics ? `${metrics!.occupancyRate}%` : "—%"}
+                    <div className="flex items-center justify-between gap-2 text-[11px] font-bold">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-text font-semibold">
+                          {hasMetrics ? `${metrics!.occupiedRooms}/${metrics!.totalRooms} phòng đã thuê` : "—"}
+                        </span>
+                        {hasMetrics && (
+                          <span className="shrink-0 font-semibold text-sky-600 dark:text-sky-400">
+                            {metrics!.depositedRooms} phòng đã cọc
+                          </span>
+                        )}
+                      </div>
+                      <span className={cx("shrink-0 font-black text-[11px]", hasMetrics ? "text-primary" : "text-muted")}>
+                        {hasMetrics ? `${allocatedRate}%` : "—%"}
                       </span>
                     </div>
                     <div
                       role="progressbar"
-                      aria-label={`Tỷ lệ lấp đầy ${descriptor.code}`}
+                      aria-label={`Tỷ lệ thuê và đặt cọc ${descriptor.code}`}
                       aria-valuemin={0}
                       aria-valuemax={100}
-                      aria-valuenow={hasMetrics ? metrics!.occupancyRate : undefined}
-                      aria-valuetext={hasMetrics ? `${metrics!.occupancyRate}%` : "Chưa có dữ liệu"}
+                      aria-valuenow={hasMetrics ? allocatedRate : undefined}
+                      aria-valuetext={
+                        hasMetrics
+                          ? `${allocatedRate}% đã thuê hoặc đặt cọc`
+                          : "Chưa có dữ liệu"
+                      }
                       className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/10"
                     >
                       {hasMetrics && (
-                        <span
-                          className="block h-full rounded-full bg-gradient-to-r from-primary via-indigo-500 to-violet-500 transition-[width] duration-300 motion-reduce:transition-none"
-                          style={{ width: `${metrics!.occupancyRate}%` }}
-                        />
+                        <div className="flex h-full w-full">
+                          <span
+                            className="block h-full bg-emerald-500 transition-[width] duration-300 motion-reduce:transition-none"
+                            style={{ width: `${(metrics!.occupiedRooms / metrics!.totalRooms) * 100}%` }}
+                            title={`${metrics!.occupiedRooms} phòng đang thuê`}
+                          />
+                          <span
+                            className="block h-full bg-sky-500 transition-[width] duration-300 motion-reduce:transition-none"
+                            style={{ width: `${(metrics!.depositedRooms / metrics!.totalRooms) * 100}%` }}
+                            title={`${metrics!.depositedRooms} phòng đã cọc`}
+                          />
+                        </div>
                       )}
                     </div>
                   </div>

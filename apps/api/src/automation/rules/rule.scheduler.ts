@@ -1,10 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { ContractStatus, InvoiceStatus } from '@prisma/client';
+import { ContractStatus, InvoiceStatus, SettingScope } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { RuleEngine } from './rule.engine';
 import { buildRoomContext } from '../../shared/context/room-context';
 import { shouldRunGeneralSchedulers } from '../../shared/config/runtime-mode';
+
+type NotificationReminderDays = {
+  invoiceDueSoonDays: number;
+  invoiceOverdueDays: number;
+  contractExpiringDays: number;
+};
+
+type LoadedReminderDays = {
+  global: NotificationReminderDays;
+  byTenant: Map<string, NotificationReminderDays>;
+};
+
+const DEFAULT_REMINDER_DAYS: NotificationReminderDays = {
+  invoiceDueSoonDays: 3,
+  invoiceOverdueDays: 7,
+  contractExpiringDays: 30,
+};
 
 @Injectable()
 export class RuleScheduler {
@@ -18,10 +35,11 @@ export class RuleScheduler {
   @Cron('0 9 * * *')
   async runInvoiceDueSoon3DaysRule() {
     if (!shouldRunGeneralSchedulers()) return { checked: 0, checkedAt: new Date(), skipped: true };
+    const reminderDays = await this.loadReminderDays();
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfThirdDay = new Date(startOfToday);
-    endOfThirdDay.setDate(endOfThirdDay.getDate() + 3);
+    endOfThirdDay.setDate(endOfThirdDay.getDate() + reminderDays.global.invoiceDueSoonDays);
     endOfThirdDay.setHours(23, 59, 59, 999);
     const dayKey = now.toISOString().slice(0, 10);
 
@@ -70,6 +88,8 @@ export class RuleScheduler {
 
     for (const invoice of invoices) {
       try {
+        const tenantReminderDays = reminderDays.byTenant.get(invoice.tenantId) || DEFAULT_REMINDER_DAYS;
+        if (this.daysUntil(invoice.dueDate, startOfToday) > tenantReminderDays.invoiceDueSoonDays) continue;
         await this.ruleEngine.executeRule('invoice.due_soon.3_days', {
           tenantId: invoice.tenantId,
           correlationId: `invoice.due_soon.3_days:${invoice.id}:${dayKey}`,
@@ -101,9 +121,11 @@ export class RuleScheduler {
   @Cron('0 9 * * *')
   async runInvoiceOverdue7DaysRule() {
     if (!shouldRunGeneralSchedulers()) return { checked: 0, checkedAt: new Date(), skipped: true };
+    const reminderDays = await this.loadReminderDays();
     const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const threshold = new Date(now);
-    threshold.setDate(threshold.getDate() - 7);
+    threshold.setDate(threshold.getDate() - reminderDays.global.invoiceOverdueDays);
     const dayKey = now.toISOString().slice(0, 10);
 
     const invoices = await this.prisma.invoice.findMany({
@@ -150,6 +172,8 @@ export class RuleScheduler {
 
     for (const invoice of invoices) {
       try {
+        const tenantReminderDays = reminderDays.byTenant.get(invoice.tenantId) || DEFAULT_REMINDER_DAYS;
+        if (this.daysOverdue(invoice.dueDate, startOfToday) < tenantReminderDays.invoiceOverdueDays) continue;
         await this.ruleEngine.executeRule('invoice.overdue.7_days', {
           tenantId: invoice.tenantId,
           correlationId: `invoice.overdue.7_days:${invoice.id}:${dayKey}`,
@@ -181,10 +205,11 @@ export class RuleScheduler {
   @Cron('5 9 * * *')
   async runContractExpiring30DaysRule() {
     if (!shouldRunGeneralSchedulers()) return { checked: 0, checkedAt: new Date(), skipped: true };
+    const reminderDays = await this.loadReminderDays();
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfWindow = new Date(startOfToday);
-    endOfWindow.setDate(endOfWindow.getDate() + 30);
+    endOfWindow.setDate(endOfWindow.getDate() + reminderDays.global.contractExpiringDays);
     endOfWindow.setHours(23, 59, 59, 999);
     const dayKey = now.toISOString().slice(0, 10);
 
@@ -227,6 +252,8 @@ export class RuleScheduler {
 
     for (const contract of contracts) {
       try {
+        const tenantReminderDays = reminderDays.byTenant.get(contract.tenantId) || DEFAULT_REMINDER_DAYS;
+        if (this.daysUntil(contract.endDate, startOfToday) > tenantReminderDays.contractExpiringDays) continue;
         await this.ruleEngine.executeRule('contract.expiring.30_days', {
           tenantId: contract.tenantId,
           correlationId: `contract.expiring.30_days:${contract.id}:${dayKey}`,
@@ -254,5 +281,49 @@ export class RuleScheduler {
       checked: contracts.length,
       checkedAt: now,
     };
+  }
+
+  private async loadReminderDays(): Promise<LoadedReminderDays> {
+    const records = await this.prisma.appSetting.findMany({
+      where: {
+        key: 'notifications',
+        scope: SettingScope.TENANT,
+      },
+      select: { tenantId: true, value: true },
+    }).catch(() => []);
+    const byTenant = new Map<string, NotificationReminderDays>();
+    let global = { ...DEFAULT_REMINDER_DAYS };
+    for (const record of records as any[]) {
+      const settings = this.normalizeReminderDays(record?.value?.reminderDays || {});
+      if (record?.tenantId) byTenant.set(record.tenantId, settings);
+      global = {
+        invoiceDueSoonDays: Math.max(global.invoiceDueSoonDays, settings.invoiceDueSoonDays),
+        invoiceOverdueDays: Math.max(global.invoiceOverdueDays, settings.invoiceOverdueDays),
+        contractExpiringDays: Math.max(global.contractExpiringDays, settings.contractExpiringDays),
+      };
+    }
+    return { global, byTenant };
+  }
+
+  private normalizeReminderDays(value: any): NotificationReminderDays {
+    return {
+      invoiceDueSoonDays: this.normalizeReminderDay(value.invoiceDueSoonDays, DEFAULT_REMINDER_DAYS.invoiceDueSoonDays, 0, 60),
+      invoiceOverdueDays: this.normalizeReminderDay(value.invoiceOverdueDays, DEFAULT_REMINDER_DAYS.invoiceOverdueDays, 0, 365),
+      contractExpiringDays: this.normalizeReminderDay(value.contractExpiringDays, DEFAULT_REMINDER_DAYS.contractExpiringDays, 0, 365),
+    };
+  }
+
+  private normalizeReminderDay(value: unknown, fallback: number, min: number, max: number) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.min(max, Math.max(min, Math.trunc(numeric)));
+  }
+
+  private daysUntil(value: Date, startOfToday: Date) {
+    return Math.ceil((new Date(value).getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000));
+  }
+
+  private daysOverdue(value: Date, startOfToday: Date) {
+    return Math.floor((startOfToday.getTime() - new Date(value).getTime()) / (24 * 60 * 60 * 1000));
   }
 }

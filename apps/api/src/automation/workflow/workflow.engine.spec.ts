@@ -7,6 +7,12 @@ describe('WorkflowEngine', () => {
       appSetting: {
         findUnique: vi.fn(),
       },
+      customer: {
+        findUnique: vi.fn(),
+      },
+      user: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       chartOfAccount: {
         findFirst: vi.fn(),
       },
@@ -97,6 +103,56 @@ describe('WorkflowEngine', () => {
     expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
   });
 
+  it('resolves the current customer Zalo chat after an outbox payload was created', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } });
+    prisma.customer.findUnique.mockResolvedValueOnce({ zaloChatId: 'current-chat-1', zaloUserId: null });
+    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
+
+    await (engine as any).executeStep('SEND_PAYMENT_CONFIRMATION_ZALO', {
+      tenantId: 'tenant-1',
+      customerId: 'customer-1',
+      paymentProvider: 'SEPAY',
+      metadata: { code: 'INV-001', paymentStatus: 'PAID' },
+      paymentAmount: 1000000,
+      amount: 1000000,
+    }, { templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION' });
+
+    expect(prisma.customer.findUnique).toHaveBeenCalledWith({
+      where: { id: 'customer-1', tenantId: 'tenant-1' },
+      select: { zaloChatId: true, zaloUserId: true },
+    });
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient: 'current-chat-1' }),
+    );
+  });
+
+  it('creates an admin in-app notification for every active tenant user', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'admin-1', roles: [{ role: { code: 'ADMIN' } }] },
+      { id: 'admin-2', roles: [{ role: { code: 'FINANCE' } }] },
+    ]);
+
+    await (engine as any).executeStep('CREATE_ADMIN_IN_APP_NOTIFICATION', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-1',
+      customerName: 'Khach A',
+      amount: 1000000,
+      metadata: { code: 'INV-001' },
+    }, { templateCode: 'SYSTEM_ALERT' });
+
+    expect(communicationService.dispatch).toHaveBeenCalledTimes(2);
+    expect(communicationService.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        userId: 'admin-1',
+        channel: 'IN_APP',
+      }),
+    );
+  });
+
   it('posts collected deposits to bank and deposit liability accounts', async () => {
     const { engine, prisma, journalEntryService } = createEngine();
     prisma.chartOfAccount.findFirst
@@ -155,6 +211,25 @@ describe('WorkflowEngine', () => {
         ],
       }),
     );
+  });
+
+  it('does not post booking-hold deposit invoices as rental revenue', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-booking-hold-1',
+      amount: 1000000,
+      metadata: {
+        code: 'HD-COC-001',
+        period: 'Cọc giữ phòng',
+        bookingHoldDepositInvoice: true,
+      },
+    });
+
+    expect(prisma.chartOfAccount.findFirst).not.toHaveBeenCalled();
+    expect(journalEntryService.createJournalEntry).not.toHaveBeenCalled();
   });
 
   it('posts refunded deposits to deposit liability and bank accounts', async () => {

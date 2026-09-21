@@ -25,13 +25,21 @@ function resolveTaiLieuPath(filename: string): string {
 }
 
 export async function POST(request: Request) {
+  let templateFilename = 'HOP_DONG_1PN.docx';
   try {
     const auth = await requireRoutePermission(request, 'contract.read');
     if ('response' in auth) return auth.response;
 
     const data = await request.json();
-    
-    const templatePath = resolveTaiLieuPath('HOP_DONG_1PN.docx');
+    const isBookingHoldTemplate =
+      data.contractTemplate === 'BOOKING_HOLD' ||
+      data.isBookingHold === true ||
+      String(data.loaiHopDong || '').toUpperCase() === 'BOOKING_HOLD';
+    templateFilename = isBookingHoldTemplate
+      ? 'HD-COC-GIU-PHONG.docx'
+      : 'HOP_DONG_1PN.docx';
+
+    const templatePath = resolveTaiLieuPath(templateFilename);
 
     // Check if the file exists
     if (!fs.existsSync(templatePath)) {
@@ -77,6 +85,13 @@ export async function POST(request: Request) {
     const defaultDay = String(today.getDate()).padStart(2, '0');
     const defaultMonth = String(today.getMonth() + 1).padStart(2, '0');
     const defaultYear = String(today.getFullYear());
+    const formatMoney = (value: any) => {
+      if (value === undefined || value === null || value === '') return '';
+      const numeric = Number(String(value).replace(/\D/g, ''));
+      return Number.isFinite(numeric) && numeric > 0
+        ? numeric.toLocaleString('vi-VN')
+        : String(value);
+    };
 
     // Map data
     const templateData = {
@@ -87,9 +102,9 @@ export async function POST(request: Request) {
       dienThoai: data.dienThoai || '',
       dienThoaiNguoithan: data.dienThoaiNguoithan || '-',
       mucDichThue: data.mucDichThue || 'Để ở',
-      tienThue: data.tienThue ? data.tienThue.toLocaleString('vi-VN') : '',
+      tienThue: formatMoney(data.tienThue),
       tienThueChu: data.tienThueChu || '',
-      tienCoc: data.tienCoc ? data.tienCoc.toLocaleString('vi-VN') : '',
+      tienCoc: formatMoney(data.tienCoc),
       tienCocChu: data.tienCocChu || '',
       ngayBatDau: data.ngayBatDau || '',
       ngayKetThuc: data.ngayKetThuc || '',
@@ -113,6 +128,16 @@ export async function POST(request: Request) {
       namKyHD: data.namKyHD || defaultYear,
       ngayKyhopdong: data.ngayKyhopdong || `${defaultDay}/${defaultMonth}/${defaultYear}`,
       ngayThanhToanDauTien: data.ngayThanhToanDauTien || `${defaultDay}/${defaultMonth}/${defaultYear}`,
+      quanLyToaNha: data.quanLyToaNha || data.dienThoaiQuanLy || '0373.129.295 Nhân',
+      ngayGiuPhongDen: data.ngayGiuPhongDen || data.ngayDuKienVaoO || data.ngayBatDau || '',
+      ngayDuKienVaoO: data.ngayDuKienVaoO || data.ngayBatDau || '',
+      tienThueThangDau: formatMoney(data.tienThueThangDau ?? data.tienThue),
+      tienCocThueNha: formatMoney(data.tienCocThueNha ?? data.tienCocHopDong ?? ''),
+      phiKhac: formatMoney(data.phiKhac ?? ''),
+      tongThanhToanKhiNhanPhong: formatMoney(data.tongThanhToanKhiNhanPhong ?? data.tienThueThangDau ?? data.tienThue),
+      tongThanhToanKhiNhanPhongChu: data.tongThanhToanKhiNhanPhongChu || '',
+      contractTemplate: data.contractTemplate || (isBookingHoldTemplate ? 'BOOKING_HOLD' : 'RENTAL'),
+      loaiHopDong: data.loaiHopDong || (isBookingHoldTemplate ? 'BOOKING_HOLD' : 'RENTAL'),
     };
 
     doc.render(templateData);
@@ -165,7 +190,8 @@ try {
             try { fs.unlinkSync(tempDocx); } catch {}
             try { fs.unlinkSync(tempPdf); } catch {}
 
-            const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
+            const filenamePrefix = isBookingHoldTemplate ? 'HopDongCocGiuPhong' : 'HopDong';
+            const filename = `${filenamePrefix}_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
             const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_');
             const encodedFilename = encodeURIComponent(filename);
             return new NextResponse(pdfBuf as any, {
@@ -200,7 +226,8 @@ try {
           try { fs.unlinkSync(tempDocx); } catch {}
           try { fs.unlinkSync(tempPdf); } catch {}
 
-          const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
+          const filenamePrefix = isBookingHoldTemplate ? 'HopDongCocGiuPhong' : 'HopDong';
+          const filename = `${filenamePrefix}_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.pdf`;
           const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_');
           const encodedFilename = encodeURIComponent(filename);
           return new NextResponse(pdfBuf as any, {
@@ -219,7 +246,8 @@ try {
       }
     }
 
-    const filename = `HopDong_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.docx`;
+    const filenamePrefix = isBookingHoldTemplate ? 'HopDongCocGiuPhong' : 'HopDong';
+    const filename = `${filenamePrefix}_${safeCustomer}${safeRoom ? `_${safeRoom}` : ''}.docx`;
     const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_');
     const encodedFilename = encodeURIComponent(filename);
 
@@ -241,7 +269,7 @@ try {
     
     // Check if it's the specific docxtemplater filetype error
     if (errorMessage.includes('The filetype for this file could not be identified')) {
-      errorMessage = 'File HOP_DONG_1PN.docx hiện tại không phải là file Word (.docx) hợp lệ hoặc bị lỗi. Vui lòng kiểm tra lại file mẫu.';
+      errorMessage = `File ${templateFilename} hiện tại không phải là file Word (.docx) hợp lệ hoặc bị lỗi. Vui lòng kiểm tra lại file mẫu.`;
     }
 
     return NextResponse.json({ error: errorMessage }, { status: 500 });

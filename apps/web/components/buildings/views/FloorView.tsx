@@ -254,10 +254,10 @@ export default function FloorView({
                     <Plus size={12} className="text-muted" /> Thêm khách
                   </button>
                   <button 
-                    onClick={() => onCreateInvoice(room.id)}
+                    onClick={() => onOpenRoomModal(room.id, "rental_flow")}
                     className="flex items-center gap-1.5 bg-background hover:bg-black/5 dark:hover:bg-white/5 border border-border/60 rounded-[8px] p-2 text-[11px] font-bold text-text transition-colors"
                   >
-                    <CreditCard size={12} className="text-muted" /> Tạo hóa đơn
+                    <CreditCard size={12} className="text-muted" /> Khách thuê & cọc
                   </button>
                   <button 
                     onClick={() => onViewContract(room.id)}

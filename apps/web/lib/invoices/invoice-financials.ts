@@ -3,15 +3,28 @@ export function getInvoiceFinancials(invoice: any) {
   const paid = Math.max(0, Number(invoice?.paidAmount ?? invoice?.paid ?? 0) || 0);
   const credit = Math.max(0, Number(invoice?.creditAmount ?? invoice?.credit ?? 0) || 0);
   const settled = Math.min(total, paid + credit);
+  const reportedOverpaid = Math.max(0, Number(invoice?.overpaymentAmount ?? invoice?.overpaidAmount ?? 0) || 0);
+  const overpaid = Math.max(reportedOverpaid, paid + credit - total);
 
   return {
     total,
     paid,
     credit,
     settled,
+    overpaid,
     remaining: Math.max(0, total - settled),
     settledPercent: total > 0 ? Math.min(100, Math.round((settled / total) * 100)) : 0,
   };
+}
+
+export function isBookingHoldInvoice(invoice: any) {
+  const period = String(invoice?.period || invoice?.usagePeriod || "").trim().toLowerCase();
+  const billingKind = String(invoice?.billingKind || "").trim().toUpperCase();
+  return (
+    period === "cọc giữ phòng" ||
+    billingKind === "BOOKING_HOLD" ||
+    billingKind === "BOOKING_DEPOSIT"
+  );
 }
 
 export function getInvoicesFinancialSummary(invoices: any[] = []) {

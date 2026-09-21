@@ -114,9 +114,11 @@ test('API integration tests compile shared workspace before Vitest resolves it',
   assert.match(bootstrap, /databaseUrl\.port !== '5433'/);
   assert.match(bootstrap, /information_schema\.tables/);
   assert.match(bootstrap, /database is not empty/);
-  assert.match(bootstrap, /migrate',\s*'diff'/);
-  assert.match(bootstrap, /'--from-empty'/);
-  assert.match(bootstrap, /'--to-schema-datamodel'/);
+  assert.match(bootstrap, /baseline-v2\.sql/);
+  assert.match(bootstrap, /db', 'execute', '--file', preludeSql/);
+  assert.match(bootstrap, /db', 'execute', '--file', baselineV2Sql/);
+  assert.match(bootstrap, /assertCanonicalFingerprint/);
+  assert.match(bootstrap, /contractStatusAudit/);
   assert.match(bootstrap, /migrate', 'resolve', '--applied'/);
   assert.match(bootstrap, /migrate', 'deploy'/);
   assert.doesNotMatch(bootstrap, /db\s+push|db\s+seed|force-reset|accept-data-loss/i);

@@ -11,6 +11,7 @@ import {
   DepositOperationStatus,
   DepositOperationType,
   DepositStatus,
+  DepositType,
   InvoiceItemType,
   InvoiceStatus,
   ReceiptStatus,
@@ -296,6 +297,120 @@ export class ContractsService extends BaseCrudService<Contract> {
     return renewed;
   }
 
+  async createRentalFromBookingHold(
+    id: string,
+    input: RenewContractInput,
+    userId: string,
+    tenantId: string,
+  ): Promise<Contract> {
+    const startDate = new Date(input.startDate);
+    const endDate = new Date(input.endDate);
+    if (Number.isNaN(startDate.getTime())) {
+      throw new BadRequestException("BOOKING_CONVERT_START_DATE_INVALID");
+    }
+    if (Number.isNaN(endDate.getTime()) || endDate.getTime() <= startDate.getTime()) {
+      throw new BadRequestException("BOOKING_CONVERT_END_DATE_INVALID");
+    }
+    const firstPaymentDate =
+      input.firstPaymentDate === undefined
+        ? startDate
+        : input.firstPaymentDate === null
+          ? null
+          : new Date(input.firstPaymentDate);
+    if (firstPaymentDate && Number.isNaN(firstPaymentDate.getTime())) {
+      throw new BadRequestException("BOOKING_CONVERT_FIRST_PAYMENT_DATE_INVALID");
+    }
+
+    const source = await this.prisma.tx.contract.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException(`Contract with ID ${id} not found`);
+    const sourceText = `${source.code || ""} ${source.purpose || ""}`.toLowerCase();
+    if (
+      !sourceText.includes("hd-coc") &&
+      !sourceText.includes("cọc giữ phòng") &&
+      !sourceText.includes("coc giu phong")
+    ) {
+      throw new BadRequestException("SOURCE_CONTRACT_IS_NOT_BOOKING_HOLD");
+    }
+    if (!source.rentalCycleId) {
+      throw new BadRequestException("BOOKING_CONTRACT_RENTAL_CYCLE_REQUIRED");
+    }
+
+    const existingRental = await this.prisma.tx.contract.findFirst({
+      where: {
+        tenantId,
+        rentalCycleId: source.rentalCycleId,
+        id: { not: source.id },
+        deletedAt: null,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existingRental) return existingRental;
+
+    const suffix = createHash("sha256")
+      .update(`${tenantId}:${source.id}:${startDate.toISOString()}:${endDate.toISOString()}`)
+      .digest("hex")
+      .slice(0, 8)
+      .toUpperCase();
+    const roomSnapshot = (source.roomSnapshot as any) || {};
+    const roomCode = roomSnapshot?.code || source.roomId.slice(-6).toUpperCase();
+    const rentalCode = `HD-THUE-${roomCode}-${suffix}`;
+    const prepared = await this.withContractSnapshots({
+      tenantId,
+      customerId: source.customerId,
+      roomId: source.roomId,
+      rentalCycleId: source.rentalCycleId,
+      code: rentalCode,
+      status: ContractStatus.DRAFT,
+      startDate,
+      endDate,
+      monthlyRent: input.rentAmount ?? Number(source.monthlyRent),
+      depositMoney: input.depositAmount ?? Number(source.depositMoney),
+      memberCount: input.memberCount ?? source.memberCount,
+      firstPaymentDate,
+      purpose:
+        input.purpose ||
+        `Hợp đồng thuê phòng dài hạn chuyển từ ${source.code || source.id}`,
+      coRepresentativeIds: input.coRepresentativeIds ?? source.coRepresentativeIds,
+      attachments: [],
+      signedAt: null,
+    });
+
+    const created = await this.prisma.tx.$transaction(async (tx) => {
+      const contract = await tx.contract.create({
+        data: {
+          ...prepared,
+          termsSnapshot: this.asJson({
+            ...(prepared.termsSnapshot as any),
+            convertedFromBookingHold: {
+              sourceContractId: source.id,
+              sourceRentalCycleId: source.rentalCycleId,
+              policyVersion: "BOOKING_HOLD_TO_RENTAL_V1",
+            },
+          }),
+        },
+      });
+      await this.syncContractHistory(contract, tx);
+      if (tx.auditLog?.create) {
+        await tx.auditLog.create({
+          data: {
+            action: "CREATE",
+            entity: this.entityName,
+            entityId: contract.id,
+            module: "ContractsBookingHoldConvert",
+            tenantId,
+            userId,
+            after: contract,
+          },
+        });
+      }
+      return contract;
+    });
+
+    return created;
+  }
+
   async update(
     id: string,
     data: any,
@@ -458,6 +573,82 @@ export class ContractsService extends BaseCrudService<Contract> {
   async getDetail(id: string, include?: any): Promise<any> {
     const record = await super.getDetail(id, include);
     const settlementRefund = await this.getSettlementRefundSummary(record);
+    const bookingDeposit = await this.prisma.tx.deposit.findFirst({
+      where: {
+        tenantId: record.tenantId,
+        deletedAt: null,
+        OR: [
+          { contractId: record.id },
+          ...(record.rentalCycleId
+            ? [{ rentalCycleId: record.rentalCycleId }]
+            : []),
+          {
+            roomId: record.roomId,
+            customerId: record.customerId,
+            type: { in: [DepositType.BOOKING, DepositType.RESERVATION] },
+          },
+        ],
+        type: { in: [DepositType.BOOKING, DepositType.RESERVATION] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        code: true,
+        type: true,
+        status: true,
+        amount: true,
+        expiredAt: true,
+        rentalCycleId: true,
+        contractId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    const invoiceModel = (this.prisma.tx as any).invoice;
+    const paymentRequestModel = (this.prisma.tx as any).paymentRequest;
+    const bookingInvoice = invoiceModel?.findFirst
+      ? await invoiceModel.findFirst({
+      where: {
+        tenantId: record.tenantId,
+        contractId: record.id,
+        deletedAt: null,
+        period: "Cọc giữ phòng",
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        total: true,
+        paidAmount: true,
+        createdAt: true,
+      },
+    })
+      : null;
+    const bookingPaymentRequest = bookingInvoice && paymentRequestModel?.findFirst
+      ? await paymentRequestModel.findFirst({
+          where: {
+            tenantId: record.tenantId,
+            sourceType: "INVOICE",
+            sourceId: bookingInvoice.id,
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            status: true,
+            paymentCode: true,
+            paidAt: true,
+            createdAt: true,
+            metadata: true,
+        },
+        })
+      : null;
+    const recordWithBookingDeposit = {
+      ...record,
+      bookingDeposit,
+      bookingInvoice,
+      bookingPaymentRequest,
+    };
     if (record.coRepresentativeIds && record.coRepresentativeIds.length > 0) {
       const coReps = await this.prisma.tx.customer.findMany({
         where: { id: { in: record.coRepresentativeIds } },
@@ -469,9 +660,13 @@ export class ContractsService extends BaseCrudService<Contract> {
           idImages: true,
         },
       });
-      return { ...record, coRepresentatives: coReps, settlementRefund };
+      return {
+        ...recordWithBookingDeposit,
+        coRepresentatives: coReps,
+        settlementRefund,
+      };
     }
-    return { ...record, settlementRefund };
+    return { ...recordWithBookingDeposit, settlementRefund };
   }
 
   async listContracts(
@@ -564,16 +759,69 @@ export class ContractsService extends BaseCrudService<Contract> {
       );
     }
 
-    const room = await this.prisma.tx.room.findUnique({
-      where: { id: contract.roomId },
-    });
-    if (!room || room.status !== RoomStatus.AVAILABLE) {
-      throw new ConflictException(
-        `Room ${room?.code || contract.roomId} is not AVAILABLE.`,
-      );
-    }
-
     const result = await this.prisma.tx.$transaction(async (tx) => {
+      // Lock the room before checking availability. A stale OCCUPIED flag must
+      // not block approval when there is no actual active occupancy, contract,
+      // or hold; RESERVED/CLEANING/MAINTENANCE remain blocking states.
+      if (contract.tenantId && typeof tx.$queryRaw === "function") {
+        await this.lockRoomLifecycle(tx, contract.tenantId, contract.roomId);
+      }
+
+      const room = await tx.room.findUnique({
+        where: { id: contract.roomId },
+      });
+      if (!room) {
+        throw new ConflictException(
+          `Room ${contract.roomId} is not AVAILABLE.`,
+        );
+      }
+
+      const [openOccupancies, activeContracts, activeHolds] =
+        await Promise.all([
+          typeof tx.occupancy?.count === "function"
+            ? tx.occupancy.count({
+                where: {
+                  tenantId: contract.tenantId,
+                  roomId: contract.roomId,
+                  leftAt: null,
+                },
+              })
+            : 0,
+          typeof tx.contract?.count === "function"
+            ? tx.contract.count({
+                where: {
+                  tenantId: contract.tenantId,
+                  roomId: contract.roomId,
+                  deletedAt: null,
+                  status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+                },
+              })
+            : 0,
+          typeof tx.roomHold?.count === "function"
+            ? tx.roomHold.count({
+                where: {
+                  tenantId: contract.tenantId,
+                  roomId: contract.roomId,
+                  status: "ACTIVE",
+                  expiresAt: { gt: new Date() },
+                },
+              })
+            : 0,
+        ]);
+
+      const roomHasBlockingState =
+        room.status === RoomStatus.RESERVED ||
+        room.status === RoomStatus.CLEANING ||
+        room.status === RoomStatus.MAINTENANCE ||
+        openOccupancies > 0 ||
+        activeContracts > 0 ||
+        activeHolds > 0;
+      if (roomHasBlockingState) {
+        throw new ConflictException(
+          `Room ${room.code || contract.roomId} is not AVAILABLE.`,
+        );
+      }
+
       const updatedContract = await tx.contract.update({
         where: { id },
         data: { status: ContractStatus.APPROVED },
@@ -597,18 +845,33 @@ export class ContractsService extends BaseCrudService<Contract> {
         data: { status: RoomStatus.RESERVED },
       });
 
-      const deposit = await tx.deposit.create({
-        data: {
+      // A contract deposit may already have been created by the payment
+      // reconciliation/sync flow before approval. Never create a second
+      // deposit just because the contract moved to APPROVED.
+      const existingContractDeposit = await tx.deposit.findFirst({
+        where: {
           tenantId: contract.tenantId,
-          code: `DEP-${Date.now()}`,
-          roomId: contract.roomId,
-          customerId: contract.customerId,
           contractId: contract.id,
-          rentalCycleId: contract.rentalCycleId,
-          amount: contract.depositMoney,
-          status: "DRAFT",
+          deletedAt: null,
         },
+        orderBy: { createdAt: "desc" },
       });
+      const deposit =
+        existingContractDeposit ||
+        (await tx.deposit.create({
+          data: {
+            tenantId: contract.tenantId,
+            code: `DC-${contract.code || contract.id}`,
+            type: DepositType.SECURITY,
+            roomId: contract.roomId,
+            customerId: contract.customerId,
+            contractId: contract.id,
+            rentalCycleId: contract.rentalCycleId,
+            amount: contract.depositMoney,
+            status: DepositStatus.PENDING,
+            note: `Cọc bảo đảm hợp đồng ${contract.code || contract.id}`,
+          },
+        }));
 
       return { updatedContract, updatedRoom, deposit };
     });

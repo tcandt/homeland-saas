@@ -1,30 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { maskPhone, maskCccd } from '../../lib/adapters/tenant-masking.adapter';
 
-export function evaluateExistingCustomerSelection(customer: {
-  id: string;
-  fullName?: string;
-  phone?: string;
-  identityNo?: string;
-  occupancies?: Array<{ roomId?: string; leftAt?: string | null }>;
-  contracts?: Array<{ status?: string }>;
-}, currentRoomId: string) {
-  const occupancies = customer.occupancies || [];
-  const activeOccupancy = occupancies.find((occ) => !occ.leftAt);
-  const isInCurrentRoom = Boolean(activeOccupancy && activeOccupancy.roomId === currentRoomId);
-  const isInAnotherRoom = Boolean(activeOccupancy && activeOccupancy.roomId && activeOccupancy.roomId !== currentRoomId);
-
-  const isSelectable = !isInCurrentRoom && !isInAnotherRoom;
-  return {
-    isSelectable,
-    isInCurrentRoom,
-    isInAnotherRoom,
-    maskedPhone: maskPhone(customer.phone),
-    maskedCccd: maskCccd(customer.identityNo),
-  };
-}
+import { evaluateExistingCustomerSelection } from '../../lib/adapters/customer-selection';
 
 describe('D2-FIX-04: Existing Customer Profile & PII Masking', () => {
+  it('checks every open occupancy and fails closed on missing room binding', () => {
+    expect(evaluateExistingCustomerSelection({ id: 'c', occupancies: [{}, { roomId: 'elsewhere' }] }, 'here').isSelectable).toBe(false);
+    expect(evaluateExistingCustomerSelection({ id: 'c', occupancies: [{}] }, 'here').hasUnknownRoom).toBe(true);
+    expect(evaluateExistingCustomerSelection({ id: 'c', roomId: 'legacy' }, 'here').isSelectable).toBe(false);
+    expect(evaluateExistingCustomerSelection({ id: 'c', roomId: 'legacy', occupancies: [] }, 'here').isSelectable).toBe(true);
+    expect(evaluateExistingCustomerSelection({ id: 'c', occupancies: [{ room: { id: 'here' } }] }, 'here').isInCurrentRoom).toBe(true);
+  });
+
+  it('blocks open contracts elsewhere but ignores deleted and terminated contracts', () => {
+    expect(evaluateExistingCustomerSelection({ id: 'c', contracts: [{ roomId: 'elsewhere', status: 'DRAFT' }] }, 'here').isSelectable).toBe(false);
+    expect(evaluateExistingCustomerSelection({ id: 'c', contracts: [{ roomId: 'elsewhere', status: 'ACTIVE', deletedAt: '2026-09-01' }] }, 'here').isSelectable).toBe(true);
+    expect(evaluateExistingCustomerSelection({ id: 'c' }, '').isSelectable).toBe(false);
+  });
   it('masks phone numbers and CCCD properly', () => {
     expect(maskPhone('0989882555')).toBe('098****555');
     expect(maskPhone('0363564131')).toBe('036****131');

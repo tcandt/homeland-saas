@@ -11,6 +11,7 @@ export default function MobileBottomNav() {
   const { user } = useAuthStore();
   const [mounted, setMounted] = React.useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const isDirectCreationDisabled = true;
 
   React.useEffect(() => {
     setMounted(true);
@@ -69,8 +70,16 @@ export default function MobileBottomNav() {
 
             <Link 
               href="/invoices" 
-              onClick={() => setIsMenuOpen(false)}
-              className="flex items-center gap-3 p-2.5 bg-[#f43f5e]/5 border border-[#f43f5e]/10 rounded-2xl active:scale-[0.98] transition-transform"
+              aria-disabled={isDirectCreationDisabled}
+              title="Tạm khóa: tạo hóa đơn từ Tòa nhà → Phòng → Khách thuê."
+              onClick={(event) => {
+                if (isDirectCreationDisabled) {
+                  event.preventDefault();
+                  return;
+                }
+                setIsMenuOpen(false);
+              }}
+              className="flex items-center gap-3 p-2.5 bg-[#f43f5e]/5 border border-[#f43f5e]/10 rounded-2xl active:scale-[0.98] transition-transform opacity-35 cursor-not-allowed"
             >
               <div className="w-9 h-9 rounded-xl bg-[#f43f5e]/10 flex items-center justify-center shrink-0">
                 <Receipt size={18} className="text-[#f43f5e]" />
@@ -83,8 +92,16 @@ export default function MobileBottomNav() {
 
             <Link 
               href="/tenants" 
-              onClick={() => setIsMenuOpen(false)}
-              className="flex items-center gap-3 p-2.5 bg-[#3b82f6]/5 border border-[#3b82f6]/10 rounded-2xl active:scale-[0.98] transition-transform"
+              aria-disabled={isDirectCreationDisabled}
+              title="Tạm khóa: thêm khách thuê từ Tòa nhà → Phòng → tab Khách thuê."
+              onClick={(event) => {
+                if (isDirectCreationDisabled) {
+                  event.preventDefault();
+                  return;
+                }
+                setIsMenuOpen(false);
+              }}
+              className="flex items-center gap-3 p-2.5 bg-[#3b82f6]/5 border border-[#3b82f6]/10 rounded-2xl active:scale-[0.98] transition-transform opacity-35 cursor-not-allowed"
             >
               <div className="w-9 h-9 rounded-xl bg-[#3b82f6]/10 flex items-center justify-center shrink-0">
                 <UserPlus size={18} className="text-[#3b82f6]" />

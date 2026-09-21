@@ -1,0 +1,1 @@
+ALTER TYPE "DepositOperationType" ADD VALUE IF NOT EXISTS 'CREATE';

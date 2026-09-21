@@ -8,6 +8,7 @@ describe('getInvoiceFinancials', () => {
       paid: 300_000,
       credit: 200_000,
       settled: 500_000,
+      overpaid: 0,
       remaining: 500_000,
       settledPercent: 50,
     });
@@ -16,6 +17,7 @@ describe('getInvoiceFinancials', () => {
   it('caps settled values at the invoice total', () => {
     expect(getInvoiceFinancials({ totalAmount: 500_000, paid: 400_000, credit: 200_000 })).toMatchObject({
       settled: 500_000,
+      overpaid: 100_000,
       remaining: 0,
       settledPercent: 100,
     });

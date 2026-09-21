@@ -50,7 +50,7 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import { hunonicApi, HunonicLockedPeriodRow, HunonicRateApplyPayload } from "@/lib/api/hunonic.api";
-import { formatHunonicHistoryValue, resolveHunonicRateMode } from "@/lib/hunonic/presentation";
+import { formatHunonicHistoryValue, resolveHunonicRateMode, getHunonicConnection, getHunonicMonthlyTotals } from "@/lib/hunonic/presentation";
 import toast from "react-hot-toast";
 
 function formatCurrency(value?: number | string | null) {
@@ -83,16 +83,7 @@ function formatCustomRate(rate?: number | string | null) {
 }
 
 function isMeterOnline(meter: any): boolean {
-  const statusStr = String(meter.status || meter.lastStatus || "").trim().toLowerCase();
-  if (statusStr === "on" || statusStr === "online" || statusStr === "active" || statusStr === "1") {
-    return true;
-  }
-  if (meter.isOnline === true) return true;
-  if (meter.lastSyncedAt) {
-    const diffHours = (Date.now() - new Date(meter.lastSyncedAt).getTime()) / (1000 * 60 * 60);
-    if (diffHours < 2) return true;
-  }
-  return false;
+  return getHunonicConnection(meter).online;
 }
 
 const now = new Date();
@@ -139,6 +130,11 @@ const columnLabels: Record<ColumnKey, string> = {
 };
 
 export function ElectricityManagerContent() {
+  const [freshnessTick, setFreshnessTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setFreshnessTick((tick) => tick + 1), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
   const { data: overviewRes, mutate: mutateOverview, isLoading: isLoadingOverview } = useSWR(
     ["hunonic-overview"],
     () => hunonicApi.overview(),
@@ -294,11 +290,11 @@ export function ElectricityManagerContent() {
     const total = meters.length;
     const online = meters.filter((m) => isMeterOnline(m)).length;
     const totalKwh = meters.reduce(
-      (acc, m) => acc + Number(m.energyMonthKwh || m.totalKwh || m.currentKwh || m.kwh || 0),
+      (acc, m) => acc + getHunonicMonthlyTotals(m).energyKwh,
       0,
     );
     const totalCost = meters.reduce(
-      (acc, m) => acc + Number(m.moneyMonthVnd || m.estimatedCost || m.amount || 0),
+      (acc, m) => acc + getHunonicMonthlyTotals(m).cost,
       0,
     );
     return {
@@ -308,7 +304,7 @@ export function ElectricityManagerContent() {
       totalKwh: Math.max(0, totalKwh),
       totalCost,
     };
-  }, [meters]);
+  }, [meters, freshnessTick]);
 
   const filteredMeters = useMemo(() => {
     return meters.filter((m) => {
@@ -330,7 +326,7 @@ export function ElectricityManagerContent() {
 
       return matchSearch && matchBuilding && matchStatus;
     });
-  }, [meters, searchQuery, selectedBuilding, statusFilter]);
+  }, [meters, searchQuery, selectedBuilding, statusFilter, freshnessTick]);
 
   // Bulk selection helpers
   const allFilteredIds = useMemo(() => {
@@ -464,14 +460,14 @@ export function ElectricityManagerContent() {
 
   const selectedTotalKwh = useMemo(() => {
     return selectedMeters.reduce(
-      (sum, m) => sum + Number(m.energyMonthKwh || m.totalKwh || m.currentKwh || 0),
+      (sum, m) => sum + getHunonicMonthlyTotals(m).energyKwh,
       0,
     );
   }, [selectedMeters]);
 
   const selectedTotalCost = useMemo(() => {
     return selectedMeters.reduce(
-      (sum, m) => sum + Number(m.moneyMonthVnd || m.estimatedCost || m.amount || 0),
+      (sum, m) => sum + getHunonicMonthlyTotals(m).cost,
       0,
     );
   }, [selectedMeters]);
@@ -572,9 +568,7 @@ export function ElectricityManagerContent() {
     ];
 
     const rows = filteredMeters.map((m) => {
-      const isOnline = isMeterOnline(m);
-      const energyKwh = Number(m.energyMonthKwh || m.totalKwh || m.currentKwh || 0);
-      const cost = Number(m.moneyMonthVnd || m.estimatedCost || m.amount || 0);
+      const { energyKwh, cost } = getHunonicMonthlyTotals(m);
       const powerW = Number(m.powerCurrentW || 0);
       const rateInfo =
         rateByRoomKey.get(m.id) ||
@@ -582,16 +576,17 @@ export function ElectricityManagerContent() {
         rateByRoomKey.get(m.providerMeterId) ||
         rateByRoomKey.get(`${m.buildingCode}::${m.roomCode}`) ||
         rateByRoomKey.get(`${m.buildingCode}:${m.roomCode}`);
-      const isCustomRate = resolveHunonicRateMode(rateInfo?.currentMode, m.rateMode) === "custom";
+      const currentMode = resolveHunonicRateMode(rateInfo?.currentMode, m.rateMode);
+      const isCustomRate = currentMode === "custom";
       const customPrice = rateInfo?.customRateVnd ?? m.customRateVnd;
-      const rateLabel = isCustomRate ? `Tự thiết lập (${formatCustomRate(customPrice)})` : "Bậc thang EVN";
+      const rateLabel = isCustomRate ? `Tự thiết lập (${formatCustomRate(customPrice)})` : currentMode === 'residential' ? "Bậc thang EVN" : "Chưa rõ phương thức giá";
 
       return [
         `"${m.roomCode || ""}"`,
         `"${m.buildingCode || ""}"`,
         `"${m.displayName || m.deviceName || m.name || ""}"`,
         `"${m.providerDeviceId || m.mac || m.deviceId || ""}"`,
-        `"${isOnline ? "Online" : "Offline"}"`,
+        `"${getHunonicConnection(m).label}"`,
         `"${rateLabel}"`,
         powerW,
         energyKwh,
@@ -945,8 +940,7 @@ export function ElectricityManagerContent() {
                       const meterId = meter.id || meter.deviceId || meter.mac;
                       const isSelected = selectedMeterIds.includes(meterId);
                       const isOnline = isMeterOnline(meter);
-                      const energyKwh = Number(meter.energyMonthKwh || meter.totalKwh || meter.currentKwh || 0);
-                      const cost = Number(meter.moneyMonthVnd || meter.estimatedCost || meter.amount || 0);
+                      const { energyKwh, cost } = getHunonicMonthlyTotals(meter);
                       const powerW = Number(meter.powerCurrentW || 0);
                       const rateInfo =
                         rateByRoomKey.get(meter.id) ||
@@ -1013,7 +1007,7 @@ export function ElectricityManagerContent() {
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/10 text-slate-500 border border-slate-500/20">
-                                  <WifiOff size={10} /> Offline
+                                  <WifiOff size={10} /> {getHunonicConnection(meter).label}
                                 </span>
                               )}
                             </td>
@@ -1027,7 +1021,7 @@ export function ElectricityManagerContent() {
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
-                                  <Bolt size={10} /> Bậc thang EVN
+                                  <Bolt size={10} /> {currentMode === 'residential' ? 'Bậc thang EVN' : 'Chưa rõ phương thức giá'}
                                 </span>
                               )}
                             </td>
@@ -1066,9 +1060,7 @@ export function ElectricityManagerContent() {
 
                           {visibleColumns.lastSync && (
                             <td className="py-2 px-3 text-center font-mono text-[10px] text-muted">
-                              {meter.updatedAt || meter.lastSyncedAt || meter.lastReadingAt
-                                ? formatDateTime(meter.updatedAt || meter.lastSyncedAt || meter.lastReadingAt)
-                                : "-"}
+                              {formatDateTime(meter.lastSyncedAt || meter.lastReadingAt)}
                             </td>
                           )}
 
@@ -1150,8 +1142,7 @@ export function ElectricityManagerContent() {
                 const meterId = meter.id || meter.deviceId || meter.mac;
                 const isSelected = selectedMeterIds.includes(meterId);
                 const isOnline = isMeterOnline(meter);
-                const energyKwh = Number(meter.energyMonthKwh || meter.totalKwh || meter.currentKwh || 0);
-                const cost = Number(meter.moneyMonthVnd || meter.estimatedCost || meter.amount || 0);
+                const { energyKwh, cost } = getHunonicMonthlyTotals(meter);
                 const powerW = Number(meter.powerCurrentW || 0);
                 const rateInfo =
                   rateByRoomKey.get(meter.id) ||
@@ -1202,7 +1193,7 @@ export function ElectricityManagerContent() {
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-500/10 text-slate-500 border border-slate-500/20">
-                            Offline
+                            {getHunonicConnection(meter).label}
                           </span>
                         )}
                       </div>
@@ -1212,7 +1203,7 @@ export function ElectricityManagerContent() {
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] text-muted">Phương thức:</span>
                         <span className="font-bold text-[10px] text-text">
-                          {isCustomRate ? `Tự lập (${formatCustomRate(customPrice)})` : "Bậc thang EVN"}
+                          {isCustomRate ? `Tự lập (${formatCustomRate(customPrice)})` : currentMode === 'residential' ? "Bậc thang EVN" : "Chưa rõ phương thức giá"}
                         </span>
                       </div>
                       {Number(meter.energyPrevMonthKwh || 0) > 0 && (
@@ -1946,13 +1937,13 @@ export function ElectricityManagerContent() {
                     ) : (
                       <tr>
                         <td className="py-2.5 px-3 font-mono text-[11px]">
-                          {formatDateTime(selectedRoomHistory.lastSyncedAt || selectedRoomHistory.lastReadingAt || new Date().toISOString())}
+                          {formatDateTime(selectedRoomHistory.lastSyncedAt || selectedRoomHistory.lastReadingAt)}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono font-bold text-text">
                           {formatWatts(selectedRoomHistory.powerCurrentW)}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono font-black text-amber-600 dark:text-amber-400">
-                          {formatKwh(selectedRoomHistory.energyMonthKwh || selectedRoomHistory.totalKwh || selectedRoomHistory.currentKwh)}
+                          {formatKwh(getHunonicMonthlyTotals(selectedRoomHistory).energyKwh)}
                         </td>
                         <td className="py-2.5 px-3 text-center">
                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">

@@ -352,11 +352,11 @@ export default function RoomDetailDrawer({ roomId, onClose, onOpenRoomModal, onD
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
-              onClick={() => onOpenRoomModal(roomId, "finances")}
+              onClick={() => onOpenRoomModal(roomId, "rental_flow")}
               className="flex items-center justify-center gap-1.5 bg-background hover:bg-slate-50 dark:hover:bg-white/5 border border-border rounded-xl py-2.5 text-[12px] font-semibold text-text transition-colors shadow-sm focus:ring-2 focus:ring-primary focus:outline-none"
             >
               <CreditCard size={13} />
-              Tạo hóa đơn
+              Khách thuê & cọc
             </button>
             <button
               type="button"

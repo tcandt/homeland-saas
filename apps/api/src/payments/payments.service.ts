@@ -40,6 +40,7 @@ type SePayWebhookPayload = {
   description?: string;
   referenceCode?: string;
   reference_code?: string;
+  accumulated?: number;
 };
 
 type PaymentRequestResponse = {
@@ -215,9 +216,9 @@ export class PaymentsService {
   }
 
   private resolveZaloRecipient(customer: any) {
-    const recipient = String(customer?.zaloChatId || customer?.zaloUserId || customer?.phone || '').trim();
+    const recipient = String(customer?.zaloChatId || customer?.zaloUserId || '').trim();
     if (!recipient) {
-      throw new BadRequestException('Khách thuê chưa có số điện thoại hoặc Zalo chat ID để gửi qua Zalo Bot.');
+      throw new BadRequestException('Khách thuê chưa đăng ký Zalo Bot. Cần liên kết chat_id hoặc user_id trước khi gửi thông báo.');
     }
     return recipient;
   }
@@ -1086,6 +1087,7 @@ export class PaymentsService {
         ...buildRoomContext(room, invoice.contract),
       },
     });
+    await this.markPaymentRequestZaloSent(request.id, zaloRecipient);
 
     await this.logPaymentAudit(
       invoice.tenantId,
@@ -1180,6 +1182,7 @@ export class PaymentsService {
         ...buildRoomContext(deposit.room, deposit.contract),
       },
     });
+    await this.markPaymentRequestZaloSent(request.id, zaloRecipient);
 
     await this.logPaymentAudit(
       deposit.tenantId,
@@ -1201,6 +1204,29 @@ export class PaymentsService {
     );
 
     return request;
+  }
+
+  private async markPaymentRequestZaloSent(paymentRequestId: string, recipient: string) {
+    const paymentRequestModel = (this.prisma as any).paymentRequest;
+    if (!paymentRequestModel?.findUnique || !paymentRequestModel?.update) return;
+    const current = await paymentRequestModel.findUnique({
+      where: { id: paymentRequestId },
+      select: { metadata: true },
+    });
+    const metadata =
+      current?.metadata && typeof current.metadata === 'object'
+        ? { ...(current.metadata as Record<string, unknown>) }
+        : {};
+    await paymentRequestModel.update({
+      where: { id: paymentRequestId },
+      data: {
+        metadata: {
+          ...metadata,
+          zaloSentAt: new Date().toISOString(),
+          zaloRecipient: String(recipient || '').trim() || null,
+        },
+      },
+    });
   }
 
   async getRequest(id: string, tenantId: string) {
@@ -1470,7 +1496,16 @@ export class PaymentsService {
         } else {
           const invoice = await this.prisma.invoice.findFirst({
             where: { id: source.id, tenantId, deletedAt: null },
-            select: { total: true, paidAmount: true, creditAmount: true },
+            select: {
+              total: true,
+              paidAmount: true,
+              creditAmount: true,
+              period: true,
+              rentalCycleId: true,
+              contractId: true,
+              customerId: true,
+              contract: { select: { roomId: true } },
+            },
           });
           const remaining =
             Number(invoice?.total || 0) - Number(invoice?.paidAmount || 0) - Number(invoice?.creditAmount || 0);
@@ -1480,6 +1515,42 @@ export class PaymentsService {
             );
           }
           await this.invoicesService.pay(source.id, providerAmount, 'SEPAY', transactionId, userId, tenantId);
+          // A holding-deposit invoice is the payment front door for the linked
+          // BOOKING deposit. Confirming it through SePay must also collect the
+          // deposit exactly once so RoomHold/ledger state follows the invoice.
+          if (this.isBookingHoldInvoice(invoice)) {
+            const bookingDeposit = await this.prisma.deposit.findFirst({
+              where: {
+                tenantId,
+                type: { in: ['BOOKING', 'RESERVATION'] as any },
+                status: { in: ['DRAFT', 'PENDING'] as any },
+                deletedAt: null,
+                OR: [
+                  ...(invoice?.contractId ? [{ contractId: invoice.contractId }] : []),
+                  ...(invoice?.rentalCycleId ? [{ rentalCycleId: invoice.rentalCycleId }] : []),
+                  ...(invoice?.contract?.roomId && invoice?.customerId
+                    ? [{ roomId: invoice.contract.roomId, customerId: invoice.customerId }]
+                    : []),
+                ],
+              },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true },
+            });
+            if (bookingDeposit) {
+              await this.depositsService.collect(
+                bookingDeposit.id,
+                `SePay invoice confirmation ${transactionId}`,
+                userId,
+                `sepay:invoice:${source.id}:${transactionId}`,
+              );
+            }
+          }
+          await this.collectLinkedSecurityDepositFromPaidInvoice(
+            tenantId,
+            source.id,
+            transactionId,
+            userId,
+          );
         }
       } else {
       const currentDeposit = await this.prisma.deposit.findFirst({
@@ -1938,6 +2009,47 @@ export class PaymentsService {
       .trim()
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, '');
+  }
+
+  private normalizeBankName(value?: string | null) {
+    return String(value || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+  }
+
+  private resolveWebhookBankAccountIdentifiers(payload: SePayWebhookPayload) {
+    return Array.from(
+      new Set(
+        [
+          payload.accountNumber,
+          payload.account_number,
+          payload.bank_account_xid,
+          payload.va,
+          payload.subAccount,
+        ]
+          .map((value) => this.normalizeBankAccountNumber(value ?? ''))
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  private webhookBankAccountMatches(request: any, identifiers: string[], payload: SePayWebhookPayload) {
+    if (identifiers.length === 0) return true;
+    const expected = this.normalizeBankAccountNumber(request?.bankAccountNumber);
+    if (!expected) return true;
+    if (identifiers.includes(expected)) return true;
+
+    const requestBank = this.normalizeBankName(request?.bankName);
+    const webhookBank = this.normalizeBankName((payload as any)?.gateway || (payload as any)?.bank || '');
+    const sameBank = Boolean(requestBank && webhookBank && (requestBank.includes(webhookBank) || webhookBank.includes(requestBank)));
+    const expectedLooksLikeVirtualAccount = /^SBSEPAY[A-Z0-9]+$/.test(expected);
+    const webhookHasMainAccountNumber = identifiers.some((identifier) => /^\d{1,16}$/.test(identifier));
+
+    // SePay sandbox may report the receiving main BIDV account (0001/0002)
+    // while the generated VietQR/payment request stores a SePay virtual account.
+    // Keep the guard constrained to exact payment-code lookup + same bank gateway.
+    return expectedLooksLikeVirtualAccount && webhookHasMainAccountNumber && sameBank;
   }
 
   private requireSePayCommandIdempotencyKey(value: string) {
@@ -2483,7 +2595,12 @@ export class PaymentsService {
     const transferType = String(payload.transferType || payload.transfer_type || '').toLowerCase();
     const paymentCode = this.resolveWebhookPaymentCode(payload);
     const accountNumber = String(
-      payload.accountNumber || payload.account_number || payload.bank_account_xid || '',
+      payload.accountNumber ||
+        payload.account_number ||
+        payload.bank_account_xid ||
+        payload.va ||
+        payload.subAccount ||
+        '',
     ).trim();
 
     const webhookTenantId = authenticatedTenantIds[0];
@@ -2508,6 +2625,22 @@ export class PaymentsService {
     });
 
     if (log.processedAt) {
+      if (paymentCode) {
+        const confirmedRequest = await this.prisma.paymentRequest.findFirst({
+          where: {
+            tenantId: { in: authenticatedTenantIds },
+            provider: PaymentProvider.SEPAY,
+            paymentCode,
+            status: PaymentRequestStatus.CONFIRMED,
+          },
+        });
+        if (confirmedRequest?.sourceType === PaymentSourceType.INVOICE) {
+          await this.collectLinkedBookingDepositForInvoicePayment(
+            confirmedRequest,
+            confirmedRequest.providerTransactionId || transactionId,
+          );
+        }
+      }
       return { success: true };
     }
 
@@ -2528,11 +2661,10 @@ export class PaymentsService {
         paymentCode,
       },
     });
-    const normalizedAccountNumber = this.normalizeBankAccountNumber(accountNumber);
+    const webhookAccountIdentifiers = this.resolveWebhookBankAccountIdentifiers(payload);
     const request =
       requestByCode &&
-      (!normalizedAccountNumber ||
-        this.normalizeBankAccountNumber(requestByCode.bankAccountNumber) === normalizedAccountNumber)
+      this.webhookBankAccountMatches(requestByCode, webhookAccountIdentifiers, payload)
         ? requestByCode
         : null;
 
@@ -2540,9 +2672,9 @@ export class PaymentsService {
       !request &&
       requestByCode &&
       requestByCode.status === PaymentRequestStatus.PENDING &&
-      accountNumber &&
+      webhookAccountIdentifiers.length > 0 &&
       requestByCode.bankAccountNumber &&
-      this.normalizeBankAccountNumber(requestByCode.bankAccountNumber) !== normalizedAccountNumber
+      !this.webhookBankAccountMatches(requestByCode, webhookAccountIdentifiers, payload)
     ) {
       await this.logPaymentAudit(
         requestByCode.tenantId,
@@ -2575,6 +2707,12 @@ export class PaymentsService {
     }
 
     if (!request || request.status !== PaymentRequestStatus.PENDING) {
+      if (request?.status === PaymentRequestStatus.CONFIRMED && request.sourceType === PaymentSourceType.INVOICE) {
+        await this.collectLinkedBookingDepositForInvoicePayment(
+          request,
+          request.providerTransactionId || transactionId,
+        );
+      }
       await this.markSePayWebhookLog(log.id, 'NEEDS_REVIEW', {
         tenantId: requestByCode?.tenantId || null,
       });
@@ -2658,6 +2796,16 @@ export class PaymentsService {
         select: { id: true },
       });
       if (!existingPayment) {
+        const invoice = await this.prisma.invoice.findFirst({
+          where: { id: request.sourceId, tenantId: request.tenantId, deletedAt: null },
+          select: {
+            period: true,
+            rentalCycleId: true,
+            contractId: true,
+            customerId: true,
+            contract: { select: { roomId: true } },
+          },
+        });
         await this.invoicesService.pay(
           request.sourceId,
           Number(request.amount),
@@ -2666,6 +2814,7 @@ export class PaymentsService {
           'SEPAY_WEBHOOK',
           request.tenantId,
         );
+        await this.collectLinkedBookingDepositForInvoicePayment(request, transactionId, invoice);
       }
     } else if (request.sourceType === PaymentSourceType.DEPOSIT) {
       await this.depositsService.collect(
@@ -2710,5 +2859,180 @@ export class PaymentsService {
     });
 
     return { success: true };
+  }
+
+  private async collectLinkedBookingDepositForInvoicePayment(
+    request: any,
+    transactionId: string,
+    invoiceInput?: any,
+  ) {
+    try {
+      const db = ((this.prisma as any).tx || this.prisma) as any;
+      const invoice =
+        invoiceInput ||
+        (await db.invoice?.findFirst?.({
+          where: {
+            id: request.sourceId,
+            tenantId: request.tenantId,
+            deletedAt: null,
+          },
+          select: {
+            period: true,
+            contractId: true,
+            customerId: true,
+            rentalCycleId: true,
+            contract: { select: { roomId: true } },
+          },
+        }));
+
+      if (!this.isBookingHoldInvoice(invoice)) return;
+      if (!db.deposit?.findFirst) {
+        await this.logPaymentAudit(
+          request.tenantId,
+          'SePayBookingDepositSyncDeferred',
+          request.id,
+          { invoiceId: request.sourceId, transactionId },
+          { reason: 'DEPOSIT_MODEL_UNAVAILABLE_AT_RUNTIME' },
+          'SEPAY_WEBHOOK',
+        );
+        return;
+      }
+
+      const bookingDeposit = await db.deposit.findFirst({
+        where: {
+          tenantId: request.tenantId,
+          type: { in: ['BOOKING', 'RESERVATION'] as any },
+          status: { in: ['DRAFT', 'PENDING'] as any },
+          deletedAt: null,
+          OR: [
+            ...(invoice?.contractId ? [{ contractId: invoice.contractId }] : []),
+            ...(invoice?.rentalCycleId ? [{ rentalCycleId: invoice.rentalCycleId }] : []),
+            ...(invoice?.contract?.roomId && invoice?.customerId
+              ? [{ roomId: invoice.contract.roomId, customerId: invoice.customerId }]
+              : []),
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, rentalCycleId: true },
+      });
+
+      if (!bookingDeposit) return;
+
+      // Legacy booking deposits may have been created before the rental cycle
+      // was attached to the contract. Repair that link from the invoice scope
+      // before delegating to the serializable collector.
+      if (!bookingDeposit.rentalCycleId && invoice?.rentalCycleId && db.deposit?.update) {
+        await db.deposit.update({
+          where: { id: bookingDeposit.id },
+          data: { rentalCycleId: invoice.rentalCycleId },
+        });
+      }
+
+      await this.depositsService.collect(
+        bookingDeposit.id,
+        `SePay invoice confirmation ${transactionId}`,
+        'SEPAY_WEBHOOK',
+        `sepay:invoice:${request.sourceId}:${transactionId}`,
+      );
+    } catch (error: any) {
+      // Invoice/payment confirmation is authoritative. A missing or temporarily
+      // unavailable deposit model must be repaired asynchronously, not turn a
+      // valid SePay webhook into HTTP 500 after the invoice was already paid.
+      await this.logPaymentAudit(
+        request.tenantId,
+        'SePayBookingDepositSyncDeferred',
+        request.id,
+        { invoiceId: request.sourceId, transactionId },
+        {
+          reason: 'BOOKING_DEPOSIT_SYNC_FAILED',
+          error: String(error?.message || error || 'unknown').slice(0, 500),
+        },
+        'SEPAY_WEBHOOK',
+      ).catch(() => undefined);
+    }
+  }
+
+  private async collectLinkedSecurityDepositFromPaidInvoice(
+    tenantId: string,
+    invoiceId: string,
+    transactionId: string,
+    userId: string,
+  ) {
+    try {
+      const invoice = await this.prisma.invoice.findFirst({
+        where: {
+          id: invoiceId,
+          tenantId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          contractId: true,
+          rentalCycleId: true,
+          customerId: true,
+          contract: { select: { roomId: true } },
+          items: {
+            select: {
+              description: true,
+              amount: true,
+            },
+          },
+        },
+      });
+      const depositItem = (invoice?.items || []).find((item: any) => {
+        const description = String(item.description || '').toLowerCase();
+        return (
+          description.includes('cọc hợp đồng') ||
+          description.includes('coc hop dong') ||
+          description.includes('cọc bảo đảm') ||
+          description.includes('coc bao dam')
+        );
+      });
+      const depositAmount = Number(depositItem?.amount || 0);
+      if (!invoice || !depositAmount || depositAmount <= 0) return;
+
+      const securityDeposit = await this.prisma.deposit.findFirst({
+        where: {
+          tenantId,
+          type: 'SECURITY' as any,
+          status: { in: ['DRAFT', 'PENDING'] as any },
+          amount: depositAmount,
+          deletedAt: null,
+          OR: [
+            ...(invoice.contractId ? [{ contractId: invoice.contractId }] : []),
+            ...(invoice.rentalCycleId ? [{ rentalCycleId: invoice.rentalCycleId }] : []),
+            ...(invoice.contract?.roomId && invoice.customerId
+              ? [{ roomId: invoice.contract.roomId, customerId: invoice.customerId }]
+              : []),
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+
+      if (!securityDeposit) return;
+      await this.depositsService.collect(
+        securityDeposit.id,
+        `Đồng bộ thanh toán hóa đơn ${invoiceId}`,
+        userId,
+        `sepay:security-deposit-invoice:${invoiceId}:${transactionId}`,
+      );
+    } catch (error: any) {
+      await this.logPaymentAudit(
+        tenantId,
+        'SePaySecurityDepositSyncDeferred',
+        invoiceId,
+        { invoiceId, transactionId },
+        {
+          reason: 'SECURITY_DEPOSIT_SYNC_FAILED',
+          error: String(error?.message || error || 'unknown').slice(0, 500),
+        },
+        'SEPAY_WEBHOOK',
+      ).catch(() => undefined);
+    }
+  }
+
+  private isBookingHoldInvoice(invoice: any) {
+    return String(invoice?.period || '').trim().toLowerCase() === 'cọc giữ phòng';
   }
 }

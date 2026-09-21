@@ -68,7 +68,6 @@ import {
 } from "@/lib/utils/cccd-camera";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
-import InvoiceCreateModal from "../invoices/InvoiceCreateModal";
 import OperationsBillingDrawer from "../invoices/OperationsBillingDrawer";
 import OperationsDepositDrawer from "../deposits/OperationsDepositDrawer";
 import { useInvoiceDetailQuery, useInvoicesQuery } from "@/lib/queries/invoices.queries";
@@ -81,6 +80,9 @@ import { useDeleteRoomMutation } from "@/lib/mutations/rooms.mutations";
 import { customersApi } from "@/lib/api/customers.api";
 import { roomsApi } from "@/lib/api/rooms.api";
 import { contractsApi } from "@/lib/api/contracts.api";
+import { depositsApi } from "@/lib/api/deposits.api";
+import { invoicesApi } from "@/lib/api/invoices.api";
+import { paymentsApi } from "@/lib/api/payments.api";
 import { hunonicApi } from "@/lib/api/hunonic.api";
 import { getAuthorizationHeader } from "@/lib/auth/auth-header";
 import { getRoomDisplayName } from "./building-labels";
@@ -101,6 +103,11 @@ import {
   isNonTerminalContract,
 } from "@/lib/adapters/room-status.adapter";
 import { maskPhone, maskCccd } from "@/lib/adapters/tenant-masking.adapter";
+import { evaluateExistingCustomerSelection } from '@/lib/adapters/customer-selection';
+import {
+  isRentalIntentContextCurrent,
+  type RentalIntentContext,
+} from "@/lib/rentals/rental-intent-context";
 import { HunonicSnapshotPresentation } from "../finance/HunonicSnapshotPresentation";
 import {
   createInvoiceRentalCycleScope,
@@ -145,6 +152,14 @@ type TenantDraft = {
   notes?: string;
 };
 
+type ZaloWaitingState = {
+  customerId: string;
+  customerName: string;
+  phone: string;
+  roomCode: string;
+  pendingInvoiceId?: string | null;
+};
+
 type CT01Member = {
   id: string;
   name: string;
@@ -164,6 +179,7 @@ type ContractDraft = {
   mucDichThue: string;
   tienThue: string;
   tienCoc: string;
+  tienCocHopDong: string;
   ngayBatDau: string;
   ngayKetThuc: string;
   soPhongNgu: string;
@@ -322,6 +338,32 @@ const normalizeVietnameseDate = (value: string) => {
   return text;
 };
 
+const isValidYmdDate = (value?: string | null) => {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  if (year < 1900 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return false;
+  }
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+};
+
+const normalizeStrictYmdDate = (value: string) => {
+  const normalized = normalizeVietnameseDate(value);
+  return isValidYmdDate(normalized) ? normalized : "";
+};
+
+const formatYmdForVietnamDisplay = (value?: string | null) => {
+  const normalized = normalizeStrictYmdDate(String(value || ""));
+  if (!normalized) return "";
+  const [year, month, day] = normalized.split("-");
+  return `${day}/${month}/${year}`;
+};
+
 const formatBirthDateForDisplay = (value: string) => {
   const normalized = normalizeVietnameseDate(value);
   if (!normalized) return "";
@@ -372,7 +414,8 @@ const DateMaskInput = ({
     setInternalVal(formatted);
     if (formatted.length === 10) {
       const [d, m, y] = formatted.split("/");
-      onChange(`${y}-${m}-${d}`);
+      const candidate = `${y}-${m}-${d}`;
+      onChange(isValidYmdDate(candidate) ? candidate : "");
     } else {
       onChange(value); // Keep old valid value while typing
     }
@@ -389,10 +432,46 @@ const DateMaskInput = ({
 };
 
 const getLocalYMD = (date: Date = new Date()) => {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+};
+
+const vietnamDateToIso = (ymd: string, endOfDay = false) => {
+  const normalized = normalizeStrictYmdDate(ymd);
+  if (!normalized) return new Date().toISOString();
+  const [year, month, day] = normalized.split("-").map(Number);
+  const utcMs = Date.UTC(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 16 : -7,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  );
+  return new Date(utcMs).toISOString();
+};
+
+const isBookingHoldOccupant = (occupant: any) =>
+  Boolean(occupant?.isBookingHold) ||
+  String(occupant?.rentalStatus || "").toUpperCase() === "BOOKING_HOLD" ||
+  String(occupant?.role || "").toLowerCase().includes("đặt cọc");
+
+const readMoneyFromText = (text: string | null | undefined, label: string) => {
+  const source = String(text || "");
+  const index = source.toLowerCase().indexOf(label.toLowerCase());
+  if (index < 0) return 0;
+  const value = source
+    .slice(index + label.length)
+    .match(/[:：]\s*([\d.,]+)/)?.[1];
+  const numeric = Number(String(value || "").replace(/\D/g, ""));
+  return Number.isFinite(numeric) ? numeric : 0;
 };
 
 export default function RoomPremiumModal({
@@ -421,9 +500,27 @@ export default function RoomPremiumModal({
   );
   const [isTenantModalOpen, setIsTenantModalOpen] = useState(false);
   const [isTenantSourceModalOpen, setIsTenantSourceModalOpen] = useState(false);
+  const [isRentalIntentModalOpen, setIsRentalIntentModalOpen] = useState(false);
+  const [isIntentContractFlow, setIsIntentContractFlow] = useState(false);
+  const [rentalIntentMode, setRentalIntentMode] = useState<"BOOKING" | "IMMEDIATE" | null>(null);
+  const [rentalIntentContext, setRentalIntentContext] =
+    useState<RentalIntentContext | null>(null);
+  const tenantSelectionContext = useRef({ roomId, generation: 0 });
+  const tenantSaveInFlightRef = useRef(false);
+  if (tenantSelectionContext.current.roomId !== roomId) {
+    tenantSelectionContext.current = { roomId, generation: tenantSelectionContext.current.generation + 1 };
+  }
+  useEffect(() => () => { tenantSelectionContext.current.generation++; }, []);
+  useEffect(() => {
+    setIsRentalIntentModalOpen(false);
+    setRentalIntentContext(null);
+    setRentalIntentMode(null);
+    setIsIntentContractFlow((isIntentFlow) => {
+      if (isIntentFlow) setIsContractModalOpen(false);
+      return false;
+    });
+  }, [roomId]);
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
-  const [isCreateInvoiceModalOpen, setIsCreateInvoiceModalOpen] =
-    useState(false);
   const [selectedSourceInvoiceId, setSelectedSourceInvoiceId] = useState<string | null>(null);
   const [selectedSourceInvoiceScope, setSelectedSourceInvoiceScope] =
     useState<InvoiceRentalCycleScope | null>(null);
@@ -452,6 +549,7 @@ export default function RoomPremiumModal({
     "basic",
   );
   const [tenantModalStep, setTenantModalStep] = useState<1 | 2>(1);
+  const [zaloWaiting, setZaloWaiting] = useState<ZaloWaitingState | null>(null);
   const [isContractRepresentative, setIsContractRepresentative] =
     useState(false);
   const [householdRepId, setHouseholdRepId] = useState("");
@@ -496,6 +594,7 @@ export default function RoomPremiumModal({
     mucDichThue: "Ở",
     tienThue: "",
     tienCoc: "",
+    tienCocHopDong: "",
     ngayBatDau: getLocalYMD(),
     ngayKetThuc: getLocalYMD(
       new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
@@ -550,6 +649,78 @@ export default function RoomPremiumModal({
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const { showToast } = useToast();
+  const closeTenantModal = () => {
+    setIsTenantModalOpen(false);
+    setTenantModalStep(1);
+    setZaloWaiting(null);
+    setIsContractRepresentative(false);
+  };
+  const beginZaloWaitingIfNeeded = (
+    customerId: string,
+    pendingInvoiceId?: string | null,
+  ) => {
+    if (tenantDraft.zaloChatId?.trim() || tenantDraft.zaloUserId?.trim()) {
+      return false;
+    }
+    setZaloWaiting({
+      customerId,
+      customerName: tenantDraft.name.trim() || "Khách thuê",
+      phone: tenantDraft.phone.trim(),
+      roomCode: String(
+        roomData?.code ||
+        roomData?.name ||
+        (currentRoom as any)?.code ||
+        (currentRoom as any)?.name ||
+        roomId ||
+        "",
+      ).trim(),
+      pendingInvoiceId: pendingInvoiceId || null,
+    });
+    setTenantModalStep(1);
+    setIsTenantModalOpen(true);
+    return true;
+  };
+
+  useEffect(() => {
+    if (!zaloWaiting?.customerId || !isTenantModalOpen) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const response: any = await customersApi.getDetail(zaloWaiting.customerId);
+        const customer = response?.data || response;
+        const nextZaloChatId = String(customer?.zaloChatId || "").trim();
+        const nextZaloUserId = String(customer?.zaloUserId || "").trim();
+        if (stopped || (!nextZaloChatId && !nextZaloUserId)) return;
+        setTenantDraft((previous) => ({
+          ...previous,
+          id: customer?.id || previous.id,
+          zaloChatId: nextZaloChatId || previous.zaloChatId,
+          zaloUserId: nextZaloUserId || previous.zaloUserId,
+        }));
+        if (zaloWaiting.pendingInvoiceId) {
+          await paymentsApi.sendInvoiceToZalo(zaloWaiting.pendingInvoiceId).catch(() => null);
+        }
+        await Promise.allSettled([
+          queryClient.invalidateQueries({ queryKey: ["customers"] }),
+          queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+          queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+        ]);
+        if (!stopped) {
+          showToast("Đã liên kết Bot Zalo cho khách thuê.", "success");
+          closeTenantModal();
+        }
+      } catch {
+        // Keep waiting; webhook/polling may not be ready yet.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 3500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [zaloWaiting, isTenantModalOpen, queryClient, showToast]);
+
   const createContractMutation = useCreateContractMutation();
   const expireContractMutation = useExpireContractMutation();
   const deleteRoomMutation = useDeleteRoomMutation();
@@ -766,7 +937,7 @@ export default function RoomPremiumModal({
         customerName: cycle.customer?.fullName || "Khách thuê",
         customerPhone: cycle.customer?.phone || "-",
         roomId: roomId,
-        roomCode: cycle.room?.code || roomData.code || "",
+        roomCode: cycle.room?.code || roomData?.code || "",
         buildingName: "-",
         contractId: target.contractId,
       });
@@ -790,10 +961,28 @@ export default function RoomPremiumModal({
     setTenantFieldErrors({});
     setDuplicateWarning(null);
     setIsQrMenuOpen(false);
+    setRentalIntentMode(startAsRepresentative ? null : "IMMEDIATE");
+    if (startAsRepresentative) {
+      setIsRentalIntentModalOpen(true);
+    } else {
+      setIsTenantSourceModalOpen(true);
+    }
+  };
+
+  const openTenantSourceForIntent = (mode: "BOOKING" | "IMMEDIATE") => {
+    setRentalIntentMode(mode);
+    setIsRentalIntentModalOpen(false);
     setIsTenantSourceModalOpen(true);
   };
 
+  const handleBackToRentalIntent = () => {
+    setIsTenantSourceModalOpen(false);
+    setRentalIntentMode(null);
+    setIsRentalIntentModalOpen(true);
+  };
+
   const handleCreateNewTenant = () => {
+    setZaloWaiting(null);
     setTenantDraft({ ...EMPTY_TENANT_DRAFT });
     setTenantFieldErrors({});
     setDuplicateWarning(null);
@@ -804,8 +993,17 @@ export default function RoomPremiumModal({
   const handleSelectExistingTenant = async (
     option: ExistingCustomerOption,
   ): Promise<boolean> => {
+    setZaloWaiting(null);
+    const generation = ++tenantSelectionContext.current.generation;
+    setIsRentalIntentModalOpen(false);
+    setRentalIntentContext(null);
+    if (isIntentContractFlow) {
+      setIsContractModalOpen(false);
+      setIsIntentContractFlow(false);
+    }
     try {
       const response: any = await customersApi.getDetail(option.id);
+      if (tenantSelectionContext.current.generation !== generation || tenantSelectionContext.current.roomId !== roomId) return false;
       const customer = response?.data || response;
       if (!customer?.id) {
         showToast("Không tìm thấy hồ sơ khách thuê.", "error");
@@ -821,6 +1019,12 @@ export default function RoomPremiumModal({
       );
       if (currentOccupantIds.has(customer.id)) {
         showToast("Khách thuê này đã có trong phòng.", "error");
+        return false;
+      }
+
+      const selection = evaluateExistingCustomerSelection(customer, roomId);
+      if (!selection.isSelectable) {
+        showToast('Khách đang có dữ liệu lưu trú chưa kết thúc. Vui lòng kiểm tra phòng trước khi tiếp tục.', 'error');
         return false;
       }
 
@@ -885,6 +1089,7 @@ export default function RoomPremiumModal({
       setIsTenantModalOpen(true);
       return true;
     } catch (error: any) {
+      if (tenantSelectionContext.current.generation !== generation) return false;
       showToast(
         error?.message || "Không thể kiểm tra hồ sơ khách thuê.",
         "error",
@@ -895,6 +1100,10 @@ export default function RoomPremiumModal({
 
   const handleToggleOccupantTempResidence = async (occupant: any) => {
     if (!roomData) return;
+    if (isBookingHoldOccupant(occupant)) {
+      showToast("Khách đang cọc giữ phòng nên chưa cần khai báo tạm trú.", "info");
+      return;
+    }
     setIsSavingTempResidence(true);
     const occupantId = occupant.id;
     const currentStatus = Boolean(occupant.tempResidence);
@@ -992,7 +1201,14 @@ export default function RoomPremiumModal({
   const handleConfirmToggleTempResidence = async () => {
     if (!roomData) return;
     setIsSavingTempResidence(true);
-    const occupants = getOccupantsList();
+    const occupants = getOccupantsList().filter(
+      (occ: any) => !isBookingHoldOccupant(occ),
+    );
+    if (occupants.length === 0) {
+      setIsSavingTempResidence(false);
+      showToast("Không có khách đang ở cần khai báo tạm trú.", "info");
+      return;
+    }
     const isAllDeclared =
       occupants.length > 0 &&
       occupants.every((occ: any) => Boolean(occ.tempResidence));
@@ -1134,6 +1350,11 @@ export default function RoomPremiumModal({
             : ""),
         tienCoc:
           prev.tienCoc ||
+          (roomData?.monthlyPrice
+            ? (Number(roomData.monthlyPrice) * 2).toLocaleString("vi-VN")
+            : ""),
+        tienCocHopDong:
+          prev.tienCocHopDong ||
           (roomData?.monthlyPrice
             ? (Number(roomData.monthlyPrice) * 2).toLocaleString("vi-VN")
             : ""),
@@ -1408,7 +1629,6 @@ export default function RoomPremiumModal({
         queryClient.invalidateQueries({ queryKey: ["buildings"] }),
       ]);
       setRoomData((prev) => (prev ? ({ ...prev, ...payload } as Room) : prev));
-      onClose();
     } catch (err) {
       console.error("Failed to save room:", err);
       showToast("Có lỗi xảy ra khi lưu thông tin phòng", "error");
@@ -1557,15 +1777,143 @@ export default function RoomPremiumModal({
     return list;
   };
 
+  const getBookingHoldOccupants = () => {
+    const terminalStatuses = new Set([
+      "CANCELLED",
+      "REFUNDED",
+      "CONVERTED_TO_CONTRACT",
+    ]);
+    return (roomFinanceSummary?.rentalCycles || [])
+      .filter((cycle: any) =>
+        (cycle.deposits || []).some((deposit: any) => {
+          const type = String(deposit.type || "").toUpperCase();
+          const status = String(deposit.status || "").toUpperCase();
+          return (
+            ["BOOKING", "RESERVATION"].includes(type) &&
+            !terminalStatuses.has(status)
+          );
+        }),
+      )
+      .map((cycle: any) => {
+        const customer = cycle.customer || {};
+        const localDetails = getLocalCustomerDetails(customer);
+        const displayCustomer = mergeTenantDisplayInfo(
+          {
+            id: customer.id || cycle.customerId || cycle.rentalCycleId,
+            name: customer.fullName || customer.name || "",
+            phone: customer.phone || "",
+            email: customer.email || "",
+            cccd: customer.identityNo || customer.cccd || customer.citizenId || "",
+            citizenId: customer.identityNo || customer.cccd || customer.citizenId || "",
+            gender: customer.gender || "",
+            birthDate: customer.birthDate || "",
+            nationality: customer.nationality || "",
+            address: customer.address || "",
+            emergencyPhone: customer.emergencyPhone || "",
+            zaloChatId: customer.zaloChatId || "",
+            zaloUserId: customer.zaloUserId || "",
+          },
+          localDetails,
+        );
+        const bookingDeposit = (cycle.deposits || []).find((deposit: any) =>
+          ["BOOKING", "RESERVATION"].includes(String(deposit.type || "").toUpperCase()),
+        );
+        return {
+          ...displayCustomer,
+          id: displayCustomer.id || customer.id || cycle.customerId || cycle.rentalCycleId,
+          name: displayCustomer.name || "Khách cọc giữ phòng",
+          role: "Đặt cọc giữ phòng",
+          rentalStatus: "BOOKING_HOLD",
+          isBookingHold: true,
+          isRep: false,
+          depositId: bookingDeposit?.id,
+          depositCode: bookingDeposit?.code,
+          contractId: cycle.contracts?.[0]?.id || bookingDeposit?.contractId || null,
+        };
+      });
+  };
+
+  const dedupeOccupants = (items: any[]) => {
+    const seen = new Set<string>();
+    return items.filter((item) => {
+      const key = String(item.id || item.phone || item.name || "").trim();
+      if (!key) return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const getLocalCustomerDetails = (customer: any = {}) => {
+    const customerId = customer.id || customer.customerId;
+    const phone = String(customer.phone || "").replace(/\D/g, "");
+    const name = String(customer.fullName || customer.name || "").trim();
+    const localCandidates = [
+      roomData?.tenant,
+      ...(roomData?.sharedTenants || []),
+      ...(roomData?.roommates || []),
+    ].filter(Boolean) as any[];
+    return (
+      localCandidates.find((candidate: any) => {
+        const candidatePhone = String(candidate.phone || "").replace(/\D/g, "");
+        return (
+          (customerId && candidate.id === customerId) ||
+          (phone && candidatePhone === phone) ||
+          (name && (candidate.name === name || candidate.fullName === name))
+        );
+      }) || {}
+    );
+  };
+
+  const mergeTenantDisplayInfo = (primary: any = {}, fallback: any = {}) => ({
+    ...fallback,
+    ...primary,
+    name: primary.name || primary.fullName || fallback.name || fallback.fullName || "",
+    phone: primary.phone || fallback.phone || "",
+    email: primary.email || fallback.email || "",
+    cccd: primary.cccd || primary.identityNo || primary.citizenId || fallback.cccd || fallback.identityNo || fallback.citizenId || "",
+    citizenId: primary.citizenId || primary.identityNo || primary.cccd || fallback.citizenId || fallback.identityNo || fallback.cccd || "",
+    gender: primary.gender || fallback.gender || "",
+    birthDate: primary.birthDate || fallback.birthDate || "",
+    nationality: primary.nationality || fallback.nationality || "",
+    address: primary.address || fallback.address || "",
+    emergencyPhone: primary.emergencyPhone || fallback.emergencyPhone || "",
+    zaloChatId: primary.zaloChatId || fallback.zaloChatId || "",
+    zaloUserId: primary.zaloUserId || fallback.zaloUserId || "",
+  });
+
+  const patchRoomCustomerInfo = (room: Room | null, customerId: string, info: any): Room | null => {
+    if (!room || !customerId) return room;
+    const matches = (item: any) =>
+      item &&
+      (item.id === customerId ||
+        (info.phone && item.phone === info.phone) ||
+        (info.name && (item.name === info.name || item.fullName === info.name)));
+    return {
+      ...room,
+      tenant: matches(room.tenant)
+        ? mergeTenantDisplayInfo(info, room.tenant)
+        : room.tenant,
+      sharedTenants: (room.sharedTenants || []).map((tenant: any) =>
+        matches(tenant) ? mergeTenantDisplayInfo(info, tenant) : tenant,
+      ),
+      roommates: (room.roommates || []).map((tenant: any) =>
+        matches(tenant) ? mergeTenantDisplayInfo(info, tenant) : tenant,
+      ),
+    };
+  };
+
   const getOccupantsList = () => {
+    const bookingHoldOccupants = getBookingHoldOccupants();
     if (roomData?.rentalType === "shared") {
-      return [
+      return dedupeOccupants([
+        ...bookingHoldOccupants,
         ...(roomData.sharedTenants || []).map((tenant: any) => ({
           ...tenant,
           role: tenant.isRep ? "Đại diện HĐ chính" : "Người ở cùng",
           isRep: !!tenant.isRep,
         })),
-      ];
+      ]);
     }
 
     // Cho thuê nguyên căn (Whole rental):
@@ -1643,7 +1991,7 @@ export default function RoomPremiumModal({
         isRep: false,
       }));
 
-    return [...primaryTenant, ...allCoReps, ...roommates];
+    return dedupeOccupants([...bookingHoldOccupants, ...primaryTenant, ...allCoReps, ...roommates]);
   };
 
   const getDefaultMemberCount = () => {
@@ -1678,9 +2026,18 @@ export default function RoomPremiumModal({
     setTenantDraft((prev) => ({ ...prev, [field]: value }));
   };
 
-  const commitTenantDraft = async (isCustomContract?: boolean) => {
+  const commitTenantDraft = async (
+    isCustomContract?: boolean,
+    expectedGeneration = tenantSelectionContext.current.generation,
+  ) => {
     setIsExporting(true);
     try {
+      const roomContext = {
+        roomId,
+        buildingId: String(
+          (currentBuilding as any)?.id || (roomData as any)?.buildingId || "",
+        ),
+      };
       const isSharedRoom = roomData?.rentalType === "shared";
       const name = tenantDraft.name.trim();
       const phone = tenantDraft.phone.trim();
@@ -1831,6 +2188,22 @@ export default function RoomPremiumModal({
         return;
       }
 
+      if (
+        tenantSelectionContext.current.generation !== expectedGeneration ||
+        tenantSelectionContext.current.roomId !== roomContext.roomId
+      ) {
+        showToast(
+          "Ngữ cảnh phòng đã thay đổi. Khách đã được lưu nhưng chưa tạo giao dịch.",
+          "error",
+        );
+        return;
+      }
+
+      if (customerId && customerId !== tenantDraft.id) {
+        // A later intent choice must reuse this customer instead of creating it again.
+        setTenantDraft((previous) => ({ ...previous, id: customerId }));
+      }
+
       let existingContractId: string | null | undefined = undefined;
       if (tenantDraft.id) {
         if (!isSharedRoom) {
@@ -1848,6 +2221,23 @@ export default function RoomPremiumModal({
       const existingCoReps = (roomData?.sharedTenants || [])
         .filter((st: any) => st.isRep && st.id !== customerId)
         .map((st: any) => st.id);
+      const savedTenantInfo = {
+        id: customerId,
+        name,
+        phone,
+        email: tenantDraft.email?.trim() || "",
+        cccd: tenantDraft.cccd.trim(),
+        citizenId: tenantDraft.cccd.trim(),
+        gender: tenantDraft.gender.trim(),
+        birthDate,
+        nationality: tenantDraft.nationality.trim(),
+        address: tenantDraft.address.trim(),
+        emergencyPhone: tenantDraft.emergencyPhone.trim(),
+        relationship: tenantDraft.relationship?.trim() || "",
+        zaloChatId: tenantDraft.zaloChatId?.trim() || "",
+        zaloUserId: tenantDraft.zaloUserId?.trim() || "",
+        notes: tenantDraft.notes?.trim() || "",
+      };
       if (
         isContractRepresentative &&
         customerId !== roomData?.tenant?.id &&
@@ -1858,6 +2248,85 @@ export default function RoomPremiumModal({
 
       const shouldCreateContract =
         isContractRepresentative && !existingContractId;
+
+      const isNewPrimaryRental =
+        shouldCreateContract &&
+        (roomData?.rentalType === "shared" || !roomData?.tenant);
+
+      if (isNewPrimaryRental) {
+        if (!roomContext.buildingId) {
+          showToast(
+            "Không xác định được tòa nhà của phòng để tạo nghiệp vụ thuê.",
+            "error",
+          );
+          return;
+        }
+        if (!rentalIntentMode) {
+          showToast("Vui lòng chọn Thuê ở ngay hoặc Cọc giữ chỗ trước khi lưu khách.", "error");
+          return;
+        }
+        const intentContext = {
+          customerId,
+          ...roomContext,
+          generation: expectedGeneration,
+        };
+        setRentalIntentContext(intentContext);
+        if (rentalIntentMode === "BOOKING") {
+          const bookingResult = await createBookingHoldFlow(customerId, roomContext);
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+            queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+            queryClient.invalidateQueries({ queryKey: ["customers"] }),
+            queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+            queryClient.invalidateQueries({ queryKey: ["deposits"] }),
+            queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+            queryClient.invalidateQueries({ queryKey: ["room-finance-summary", roomContext.roomId] }),
+          ]);
+          setRoomData((prev) => {
+            if (!prev) return prev;
+            const bookingTenant = {
+              ...savedTenantInfo,
+              role: "Đặt cọc giữ phòng",
+              rentalStatus: "BOOKING_HOLD",
+              isBookingHold: true,
+              isRep: false,
+              deposit: Number(contractDraft.tienCoc.replace(/\D/g, "")) || 0,
+              rentPrice: Number(contractDraft.tienThue.replace(/\D/g, "")) || Number(roomData?.monthlyPrice || 0),
+              contractDeposit: Number(contractDraft.tienCocHopDong.replace(/\D/g, "")) || 0,
+              startDate: contractDraft.ngayBatDau || getLocalYMD(),
+              endDate: contractDraft.ngayBatDau || getLocalYMD(),
+              contractId: bookingResult?.contract?.id || "",
+              contractCode: bookingResult?.contract?.code || "",
+              depositId: bookingResult?.deposit?.id || "",
+              depositCode: bookingResult?.deposit?.code || "",
+            } as any;
+            const sharedTenants = [...(prev.sharedTenants || [])];
+            const existingIdx = sharedTenants.findIndex((item: any) => item.id === customerId);
+            if (existingIdx >= 0) {
+              sharedTenants[existingIdx] = { ...sharedTenants[existingIdx], ...bookingTenant };
+            } else {
+              sharedTenants.push(bookingTenant);
+            }
+            return {
+              ...prev,
+              status: "deposited",
+              sharedTenants,
+            };
+          });
+          setActiveTab("finances");
+          showToast(
+            bookingResult?.contract
+              ? "Đã tạo cọc giữ chỗ, hợp đồng cọc, hóa đơn và QR thanh toán."
+              : "Đã tạo cọc giữ chỗ và QR thanh toán.",
+            "success",
+          );
+          if (!beginZaloWaitingIfNeeded(customerId, bookingResult?.invoiceId || null)) {
+            closeTenantModal();
+          }
+          return;
+        }
+      }
+      let pendingZaloInvoiceId: string | null = null;
       let createdContract: any = null;
       let updatedContract: any = null;
 
@@ -1898,6 +2367,12 @@ export default function RoomPremiumModal({
               : "Tạo nhanh từ luồng thêm khách thuê vào phòng",
             coRepresentativeIds: existingCoReps,
           });
+          if (rentalIntentMode === "IMMEDIATE") {
+            const initialInvoiceResult = await createInitialInvoiceForContract(createdContract, customerId);
+            pendingZaloInvoiceId = initialInvoiceResult?.invoiceId || null;
+            setActiveTab("finances");
+            showToast("Đã tạo hợp đồng thuê, hóa đơn đầu kỳ và QR thanh toán.", "success");
+          }
         } catch (error: any) {
           console.warn("[CreateContract]", error);
           let errMsg =
@@ -1963,10 +2438,11 @@ export default function RoomPremiumModal({
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["rooms"] }),
-        queryClient.invalidateQueries({ queryKey: ["buildings"] }),
-        queryClient.invalidateQueries({ queryKey: ["customers"] }),
-        queryClient.invalidateQueries({ queryKey: ["contracts"] }),
-      ]);
+          queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+          queryClient.invalidateQueries({ queryKey: ["customers"] }),
+          queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+          queryClient.invalidateQueries({ queryKey: ["room-finance-summary", roomContext.roomId] }),
+        ]);
 
       setRoomData((prev) => {
         if (!prev) return null;
@@ -1981,16 +2457,8 @@ export default function RoomPremiumModal({
             status: shouldCreateContract ? "occupied" : prev.status,
             tenant: {
               ...prev.tenant,
+              ...savedTenantInfo,
               id: customerId || prev.tenant?.id || `t-${prev.id}`,
-              name,
-              phone,
-              email: prev.tenant?.email || "",
-              cccd: tenantDraft.cccd.trim(),
-              gender: tenantDraft.gender.trim(),
-              birthDate,
-              nationality: tenantDraft.nationality.trim(),
-              address: tenantDraft.address.trim(),
-              emergencyPhone: tenantDraft.emergencyPhone.trim(),
               idImages: prev.tenant?.idImages || [],
               tempResidence: prev.tenant?.tempResidence || false,
             },
@@ -2067,16 +2535,8 @@ export default function RoomPremiumModal({
         ) {
           const sharedTenants = [...(prev.sharedTenants || [])];
           const newRepTenant = {
+            ...savedTenantInfo,
             id: customerId || `t-${Date.now()}`,
-            name,
-            phone,
-            email: "",
-            cccd: tenantDraft.cccd.trim(),
-            gender: tenantDraft.gender.trim(),
-            birthDate,
-            nationality: tenantDraft.nationality.trim(),
-            address: tenantDraft.address.trim(),
-            emergencyPhone: tenantDraft.emergencyPhone.trim(),
             idImages: [],
             tempResidence: false,
             isRep: true,
@@ -2196,16 +2656,8 @@ export default function RoomPremiumModal({
             (st) => st.id === customerId || st.id === tenantDraft.id,
           );
           const newTenant = {
+            ...savedTenantInfo,
             id: customerId || `t-${Date.now()}`,
-            name,
-            phone,
-            email: "",
-            cccd: tenantDraft.cccd.trim(),
-            gender: tenantDraft.gender.trim(),
-            birthDate,
-            nationality: tenantDraft.nationality.trim(),
-            address: tenantDraft.address.trim(),
-            emergencyPhone: tenantDraft.emergencyPhone.trim(),
             idImages: [],
             bedPosition: "",
             deposit: 0,
@@ -2223,7 +2675,6 @@ export default function RoomPremiumModal({
                 : prev.sharedTenants?.find((st) => st.id === householdRepId)
                     ?.contractId
               : undefined,
-            relationship: tenantDraft.relationship?.trim() || "",
           } as any;
           if (existingIdx >= 0) {
             sharedTenants[existingIdx] = {
@@ -2244,16 +2695,8 @@ export default function RoomPremiumModal({
             (rm) => rm.id === customerId || rm.id === tenantDraft.id,
           );
           const newRoommate = {
+            ...savedTenantInfo,
             id: customerId || `t-${Date.now()}`,
-            name,
-            phone,
-            email: "",
-            cccd: tenantDraft.cccd.trim(),
-            gender: tenantDraft.gender.trim(),
-            birthDate,
-            nationality: tenantDraft.nationality.trim(),
-            address: tenantDraft.address.trim(),
-            emergencyPhone: tenantDraft.emergencyPhone.trim(),
             idImages:
               existingIdx >= 0 ? roommates[existingIdx].idImages || [] : [],
             tempResidence:
@@ -2275,11 +2718,14 @@ export default function RoomPremiumModal({
           };
         }
       });
-      setIsTenantModalOpen(false);
-      setTenantModalStep(1);
-      setIsContractRepresentative(false);
+      setRoomData((prev) =>
+        patchRoomCustomerInfo(prev, customerId, savedTenantInfo),
+      );
       if (!(onUpdateRoom && isContractRepresentative)) {
         showToast("Đã cập nhật thông tin khách hàng.", "success");
+      }
+      if (!beginZaloWaitingIfNeeded(customerId, pendingZaloInvoiceId)) {
+        closeTenantModal();
       }
     } catch (error) {
       console.error("Error in commitTenantDraft:", error);
@@ -2289,6 +2735,10 @@ export default function RoomPremiumModal({
   };
 
   const handleSaveTenant = async () => {
+    if (tenantSaveInFlightRef.current) return;
+    tenantSaveInFlightRef.current = true;
+    const expectedGeneration = tenantSelectionContext.current.generation;
+    try {
     const name = tenantDraft.name.trim();
     const phone = tenantDraft.phone.trim();
     const cccd = tenantDraft.cccd.trim();
@@ -2369,6 +2819,14 @@ export default function RoomPremiumModal({
         excludeId: currentDraftId || undefined,
       });
 
+      if (
+        tenantSelectionContext.current.generation !== expectedGeneration ||
+        tenantSelectionContext.current.roomId !== roomId
+      ) {
+        showToast("Ngữ cảnh phòng đã thay đổi. Vui lòng mở lại thao tác.", "error");
+        return;
+      }
+
       const dupData = dupRes?.data || dupRes;
       if (dupData?.isDuplicate) {
         if (
@@ -2398,23 +2856,65 @@ export default function RoomPremiumModal({
       }
     } catch (err) {
       console.warn("Could not check duplicate customer:", err);
+      showToast("Không thể kiểm tra trùng khách thuê. Vui lòng thử lại.", "error");
+      return;
     } finally {
       setIsCheckingDuplicate(false);
+    }
+
+    if (
+      tenantSelectionContext.current.generation !== expectedGeneration ||
+      tenantSelectionContext.current.roomId !== roomId
+    ) {
+      showToast("Ngữ cảnh phòng đã thay đổi. Vui lòng mở lại thao tác.", "error");
+      return;
     }
 
     setDuplicateWarning(null);
 
     if (isContractRepresentative && tenantModalStep === 1) {
+      if (rentalIntentMode === "BOOKING" && !contractDraft.tienCoc.trim()) {
+        setContractDraft((previous) => ({
+          ...previous,
+          tienCoc: previous.tienCoc || "",
+          tienThue:
+            previous.tienThue ||
+            (roomData?.monthlyPrice ? Number(roomData.monthlyPrice).toLocaleString("vi-VN") : ""),
+          tienCocHopDong:
+            previous.tienCocHopDong ||
+            (roomData?.monthlyPrice ? (Number(roomData.monthlyPrice) * 2).toLocaleString("vi-VN") : ""),
+          ngayBatDau: previous.ngayBatDau || getLocalYMD(),
+        }));
+      }
       setTenantModalStep(2);
       return;
     }
 
     if (isContractRepresentative && tenantModalStep === 2) {
-      commitTenantDraft(true);
+      if (rentalIntentMode === "BOOKING") {
+        const bookingAmount = Number(contractDraft.tienCoc.replace(/\D/g, ""));
+        if (!Number.isFinite(bookingAmount) || bookingAmount <= 0) {
+          showToast("Vui lòng nhập số tiền cọc giữ phòng.", "error");
+          return;
+        }
+        const bookingRent = Number(contractDraft.tienThue.replace(/\D/g, ""));
+        if (!Number.isFinite(bookingRent) || bookingRent <= 0) {
+          showToast("Vui lòng nhập giá thuê để điền vào hợp đồng cọc giữ phòng.", "error");
+          return;
+        }
+        if (!isValidYmdDate(contractDraft.ngayBatDau)) {
+          showToast("Ngày dự kiến vào ở không hợp lệ. Vui lòng nhập đúng dạng DD/MM/YYYY.", "error");
+          return;
+        }
+      }
+      await commitTenantDraft(true, expectedGeneration);
       return;
     }
 
-    commitTenantDraft();
+    await commitTenantDraft(false, expectedGeneration);
+    } finally {
+      tenantSaveInFlightRef.current = false;
+    }
   };
 
   const formatCompactMoney = (amount: number) => {
@@ -2432,9 +2932,29 @@ export default function RoomPremiumModal({
     }).format(amount);
   };
 
+  const financeRoomIdentity = financeCandidates.find((candidate) =>
+    ["ACTIVE", "EXPIRING", "APPROVED", "PENDING_APPROVAL", "DRAFT"].includes(
+      String(candidate.contractStatus || "").toUpperCase(),
+    ),
+  ) || null;
+  const financeRoomStatus = String(financeRoomIdentity?.contractStatus || "").toUpperCase();
+  const effectiveRoomStatus =
+    roomData.status === "vacant" && financeRoomIdentity
+      ? ["ACTIVE", "EXPIRING"].includes(financeRoomStatus)
+        ? financeRoomStatus === "EXPIRING"
+          ? "expiring_soon"
+          : "occupied"
+        : "deposited"
+      : roomData.status;
+
   let tenantName = "Trống";
   let daysLeft = "-";
-  let rDebt = roomData.debt || 0;
+  const summaryOutstanding = Number(
+    (roomFinanceSummary as any)?.invoices?.outstanding ||
+      (roomFinanceSummary as any)?.summary?.outstanding ||
+      0,
+  );
+  let rDebt = Number(roomData.debt || 0) || summaryOutstanding;
   if (roomData.tenant) {
     tenantName = roomData.tenant.name;
     if (roomData.contract) {
@@ -2442,30 +2962,36 @@ export default function RoomPremiumModal({
         (new Date(roomData.contract.endDate).getTime() - new Date().getTime()) /
           (1000 * 3600 * 24),
       );
-      daysLeft = diff > 0 ? `${diff}d` : "0d";
+      daysLeft = Number.isFinite(diff) ? (diff > 0 ? `${diff}d` : "0d") : "-";
     }
   } else {
     const count = roomData.sharedTenants?.length || 0;
-    tenantName = count > 0 ? `${count} khách ghép` : "Trống";
+    tenantName =
+      count > 0
+        ? `${count} khách ghép`
+        : financeRoomIdentity?.customerName || "Trống";
     if (count > 0) {
       rDebt =
         roomData.sharedTenants?.reduce((acc, st) => acc + (st.debt || 0), 0) ||
         0;
-      const minDays = Math.min(
-        ...(roomData.sharedTenants?.map((st) => st.remainingDays) || [0]),
-      );
-      daysLeft = `${minDays}d`;
+      const remainingDays = (roomData.sharedTenants || [])
+        .map((st) => Number(st.remainingDays))
+        .filter((value) => Number.isFinite(value));
+      const minDays = remainingDays.length > 0 ? Math.min(...remainingDays) : null;
+      daysLeft = minDays === null ? "-" : `${Math.max(0, minDays)}d`;
     }
   }
 
   const occupantsCount = getOccupantsList().length;
+  const visibleOccupantsCount =
+    occupantsCount > 0 ? occupantsCount : financeRoomIdentity ? 1 : 0;
 
   const tabs = [
     {
       id: "rental_flow",
       label: "Khách thuê",
       icon: <Users size={16} className="shrink-0" />,
-      badge: occupantsCount > 0 ? occupantsCount : undefined,
+      badge: visibleOccupantsCount > 0 ? visibleOccupantsCount : undefined,
     },
     {
       id: "finances",
@@ -2484,7 +3010,10 @@ export default function RoomPremiumModal({
       icon: <ShieldAlert size={16} className="shrink-0" />,
       badge: (() => {
         if (occupantsCount === 0) return undefined;
-        const occs = getOccupantsList();
+        const occs = getOccupantsList().filter(
+          (o: any) => !isBookingHoldOccupant(o),
+        );
+        if (occs.length === 0) return undefined;
         const declared = occs.filter((o: any) =>
           Boolean(o.tempResidence),
         ).length;
@@ -2501,6 +3030,7 @@ export default function RoomPremiumModal({
   ];
 
   const openCreateContractModal = () => {
+    setIsIntentContractFlow(false);
     const start = new Date();
     const end = new Date(start);
     end.setFullYear(start.getFullYear() + 1);
@@ -2513,6 +3043,165 @@ export default function RoomPremiumModal({
     setContractRent(roomData?.monthlyPrice || 0);
     setContractDeposit(Math.max(roomData?.monthlyPrice || 0, 0) * 2);
     setIsContractModalOpen(true);
+  };
+
+  const openDraftContractForIntent = () => {
+    if (
+      !rentalIntentContext ||
+      !isRentalIntentContextCurrent(
+        rentalIntentContext,
+        roomId,
+        tenantSelectionContext.current.generation,
+      )
+    ) {
+      showToast("Ngữ cảnh phòng đã thay đổi. Vui lòng thêm khách lại từ phòng hiện tại.", "error");
+      return;
+    }
+    const start = new Date();
+    const end = new Date(start);
+    end.setFullYear(start.getFullYear() + 1);
+    setContractCustomerId(rentalIntentContext.customerId);
+    setContractStartDate(contractDraft.ngayBatDau || getLocalYMD(start));
+    setContractEndDate(contractDraft.ngayKetThuc || getLocalYMD(end));
+    setContractCode(
+      `HD-${roomData?.code || roomData?.name || roomId}-${Date.now().toString().slice(-4)}`,
+    );
+    setContractRent(contractDraft.tienThue.trim() ? Number(contractDraft.tienThue.replace(/\D/g, "")) : roomData?.monthlyPrice || 0);
+    setContractDeposit(contractDraft.tienCoc.trim() ? Number(contractDraft.tienCoc.replace(/\D/g, "")) : Math.max(roomData?.monthlyPrice || 0, 0) * 2);
+    setIsRentalIntentModalOpen(false);
+    setIsIntentContractFlow(true);
+    setIsContractModalOpen(true);
+  };
+
+  const parseMoney = (value: string, fallback = 0) => {
+    const parsed = Number(String(value || "").replace(/\D/g, ""));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  };
+
+  const createBookingHoldFlow = async (
+    customerId: string,
+    roomContext: { roomId: string; buildingId: string },
+  ) => {
+    const amount = parseMoney(
+      contractDraft.tienCoc,
+      Math.min(Number(roomData?.monthlyPrice || 0), 2_000_000) || 1_000_000,
+    );
+    const bookingMonthlyRent = parseMoney(
+      contractDraft.tienThue,
+      Number(roomData?.monthlyPrice || 0),
+    );
+    const bookingContractDeposit = parseMoney(contractDraft.tienCocHopDong, 0);
+    const expectedMoveInDate = normalizeStrictYmdDate(contractDraft.ngayBatDau) || getLocalYMD();
+    const startDate = expectedMoveInDate;
+    const endDate = normalizeStrictYmdDate(contractDraft.ngayKetThuc) || expectedMoveInDate;
+    const signedAt = normalizeStrictYmdDate(contractDraft.ngayKyhopdong);
+    const firstPaymentDate = normalizeStrictYmdDate(contractDraft.ngayThanhToanDauTien);
+    const expectedMoveInDateText = formatYmdForVietnamDisplay(expectedMoveInDate);
+    const contractResponse: any = await contractsApi.create({
+      customerId,
+      roomId: roomContext.roomId,
+      contractCode: `HD-COC-${roomData?.code || roomData?.name || roomId}-${Date.now().toString().slice(-4)}`,
+      startDate,
+      endDate,
+      signedAt: signedAt
+        ? vietnamDateToIso(signedAt)
+        : new Date().toISOString(),
+      firstPaymentDate: firstPaymentDate
+        ? vietnamDateToIso(firstPaymentDate)
+        : new Date().toISOString(),
+      rentAmount: bookingMonthlyRent,
+      depositAmount: amount,
+      memberCount: 1,
+      status: "DRAFT",
+      purpose: `Hợp đồng cọc giữ phòng - dự kiến vào ở ngày ${expectedMoveInDateText} | Giá thuê: ${bookingMonthlyRent.toLocaleString("vi-VN")} đồng/tháng | Tiền cọc hợp đồng: ${bookingContractDeposit > 0 ? bookingContractDeposit.toLocaleString("vi-VN") : "........"} đồng | Các khoản phí khác: ........ đồng`,
+      coRepresentativeIds: [],
+    });
+    const contract = contractResponse?.data || contractResponse;
+    if (!contract?.id) throw new Error("Không thể tạo hợp đồng cọc giữ phòng.");
+
+    const depositResponse: any = await depositsApi.create(
+      {
+        code: `DC-GP-${roomData?.code || roomId.slice(-4)}-${Date.now().toString().slice(-4)}`,
+        type: "BOOKING",
+        roomId: roomContext.roomId,
+        customerId,
+        contractId: contract.id,
+        rentalCycleId: contract.rentalCycleId,
+        amount,
+        status: "PENDING",
+        expiredAt: expectedMoveInDate
+          ? vietnamDateToIso(expectedMoveInDate, true)
+          : undefined,
+        note: `Tạo từ popup Khách thuê → Cọc giữ chỗ; dự kiến vào ở ngày ${expectedMoveInDateText}`,
+      },
+      `room-flow:booking:${roomContext.roomId}:${customerId}:${Date.now()}`,
+    );
+    const deposit = depositResponse?.data || depositResponse;
+
+    const invoiceResponse: any = await invoicesApi.create({
+      roomId: roomContext.roomId,
+      contractId: contract.id,
+      customerId,
+      rentalCycleId: contract.rentalCycleId || deposit?.rentalCycleId,
+      period: "Cọc giữ phòng",
+      dueDate: expectedMoveInDate ? vietnamDateToIso(expectedMoveInDate, true) : new Date().toISOString(),
+      totalAmount: amount,
+      paidAmount: 0,
+      notes: `Hóa đơn cọc giữ phòng • Dự kiến vào ở ${expectedMoveInDateText} • Deposit ${deposit?.code || deposit?.id || ""}`,
+      items: [{ name: "Tiền cọc giữ phòng", type: "RENT", amount, quantity: 1 }],
+    });
+    const invoice = invoiceResponse?.data || invoiceResponse;
+    if (invoice?.id) {
+      await invoicesApi.issue(invoice.id);
+      await paymentsApi.createInvoiceRequest(invoice.id);
+      try {
+        await paymentsApi.sendInvoiceToZalo(invoice.id);
+      } catch {
+        showToast("Đã tạo QR hóa đơn cọc; khách chưa liên kết Bot Zalo nên cần gửi lại từ chi tiết hóa đơn.", "info");
+      }
+    }
+    return { contract, deposit, invoiceId: invoice?.id || null };
+  };
+
+  const createInitialInvoiceForContract = async (
+    contractResponse: any,
+    customerIdOverride?: string,
+  ) => {
+    const contract = contractResponse?.data || contractResponse;
+    const invoiceCustomerId = customerIdOverride || rentalIntentContext?.customerId;
+    if (!contract?.id || !invoiceCustomerId) return;
+    const amount = Number(contract.depositMoney || roomData?.monthlyPrice || 0) +
+      Number(contract.monthlyRent || roomData?.monthlyPrice || 0);
+    if (amount <= 0) return;
+    const invoiceResponse: any = await invoicesApi.create({
+      roomId,
+      contractId: contract.id,
+      customerId: invoiceCustomerId,
+      rentalCycleId: contract.rentalCycleId,
+      period: "Kỳ đầu vào ở",
+      dueDate: new Date().toISOString(),
+      totalAmount: amount,
+      paidAmount: 0,
+      notes: "Hóa đơn đầu kỳ: tiền cọc hợp đồng + tiền thuê kỳ đầu.",
+      items: [
+        ...(Number(contract.depositMoney || 0) > 0
+          ? [{ name: "Tiền cọc hợp đồng", type: "RENT", amount: Number(contract.depositMoney), quantity: 1 }]
+          : []),
+        ...(Number(contract.monthlyRent || roomData?.monthlyPrice || 0) > 0
+          ? [{ name: "Tiền thuê kỳ đầu", type: "RENT", amount: Number(contract.monthlyRent || roomData?.monthlyPrice || 0), quantity: 1 }]
+          : []),
+      ],
+    });
+    const invoice = invoiceResponse?.data || invoiceResponse;
+    if (!invoice?.id) return;
+    await invoicesApi.issue(invoice.id);
+    const request = await paymentsApi.createInvoiceRequest(invoice.id);
+    try {
+      await paymentsApi.sendInvoiceToZalo(invoice.id);
+    } catch {
+      showToast("Đã tạo QR hóa đơn; khách chưa liên kết Bot Zalo nên cần gửi lại từ chi tiết hóa đơn.", "info");
+    }
+    return { request, invoiceId: invoice.id };
   };
 
   return createPortal(
@@ -2536,15 +3225,25 @@ export default function RoomPremiumModal({
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-surface border border-border/60 text-muted uppercase">
                   {roomRentalTypeLabel}
                 </span>
-                {roomData.status === "occupied" ? (
+                {effectiveRoomStatus === "occupied" ? (
                   <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                     Đang thuê
                   </span>
-                ) : roomData.status === "expiring_soon" ? (
+                ) : effectiveRoomStatus === "expiring_soon" ? (
                   <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                     Sắp hết hạn
+                  </span>
+                ) : effectiveRoomStatus === "deposited" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    Chờ HĐ / Đặt cọc
+                  </span>
+                ) : effectiveRoomStatus === "maintenance" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                    Bảo trì
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-surface text-muted border border-border">
@@ -2649,11 +3348,14 @@ export default function RoomPremiumModal({
                   {/* Tenant Table / Empty State */}
                   {(() => {
                     const allTenantsList = getOccupantsList();
+                    const actualStayTenants = allTenantsList.filter(
+                      (tenant: any) => !isBookingHoldOccupant(tenant),
+                    );
                     const isWholeRoom = roomData.rentalType !== "shared";
                     const hasPrimaryRep = Boolean(roomData.tenant);
                     const hasOnlyRoommates =
                       isWholeRoom &&
-                      allTenantsList.length > 0 &&
+                      actualStayTenants.length > 0 &&
                       !hasPrimaryRep;
 
                     return (
@@ -2702,7 +3404,11 @@ export default function RoomPremiumModal({
                                   shouldStartAsRepresentative,
                                 )
                               }
-                              className={`bg-primary text-white hover:bg-primary/90 shadow-sm ${hasOnlyRoommates ? "opacity-50 cursor-not-allowed" : ""}`}
+                              className={`bg-primary text-white hover:bg-primary/90 shadow-sm ${
+                                hasOnlyRoommates
+                                  ? "opacity-35 cursor-not-allowed"
+                                  : ""
+                              }`}
                               title={
                                 hasOnlyRoommates
                                   ? "Phòng nguyên căn cần chọn hoặc tạo Đại diện HĐ chính trước khi thêm người ở cùng"
@@ -2804,7 +3510,7 @@ export default function RoomPremiumModal({
                                           Thường trú
                                         </th>
                                       )}
-                                      <th className="px-4 py-3">Vai trò</th>
+                                      <th className="px-4 py-3">Trạng thái</th>
                                       <th className="px-4 py-3 text-right">
                                         Thao tác
                                       </th>
@@ -2859,12 +3565,16 @@ export default function RoomPremiumModal({
                                         <td className="px-4 py-3">
                                           <span
                                             className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                              t.isRep
+                                              (t as any).isBookingHold
+                                                ? "bg-amber-500/10 text-amber-700 border border-amber-500/30"
+                                                : t.isRep
                                                 ? "bg-primary/10 text-primary border border-primary/20"
                                                 : "bg-surface text-muted border border-border/40"
                                             }`}
                                           >
-                                            {t.role}
+                                            {(t as any).isBookingHold
+                                              ? "Đặt cọc giữ phòng"
+                                              : t.role}
                                           </span>
                                         </td>
                                         <td className="px-4 py-3 text-right">
@@ -3298,21 +4008,9 @@ export default function RoomPremiumModal({
                                   "Khách thuê"}
                                 )
                               </h4>
-                              <Button
-                                size="sm"
-                                onClick={() =>
-                                  setIsCreateInvoiceModalOpen(true)
-                                }
-                                disabled={!financeInvoiceScope}
-                                title={
-                                  financeInvoiceScope
-                                    ? undefined
-                                    : "Cần xác định đủ khách thuê, hợp đồng và kỳ thuê trước khi tạo hóa đơn"
-                                }
-                                className="bg-primary text-white hover:bg-primary/90 shadow-sm"
-                              >
-                                <Plus size={13} className="mr-1" /> Tạo hóa đơn
-                              </Button>
+                              <span className="text-[11px] font-bold text-muted rounded-xl border border-border/60 bg-surface px-3 py-2">
+                                Hóa đơn được tạo từ tab Khách thuê
+                              </span>
                             </div>
 
                             <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
@@ -3527,7 +4225,54 @@ export default function RoomPremiumModal({
                   </div>
 
                   {(() => {
+                    const financeBookingReps = (roomFinanceSummary?.rentalCycles || [])
+                      .filter((cycle: any) =>
+                        (cycle.deposits || []).some((deposit: any) =>
+                          ["BOOKING", "RESERVATION"].includes(String(deposit.type || "").toUpperCase()) &&
+                          !["CANCELLED", "REFUNDED", "CONVERTED_TO_CONTRACT"].includes(String(deposit.status || "").toUpperCase()),
+                        ),
+                      )
+                      .flatMap((cycle: any) => {
+                        const customer = mergeTenantDisplayInfo(
+                          {
+                            id: cycle.customer?.id,
+                            name: cycle.customer?.fullName || cycle.customer?.name || "",
+                            phone: cycle.customer?.phone || "",
+                            email: cycle.customer?.email || "",
+                            cccd: cycle.customer?.identityNo || cycle.customer?.cccd || cycle.customer?.citizenId || "",
+                            citizenId: cycle.customer?.identityNo || cycle.customer?.cccd || cycle.customer?.citizenId || "",
+                            gender: cycle.customer?.gender || "",
+                            birthDate: cycle.customer?.birthDate || "",
+                            nationality: cycle.customer?.nationality || "",
+                            address: cycle.customer?.address || "",
+                            emergencyPhone: cycle.customer?.emergencyPhone || "",
+                            zaloChatId: cycle.customer?.zaloChatId || "",
+                            zaloUserId: cycle.customer?.zaloUserId || "",
+                          },
+                          getLocalCustomerDetails(cycle.customer || {}),
+                        );
+                        return (cycle.contracts || []).map((contract: any) => ({
+                          ...customer,
+                          isBookingHold: true,
+                          role: "Đặt cọc giữ phòng",
+                          contract: {
+                            id: contract.id,
+                            code: contract.code,
+                            status: contract.status,
+                            purpose: contract.purpose,
+                            deposit: contract.depositMoney || 0,
+                            depositMoney: contract.depositMoney || 0,
+                            rentPrice: contract.monthlyRent || 0,
+                            monthlyRent: contract.monthlyRent || 0,
+                            startDate: contract.startDate,
+                            endDate: contract.endDate,
+                            signedAt: contract.signedAt,
+                            firstPaymentDate: contract.firstPaymentDate,
+                          },
+                        }));
+                      });
                     const rawReps = [
+                      ...financeBookingReps,
                       ...(roomData.tenant && roomData.contract
                         ? [{ ...roomData.tenant, contract: roomData.contract }]
                         : []),
@@ -3647,10 +4392,20 @@ export default function RoomPremiumModal({
 
                                 const buildContractPayload = (rep: any) => {
                                   const c = rep.contract || ({} as any);
+                                  const isBookingContract =
+                                    rep.isBookingHold ||
+                                    String(c.purpose || "").toLowerCase().includes("cọc giữ phòng") ||
+                                    (Number(c.rentPrice || c.monthlyRent || 0) === 0 &&
+                                      Number(c.deposit || c.depositMoney || 0) > 0);
+                                  const bookingContractDeposit = isBookingContract
+                                    ? readMoneyFromText(c.purpose, "Tiền cọc hợp đồng")
+                                    : 0;
                                   const rentVal = Number(
-                                    c.rentPrice || roomData.monthlyPrice || 0,
+                                    isBookingContract
+                                      ? c.rentPrice || c.monthlyRent || roomData.monthlyPrice || 0
+                                      : c.rentPrice || c.monthlyRent || roomData.monthlyPrice || 0,
                                   );
-                                  const depositVal = Number(c.deposit || 0);
+                                  const depositVal = Number(c.deposit || c.depositMoney || 0);
                                   const landlordKey =
                                     contractDraft.chuNha || "TINH";
                                   const landlordInfo =
@@ -3668,8 +4423,21 @@ export default function RoomPremiumModal({
                                   const namKyHD = String(
                                     signedDate.getFullYear(),
                                   );
+                                  const startDateText = c.startDate
+                                    ? formatBirthDateForDisplay(c.startDate)
+                                    : "..........................";
+                                  const endDateText = c.endDate
+                                    ? formatBirthDateForDisplay(c.endDate)
+                                    : startDateText;
+                                  const firstMonthTotal = isBookingContract
+                                    ? rentVal
+                                    : rentVal;
+                                  const moveInTotal = firstMonthTotal + (isBookingContract ? bookingContractDeposit : 0);
 
                                   return {
+                                    contractTemplate: isBookingContract ? "BOOKING_HOLD" : "RENTAL",
+                                    loaiHopDong: isBookingContract ? "BOOKING_HOLD" : "RENTAL",
+                                    isBookingHold: isBookingContract,
                                     hoTen:
                                       rep.name ||
                                       rep.fullName ||
@@ -3696,13 +4464,26 @@ export default function RoomPremiumModal({
                                       rep.dienThoaiNguoithan ||
                                       "-",
                                     tienThue: rentVal,
+                                    tienThueChu: rentVal
+                                      ? numberToWordsVietnamese(rentVal)
+                                      : "",
                                     tienCoc: depositVal,
-                                    ngayBatDau: c.startDate
-                                      ? formatBirthDateForDisplay(c.startDate)
+                                    tienCocChu: depositVal
+                                      ? numberToWordsVietnamese(depositVal)
                                       : "..........................",
-                                    ngayKetThuc: c.endDate
-                                      ? formatBirthDateForDisplay(c.endDate)
-                                      : "..........................",
+                                    ngayBatDau: startDateText,
+                                    ngayKetThuc: endDateText,
+                                    ngayGiuPhongDen: endDateText,
+                                    ngayDuKienVaoO: startDateText,
+                                    tienThueThangDau: firstMonthTotal,
+                                    tienCocThueNha: isBookingContract && bookingContractDeposit > 0
+                                      ? bookingContractDeposit
+                                      : "",
+                                    phiKhac: isBookingContract ? "........" : "",
+                                    tongThanhToanKhiNhanPhong: moveInTotal,
+                                    tongThanhToanKhiNhanPhongChu: moveInTotal
+                                      ? numberToWordsVietnamese(moveInTotal)
+                                      : "",
                                     maPhong:
                                       roomData.code ||
                                       roomData.name ||
@@ -3717,6 +4498,7 @@ export default function RoomPremiumModal({
                                     diachiToanha:
                                       currentBuilding?.address ||
                                       "..........................",
+                                    quanLyToaNha: "0373.129.295 Nhân",
                                     chuNha: landlordKey,
                                     ngayKyHD,
                                     thangKyHD,
@@ -3823,6 +4605,11 @@ export default function RoomPremiumModal({
 
                                 return reps.map((rep: any, index: number) => {
                                   const c = rep.contract || ({} as any);
+                                  const isBookingContract =
+                                    rep.isBookingHold ||
+                                    String(c.purpose || "").toLowerCase().includes("cọc giữ phòng") ||
+                                    (Number(c.rentPrice || c.monthlyRent || 0) === 0 &&
+                                      Number(c.deposit || c.depositMoney || 0) > 0);
                                   const tName = rep.name || rep.fullName || "";
                                   const cleanName = tName
                                     .normalize("NFD")
@@ -3848,7 +4635,14 @@ export default function RoomPremiumModal({
                                         {index + 1}
                                       </td>
                                       <td className="px-4 py-3 font-bold text-text">
-                                        {tName || "Chưa có"}
+                                        <div className="flex flex-col gap-1">
+                                          <span>{tName || "Chưa có"}</span>
+                                          {isBookingContract && (
+                                            <span className="w-fit rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-black text-amber-700">
+                                              Hợp đồng cọc giữ phòng
+                                            </span>
+                                          )}
+                                        </div>
                                       </td>
                                       <td className="px-4 py-3">
                                         <button
@@ -3870,15 +4664,17 @@ export default function RoomPremiumModal({
                                         </button>
                                       </td>
                                       <td className="px-4 py-3 font-black text-text">
-                                        {(
-                                          c.rentPrice ||
-                                          roomData.monthlyPrice ||
-                                          0
-                                        ).toLocaleString()}{" "}
-                                        đ
+                                        {isBookingContract
+                                          ? "—"
+                                          : `${(
+                                              c.rentPrice ||
+                                              c.monthlyRent ||
+                                              roomData.monthlyPrice ||
+                                              0
+                                            ).toLocaleString()} đ`}
                                       </td>
                                       <td className="px-4 py-3 font-bold text-text">
-                                        {(c.deposit || 0).toLocaleString()} đ
+                                        {(c.deposit || c.depositMoney || 0).toLocaleString()} đ
                                       </td>
                                       <td className="px-4 py-3 text-muted text-xs">
                                         {c.startDate
@@ -4063,6 +4859,9 @@ export default function RoomPremiumModal({
 
                   {(() => {
                     const occupants = getOccupantsList();
+                    const tempResidenceEligibleOccupants = occupants.filter(
+                      (occ: any) => !isBookingHoldOccupant(occ),
+                    );
 
                     if (occupants.length === 0) {
                       return (
@@ -4090,15 +4889,17 @@ export default function RoomPremiumModal({
                       );
                     }
 
-                    const declaredCount = occupants.filter((occ: any) =>
+                    const declaredCount = tempResidenceEligibleOccupants.filter((occ: any) =>
                       Boolean(occ.tempResidence),
                     ).length;
                     const isAllDeclared =
-                      declaredCount === occupants.length &&
-                      occupants.length > 0;
+                      declaredCount === tempResidenceEligibleOccupants.length &&
+                      tempResidenceEligibleOccupants.length > 0;
                     const isPartialDeclared =
-                      declaredCount > 0 && declaredCount < occupants.length;
+                      declaredCount > 0 && declaredCount < tempResidenceEligibleOccupants.length;
                     const isNoneDeclared = declaredCount === 0;
+                    const hasTempResidenceEligibleOccupants =
+                      tempResidenceEligibleOccupants.length > 0;
 
                     return (
                       <div className="flex flex-col gap-3.5">
@@ -4112,18 +4913,23 @@ export default function RoomPremiumModal({
                               {isAllDeclared && (
                                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                                   ✓ Đã khai báo ({declaredCount}/
-                                  {occupants.length})
+                                  {tempResidenceEligibleOccupants.length})
                                 </span>
                               )}
                               {isPartialDeclared && (
                                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                                   ⚠ Khai báo 1 phần ({declaredCount}/
-                                  {occupants.length})
+                                  {tempResidenceEligibleOccupants.length})
                                 </span>
                               )}
-                              {isNoneDeclared && (
+                              {isNoneDeclared && hasTempResidenceEligibleOccupants && (
                                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                                  • Chưa khai báo (0/{occupants.length})
+                                  • Chưa khai báo (0/{tempResidenceEligibleOccupants.length})
+                                </span>
+                              )}
+                              {!hasTempResidenceEligibleOccupants && (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                                  Đang cọc giữ phòng - chưa cần khai báo
                                 </span>
                               )}
                             </div>
@@ -4141,8 +4947,13 @@ export default function RoomPremiumModal({
                               onClick={() =>
                                 setIsTempResidenceConfirmOpen(true)
                               }
-                              disabled={isSavingTempResidence}
-                              className="shrink-0 h-8 font-bold text-xs"
+                              disabled={isSavingTempResidence || !hasTempResidenceEligibleOccupants}
+                              className={`shrink-0 h-8 font-bold text-xs ${!hasTempResidenceEligibleOccupants ? "opacity-40 cursor-not-allowed" : ""}`}
+                              title={
+                                !hasTempResidenceEligibleOccupants
+                                  ? "Khách đang cọc giữ phòng nên chưa cần khai báo tạm trú"
+                                  : undefined
+                              }
                             >
                               {isAllDeclared
                                 ? "Hủy khai báo tất cả"
@@ -4160,7 +4971,7 @@ export default function RoomPremiumModal({
                             <span className="text-xs font-medium text-muted">
                               Đã khai báo:{" "}
                               <strong className="text-text font-bold">
-                                {declaredCount}/{occupants.length}
+                                {declaredCount}/{tempResidenceEligibleOccupants.length}
                               </strong>{" "}
                               khách
                             </span>
@@ -4185,6 +4996,7 @@ export default function RoomPremiumModal({
                               <tbody className="divide-y divide-border/40">
                                 {occupants.map((occ: any, idx: number) => {
                                   const isDeclared = Boolean(occ.tempResidence);
+                                  const isBookingHold = isBookingHoldOccupant(occ);
                                   return (
                                     <tr
                                       key={occ.id || idx}
@@ -4209,9 +5021,9 @@ export default function RoomPremiumModal({
                                       </td>
                                       <td className="px-4 py-2.5">
                                         <span
-                                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${occ.isRep ? "bg-primary/10 text-primary border border-primary/20" : "bg-surface text-muted border border-border/40"}`}
+                                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${isBookingHold ? "bg-amber-500/10 text-amber-700 border border-amber-500/30" : occ.isRep ? "bg-primary/10 text-primary border border-primary/20" : "bg-surface text-muted border border-border/40"}`}
                                         >
-                                          {occ.role ||
+                                          {isBookingHold ? "Đặt cọc giữ phòng" : occ.role ||
                                             (occ.isRep
                                               ? "Đại diện HĐ"
                                               : "Người ở cùng")}
@@ -4220,15 +5032,19 @@ export default function RoomPremiumModal({
                                       <td className="px-4 py-2.5 text-center">
                                         <span
                                           className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold ${
-                                            isDeclared
+                                            isBookingHold
+                                              ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20"
+                                              : isDeclared
                                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                                               : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
                                           }`}
                                         >
                                           <span
-                                            className={`w-1.5 h-1.5 rounded-full ${isDeclared ? "bg-emerald-500" : "bg-rose-500"}`}
+                                            className={`w-1.5 h-1.5 rounded-full ${isBookingHold ? "bg-amber-500" : isDeclared ? "bg-emerald-500" : "bg-rose-500"}`}
                                           />
-                                          {isDeclared
+                                          {isBookingHold
+                                            ? "Chưa cần khai báo"
+                                            : isDeclared
                                             ? "Đã khai báo"
                                             : "Chưa khai báo"}
                                         </span>
@@ -4247,12 +5063,19 @@ export default function RoomPremiumModal({
                                               true,
                                             );
                                           }}
-                                          disabled={isSavingTempResidence}
+                                          disabled={isSavingTempResidence || isBookingHold}
                                           className={`h-7 text-xs font-bold gap-1 px-2.5 ${
-                                            isDeclared
+                                            isBookingHold
+                                              ? "opacity-40 cursor-not-allowed"
+                                              : isDeclared
                                               ? "text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 border-rose-200 dark:border-rose-900/40"
                                               : ""
                                           }`}
+                                          title={
+                                            isBookingHold
+                                              ? "Khách đang cọc giữ phòng nên chưa cần khai báo tạm trú"
+                                              : undefined
+                                          }
                                         >
                                           {isDeclared ? (
                                             <>
@@ -4330,13 +5153,13 @@ export default function RoomPremiumModal({
                         : roomData.monthlyPrice || roomData.price || 0
                       ).toLocaleString("vi-VN") + " đ";
                     const displayStatus =
-                      roomData.status === "occupied"
+                      effectiveRoomStatus === "occupied"
                         ? "Đang thuê"
-                        : roomData.status === "expiring_soon"
+                        : effectiveRoomStatus === "expiring_soon"
                           ? "Hợp đồng sắp hết hạn"
-                          : roomData.status === "deposited"
-                            ? "Đã đặt cọc"
-                            : roomData.status === "maintenance"
+                          : effectiveRoomStatus === "deposited"
+                            ? "Chờ HĐ / Đã đặt cọc"
+                            : effectiveRoomStatus === "maintenance"
                               ? "Đang bảo trì"
                               : "Trống (Có thể thuê)";
                     const currentRoomType =
@@ -4527,6 +5350,14 @@ export default function RoomPremiumModal({
             .map((occupant: any) => occupant.id)
             .filter(Boolean)}
           initialSearch={tenantDraft.phone || tenantDraft.cccd || ""}
+          flowIntentLabel={
+            rentalIntentMode === "BOOKING"
+              ? "Cọc giữ phòng"
+              : rentalIntentMode === "IMMEDIATE"
+                ? "Thuê ở ngay"
+                : undefined
+          }
+          onBackToIntent={rentalIntentMode ? handleBackToRentalIntent : undefined}
           onClose={() => setIsTenantSourceModalOpen(false)}
           onCreateNew={handleCreateNewTenant}
           onSelectExisting={handleSelectExistingTenant}
@@ -4535,15 +5366,19 @@ export default function RoomPremiumModal({
 
       <Modal
         isOpen={isTenantModalOpen}
-        onClose={() => setIsTenantModalOpen(false)}
+        onClose={closeTenantModal}
         title={
-          tenantDraft.id
+          zaloWaiting
+            ? "Chờ khách đăng ký Bot Zalo"
+            : rentalIntentMode === "BOOKING" && tenantModalStep === 2
+            ? "Thông tin cọc giữ phòng"
+            : tenantDraft.id
             ? "Cập nhật thông tin khách thuê"
             : `Thêm khách thuê ${getOccupantsList().length + 1}`
         }
         maxWidth="max-w-xl"
         headerActions={
-          <div className="relative">
+          zaloWaiting ? null : <div className="relative">
             <button
               type="button"
               onClick={() => setIsQrMenuOpen((prev) => !prev)}
@@ -4588,37 +5423,78 @@ export default function RoomPremiumModal({
         }
         footer={
           <div className="flex gap-3 justify-end w-full">
-            {tenantModalStep === 2 && (
-              <Button variant="outline" onClick={() => setTenantModalStep(1)}>
-                Quay lại
+            {zaloWaiting ? (
+              <Button variant="outline" onClick={closeTenantModal}>
+                Bỏ qua, cập nhật sau
               </Button>
+            ) : (
+              <>
+                {tenantModalStep === 2 && (
+                  <Button variant="outline" onClick={() => setTenantModalStep(1)}>
+                    Quay lại
+                  </Button>
+                )}
+                <Button variant="outline" onClick={closeTenantModal}>
+                  Hủy
+                </Button>
+                <Button
+                  onClick={handleSaveTenant}
+                  disabled={isExporting || isCheckingDuplicate}
+                >
+                  {isExporting || isCheckingDuplicate ? (
+                    <Loader2 className="animate-spin mr-2" size={16} />
+                  ) : null}
+                  {tenantModalStep === 1 && isContractRepresentative
+                    ? rentalIntentMode === "BOOKING"
+                      ? "Tiếp tục nhập cọc"
+                      : "Tiếp tục"
+                    : rentalIntentMode === "BOOKING"
+                      ? "Lưu cọc giữ phòng"
+                      : "Lưu khách thuê"}
+                </Button>
+              </>
             )}
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsTenantModalOpen(false);
-                setTenantModalStep(1);
-                setIsContractRepresentative(false);
-              }}
-            >
-              Hủy
-            </Button>
-            <Button
-              onClick={handleSaveTenant}
-              disabled={isExporting || isCheckingDuplicate}
-            >
-              {isExporting || isCheckingDuplicate ? (
-                <Loader2 className="animate-spin mr-2" size={16} />
-              ) : null}
-              {tenantModalStep === 1 && isContractRepresentative
-                ? "Tiếp tục"
-                : "Lưu khách thuê"}
-            </Button>
           </div>
         }
       >
         <div className="flex flex-col gap-4 py-2">
-          {duplicateWarning && (
+          {zaloWaiting && (
+            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-center shadow-sm">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Loader2 className="animate-spin" size={24} />
+              </div>
+              <h3 className="mt-3 text-base font-black text-text">
+                Đang chờ khách đăng ký nhận thông báo Zalo
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted">
+                Sau khi lưu thông tin khách hàng, hãy yêu cầu khách mở Bot Zalo
+                và nhắn đúng cú pháp bên dưới. Khi webhook nhận được đúng thông
+                tin, hệ thống sẽ tự cập nhật Zalo chat ID/user ID và tự đóng bước
+                này.
+              </p>
+              <div className="mt-4 rounded-xl border border-border bg-card p-3 text-left">
+                <div className="text-[11px] font-black uppercase text-muted">
+                  Cú pháp gửi cho khách
+                </div>
+                <div className="mt-1 rounded-lg bg-black/[0.04] px-3 py-2 font-mono text-sm font-bold text-text dark:bg-white/[0.06]">
+                  DK {zaloWaiting.phone || "<SĐT>"}{" "}
+                  {zaloWaiting.roomCode || "<MÃ PHÒNG>"}
+                </div>
+                <div className="mt-2 text-xs leading-relaxed text-muted">
+                  Khách: <b>{zaloWaiting.customerName}</b>
+                  {zaloWaiting.pendingInvoiceId
+                    ? " • Sau khi liên kết, hệ thống sẽ thử gửi lại QR thanh toán qua Zalo."
+                    : ""}
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-muted">
+                Có thể bấm “Bỏ qua, cập nhật sau” nếu muốn tiếp tục xử lý thủ
+                công; khách vẫn đã được lưu vào phòng.
+              </p>
+            </div>
+          )}
+
+          {!zaloWaiting && duplicateWarning && (
             <div className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-200 bg-rose-50/90 text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/40 dark:text-rose-200 text-xs leading-relaxed shadow-sm animate-in fade-in-50 duration-200">
               <AlertTriangle
                 size={16}
@@ -4642,7 +5518,7 @@ export default function RoomPremiumModal({
             </div>
           )}
 
-          {tenantModalStep === 1 && (
+          {!zaloWaiting && tenantModalStep === 1 && (
             <>
               <div className="flex items-center justify-between bg-indigo-50/50 p-3 rounded-lg border border-emerald-100">
                 <div className="flex flex-col mr-2">
@@ -5134,7 +6010,115 @@ export default function RoomPremiumModal({
             </>
           )}
 
-          {tenantModalStep === 2 && (
+          {!zaloWaiting && tenantModalStep === 2 && (
+            rentalIntentMode === "BOOKING" ? (
+              <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-4">
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                  <div className="text-[11px] font-black uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                    Cọc giữ phòng
+                  </div>
+                  <div className="mt-1 text-sm font-bold text-text">
+                    Nhập số tiền cọc và ngày dự kiến khách vào ở. Hệ thống sẽ tự tạo hợp đồng cọc giữ phòng, phiếu cọc, hóa đơn cọc và QR thanh toán.
+                  </div>
+                  <div className="mt-2 text-xs text-muted">
+                    Khách: <b>{tenantDraft.name || "Khách thuê"}</b> • Phòng: <b>{getRoomDisplayName(roomData)}</b>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">
+                      Số tiền cọc giữ phòng (VNĐ) *
+                    </label>
+                    <Input
+                      type="text"
+                      placeholder="Nhập số tiền cọc"
+                      value={contractDraft.tienCoc}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, "");
+                        const formatted = val
+                          ? Number(val).toLocaleString("en-US")
+                          : "";
+                        setContractDraft((p) => ({ ...p, tienCoc: formatted }));
+                      }}
+                    />
+                    {contractDraft.tienCoc ? (
+                      <span className="text-[10px] text-indigo-600 font-medium">
+                        Bằng chữ:{" "}
+                        {numberToWordsVietnamese(
+                          Number(contractDraft.tienCoc.replace(/\D/g, "")),
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-muted">
+                        Khoản này sẽ sinh hóa đơn cọc và QR thanh toán cho khách.
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">
+                      Giá thuê (VNĐ/tháng) *
+                    </label>
+                    <Input
+                      type="text"
+                      placeholder="Nhập giá thuê tháng"
+                      value={contractDraft.tienThue}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, "");
+                        const formatted = val
+                          ? Number(val).toLocaleString("en-US")
+                          : "";
+                        setContractDraft((p) => ({ ...p, tienThue: formatted }));
+                      }}
+                    />
+                    <span className="text-[10px] text-muted">
+                      Dùng để điền dòng “Giá thuê” trong hợp đồng cọc.
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">
+                      Tiền cọc hợp đồng (VNĐ)
+                    </label>
+                    <Input
+                      type="text"
+                      placeholder="Nhập tiền cọc hợp đồng khi nhận phòng"
+                      value={contractDraft.tienCocHopDong}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, "");
+                        const formatted = val
+                          ? Number(val).toLocaleString("en-US")
+                          : "";
+                        setContractDraft((p) => ({ ...p, tienCocHopDong: formatted }));
+                      }}
+                    />
+                    <span className="text-[10px] text-muted">
+                      Dùng cho mục “Tiền cọc thuê nhà” khi khách nhận phòng.
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">
+                      Dự kiến vào ở ngày *
+                    </label>
+                    <DateMaskInput
+                      value={contractDraft.ngayBatDau}
+                      onChange={(newStart) =>
+                        setContractDraft((p) => ({
+                          ...p,
+                          ngayBatDau: newStart,
+                          ngayKetThuc: newStart || p.ngayKetThuc,
+                        }))
+                      }
+                    />
+                    <span className="text-[10px] text-muted">
+                      Ngày này sẽ được lưu vào hợp đồng cọc giữ phòng và dùng làm mốc giữ phòng.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
             <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-right-4">
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between gap-1">
@@ -5375,33 +6359,102 @@ export default function RoomPremiumModal({
                 />
               </div>
             </div>
+            )
           )}
         </div>
       </Modal>
 
       <Modal
+        isOpen={isRentalIntentModalOpen}
+        onClose={() => {
+          setIsRentalIntentModalOpen(false);
+          setRentalIntentMode(null);
+        }}
+        title="Chọn luồng thêm khách thuê"
+        footer={
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setIsRentalIntentModalOpen(false)}
+            >
+              Để sau
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            className="rounded-lg border border-orange-300 bg-orange-50 p-4 text-left text-orange-950 transition-colors hover:bg-orange-100"
+            onClick={() => openTenantSourceForIntent("BOOKING")}
+          >
+            <span className="block font-bold">Cọc giữ phòng</span>
+            <span className="mt-1 block text-xs">
+              Chọn/tạo khách, lưu thông tin, tự sinh hợp đồng cọc, hóa đơn và QR.
+            </span>
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-left text-text transition-colors hover:bg-primary/10"
+            onClick={() => openTenantSourceForIntent("IMMEDIATE")}
+          >
+            <span className="block font-bold">Thuê ở ngay</span>
+            <span className="mt-1 block text-xs">
+              Chọn/tạo khách, lưu thông tin, tự sinh hợp đồng thuê, hóa đơn đầu kỳ và QR.
+            </span>
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
         isOpen={isContractModalOpen}
-        onClose={() => setIsContractModalOpen(false)}
+        onClose={() => {
+          setIsContractModalOpen(false);
+          setIsIntentContractFlow(false);
+        }}
         title="Tạo hợp đồng mới"
         footer={
           <div className="flex gap-3 justify-end w-full">
             <Button
               variant="outline"
-              onClick={() => setIsContractModalOpen(false)}
+              onClick={() => {
+                setIsContractModalOpen(false);
+                setIsIntentContractFlow(false);
+              }}
               disabled={createContractMutation.isPending}
             >
               Hủy
             </Button>
             <Button
               onClick={() => {
-                if (!contractCustomerId) {
+                const intentContext = isIntentContractFlow
+                  ? rentalIntentContext
+                  : null;
+                if (isIntentContractFlow && !intentContext) {
+                  showToast("Ngữ cảnh thuê không còn hiệu lực. Vui lòng mở lại thao tác.", "error");
+                  return;
+                }
+                if (
+                  intentContext &&
+                  !isRentalIntentContextCurrent(
+                    intentContext,
+                    roomId,
+                    tenantSelectionContext.current.generation,
+                  )
+                ) {
+                  showToast("Ngữ cảnh phòng đã thay đổi. Vui lòng mở lại thao tác.", "error");
+                  return;
+                }
+                const targetCustomerId =
+                  intentContext?.customerId || contractCustomerId;
+                if (!targetCustomerId) {
                   showToast("Vui lòng chọn khách thuê", "error");
                   return;
                 }
                 createContractMutation.mutate(
                   {
-                    customerId: contractCustomerId,
-                    roomId,
+                    customerId: targetCustomerId,
+                    roomId: intentContext?.roomId || roomId,
                     contractCode: contractCode.trim(),
                     startDate: contractStartDate,
                     endDate: contractEndDate,
@@ -5411,8 +6464,31 @@ export default function RoomPremiumModal({
                     status: "DRAFT",
                   },
                   {
-                    onSuccess: () => {
+                    onSuccess: async (createdContract: any) => {
+                      if (
+                        intentContext &&
+                        !isRentalIntentContextCurrent(
+                          intentContext,
+                          roomId,
+                          tenantSelectionContext.current.generation,
+                        )
+                      ) {
+                        showToast(
+                          "Ngữ cảnh phòng đã thay đổi. Hợp đồng đã được gửi, vui lòng kiểm tra lại phòng cũ.",
+                          "error",
+                        );
+                        return;
+                      }
+                      if (intentContext) {
+                        try {
+                          await createInitialInvoiceForContract(createdContract);
+                          showToast("Đã tạo hợp đồng thuê, hóa đơn đầu kỳ và QR thanh toán. Hệ thống sẽ gửi QR qua Bot Zalo nếu khách đã liên kết.", "success");
+                        } catch (error: any) {
+                          showToast(error?.message || "Đã tạo hợp đồng nhưng chưa tạo được hóa đơn/QR đầu kỳ.", "error");
+                        }
+                      }
                       setIsContractModalOpen(false);
+                      setIsIntentContractFlow(false);
                       onClose();
                     },
                   },
@@ -5438,8 +6514,23 @@ export default function RoomPremiumModal({
             <Select
               value={contractCustomerId}
               onChange={(e) => setContractCustomerId(e.target.value)}
+              disabled={isIntentContractFlow}
               options={[
                 { label: "Chọn khách thuê", value: "" },
+                ...(isIntentContractFlow &&
+                rentalIntentContext &&
+                !customers.some(
+                  (customer: any) =>
+                    customer.id === rentalIntentContext.customerId,
+                )
+                  ? [
+                      {
+                        label:
+                          tenantDraft.name || "Khách thuê đã chọn",
+                        value: rentalIntentContext.customerId,
+                      },
+                    ]
+                  : []),
                 ...customers.map((customer: any) => ({
                   label: `${customer.fullName || customer.name || customer.phone || customer.email || customer.id}${customer.phone ? ` - ${customer.phone}` : ""}`,
                   value: customer.id,
@@ -5883,16 +6974,6 @@ export default function RoomPremiumModal({
             />
           </div>
         </Modal>
-      )}
-
-      {isCreateInvoiceModalOpen && financeInvoiceScope && (
-        <InvoiceCreateModal
-          key={`${financeInvoiceScope.roomId}:${financeInvoiceScope.customerId}:${financeInvoiceScope.contractId}:${financeInvoiceScope.rentalCycleId}`}
-          isOpen={isCreateInvoiceModalOpen}
-          onClose={() => setIsCreateInvoiceModalOpen(false)}
-          defaultRoomId={roomId}
-          rentalCycleScope={financeInvoiceScope}
-        />
       )}
 
       <OperationsBillingDrawer

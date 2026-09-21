@@ -96,3 +96,6 @@ restore-list.txt
 restore.ts
 test.js
 test2.js
+
+# AgentFlow worktrees
+.agentflow/

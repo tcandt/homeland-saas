@@ -17,6 +17,7 @@ import {
   DollarSign,
   ArrowUpRight,
   ShieldCheck,
+  Landmark,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -32,6 +33,12 @@ const formatMoney = (value: number) => {
 };
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
+
+function maskAccountNumber(value?: string | null) {
+  if (!value) return "-";
+  if (value.length <= 4) return value;
+  return `${"*".repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
+}
 
 export default function OwnerProfitSummary() {
   const { data, isLoading } = useOwnerProfitSummaryQuery();
@@ -77,6 +84,9 @@ export default function OwnerProfitSummary() {
 
           {rows.map((row: any) => {
             const profit = Number(row.profitAfterAdvance || 0);
+            const bankConfirmedAmount = Number(row.bankConfirmedAmount || 0);
+            const bankConfirmedYear = row.bankCashPeriod?.year || new Date().getFullYear();
+            const primaryBank = Array.isArray(row.bankConfirmedAccounts) ? row.bankConfirmedAccounts[0] : null;
             const isPositive = profit >= 0;
 
             return (
@@ -104,6 +114,20 @@ export default function OwnerProfitSummary() {
                           {(row.buildings || []).map((b: any) => `Tòa ${b.code || b.name}`).join(", ") || "Chưa gán tòa"}
                         </span>
                       </div>
+                      {bankConfirmedAmount > 0 && (
+                        <div
+                          data-testid={`owner-bank-confirmed-${row.owner.id}`}
+                          className="mt-1.5 max-w-[360px] truncate text-[11px] font-bold text-emerald-700 dark:text-emerald-400"
+                          title={
+                            primaryBank
+                              ? `${primaryBank.bankName || "Bank"} · ${primaryBank.accountName || "Tài khoản"} · ${maskAccountNumber(primaryBank.accountNumber)}`
+                              : "Bank đã nhận"
+                          }
+                        >
+                          Bank đã nhận {formatVnd(bankConfirmedAmount)}
+                          {primaryBank?.accountName ? ` qua ${primaryBank.accountName}` : ""}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -131,14 +155,28 @@ export default function OwnerProfitSummary() {
                 </div>
 
                 {/* Bottom: 4 Clean KPI Stat Boxes */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-border/40">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1 border-t border-border/40">
                   <div className="p-2 rounded-lg bg-card border border-border/60 shadow-2xs">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-muted block">
-                      Tổng thu
+                      Tổng thu P&L
                     </span>
                     <span className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-400 block mt-0.5">
                       {formatMoney(Number(row.revenue || 0))}
                     </span>
+                  </div>
+
+                  <div className="p-2 rounded-lg bg-card border border-border/60 shadow-2xs">
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted block truncate">
+                      Bank đã nhận {bankConfirmedYear}
+                    </span>
+                    <span className="font-mono font-black text-xs text-emerald-700 dark:text-emerald-300 block mt-0.5">
+                      {formatMoney(bankConfirmedAmount)}
+                    </span>
+                    {primaryBank?.accountName && (
+                      <span className="mt-0.5 block truncate text-[9px] font-bold text-muted" title={primaryBank.accountName}>
+                        {primaryBank.accountName}
+                      </span>
+                    )}
                   </div>
 
                   <div className="p-2 rounded-lg bg-card border border-border/60 shadow-2xs">
@@ -229,15 +267,33 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
     >
       <div className="flex flex-col gap-4 text-xs">
         {/* Filters bar */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-xl bg-muted/5 border border-border/60">
-          <div>
+        <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-muted/5 p-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div className="min-w-0">
             <span className="text-[11px] font-black uppercase text-text block">Bộ lọc chu kỳ quyết toán</span>
-            <span className="text-[11px] text-muted">Lọc theo tháng/năm để tra cứu dòng tiền và tỷ lệ chia lợi nhuận</span>
+            <span className="block text-[11px] leading-relaxed text-muted">
+              Lọc theo tháng/năm để tra cứu dòng tiền và tỷ lệ chia lợi nhuận
+            </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Select data-testid="owner-profit-detail-year" value={year} onChange={(event) => setYear(event.target.value)} options={yearOptions} />
-            <Select data-testid="owner-profit-detail-month" value={month} onChange={(event) => setMonth(event.target.value)} options={monthOptions} />
+          <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+            <div className="min-w-[112px] flex-1 sm:flex-none">
+              <Select
+                data-testid="owner-profit-detail-year"
+                value={year}
+                onChange={(event) => setYear(event.target.value)}
+                options={yearOptions}
+                className="h-11 text-sm"
+              />
+            </div>
+            <div className="min-w-[112px] flex-1 sm:flex-none">
+              <Select
+                data-testid="owner-profit-detail-month"
+                value={month}
+                onChange={(event) => setMonth(event.target.value)}
+                options={monthOptions}
+                className="h-11 text-sm"
+              />
+            </div>
           </div>
         </div>
 
@@ -256,7 +312,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
         {!isLoading && !isError && data && (
           <>
             {/* 6 Metric KPI Boxes */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
               <div className="p-2.5 rounded-xl bg-card border border-border/60 shadow-2xs">
                 <span className="text-[10px] font-bold text-muted uppercase block">Tổng thu</span>
                 <span className="font-mono font-black text-sm text-emerald-600 dark:text-emerald-400 block mt-0.5">
@@ -298,7 +354,59 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                   {formatVnd(data.summary?.profitAfterAdvance || 0)}
                 </span>
               </div>
+
+              <div data-testid="owner-profit-detail-bank-confirmed" className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 shadow-2xs">
+                <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase block truncate">
+                  Bank đã nhận
+                </span>
+                <span className="font-mono font-black text-sm text-emerald-700 dark:text-emerald-400 block mt-0.5">
+                  {formatVnd(data.summary?.bankConfirmedAmount || 0)}
+                </span>
+                <span className="mt-0.5 block text-[9px] font-bold text-muted">
+                  {data.summary?.bankConfirmedCount || 0} giao dịch
+                </span>
+              </div>
+
+              <div data-testid="owner-profit-detail-deposit-amount" className="p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/20 shadow-2xs">
+                <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase block truncate">
+                  Tiền cọc
+                </span>
+                <span className="font-mono font-black text-sm text-amber-700 dark:text-amber-400 block mt-0.5">
+                  {formatVnd(data.summary?.depositAmount || 0)}
+                </span>
+              </div>
             </div>
+
+            {(data.summary?.bankConfirmedAccounts || []).length > 0 && (
+              <div data-testid="owner-profit-detail-bank-accounts" className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <div className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                  <Landmark size={14} />
+                  Tiền đã xác nhận theo tài khoản ngân hàng
+                </div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {(data.summary.bankConfirmedAccounts || []).map((account: any) => (
+                    <div key={account.id || account.accountName} className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/15 bg-card px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-black text-text">
+                          {account.accountName || "Tài khoản nhận tiền"}
+                        </div>
+                        <div className="truncate text-[10px] font-semibold text-muted">
+                          {account.bankName || "Ngân hàng"} · {account.accountNumber || "-"}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="font-mono text-xs font-black text-emerald-700 dark:text-emerald-400">
+                          {formatVnd(account.confirmedAmount || 0)}
+                        </div>
+                        <div className="text-[10px] font-semibold text-muted">
+                          {account.confirmedCount || 0} giao dịch
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Building Breakdown Table */}
             <div data-testid="owner-profit-building-breakdown" className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xs">
@@ -317,7 +425,9 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                       <th className="px-3 py-2 text-right">Điện</th>
                       <th className="px-3 py-2 text-right">Nước & DV</th>
                       <th className="px-3 py-2 text-right">Khác</th>
-                      <th className="px-3 py-2 text-right">Tổng thu</th>
+                      <th className="px-3 py-2 text-right">Tổng thu P&L</th>
+                      <th className="px-3 py-2 text-right">Tiền cọc</th>
+                      <th className="px-3 py-2 text-right">Tổng nhận</th>
                       <th className="px-3 py-2 text-right">Tổng chi</th>
                       <th className="px-3 py-2 text-right">Lợi nhuận</th>
                       <th className="px-3 py-2 text-right">HĐ trễ</th>
@@ -347,6 +457,8 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                             <td className="px-3 py-2.5 text-right font-mono font-semibold text-sky-600">{formatVnd(row.revenueBreakdown?.waterAndService || 0)}</td>
                             <td className="px-3 py-2.5 text-right font-mono font-semibold text-purple-600">{formatVnd(row.revenueBreakdown?.other || 0)}</td>
                             <td className="px-3 py-2.5 text-right font-mono font-bold text-emerald-600">{formatVnd(row.revenue)}</td>
+                            <td className="px-3 py-2.5 text-right font-mono font-bold text-amber-600">{formatVnd(row.depositAmount || 0)}</td>
+                            <td className="px-3 py-2.5 text-right font-mono font-black text-emerald-700">{formatVnd(row.totalReceived ?? (Number(row.revenue || 0) + Number(row.depositAmount || 0)))}</td>
                             <td className="px-3 py-2.5 text-right font-mono font-bold text-rose-500">{formatVnd(row.expense)}</td>
                             <td className="px-3 py-2.5 text-right font-mono font-black text-text">{formatVnd(row.profit)}</td>
                             <td className="px-3 py-2.5 text-right font-bold text-text">{row.overdueInvoices || 0}</td>
@@ -354,7 +466,7 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
 
                           {isExpanded && (
                             <tr className="border-t border-border/50 bg-muted/5">
-                              <td colSpan={10} className="p-3">
+                              <td colSpan={12} className="p-3">
                                 <div className="overflow-hidden rounded-lg border border-border/60 bg-card p-2.5">
                                   <span className="text-[11px] font-bold text-muted block mb-2">
                                     Chi tiết phòng thuộc tòa <b>{row.building.code || row.building.name}</b>
@@ -367,7 +479,9 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                                         <th className="px-2 py-1.5 text-right">Điện</th>
                                         <th className="px-2 py-1.5 text-right">Nước & DV</th>
                                         <th className="px-2 py-1.5 text-right">Khác</th>
-                                        <th className="px-2 py-1.5 text-right">Tổng thu</th>
+                                        <th className="px-2 py-1.5 text-right">Tổng thu P&L</th>
+                                        <th className="px-2 py-1.5 text-right">Tiền cọc</th>
+                                        <th className="px-2 py-1.5 text-right">Tổng nhận</th>
                                         <th className="px-2 py-1.5 text-right">Chi phí</th>
                                       </tr>
                                     </thead>
@@ -382,11 +496,13 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
                                               </span>
                                             ) : null}
                                           </td>
-                                          <td className="px-2 py-1.5 text-right font-mono text-muted">{formatVnd(roomRow.rent || 0)}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono text-amber-600">{formatVnd(roomRow.electricity || 0)}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono text-sky-600">{formatVnd(roomRow.waterAndService || 0)}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono text-purple-600">{formatVnd(roomRow.other || 0)}</td>
+                                          <td className="px-2 py-1.5 text-right font-mono text-muted">{formatVnd(roomRow.revenueBreakdown?.rent || 0)}</td>
+                                          <td className="px-2 py-1.5 text-right font-mono text-amber-600">{formatVnd(roomRow.revenueBreakdown?.electricity || 0)}</td>
+                                          <td className="px-2 py-1.5 text-right font-mono text-sky-600">{formatVnd(roomRow.revenueBreakdown?.waterAndService || 0)}</td>
+                                          <td className="px-2 py-1.5 text-right font-mono text-purple-600">{formatVnd(roomRow.revenueBreakdown?.other || 0)}</td>
                                           <td className="px-2 py-1.5 text-right font-mono font-bold text-emerald-600">{formatVnd(roomRow.revenue || 0)}</td>
+                                          <td className="px-2 py-1.5 text-right font-mono font-bold text-amber-600">{formatVnd(roomRow.depositAmount || 0)}</td>
+                                          <td className="px-2 py-1.5 text-right font-mono font-black text-emerald-700">{formatVnd(roomRow.totalReceived ?? (Number(roomRow.revenue || 0) + Number(roomRow.depositAmount || 0)))}</td>
                                           <td className="px-2 py-1.5 text-right font-mono font-bold text-rose-500">{formatVnd(roomRow.expense || 0)}</td>
                                         </tr>
                                       ))}

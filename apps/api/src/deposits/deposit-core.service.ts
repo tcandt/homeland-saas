@@ -8,6 +8,7 @@ import {
   Prisma,
   ReceiptStatus,
   RentalCycleStatus,
+  RoomStatus,
   RoomHoldKind,
   RoomHoldStatus,
   RoomRentalType,
@@ -27,6 +28,20 @@ export interface CollectDepositCommand {
   idempotencyKey: string;
   note?: string | null;
   holdExpiresAt?: string | Date | null;
+}
+
+export interface CreateDepositCommand {
+  idempotencyKey: string;
+  code?: string | null;
+  roomId: string;
+  customerId: string;
+  contractId?: string | null;
+  rentalCycleId?: string | null;
+  type?: DepositType;
+  status?: DepositStatus;
+  amount: number;
+  expiredAt?: string | Date | null;
+  note?: string | null;
 }
 
 export interface ConvertDepositCommand {
@@ -103,6 +118,182 @@ export class DepositCoreService {
     return this.toMoney(aggregate?._sum?.balanceEffect || 0);
   }
 
+  async create(tenantId: string, input: CreateDepositCommand, userId: string) {
+    const command = this.normalizeCommand(input);
+    return this.runSerializable(async (tx: TransactionClient) => {
+      await this.lockCommand(tx, tenantId, command.idempotencyKey);
+      const replay = await this.getReplay(tx, tenantId, command.idempotencyKey, command.requestHash);
+      if (replay) return replay;
+      await this.lockRoom(tx, tenantId, command.input.roomId);
+
+      const customer = await tx.customer.findFirst({
+        where: { id: command.input.customerId, tenantId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!customer) throw new BadRequestException('CUSTOMER_NOT_FOUND');
+
+      let rentalCycleId = command.input.rentalCycleId || null;
+      let contractId = command.input.contractId || null;
+      if (contractId) {
+        const contract = await tx.contract.findFirst({
+          where: {
+            id: contractId,
+            tenantId,
+            customerId: command.input.customerId,
+            roomId: command.input.roomId,
+            deletedAt: null,
+          },
+          select: { id: true, rentalCycleId: true },
+        });
+        if (!contract) throw new BadRequestException('DEPOSIT_CONTRACT_SCOPE_MISMATCH');
+        rentalCycleId = rentalCycleId || contract.rentalCycleId || null;
+      }
+
+      if (rentalCycleId) {
+        const cycle = await tx.rentalCycle.findFirst({
+          where: {
+            id: rentalCycleId,
+            tenantId,
+            customerId: command.input.customerId,
+            roomId: command.input.roomId,
+            status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED] },
+          },
+          select: { id: true },
+        });
+        if (!cycle) throw new BadRequestException('DEPOSIT_RENTAL_CYCLE_SCOPE_MISMATCH');
+      } else {
+        const existing = await tx.rentalCycle.findFirst({
+          where: {
+            tenantId,
+            customerId: command.input.customerId,
+            roomId: command.input.roomId,
+            status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED] },
+            contracts: { none: {} },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        const cycle = existing || await tx.rentalCycle.create({
+          data: {
+            tenantId,
+            customerId: command.input.customerId,
+            roomId: command.input.roomId,
+            status: command.input.status === DepositStatus.PAID
+              ? RentalCycleStatus.RESERVED
+              : RentalCycleStatus.PLANNED,
+          },
+        });
+        rentalCycleId = cycle.id;
+      }
+
+      const deposit = await tx.deposit.create({
+        data: {
+          tenantId,
+          code: command.input.code || this.buildDepositCode(command.idempotencyKey),
+          type: command.input.type || DepositType.BOOKING,
+          roomId: command.input.roomId,
+          customerId: command.input.customerId,
+          contractId,
+          rentalCycleId,
+          amount: this.toMoney(command.input.amount),
+          status: command.input.status || DepositStatus.PENDING,
+          expiredAt: command.input.expiredAt ? new Date(command.input.expiredAt) : null,
+          note: command.input.note || null,
+        },
+      });
+
+      const operation = await tx.depositOperation.create({
+        data: {
+          tenantId,
+          rentalCycleId,
+          sourceDepositId: deposit.id,
+          targetDepositId: null,
+          contractId,
+          type: DepositOperationType.CREATE,
+          status: DepositOperationStatus.PENDING,
+          idempotencyKey: command.idempotencyKey,
+          requestHash: command.requestHash,
+          createdBy: userId,
+        },
+        select: { id: true },
+      });
+      if (!operation?.id) throw new ConflictException('DEPOSIT_OPERATION_CREATE_FAILED');
+
+      let hold: any = null;
+      if ([DepositType.BOOKING, DepositType.RESERVATION].includes(deposit.type)) {
+        hold = await this.ensureActiveHold(
+          tx,
+          tenantId,
+          deposit,
+          command.input.expiredAt,
+          userId,
+          command.idempotencyKey,
+        );
+        await tx.room.updateMany({
+          where: { id: deposit.roomId, tenantId, deletedAt: null },
+          data: { status: RoomStatus.RESERVED },
+        });
+      }
+
+      await tx.customer.updateMany({
+        where: { id: deposit.customerId, tenantId, deletedAt: null },
+        data: { roomId: deposit.roomId },
+      });
+
+      const adminTask = [DepositType.BOOKING, DepositType.RESERVATION].includes(deposit.type)
+        ? await tx.task.create({
+            data: {
+              tenantId,
+              title: `Cập nhật hợp đồng cọc giữ phòng ${deposit.code}`,
+              description: [
+                `Khách hàng đã tạo cọc giữ phòng ${deposit.code}.`,
+                `Cập nhật đầy đủ thông tin khách hàng và hợp đồng cọc giữ phòng.`,
+                `Khi chuyển sang cọc hợp đồng ở, kiểm tra và cập nhật lại hợp đồng thuê.`,
+                `Phòng: ${deposit.roomId}; Khách hàng: ${deposit.customerId}; Số tiền: ${this.toMoney(deposit.amount).toLocaleString('vi-VN')} VND.`,
+              ].join('\n'),
+              status: 'TODO' as any,
+              priority: 'HIGH' as any,
+              dueDate: deposit.expiredAt || new Date(),
+            },
+          })
+        : null;
+
+      const response = {
+        id: deposit.id,
+        tenantId: deposit.tenantId,
+        code: deposit.code,
+        type: deposit.type,
+        roomId: deposit.roomId,
+        customerId: deposit.customerId,
+        contractId: deposit.contractId,
+        rentalCycleId,
+        amount: this.toMoney(deposit.amount),
+        status: deposit.status,
+        expiredAt: deposit.expiredAt ? new Date(deposit.expiredAt).toISOString() : null,
+        note: deposit.note,
+        createdAt: deposit.createdAt ? new Date(deposit.createdAt).toISOString() : null,
+        updatedAt: deposit.updatedAt ? new Date(deposit.updatedAt).toISOString() : null,
+        operationId: operation.id,
+        holdId: hold?.id || null,
+        adminTaskId: adminTask?.id || null,
+      };
+      await this.enqueueOutbox(tx, tenantId, operation.id, 'deposit.created', {
+        tenantId,
+        userId,
+        customerId: deposit.customerId,
+        roomId: deposit.roomId,
+        rentalCycleId,
+        sourceId: deposit.id,
+        sourceType: 'DEPOSIT',
+        amount: this.toMoney(deposit.amount),
+        occurredAt: new Date().toISOString(),
+        metadata: { code: deposit.code, operationId: operation.id },
+      });
+      await this.completeOperation(tx, tenantId, operation.id, response);
+      await this.writeAudit(tx, tenantId, userId, 'CREATE', deposit.id, null, response);
+      return response;
+    });
+  }
+
   async collect(tenantId: string, depositId: string, input: CollectDepositCommand, userId: string) {
     const command = this.normalizeCommand(input);
     const result = await this.runSerializable(async (tx: TransactionClient) => {
@@ -113,7 +304,12 @@ export class DepositCoreService {
 
       const deposit = await tx.deposit.findFirst({
         where: { id: depositId, tenantId, deletedAt: null },
-        include: { room: true, rentalCycle: true },
+        include: {
+          room: { include: { building: true, floor: true } },
+          rentalCycle: true,
+          customer: { select: { fullName: true, phone: true, zaloChatId: true, zaloUserId: true } },
+          contract: { select: { id: true, code: true, roomId: true } },
+        },
       });
       if (!deposit) throw new BadRequestException('DEPOSIT_NOT_FOUND');
       if (!deposit.rentalCycleId) throw new BadRequestException('DEPOSIT_RENTAL_CYCLE_REQUIRED');
@@ -187,7 +383,15 @@ export class DepositCoreService {
         tenantId,
         userId,
         customerId: deposit.customerId,
+        customerName: deposit.customer?.fullName || null,
+        customerPhone: deposit.customer?.phone || null,
+        customerZaloChatId: deposit.customer?.zaloChatId || null,
+        customerZaloUserId: deposit.customer?.zaloUserId || null,
         roomId: deposit.roomId,
+        roomCode: deposit.room?.code || deposit.room?.name || null,
+        buildingName: deposit.room?.building?.name || deposit.room?.building?.code || null,
+        contractId: deposit.contractId || null,
+        contractCode: deposit.contract?.code || null,
         rentalCycleId: deposit.rentalCycleId,
         sourceId: deposit.id,
         sourceType: 'DEPOSIT',
@@ -909,11 +1113,42 @@ export class DepositCoreService {
 
   private financeRelations(tenantId: string): any {
     return {
-      customer: { select: { id: true, tenantId: true, fullName: true, phone: true } },
+      customer: {
+        select: {
+          id: true,
+          tenantId: true,
+          fullName: true,
+          phone: true,
+          email: true,
+          identityNo: true,
+          gender: true,
+          birthDate: true,
+          nationality: true,
+          address: true,
+          emergencyPhone: true,
+          zaloChatId: true,
+          zaloUserId: true,
+        },
+      },
       room: { select: { id: true, tenantId: true, code: true, name: true, rentalType: true } },
       contracts: {
         where: { tenantId, deletedAt: null },
-        select: { id: true, code: true, tenantId: true, roomId: true, customerId: true, rentalCycleId: true, status: true, monthlyRent: true, depositMoney: true },
+        select: {
+          id: true,
+          code: true,
+          tenantId: true,
+          roomId: true,
+          customerId: true,
+          rentalCycleId: true,
+          status: true,
+          monthlyRent: true,
+          depositMoney: true,
+          startDate: true,
+          endDate: true,
+          signedAt: true,
+          firstPaymentDate: true,
+          purpose: true,
+        },
       },
       deposits: {
         where: { tenantId, deletedAt: null },
@@ -962,7 +1197,20 @@ export class DepositCoreService {
     return {
       rentalCycleId: cycle.id,
       status: cycle.status,
-      customer: cycle.customer ? { id: cycle.customer.id, fullName: cycle.customer.fullName, phone: cycle.customer.phone } : null,
+      customer: cycle.customer ? {
+        id: cycle.customer.id,
+        fullName: cycle.customer.fullName,
+        phone: cycle.customer.phone,
+        email: cycle.customer.email,
+        identityNo: cycle.customer.identityNo,
+        gender: cycle.customer.gender,
+        birthDate: cycle.customer.birthDate,
+        nationality: cycle.customer.nationality,
+        address: cycle.customer.address,
+        emergencyPhone: cycle.customer.emergencyPhone,
+        zaloChatId: cycle.customer.zaloChatId,
+        zaloUserId: cycle.customer.zaloUserId,
+      } : null,
       room: cycle.room ? { id: cycle.room.id, code: cycle.room.code, name: cycle.room.name, rentalType: cycle.room.rentalType } : null,
       contracts: cycle.contracts.map((contract: any) => ({
         id: contract.id,
@@ -970,6 +1218,11 @@ export class DepositCoreService {
         status: contract.status,
         monthlyRent: this.toMoney(contract.monthlyRent),
         depositMoney: this.toMoney(contract.depositMoney),
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+        signedAt: contract.signedAt,
+        firstPaymentDate: contract.firstPaymentDate,
+        purpose: contract.purpose,
         source: { entity: 'Contract', id: contract.id, code: contract.code || null },
       })),
       deposits: cycle.deposits.map((deposit: any) => ({
@@ -1337,6 +1590,10 @@ export class DepositCoreService {
     return createHash('sha256').update(this.stableStringify(value)).digest('hex');
   }
 
+  private buildDepositCode(idempotencyKey: string) {
+    return `DEP-${createHash('sha256').update(idempotencyKey).digest('hex').slice(0, 12).toUpperCase()}`;
+  }
+
   private stableStringify(value: any): string {
     if (value === null || typeof value !== 'object') return JSON.stringify(value);
     if (value instanceof Date) return JSON.stringify(value.toISOString());
@@ -1378,7 +1635,7 @@ export class DepositCoreService {
     });
   }
 
-  private async writeAudit(tx: TransactionClient, tenantId: string, userId: string, action: 'COLLECT' | 'CANCEL' | 'CONVERT_CONTRACT' | 'UPDATE', depositId: string, before: any, after: any, entity = 'Deposit') {
+  private async writeAudit(tx: TransactionClient, tenantId: string, userId: string, action: 'CREATE' | 'COLLECT' | 'CANCEL' | 'CONVERT_CONTRACT' | 'UPDATE', depositId: string, before: any, after: any, entity = 'Deposit') {
     await tx.auditLog.create({
       data: {
         tenantId,

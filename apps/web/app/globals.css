@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(12deg); }
+  30% { transform: rotate(-11deg); }
+  45% { transform: rotate(8deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(3deg); }
+}
+
 @layer base {
   :root {
     --bg: #f5f7fb;
@@ -217,6 +226,35 @@
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  .deposit-flow-timeline > .group > div:first-child {
+    width: 2.5rem;
+  }
+
+  .deposit-flow-timeline > .group > div:first-child > div:first-child {
+    width: 2.5rem !important;
+    height: 2.5rem !important;
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+    box-sizing: border-box;
+    --tw-ring-offset-shadow: 0 0 #0000;
+    --tw-ring-shadow: 0 0 #0000;
+  }
+
+  .deposit-flow-timeline > .group > div:first-child > div:first-child > span.absolute {
+    inset: 0.25rem;
+    opacity: 0.45;
+  }
+
+  .deposit-flow-timeline > .group > div:first-child > div:first-child svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .deposit-flow-timeline > .group > div:first-child > div:nth-child(2) > div:nth-child(2) {
+    width: 1.125rem;
+    height: 1.125rem;
   }
   
   .animate-in {

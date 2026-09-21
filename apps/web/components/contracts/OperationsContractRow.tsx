@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { CheckCircle2, Clock3, Eye, Building2, DoorClosed, FileText, Phone, Sparkles } from "lucide-react";
+import { CheckCircle2, Clock3, Building2, DoorClosed } from "lucide-react";
 import { getContractStatusConfig } from "../../lib/contracts/contract-status";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
@@ -23,6 +23,32 @@ function roomCode(contract: any) {
 
 function buildingName(contract: any) {
   return contract.room?.building?.code || contract.room?.building?.name || "Tòa LK01.31";
+}
+
+function isBookingHoldContract(contract: any) {
+  const text = [
+    contract?.contractTemplate,
+    contract?.loaiHopDong,
+    contract?.type,
+    contract?.purpose,
+    contract?.code,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    contract?.isBookingHold === true ||
+    text.includes("booking_hold") ||
+    text.includes("cọc giữ phòng") ||
+    text.includes("coc giu phong") ||
+    String(contract?.code || "").toUpperCase().startsWith("HD-COC")
+  );
+}
+
+function getContractTypeLabel(contract: any) {
+  if (isBookingHoldContract(contract)) return "Hợp đồng cọc giữ phòng";
+  return contract.type || "Hợp đồng thuê phòng";
 }
 
 export default function OperationsContractRow({
@@ -67,15 +93,16 @@ export default function OperationsContractRow({
   const isSigned = !["DRAFT", "PENDING_APPROVAL"].includes(contract.status);
   const isExpiringSoon = daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 30;
   const isExpired = daysRemaining !== null && daysRemaining < 0;
+  const isBookingHold = isBookingHoldContract(contract);
 
   return (
     <div
       data-testid="contract-card"
       onClick={onClick}
-      className="group relative grid min-w-[1160px] cursor-pointer grid-cols-[48px_minmax(160px,0.9fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(260px,1.4fr)_140px_80px] items-center gap-3 border-b border-border/60 bg-card px-4 py-3.5 transition-all hover:bg-surface/80"
+      className="group relative grid min-w-[1080px] cursor-pointer grid-cols-[48px_minmax(160px,0.9fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(320px,1.65fr)_140px] items-center gap-3 border-b border-border/60 bg-card px-4 py-3.5 transition-all hover:bg-surface/80"
     >
       {/* 1. STT */}
-      <div className="flex items-center">
+      <div className="flex items-center justify-center">
         <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-surface font-mono text-[11px] font-bold text-muted group-hover:bg-primary/10 group-hover:text-primary transition-colors">
           {rowNumber}
         </span>
@@ -89,7 +116,7 @@ export default function OperationsContractRow({
           </span>
         </div>
         <span className="text-[11px] font-medium text-muted truncate">
-          {contract.type || "Hợp đồng thuê phòng"}
+          {getContractTypeLabel(contract)}
         </span>
       </div>
 
@@ -139,51 +166,63 @@ export default function OperationsContractRow({
       </div>
 
       {/* 5. THỜI HẠN & TIẾN ĐỘ HỢP ĐỒNG */}
-      <div className="min-w-0 flex flex-col gap-1.5">
-        <div className="flex items-center justify-between gap-2 text-[11px] font-bold font-mono">
-          <span className="text-text">{formatDate(contract.startDate)}</span>
-          <span className="text-muted/60">→</span>
-          <span className="text-text">{formatDate(contract.endDate)}</span>
-        </div>
+      <div className="min-w-0">
+        {isBookingHold ? (
+          <div className="mx-auto flex max-w-[260px] flex-col items-center justify-center gap-1 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-center">
+            <span className="text-[11px] font-black uppercase leading-none tracking-wider text-amber-600 dark:text-amber-300">
+              Cọc giữ phòng
+            </span>
+            <span className="text-[10px] font-semibold leading-tight text-muted">
+              Chưa tính thời hạn ở · không có tiến độ
+            </span>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.04] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <div className="min-w-0 flex items-center gap-1.5 text-[11px] font-bold font-mono text-text">
+                <span className="truncate">{formatDate(contract.startDate)}</span>
+                <span className="text-emerald-500">→</span>
+                <span className="truncate">{formatDate(contract.endDate)}</span>
+              </div>
+              <span className="shrink-0 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black font-mono text-emerald-600">
+                {Math.round(progressPercent)}%
+              </span>
+            </div>
 
-        {/* Lifecycle Progress Bar */}
-        <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-border/60">
-          <div
-            className={`h-full rounded-full transition-all ${
-              isExpired
-                ? "bg-rose-500"
-                : isExpiringSoon
-                ? "bg-amber-500"
-                : "bg-emerald-500"
-            }`}
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
+            <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-950/60">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-emerald-500 to-green-600 shadow-[0_0_12px_rgba(16,185,129,0.35)] transition-all"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
 
-        <div className="flex items-center justify-between text-[10px] font-bold">
-          <span
-            className={`truncate uppercase tracking-wider ${
-              isExpired
-                ? "text-rose-600 dark:text-rose-400"
-                : isExpiringSoon
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-muted"
-            }`}
-          >
-            {daysRemaining === null
-              ? "Chưa xác định"
-              : isExpired
-              ? `Hết hạn ${Math.abs(daysRemaining)} ngày trước`
-              : isExpiringSoon
-              ? `⚠️ Còn ${daysRemaining} ngày`
-              : `Còn ${daysRemaining} ngày`}
-          </span>
-          <span className="font-mono text-muted/80">{Math.round(progressPercent)}%</span>
-        </div>
+            <div className="mt-1.5 flex w-full items-center justify-between gap-2 text-[10px] font-bold">
+              <span className="text-muted">0%</span>
+              <span
+                className={`truncate rounded-full px-2 py-0.5 text-center ${
+                  isExpired
+                    ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                  : isExpiringSoon
+                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                }`}
+              >
+                {daysRemaining === null
+                  ? "Chưa xác định"
+                  : isExpired
+                  ? `Hết hạn ${Math.abs(daysRemaining)} ngày trước`
+                  : isExpiringSoon
+                  ? `Còn ${daysRemaining} ngày`
+                  : `Còn ${daysRemaining} ngày`}
+              </span>
+              <span className="text-muted">100%</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 6. TRẠNG THÁI & HỒ SƠ */}
-      <div className="flex min-w-0 flex-col items-start gap-1">
+      <div className="flex min-w-0 flex-col items-center justify-center gap-1 text-center">
         <Badge data-testid="contract-status-badge" variant={statusConfig.color} className="text-[11px]">
           {statusConfig.label}
         </Badge>
@@ -198,21 +237,6 @@ export default function OperationsContractRow({
             </span>
           )}
         </div>
-      </div>
-
-      {/* 7. THAO TÁC */}
-      <div className="relative flex justify-end items-center gap-1.5">
-        <button
-          type="button"
-          aria-label="Xem chi tiết"
-          onClick={(event) => {
-            event.stopPropagation();
-            onClick();
-          }}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted transition-all hover:border-primary/40 hover:bg-primary/10 hover:text-primary shadow-xs"
-        >
-          <Eye size={15} />
-        </button>
       </div>
     </div>
   );

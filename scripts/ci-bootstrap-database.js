@@ -50,7 +50,7 @@ async function queryRows(prisma, sql) { return prisma.$queryRawUnsafe(sql); }
 
 async function assertEmptyDatabase(prisma) {
   const rows = await queryRows(prisma, `SELECT COUNT(*)::int AS count FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`);
-  if (Number(rows[0]?.count || 0) !== 0) throw new Error('BASELINE-V2 fresh path requires a truly empty public schema.');
+  if (Number(rows[0]?.count || 0) !== 0) throw new Error('BASELINE-V2 fresh path requires a truly empty public schema; database is not empty.');
 }
 
 function describeInventoryDrift(expected, actual) {

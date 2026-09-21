@@ -15,6 +15,12 @@ import { consumeServerSentEvents } from "@/lib/server-sent-events";
 import { Button } from "@/components/ui/Button";
 import BrandLogo from "@/components/ui/BrandLogo";
 import webPackage from "../../package.json";
+import {
+  playNotificationSound,
+  speakPaymentAmount,
+  unlockNotificationAudio,
+  type NotificationSoundId,
+} from "@/lib/notification-sounds";
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -108,6 +114,31 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
   },
 };
 
+const SPOKEN_PAYMENT_NOTIFICATION_KEY = "homeland-spoken-payment-notification-ids";
+const MAX_SPOKEN_PAYMENT_NOTIFICATIONS = 200;
+
+function readSpokenPaymentNotificationIds() {
+  if (typeof window === "undefined") return new Set<string>();
+  try {
+    const raw = window.localStorage.getItem(SPOKEN_PAYMENT_NOTIFICATION_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item)) : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function persistSpokenPaymentNotificationIds(ids: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    const nextIds = Array.from(ids).slice(-MAX_SPOKEN_PAYMENT_NOTIFICATIONS);
+    window.localStorage.setItem(SPOKEN_PAYMENT_NOTIFICATION_KEY, JSON.stringify(nextIds));
+  } catch {
+    // Ignore storage quota/privacy mode errors. The in-memory guard still
+    // prevents duplicate speech during the current session.
+  }
+}
+
 export default function Header({ onToggleSidebar }: HeaderProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
@@ -125,8 +156,15 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationMenuPosition, setNotificationMenuPosition] = useState<{ top: number; right: number } | null>(null);
+  const [bellAttention, setBellAttention] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(false);
   const notificationMenuRef = useRef<HTMLDivElement | null>(null);
   const notificationButtonRef = useRef<HTMLButtonElement | null>(null);
+  const knownNotificationIdsRef = useRef<Set<string>>(new Set());
+  const notificationsInitializedRef = useRef(false);
+  const unreadCountInitializedRef = useRef(false);
+  const previousUnreadCountRef = useRef(0);
+  const spokenPaymentNotificationIdsRef = useRef<Set<string>>(new Set());
 
   const fetchNotifications = async (url: string) => {
     if (!accessToken) return [];
@@ -151,11 +189,125 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     : Array.isArray(notificationList)
       ? notificationList.slice(0, 5)
       : [];
+  const { data: notificationSettings } = useSettingsSectionQuery<any>(
+    "notifications",
+    "TENANT",
+    Boolean(accessToken),
+  );
+  const audioSettings = {
+    enabled: true,
+    speakPaymentAmount: true,
+    voiceName: "",
+    speechRate: 0.95,
+    speechPitch: 1,
+    paymentSound: "coins",
+    reminderSound: "soft",
+    overdueSound: "alert",
+    systemSound: "pop",
+    volume: 0.75,
+    ...((notificationSettings?.value?.audioSettings || {}) as Record<string, unknown>),
+  };
+  const paymentSound = (audioSettings.paymentSound || "coins") as NotificationSoundId;
+  const audioVolume = Number(audioSettings.volume ?? 0.75);
+  const soundForType = (type?: string) => {
+    if (type === "PAYMENT_RECEIVED") return paymentSound;
+    if (type === "CONTRACT_EXPIRING") return (audioSettings.reminderSound || "soft") as NotificationSoundId;
+    if (type === "INVOICE_OVERDUE" || type === "INVOICE_DUE_SOON") return (audioSettings.overdueSound || "alert") as NotificationSoundId;
+    return (audioSettings.systemSound || "pop") as NotificationSoundId;
+  };
+
+  const primeNotificationAudio = async () => {
+    if (!audioSettings.enabled) return false;
+    const enabled = await unlockNotificationAudio();
+    setAudioEnabled(enabled);
+    return enabled;
+  };
+
+  const playNotificationAlert = async (type?: string, notification?: any) => {
+    if (!audioSettings.enabled) return;
+    const played = await playNotificationSound(soundForType(type), audioVolume);
+    setAudioEnabled(played);
+    if (type === "PAYMENT_RECEIVED" && audioSettings.speakPaymentAmount !== false) {
+      const notificationId = notification?.id ? String(notification.id) : "";
+      if (notificationId && spokenPaymentNotificationIdsRef.current.has(notificationId)) {
+        return;
+      }
+      const amount = Number(notification?.metadata?.amount);
+      if (Number.isFinite(amount) && amount > 0) {
+        if (notificationId) {
+          spokenPaymentNotificationIdsRef.current.add(notificationId);
+          persistSpokenPaymentNotificationIds(spokenPaymentNotificationIdsRef.current);
+        }
+        window.setTimeout(() => speakPaymentAmount(amount, audioVolume, {
+          voiceName: typeof audioSettings.voiceName === "string" ? audioSettings.voiceName : undefined,
+          rate: Number(audioSettings.speechRate ?? 0.95),
+          pitch: Number(audioSettings.speechPitch ?? 1),
+        }), 360);
+      }
+    }
+  };
 
   useEffect(() => {
     setMounted(true);
     setDropdownMounted(true);
+    spokenPaymentNotificationIdsRef.current = readSpokenPaymentNotificationIds();
   }, []);
+
+  useEffect(() => {
+    if (!accessToken || !audioSettings.enabled || audioEnabled) return;
+
+    let disposed = false;
+    const autoEnableAudio = () => {
+      if (disposed) return;
+      void primeNotificationAudio();
+    };
+
+    window.addEventListener("pointerdown", autoEnableAudio, { once: true, capture: true });
+    window.addEventListener("keydown", autoEnableAudio, { once: true, capture: true });
+    window.addEventListener("touchstart", autoEnableAudio, { once: true, capture: true });
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("pointerdown", autoEnableAudio, { capture: true });
+      window.removeEventListener("keydown", autoEnableAudio, { capture: true });
+      window.removeEventListener("touchstart", autoEnableAudio, { capture: true });
+    };
+  }, [accessToken, audioEnabled, audioSettings.enabled]);
+
+  useEffect(() => {
+    if (!Array.isArray(recentNotifications)) return;
+    const currentIds = new Set(recentNotifications.map((item: any) => String(item.id)));
+    if (!notificationsInitializedRef.current) {
+      knownNotificationIdsRef.current = currentIds;
+      notificationsInitializedRef.current = true;
+      return;
+    }
+
+    const newNotifications = recentNotifications.filter(
+      (item: any) => !knownNotificationIdsRef.current.has(String(item.id)),
+    );
+    if (newNotifications.length > 0) {
+      setBellAttention(true);
+      window.setTimeout(() => setBellAttention(false), 900);
+      const soundNotification = newNotifications.find((item: any) => item.status !== "READ");
+      if (soundNotification) void playNotificationAlert(soundNotification.type, soundNotification);
+    }
+    knownNotificationIdsRef.current = currentIds;
+  }, [recentNotifications]);
+
+  useEffect(() => {
+    if (!unreadCountInitializedRef.current) {
+      unreadCountInitializedRef.current = true;
+      previousUnreadCountRef.current = unreadCount;
+      return;
+    }
+    if (unreadCount > previousUnreadCountRef.current) {
+      setBellAttention(true);
+      window.setTimeout(() => setBellAttention(false), 900);
+      void mutateNotifications();
+    }
+    previousUnreadCountRef.current = unreadCount;
+  }, [mutateNotifications, unreadCount]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -281,6 +433,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   };
 
   const openNotificationsMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    void primeNotificationAudio();
     const rect = event.currentTarget.getBoundingClientRect();
     setNotificationMenuPosition({
       top: rect.bottom + 10,
@@ -376,7 +529,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
           onClick={openNotificationsMenu}
           aria-label="Thông báo"
           aria-expanded={notificationsOpen}
-          className="w-[34px] h-[34px] border border-border/60 bg-card hover:bg-black/5 dark:hover:bg-white/5 text-text rounded-xl flex items-center justify-center cursor-pointer relative transition-colors"
+          className={`w-[34px] h-[34px] border border-border/60 bg-card hover:bg-black/5 dark:hover:bg-white/5 text-text rounded-xl flex items-center justify-center cursor-pointer relative transition-colors ${bellAttention ? "animate-[bell-ring_0.8s_ease-in-out]" : ""}`}
         >
           <Bell size={16} />
           {unreadCount > 0 && (

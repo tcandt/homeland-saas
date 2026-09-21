@@ -32,10 +32,24 @@ describe('DepositCoreService', () => {
         count: vi.fn().mockResolvedValue(0),
         create: vi.fn().mockResolvedValue({ id: 'hold-1' }),
       },
-      room: { findFirst: vi.fn() },
+      room: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'room-1',
+          tenantId: 'tenant-1',
+          rentalType: RoomRentalType.WHOLE,
+          capacity: 1,
+          status: 'AVAILABLE',
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       occupancy: { count: vi.fn().mockResolvedValue(0) },
+      customer: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'customer-1' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       rentalCycle: {
         findFirst: vi.fn(),
+        create: vi.fn().mockResolvedValue({ id: 'cycle-1' }),
         update: vi.fn().mockResolvedValue({}),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
@@ -44,6 +58,7 @@ describe('DepositCoreService', () => {
       receipt: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
       outboxEvent: { create: vi.fn().mockResolvedValue({ id: 'outbox-1' }) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      task: { create: vi.fn().mockResolvedValue({ id: 'task-1' }) },
     };
     const prisma: any = {
       tx: {
@@ -266,6 +281,98 @@ describe('DepositCoreService', () => {
       where: { tenantId: 'tenant-1', rentalCycleId: 'cycle-1', status: 'ACTIVE' },
       data: { depositId: 'security-1' },
     });
+  });
+
+  it('creates a deposit rental cycle operation and outbox event atomically', async () => {
+    const { tx, service } = createHarness();
+    tx.rentalCycle.findFirst.mockResolvedValue(null);
+    tx.deposit.create.mockResolvedValue({
+      id: 'deposit-1',
+      tenantId: 'tenant-1',
+      code: 'DEP-CREATE-1',
+      type: DepositType.BOOKING,
+      roomId: 'room-1',
+      customerId: 'customer-1',
+      contractId: null,
+      rentalCycleId: 'cycle-1',
+      amount: 1_500_000,
+      status: DepositStatus.PENDING,
+      expiredAt: null,
+      note: null,
+    });
+
+    const result = await service.create('tenant-1', {
+      idempotencyKey: 'create-deposit-1',
+      code: 'DEP-CREATE-1',
+      roomId: 'room-1',
+      customerId: 'customer-1',
+      type: DepositType.BOOKING,
+      amount: 1_500_000,
+      note: null,
+    }, 'user-1');
+
+    expect(result).toMatchObject({ id: 'deposit-1', operationId: 'operation-1', rentalCycleId: 'cycle-1' });
+    expect(tx.deposit.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        tenantId: 'tenant-1',
+        code: 'DEP-CREATE-1',
+        roomId: 'room-1',
+        customerId: 'customer-1',
+        rentalCycleId: 'cycle-1',
+      }),
+    }));
+    expect(tx.depositOperation.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        tenantId: 'tenant-1',
+        rentalCycleId: 'cycle-1',
+        sourceDepositId: 'deposit-1',
+        contractId: null,
+        type: 'CREATE',
+        status: 'PENDING',
+        idempotencyKey: 'create-deposit-1',
+      }),
+      select: { id: true },
+    }));
+    expect(tx.outboxEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        eventName: 'deposit.created',
+        idempotencyKey: 'deposit-operation:operation-1:deposit.created',
+      }),
+    }));
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'CREATE', entityId: 'deposit-1' }),
+    }));
+  });
+
+  it('replays an idempotent deposit create without writing a second deposit', async () => {
+    const { tx, service } = createHarness();
+    tx.depositOperation.findFirst.mockResolvedValue({
+      id: 'operation-1',
+      requestHash: (service as any).hash({
+        amount: 1_500_000,
+        customerId: 'customer-1',
+        idempotencyKey: 'create-deposit-replay-1',
+        roomId: 'room-1',
+        type: DepositType.BOOKING,
+      }),
+      status: 'COMPLETED',
+      result: { depositId: 'deposit-1', operationId: 'operation-1' },
+    });
+
+    await expect(service.create('tenant-1', {
+      idempotencyKey: 'create-deposit-replay-1',
+      roomId: 'room-1',
+      customerId: 'customer-1',
+      type: DepositType.BOOKING,
+      amount: 1_500_000,
+    }, 'user-1')).resolves.toEqual({
+      depositId: 'deposit-1',
+      operationId: 'operation-1',
+      replayed: true,
+    });
+    expect(tx.deposit.create).not.toHaveBeenCalled();
+    expect(tx.depositOperation.create).not.toHaveBeenCalled();
+    expect(tx.outboxEvent.create).not.toHaveBeenCalled();
   });
 
   it('renews only an active hold and keeps its resource key', async () => {

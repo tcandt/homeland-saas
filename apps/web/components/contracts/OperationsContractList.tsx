@@ -63,17 +63,16 @@ export default function OperationsContractList() {
 
       {/* Main Table Scroll Area */}
       <div className="min-h-0 flex-1 overflow-x-auto">
-        <div className="grid min-w-[1160px] grid-cols-[48px_minmax(160px,0.9fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(260px,1.4fr)_140px_80px] gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5 text-[11px] font-black uppercase tracking-wider text-muted select-none">
-          <span>STT</span>
+        <div className="grid min-w-[1080px] grid-cols-[48px_minmax(160px,0.9fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(320px,1.65fr)_140px] gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5 text-[11px] font-black uppercase tracking-wider text-muted select-none">
+          <span className="text-center">STT</span>
           <span>Mã hợp đồng</span>
           <span>Khách hàng</span>
           <span>Tòa / Phòng</span>
-          <span>Thời hạn & Tiến độ</span>
-          <span>Trạng thái</span>
-          <span className="text-right">Thao tác</span>
+          <span className="text-center">Thời hạn & Tiến độ</span>
+          <span className="text-center">Trạng thái</span>
         </div>
 
-        <div className="flex min-w-[1160px] flex-col divide-y divide-border/40">
+        <div className="flex min-w-[1080px] flex-col divide-y divide-border/40">
           {contracts.length === 0 ? (
             <div data-testid="empty-contracts-state" className="p-8">
               <EmptyState

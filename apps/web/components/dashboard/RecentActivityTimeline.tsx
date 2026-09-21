@@ -13,7 +13,9 @@ export default function RecentActivityTimeline() {
       <div className="bg-card border border-border rounded-[16px] p-5 shadow-sm flex flex-col gap-4 h-full min-h-[300px] items-center justify-center text-center text-muted">
         <Clock size={20} />
         <span className="text-[13px] font-bold">Chưa có hoạt động gần đây</span>
-        <span className="text-[12px]">Các sự kiện thật sẽ hiển thị khi hệ thống có dữ liệu phát sinh.</span>
+        <span className="text-[12px]">
+          Các sự kiện thật sẽ hiển thị khi hệ thống có dữ liệu phát sinh.
+        </span>
       </div>
     );
   }
@@ -28,9 +30,15 @@ export default function RecentActivityTimeline() {
               {act.icon || <Bell size={14} />}
             </div>
             <div className="flex flex-col pb-4">
-              <span className="font-bold text-[13px] text-text group-hover:text-primary transition-colors">{act.title}</span>
-              <span className="text-[12px] text-muted mt-0.5 leading-relaxed">{act.desc}</span>
-              <span className="text-[11px] font-medium text-muted/70 mt-1">{act.time}</span>
+              <span className="font-bold text-[13px] text-text group-hover:text-primary transition-colors">
+                {act.title}
+              </span>
+              <span className="text-[12px] text-muted mt-0.5 leading-relaxed">
+                {act.desc}
+              </span>
+              <span className="text-[11px] font-medium leading-[1.35] text-muted/70 mt-1 whitespace-pre-line tabular-nums">
+                {act.time}
+              </span>
             </div>
           </div>
         ))}

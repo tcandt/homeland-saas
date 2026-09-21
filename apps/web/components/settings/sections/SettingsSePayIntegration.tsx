@@ -168,7 +168,13 @@ export default function SettingsSePayIntegration() {
   const [togglingBankId, setTogglingBankId] = useState("");
   const [copiedUrl, setCopiedUrl] = useState(false);
 
-  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn" && Boolean(draft.webhookApiKey);
+  const normalizedUserEmail = (user?.email || "").toLowerCase();
+  const userRoles = Array.isArray(user?.roles) ? user.roles : [];
+  const userPermissions = Array.isArray(user?.permissions) ? user.permissions : [];
+  const canEditSecrets =
+    normalizedUserEmail === "admin@homeland.vn" ||
+    userRoles.includes("ADMIN") ||
+    userPermissions.includes("setting.update");
 
   const config = adminConfig?.config;
   const status = config?.status;
@@ -752,7 +758,7 @@ export default function SettingsSePayIntegration() {
                     onChange={(event) =>
                       setConfigDraft((prev) => ({ ...prev, webhookApiKey: event.target.value }))
                     }
-                    placeholder="Nhập API key"
+                    placeholder={canEditSecrets ? "Nhập API key" : "Chỉ Admin/setting.update được sửa"}
                     disabled={!canEditSecrets}
                     className="pr-10 text-xs font-mono"
                   />
@@ -775,7 +781,7 @@ export default function SettingsSePayIntegration() {
                     onChange={(event) =>
                       setConfigDraft((prev) => ({ ...prev, hmacSecret: event.target.value }))
                     }
-                    placeholder="Nhập HMAC Secret"
+                    placeholder={canEditSecrets ? "Nhập HMAC Secret" : "Chỉ Admin/setting.update được sửa"}
                     disabled={!canEditSecrets}
                     className="pr-10 text-xs font-mono"
                   />

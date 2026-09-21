@@ -152,7 +152,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
     if (!tenantId) return { success: false, deletedCount: 0, message: 'Missing tenantId' };
 
     const allDeposits = await this.prisma.deposit.findMany({
-      where: { tenantId },
+      where: { tenantId, deletedAt: null },
       include: {
         contract: { select: { id: true, code: true, deletedAt: true } },
         room: { select: { id: true, code: true, deletedAt: true } },
@@ -194,10 +194,14 @@ export class DepositsService extends BaseCrudService<Deposit> {
     }
 
     if (orphanIds.length > 0) {
-      await this.prisma.deposit.deleteMany({
+      const result = await this.prisma.deposit.updateMany({
         where: {
           id: { in: orphanIds },
           tenantId,
+          deletedAt: null,
+        },
+        data: {
+          deletedAt: new Date(),
         },
       });
 
@@ -207,9 +211,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
         module: 'Deposits',
         entity: 'Deposit',
         entityId: 'CLEANUP',
-        action: 'DELETE',
+        action: 'UPDATE',
         before: { orphanCount: orphanIds.length, orphanIds },
-        after: null,
+        after: { softDeletedCount: result.count },
       }).catch(() => null);
     }
 
@@ -394,8 +398,8 @@ export class DepositsService extends BaseCrudService<Deposit> {
     });
   }
 
-  async getDetail(id: string, include?: any): Promise<any> {
-    const deposit = await this.repository.findById(id, {
+  async getDetail(id: string, include?: any, options?: { skipPaymentReconcile?: boolean }): Promise<any> {
+    let deposit = await this.repository.findById(id, {
       customer: true,
       room: { include: { building: true, floor: true } },
       contract: true,
@@ -405,21 +409,114 @@ export class DepositsService extends BaseCrudService<Deposit> {
       return null;
     }
 
+    if (
+      !options?.skipPaymentReconcile &&
+      this.depositCoreService &&
+      ['DRAFT', 'PENDING'].includes(String(deposit.status).toUpperCase())
+    ) {
+      const reconciled = await this.reconcileConfirmedPayment(deposit);
+      if (reconciled) {
+        deposit = await this.repository.findById(id, {
+          customer: true,
+          room: { include: { building: true, floor: true } },
+          contract: true,
+          ...include,
+        });
+      }
+    }
+    if (!deposit) return null;
+
     const refundSummary = await this.getRefundSummary(deposit);
     const availableBalance = this.depositCoreService
       ? await this.depositCoreService.getBalance(deposit.tenantId, deposit.id)
       : undefined;
+    if (
+      this.depositCoreService &&
+      ['DRAFT', 'PENDING'].includes(String(deposit.status).toUpperCase()) &&
+      Number.isFinite(Number(availableBalance)) &&
+      Number(availableBalance) >= Number(deposit.amount || 0) &&
+      Number(deposit.amount || 0) > 0
+    ) {
+      await this.prisma.deposit.updateMany({
+        where: {
+          id: deposit.id,
+          tenantId: deposit.tenantId,
+          status: { in: [DepositStatus.DRAFT, DepositStatus.PENDING] },
+          deletedAt: null,
+        },
+        data: { status: DepositStatus.PAID },
+      }).catch(() => undefined);
+      deposit.status = DepositStatus.PAID;
+    }
+    const paymentRequestModel = (this.prisma as any).paymentRequest;
+    let paymentRequest = await (paymentRequestModel?.findFirst
+      ? paymentRequestModel.findFirst({
+      where: {
+        tenantId: deposit.tenantId,
+        sourceType: 'DEPOSIT',
+        sourceId: deposit.id,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        paymentCode: true,
+        provider: true,
+        paidAt: true,
+        createdAt: true,
+        metadata: true,
+      },
+      }).catch(() => null)
+      : Promise.resolve(null));
+    if (!paymentRequest && ['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase())) {
+      const invoiceModel = (this.prisma as any).invoice;
+      const bookingInvoice = await (invoiceModel?.findFirst
+        ? invoiceModel.findFirst({
+        where: {
+          tenantId: deposit.tenantId,
+          deletedAt: null,
+          period: 'Cọc giữ phòng',
+          OR: [
+            ...(deposit.contractId ? [{ contractId: deposit.contractId }] : []),
+            ...(deposit.rentalCycleId ? [{ rentalCycleId: deposit.rentalCycleId }] : []),
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+        }).catch(() => null)
+        : Promise.resolve(null));
+      if (bookingInvoice && paymentRequestModel?.findFirst) {
+        paymentRequest = await paymentRequestModel.findFirst({
+          where: {
+            tenantId: deposit.tenantId,
+            sourceType: 'INVOICE',
+            sourceId: bookingInvoice.id,
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            paymentCode: true,
+            provider: true,
+            paidAt: true,
+            createdAt: true,
+            metadata: true,
+          },
+        }).catch(() => null);
+      }
+    }
 
     return {
       ...deposit,
       ...(availableBalance === undefined ? {} : { availableBalance }),
+      paymentRequest: paymentRequest || null,
       pendingOperationId: refundSummary?.pending ? refundSummary.operationId : null,
       refundSummary,
     };
   }
 
   async collect(id: string, note: string | null, userId: string, idempotencyKey?: string, holdExpiresAt?: string | null) {
-    const deposit = await this.getDetail(id);
+    const deposit = await this.getDetail(id, undefined, { skipPaymentReconcile: true });
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING) {
       throw new BadRequestException('Can only collect DRAFT or PENDING deposits');
@@ -467,6 +564,139 @@ export class DepositsService extends BaseCrudService<Deposit> {
     });
 
     return updated;
+  }
+
+  private async reconcileConfirmedPayment(deposit: any) {
+    try {
+      const paymentRequest = (this.prisma as any).paymentRequest;
+      if (!paymentRequest?.findFirst || !this.depositCoreService) return false;
+
+      let confirmedRequest = await paymentRequest.findFirst({
+        where: {
+          tenantId: deposit.tenantId,
+          sourceType: 'DEPOSIT',
+          sourceId: deposit.id,
+          status: 'CONFIRMED',
+        },
+        orderBy: { paidAt: 'desc' },
+      });
+
+      if (!confirmedRequest && (deposit.type === 'BOOKING' || deposit.type === 'RESERVATION')) {
+        const invoice = await (this.prisma as any).invoice?.findFirst?.({
+          where: {
+            tenantId: deposit.tenantId,
+            deletedAt: null,
+            period: 'Cọc giữ phòng',
+            OR: [
+              ...(deposit.contractId ? [{ contractId: deposit.contractId }] : []),
+              ...(deposit.rentalCycleId ? [{ rentalCycleId: deposit.rentalCycleId }] : []),
+            ],
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        });
+        if (invoice) {
+          confirmedRequest = await paymentRequest.findFirst({
+            where: {
+              tenantId: deposit.tenantId,
+              sourceType: 'INVOICE',
+              sourceId: invoice.id,
+              status: 'CONFIRMED',
+            },
+            orderBy: { paidAt: 'desc' },
+          });
+        }
+      }
+
+      if (!confirmedRequest && String(deposit.type).toUpperCase() === 'SECURITY') {
+        confirmedRequest = await this.findConfirmedSecurityDepositInvoicePayment(deposit);
+      }
+
+      if (!confirmedRequest) return false;
+      await this.depositCoreService.collect(
+        deposit.tenantId,
+        deposit.id,
+        {
+          idempotencyKey: `reconcile:confirmed-payment:${confirmedRequest.id}`,
+          note: `Đồng bộ thanh toán ${confirmedRequest.paymentCode || confirmedRequest.id}`,
+          holdExpiresAt: deposit.expiredAt || null,
+        },
+        'PAYMENT_RECONCILIATION',
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async findConfirmedSecurityDepositInvoicePayment(deposit: any) {
+    const depositAmount = Number(deposit.amount || 0);
+    if (!depositAmount || depositAmount <= 0) return null;
+
+    const invoices = await (this.prisma as any).invoice?.findMany?.({
+      where: {
+        tenantId: deposit.tenantId,
+        deletedAt: null,
+        status: 'PAID',
+        OR: [
+          ...(deposit.contractId ? [{ contractId: deposit.contractId }] : []),
+          ...(deposit.rentalCycleId ? [{ rentalCycleId: deposit.rentalCycleId }] : []),
+          ...(deposit.customerId && deposit.roomId
+            ? [{
+                customerId: deposit.customerId,
+                contract: { roomId: deposit.roomId },
+              }]
+            : []),
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        code: true,
+        items: {
+          select: {
+            description: true,
+            amount: true,
+          },
+        },
+      },
+    }).catch(() => []);
+
+    const invoice = (invoices || []).find((candidate: any) =>
+      (candidate.items || []).some((item: any) => {
+        const description = String(item.description || '').toLowerCase();
+        const amount = Number(item.amount || 0);
+        return (
+          amount === depositAmount &&
+          (
+            description.includes('cọc hợp đồng') ||
+            description.includes('coc hop dong') ||
+            description.includes('cọc bảo đảm') ||
+            description.includes('coc bao dam')
+          )
+        );
+      }),
+    );
+    if (!invoice?.id) return null;
+
+    const request = await (this.prisma as any).paymentRequest.findFirst({
+      where: {
+        tenantId: deposit.tenantId,
+        sourceType: 'INVOICE',
+        sourceId: invoice.id,
+        status: 'CONFIRMED',
+      },
+      orderBy: { paidAt: 'desc' },
+      select: {
+        id: true,
+        paymentCode: true,
+      },
+    }).catch(() => null);
+
+    return {
+      id: request?.id || `paid-invoice:${invoice.id}`,
+      paymentCode: request?.paymentCode || invoice.code,
+    };
   }
 
   async refund(id: string, reason: string, userId: string, receiptStatus?: 'PENDING' | 'COMPLETED', attachmentUrls?: string[], refundAmountInput?: number, idempotencyKey?: string) {

@@ -55,7 +55,7 @@ describe("InvoicesService CORE-07.01 adjustment command", () => {
       },
       auditLog: { create: vi.fn() },
       outboxEvent: { create: vi.fn() },
-      payment: { create: vi.fn() },
+      payment: { create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
       paymentAllocation: { create: vi.fn(), findMany: vi.fn() },
     };
     prisma = {

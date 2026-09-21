@@ -119,6 +119,41 @@ function createService(options: { rooms?: any[]; snapshots?: any[]; invoices?: a
 }
 
 describe("CORE-07.05 monthly-settlement acceptance", () => {
+  it.each([0, 3])('blocks unverified pricing before invoice/snapshot writes even with persisted amount %s', async (amount) => {
+    const payer = contract('contract-a', 'payer-a', {
+      tenantId: 'tenant-1', customer: { id: 'payer-a', tenantId: 'tenant-1', fullName: 'Payer' },
+    });
+    const occupant = {
+      id: 'occ', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'payer-a', contractId: 'contract-a',
+      joinedAt: new Date('2026-09-01T00:00:00Z'), leftAt: null,
+      customer: { id: 'payer-a', tenantId: 'tenant-1', fullName: 'Payer' },
+    };
+    const reading = {
+      id: 'reading', tenantId: 'tenant-1', roomId: 'room-1', meterMappingId: 'mapping',
+      currentMonth: usagePeriod, sourcePeriod: usagePeriod, aggregateBasis: 'MONTHLY_AGGREGATE_V1',
+      energyMonthKwh: amount, moneyMonthVnd: amount,
+      readingAt: new Date('2026-09-30T16:59:59Z'), meterMapping: { id: 'mapping' },
+    };
+    const { service, prisma, hunonicService } = createService({
+      rooms: [room([payer], [occupant], 'WHOLE')], readings: [reading], latestReading: reading,
+    });
+    const meter = { id: 'mapping', buildingCode: 'A', roomCode: '101', rateMode: 'residential' };
+    hunonicService.getOverview.mockResolvedValue({ meters: [meter] } as any);
+    const valid = await service.getOverview('tenant-1', { period });
+    expect(valid.items[0].settlementBlockers).toEqual([]);
+
+    hunonicService.getOverview.mockResolvedValue({ meters: [{ ...meter, rateMode: 'unknown' }] } as any);
+    const overview = await service.getOverview('tenant-1', { period });
+    expect(overview.items[0].meterReading).toMatchObject({ rateMode: 'unknown', rateModeLabel: 'Chưa rõ phương thức giá' });
+    expect(overview.items[0].settlementBlockers).toEqual([expect.objectContaining({ code: 'HUNONIC_RATE_MODE_UNVERIFIED' })]);
+    await expect(service.closeMonth('tenant-1', 'user', { period, autoSend: false })).rejects.toBeTruthy();
+    await expect(service.finalizeUsagePeriod('tenant-1', { period: usagePeriod })).rejects.toBeTruthy();
+    expect(prisma.invoice.create).not.toHaveBeenCalled();
+    expect(prisma.invoice.update).not.toHaveBeenCalled();
+    expect(prisma.billingSnapshot.createMany).not.toHaveBeenCalled();
+    expect(hunonicService.lockPeriods).not.toHaveBeenCalled();
+  });
+
   it("hydrates exact decimal locked allocations and conserves the room total", async () => {
     const { service } = createService({
       rooms: [room([contract("contract-a", "live-a"), contract("contract-b", "live-b")])],

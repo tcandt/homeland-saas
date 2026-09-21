@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../../contracts/contracts.adapter';
+import { ROOM_VISIBLE_CONTRACT_STATUSES } from '../../contracts/contracts.adapter';
 import { ZaloProvider } from '../providers/communication.providers';
 import { NormalizedZaloUpdate } from '../adapters/zalo-normalizer';
 import { buildAdminGroupConnectedMessage } from './admin-zalo-message-builder';
@@ -175,7 +175,7 @@ export class ZaloRegistrationService {
         contracts: {
           where: {
             deletedAt: null,
-            status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+            status: { in: ROOM_VISIBLE_CONTRACT_STATUSES },
           },
           include: {
             customer: {
@@ -214,7 +214,7 @@ export class ZaloRegistrationService {
           contracts: {
             where: {
               deletedAt: null,
-              status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+              status: { in: ROOM_VISIBLE_CONTRACT_STATUSES },
             },
             include: {
               customer: {
@@ -748,7 +748,10 @@ export function parseRegisterCommand(text: string): RegisterCommand | null {
 
   let rawRoom = String(match[2] || '').trim();
   // Strip words like 'phong', 'can', 'p.', 'p-'
-  rawRoom = rawRoom.replace(/^(?:PHONG|CAN|TOA)\s+/i, '').replace(/^[Pp][.-]/, '').trim();
+  rawRoom = rawRoom
+    .replace(/^(?:PHONG|CAN|TOA|PN)\s+/i, '')
+    .replace(/^[Pp](?:N)?[.-]\s*/i, '')
+    .trim();
 
   if (!phones.length || !rawRoom) return null;
 
@@ -776,7 +779,10 @@ export function parseUnregisterCommand(text: string): UnregisterCommand | null {
     .filter((p) => p && p.length >= 9 && p.length <= 12);
 
   let rawRoom = String(match[2] || '').trim();
-  rawRoom = rawRoom.replace(/^(?:PHONG|CAN|TOA)\s+/i, '').replace(/^[Pp][.-]/, '').trim();
+  rawRoom = rawRoom
+    .replace(/^(?:PHONG|CAN|TOA|PN)\s+/i, '')
+    .replace(/^[Pp](?:N)?[.-]\s*/i, '')
+    .trim();
 
   if (!phones.length || !rawRoom) return null;
 

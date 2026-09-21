@@ -33,11 +33,26 @@ export class WorkflowEngine {
     }
 
     const tenantId = payload.tenantId;
+    if (payload.outboxEventId) {
+      const previous = await this.prisma.workflowExecution?.findFirst({
+        where: {
+          tenantId,
+          workflowName,
+          correlationId: String(payload.outboxEventId),
+          status: WorkflowStatus.SUCCESS,
+        },
+      });
+      if (previous) {
+        this.logger.debug(`Skip duplicate workflow ${workflowName} for outbox ${payload.outboxEventId}`);
+        return previous;
+      }
+    }
     const execution = await this.prisma.workflowExecution.create({
       data: {
         tenantId,
         workflowName,
         eventName,
+        correlationId: payload.outboxEventId ? String(payload.outboxEventId) : undefined,
         status: WorkflowStatus.RUNNING,
         startedAt: new Date(),
         input: payload,
@@ -108,30 +123,63 @@ export class WorkflowEngine {
           context: payload,
         });
         break;
+      case 'CREATE_ADMIN_IN_APP_NOTIFICATION': {
+        const adminUserIds = await this.resolveAdminUserIds(payload.tenantId);
+        const title = this.buildAdminPaymentTitle(payload);
+        const message = this.buildAdminPaymentMessage(payload);
+        for (const userId of adminUserIds) {
+          await this.communicationService.dispatch({
+            tenantId: payload.tenantId,
+            userId,
+            channel: 'IN_APP' as any,
+            templateCode: params?.templateCode || 'SYSTEM_ALERT',
+            context: { ...payload, title, message },
+          });
+        }
+        break;
+      }
       case 'SEND_PAYMENT_CONFIRMATION_ZALO':
-        if (!(await this.shouldSendSePayResultToZalo(payload))) {
+        if (!(await this.safeShouldSendSePayResultToZalo(payload))) {
           break;
         }
-        const zaloRecipient = String(payload.customerZaloChatId || payload.customerZaloUserId || '').trim();
+        let customerZalo: { chatId: string; userId: string } = { chatId: '', userId: '' };
+        try {
+          customerZalo = await this.resolveCustomerZaloRecipient(payload);
+        } catch (error: any) {
+          this.logger.error(`Unable to resolve customer Zalo recipient: ${error?.message || error}`);
+        }
+        const zaloRecipient = String(customerZalo.chatId || customerZalo.userId || '').trim();
         if (zaloRecipient) {
-          await this.communicationService.dispatchDirect({
-            tenantId: payload.tenantId,
-            channel: 'ZALO' as any,
-            templateCode: params?.templateCode || 'PAYMENT_ZALO_CONFIRMATION',
-            recipient: zaloRecipient,
-            userId: payload.customerId || payload.userId || null,
-            context: {
-              ...payload,
-              ...buildRoomContext(payload.room || payload.contract?.room, payload.contract),
-              paymentCode: payload.metadata?.code,
-            },
-          });
+          try {
+            const result = await this.communicationService.dispatchDirect({
+              tenantId: payload.tenantId,
+              channel: 'ZALO' as any,
+              templateCode: params?.templateCode || 'PAYMENT_ZALO_CONFIRMATION',
+              recipient: zaloRecipient,
+              userId: payload.customerId || payload.userId || null,
+              context: {
+                ...payload,
+                ...buildRoomContext(payload.room || payload.contract?.room, payload.contract),
+                paymentCode: payload.metadata?.code,
+                paymentStatusLabel: this.buildPaymentStatusLabel(payload),
+                paymentAmount: Number(payload.paymentAmount ?? payload.amount ?? 0).toLocaleString('vi-VN'),
+                amount: Number(payload.paidAmount ?? payload.amount ?? 0).toLocaleString('vi-VN'),
+              },
+            });
+            if (!result) {
+              this.logger.warn(`Payment Zalo notification was not queued for ${payload.metadata?.code || payload.sourceId || '-'}`);
+            }
+          } catch (error: any) {
+            this.logger.error(
+              `Payment Zalo notification failed for ${payload.metadata?.code || payload.sourceId || '-'}: ${error?.message || error}`,
+            );
+          }
         } else {
           this.logger.warn('Skipping Zalo payment confirmation because customer Zalo chat/user id is missing');
         }
         break;
       case 'SEND_ADMIN_GROUP_ZALO':
-        if (!(await this.shouldSendSePayResultToZalo(payload))) {
+        if (!(await this.safeShouldSendSePayResultToZalo(payload))) {
           break;
         }
         const adminGroupChatId = await this.resolveAdminGroupChatId(payload.tenantId);
@@ -139,18 +187,24 @@ export class WorkflowEngine {
           this.logger.warn('Skipping admin group Zalo notification because adminGroupChatId is missing');
           break;
         }
-        await this.communicationService.dispatchDirect({
-          tenantId: payload.tenantId,
-          channel: 'ZALO' as any,
-          templateCode: params?.templateCode || 'SYSTEM_ALERT',
-          recipient: adminGroupChatId,
-          userId: null,
-          context: {
-            ...payload,
-            title: this.buildAdminPaymentTitle(payload),
-            message: this.buildAdminPaymentMessage(payload),
-          },
-        });
+        try {
+          await this.communicationService.dispatchDirect({
+            tenantId: payload.tenantId,
+            channel: 'ZALO' as any,
+            templateCode: params?.templateCode || 'SYSTEM_ALERT',
+            recipient: adminGroupChatId,
+            userId: null,
+            context: {
+              ...payload,
+              title: this.buildAdminPaymentTitle(payload),
+              message: this.buildAdminPaymentMessage(payload),
+            },
+          });
+        } catch (error: any) {
+          this.logger.error(
+            `Admin payment Zalo notification failed for ${payload.metadata?.code || payload.sourceId || '-'}: ${error?.message || error}`,
+          );
+        }
         break;
       case 'INVALIDATE_DASHBOARD_CACHE':
         await this.analyticsCache.invalidateDashboard(payload.tenantId);
@@ -195,6 +249,21 @@ export class WorkflowEngine {
 
   private async createJournalEntryFromPaymentEvent(payload: any) {
     if (!payload.amount) return;
+    const accountingAmount = Number(payload.paymentAmount ?? payload.amount);
+    if (payload.paymentId) {
+      const existing = await this.prisma.journalEntry?.findFirst({
+        where: {
+          tenantId: payload.tenantId,
+          sourceType: payload.sourceType,
+          sourceId: payload.paymentId,
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        this.logger.debug(`Skip duplicate journal for payment ${payload.paymentId}`);
+        return;
+      }
+    }
 
     const refundSourceType = payload.metadata?.refundSourceType;
     const isDepositRefund = payload.sourceType === 'REFUND' && refundSourceType === 'DEPOSIT';
@@ -236,13 +305,13 @@ export class WorkflowEngine {
           {
             accountId: depositLiability.id,
             type: 'DEBIT',
-            amount: payload.amount,
+            amount: accountingAmount,
             description: 'Giam nghia vu phai tra coc',
           },
           {
             accountId: offsetAccount.id,
             type: 'CREDIT',
-            amount: payload.amount,
+            amount: accountingAmount,
             description: isDepositSettlementApplication
               ? 'Ghi nhan doanh thu duoc thanh toan bang tien coc'
               : 'Ghi nhan doanh thu giu coc',
@@ -322,6 +391,13 @@ export class WorkflowEngine {
       return;
     }
 
+    if (payload.sourceType === 'INVOICE' && this.isBookingHoldInvoicePayment(payload)) {
+      this.logger.debug(
+        `Skip revenue journal for booking-hold deposit invoice ${payload.metadata?.code || payload.sourceId || ''}`,
+      );
+      return;
+    }
+
     const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100');
     const offsetAccountCode = payload.sourceType === 'INVOICE' ? '4000' : '1300';
     const offsetAccount = await this.resolveChartOfAccount(payload.tenantId, offsetAccountCode);
@@ -335,13 +411,13 @@ export class WorkflowEngine {
           {
             accountId: offsetAccount.id,
             type: 'DEBIT',
-            amount: payload.amount,
+            amount: accountingAmount,
             description: 'Giam nghia vu phai tra coc',
           },
           {
             accountId: bankAccount.id,
             type: 'CREDIT',
-            amount: payload.amount,
+            amount: accountingAmount,
             description: 'Chi tien hoan coc',
           },
         ]
@@ -349,13 +425,13 @@ export class WorkflowEngine {
           {
             accountId: bankAccount.id,
             type: 'DEBIT',
-            amount: payload.amount,
+            amount: accountingAmount,
             description: 'Tien vao ngan hang',
           },
           {
             accountId: offsetAccount.id,
             type: 'CREDIT',
-            amount: payload.amount,
+            amount: accountingAmount,
             description: payload.sourceType === 'INVOICE' ? 'Doanh thu hoa don' : 'Phai tra coc',
           },
         ];
@@ -371,6 +447,18 @@ export class WorkflowEngine {
       status: 'POSTED',
       lines,
     });
+  }
+
+  private isBookingHoldInvoicePayment(payload: any) {
+    const metadata = payload?.metadata || {};
+    const period = String(metadata.period || payload?.period || '').trim().toLowerCase();
+    const billingKind = String(metadata.billingKind || payload?.billingKind || '').trim().toUpperCase();
+    return (
+      metadata.bookingHoldDepositInvoice === true ||
+      period === 'cọc giữ phòng' ||
+      billingKind === 'BOOKING_HOLD' ||
+      billingKind === 'BOOKING_DEPOSIT'
+    );
   }
 
   private async shouldSendSePayResultToZalo(payload: any) {
@@ -393,6 +481,15 @@ export class WorkflowEngine {
     return settings.sendPaymentResultToZalo !== false;
   }
 
+  private async safeShouldSendSePayResultToZalo(payload: any) {
+    try {
+      return await this.shouldSendSePayResultToZalo(payload);
+    } catch (error: any) {
+      this.logger.error(`Unable to read SePay notification settings: ${error?.message || error}`);
+      return false;
+    }
+  }
+
   private async resolveAdminGroupChatId(tenantId: string) {
     const record = await this.prisma.appSetting.findUnique({
       where: {
@@ -405,7 +502,61 @@ export class WorkflowEngine {
       },
     });
     const settings = (record?.value as any) || {};
-    return String(settings.adminGroupChatId || '').trim();
+    if (String(settings.adminGroupChatId || '').trim()) {
+      return String(settings.adminGroupChatId).trim();
+    }
+    const sepayRecord = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: tenantId,
+          key: 'sepay',
+        },
+      },
+    });
+    return String((sepayRecord?.value as any)?.adminGroupChatId || '').trim();
+  }
+
+  private async resolveCustomerZaloRecipient(payload: any) {
+    const chatId = String(payload?.customerZaloChatId || '').trim();
+    const userId = String(payload?.customerZaloUserId || '').trim();
+    if (chatId || userId || !payload?.customerId) {
+      return { chatId, userId };
+    }
+
+    const customer = await this.prisma.customer?.findUnique({
+      where: { id: payload.customerId, tenantId: payload.tenantId },
+      select: { zaloChatId: true, zaloUserId: true },
+    });
+    return {
+      chatId: String(customer?.zaloChatId || '').trim(),
+      userId: String(customer?.zaloUserId || '').trim(),
+    };
+  }
+
+  private async resolveAdminUserIds(tenantId: string) {
+    const users = await this.prisma.user?.findMany({
+      where: { tenantId, status: 'ACTIVE', deletedAt: null },
+      select: {
+        id: true,
+        roles: { select: { role: { select: { code: true } } } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return (users || [])
+      .filter((user: any) =>
+        (user.roles || []).some((item: any) => ['ADMIN', 'MANAGER', 'FINANCE'].includes(String(item.role?.code || '').toUpperCase())),
+      )
+      .map((user: any) => String(user.id || '').trim())
+      .filter(Boolean);
+  }
+
+  private buildPaymentStatusLabel(payload: any) {
+    const status = String(payload?.metadata?.paymentStatus || '').toUpperCase();
+    if (status === 'PAID') return 'Đã thu đủ qua VietQR';
+    if (status === 'PARTIALLY_PAID') return 'Đã nhận một phần qua VietQR';
+    return 'Đã nhận thanh toán qua VietQR';
   }
 
   private buildAdminPaymentTitle(payload: any) {
@@ -424,7 +575,10 @@ export class WorkflowEngine {
       'HomeLand - Đã nhận thanh toán',
       `${sourceLabel}: ${payload.metadata?.code || payload.sourceId || '-'}`,
       `Khách: ${payload.customerName || '-'}`,
-      `Số tiền: ${Number(payload.amount || 0).toLocaleString('vi-VN')} VND`,
+      `Số tiền nhận lần này: ${Number(payload.paymentAmount ?? payload.amount ?? 0).toLocaleString('vi-VN')} VND`,
+      payload.paidAmount != null
+        ? `Đã thanh toán cộng dồn: ${Number(payload.paidAmount || 0).toLocaleString('vi-VN')} VND`
+        : null,
       payload.paymentRef ? `Mã giao dịch: ${payload.paymentRef}` : null,
       roomLabel ? roomLabel.trimStart() : null,
       buildingLabel ? buildingLabel.trimStart() : null,

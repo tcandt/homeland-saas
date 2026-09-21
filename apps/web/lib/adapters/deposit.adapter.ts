@@ -24,6 +24,15 @@ export interface UI_Deposit {
   contractId?: string | null;
   contractCode?: string | null;
   refundSummary?: DepositResponse["refundSummary"];
+  paymentRequest?: {
+    id: string;
+    status: string;
+    paymentCode?: string | null;
+    provider?: string | null;
+    paidAt?: string | null;
+    createdAt?: string | null;
+    metadata?: Record<string, unknown> | null;
+  } | null;
 }
 
 export const depositAdapter = {
@@ -56,6 +65,7 @@ export const depositAdapter = {
       contractId: apiDeposit.contractId || apiDeposit.contract?.id || null,
       contractCode: apiDeposit.contract?.code || null,
       refundSummary: apiDeposit.refundSummary || null,
+      paymentRequest: apiDeposit.paymentRequest || null,
     };
   }
 };

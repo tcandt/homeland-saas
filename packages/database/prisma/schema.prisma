@@ -135,6 +135,7 @@ enum DepositLedgerEntryType {
 }
 
 enum DepositOperationType {
+  CREATE
   COLLECT
   CONVERT_TO_SECURITY
   REFUND

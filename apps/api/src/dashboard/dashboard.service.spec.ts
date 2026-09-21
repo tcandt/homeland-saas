@@ -6,7 +6,7 @@ describe('DashboardService', () => {
     const prisma: any = {
       room: {
         count: vi.fn()
-          .mockResolvedValueOnce(2)
+          .mockResolvedValueOnce(4)
           .mockResolvedValueOnce(0)
           .mockResolvedValueOnce(0)
           .mockResolvedValueOnce(0)
@@ -43,8 +43,24 @@ describe('DashboardService', () => {
                 id: 'room-1',
                 status: 'AVAILABLE',
                 contracts: [{ id: 'contract-1', endDate: new Date('2099-01-01'), monthlyRent: 6_000_000 }],
+                occupancies: [],
+                roomHolds: [],
               },
-              { id: 'room-2', status: 'AVAILABLE', contracts: [] },
+              {
+                id: 'room-2',
+                status: 'AVAILABLE',
+                contracts: [],
+                occupancies: [{ id: 'occupancy-1' }],
+                roomHolds: [],
+              },
+              {
+                id: 'room-3',
+                status: 'AVAILABLE',
+                contracts: [],
+                occupancies: [],
+                roomHolds: [{ id: 'hold-1' }],
+              },
+              { id: 'room-4', status: 'AVAILABLE', contracts: [], occupancies: [], roomHolds: [] },
             ],
           },
         ]),
@@ -65,9 +81,10 @@ describe('DashboardService', () => {
     const dashboard = await new DashboardService(prisma, finance).getDashboardAggregation('tenant-1');
 
     expect(dashboard.occupancy).toMatchObject({
-      totalRooms: 2,
-      occupiedRooms: 1,
-      rented: 1,
+      totalRooms: 4,
+      occupiedRooms: 2,
+      rented: 2,
+      reserved: 1,
       available: 1,
       rate: 50,
     });
@@ -79,8 +96,9 @@ describe('DashboardService', () => {
       depositHeld: 2_500_000,
     });
     expect(dashboard.buildingHealth[0]).toMatchObject({
-      rooms: 2,
-      occupied: 1,
+      rooms: 4,
+      occupied: 2,
+      reserved: 1,
       vacant: 1,
       fillRate: 50,
     });

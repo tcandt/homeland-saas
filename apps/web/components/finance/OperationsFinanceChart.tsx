@@ -6,6 +6,7 @@ import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { useLedgerQuery, useBankTransactionsQuery } from "@/lib/queries/finance.queries";
 import { useDashboardQuery } from "@/lib/queries/dashboard.queries";
 import { Card } from "@/components/ui/Card";
+import { getInvoiceFinancials, isBookingHoldInvoice } from "@/lib/invoices/invoice-financials";
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
 
@@ -46,16 +47,19 @@ export default function OperationsFinanceChart() {
       const monthLabel = `T${targetMonth + 1}/${String(targetYear).slice(2)}`;
       const isCurrent = idx === 5;
 
-      // 1. Calculate Real Revenue and Debt from Invoices for this month
+      // 1. Calculate Real invoice collection and debt for this month.
+      // Booking-hold deposits are liabilities, so keep them out of revenue/profit.
       let monthRevenue = 0;
       let monthDebt = 0;
 
       for (const inv of invoices) {
+        if (isBookingHoldInvoice(inv)) continue;
         const invDate = new Date(inv.issueDate || inv.createdAt || inv.dueDate);
         if (!Number.isNaN(invDate.getTime())) {
           if (invDate.getMonth() === targetMonth && invDate.getFullYear() === targetYear) {
-            monthRevenue += Number(inv.paidAmount || 0);
-            monthDebt += Number(inv.remainingAmount || (inv.status !== "PAID" ? inv.totalAmount : 0) || 0);
+            const financials = getInvoiceFinancials(inv);
+            monthRevenue += financials.paid;
+            monthDebt += financials.remaining;
           }
         }
       }
@@ -135,11 +139,11 @@ export default function OperationsFinanceChart() {
               <BarChart3 size={15} />
             </div>
             <h3 className="text-sm md:text-base font-black text-text tracking-tight">
-              Dòng tiền & Lợi nhuận thực tế (Cash Flow & Profit)
+              Thực thu thuê/phí & Lợi nhuận vận hành
             </h3>
           </div>
           <p className="text-[11px] font-semibold text-muted mt-0.5">
-            Tổng hợp dữ liệu thực từ hóa đơn, phiếu thu chi và sổ cái 6 tháng gần nhất (không có số liệu ảo)
+            Chỉ tính hóa đơn thuê/phí vận hành; tiền cọc giữ phòng được tách khỏi doanh thu và lợi nhuận.
           </p>
         </div>
 
@@ -147,7 +151,7 @@ export default function OperationsFinanceChart() {
         <div className="flex items-center gap-2.5 flex-wrap text-xs">
           <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-300 font-bold text-[11px]">
             <div className="w-2.5 h-2.5 rounded-sm bg-indigo-600" />
-            Thu thực nhận
+            Thực thu thuê/phí
           </div>
           <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 font-bold text-[11px]">
             <div className="w-2.5 h-2.5 rounded-sm bg-rose-500" />
@@ -204,7 +208,7 @@ export default function OperationsFinanceChart() {
                       )}
                     </div>
                     <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-muted font-bold">Thu thực tế:</span>
+                      <span className="text-muted font-bold">Thực thu thuê/phí:</span>
                       <span className="font-mono font-black text-indigo-600 dark:text-indigo-400">{formatVnd(item.revenue)}</span>
                     </div>
                     <div className="flex items-center justify-between text-[10px]">

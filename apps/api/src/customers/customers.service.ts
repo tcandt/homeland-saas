@@ -45,7 +45,7 @@ export class CustomersService extends BaseCrudService<Customer> {
     }
 
     if (cleanPhone) {
-      const existingByPhone = await this.prisma.customer.findFirst({
+      const existingByPhone = await this.prisma.tx.customer.findFirst({
         where: {
           deletedAt: null,
           phone: { equals: cleanPhone, mode: 'insensitive' },
@@ -102,7 +102,7 @@ export class CustomersService extends BaseCrudService<Customer> {
     }
 
     if (cleanIdentityNo) {
-      const existingByIdentity = await this.prisma.customer.findFirst({
+      const existingByIdentity = await this.prisma.tx.customer.findFirst({
         where: {
           deletedAt: null,
           identityNo: { equals: cleanIdentityNo, mode: 'insensitive' },
@@ -169,7 +169,7 @@ export class CustomersService extends BaseCrudService<Customer> {
     const cleanIdentityNo = normalizeIdentityNo(identityNo);
 
     if (cleanPhone) {
-      const existingByPhone = await this.prisma.customer.findFirst({
+      const existingByPhone = await this.prisma.tx.customer.findFirst({
         where: {
           deletedAt: null,
           phone: { equals: cleanPhone, mode: 'insensitive' },
@@ -187,7 +187,7 @@ export class CustomersService extends BaseCrudService<Customer> {
     }
 
     if (cleanIdentityNo) {
-      const existingByIdentity = await this.prisma.customer.findFirst({
+      const existingByIdentity = await this.prisma.tx.customer.findFirst({
         where: {
           deletedAt: null,
           identityNo: { equals: cleanIdentityNo, mode: 'insensitive' },

@@ -89,6 +89,9 @@ describe('PaymentsService', () => {
     if (!prisma.$queryRaw) {
       prisma.$queryRaw = vi.fn().mockResolvedValue([{ lock: 'locked' }]);
     }
+    if (!('tx' in prisma)) {
+      prisma.tx = prisma;
+    }
 
     const invoicesService = {
       getDetail: vi.fn(),
@@ -363,6 +366,66 @@ describe('PaymentsService', () => {
         userId: 'SEPAY_WEBHOOK',
       }),
     );
+  });
+
+  it('matches SePay virtual account requests when sandbox webhook reports the main BIDV account', async () => {
+    const { service, prisma, invoicesService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { webhookApiKey: 'db-key' } }]),
+        findUnique: vi.fn(),
+      },
+      paymentWebhookLog: {
+        upsert: vi.fn().mockResolvedValue({ id: 'log-va-1', processedAt: null }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'request-va-1',
+          tenantId: 'tenant-1',
+          sourceType: PaymentSourceType.INVOICE,
+          sourceId: 'invoice-1',
+          status: PaymentRequestStatus.PENDING,
+          amount: 1000000,
+          bankName: 'BIDV',
+          bankAccountNumber: 'SBSEPAYMKYNGRD9RLQJ',
+        }),
+        update: vi.fn(),
+      },
+    });
+    invoicesService.pay.mockResolvedValue({ id: 'invoice-1' });
+
+    await service.handleSePayWebhook({
+      gateway: 'BIDV',
+      transactionDate: '2026-09-20 11:01:50',
+      accountNumber: '0000000001',
+      subAccount: 'SBSEPAYMKYNGRD9RLQJ',
+      code: 'HD31030926',
+      content: 'HD31030926',
+      transferType: 'in',
+      description: 'HD31030926',
+      transferAmount: 1000000,
+      referenceCode: 'SBBB2E343A0D45',
+      accumulated: 0,
+      id: 32798,
+    }, 'Apikey db-key');
+
+    expect(invoicesService.pay).toHaveBeenCalledWith('invoice-1', 1000000, 'SEPAY', '32798', 'SEPAY_WEBHOOK', 'tenant-1');
+    expect(prisma.paymentRequest.update).toHaveBeenCalledWith({
+      where: { id: 'request-va-1' },
+      data: expect.objectContaining({
+        status: PaymentRequestStatus.CONFIRMED,
+        providerTransactionId: '32798',
+        paidAt: expect.any(Date),
+      }),
+    });
+    expect(prisma.paymentWebhookLog.update).toHaveBeenCalledWith({
+      where: { id: 'log-va-1' },
+      data: expect.objectContaining({
+        status: 'PROCESSED',
+        tenantId: 'tenant-1',
+        processedAt: expect.any(Date),
+      }),
+    });
   });
 
   it('binds SePay credentials to the tenant that owns the payment request', async () => {
@@ -796,6 +859,81 @@ describe('PaymentsService', () => {
     });
   });
 
+  it('collects linked booking deposit when SePay confirms a booking-hold invoice QR', async () => {
+    const { service, prisma, invoicesService, depositsService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { webhookApiKey: 'db-key' } }]),
+        findUnique: vi.fn(),
+      },
+      paymentWebhookLog: {
+        upsert: vi.fn().mockResolvedValue({ id: 'log-booking-1', processedAt: null }),
+        update: vi.fn(),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'request-booking-1',
+          tenantId: 'tenant-1',
+          sourceType: PaymentSourceType.INVOICE,
+          sourceId: 'invoice-booking-1',
+          status: PaymentRequestStatus.PENDING,
+          amount: 1000000,
+        }),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+      invoice: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'invoice-booking-1',
+          period: 'Cọc giữ phòng',
+          contractId: 'contract-booking-1',
+          customerId: 'customer-1',
+          contract: { roomId: 'room-1' },
+        }),
+      },
+      deposit: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'deposit-booking-1' }),
+      },
+    });
+    invoicesService.pay.mockResolvedValue({ id: 'invoice-booking-1' });
+    depositsService.collect.mockResolvedValue({ id: 'deposit-booking-1', status: 'PAID' });
+
+    await service.handleSePayWebhook({
+      id: 'txn-booking-1',
+      code: 'HD31030926',
+      transferType: 'in',
+      transferAmount: 1000000,
+    }, 'Apikey db-key');
+
+    expect(invoicesService.pay).toHaveBeenCalledWith(
+      'invoice-booking-1',
+      1000000,
+      'SEPAY',
+      'txn-booking-1',
+      'SEPAY_WEBHOOK',
+      'tenant-1',
+    );
+    expect(prisma.deposit.findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        OR: expect.arrayContaining([
+          { contractId: 'contract-booking-1' },
+          { roomId: 'room-1', customerId: 'customer-1' },
+        ]),
+        type: { in: ['BOOKING', 'RESERVATION'] },
+        status: { in: ['DRAFT', 'PENDING'] },
+        deletedAt: null,
+      }),
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, rentalCycleId: true },
+    });
+    expect(depositsService.collect).toHaveBeenCalledWith(
+      'deposit-booking-1',
+      'SePay invoice confirmation txn-booking-1',
+      'SEPAY_WEBHOOK',
+      'sepay:invoice:invoice-booking-1:txn-booking-1',
+    );
+  });
+
   it('ignores SePay webhooks with no payment code content', async () => {
     const { service, prisma, invoicesService, auditService } = createService({
       appSetting: {
@@ -1143,7 +1281,7 @@ describe('PaymentsService', () => {
       });
 
     await expect(service.sendInvoiceRequestToZalo('invoice-1', 'user-1')).rejects.toThrow(
-      'Khách thuê chưa có số điện thoại hoặc Zalo chat ID',
+      'Khách thuê chưa đăng ký Zalo Bot',
     );
     expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
   });

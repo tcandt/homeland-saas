@@ -61,6 +61,9 @@ describe('FinanceReportingService', () => {
       payment: {
         findMany: vi.fn().mockResolvedValue([]),
       },
+      deposit: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       room: {
         findMany: vi.fn().mockResolvedValue([]),
       },
@@ -1099,6 +1102,79 @@ describe('FinanceReportingService', () => {
     expect(prisma.expense.aggregate).toHaveBeenCalledTimes(4);
   });
 
+  it('adds confirmed bank cash by owner without turning deposits into P&L revenue', async () => {
+    const { service, prisma } = createService({
+      owner: {
+        findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'owner-1', code: 'OWNER-A', name: 'Tinh', buildings: [] },
+        ]),
+      },
+      journalLine: {
+        aggregate: vi
+          .fn()
+          .mockResolvedValueOnce({ _sum: { amount: 0 } })
+          .mockResolvedValueOnce({ _sum: { amount: 0 } })
+          .mockResolvedValueOnce({ _sum: { amount: 0 } })
+          .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+      },
+      expense: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
+        update: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        aggregate: vi
+          .fn()
+          .mockResolvedValueOnce({ _sum: { amount: 0 } })
+          .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'request-1',
+            amount: 1000000,
+            sourceType: 'INVOICE',
+            sourceId: 'booking-invoice-1',
+            paidAt: new Date('2026-09-20T13:13:58.000Z'),
+            bankAccount: {
+              id: 'bank-1',
+              bankName: 'BIDV',
+              accountNumber: 'SBSEPAYMKYNGRD9RLQJ',
+              accountName: 'HO KINH DOANH NGUYEN DUC TINH',
+              ownerId: 'owner-1',
+            },
+          },
+        ]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+    });
+
+    const summary = await service.getOwnerProfitSummary('tenant-1');
+
+    expect(summary[0]).toMatchObject({
+      owner: { id: 'owner-1', code: 'OWNER-A', name: 'Tinh' },
+      revenue: 0,
+      profitAfterAdvance: 0,
+      bankConfirmedAmount: 1000000,
+      bankConfirmedCount: 1,
+      bankConfirmedAccounts: [
+        expect.objectContaining({
+          bankName: 'BIDV',
+          accountName: 'HO KINH DOANH NGUYEN DUC TINH',
+          confirmedAmount: 1000000,
+        }),
+      ],
+    });
+    expect(prisma.paymentRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        status: 'CONFIRMED',
+        OR: [{ ownerId: 'owner-1' }, { bankAccount: { ownerId: 'owner-1' } }],
+      }),
+    }));
+  });
+
   it('returns owner detail with electricity revenue attached to building and room breakdown', async () => {
     const journalAggregate = vi.fn().mockResolvedValue({ _sum: { amount: 0 } });
     journalAggregate
@@ -1255,6 +1331,196 @@ describe('FinanceReportingService', () => {
         electricity: 350000,
         waterAndService: 270000,
         other: 80000,
+      },
+    });
+  });
+
+  it('separates security deposit invoice items from owner revenue and deposit totals', async () => {
+    const journalAggregate = vi.fn().mockResolvedValue({ _sum: { amount: 0 } });
+    journalAggregate
+      .mockResolvedValueOnce({ _sum: { amount: 11000000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 11000000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+
+    const expenseAggregate = vi.fn().mockResolvedValue({ _sum: { amount: 0 } });
+
+    const { service } = createService({
+      owner: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'owner-1',
+          code: 'OWNER-B',
+          name: 'Owner B',
+          buildings: [{ id: 'building-1', code: 'LK01-32', name: 'LK01-32' }],
+        }),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      building: {
+        findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'building-1',
+            code: 'LK01-32',
+            name: 'LK01-32',
+            owner: { id: 'owner-1', code: 'OWNER-B', name: 'Owner B' },
+            rooms: [{ id: 'room-1', code: 'PN 32-06', name: 'PN 32-06', status: 'RENTED' }],
+          },
+        ]),
+      },
+      journalLine: {
+        aggregate: journalAggregate,
+        findMany: vi.fn().mockImplementation((args: any) => {
+          if (args?.where?.journalEntry?.sourceType === 'INVOICE') {
+            return Promise.resolve([
+              {
+                type: 'CREDIT',
+                amount: 11000000,
+                journalEntry: { sourceId: 'invoice-1' },
+              },
+            ]);
+          }
+          return Promise.resolve([]);
+        }),
+      },
+      expense: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
+        update: vi.fn(),
+        aggregate: expenseAggregate,
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      invoice: {
+        findMany: vi.fn().mockImplementation((args: any) => {
+          if (args?.select?.contractId) {
+            return Promise.resolve([
+              {
+                id: 'invoice-1',
+                contractId: 'contract-1',
+                code: 'INV-1',
+                status: 'PAID',
+                dueDate: new Date('2026-09-21T00:00:00.000Z'),
+                total: 11000000,
+                paidAmount: 11000000,
+                creditAmount: 0,
+                customer: { id: 'customer-1', fullName: 'Khach A' },
+                contract: { roomId: 'room-1' },
+              },
+            ]);
+          }
+          if (args?.select?.items && args?.select?.contract) {
+            return Promise.resolve([
+              {
+                id: 'invoice-1',
+                period: 'Kỳ đầu vào ở',
+                billingKind: 'MONTHLY_BASE',
+                total: 11000000,
+                items: [
+                  { type: 'OTHER', description: 'Tiền cọc hợp đồng', amount: 7500000 },
+                  { type: 'RENT', description: 'Tiền thuê kỳ đầu', amount: 3500000 },
+                ],
+                contract: { roomId: 'room-1', room: { buildingId: 'building-1' } },
+              },
+            ]);
+          }
+          if (args?.select?.items) {
+            return Promise.resolve([
+            {
+              id: 'invoice-1',
+              period: 'Kỳ đầu vào ở',
+              billingKind: 'MONTHLY_BASE',
+              total: 11000000,
+              items: [
+                { type: 'OTHER', description: 'Tiền cọc hợp đồng', amount: 7500000 },
+                { type: 'RENT', description: 'Tiền thuê kỳ đầu', amount: 3500000 },
+              ],
+            },
+            ]);
+          }
+          return Promise.resolve([]);
+        }),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      invoiceItem: {
+        findMany: vi.fn()
+          .mockResolvedValue([])
+          .mockResolvedValueOnce([
+            {
+              type: 'OTHER',
+              description: 'Tiền cọc hợp đồng',
+              amount: 7500000,
+              invoice: { contract: { room: { id: 'room-1', code: 'PN 32-06', name: 'PN 32-06', status: 'RENTED' } } },
+            },
+            {
+              type: 'RENT',
+              description: 'Tiền thuê kỳ đầu',
+              amount: 3500000,
+              invoice: { contract: { room: { id: 'room-1', code: 'PN 32-06', name: 'PN 32-06', status: 'RENTED' } } },
+            },
+          ]),
+      },
+      contract: {
+        findMany: vi.fn().mockResolvedValue([]).mockResolvedValueOnce([
+          {
+            id: 'contract-1',
+            roomId: 'room-1',
+            code: 'HD-PN 32-06-0614',
+            status: 'DRAFT',
+            startDate: new Date('2026-09-21T00:00:00.000Z'),
+            endDate: new Date('2028-09-21T00:00:00.000Z'),
+            monthlyRent: 3500000,
+            customer: { id: 'customer-1', fullName: 'Khach A', phone: '0901' },
+          },
+        ]),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'request-1',
+            amount: 11000000,
+            sourceType: 'INVOICE',
+            sourceId: 'invoice-1',
+            buildingId: null,
+            roomId: null,
+          },
+        ]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+    });
+
+    const detail = await service.getOwnerProfitDetail('tenant-1', 'owner-1', { year: '2026', month: '9' });
+
+    expect(detail.summary).toMatchObject({
+      revenue: 3500000,
+      depositAmount: 7500000,
+      totalReceived: 11000000,
+      profitBeforeAdvance: 3500000,
+    });
+    expect(detail.buildingBreakdown[0]).toMatchObject({
+      revenue: 3500000,
+      depositAmount: 7500000,
+      totalReceived: 11000000,
+      revenueBreakdown: {
+        rent: 3500000,
+        electricity: 0,
+        waterAndService: 0,
+        other: 0,
+      },
+    });
+    expect(detail.buildingBreakdown[0].roomBreakdown[0]).toMatchObject({
+      room: { id: 'room-1', code: 'PN 32-06' },
+      revenue: 3500000,
+      depositAmount: 7500000,
+      totalReceived: 11000000,
+      revenueBreakdown: {
+        rent: 3500000,
+        electricity: 0,
+        waterAndService: 0,
+        other: 0,
       },
     });
   });

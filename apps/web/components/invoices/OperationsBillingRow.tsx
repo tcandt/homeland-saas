@@ -26,6 +26,7 @@ export default function OperationsBillingRow({ invoice, onClick }: { invoice: an
   const paidAmount = financials.paid;
   const debtAmount = financials.remaining;
   const paidPercent = financials.settledPercent;
+  const overpaidAmount = financials.overpaid;
 
   const getProgressColor = () => {
     if (status === "Overdue") return "bg-rose-500";
@@ -88,6 +89,12 @@ export default function OperationsBillingRow({ invoice, onClick }: { invoice: an
             <span className="font-bold text-[11px] text-muted uppercase">Còn nợ</span>
             <span className={`font-black ${status === 'Overdue' ? 'text-rose-500' : paidPercent === 100 ? 'text-muted' : 'text-text'}`}>{debtAmount.toLocaleString()}đ</span>
           </div>
+          {overpaidAmount > 0 && (
+            <div className="flex flex-col gap-[2px] items-end">
+              <span className="font-bold text-[11px] text-muted uppercase">Tiền thừa</span>
+              <span className="font-black text-amber-600">{overpaidAmount.toLocaleString()}đ</span>
+            </div>
+          )}
         </div>
 
         {/* Progress Bar */}

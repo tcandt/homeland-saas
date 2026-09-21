@@ -21,6 +21,13 @@ export const ACTIVE_LIKE_CONTRACT_STATUSES: ContractStatus[] = [
   ContractStatus.EXPIRING
 ];
 
+export const ROOM_VISIBLE_CONTRACT_STATUSES: ContractStatus[] = [
+  ContractStatus.DRAFT,
+  ContractStatus.PENDING_APPROVAL,
+  ContractStatus.APPROVED,
+  ...ACTIVE_LIKE_CONTRACT_STATUSES,
+];
+
 /**
  * Maps a status string from a query filter.
  */

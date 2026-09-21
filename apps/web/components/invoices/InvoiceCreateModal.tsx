@@ -41,16 +41,22 @@ import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { useRoomsQuery } from "@/lib/queries/rooms.queries";
+import { useCustomersQuery } from "@/lib/queries/customers.queries";
 import {
   useContractDetailQuery,
   useContractsQuery,
 } from "@/lib/queries/contracts.queries";
 import { useCreateInvoiceMutation } from "@/lib/mutations/invoices.mutations";
 import { useIssueInvoiceMutation, usePayInvoiceMutation } from "@/lib/queries/invoices.queries";
-import { useSendInvoicePaymentToZaloMutation } from "@/lib/queries/payments.queries";
+import {
+  useCreateDepositPaymentRequestMutation,
+  useSendDepositPaymentToZaloMutation,
+  useSendInvoicePaymentToZaloMutation,
+} from "@/lib/queries/payments.queries";
 import { customersApi } from "@/lib/api/customers.api";
 import { depositsApi } from "@/lib/api/deposits.api";
 import { contractsApi } from "@/lib/api/contracts.api";
+import type { PaymentRequestResponse } from "@/lib/api/payments.api";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
@@ -93,6 +99,23 @@ function addMonthsToDate(months: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function hashIdempotencyParts(parts: Array<string | number | null | undefined>): string {
+  const input = parts.map((part) => String(part ?? "")).join("|");
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).padStart(7, "0");
+}
+
+function buildDepositCreateIdempotencyKey(
+  kind: "booking" | "security",
+  parts: Array<string | number | null | undefined>,
+): string {
+  return `invoice-modal:create-deposit:${kind}:${hashIdempotencyParts(parts)}`;
+}
+
 export default function InvoiceCreateModal({
   isOpen,
   onClose,
@@ -102,6 +125,7 @@ export default function InvoiceCreateModal({
 }: InvoiceCreateModalProps) {
   const queryClient = useQueryClient();
   const { data: rooms = [] } = useRoomsQuery({ limit: 100 });
+  const { data: customersResponse } = useCustomersQuery({ limit: 100 });
   const { data: contractsData } = useContractsQuery({ limit: 100 });
   const contracts = Array.isArray(contractsData?.data)
     ? contractsData.data
@@ -117,6 +141,8 @@ export default function InvoiceCreateModal({
   const issueMutation = useIssueInvoiceMutation();
   const payMutation = usePayInvoiceMutation();
   const sendZaloMutation = useSendInvoicePaymentToZaloMutation();
+  const createDepositPaymentRequestMutation = useCreateDepositPaymentRequestMutation();
+  const sendDepositZaloMutation = useSendDepositPaymentToZaloMutation();
 
   // Active Tab: Normalize RENT / CONTRACT_DEPOSIT to INVOICE
   const normalizedInitialTab =
@@ -233,6 +259,19 @@ export default function InvoiceCreateModal({
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerCitizenId, setNewCustomerCitizenId] = useState("");
+  const [selectedExistingCustomerId, setSelectedExistingCustomerId] = useState("");
+
+  const existingCustomers = useMemo(() => {
+    const rows = Array.isArray(customersResponse?.data) ? customersResponse.data : [];
+    return rows
+      .filter((customer: any) => customer?.id && (customer.fullName || customer.name))
+      .map((customer: any) => ({
+        id: customer.id,
+        fullName: customer.fullName || customer.name || "Khách thuê",
+        phone: customer.phone || "",
+        citizenId: customer.identityNo || customer.citizenId || customer.cccd || "",
+      }));
+  }, [customersResponse]);
 
   // Recipient Selection (Representative vs Roommate)
   const [recipientType, setRecipientType] = useState<"REPRESENTATIVE" | "ROOMMATE">("REPRESENTATIVE");
@@ -272,6 +311,10 @@ export default function InvoiceCreateModal({
     if (recipientType === "ROOMMATE" && availableRoommates.length > 0) {
       return availableRoommates.find((r: any) => r.id === selectedRoommateId) || availableRoommates[0];
     }
+    if (selectedExistingCustomerId) {
+      const selectedExisting = existingCustomers.find((customer: any) => customer.id === selectedExistingCustomerId);
+      if (selectedExisting) return selectedExisting;
+    }
     return representative;
   }, [
     rentalCycleScope,
@@ -281,6 +324,8 @@ export default function InvoiceCreateModal({
     availableRoommates,
     selectedRoommateId,
     representative,
+    selectedExistingCustomerId,
+    existingCustomers,
   ]);
 
   const effectiveRecipient = useMemo(() => {
@@ -355,6 +400,22 @@ export default function InvoiceCreateModal({
   const [isCashCollected, setIsCashCollected] = useState<boolean>(false);
   const [sendZaloBot, setSendZaloBot] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [depositPaymentPreview, setDepositPaymentPreview] = useState<PaymentRequestResponse | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setDepositPaymentPreview(null);
+    }
+  }, [isOpen]);
+
+  const copyPaymentText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`Đã copy ${label}`);
+    } catch {
+      toast.error(`Không copy được ${label}`);
+    }
+  };
   const manualPaymentOperation = useRef<ManualPaymentOperation | null>(null);
   const [partialPaymentOperation, setPartialPaymentOperation] = useState<ManualPaymentOperation | null>(null);
 
@@ -393,6 +454,8 @@ export default function InvoiceCreateModal({
         queryClient.invalidateQueries({ queryKey: ["deposits"] }),
         queryClient.invalidateQueries({ queryKey: ["contracts"] }),
         queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+        queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+        queryClient.invalidateQueries({ queryKey: ["customers"] }),
       ]);
       manualPaymentOperation.current = null;
       setPartialPaymentOperation(null);
@@ -509,15 +572,28 @@ export default function InvoiceCreateModal({
       // 1. Resolve or Create Customer if in NEW mode
       let customerId = rentalCycleScope?.customerId || effectiveRecipient?.id || "";
       if (!rentalCycleScope && (customerMode === "NEW" || !customerId || customerId.startsWith("t-"))) {
-        const createCustRes = await customersApi.create({
-          fullName: newCustomerName.trim() || effectiveRecipient?.fullName || "Khách hàng",
+        const duplicateRes: any = await customersApi.checkDuplicate({
           phone: newCustomerPhone.trim() || effectiveRecipient?.phone || "",
-          citizenId: newCustomerCitizenId.trim() || undefined,
-          status: "ACTIVE",
-          roomId: selectedRoomId,
+          identityNo: newCustomerCitizenId.trim() || undefined,
         });
-        const cData = (createCustRes as any)?.data || createCustRes;
-        customerId = cData?.id || customerId;
+        const duplicate = duplicateRes?.data || duplicateRes;
+        if (duplicate?.isDuplicate && duplicate?.duplicateCustomer?.id) {
+          customerId = duplicate.duplicateCustomer.id;
+          setCustomerMode("EXISTING");
+          setSelectedExistingCustomerId(customerId);
+          toast.success(`Đã dùng khách hiện có: ${duplicate.duplicateCustomer.fullName || "Khách thuê"}`);
+        } else {
+          const createCustRes = await customersApi.create({
+            fullName: newCustomerName.trim() || effectiveRecipient?.fullName || "Khách hàng",
+            phone: newCustomerPhone.trim() || effectiveRecipient?.phone || "",
+            citizenId: newCustomerCitizenId.trim() || undefined,
+            status: "ACTIVE",
+            roomId: selectedRoomId,
+          });
+          const cData = (createCustRes as any)?.data || createCustRes;
+          customerId = cData?.id || customerId;
+          setSelectedExistingCustomerId(customerId);
+        }
       }
 
       const periodStr = `Tháng ${String(periodMonth).padStart(2, "0")}/${periodYear}`;
@@ -573,6 +649,8 @@ export default function InvoiceCreateModal({
           queryClient.invalidateQueries({ queryKey: ["invoices"] }),
           queryClient.invalidateQueries({ queryKey: ["deposits"] }),
           queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+          queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+          queryClient.invalidateQueries({ queryKey: ["customers"] }),
         ]);
 
         toast.success(`Đã tạo phiếu hoàn cọc giữ phòng ${formatVnd(refundAmount)} thành công!`);
@@ -584,26 +662,59 @@ export default function InvoiceCreateModal({
 
       // Handle TAB 2: Cọc giữ chỗ phòng (HOLDING DEPOSIT)
       if (activeTab === "HOLDING_DEPOSIT") {
+        setDepositPaymentPreview(null);
         const holdingPaymentKey = `HOLDING_DEPOSIT:${selectedRoomId}:${customerId}:${rentalCycleScope?.contractId || activeContract?.id || ""}:${holdingDepositAmount}`;
         const isResumingHoldingPayment = isCashCollected &&
           manualPaymentOperation.current?.key === holdingPaymentKey &&
           Boolean(manualPaymentOperation.current.invoiceId);
         const depositCode = `DC-GP-${selectedRoom?.code || selectedRoomId.slice(0, 4)}-${Date.now().toString().slice(-4)}`;
+        let depositId = "";
+        let createdDepositPaymentRequest: PaymentRequestResponse | null = null;
         if (!isResumingHoldingPayment) {
           try {
-            await depositsApi.create({
-              code: depositCode,
-              type: "BOOKING",
-              roomId: selectedRoomId,
-              customerId,
-              amount: holdingDepositAmount,
-              status: isCashCollected ? "HELD" : "PENDING",
-              expiredAt: holdingExpiryDate ? new Date(holdingExpiryDate).toISOString() : undefined,
-              note: `${holdingNote} • Ngày dự kiến vào: ${expectedMoveInDate}`,
-            });
+            const depositResult: any = await depositsApi.create(
+              {
+                code: depositCode,
+                type: "BOOKING",
+                roomId: selectedRoomId,
+                customerId,
+                amount: holdingDepositAmount,
+                status: "PENDING",
+                expiredAt: holdingExpiryDate ? new Date(holdingExpiryDate).toISOString() : undefined,
+                note: `${holdingNote} • Ngày dự kiến vào: ${expectedMoveInDate}`,
+              },
+              buildDepositCreateIdempotencyKey("booking", [
+                selectedRoomId,
+                customerId,
+                holdingDepositAmount,
+                holdingExpiryDate,
+                expectedMoveInDate,
+              ]),
+            );
+            depositId = depositResult?.id || depositResult?.data?.id || "";
           } catch (e) {
             console.warn("Could not create deposit record directly:", e);
           }
+        }
+
+        if (depositId && payMethod === "QR_TRANSFER") {
+          try {
+            if (sendZaloBot) {
+              const request = await sendDepositZaloMutation.mutateAsync(depositId);
+              createdDepositPaymentRequest = ((request as any)?.data || request || null) as PaymentRequestResponse | null;
+              setDepositPaymentPreview(createdDepositPaymentRequest);
+              toast.success(`🤖 Đã tạo phiếu cọc và gửi mã VietQR qua Bot Zalo cho ${effectiveRecipient.fullName}!`);
+            } else {
+              const request = await createDepositPaymentRequestMutation.mutateAsync(depositId);
+              createdDepositPaymentRequest = ((request as any)?.data || request || null) as PaymentRequestResponse | null;
+              setDepositPaymentPreview(createdDepositPaymentRequest);
+              toast.success("Đã tạo phiếu cọc giữ phòng và mã VietQR thanh toán!");
+            }
+          } catch (error) {
+            toast.success("Đã tạo phiếu cọc giữ phòng. Chưa gửi được QR, vui lòng mở phiếu cọc để gửi lại.");
+          }
+        } else if (depositId) {
+          toast.success("Đã tạo phiếu cọc giữ phòng thành công!");
         }
 
         const invoicePayload = {
@@ -625,6 +736,20 @@ export default function InvoiceCreateModal({
             },
           ],
         };
+
+        if (!rentalCycleScope && !activeContract?.id) {
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+            queryClient.invalidateQueries({ queryKey: ["deposits"] }),
+            queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+            queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+            queryClient.invalidateQueries({ queryKey: ["customers"] }),
+          ]);
+          if (!createdDepositPaymentRequest && payMethod !== "QR_TRANSFER") {
+            onClose();
+          }
+          return;
+        }
 
         const operation = isCashCollected
           ? getManualPaymentOperation(holdingPaymentKey, holdingDepositAmount, autoIssue)
@@ -675,6 +800,8 @@ export default function InvoiceCreateModal({
           queryClient.invalidateQueries({ queryKey: ["invoices"] }),
           queryClient.invalidateQueries({ queryKey: ["deposits"] }),
           queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+          queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+          queryClient.invalidateQueries({ queryKey: ["customers"] }),
         ]);
 
         onClose();
@@ -725,17 +852,27 @@ export default function InvoiceCreateModal({
         const depositCode = `DC-HD-${selectedRoom?.code || selectedRoomId.slice(0, 4)}-${Date.now().toString().slice(-4)}`;
         if (!isResumingInvoicePayment) {
           try {
-            await depositsApi.create({
-              code: depositCode,
-              type: "SECURITY",
-              roomId: selectedRoomId,
-              customerId,
-              contractId: rentalCycleScope?.contractId || activeContract?.id || undefined,
-              rentalCycleId: rentalCycleScope?.rentalCycleId,
-              amount: contractDepositAmount,
-              status: isCashCollected ? "HELD" : "PENDING",
-              note: `${contractDepositNote} • Hạn HĐ: ${contractEndDate}`,
-            });
+            await depositsApi.create(
+              {
+                code: depositCode,
+                type: "SECURITY",
+                roomId: selectedRoomId,
+                customerId,
+                contractId: rentalCycleScope?.contractId || activeContract?.id || undefined,
+                rentalCycleId: rentalCycleScope?.rentalCycleId,
+                amount: contractDepositAmount,
+                status: "PENDING",
+                note: `${contractDepositNote} • Hạn HĐ: ${contractEndDate}`,
+              },
+              buildDepositCreateIdempotencyKey("security", [
+                selectedRoomId,
+                customerId,
+                rentalCycleScope?.contractId || activeContract?.id,
+                rentalCycleScope?.rentalCycleId,
+                contractDepositAmount,
+                contractEndDate,
+              ]),
+            );
           } catch (e) {
             console.warn("Could not create deposit record directly:", e);
           }
@@ -825,6 +962,8 @@ export default function InvoiceCreateModal({
         queryClient.invalidateQueries({ queryKey: ["deposits"] }),
         queryClient.invalidateQueries({ queryKey: ["contracts"] }),
         queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+        queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+        queryClient.invalidateQueries({ queryKey: ["customers"] }),
       ]);
 
       onClose();
@@ -970,6 +1109,59 @@ export default function InvoiceCreateModal({
           </button>
         </div>
 
+        {depositPaymentPreview && (
+          <div className="rounded-2xl border border-primary/25 bg-primary/5 p-3 flex flex-col sm:flex-row gap-3">
+            <div className="h-36 w-36 rounded-xl bg-white border border-border flex items-center justify-center overflow-hidden shrink-0">
+              {depositPaymentPreview.qrUrl ? (
+                <img
+                  src={depositPaymentPreview.qrUrl}
+                  alt={`VietQR ${depositPaymentPreview.paymentCode}`}
+                  className="h-full w-full object-contain"
+                />
+              ) : (
+                <QrCode size={48} className="text-primary" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] font-black uppercase tracking-wider text-primary">QR cọc giữ phòng đã tạo</div>
+              <div className="mt-1 text-lg font-black text-text">{formatVnd(depositPaymentPreview.amount)}</div>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div className="rounded-xl bg-card border border-border p-2">
+                  <div className="text-muted font-bold">Mã thanh toán</div>
+                  <div className="font-mono font-black text-text break-all">{depositPaymentPreview.paymentCode}</div>
+                </div>
+                <div className="rounded-xl bg-card border border-border p-2">
+                  <div className="text-muted font-bold">Tài khoản nhận</div>
+                  <div className="font-mono font-black text-text break-all">{depositPaymentPreview.bankAccountNumber}</div>
+                </div>
+              </div>
+              <div className="mt-2 text-[11px] text-muted">
+                Nội dung chuyển khoản bắt buộc chứa mã <span className="font-mono font-black text-text">{depositPaymentPreview.paymentCode}</span> để SePay tự đối soát.
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl text-xs font-bold"
+                  onClick={() => copyPaymentText(depositPaymentPreview.paymentCode, "mã thanh toán")}
+                >
+                  Copy mã
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl text-xs font-bold"
+                  onClick={() => copyPaymentText(depositPaymentPreview.qrUrl, "QR URL")}
+                >
+                  Copy QR URL
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 1. CHỌN PHÒNG & THÔNG TIN KHÁCH HÀNG */}
         <div className="rounded-xl border border-border/80 bg-surface/30 p-3 flex flex-col gap-2.5">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -1109,6 +1301,23 @@ export default function InvoiceCreateModal({
                       {availableRoommates.map((rm: any) => (
                         <option key={rm.id} value={rm.id}>
                           Khách ghép: {rm.fullName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {!rentalCycleScope && (availableRoommates.length === 0 || activeTab !== "INVOICE") && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <select
+                      value={selectedExistingCustomerId || effectiveRecipient?.id || ""}
+                      onChange={(event) => setSelectedExistingCustomerId(event.target.value)}
+                      className="h-7 max-w-[220px] px-2 rounded-md border border-border bg-surface text-[11px] font-bold text-text outline-none"
+                    >
+                      <option value="">Chọn khách hiện có</option>
+                      {existingCustomers.map((customer: any) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.fullName}{customer.phone ? ` • ${customer.phone}` : ""}
                         </option>
                       ))}
                     </select>

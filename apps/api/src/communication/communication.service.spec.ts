@@ -123,6 +123,36 @@ describe('CommunicationService', () => {
     }));
   });
 
+  it('uses the built-in payment confirmation template when tenant template is missing', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationTemplate.findUnique.mockResolvedValueOnce(null);
+    const service = new CommunicationService(prisma as any);
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    service.registerProvider({ channel: NotificationChannel.ZALO, send });
+
+    await service.dispatchDirect({
+      tenantId: 'tenant-1',
+      userId: 'customer-1',
+      channel: NotificationChannel.ZALO,
+      recipient: 'zalo-user-1',
+      templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
+      context: {
+        customerName: 'Khách A',
+        metadata: { code: 'INV-001' },
+        paymentAmount: '1.000.000',
+        amount: '1.000.000',
+        paymentStatusLabel: 'Đã thu đủ qua VietQR',
+      },
+    });
+
+    expect(prisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        title: 'HomeLand - Đã nhận thanh toán INV-001',
+        message: expect.stringContaining('Đã thu đủ qua VietQR'),
+      }),
+    });
+  });
+
   it('marks queue failed with retry schedule when provider throws', async () => {
     const prisma = createPrismaMock();
     const service = new CommunicationService(prisma as any);

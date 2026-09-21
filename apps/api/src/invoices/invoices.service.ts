@@ -94,9 +94,16 @@ export class InvoicesService extends BaseCrudService<Invoice> {
 
     const orderBy = { [sort || "createdAt"]: order || "desc" };
 
-    return this.repository.paginate(where, page, limit, orderBy, {
+    const result = await this.repository.paginate(where, page, limit, orderBy, {
       customer: {
-        select: { id: true, fullName: true, phone: true, gender: true },
+        select: {
+          id: true,
+          fullName: true,
+          phone: true,
+          gender: true,
+          zaloChatId: true,
+          zaloUserId: true,
+        },
       },
       contract: {
         select: {
@@ -111,7 +118,91 @@ export class InvoicesService extends BaseCrudService<Invoice> {
           },
         },
       },
+      payments: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          amount: true,
+          provider: true,
+          providerRef: true,
+          status: true,
+          paidAt: true,
+          createdAt: true,
+        },
+        orderBy: { paidAt: "desc" },
+      },
+      items: {
+        select: {
+          id: true,
+          type: true,
+          description: true,
+          amount: true,
+        },
+      },
     });
+    const invoiceIds = result.data.map((invoice: any) => invoice.id);
+    if (invoiceIds.length > 0) {
+      const requests = await this.prisma.paymentRequest.findMany({
+        where: {
+          tenantId,
+          sourceType: "INVOICE",
+          sourceId: { in: invoiceIds },
+        },
+        select: {
+          id: true,
+          sourceId: true,
+          paymentCode: true,
+          amount: true,
+          status: true,
+          providerTransactionId: true,
+          paidAt: true,
+          metadata: true,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      const transactionIds = requests
+        .map((request) => request.providerTransactionId)
+        .filter((value): value is string => Boolean(value));
+      const webhookLogs = transactionIds.length
+        ? await this.prisma.paymentWebhookLog.findMany({
+            where: {
+              provider: "SEPAY",
+              providerTransactionId: { in: transactionIds },
+            },
+            select: { providerTransactionId: true, payload: true },
+          })
+        : [];
+      const webhookAmountByTransaction = new Map(
+        webhookLogs.map((log) => [
+          log.providerTransactionId,
+          Number((log.payload as any)?.transferAmount ?? (log.payload as any)?.amount ?? 0),
+        ]),
+      );
+      const requestsByInvoice = new Map<string, any[]>();
+      for (const request of requests) {
+        const list = requestsByInvoice.get(request.sourceId) || [];
+        list.push(request);
+        requestsByInvoice.set(request.sourceId, list);
+      }
+      for (const invoice of result.data as any[]) {
+        const paymentRequests = requestsByInvoice.get(invoice.id) || [];
+        invoice.paymentRequests = paymentRequests;
+        invoice.overpaymentAmount = paymentRequests.reduce(
+          (sum, request) =>
+            sum +
+            Math.max(
+              Number((request.metadata as any)?.overpaymentAmount || 0),
+              Math.max(
+                0,
+                (webhookAmountByTransaction.get(request.providerTransactionId || "") || 0) -
+                  Number(request.amount || 0),
+              ),
+            ),
+          0,
+        );
+      }
+    }
+    return result;
   }
 
   async getDetail(id: string, include?: any) {
@@ -150,7 +241,52 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       tenantId,
       rootInvoiceId,
     );
-    return { ...invoice, familyTotals };
+    const paymentRequests = await this.prisma.paymentRequest.findMany({
+      where: { tenantId, sourceType: "INVOICE", sourceId: invoice.id },
+      select: {
+        id: true,
+        sourceId: true,
+        paymentCode: true,
+        amount: true,
+        status: true,
+        providerTransactionId: true,
+        paidAt: true,
+        metadata: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    const transactionIds = paymentRequests
+      .map((request) => request.providerTransactionId)
+      .filter((value): value is string => Boolean(value));
+    const webhookLogs = transactionIds.length
+      ? await this.prisma.paymentWebhookLog.findMany({
+          where: {
+            provider: "SEPAY",
+            providerTransactionId: { in: transactionIds },
+          },
+          select: { providerTransactionId: true, payload: true },
+        })
+      : [];
+    const webhookAmountByTransaction = new Map(
+      webhookLogs.map((log) => [
+        log.providerTransactionId,
+        Number((log.payload as any)?.transferAmount ?? (log.payload as any)?.amount ?? 0),
+      ]),
+    );
+    const overpaymentAmount = paymentRequests.reduce(
+      (sum, request) =>
+        sum +
+        Math.max(
+          Number((request.metadata as any)?.overpaymentAmount || 0),
+          Math.max(
+            0,
+            (webhookAmountByTransaction.get(request.providerTransactionId || "") || 0) -
+              Number(request.amount || 0),
+          ),
+        ),
+      0,
+    );
+    return { ...invoice, familyTotals, paymentRequests, overpaymentAmount };
   }
 
   async createAdjustment(
@@ -718,6 +854,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         ...invoice,
         paidAmount: newPaidAmount,
         status: newStatus,
+        paymentId: payment.id,
       };
       await this.writeLifecycleEvidence(tx, {
         tenantId,
@@ -744,6 +881,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
           newStatus,
           creditAmount,
           newPaidAmount,
+          amount,
           normalizedProvider,
           normalizedProviderRef,
         ),
@@ -1034,6 +1172,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     status: InvoiceStatus,
     creditAmount: number,
     newPaidAmount: number,
+    paymentAmount: number,
     provider: string,
     providerRef: string,
   ) {
@@ -1052,9 +1191,12 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       ...roomContext,
       metadata: {
         code: invoice.code,
+        period: invoice.period || null,
         grossTotal: Number(result.total),
         creditAmount,
         paymentStatus: status,
+        billingKind: invoice.billingKind || null,
+        bookingHoldDepositInvoice: this.isBookingHoldInvoice(invoice),
         roomRentalType: invoice.contract?.room?.rentalType || null,
         roomRentalTypeLabel: roomContext.roomRentalTypeLabel,
         roomMemberCount: roomContext.roomMemberCount,
@@ -1062,6 +1204,9 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       sourceId: invoice.id,
       sourceType: "INVOICE",
       amount: Number(result.paidAmount ?? newPaidAmount),
+      paidAmount: Number(result.paidAmount ?? newPaidAmount),
+      paymentId: result.paymentId || null,
+      paymentAmount: Number(paymentAmount),
       paymentProvider: provider,
       paymentRef: providerRef,
       occurredAt: new Date().toISOString(),
@@ -1079,6 +1224,12 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       paidAmount: this.toMoney(invoice.paidAmount),
       creditAmount: this.toMoney(invoice.creditAmount),
     };
+  }
+
+  private isBookingHoldInvoice(invoice: any) {
+    const period = String(invoice?.period || invoice?.usagePeriod || "").trim().toLowerCase();
+    const billingKind = String(invoice?.billingKind || "").trim().toUpperCase();
+    return period === "cọc giữ phòng" || billingKind === "BOOKING_HOLD" || billingKind === "BOOKING_DEPOSIT";
   }
 
   private async getFamilyFinancialState(

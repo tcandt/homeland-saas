@@ -1,4 +1,10 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import {
+  CallHandler,
+  ExecutionContext,
+  Injectable,
+  NestInterceptor,
+  StreamableFile,
+} from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { ClsService } from 'nestjs-cls';
@@ -25,6 +31,14 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
 
     return next.handle().pipe(
       map((data) => {
+        // Binary downloads/inline previews must pass through untouched.
+        // Wrapping StreamableFile in the standard JSON envelope corrupts the
+        // response body while leaving the original content type (e.g. image/*)
+        // in place, which makes browsers render a broken image.
+        if (data instanceof StreamableFile) {
+          return data;
+        }
+
         // If data already has success/meta structure (e.g. from Pagination), keep it
         const isPaginated = data && data.meta && data.data;
         const payload = isPaginated ? data.data : data;

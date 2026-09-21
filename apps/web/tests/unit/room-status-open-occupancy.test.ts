@@ -100,6 +100,24 @@ describe('D2-FIX-02: Room & Tenant Status Adapter (Unit Matrix)', () => {
     expect(getRoomUiStatus(room, baseDate)).toBe('deposited');
   });
 
+  it('6b. DRAFT / PENDING_APPROVAL contract should reserve the room without marking it occupied', () => {
+    const draftRoom = {
+      id: 'r-6b',
+      status: 'AVAILABLE',
+      rentalType: 'WHOLE',
+      contracts: [{ id: 'c-draft', status: 'DRAFT', startDate: '2026-09-15T00:00:00.000Z' }],
+      occupancies: [],
+      holds: [],
+    };
+    expect(getRoomUiStatus(draftRoom, baseDate)).toBe('deposited');
+
+    const pendingRoom = {
+      ...draftRoom,
+      contracts: [{ id: 'c-pending', status: 'PENDING_APPROVAL', startDate: '2026-09-15T00:00:00.000Z' }],
+    };
+    expect(getRoomUiStatus(pendingRoom, baseDate)).toBe('deposited');
+  });
+
   // 7. Hold hết hạn -> không reserved (vacant)
   it('7. Expired hold should not make room reserved', () => {
     const room = {
@@ -163,6 +181,25 @@ describe('D2-FIX-02: Room & Tenant Status Adapter (Unit Matrix)', () => {
     expect(resultPending.status).toBe('DRAFT');
     expect(resultPending.statusLabel).toBe('Chờ ký HĐ');
     expect(resultPending.statusVariant).toBe('primary');
+  });
+
+  it('shows booking hold contracts as waiting for booking-hold contract signing', () => {
+    const customer = {
+      id: 'cust-booking-hold',
+      fullName: 'Booking Hold Customer',
+      contracts: [{
+        id: 'c-booking-hold',
+        code: 'HD-COC-PN 31-01-6538',
+        status: 'ACTIVE',
+        purpose: 'Hợp đồng cọc giữ phòng',
+        startDate: '2026-09-20',
+      }],
+    };
+
+    const result = getTenantRentalStatus(customer, [], baseDate);
+    expect(result.status).toBe('DRAFT');
+    expect(result.statusLabel).toBe('Chờ ký HĐ cọc giữ phòng');
+    expect(result.statusVariant).toBe('primary');
   });
 
   it('computes tenant rental status correctly for terminated contract without open occupancy (Đã trả phòng)', () => {

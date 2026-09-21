@@ -1285,6 +1285,13 @@ export class MonthlySettlementService {
       const resolvedRateMode =
         lockedSnapshot?.pricingMode || meter?.rateMode || "residential";
       const isCustomRate = resolvedRateMode === "custom";
+      const isUnknownRate = resolvedRateMode !== "custom" && resolvedRateMode !== "residential";
+      if (!lockedSnapshot && isUnknownRate) {
+        settlementBlockers.push({
+          code: "HUNONIC_RATE_MODE_UNVERIFIED",
+          message: "Chưa xác minh phương thức tính giá Hunonic; cần đối soát trước khi chốt snapshot hoặc tạo hóa đơn.",
+        });
+      }
       const customRateVnd = isCustomRate
         // Locked values are immutable.  A live custom meter must provide an
         // explicit provider unit price; never substitute a local default.
@@ -1296,7 +1303,7 @@ export class MonthlySettlementService {
         ? customRateVnd !== null
           ? `Tự thiết lập (${customRateVnd.toLocaleString("vi-VN")}đ/kWh)`
           : "Tự thiết lập (chưa có đơn giá Hunonic)"
-        : "Bậc thang EVN";
+        : isUnknownRate ? "Chưa rõ phương thức giá" : "Bậc thang EVN";
       if (!lockedSnapshot && isCustomRate && rawElectricityKwh > 0 && customRateVnd === null) {
         settlementBlockers.push({
           code: "HUNONIC_CUSTOM_RATE_REQUIRED",
@@ -1344,8 +1351,12 @@ export class MonthlySettlementService {
                 meter?.lastStatus === "on" ||
                 meter?.isOnline === true,
               lastSyncedAt:
-                persistedReading?.readingAt || meter?.lastSyncedAt || null,
-              rateMode: isCustomRate ? "custom" : "residential",
+                // `readingAt` is the provider's usage observation period and
+                // can legitimately be the first day of the month. It is not
+                // the time our sync succeeded, so it must not drive the
+                // stale-data badge in the UI.
+                meter?.lastSyncedAt || persistedReading?.readingAt || null,
+              rateMode: isUnknownRate ? "unknown" : isCustomRate ? "custom" : "residential",
               customRateVnd,
               rateModeLabel,
               dataSource: lockedSnapshot
@@ -2336,16 +2347,20 @@ export class MonthlySettlementService {
               !candidateReading ||
               candidateReading.id !== snapshotMeter.sourceReadingId ||
               candidateReading.meterMappingId !== snapshotMeter.meterMappingId ||
-              numberOrNull(candidateReading.energyMonthKwh) === null ||
-              numberOrNull(candidateReading.moneyMonthVnd) === null ||
+              ("energyMonthKwh" in candidateReading &&
+                numberOrNull(candidateReading.energyMonthKwh) === null) ||
+              ("moneyMonthVnd" in candidateReading &&
+                numberOrNull(candidateReading.moneyMonthVnd) === null) ||
               (snapshotMeter.sourcePayloadHash &&
                 candidateReading.payloadHash !== undefined &&
                 candidateReading.payloadHash !== snapshotMeter.sourcePayloadHash) ||
               !canonicalReading ||
               canonicalReading.id !== snapshotMeter.sourceReadingId ||
               canonicalReading.meterMappingId !== snapshotMeter.meterMappingId ||
-              numberOrNull(canonicalReading.energyMonthKwh) === null ||
-              numberOrNull(canonicalReading.moneyMonthVnd) === null ||
+              ("energyMonthKwh" in canonicalReading &&
+                numberOrNull(canonicalReading.energyMonthKwh) === null) ||
+              ("moneyMonthVnd" in canonicalReading &&
+                numberOrNull(canonicalReading.moneyMonthVnd) === null) ||
               (snapshotMeter.sourcePayloadHash &&
                 canonicalReading.payloadHash !== undefined &&
                 canonicalReading.payloadHash !== snapshotMeter.sourcePayloadHash)

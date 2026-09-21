@@ -4,7 +4,7 @@ import { depositsApi } from '../api/deposits.api';
 export const useCreateDepositMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: any) => depositsApi.create(data),
+    mutationFn: ({ data, idempotencyKey }: { data: any; idempotencyKey: string }) => depositsApi.create(data, idempotencyKey),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });

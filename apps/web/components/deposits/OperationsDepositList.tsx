@@ -42,6 +42,7 @@ const formatDate = (value?: string | null) => {
 
 const getStatusMeta = (status: string, type?: string) => {
   const isSecurity = type === "SECURITY";
+  const isBookingHold = type === "BOOKING" || type === "RESERVATION";
   switch (status) {
     case "DRAFT":
       return { label: "Bản nháp", tone: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200 dark:border-slate-700", dot: "bg-slate-400" };
@@ -53,7 +54,7 @@ const getStatusMeta = (status: string, type?: string) => {
       };
     case "PAID":
       return {
-        label: isSecurity ? "Đã thu cọc hợp đồng" : "Đã thu cọc giữ phòng",
+        label: isBookingHold ? "Đã thu cọc HĐ giữ chỗ" : isSecurity ? "Đã thu cọc hợp đồng" : "Đã thu cọc giữ phòng",
         tone: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
         dot: "bg-emerald-500"
       };

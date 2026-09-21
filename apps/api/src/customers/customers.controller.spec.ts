@@ -44,6 +44,10 @@ describe('CustomersController', () => {
       controller.getDetail('cust-123');
       expect(service.getDetail).toHaveBeenCalledWith('cust-123', {
         contracts: { include: { room: { include: { building: true } } } },
+        occupancies: {
+          where: { leftAt: null },
+          select: { id: true, roomId: true, leftAt: true, room: { select: { id: true, code: true, name: true } } },
+        },
       });
     });
   });

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
@@ -87,6 +87,7 @@ export class PaymentsController {
   }
 
   @Post('sepay/webhook')
+  @HttpCode(200)
   @Public()
   @ApiOperation({ summary: 'SePay webhook for payment confirmation' })
   handleSePayWebhook(

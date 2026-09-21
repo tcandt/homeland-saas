@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, Filter } from "lucide-react";
+import { Filter } from "lucide-react";
 import { SearchInput } from "../ui/SearchInput";
 import { Button } from "../ui/Button";
 
@@ -21,9 +21,9 @@ export default function InvoicesHeader() {
           <Filter size={16} className="text-muted" />
         </Button>
 
-        <Button variant="primary" className="shrink-0 h-[40px] font-bold">
-          <Plus size={16} className="mr-2" /> <span className="hidden md:inline">Tạo hóa đơn</span>
-        </Button>
+        <span className="hidden md:inline-flex items-center h-[40px] rounded-xl border border-border bg-surface px-3 text-xs font-bold text-muted">
+          Tạo hóa đơn tại Tòa nhà → Phòng → Khách thuê
+        </span>
       </div>
     </div>
   );

@@ -8,7 +8,12 @@ import { ContractsRepository } from "./contracts.repository";
 import { PrismaService } from "../prisma.service";
 import { AuditService } from "../shared/audit/audit.service";
 import { DomainEventPublisher } from "../shared/events/domain-event.publisher";
-import { ContractStatus, RoomStatus } from "@prisma/client";
+import {
+  ContractStatus,
+  DepositStatus,
+  DepositType,
+  RoomStatus,
+} from "@prisma/client";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import { HunonicService } from "../hunonic/hunonic.service";
 
@@ -388,7 +393,9 @@ describe("ContractsService", () => {
         expect.objectContaining({
           data: expect.objectContaining({
             roomId: "r1",
-            status: "DRAFT",
+            code: "DC-c1",
+            type: DepositType.SECURITY,
+            status: DepositStatus.PENDING,
             amount: 1000,
           }),
         }),
@@ -402,6 +409,44 @@ describe("ContractsService", () => {
         }),
       );
       expect(result).toEqual(updatedContract);
+    });
+
+    it("should reuse an existing contract deposit instead of creating another one", async () => {
+      const mockContract = {
+        id: "c1",
+        code: "HD-PN-001",
+        status: ContractStatus.PENDING_APPROVAL,
+        roomId: "r1",
+        depositMoney: 1000,
+        tenantId: "t1",
+        customerId: "cu1",
+      };
+      const updatedContract = {
+        ...mockContract,
+        status: ContractStatus.APPROVED,
+      };
+      const mockRoom = { id: "r1", status: RoomStatus.AVAILABLE };
+      const existingDeposit = {
+        id: "deposit-existing",
+        contractId: "c1",
+        type: DepositType.SECURITY,
+        status: DepositStatus.PAID,
+        amount: 1000,
+      };
+
+      vi.spyOn(service, "getDetail").mockResolvedValue(mockContract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue(mockRoom);
+      prismaService.tx.contract.update.mockResolvedValue(updatedContract);
+      prismaService.tx.room.update.mockResolvedValue({
+        ...mockRoom,
+        status: RoomStatus.RESERVED,
+      });
+      prismaService.tx.deposit.findFirst.mockResolvedValue(existingDeposit);
+
+      const result = await service.approveContract("c1", "user1");
+
+      expect(result).toEqual(updatedContract);
+      expect(prismaService.tx.deposit.create).not.toHaveBeenCalled();
     });
 
     it("should throw BadRequestException if contract is not PENDING_APPROVAL", async () => {
@@ -426,9 +471,47 @@ describe("ContractsService", () => {
       vi.spyOn(service, "getDetail").mockResolvedValue(mockContract as any);
       prismaService.tx.room.findUnique.mockResolvedValue(mockRoom);
 
+      prismaService.tx.occupancy.count.mockResolvedValue(1);
+
       await expect(service.approveContract("c1", "user1")).rejects.toThrow(
         ConflictException,
       );
+    });
+
+    it("should approve when OCCUPIED is stale and no blocking room resources exist", async () => {
+      const mockContract = {
+        id: "c1",
+        status: ContractStatus.PENDING_APPROVAL,
+        roomId: "r1",
+        depositMoney: 1000,
+        tenantId: "t1",
+        customerId: "cu1",
+      };
+      const updatedContract = {
+        ...mockContract,
+        status: ContractStatus.APPROVED,
+      };
+      const mockRoom = { id: "r1", code: "PN 32-06", status: RoomStatus.OCCUPIED };
+
+      vi.spyOn(service, "getDetail").mockResolvedValue(mockContract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue(mockRoom);
+      prismaService.tx.contract.update.mockResolvedValue(updatedContract);
+      prismaService.tx.room.update.mockResolvedValue({
+        ...mockRoom,
+        status: RoomStatus.RESERVED,
+      });
+      prismaService.tx.deposit.create.mockResolvedValue({
+        id: "d1",
+        amount: 1000,
+      });
+
+      const result = await service.approveContract("c1", "user1");
+
+      expect(result).toEqual(updatedContract);
+      expect(prismaService.tx.room.update).toHaveBeenCalledWith({
+        where: { id: "r1" },
+        data: { status: RoomStatus.RESERVED },
+      });
     });
   });
 

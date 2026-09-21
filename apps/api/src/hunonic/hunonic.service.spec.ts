@@ -19,6 +19,27 @@ function createService(overrides: Record<string, unknown> = {}) {
 }
 
 describe('HunonicService room and period normalization', () => {
+  it('exposes unknown pricing and the original provider timestamp independently of a new fetch', async () => {
+    const { service } = createService({
+      hunonicMeterMapping: {
+        findMany: vi.fn().mockResolvedValue([{
+          id: 'm', buildingCode: 'A', roomCode: '101', providerMeterId: 'meter',
+          raw: { timeupdate: '2026-09-18T01:00:00Z' },
+          lastSyncedAt: new Date('2026-09-19T01:00:00Z'),
+          lastStatus: 'on', lastReadingKwh: 0, lastAmountVnd: 0, readings: [],
+        }]),
+      },
+      hunonicSyncLog: { findFirst: vi.fn().mockResolvedValue(null) },
+    });
+    const result = await service.getOverview('tenant', { allowAutoLock: false });
+    expect(result.meters[0]).toMatchObject({
+      rateMode: 'unknown', customRateVnd: null,
+      providerObservedAt: '2026-09-18T01:00:00Z',
+      lastSyncedAt: new Date('2026-09-19T01:00:00Z'),
+      energyMonthKwh: 0, moneyMonthVnd: 0,
+    });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -109,6 +130,54 @@ describe('HunonicService room and period normalization', () => {
     await service.getOverview('tenant-1', { allowAutoLock: false } as any);
 
     expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('skips the scheduled sync before reading tenants when another worker holds the lock', async () => {
+    const findMany = vi.fn();
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([{ locked: false }]) };
+    const { prisma, service } = createService({
+      appSetting: { findMany },
+      $transaction: vi.fn((callback: any) => callback(tx)),
+    });
+    const syncTenant = vi.spyOn(service, 'syncTenant');
+
+    await expect(service.syncEnabledTenantsEvery15Minutes()).resolves.toEqual({
+      skipped: true,
+      reason: 'HUNONIC_SYNC_LOCK_HELD',
+    });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ timeout: 14 * 60 * 1000 }));
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(findMany).not.toHaveBeenCalled();
+    expect(syncTenant).not.toHaveBeenCalled();
+  });
+
+  it('runs scheduled tenant sync only after acquiring the distributed lock', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      { tenantId: 'tenant-enabled', value: { enabled: true } },
+      { tenantId: 'tenant-disabled', value: { enabled: false } },
+    ]);
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([{ locked: true }]) };
+    const { service } = createService({
+      appSetting: { findMany },
+      $transaction: vi.fn((callback: any) => callback(tx)),
+    });
+    const syncTenant = vi.spyOn(service, 'syncTenant').mockResolvedValue({ skipped: false } as any);
+
+    await service.syncEnabledTenantsEvery15Minutes();
+
+    expect(findMany).toHaveBeenCalledWith({ where: { key: 'hunonic', scope: 'TENANT' } });
+    expect(syncTenant).toHaveBeenCalledTimes(1);
+    expect(syncTenant).toHaveBeenCalledWith('tenant-enabled', { enabled: true });
+  });
+
+  it('retries transient Hunonic provider failures before returning a result', async () => {
+    const { service } = createService();
+    const operation = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary provider timeout'))
+      .mockResolvedValueOnce({ ok: true });
+
+    await expect((service as any).withProviderRetry(operation, 'dashboard test')).resolves.toEqual({ ok: true });
+    expect(operation).toHaveBeenCalledTimes(2);
   });
 
   it('uses the numeric root_extra group and provider unit price in the overview', async () => {

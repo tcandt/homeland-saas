@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
+  ChevronRight,
   FileClock,
   Loader2,
   Search,
@@ -14,6 +15,7 @@ import { useCustomersQuery } from "../../lib/queries/customers.queries";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
+import { evaluateExistingCustomerSelection } from '../../lib/adapters/customer-selection';
 
 export type ExistingCustomerOption = {
   id: string;
@@ -47,7 +49,9 @@ type TenantSourcePickerModalProps = {
   currentRoomId: string;
   currentOccupantIds: string[];
   initialSearch?: string;
+  flowIntentLabel?: string;
   onClose: () => void;
+  onBackToIntent?: () => void;
   onCreateNew: () => void;
   onSelectExisting: (customer: ExistingCustomerOption) => Promise<boolean>;
 };
@@ -57,7 +61,9 @@ export default function TenantSourcePickerModal({
   currentRoomId,
   currentOccupantIds,
   initialSearch,
+  flowIntentLabel,
   onClose,
+  onBackToIntent,
   onCreateNew,
   onSelectExisting,
 }: TenantSourcePickerModalProps) {
@@ -65,6 +71,7 @@ export default function TenantSourcePickerModal({
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectingCustomerId, setSelectingCustomerId] = useState<string | null>(null);
+  const selectionInFlight = useRef(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -99,22 +106,57 @@ export default function TenantSourcePickerModal({
   }, [customerQuery.data, occupantIdSet]);
 
   const handleSelect = async (customer: ExistingCustomerOption) => {
-    if (selectingCustomerId) return;
+    if (selectionInFlight.current || !evaluateExistingCustomerSelection(customer, currentRoomId).isSelectable) return;
+    selectionInFlight.current = true;
     setSelectingCustomerId(customer.id);
     try {
       await onSelectExisting(customer);
     } finally {
+      selectionInFlight.current = false;
       setSelectingCustomerId(null);
     }
   };
 
+  const currentStepLabel = view === "choose" ? "Chọn khách" : "Danh sách khách";
+  const canNavigateBackToIntent = Boolean(flowIntentLabel && onBackToIntent && !selectingCustomerId);
+
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={() => { if (!selectionInFlight.current) onClose(); }}
       title={view === "choose" ? "Thêm khách thuê" : "Chọn khách thuê có sẵn"}
       maxWidth={view === "choose" ? "max-w-2xl" : "max-w-xl"}
       testId="tenant-source-picker-modal"
+      headerActions={
+        flowIntentLabel ? (
+          <div
+            className="flex min-w-0 items-center gap-1 rounded-full bg-slate-100/80 px-1.5 py-1 text-[11px] font-black text-muted dark:bg-white/[0.06]"
+            aria-label="Luồng thêm khách thuê"
+          >
+            <button
+              type="button"
+              data-testid="tenant-flow-back-to-intent"
+              onClick={onBackToIntent}
+              disabled={!canNavigateBackToIntent}
+              title="Quay lại bước chọn Cọc giữ phòng hoặc Thuê ở ngay"
+              className="max-w-[150px] truncate rounded-full px-2.5 py-1 text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {flowIntentLabel}
+            </button>
+            <ChevronRight size={13} className="shrink-0 opacity-60" />
+            <button
+              type="button"
+              data-testid="tenant-flow-current-step"
+              onClick={() => view === "existing" && !selectingCustomerId && setView("choose")}
+              disabled={view === "choose" || Boolean(selectingCustomerId)}
+              title={view === "existing" ? "Quay lại bước chọn khách có sẵn/khách mới" : "Đang ở bước chọn khách"}
+              className="max-w-[130px] truncate rounded-full bg-card px-2.5 py-1 text-text shadow-xs transition-colors disabled:cursor-default"
+            >
+              {currentStepLabel}
+            </button>
+          </div>
+        ) : undefined
+      }
       footer={
         <div className="flex w-full items-center justify-between gap-3">
           {view === "existing" ? (
@@ -233,12 +275,11 @@ export default function TenantSourcePickerModal({
                   const occupancies = customer.occupancies || [];
                   const activeOccupancy = Array.isArray(occupancies) ? occupancies.find((occ: any) => !occ.leftAt) : null;
                   const activeRoom = activeOccupancy?.room || (customer as any).room;
-                  const activeRoomId = activeOccupancy?.roomId || (activeOccupancy?.room?.id);
 
-                  const isInAnotherRoom = Boolean(activeOccupancy && activeRoomId && activeRoomId !== currentRoomId);
-                  const isInCurrentRoom = Boolean(occupantIdSet.has(customer.id) || (activeOccupancy && activeRoomId === currentRoomId));
+                  const selection = evaluateExistingCustomerSelection(customer, currentRoomId);
+                  const { isInAnotherRoom, isInCurrentRoom } = selection;
                   const isSelecting = selectingCustomerId === customer.id;
-                  const isBlocked = isInCurrentRoom || isInAnotherRoom;
+                  const isBlocked = !selection.isSelectable || occupantIdSet.has(customer.id);
 
                   return (
                     <button
@@ -268,6 +309,10 @@ export default function TenantSourcePickerModal({
                           ) : isInAnotherRoom ? (
                             <span className="text-rose-600 dark:text-rose-400">
                               Đang ở tại {activeRoom?.code || activeRoom?.name || "phòng khác"} (Cần trả phòng trước)
+                            </span>
+                          ) : selection.hasUnknownRoom || selection.hasConflictingContract ? (
+                            <span className="text-amber-600 dark:text-amber-400">
+                              Cần kiểm tra phòng hoặc hợp đồng đang mở
                             </span>
                           ) : (
                             <span className="text-emerald-600 dark:text-emerald-400">

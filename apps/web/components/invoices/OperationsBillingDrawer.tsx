@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Banknote,
@@ -38,11 +38,15 @@ import {
   useCancelInvoiceMutation,
   useWriteoffInvoiceMutation,
 } from "@/lib/queries/invoices.queries";
-import { useSendInvoicePaymentToZaloMutation } from "@/lib/queries/payments.queries";
+import {
+  useCreateInvoicePaymentRequestMutation,
+  useSendInvoicePaymentToZaloMutation,
+} from "@/lib/queries/payments.queries";
 import { useDeleteInvoiceMutation } from "@/lib/mutations/invoices.mutations";
 import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 import toast from "react-hot-toast";
+import type { PaymentRequestResponse } from "@/lib/api/payments.api";
 
 function formatDate(value?: string | Date | null) {
   if (!value) return "--/--/----";
@@ -117,11 +121,19 @@ const statusMeta: Record<string, { label: string; badgeVariant: any }> = {
   Cancelled: { label: "Đã hủy", badgeVariant: "neutral" },
 };
 
-export default function OperationsBillingDrawer({
+export default function OperationsBillingDrawer(props: {
+  invoice: any | null;
+  onClose: () => void;
+}) {
+  if (!props.invoice) return null;
+  return <OperationsBillingDrawerContent invoice={props.invoice} onClose={props.onClose} />;
+}
+
+function OperationsBillingDrawerContent({
   invoice,
   onClose,
 }: {
-  invoice: any | null;
+  invoice: any;
   onClose: () => void;
 }) {
   const issueMutation = useIssueInvoiceMutation();
@@ -129,6 +141,7 @@ export default function OperationsBillingDrawer({
   const cancelMutation = useCancelInvoiceMutation();
   const writeoffMutation = useWriteoffInvoiceMutation();
   const deleteMutation = useDeleteInvoiceMutation();
+  const createPaymentRequestMutation = useCreateInvoicePaymentRequestMutation();
   const sendZaloMutation = useSendInvoicePaymentToZaloMutation();
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -137,14 +150,31 @@ export default function OperationsBillingDrawer({
   const [showPayModal, setShowPayModal] = useState(false);
   const [payMethod, setPayMethod] = useState<"CASH" | "BANK_TRANSFER">("BANK_TRANSFER");
   const [customPayAmount, setCustomPayAmount] = useState<string>("");
+  const [paymentRequest, setPaymentRequest] =
+    useState<PaymentRequestResponse | null>(null);
   const paymentOperationRef = useRef<{ key: string; providerRef: string } | null>(null);
-
-  if (!invoice) return null;
 
   const financials = getInvoiceFinancials(invoice);
   const totalAmount = financials.total || Number(invoice.total || invoice.totalAmount || 0);
   const paidAmount = financials.paid || Number(invoice.paidAmount || 0);
   const remainingAmount = financials.remaining;
+  const overpaidAmount = financials.overpaid;
+  const paymentRows = Array.isArray(invoice.payments)
+    ? invoice.payments
+    : Array.isArray(invoice.allocations)
+      ? invoice.allocations.map((allocation: any) => allocation.payment).filter(Boolean)
+      : [];
+  const confirmedPayments = paymentRows.filter((payment: any) => String(payment?.status || "").toUpperCase() === "CONFIRMED");
+  const hasSepayPayment = confirmedPayments.some((payment: any) => String(payment?.provider || "").toUpperCase() === "SEPAY");
+  const hasCashPayment = confirmedPayments.some((payment: any) => {
+    const provider = String(payment?.provider || "").toUpperCase();
+    const ref = String(payment?.providerRef || "").toUpperCase();
+    return provider === "MANUAL" && (ref.startsWith("CASH:") || !ref.startsWith("BANK_TRANSFER:"));
+  });
+  const zaloRecipient = String(
+    invoice.customer?.zaloChatId || invoice.customer?.zaloUserId || "",
+  ).trim();
+  const hasZaloRecipient = Boolean(zaloRecipient);
 
   const notes = (invoice.notes || "").toLowerCase();
   const period = (invoice.period || "").toLowerCase();
@@ -228,6 +258,15 @@ export default function OperationsBillingDrawer({
   const isOverdue = currentStatus === "OVERDUE";
   const isDraft = currentStatus === "DRAFT";
   const isIssued = currentStatus === "ISSUED";
+  const settlementLabel = isPaid
+    ? hasSepayPayment
+      ? "Đã thu đủ qua VietQR"
+      : hasCashPayment
+        ? "Đã nhận tiền mặt đủ"
+        : "Đã thu đủ"
+    : isPartiallyPaid
+      ? `Đã thu một phần · Còn ${formatVnd(remainingAmount)}`
+      : null;
 
   const meta = statusMeta[invoice.status || "DRAFT"] || {
     label: invoice.status || "Bản nháp",
@@ -236,12 +275,46 @@ export default function OperationsBillingDrawer({
 
   const invoiceCode = invoice.code || (invoice.id ? `FIN-${invoice.id.slice(0, 10)}` : "HÓA ĐƠN");
 
-  // VietQR generation params
-  const bankName = "MBBank (Quân Đội)";
-  const bankAccount = "0567867889";
-  const accountHolder = "HOMELAND MANAGEMENT";
+  const embeddedPaymentRequest =
+    invoice.paymentRequest ||
+    invoice.paymentRequestPreview ||
+    invoice.latestPaymentRequest ||
+    (Array.isArray(invoice.paymentRequests)
+      ? invoice.paymentRequests.find((request: any) => request?.status === "PENDING") ||
+        invoice.paymentRequests[0]
+      : null);
+  const activePaymentRequest = paymentRequest || embeddedPaymentRequest || null;
   const amountToPay = remainingAmount > 0 ? remainingAmount : totalAmount;
-  const qrUrl = `https://img.vietqr.io/image/MB-${bankAccount}-compact2.png?amount=${amountToPay}&addInfo=${encodeURIComponent(invoiceCode)}&accountName=${encodeURIComponent(accountHolder)}`;
+  const qrUrl = activePaymentRequest?.qrUrl || "";
+  const bankName = activePaymentRequest?.bankName || "Chưa tạo QR theo Settings";
+  const bankAccount = activePaymentRequest?.bankAccountNumber || "Chưa có";
+  const paymentMemo = activePaymentRequest?.paymentCode || invoiceCode;
+
+  useEffect(() => {
+    setPaymentRequest(embeddedPaymentRequest || null);
+  }, [invoice.id]);
+
+  useEffect(() => {
+    if (isPaid) setActiveTab("ITEMS");
+  }, [isPaid]);
+
+  useEffect(() => {
+    if (!invoice?.id || isPaid || remainingAmount <= 0 || isDraft) return;
+    createPaymentRequestMutation.mutate(invoice.id, {
+      onSuccess: (response: any) => {
+        setPaymentRequest((response?.data || response) as PaymentRequestResponse);
+      },
+      onError: (error: any) => {
+        toast.error(
+          error?.response?.data?.message ||
+            error?.message ||
+            "Không thể tạo QR thanh toán theo Settings bank",
+        );
+      },
+    });
+    // Chỉ tạo/làm mới request khi mở tab QR hoặc đổi hóa đơn; backend tự replay/cập nhật request PENDING.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [invoice.id, isPaid, isDraft, remainingAmount]);
 
   // Breakdown items depending on payment category
   const defaultItems =
@@ -264,6 +337,13 @@ export default function OperationsBillingDrawer({
 
   const handleSendBotReminder = async () => {
     if (!invoice?.id) return;
+    if (!hasZaloRecipient) {
+      toast.error(
+        "Khách chưa đăng ký Zalo Bot. Hãy yêu cầu khách nhắn DK <SĐT> <MÃ PHÒNG> trước.",
+        { duration: 6000 },
+      );
+      return;
+    }
     setIsSendingBotReminder(true);
     try {
       console.log("🚀 [ZaloBot] Đang gửi thông báo nhắc nợ qua Bot Zalo...", {
@@ -274,6 +354,7 @@ export default function OperationsBillingDrawer({
         amountToPay,
       });
       const res = await sendZaloMutation.mutateAsync(invoice.id);
+      setPaymentRequest((res as any)?.data || (res as any));
       console.log("✅ [ZaloBot] Phản hồi nhắc nợ thành công:", res);
       toast.success(
         `🤖 Bot Zalo đã gửi thông báo nhắc nợ kèm VietQR tới ${customerName} thành công!`,
@@ -300,7 +381,7 @@ export default function OperationsBillingDrawer({
 
     // Keep the same operation reference while this payment attempt is retried.
     // The backend treats tenant + provider + providerRef as the idempotency boundary.
-    const operationKey = `${invoice.id}:MANUAL:${payVal}`;
+    const operationKey = `${invoice.id}:${payMethod}:${payVal}`;
     if (paymentOperationRef.current?.key !== operationKey) {
       paymentOperationRef.current = {
         key: operationKey,
@@ -313,7 +394,7 @@ export default function OperationsBillingDrawer({
         id: invoice.id,
         amount: payVal,
         provider: "MANUAL",
-        providerRef: paymentOperationRef.current.providerRef,
+        providerRef: `${payMethod === "CASH" ? "CASH" : "BANK_TRANSFER"}:${paymentOperationRef.current.providerRef}`,
       },
       {
         onSuccess: () => {
@@ -470,7 +551,7 @@ export default function OperationsBillingDrawer({
 
               {isPaid && (
                 <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-1.5">
-                  <CheckCircle2 size={13} /> Đã thu đủ
+                  <CheckCircle2 size={13} /> {settlementLabel}
                 </span>
               )}
             </div>
@@ -532,21 +613,39 @@ export default function OperationsBillingDrawer({
               {(isIssued || isOverdue || isPartiallyPaid) && (
                 <button
                   type="button"
-                  disabled={isSendingBotReminder}
+                  disabled={isSendingBotReminder || !hasZaloRecipient}
                   onClick={handleSendBotReminder}
-                  className="inline-flex items-center gap-1.5 text-[11px] font-black text-primary bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded-lg px-2.5 py-0.5 transition-all shadow-2xs active:scale-95"
+                  title={
+                    hasZaloRecipient
+                      ? "Gửi nhắc nợ qua Bot Zalo"
+                      : "Khách chưa liên kết chat_id/user_id với Bot Zalo"
+                  }
+                  className={`inline-flex items-center gap-1.5 text-[11px] font-black rounded-lg px-2.5 py-0.5 transition-all shadow-2xs ${
+                    hasZaloRecipient
+                      ? "text-primary bg-primary/10 hover:bg-primary/20 border border-primary/30 active:scale-95"
+                      : "text-muted bg-muted/10 border border-border cursor-not-allowed opacity-70"
+                  }`}
                 >
                   {isSendingBotReminder ? (
                     <Loader2 size={11} className="animate-spin" />
                   ) : (
                     <Bot size={12} className="text-primary" />
                   )}
-                  {isSendingBotReminder ? "Đang gửi..." : "Bot nhắc nợ ngay"}
+                  {isSendingBotReminder
+                    ? "Đang gửi..."
+                    : hasZaloRecipient
+                      ? "Bot nhắc nợ ngay"
+                      : "Chưa liên kết Zalo"}
                 </button>
               )}
             </div>
+            {!hasZaloRecipient && (isIssued || isOverdue || isPartiallyPaid) && (
+              <p className="mt-1 text-[11px] font-semibold text-amber-600">
+                Chưa thể gửi nhắc nợ: khách chưa có Zalo chat ID/user ID. Yêu cầu khách đăng ký Bot trước.
+              </p>
+            )}
 
-            <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-2">
               {/* Step 1: Tạo HĐ tự động */}
               <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-2">
                 <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shrink-0 text-[10px]">
@@ -673,10 +772,24 @@ export default function OperationsBillingDrawer({
                 </span>
               </div>
             </div>
+            {(settlementLabel || overpaidAmount > 0) && (
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[11px] font-black">
+                {settlementLabel && (
+                  <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-emerald-600">
+                    {settlementLabel}
+                  </span>
+                )}
+                {overpaidAmount > 0 && (
+                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-700">
+                    Tiền thừa: {formatVnd(overpaidAmount)}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 4. VIEW TABS: CHI TIẾT PHÍ vs QUÉT MÃ VIETQR */}
-          <div className="flex rounded-xl bg-surface/70 p-1 gap-1 border border-border/60">
+          <div className={`flex rounded-xl bg-surface/70 p-1 gap-1 border border-border/60 ${isPaid ? "" : ""}`}>
             <button
               type="button"
               onClick={() => setActiveTab("ITEMS")}
@@ -688,7 +801,7 @@ export default function OperationsBillingDrawer({
             >
               <FileText size={13} /> Khoản mục phí
             </button>
-            <button
+            {!isPaid && <button
               type="button"
               onClick={() => setActiveTab("QR")}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-black transition-all ${
@@ -698,7 +811,7 @@ export default function OperationsBillingDrawer({
               }`}
             >
               <QrCode size={13} /> Quét mã VietQR (Tự động)
-            </button>
+            </button>}
           </div>
 
           {/* TAB 1: ITEMIZED BREAKDOWN TABLE */}
@@ -738,18 +851,33 @@ export default function OperationsBillingDrawer({
                 <span className="font-black uppercase text-text">Tổng cộng</span>
                 <span className="font-mono font-black text-sm text-primary">{formatVnd(totalAmount)}</span>
               </div>
+              {overpaidAmount > 0 && (
+                <div className="flex items-center justify-between px-3.5 py-2 border-t border-amber-500/20 bg-amber-500/5 text-xs">
+                  <span className="font-black uppercase text-amber-700">Tiền thừa</span>
+                  <span className="font-mono font-black text-amber-700">{formatVnd(overpaidAmount)}</span>
+                </div>
+              )}
             </div>
           )}
 
           {/* TAB 2: VIETQR PAYMENT SCANNER */}
-          {activeTab === "QR" && (
+          {activeTab === "QR" && !isPaid && (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-border/70 bg-card p-4 text-center">
               <div className="flex h-44 w-44 items-center justify-center rounded-2xl bg-white p-2 border-2 border-primary/20 shadow-xs">
-                <img
-                  src={qrUrl}
-                  alt="VietQR Homeland"
-                  className="h-full w-full object-contain"
-                />
+                {qrUrl ? (
+                  <img
+                    src={qrUrl}
+                    alt="VietQR Homeland"
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-xl bg-slate-50 text-slate-500">
+                    <Loader2 size={24} className="animate-spin text-primary" />
+                    <span className="text-xs font-bold">
+                      Đang tạo QR theo Settings bank...
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="w-full grid grid-cols-2 gap-2 text-left text-xs pt-1">
@@ -761,22 +889,24 @@ export default function OperationsBillingDrawer({
                   <span className="text-[10px] text-muted block font-bold">Số tài khoản</span>
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-black text-text">{bankAccount}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(bankAccount, "Số tài khoản")}
-                      className="text-muted hover:text-primary"
-                    >
-                      <Copy size={12} />
-                    </button>
+                    {activePaymentRequest?.bankAccountNumber ? (
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(bankAccount, "Số tài khoản")}
+                        className="text-muted hover:text-primary"
+                      >
+                        <Copy size={12} />
+                      </button>
+                    ) : null}
                   </div>
                 </div>
                 <div className="col-span-2 rounded-xl border border-primary/20 bg-primary/5 p-2">
                   <span className="text-[10px] text-primary font-bold block">Nội dung chuyển khoản (Memo)</span>
                   <div className="flex items-center justify-between">
-                    <span className="font-mono font-black text-primary text-sm">{invoiceCode}</span>
+                    <span className="font-mono font-black text-primary text-sm">{paymentMemo}</span>
                     <button
                       type="button"
-                      onClick={() => handleCopy(invoiceCode, "Cú pháp chuyển khoản")}
+                      onClick={() => handleCopy(paymentMemo, "Cú pháp chuyển khoản")}
                       className="text-primary hover:underline flex items-center gap-1 font-bold text-[11px]"
                     >
                       <Copy size={12} /> Sao chép

@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { Prisma, SettingScope } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma.service';
@@ -72,6 +72,7 @@ type HunonicLockPeriodsInput = {
 };
 
 const HUNONIC_SETTING_KEY = 'hunonic';
+const HUNONIC_PROVIDER_RETRY_BASE_DELAY_MS = process.env.NODE_ENV === 'test' ? 0 : 250;
 
 @Injectable()
 export class HunonicService {
@@ -756,12 +757,18 @@ export class HunonicService {
       const backfillMonths = options.backfillMonths !== undefined ? options.backfillMonths : 12;
       const provider = new HunonicProvider(this.toProviderOptions({ ...settings, mode: preferredMode }));
       const backfill = backfillMonths > 0
-        ? await provider.fetchRecentMonthlyHistory(backfillMonths).catch((err) => {
+        ? await this.withProviderRetry(
+            () => provider.fetchRecentMonthlyHistory(backfillMonths),
+            `recent monthly history for tenant ${tenantId}`,
+          ).catch((err) => {
             this.logger.warn(`Failed to fetch recent monthly history: ${err?.message}`);
             return null;
           })
         : null;
-      const dashboard = backfill?.dashboard || await provider.fetchDashboardData();
+      const dashboard = backfill?.dashboard || await this.withProviderRetry(
+        () => provider.fetchDashboardData(),
+        `dashboard for tenant ${tenantId}`,
+      );
       const buildings = await this.prisma.building.findMany({
         where: { tenantId, deletedAt: null },
         include: { rooms: { where: { deletedAt: null } } },
@@ -928,22 +935,53 @@ export class HunonicService {
     };
   }
 
-  @Cron(CronExpression.EVERY_HOUR)
-  async syncEnabledTenantsHourly() {
+  @Cron('0 */15 * * * *')
+  async syncEnabledTenantsEvery15Minutes() {
     if (!shouldRunGeneralSchedulers()) return;
-    const records = await this.prismaAny.appSetting.findMany({
-      where: { key: HUNONIC_SETTING_KEY, scope: SettingScope.TENANT },
-    });
+    return this.runWithSchedulerLock('hunonic:sync-enabled-tenants-every-15-minutes', async () => {
+      const records = await this.prismaAny.appSetting.findMany({
+        where: { key: HUNONIC_SETTING_KEY, scope: SettingScope.TENANT },
+      });
 
-    for (const record of records) {
-      const value = (record.value || {}) as HunonicSettings;
-      if (!value.enabled) continue;
+      for (const record of records) {
+        const value = (record.value || {}) as HunonicSettings;
+        if (!value.enabled) continue;
+        try {
+          await this.syncTenant(record.tenantId, value);
+        } catch (error: any) {
+          this.logger.error(`Hunonic 15-minute sync failed for tenant ${record.tenantId}: ${error?.message}`);
+        }
+      }
+    });
+  }
+
+  private async runWithSchedulerLock<T>(lockName: string, callback: () => Promise<T>) {
+    if (!this.prismaAny.$transaction) return callback();
+    return this.prismaAny.$transaction(async (tx: any) => {
+      const rows = await tx.$queryRaw(
+        Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtext(${lockName}))::boolean AS "locked"`,
+      ) as Array<{ locked: boolean }>;
+      if (!rows[0]?.locked) {
+        this.logger.warn(`Hunonic scheduled sync skipped because another worker holds ${lockName}.`);
+        return { skipped: true, reason: 'HUNONIC_SYNC_LOCK_HELD' };
+      }
+      return callback();
+    }, { maxWait: 5000, timeout: 14 * 60 * 1000 });
+  }
+
+  private async withProviderRetry<T>(operation: () => Promise<T>, label: string, attempts = 3): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
-        await this.syncTenant(record.tenantId, value);
+        return await operation();
       } catch (error: any) {
-        this.logger.error(`Hunonic hourly sync failed for tenant ${record.tenantId}: ${error?.message}`);
+        lastError = error;
+        if (attempt >= attempts) break;
+        this.logger.warn(`Hunonic ${label} failed on attempt ${attempt}/${attempts}; retrying: ${error?.message || error}`);
+        await delay(Math.min(HUNONIC_PROVIDER_RETRY_BASE_DELAY_MS * (2 ** (attempt - 1)), 1000));
       }
     }
+    throw lastError;
   }
 
   private async getSettings(tenantId: string): Promise<HunonicSettings> {
@@ -1447,6 +1485,7 @@ function mapMeterMapping(mapping: any) {
     moneyPrevMonthVnd: Number(rootExtra.money_of_prev_month ?? dataExtra.money_of_prev_month ?? 0),
     currentMonth: rootExtra.current_month || null,
     lastSyncedAt: mapping.lastSyncedAt,
+    providerObservedAt: raw.timeupdate || raw.updated_at || null,
     providerMeterId: mapping.providerMeterId,
     providerDeviceId: mapping.providerDeviceId,
     homeName: mapping.homeName,
@@ -1568,15 +1607,13 @@ function resolveElectricityRateState({
   const activeGroupId = getActiveElectricityGroupId(mobileMeter, groups);
   const cachedRate = getCachedElectricityRate(settings, rootId, mapping);
 
-  let currentMode: HunonicElectricityRateMode = 'residential';
+  let currentMode: HunonicElectricityRateMode | 'unknown' = 'unknown';
   if (activeGroupId === '1') {
     currentMode = 'custom';
   } else if (activeGroupId === '2') {
     currentMode = 'residential';
   } else if (cachedRate?.mode) {
     currentMode = cachedRate.mode;
-  } else {
-    currentMode = 'residential';
   }
 
   const customRateVnd = currentMode === 'custom'
@@ -1998,6 +2035,10 @@ function lockedPeriodKey(value: { buildingCode: string; roomCode: string; period
 function compareLockedPeriods(left: HunonicLockedPeriod, right: HunonicLockedPeriod) {
   if (left.period !== right.period) return left.period < right.period ? 1 : -1;
   return lockedPeriodKey(left).localeCompare(lockedPeriodKey(right));
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getPeriodStart(period: string) {

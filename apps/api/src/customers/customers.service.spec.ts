@@ -5,6 +5,7 @@ import { CustomersRepository } from './customers.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 import { PrismaService } from '../prisma.service';
+import { applyTenantScope } from '../prisma.service';
 
 describe('CustomersService', () => {
   let service: CustomersService;
@@ -47,6 +48,22 @@ describe('CustomersService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('duplicate checks and write validation cannot expose or reject a customer from another tenant', async () => {
+    const customers = [{ id: 'foreign', tenantId: 'tenant-b', phone: '0901234567', identityNo: '123456789', fullName: 'Private B' }];
+    const rawFind = vi.fn(async (args: any) => customers.find((customer) =>
+      (!args.where.tenantId || customer.tenantId === args.where.tenantId) &&
+      (!args.where.phone || customer.phone === args.where.phone.equals) &&
+      (!args.where.identityNo || customer.identityNo === args.where.identityNo.equals),
+    ) || null);
+    prismaService.customer.findFirst = rawFind;
+    prismaService.tx = { customer: { findFirst: (args: any) => rawFind(applyTenantScope('Customer', 'findFirst', args, 'tenant-a')) } };
+    await expect(service.checkDuplicate({ phone: '0901234567' })).resolves.toMatchObject({ isDuplicate: false, duplicateCustomer: null });
+    await expect(service.checkDuplicate({ identityNo: '123456789' })).resolves.toMatchObject({ isDuplicate: false, duplicateCustomer: null });
+    await expect(service.validateCustomerUniqueness('0901234567', '123456789')).resolves.toBeUndefined();
+    expect(rawFind).toHaveBeenCalledTimes(4);
+    for (const [query] of rawFind.mock.calls) expect(query.where.tenantId).toBe('tenant-a');
   });
 
   describe('listCustomers', () => {

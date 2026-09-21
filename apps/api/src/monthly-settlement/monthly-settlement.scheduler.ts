@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma.service';
+import { shouldRunGeneralSchedulers } from '../shared/config/runtime-mode';
 import {
   MonthlySettlementService,
   formatVietnamPeriod,
@@ -18,12 +19,13 @@ export class MonthlySettlementScheduler {
   ) {}
 
   /**
-   * 1. USAGE CUTOFF & METER LOCK: Tự động chốt và khóa chỉ số công tơ điện vào ngày cuối cùng của tháng lúc 23:50 (GMT+7)
+   * 1. USAGE CUTOFF & METER LOCK: Tự động chốt và khóa chỉ số công tơ điện vào ngày cuối cùng của tháng lúc 23:59:59 (GMT+7)
    */
-  @Cron('50 23 28-31 * *', {
+  @Cron('59 59 23 28-31 * *', {
     timeZone: 'Asia/Ho_Chi_Minh',
   })
   async handleAutoMonthEndClosing() {
+    if (!shouldRunGeneralSchedulers()) return;
     this.logger.log('Checking month-end usage cutoff trigger (GMT+7)...');
     if (!isLastDayOfVietnamMonth()) {
       this.logger.log('Today is not the last day of the month in Vietnam timezone. Skipping.');
@@ -62,6 +64,7 @@ export class MonthlySettlementScheduler {
     timeZone: 'Asia/Ho_Chi_Minh',
   })
   async handleAutoSendMonthlyPaymentNotifications() {
+    if (!shouldRunGeneralSchedulers()) return;
     this.logger.log('Triggering scheduled monthly settlement & payment notification dispatch at 08:00 AM on the 1st (GMT+7)...');
 
     const billingPeriod = formatVietnamPeriod(); // Tháng M mới bắt đầu (vd: 10/2026)
@@ -106,6 +109,7 @@ export class MonthlySettlementScheduler {
     timeZone: 'Asia/Ho_Chi_Minh',
   })
   async handleHeartbeatCheck() {
+    if (!shouldRunGeneralSchedulers()) return;
     const vnNow = getVietnamDate();
     this.logger.debug(
       `MonthlySettlementScheduler Heartbeat: Current VN Time is ${vnNow.toISOString()} (Hour: ${vnNow.getHours()}, Day: ${vnNow.getDate()})`,

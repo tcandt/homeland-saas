@@ -28,9 +28,10 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import { Card } from "@/components/ui/Card";
-import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
+import { getInvoiceFinancials, isBookingHoldInvoice } from "@/lib/invoices/invoice-financials";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
+import { useDepositsQuery } from "@/lib/queries/deposits.queries";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { useRoomsQuery } from "@/lib/queries/rooms.queries";
 
@@ -60,6 +61,8 @@ function buildingLabel(item: any) {
   return (
     item?.room?.building?.name ||
     item?.room?.building?.code ||
+    item?.contract?.room?.building?.name ||
+    item?.contract?.room?.building?.code ||
     item?.building?.name ||
     item?.building?.code ||
     item?.buildingCode ||
@@ -75,21 +78,25 @@ export default function ReportsPage() {
   const buildingsQuery = useBuildingsQuery({ limit: 100 });
   const invoicesQuery = useInvoicesQuery({ limit: 500 });
   const contractsQuery = useContractsQuery({ limit: 500 });
+  const depositsQuery = useDepositsQuery({ limit: 500 });
   const roomsQuery = useRoomsQuery({ limit: 500 });
 
   const rawBuildings = getList(buildingsQuery.data);
   const invoices = getList(invoicesQuery.data).filter((invoice) =>
     reportableInvoiceStatuses.has(invoice.status)
   );
+  const rentalInvoices = invoices.filter((invoice) => !isBookingHoldInvoice(invoice));
+  const bookingHoldInvoices = invoices.filter((invoice) => isBookingHoldInvoice(invoice));
   const contracts = getList(contractsQuery.data);
+  const deposits = getList(depositsQuery.data);
   const rooms = getList(roomsQuery.data);
 
   const isLoading =
-    invoicesQuery.isLoading || contractsQuery.isLoading || roomsQuery.isLoading;
+    invoicesQuery.isLoading || contractsQuery.isLoading || depositsQuery.isLoading || roomsQuery.isLoading;
 
   // Overall Financial & Operational Summary for all 4 buildings combined
   const summary = useMemo(() => {
-    const totals = invoices.reduce(
+    const totals = rentalInvoices.reduce(
       (result, invoice) => {
         const financials = getInvoiceFinancials(invoice);
         result.totalRevenue += financials.total;
@@ -101,6 +108,12 @@ export default function ReportsPage() {
       },
       { totalRevenue: 0, collected: 0, settled: 0, debt: 0, debtInvoiceCount: 0 }
     );
+    const bookingHoldLiability = deposits
+      .filter((deposit) =>
+        ["BOOKING", "RESERVATION"].includes(String(deposit.type || "").toUpperCase()) &&
+        ["PAID", "CONVERTED_TO_CONTRACT"].includes(String(deposit.status || "").toUpperCase())
+      )
+      .reduce((total, deposit) => total + Number(deposit.availableBalance ?? deposit.amount ?? 0), 0);
 
     const activeContracts = contracts.filter((contract) => contract.status === "ACTIVE").length;
     const expiringContracts = contracts.filter((contract) => contract.status === "EXPIRING").length;
@@ -112,11 +125,13 @@ export default function ReportsPage() {
     ).length;
 
     const occupancyRate = rooms.length ? (occupiedRooms / rooms.length) * 100 : 0;
-    const recoveryRate = totals.totalRevenue ? (totals.settled / totals.totalRevenue) * 100 : 0;
+    const recoveryRate = totals.totalRevenue ? (totals.collected / totals.totalRevenue) * 100 : 0;
     const revPar = rooms.length ? Math.round(totals.totalRevenue / rooms.length) : 0;
 
     return {
       ...totals,
+      bookingHoldLiability,
+      bookingHoldInvoiceCount: bookingHoldInvoices.length,
       activeContracts,
       expiringContracts,
       totalRooms: rooms.length,
@@ -125,7 +140,7 @@ export default function ReportsPage() {
       recoveryRate,
       revPar,
     };
-  }, [contracts, invoices, rooms]);
+  }, [bookingHoldInvoices.length, contracts, deposits, rentalInvoices, rooms]);
 
   // 6-Month Combined Revenue & Collection Trend
   const revenueTrend = useMemo(() => {
@@ -142,7 +157,7 @@ export default function ReportsPage() {
     });
     const byMonth = new Map(months.map((month) => [month.key, month]));
 
-    invoices.forEach((invoice) => {
+    rentalInvoices.forEach((invoice) => {
       const date = new Date(invoice.createdAt || invoice.dueDate);
       if (Number.isNaN(date.getTime())) return;
       const month = byMonth.get(`${date.getFullYear()}-${date.getMonth()}`);
@@ -154,7 +169,7 @@ export default function ReportsPage() {
     });
 
     return months;
-  }, [invoices]);
+  }, [rentalInvoices]);
 
   // Revenue Structure (Donut Chart)
   const revenueStructure = useMemo(() => {
@@ -163,7 +178,7 @@ export default function ReportsPage() {
     }
 
     const map = new Map<string, number>();
-    invoices.forEach((invoice) => {
+    rentalInvoices.forEach((invoice) => {
       const items = invoice.items || invoice.invoiceItems || [];
       if (Array.isArray(items) && items.length > 0) {
         items.forEach((item: any) => {
@@ -201,7 +216,7 @@ export default function ReportsPage() {
       displayValue: value,
       color: PIE_COLORS[idx % PIE_COLORS.length],
     }));
-  }, [invoices, summary.totalRevenue]);
+  }, [rentalInvoices, summary.totalRevenue]);
 
   // All 4 Buildings Performance Comparison Table
   const buildingRows = useMemo(() => {
@@ -245,7 +260,7 @@ export default function ReportsPage() {
     });
 
     // Populate revenue
-    invoices.forEach((invoice) => {
+    rentalInvoices.forEach((invoice) => {
       const bKey = buildingLabel(invoice);
       if (!grouped.has(bKey)) {
         grouped.set(bKey, {
@@ -270,11 +285,11 @@ export default function ReportsPage() {
     );
 
     return list.sort((a, b) => b.revenue - a.revenue);
-  }, [rawBuildings, invoices, rooms]);
+  }, [rawBuildings, rentalInvoices, rooms]);
 
   // Combined Debtors Table
   const debtRows = useMemo(() => {
-    return invoices
+    return rentalInvoices
       .map((invoice) => {
         const financials = getInvoiceFinancials(invoice);
         const name =
@@ -286,11 +301,14 @@ export default function ReportsPage() {
         const roomCode =
           invoice.room?.code ||
           invoice.roomCode ||
-          invoice.contract?.room?.number ||
           invoice.contract?.room?.code ||
+          invoice.contract?.room?.name ||
+          invoice.contract?.room?.number ||
           "--";
         const building =
           invoice.room?.building?.code ||
+          invoice.contract?.room?.building?.code ||
+          invoice.contract?.room?.building?.name ||
           invoice.building?.code ||
           invoice.buildingCode ||
           "";
@@ -315,7 +333,7 @@ export default function ReportsPage() {
       .filter((row) => row.debt > 0)
       .sort((a, b) => b.debt - a.debt)
       .slice(0, 10);
-  }, [invoices]);
+  }, [rentalInvoices]);
 
   return (
     <AppShell>
@@ -325,7 +343,7 @@ export default function ReportsPage() {
           {/* Total Revenue */}
           <Card className="flex flex-col justify-between rounded-xl border border-border/70 bg-card p-3 shadow-2xs hover:border-primary/40 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Tổng doanh thu</span>
+              <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Phát sinh thuê</span>
               <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                 <Receipt size={14} />
               </div>
@@ -334,14 +352,14 @@ export default function ReportsPage() {
               {isLoading ? "..." : formatCompactVnd(summary.totalRevenue)}
             </div>
             <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-muted truncate">
-              <span>{invoices.length} hóa đơn phát hành</span>
+              <span>{rentalInvoices.length} hóa đơn thuê · loại trừ {summary.bookingHoldInvoiceCount} HĐ cọc</span>
             </div>
           </Card>
 
           {/* Collected / Paid */}
           <Card className="flex flex-col justify-between rounded-xl border border-border/70 bg-card p-3 shadow-2xs hover:border-emerald-500/40 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Thực thu nhận</span>
+              <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Thực thu thuê</span>
               <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 <WalletCards size={14} />
               </div>
@@ -406,16 +424,16 @@ export default function ReportsPage() {
           {/* RevPAR / Average Revenue Per Room */}
           <Card className="flex flex-col justify-between rounded-xl border border-border/70 bg-card p-3 shadow-2xs hover:border-teal-500/40 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Doanh thu / Phòng</span>
+              <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Cọc đang giữ</span>
               <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
                 <TrendingUp size={14} />
               </div>
             </div>
             <div className="mt-2 font-mono font-black text-lg text-teal-600 dark:text-teal-400 tracking-tight leading-tight">
-              {isLoading ? "..." : formatCompactVnd(summary.revPar)}
+              {isLoading ? "..." : formatCompactVnd(summary.bookingHoldLiability)}
             </div>
             <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-muted truncate">
-              <span>Toàn bộ 4 tòa nhà</span>
+              <span>Không ghi nhận vào doanh thu</span>
             </div>
           </Card>
         </div>
@@ -428,10 +446,10 @@ export default function ReportsPage() {
               <div>
                 <h2 className="text-sm md:text-base font-black text-text tracking-tight flex items-center gap-2">
                   <TrendingUp size={16} className="text-primary" />
-                  <span>Xu hướng Doanh thu vs Thực thu (Tổng hợp 6 tháng)</span>
+                  <span>Xu hướng Phát sinh thuê vs Thực thu (Tổng hợp 6 tháng)</span>
                 </h2>
                 <p className="text-xs text-muted font-medium mt-0.5">
-                  So sánh dòng tiền phát sinh trên hóa đơn và số tiền thực tế đã thu hồi trên toàn bộ 4 tòa nhà.
+                  Chỉ tính hóa đơn thuê/phí vận hành; hóa đơn cọc giữ phòng được tách sang khoản cọc đang giữ.
                 </p>
               </div>
               <div className="flex items-center gap-3 shrink-0 text-xs font-bold">
@@ -476,7 +494,7 @@ export default function ReportsPage() {
                   <Area
                     type="monotone"
                     dataKey="revenue"
-                    name="Doanh thu phát sinh"
+                    name="Phát sinh thuê/phí"
                     stroke="#6366f1"
                     strokeWidth={2.5}
                     fillOpacity={1}
@@ -501,10 +519,10 @@ export default function ReportsPage() {
             <div className="border-b border-border/60 pb-3">
               <h2 className="text-sm md:text-base font-black text-text tracking-tight flex items-center gap-2">
                 <PieIcon size={16} className="text-indigo-500" />
-                <span>Cơ cấu nguồn thu</span>
+                <span>Cơ cấu hóa đơn thuê/phí</span>
               </h2>
               <p className="text-xs text-muted font-medium mt-0.5">
-                Tỷ trọng các nguồn tiền phòng, điện, nước và dịch vụ.
+                Tỷ trọng tiền thuê, điện, nước và dịch vụ; không tính cọc giữ phòng.
               </p>
             </div>
 
@@ -532,7 +550,7 @@ export default function ReportsPage() {
                 <span className="font-mono font-black text-sm md:text-base text-text">
                   {formatCompactVnd(summary.totalRevenue)}
                 </span>
-                <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Tổng doanh thu</span>
+                <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Phát sinh thuê</span>
               </div>
             </div>
 
@@ -574,7 +592,7 @@ export default function ReportsPage() {
                 <span>Hiệu suất kinh doanh & Thu hồi của 4 Tòa nhà</span>
               </h2>
               <p className="text-xs text-muted font-medium mt-0.5">
-                Bảng so sánh doanh thu, số tiền đã thu, công nợ và tỷ lệ lấp đầy của toàn bộ các cơ sở.
+                Bảng so sánh phát sinh hóa đơn thuê/phí, số tiền đã thu, công nợ và tỷ lệ lấp đầy của toàn bộ cơ sở.
               </p>
             </div>
             <span className="text-xs font-bold text-muted">
@@ -588,7 +606,7 @@ export default function ReportsPage() {
                 <tr>
                   <th className="px-4 py-3">Tòa nhà / Cơ sở</th>
                   <th className="px-4 py-3 text-center">Lấp đầy phòng</th>
-                  <th className="px-4 py-3 text-right">Doanh thu phát sinh</th>
+                  <th className="px-4 py-3 text-right">Phát sinh thuê/phí</th>
                   <th className="px-4 py-3 text-right">Thực thu nhận</th>
                   <th className="px-4 py-3 text-right">Công nợ tồn</th>
                   <th className="px-4 py-3 text-center">Tỷ lệ thu hồi</th>

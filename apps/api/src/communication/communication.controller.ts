@@ -41,6 +41,7 @@ export class CommunicationController {
   async getNotifications(@Req() req) {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
+    await this.ensureOperationalNotifications(tenantId, userId);
     return this.prisma.notification.findMany({
       where: { tenantId, userId, channel: 'IN_APP' },
       orderBy: { createdAt: 'desc' },
@@ -52,6 +53,7 @@ export class CommunicationController {
   async getUnreadCount(@Req() req) {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
+    await this.ensureOperationalNotifications(tenantId, userId);
     const count = await this.prisma.notification.count({
       where: { tenantId, userId, channel: 'IN_APP', status: { in: ['CREATED', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED'] } }
     });
@@ -70,12 +72,203 @@ export class CommunicationController {
     // Emit every 15s to keep HTTP/2 & HTTP/3 QUIC connection alive through Cloudflare/Nginx proxy
     return timer(0, 15000).pipe(
       switchMap(async () => {
+        await this.ensureOperationalNotifications(tenantId, userId);
         const count = await this.prisma.notification.count({
           where: { tenantId, userId, channel: 'IN_APP', status: { in: ['CREATED', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED'] } }
         });
         return { data: { count } } as MessageEvent;
       })
     );
+  }
+
+  private async ensureOperationalNotifications(tenantId: string, userId: string) {
+    const now = new Date();
+    const inThirtyDays = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const inThreeDays = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+    const [payments, contracts, invoices, maintenanceRooms, failedQueueCount] = await Promise.all([
+      this.prisma.payment.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: 'CONFIRMED',
+          OR: [
+            { paidAt: { gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } },
+            { createdAt: { gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } },
+          ],
+        },
+        include: {
+          invoice: {
+            select: {
+              code: true,
+              customer: { select: { fullName: true } },
+              contract: { select: { code: true, room: { select: { code: true } } } },
+            },
+          },
+        },
+        orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
+        take: 20,
+      }),
+      this.prisma.contract.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ['ACTIVE', 'EXPIRING'] as any },
+          endDate: { gte: now, lte: inThirtyDays },
+        },
+        include: {
+          customer: { select: { fullName: true } },
+          room: { select: { code: true } },
+        },
+        orderBy: { endDate: 'asc' },
+        take: 20,
+      }),
+      this.prisma.invoice.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] as any },
+          dueDate: { lte: inThreeDays },
+        },
+        select: {
+          id: true,
+          code: true,
+          status: true,
+          dueDate: true,
+          total: true,
+          paidAmount: true,
+          creditAmount: true,
+          customer: { select: { fullName: true } },
+          contract: { select: { room: { select: { code: true } } } },
+        },
+        orderBy: { dueDate: 'asc' },
+        take: 20,
+      }),
+      this.prisma.room.count({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ['MAINTENANCE', 'CLEANING'] as any },
+        },
+      }),
+      this.prisma.notificationQueue.count({
+        where: { tenantId, status: { in: ['FAILED', 'DEAD_LETTER'] as any } },
+      }),
+    ]);
+    const existingNotifications = await this.prisma.notification.findMany({
+      where: {
+        tenantId,
+        userId,
+        channel: 'IN_APP',
+        createdAt: { gte: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000) },
+      },
+      select: { type: true, metadata: true },
+      take: 300,
+    });
+    const existingKeys = new Set(
+      existingNotifications.map((item) => {
+        const metadata = item.metadata && typeof item.metadata === 'object'
+          ? item.metadata as Record<string, unknown>
+          : {};
+        return `${item.type || ''}:${String(metadata.entityId || '')}`;
+      }),
+    );
+
+    for (const payment of payments) {
+      const invoice = payment.invoice;
+      await this.createOperationalNotification({
+        tenantId,
+        userId,
+        type: 'PAYMENT_RECEIVED',
+        entityId: payment.id,
+        title: 'Đã nhận được thanh toán',
+        message: `${Number(payment.amount).toLocaleString('vi-VN')} đ từ ${invoice?.customer?.fullName || 'khách hàng'}${invoice?.contract?.room?.code ? ` · phòng ${invoice.contract.room.code}` : ''}.`,
+        metadata: {
+          entityId: payment.id,
+          amount: Number(payment.amount),
+          invoiceCode: invoice?.code || null,
+          sound: 'payment-success',
+        },
+      }, existingKeys);
+    }
+
+    for (const contract of contracts) {
+      const daysLeft = Math.max(0, Math.ceil((contract.endDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
+      await this.createOperationalNotification({
+        tenantId,
+        userId,
+        type: 'CONTRACT_EXPIRING',
+        entityId: contract.id,
+        title: 'Hợp đồng sắp đến hạn',
+        message: `${contract.code} của ${contract.customer?.fullName || 'khách thuê'} còn ${daysLeft} ngày sẽ hết hạn${contract.room?.code ? ` · phòng ${contract.room.code}` : ''}.`,
+        metadata: { entityId: contract.id, contractCode: contract.code, daysLeft },
+      }, existingKeys);
+    }
+
+    for (const invoice of invoices) {
+      const remaining = Math.max(0, Number(invoice.total) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0));
+      const overdue = invoice.dueDate.getTime() < now.getTime();
+      await this.createOperationalNotification({
+        tenantId,
+        userId,
+        type: overdue ? 'INVOICE_OVERDUE' : 'INVOICE_DUE_SOON',
+        entityId: invoice.id,
+        title: overdue ? 'Khách hàng còn khoản nợ cần thu' : 'Khoản thu sắp đến hạn',
+        message: `${invoice.code} còn phải thu ${remaining.toLocaleString('vi-VN')} đ từ ${invoice.customer?.fullName || 'khách hàng'}${invoice.contract?.room?.code ? ` · phòng ${invoice.contract.room.code}` : ''}.`,
+        metadata: { entityId: invoice.id, invoiceCode: invoice.code, remaining, dueDate: invoice.dueDate.toISOString() },
+      }, existingKeys);
+    }
+
+    if (maintenanceRooms > 0) {
+      await this.createOperationalNotification({
+        tenantId,
+        userId,
+        type: 'OPERATIONAL_ISSUE',
+        entityId: `rooms:${maintenanceRooms}`,
+        title: 'Có vấn đề cần xử lý',
+        message: `${maintenanceRooms} phòng đang cần dọn dẹp hoặc bảo trì.`,
+        metadata: { entityId: `rooms:${maintenanceRooms}`, maintenanceRooms },
+      }, existingKeys);
+    }
+
+    if (failedQueueCount > 0) {
+      await this.createOperationalNotification({
+        tenantId,
+        userId,
+        type: 'NOTIFICATION_DELIVERY_ISSUE',
+        entityId: `queue:${failedQueueCount}`,
+        title: 'Có thông báo gửi chưa thành công',
+        message: `${failedQueueCount} thông báo đang lỗi hoặc cần gửi lại.`,
+        metadata: { entityId: `queue:${failedQueueCount}`, failedQueueCount },
+      }, existingKeys);
+    }
+  }
+
+  private async createOperationalNotification(input: {
+    tenantId: string;
+    userId: string;
+    type: string;
+    entityId: string;
+    title: string;
+    message: string;
+    metadata: Record<string, unknown>;
+  }, existingKeys: Set<string>) {
+    const key = `${input.type}:${input.entityId}`;
+    if (existingKeys.has(key)) return;
+
+    await this.prisma.notification.create({
+      data: {
+        tenantId: input.tenantId,
+        userId: input.userId,
+        channel: 'IN_APP',
+        title: input.title,
+        message: input.message,
+        type: input.type,
+        status: 'CREATED',
+        metadata: input.metadata as any,
+      },
+    });
+    existingKeys.add(key);
   }
 
   @Patch('read-all')

@@ -52,7 +52,7 @@ export function unregisterOverlay(id: string) {
 
 export function getOverlayStackDepth(id: string): number {
   const index = activeOverlayStack.findIndex((item) => item.id === id);
-  return index >= 0 ? index : 0;
+  return index >= 0 ? index : activeOverlayStack.length;
 }
 
 interface ModalProps {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ContractStatus } from '@prisma/client';
-import { normalizeContractStatus, isTerminalContractStatus, isActiveLikeContractStatus } from './contracts.adapter';
+import { normalizeContractStatus, isTerminalContractStatus, isActiveLikeContractStatus, ROOM_VISIBLE_CONTRACT_STATUSES } from './contracts.adapter';
 
 describe('Contracts Adapter', () => {
   describe('normalizeContractStatus', () => {
@@ -40,6 +40,21 @@ describe('Contracts Adapter', () => {
       expect(isActiveLikeContractStatus(ContractStatus.DRAFT)).toBe(false);
 
       expect(isActiveLikeContractStatus(ContractStatus.CANCELLED)).toBe(false);
+    });
+  });
+
+  describe('ROOM_VISIBLE_CONTRACT_STATUSES', () => {
+    it('includes pending contracts for room profile display but excludes terminal history', () => {
+      expect(ROOM_VISIBLE_CONTRACT_STATUSES).toEqual(expect.arrayContaining([
+        ContractStatus.DRAFT,
+        ContractStatus.PENDING_APPROVAL,
+        ContractStatus.APPROVED,
+        ContractStatus.ACTIVE,
+        ContractStatus.EXPIRING,
+      ]));
+      expect(ROOM_VISIBLE_CONTRACT_STATUSES).not.toContain(ContractStatus.TERMINATED);
+      expect(ROOM_VISIBLE_CONTRACT_STATUSES).not.toContain(ContractStatus.EXPIRED);
+      expect(ROOM_VISIBLE_CONTRACT_STATUSES).not.toContain(ContractStatus.CANCELLED);
     });
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { 
   Building2, 
   DoorOpen, 
@@ -20,12 +21,24 @@ import { useRoomsQuery } from "../../lib/queries/rooms.queries";
 import { useCustomersQuery } from "../../lib/queries/customers.queries";
 import { useCreateDepositMutation } from "../../lib/mutations/deposits.mutations";
 import { customersApi } from "../../lib/api/customers.api";
+import { contractsApi } from "../../lib/api/contracts.api";
+import { invoicesApi } from "../../lib/api/invoices.api";
+import { paymentsApi } from "../../lib/api/payments.api";
+import { resolveDepositCustomerId } from "../../lib/rentals/rental-intent-context";
 
 interface CreateDepositModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultBuildingId?: string;
   defaultRoomId?: string;
+  fixedCustomerId?: string;
+  fixedDepositType?: "BOOKING" | "SECURITY" | "RESERVATION";
+  lockContext?: boolean;
+  contextGeneration?: number;
+  isContextCurrent?: (generation: number | undefined) => boolean;
+  autoCreateContract?: boolean;
+  autoCreateInvoice?: boolean;
+  sendInvoiceToZalo?: boolean;
 }
 
 const currencyFormatter = new Intl.NumberFormat("vi-VN");
@@ -35,7 +48,16 @@ export default function CreateDepositModal({
   onClose,
   defaultBuildingId,
   defaultRoomId,
+  fixedCustomerId,
+  fixedDepositType,
+  lockContext = false,
+  contextGeneration,
+  isContextCurrent,
+  autoCreateContract = false,
+  autoCreateInvoice = false,
+  sendInvoiceToZalo = true,
 }: CreateDepositModalProps) {
+  const queryClient = useQueryClient();
   const { data: buildings = [] } = useBuildingsQuery();
   const [selectedBuildingId, setSelectedBuildingId] = useState<string>(defaultBuildingId || "");
   const [selectedRoomId, setSelectedRoomId] = useState<string>(defaultRoomId || "");
@@ -43,10 +65,11 @@ export default function CreateDepositModal({
   // Customer mode: select existing vs enter new
   const [customerMode, setCustomerMode] = useState<"SELECT" | "NEW">("SELECT");
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
+  const [createdCustomerId, setCreatedCustomerId] = useState<string>("");
   const [newCustomerName, setNewCustomerName] = useState<string>("");
   const [newCustomerPhone, setNewCustomerPhone] = useState<string>("");
 
-  const [depositType, setDepositType] = useState<"BOOKING" | "SECURITY" | "RESERVATION">("BOOKING");
+  const [depositType, setDepositType] = useState<"BOOKING" | "SECURITY" | "RESERVATION">(fixedDepositType || "BOOKING");
   const [amount, setAmount] = useState<number>(3000000);
   const [expiredDays, setExpiredDays] = useState<number>(7);
   const [expiredDate, setExpiredDate] = useState<string>("");
@@ -54,6 +77,9 @@ export default function CreateDepositModal({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const submitInFlightRef = useRef(false);
+  const createDepositIdempotencyKeyRef = useRef<string>("");
+  const isContextLocked = lockContext && Boolean(defaultBuildingId && defaultRoomId && fixedCustomerId);
 
   // Queries
   const { data: rooms = [], isLoading: isLoadingRooms } = useRoomsQuery(
@@ -64,15 +90,31 @@ export default function CreateDepositModal({
 
   const createDepositMutation = useCreateDepositMutation();
 
+  useEffect(() => {
+    if (!isOpen) return;
+    if (submitInFlightRef.current) return;
+    setSelectedBuildingId(defaultBuildingId || "");
+    setSelectedRoomId(defaultRoomId || "");
+    setCreatedCustomerId(fixedCustomerId || "");
+    setSelectedCustomerId(fixedCustomerId || "");
+    setCustomerMode("SELECT");
+    setDepositType(fixedDepositType || "BOOKING");
+    setErrorMessage(null);
+    createDepositIdempotencyKeyRef.current = `deposit-create-${crypto.randomUUID()}`;
+    submitInFlightRef.current = false;
+  }, [isOpen, defaultBuildingId, defaultRoomId, fixedCustomerId, fixedDepositType]);
+
   // Set default building
   useEffect(() => {
+    if (isContextLocked) return;
     if (buildings.length > 0 && !selectedBuildingId) {
       setSelectedBuildingId(defaultBuildingId || buildings[0]?.id || "");
     }
-  }, [buildings, defaultBuildingId, selectedBuildingId]);
+  }, [buildings, defaultBuildingId, isContextLocked, selectedBuildingId]);
 
   // Set default room
   useEffect(() => {
+    if (isContextLocked) return;
     if (rooms.length > 0 && !selectedRoomId) {
       const firstAvailable = rooms.find((r: any) => r.status === "AVAILABLE") || rooms[0];
       if (firstAvailable) {
@@ -82,7 +124,7 @@ export default function CreateDepositModal({
         }
       }
     }
-  }, [rooms, defaultRoomId, selectedRoomId]);
+  }, [rooms, defaultRoomId, isContextLocked, selectedRoomId]);
 
   // Calculate default expiration date
   useEffect(() => {
@@ -93,6 +135,10 @@ export default function CreateDepositModal({
   }, [expiredDays]);
 
   const selectedRoom = rooms.find((r: any) => r.id === selectedRoomId);
+
+  const requestClose = () => {
+    if (!isSubmitting) onClose();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,10 +154,18 @@ export default function CreateDepositModal({
       return;
     }
 
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
 
     try {
-      let finalCustomerId = selectedCustomerId;
+      if (isContextCurrent && !isContextCurrent(contextGeneration)) {
+        throw new Error("Ngữ cảnh phòng đã thay đổi. Vui lòng mở lại phiếu cọc.");
+      }
+      let finalCustomerId = resolveDepositCustomerId(
+        selectedCustomerId,
+        createdCustomerId,
+      );
 
       // If new customer, create first
       if (customerMode === "NEW") {
@@ -123,26 +177,115 @@ export default function CreateDepositModal({
           phone: newCustomerPhone.trim(),
         });
         finalCustomerId = (createdCustomer as any).id || (createdCustomer as any).data?.id;
+        if (!finalCustomerId) {
+          throw new Error("Không thể xác định khách hàng vừa tạo.");
+        }
+        // Keep the durable identity for a retry if deposit creation fails.
+        setCreatedCustomerId(finalCustomerId);
+        setSelectedCustomerId(finalCustomerId);
+        setCustomerMode("SELECT");
+      }
+
+      if (isContextCurrent && !isContextCurrent(contextGeneration)) {
+        throw new Error("Ngữ cảnh phòng đã thay đổi. Vui lòng mở lại phiếu cọc.");
       }
 
       if (!finalCustomerId) {
         throw new Error("Vui lòng chọn hoặc nhập thông tin khách hàng.");
       }
 
+      let contractId: string | undefined;
+      let rentalCycleId: string | undefined;
+      if (autoCreateContract) {
+        const startDate = new Date().toISOString().slice(0, 10);
+        const endDate = new Date(new Date().setFullYear(new Date().getFullYear() + 1))
+          .toISOString()
+          .slice(0, 10);
+        const contractResponse: any = await contractsApi.create({
+          customerId: finalCustomerId,
+          roomId: selectedRoomId,
+          contractCode: `HD-CỌC-${selectedRoomId.slice(-6)}-${Date.now().toString().slice(-4)}`,
+          startDate,
+          endDate,
+          rentAmount: 0,
+          depositAmount: 0,
+          memberCount: 1,
+          status: "DRAFT",
+          purpose: "Hợp đồng cọc giữ phòng",
+        });
+        const contract = contractResponse?.data || contractResponse;
+        contractId = contract?.id;
+        rentalCycleId = contract?.rentalCycleId;
+        if (!contractId) throw new Error("Không thể tạo hợp đồng cọc giữ phòng.");
+      }
+
       const payload = {
         roomId: selectedRoomId,
         customerId: finalCustomerId,
         type: depositType,
+        contractId,
+        rentalCycleId,
         amount: Number(amount),
         expiredAt: expiredDate ? new Date(`${expiredDate}T23:59:59Z`).toISOString() : null,
         note: note.trim() || null,
       };
 
-      await createDepositMutation.mutateAsync(payload);
+      const depositResponse: any = await createDepositMutation.mutateAsync({
+        data: payload,
+        idempotencyKey: createDepositIdempotencyKeyRef.current || `deposit-create-${crypto.randomUUID()}`,
+      });
+      const deposit = depositResponse?.data || depositResponse;
+
+      let invoice: any = null;
+      let paymentRequest: any = null;
+      if (autoCreateInvoice && contractId) {
+        const invoiceResponse: any = await invoicesApi.create({
+          roomId: selectedRoomId,
+          contractId,
+          customerId: finalCustomerId,
+          rentalCycleId: rentalCycleId || deposit?.rentalCycleId,
+          period: "Cọc giữ phòng",
+          dueDate: expiredDate ? new Date(`${expiredDate}T23:59:59Z`).toISOString() : new Date().toISOString(),
+          totalAmount: Number(amount),
+          paidAmount: 0,
+          status: "DRAFT",
+          notes: `Hóa đơn cọc giữ phòng • Deposit ${deposit?.code || deposit?.id || ""}`,
+          items: [{
+            name: "Tiền cọc giữ phòng",
+            type: "RENT",
+            amount: Number(amount),
+            quantity: 1,
+          }],
+        });
+        invoice = invoiceResponse?.data || invoiceResponse;
+        if (invoice?.id) {
+          await invoicesApi.issue(invoice.id);
+          paymentRequest = await paymentsApi.createInvoiceRequest(invoice.id);
+          if (sendInvoiceToZalo) {
+            try {
+              await paymentsApi.sendInvoiceToZalo(invoice.id);
+            } catch {
+              // QR remains available in the invoice detail even when Zalo is not linked yet.
+            }
+          }
+        }
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+        queryClient.invalidateQueries({ queryKey: ["deposits"] }),
+        queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+        queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+        queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+        queryClient.invalidateQueries({ queryKey: ["customers"] }),
+      ]);
+      if (isContextCurrent && !isContextCurrent(contextGeneration)) {
+        throw new Error("Ngữ cảnh phòng đã thay đổi. Không tự thử lại thao tác này.");
+      }
       onClose();
     } catch (err: any) {
       setErrorMessage(err?.response?.data?.message || err?.message || "Có lỗi xảy ra khi tạo phiếu cọc.");
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -150,7 +293,7 @@ export default function CreateDepositModal({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={requestClose}
       title={
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-[#6366f1]/10 text-[#6366f1] flex items-center justify-center font-bold">
@@ -177,9 +320,11 @@ export default function CreateDepositModal({
             <select
               value={selectedBuildingId}
               onChange={(e) => {
+                if (isContextLocked) return;
                 setSelectedBuildingId(e.target.value);
                 setSelectedRoomId("");
               }}
+              disabled={isContextLocked || isSubmitting}
               className="h-10 px-3 rounded-xl border border-border bg-card text-text text-[13px] font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
             >
               {buildings.map((b: any) => (
@@ -197,12 +342,13 @@ export default function CreateDepositModal({
             <select
               value={selectedRoomId}
               onChange={(e) => {
+                if (isContextLocked) return;
                 const rId = e.target.value;
                 setSelectedRoomId(rId);
                 const r = rooms.find((x: any) => x.id === rId);
                 if (r && r.price) setAmount(Number(r.price) || amount);
               }}
-              disabled={isLoadingRooms}
+              disabled={isContextLocked || isLoadingRooms || isSubmitting}
               className="h-10 px-3 rounded-xl border border-border bg-card text-text text-[13px] font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all disabled:opacity-50"
             >
               <option value="">-- Chọn phòng --</option>
@@ -221,7 +367,7 @@ export default function CreateDepositModal({
             <span className="text-[13px] font-bold text-text flex items-center gap-1.5">
               <User size={15} className="text-muted" /> Khách thuê
             </span>
-            <div className="flex items-center bg-black/5 dark:bg-white/5 p-0.5 rounded-lg text-[12px] font-bold">
+            {!isContextLocked && <div className="flex items-center bg-black/5 dark:bg-white/5 p-0.5 rounded-lg text-[12px] font-bold">
               <button
                 type="button"
                 onClick={() => setCustomerMode("SELECT")}
@@ -233,20 +379,32 @@ export default function CreateDepositModal({
               </button>
               <button
                 type="button"
-                onClick={() => setCustomerMode("NEW")}
+                onClick={() => {
+                  setCustomerMode("NEW");
+                  setCreatedCustomerId("");
+                  setSelectedCustomerId("");
+                }}
                 className={`px-3 py-1 rounded-md transition-all ${
                   customerMode === "NEW" ? "bg-card text-text shadow-sm" : "text-muted"
                 }`}
               >
                 + Khách mới
               </button>
-            </div>
+            </div>}
           </div>
 
-          {customerMode === "SELECT" ? (
+          {isContextLocked ? (
+            <div className="h-10 px-3 rounded-xl border border-border bg-surface/60 text-text text-[13px] font-medium flex items-center">
+              {customers.find((customer: any) => customer.id === fixedCustomerId)?.fullName || "Khách thuê đã chọn"}
+            </div>
+          ) : customerMode === "SELECT" ? (
             <select
               value={selectedCustomerId}
-              onChange={(e) => setSelectedCustomerId(e.target.value)}
+              onChange={(e) => {
+                setSelectedCustomerId(e.target.value);
+                setCreatedCustomerId("");
+              }}
+              disabled={isSubmitting}
               className="h-10 px-3 rounded-xl border border-border bg-card text-text text-[13px] font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
             >
               <option value="">-- Chọn khách hàng --</option>
@@ -285,7 +443,8 @@ export default function CreateDepositModal({
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => setDepositType("BOOKING")}
+                onClick={() => !fixedDepositType && setDepositType("BOOKING")}
+                disabled={Boolean(fixedDepositType)}
                 className={`h-10 px-3 rounded-xl border text-[12px] font-bold flex items-center justify-center gap-1.5 transition-all ${
                   depositType === "BOOKING"
                     ? "border-[#f97316] bg-[#f97316]/10 text-[#f97316]"
@@ -296,7 +455,8 @@ export default function CreateDepositModal({
               </button>
               <button
                 type="button"
-                onClick={() => setDepositType("SECURITY")}
+                onClick={() => !fixedDepositType && setDepositType("SECURITY")}
+                disabled={Boolean(fixedDepositType)}
                 className={`h-10 px-3 rounded-xl border text-[12px] font-bold flex items-center justify-center gap-1.5 transition-all ${
                   depositType === "SECURITY"
                     ? "border-[#6366f1] bg-[#6366f1]/10 text-[#6366f1]"

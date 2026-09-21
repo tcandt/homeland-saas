@@ -27,7 +27,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const showToast = useCallback((message: string, type: ToastType = "success") => {
     const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
+    const normalizedMessage = message.trim();
+    setToasts((prev) => {
+      if (
+        prev.some(
+          (toast) =>
+            toast.type === type && toast.message.trim() === normalizedMessage,
+        )
+      ) {
+        return prev;
+      }
+      return [...prev, { id, message: normalizedMessage, type }];
+    });
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3000);

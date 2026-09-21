@@ -11,6 +11,9 @@ describe('RuleScheduler', () => {
 
   beforeEach(() => {
     prisma = {
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       invoice: {
         findMany: vi.fn().mockResolvedValue([]),
       },
@@ -70,6 +73,51 @@ describe('RuleScheduler', () => {
         roomRentalTypeLabel: 'Phòng ghép',
         roomMemberCount: 4,
       }),
+    );
+  });
+
+  it('uses tenant notification settings for invoice reminder days', async () => {
+    const now = new Date();
+    const dueInTenDays = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 10, 8, 0, 0, 0);
+    prisma.appSetting.findMany.mockResolvedValueOnce([
+      { tenantId: 'tenant-1', value: { reminderDays: { invoiceDueSoonDays: 5 } } },
+      { tenantId: 'tenant-2', value: { reminderDays: { invoiceDueSoonDays: 14 } } },
+    ]);
+    prisma.invoice.findMany.mockResolvedValueOnce([
+      {
+        id: 'invoice-skip',
+        tenantId: 'tenant-1',
+        code: 'INV-SKIP',
+        dueDate: dueInTenDays,
+        status: InvoiceStatus.ISSUED,
+        customerId: 'customer-1',
+        total: 100,
+        paidAmount: 0,
+        creditAmount: 0,
+        customer: {},
+        contract: null,
+      },
+      {
+        id: 'invoice-send',
+        tenantId: 'tenant-2',
+        code: 'INV-SEND',
+        dueDate: dueInTenDays,
+        status: InvoiceStatus.ISSUED,
+        customerId: 'customer-2',
+        total: 100,
+        paidAmount: 0,
+        creditAmount: 0,
+        customer: {},
+        contract: null,
+      },
+    ]);
+
+    await scheduler.runInvoiceDueSoon3DaysRule();
+
+    expect(ruleEngine.executeRule).toHaveBeenCalledTimes(1);
+    expect(ruleEngine.executeRule).toHaveBeenCalledWith(
+      'invoice.due_soon.3_days',
+      expect.objectContaining({ invoiceId: 'invoice-send' }),
     );
   });
 

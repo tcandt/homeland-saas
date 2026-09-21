@@ -56,6 +56,7 @@ import {
 import { useDeleteContractMutation } from "../../lib/mutations/contracts.mutations";
 import { useUpdateRoomMutation } from "../../lib/mutations/rooms.mutations";
 import { apiClient } from "../../lib/api/client";
+import { depositsApi } from "../../lib/api/deposits.api";
 import {
   ContractSettlementPayload,
   contractsApi,
@@ -89,20 +90,27 @@ function toDateInputValue(value?: string | Date | null) {
   return date.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
 }
 
+function addYearsToYmd(value: string, years: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+  const date = new Date(Date.UTC(year + years, month - 1, day));
+  return date.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "Chưa có";
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? "Chưa có"
     : date.toLocaleString("vi-VN", {
-        timeZone: "Asia/Ho_Chi_Minh",
-        hour: "2-digit",
-        minute: "2-digit",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour12: false,
-      });
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour12: false,
+    });
 }
 
 function getNextPaymentPeriod(startDateStr: string, endDateStr: string) {
@@ -143,6 +151,32 @@ function getRoomLabel(contract: any) {
     contract?.room?.code || contract?.room?.number || "Chưa có phòng";
   const buildingName = contract?.room?.building?.name || "Chưa có tòa";
   return { roomCode, buildingName };
+}
+
+function isBookingHoldContract(contract: any) {
+  const text = [
+    contract?.contractTemplate,
+    contract?.loaiHopDong,
+    contract?.type,
+    contract?.purpose,
+    contract?.code,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    contract?.isBookingHold === true ||
+    text.includes("booking_hold") ||
+    text.includes("cọc giữ phòng") ||
+    text.includes("coc giu phong") ||
+    String(contract?.code || "").toUpperCase().startsWith("HD-COC")
+  );
+}
+
+function getContractTypeLabel(contract: any) {
+  if (isBookingHoldContract(contract)) return "Hợp đồng cọc giữ phòng";
+  return contract?.type || "Hợp đồng thuê phòng";
 }
 
 function StyledDateInput({
@@ -216,7 +250,127 @@ function getFileNameFromUrl(url: string) {
 function getFileUrl(url: string) {
   if (!url) return "#";
   if (url.startsWith("http")) return url;
-  return `http://localhost:3000/${url}`;
+  if (url.startsWith("blob:") || url.startsWith("data:")) return url;
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api/v1";
+  if (url.startsWith("document-storage://")) {
+    const storagePath = url.replace(/^document-storage:\/\//, "");
+    return `${apiBase}/documents/storage?path=${encodeURIComponent(storagePath)}`;
+  }
+  if (url.startsWith("/api/")) {
+    const origin = apiBase.replace(/\/api\/v1$/, "");
+    return `${origin}${url}`;
+  }
+  if (url.startsWith("/")) return `${apiBase.replace(/\/api\/v1$/, "")}${url}`;
+  return `${apiBase}/documents/storage?path=${encodeURIComponent(url.replace(/^\/+/, ""))}`;
+}
+
+function getDocumentImageCandidates(src: string) {
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api/v1";
+  const legacyPath = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//i.test(src)
+    ? new URL(src).pathname
+    : src;
+  const normalized = legacyPath
+    .replace(/^document-storage:\/\//, "")
+    .replace(/^\/+/, "");
+  const queryUrl = getFileUrl(
+    legacyPath !== src && !legacyPath.startsWith("document-storage://")
+      ? normalized
+      : src,
+  );
+  const wildcardUrl = `${apiBase}/documents/storage/${normalized
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")}`;
+  return Array.from(new Set([queryUrl, wildcardUrl]));
+}
+
+function readAccessToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    const authStore = localStorage.getItem("auth-storage");
+    return authStore ? JSON.parse(authStore)?.state?.accessToken || "" : "";
+  } catch {
+    return "";
+  }
+}
+
+function ProtectedDocumentImage({
+  src,
+  alt,
+  className,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+}) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    let nextObjectUrl: string | null = null;
+    setFailed(false);
+    setObjectUrl(null);
+
+    const candidates = getDocumentImageCandidates(src);
+    if (!src || candidates.length === 0 || candidates[0] === "#") {
+      setFailed(true);
+      return;
+    }
+
+    if (candidates[0].startsWith("data:") || candidates[0].startsWith("blob:")) {
+      setObjectUrl(candidates[0]);
+      return;
+    }
+
+    const accessToken = readAccessToken();
+    const authHeaders: HeadersInit = accessToken
+      ? { Authorization: `Bearer ${accessToken}` }
+      : {};
+    candidates
+      .reduce<Promise<Blob>>(
+        (promise, candidate) =>
+          promise.catch(() =>
+            fetch(candidate, { headers: authHeaders }).then((response) => {
+              if (!response.ok) throw new Error(`IMAGE_LOAD_FAILED_${response.status}`);
+              return response.blob();
+            }),
+          ),
+        Promise.reject(new Error("IMAGE_LOAD_FAILED")),
+      )
+      .then((blob) => {
+        if (!isMounted) return;
+        nextObjectUrl = URL.createObjectURL(blob);
+        setObjectUrl(nextObjectUrl);
+      })
+      .catch(() => {
+        if (isMounted) setFailed(true);
+      });
+
+    return () => {
+      isMounted = false;
+      if (nextObjectUrl) URL.revokeObjectURL(nextObjectUrl);
+    };
+  }, [src]);
+
+  if (failed) {
+    return (
+      <div className={`${className || ""} flex flex-col items-center justify-center gap-1 bg-slate-100 text-muted dark:bg-slate-800/60`}>
+        <FileText size={20} />
+        <span className="text-[10px] font-bold">Không tải được ảnh</span>
+      </div>
+    );
+  }
+
+  if (!objectUrl) {
+    return (
+      <div className={`${className || ""} flex items-center justify-center bg-slate-100 dark:bg-slate-800/60`}>
+        <Loader2 size={18} className="animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  return <img src={objectUrl} alt={alt} className={className} />;
 }
 
 function DocxViewer({ url }: { url: string }) {
@@ -304,6 +458,11 @@ export default function OperationsContractDrawer({
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
   const [isRefundCompletionModalOpen, setIsRefundCompletionModalOpen] =
     useState(false);
+  const [isBookingConvertModalOpen, setIsBookingConvertModalOpen] =
+    useState(false);
+  const [isBookingCancelModalOpen, setIsBookingCancelModalOpen] =
+    useState(false);
+  const [isBookingFlowSaving, setIsBookingFlowSaving] = useState(false);
   const [showTerminateConfirm, setShowTerminateConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [documentDeleteConfirm, setDocumentDeleteConfirm] = useState<{
@@ -364,7 +523,24 @@ export default function OperationsContractDrawer({
   const [settlementPreview, setSettlementPreview] = useState<any | null>(null);
   const [isSettlementPreviewPending, setIsSettlementPreviewPending] =
     useState(false);
+  const [bookingConvertForm, setBookingConvertForm] = useState({
+    startDate: toDateInputValue(),
+    endDate: addYearsToYmd(toDateInputValue(), 1),
+    securityRequired: "",
+    excessAction: "CREDIT" as "CREDIT" | "REFUND",
+    refundStatus: "PENDING" as "PENDING" | "COMPLETED",
+  });
+  const [bookingCancelForm, setBookingCancelForm] = useState({
+    reason: "Khách hủy cọc giữ phòng",
+    refundMode: "FULL" as "FULL" | "PARTIAL" | "NONE",
+    refundAmount: "",
+    keepAmount: "",
+    deductAmount: "",
+    refundStatus: "PENDING" as "PENDING" | "COMPLETED",
+  });
   const settlementPreviewRequestRef = useRef(0);
+  const approveInFlightRef = useRef(false);
+  const [isApproveSubmitting, setIsApproveSubmitting] = useState(false);
 
   const submitMutation = useSubmitContractMutation();
   const approveMutation = useApproveContractMutation();
@@ -375,6 +551,26 @@ export default function OperationsContractDrawer({
   const deleteMutation = useDeleteContractMutation();
   const updateRoomMutation = useUpdateRoomMutation();
   const settlementRefund = detailContract?.settlementRefund;
+  const isBookingHold = isBookingHoldContract(detailContract);
+  const contractTypeLabel = getContractTypeLabel(detailContract);
+  const bookingDeposit =
+    detailContract?.bookingDeposit ||
+    (Array.isArray(detailContract?.deposits)
+      ? detailContract.deposits.find((item: any) =>
+        ["BOOKING", "RESERVATION"].includes(String(item?.type || "").toUpperCase()),
+      )
+      : null);
+  const bookingDepositBalance = Number(
+    bookingDeposit?.availableBalance ?? bookingDeposit?.amount ?? 0,
+  );
+  const bookingDepositStatus = String(bookingDeposit?.status || "").toUpperCase();
+  const receivedBookingDeposit = isBookingHold && ["PAID", "CONVERTED_TO_CONTRACT"].includes(bookingDepositStatus)
+    ? Number(bookingDeposit?.amount ?? bookingDepositBalance ?? 0)
+    : 0;
+  const canOperateBookingDeposit =
+    isBookingHold &&
+    !!bookingDeposit?.id &&
+    bookingDepositStatus === "PAID";
   const hasPendingSettlementRefund =
     !!settlementRefund?.pending &&
     (detailContract?.status === "TERMINATED" ||
@@ -454,7 +650,55 @@ export default function OperationsContractDrawer({
   };
 
   const handleError = (error: any) => {
-    showToast(error?.response?.data?.message || "Có lỗi xảy ra", "error");
+    showToast(
+      error?.response?.data?.message || error?.message || "Có lỗi xảy ra",
+      "error",
+    );
+  };
+
+  const handleApproveContract = () => {
+    if (
+      !detailContract?.id ||
+      approveMutation.isPending ||
+      approveInFlightRef.current
+    ) {
+      return;
+    }
+
+    approveInFlightRef.current = true;
+    setIsApproveSubmitting(true);
+    approveMutation.mutate(detailContract.id, {
+      onSuccess: () => handleSuccess("Đã duyệt hợp đồng"),
+      onError: (error: any) => {
+        const roomCode = detailContract.room?.code || detailContract.roomId;
+        const isRoomConflict =
+          error?.status === 409 || error?.code === "CONFLICT";
+
+        if (isRoomConflict) {
+          const roomLabel = roomCode ? `Phòng ${roomCode}` : "Phòng này";
+          showToast(
+            `${roomLabel} không còn trống hoặc đã được sử dụng.`,
+            "error",
+          );
+          queryClient.invalidateQueries({ queryKey: ["contracts"] });
+          if (detailContract.id) {
+            queryClient.invalidateQueries({
+              queryKey: ["contracts", "detail", detailContract.id],
+            });
+            queryClient.invalidateQueries({
+              queryKey: ["contractDetail", detailContract.id],
+            });
+          }
+          return;
+        }
+
+        handleError(error);
+      },
+      onSettled: () => {
+        approveInFlightRef.current = false;
+        setIsApproveSubmitting(false);
+      },
+    });
   };
 
   useEffect(() => {
@@ -490,6 +734,30 @@ export default function OperationsContractDrawer({
     setSettlementPreview(null);
     setIsSettlementModalOpen(false);
   }, [detailContract?.id, detailContract?.depositMoney]);
+
+  useEffect(() => {
+    if (!detailContract?.id) return;
+    const rentalStartDate = toDateInputValue(detailContract.startDate);
+    setBookingConvertForm({
+      startDate: rentalStartDate,
+      endDate: addYearsToYmd(rentalStartDate, 1),
+      securityRequired: detailContract.depositMoney
+        ? String(Number(detailContract.depositMoney))
+        : "",
+      excessAction: "CREDIT",
+      refundStatus: "PENDING",
+    });
+    setBookingCancelForm({
+      reason: "Khách hủy cọc giữ phòng",
+      refundMode: "FULL",
+      refundAmount: bookingDepositBalance ? String(bookingDepositBalance) : "",
+      keepAmount: "",
+      deductAmount: "",
+      refundStatus: "PENDING",
+    });
+    setIsBookingConvertModalOpen(false);
+    setIsBookingCancelModalOpen(false);
+  }, [detailContract?.id, detailContract?.depositMoney, bookingDepositBalance]);
 
   useEffect(() => {
     const requestId = ++settlementPreviewRequestRef.current;
@@ -587,7 +855,7 @@ export default function OperationsContractDrawer({
     } catch (error: any) {
       showToast(
         error?.response?.data?.message ||
-          "Không thể đồng bộ công tơ điện Hunonic",
+        "Không thể đồng bộ công tơ điện Hunonic",
         "error",
       );
     } finally {
@@ -607,23 +875,23 @@ export default function OperationsContractDrawer({
 
     const amountToApply = isShared
       ? Math.round(
-          Number(
-            electricity.totalCalculatedAmountVnd ||
-              electricity.totalRoomAmountVnd ||
-              electricity.calculatedAmountVnd ||
-              0,
-          ) / Math.max(1, effectiveOccupants),
-        )
+        Number(
+          electricity.totalCalculatedAmountVnd ||
+          electricity.totalRoomAmountVnd ||
+          electricity.calculatedAmountVnd ||
+          0,
+        ) / Math.max(1, effectiveOccupants),
+      )
       : Number(
-          electricity.calculatedAmountVnd || electricity.monthAmountVnd || 0,
-        );
+        electricity.calculatedAmountVnd || electricity.monthAmountVnd || 0,
+      );
 
     const kwhToApply = isShared
       ? Math.round(
-          (Number(electricity.totalRoomMonthKwh || electricity.monthKwh || 0) /
-            Math.max(1, effectiveOccupants)) *
-            100,
-        ) / 100
+        (Number(electricity.totalRoomMonthKwh || electricity.monthKwh || 0) /
+          Math.max(1, effectiveOccupants)) *
+        100,
+      ) / 100
       : Number(electricity.monthKwh || 0);
 
     setSettlementForm((prev) => ({
@@ -706,6 +974,143 @@ export default function OperationsContractDrawer({
         onError: handleError,
       },
     );
+  };
+
+  const refreshBookingFlow = (message: string) => {
+    showToast(message, "success");
+    queryClient.invalidateQueries({ queryKey: ["contracts"] });
+    if (detailContract?.id) {
+      queryClient.invalidateQueries({
+        queryKey: ["contracts", "detail", detailContract.id],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["contractDetail", detailContract.id],
+      });
+    }
+    queryClient.invalidateQueries({ queryKey: ["deposits"] });
+    queryClient.invalidateQueries({ queryKey: ["rooms"] });
+    queryClient.invalidateQueries({ queryKey: ["invoices"] });
+  };
+
+  const parseMoneyInput = (value: string) => {
+    const digits = String(value || "").replace(/[^0-9]/g, "");
+    return digits ? Number(digits) : 0;
+  };
+
+  const handleConvertBookingHold = async () => {
+    if (!bookingDeposit?.id || !detailContract?.id) {
+      showToast("Chưa tìm thấy tiền cọc giữ phòng liên kết hợp đồng", "error");
+      return;
+    }
+    const securityRequired = parseMoneyInput(bookingConvertForm.securityRequired);
+    if (securityRequired <= 0) {
+      showToast("Vui lòng nhập tiền cọc hợp đồng lớn hơn 0", "error");
+      return;
+    }
+    if (!bookingConvertForm.startDate || !bookingConvertForm.endDate) {
+      showToast("Vui lòng chọn ngày bắt đầu và kết thúc HĐ thuê", "error");
+      return;
+    }
+    setIsBookingFlowSaving(true);
+    try {
+      const rentalContractResponse: any = await contractsApi.convertBookingHold(
+        detailContract.id,
+        {
+          startDate: bookingConvertForm.startDate,
+          endDate: bookingConvertForm.endDate,
+          firstPaymentDate: bookingConvertForm.startDate,
+          rentAmount: Number(detailContract.monthlyRent || 0),
+          depositAmount: securityRequired,
+          memberCount: Number(detailContract.memberCount || 1),
+          purpose: `Hợp đồng thuê phòng dài hạn chuyển từ ${detailContract.code || detailContract.id}`,
+          coRepresentativeIds: detailContract.coRepresentativeIds || [],
+        },
+      );
+      const rentalContract =
+        rentalContractResponse?.data || rentalContractResponse;
+      if (!rentalContract?.id) {
+        throw new Error("Không tạo được hợp đồng thuê dài hạn từ cọc giữ phòng");
+      }
+      await depositsApi.convertToContract(
+        bookingDeposit.id,
+        {
+          securityRequired,
+          contractId: rentalContract.id,
+          excessAction: bookingConvertForm.excessAction,
+          refundStatus: bookingConvertForm.refundStatus,
+        },
+        `booking-hold-convert-${crypto.randomUUID()}`,
+      );
+      setIsBookingConvertModalOpen(false);
+      refreshBookingFlow(
+        "Đã tạo hợp đồng thuê dài hạn và chuyển tiền cọc giữ phòng sang tiền cọc hợp đồng",
+      );
+    } catch (error: any) {
+      handleError(error);
+    } finally {
+      setIsBookingFlowSaving(false);
+    }
+  };
+
+  const handleCancelBookingHold = async () => {
+    if (!bookingDeposit?.id) {
+      showToast("Chưa tìm thấy tiền cọc giữ phòng liên kết hợp đồng", "error");
+      return;
+    }
+    const reason = bookingCancelForm.reason.trim();
+    if (!reason) {
+      showToast("Vui lòng nhập lý do hủy cọc giữ phòng", "error");
+      return;
+    }
+    const payload =
+      bookingCancelForm.refundMode === "FULL"
+        ? {
+          reason,
+          refundAmount: bookingDepositBalance,
+          keepAmount: 0,
+          deductAmount: 0,
+          refundStatus: bookingCancelForm.refundStatus,
+        }
+        : bookingCancelForm.refundMode === "NONE"
+          ? {
+            reason,
+            refundAmount: 0,
+            keepAmount: bookingDepositBalance,
+            deductAmount: 0,
+            refundStatus: bookingCancelForm.refundStatus,
+          }
+          : {
+            reason,
+            refundAmount: parseMoneyInput(bookingCancelForm.refundAmount),
+            keepAmount: parseMoneyInput(bookingCancelForm.keepAmount),
+            deductAmount: parseMoneyInput(bookingCancelForm.deductAmount),
+            refundStatus: bookingCancelForm.refundStatus,
+          };
+    const allocated =
+      Number(payload.refundAmount || 0) +
+      Number(payload.keepAmount || 0) +
+      Number(payload.deductAmount || 0);
+    if (bookingDepositBalance > 0 && allocated !== bookingDepositBalance) {
+      showToast(
+        `Tổng hoàn/giữ/cấn trừ phải bằng ${formatCurrency(bookingDepositBalance)}`,
+        "error",
+      );
+      return;
+    }
+    setIsBookingFlowSaving(true);
+    try {
+      await depositsApi.cancel(
+        bookingDeposit.id,
+        payload,
+        `booking-hold-cancel-${crypto.randomUUID()}`,
+      );
+      setIsBookingCancelModalOpen(false);
+      refreshBookingFlow("Đã hủy hợp đồng cọc giữ phòng và ghi nhận phân bổ tiền");
+    } catch (error: any) {
+      handleError(error);
+    } finally {
+      setIsBookingFlowSaving(false);
+    }
   };
 
   const handlePrintCompiledPdf = async () => {
@@ -825,6 +1230,8 @@ export default function OperationsContractDrawer({
   };
 
   const executeUploadCCCD = async (filesList: File[]) => {
+    if (!detailContract?.customer?.id || filesList.length === 0) return;
+    let imagesPersisted = false;
     try {
       setIsUploadingCCCD(true);
       const uploadPromises = filesList.map(async (file) => {
@@ -847,22 +1254,45 @@ export default function OperationsContractDrawer({
       await customersApi.update(detailContract.customer.id, {
         idImages: newIdImages,
       });
+      imagesPersisted = true;
 
-      showToast("Đã tải lên ảnh CCCD", "success");
+      // Refresh the detail query immediately so the newly uploaded images render
+      // without requiring the drawer to be closed and reopened.
+      if (detailContract?.id) {
+        await queryClient.invalidateQueries({
+          queryKey: ["contracts", "detail", detailContract.id],
+        });
+        await detailQuery.refetch();
+      }
+      await queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      await queryClient.invalidateQueries({ queryKey: ["customers"] });
+
+      // Submitting a complete draft is a follow-up workflow; it must not turn a
+      // successful image upload into an error toast if the submission is rejected.
       await checkAndUpdateContractStatus(
         (detailContract.attachments?.length || 0) > 0,
         newIdImages.length,
       );
-      queryClient.invalidateQueries({ queryKey: ["contracts"] });
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-      if (detailContract?.id) {
-        queryClient.invalidateQueries({
-          queryKey: ["contractDetail", detailContract.id],
-        });
-      }
+      showToast(
+        `${filesList.length} ảnh CCCD đã được tải lên và lưu thành công`,
+        "success",
+      );
     } catch (err) {
       console.error(err);
-      showToast("Tải lên thất bại", "error");
+      if (imagesPersisted) {
+        showToast(
+          "Ảnh CCCD đã lưu thành công; hệ thống đang đồng bộ lại hồ sơ.",
+          "success",
+        );
+        void detailQuery.refetch();
+      } else {
+        showToast(
+          err instanceof Error && err.message
+            ? `Không thể lưu ảnh CCCD: ${err.message}`
+            : "Không thể lưu ảnh CCCD. Vui lòng thử lại.",
+          "error",
+        );
+      }
     } finally {
       setIsUploadingCCCD(false);
     }
@@ -882,6 +1312,7 @@ export default function OperationsContractDrawer({
     } else {
       await executeUploadCCCD(Array.from(files));
     }
+    e.target.value = "";
   };
 
   const handleRemoveContractFile = async (index: number) => {
@@ -894,6 +1325,7 @@ export default function OperationsContractDrawer({
       });
       showToast("Đã xóa file hợp đồng", "success");
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      await detailQuery.refetch();
     } catch (err) {
       console.error(err);
       showToast("Xóa file thất bại", "error");
@@ -912,6 +1344,7 @@ export default function OperationsContractDrawer({
       showToast("Đã xóa ảnh CCCD", "success");
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
+      await detailQuery.refetch();
     } catch (err) {
       console.error(err);
       showToast("Xóa ảnh thất bại", "error");
@@ -919,9 +1352,10 @@ export default function OperationsContractDrawer({
   };
 
   const handlePreview = (url: string) => {
-    const fullUrl = getFileUrl(url);
     const extension = url.split(".").pop()?.toLowerCase();
-    setPreviewUrl(fullUrl);
+    // Keep the storage reference untouched for protected image loading.
+    // Non-image viewers resolve it to an API URL at render time.
+    setPreviewUrl(url);
     setPreviewType(
       extension === "pdf"
         ? "pdf"
@@ -951,7 +1385,7 @@ export default function OperationsContractDrawer({
     0,
     Math.ceil(
       (new Date(detailContract.endDate).getTime() - new Date().getTime()) /
-        (1000 * 60 * 60 * 24),
+      (1000 * 60 * 60 * 24),
     ),
   );
 
@@ -965,6 +1399,106 @@ export default function OperationsContractDrawer({
     detailContract.customer.idImages.length > 0;
   const signStatus =
     hasUploadedContract && hasUploadedCCCD ? "Đã ký" : "Chưa ký";
+  const bookingPaymentRequest = detailContract?.bookingPaymentRequest;
+  const bookingInvoice = detailContract?.bookingInvoice;
+  const bookingPaymentRequestStatus = String(
+    bookingPaymentRequest?.status || "",
+  ).toUpperCase();
+  const bookingQrSent = Boolean(
+    bookingPaymentRequest?.metadata?.zaloSentAt ||
+    bookingPaymentRequest?.metadata?.zaloDispatchAt,
+  );
+  const bookingPaymentConfirmed =
+    bookingPaymentRequestStatus === "CONFIRMED" ||
+    bookingDepositStatus === "PAID" ||
+    bookingDepositStatus === "CONVERTED_TO_CONTRACT";
+  const bookingHoldEffective =
+    bookingDepositStatus === "PAID" ||
+    bookingDepositStatus === "CONVERTED_TO_CONTRACT";
+  const bookingHoldTerminal = ["CONVERTED_TO_CONTRACT", "CANCELLED", "REFUNDED"].includes(bookingDepositStatus);
+  const bookingPaidBySePay = bookingPaymentRequestStatus === "CONFIRMED";
+  const bookingPaidByCash = bookingHoldEffective && !bookingPaidBySePay;
+  const bookingQrFlowDone = bookingQrSent || bookingPaidBySePay;
+  const timelineSteps = isBookingHold
+    ? [
+      {
+        title: "Tạo hợp đồng cọc giữ phòng",
+        note: formatDateTime(detailContract.createdAt),
+        done: true,
+      },
+      {
+        title: "Tạo hóa đơn/QR cọc giữ phòng",
+        note: "QR nằm tại tab Hóa đơn/Tiền cọc để gửi khách qua Bot Zalo",
+        done: Boolean(bookingInvoice?.id && bookingPaymentRequest?.id),
+      },
+      {
+        title: "Gửi QR cho khách qua Bot Zalo",
+        note: bookingPaidByCash
+          ? "Không dùng QR vì khoản cọc đã được ghi nhận bằng tiền mặt"
+          : "Khách đăng ký Zalo sau khi lưu thông tin, sau đó nhận QR thanh toán",
+        done: bookingQrFlowDone || bookingPaidByCash,
+      },
+      {
+        title: bookingPaidByCash
+          ? "Đã nhận tiền mặt"
+          : "Webhook SePay xác nhận thanh toán",
+        note: bookingPaidByCash
+          ? "Admin đã thu tiền mặt/ghi nhận thủ công nên không chờ webhook SePay"
+          : "PaymentRequest/Invoice được xác nhận và tự collect deposit liên kết",
+        done: bookingPaymentConfirmed,
+      },
+      {
+        title: "Cọc giữ phòng có hiệu lực",
+        note: bookingDeposit?.status
+          ? `Deposit ${bookingDeposit.code || ""} · ${bookingDeposit.status}`
+          : "Chờ deposit BOOKING/RESERVATION liên kết",
+        done: bookingHoldEffective,
+      },
+      {
+        title: "Chuyển HĐ thuê dài hạn hoặc hủy cọc",
+        note: "Chuyển sẽ tạo HĐ thuê DRAFT riêng rồi cấn cọc; hủy hỗ trợ hoàn đủ, hoàn một phần/cấn trừ, hoặc không hoàn",
+        done: bookingHoldTerminal,
+        active: false,
+      },
+    ]
+    : [
+      {
+        title: "Tạo hợp đồng",
+        note: formatDateTime(detailContract.createdAt),
+        done: true,
+      },
+      ...(signStatus === "Đã ký"
+        ? [
+          {
+            title: "Đã ký & Upload hồ sơ",
+            note: "File hợp đồng/CCCD đã có trong hồ sơ",
+            done: true,
+          },
+        ]
+        : []),
+      ...(detailContract.status === "ACTIVE"
+        ? [
+          {
+            title: "Đang thuê",
+            note: `Hiệu lực đến ${formatDate(detailContract.endDate)}`,
+            done: true,
+            active: true,
+          },
+        ]
+        : []),
+    ];
+  const nextPay =
+    !isBookingHold && detailContract.status === "ACTIVE"
+      ? getNextPaymentPeriod(detailContract.startDate, detailContract.endDate)
+      : null;
+  if (nextPay) {
+    timelineSteps.push({
+      title: "Thanh toán tiếp theo",
+      note: `Hạn đóng: 01/${nextPay.month} - 03/${nextPay.month}/${nextPay.year}`,
+      done: false,
+      active: true,
+    });
+  }
 
   return (
     <>
@@ -977,8 +1511,11 @@ export default function OperationsContractDrawer({
         title={
           <div className="flex items-center gap-3">
             <span className="font-black text-[20px] text-text">
-              Chi tiết hợp đồng
+              Chi tiết {contractTypeLabel.toLowerCase()}
             </span>
+            <Badge variant={isBookingHold ? "warning" : "neutral"}>
+              {contractTypeLabel}
+            </Badge>
             <Badge variant="primary">
               {detailContract.code || detailContract.id.slice(0, 8)}
             </Badge>
@@ -987,7 +1524,37 @@ export default function OperationsContractDrawer({
         footer={
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {detailContract.status === "DRAFT" &&
+              {isBookingHold && (
+                <>
+                  <Button
+                    data-testid="btn-open-booking-convert"
+                    onClick={() => setIsBookingConvertModalOpen(true)}
+                    disabled={!canOperateBookingDeposit}
+                    title={
+                      canOperateBookingDeposit
+                        ? "Chuyển cọc giữ phòng sang tiền cọc hợp đồng"
+                        : "Chỉ thao tác được sau khi cọc giữ phòng đã thanh toán"
+                    }
+                  >
+                    Chuyển HĐ thuê dài hạn
+                  </Button>
+                  <Button
+                    data-testid="btn-open-booking-cancel"
+                    variant="outline"
+                    onClick={() => setIsBookingCancelModalOpen(true)}
+                    disabled={!canOperateBookingDeposit}
+                    title={
+                      canOperateBookingDeposit
+                        ? "Hủy cọc giữ phòng và phân bổ hoàn/giữ/cấn trừ"
+                        : "Chỉ thao tác được sau khi cọc giữ phòng đã thanh toán"
+                    }
+                  >
+                    Hủy cọc giữ phòng
+                  </Button>
+                </>
+              )}
+              {!isBookingHold &&
+                detailContract.status === "DRAFT" &&
                 hasPermission("contract.submit") && (
                   <Button
                     data-testid="btn-submit-contract"
@@ -1003,22 +1570,21 @@ export default function OperationsContractDrawer({
                     Trình duyệt
                   </Button>
                 )}
-              {detailContract.status === "PENDING_APPROVAL" &&
+              {!isBookingHold &&
+                detailContract.status === "PENDING_APPROVAL" &&
                 hasPermission("contract.approve") && (
                   <Button
                     data-testid="btn-approve-contract"
-                    onClick={() =>
-                      approveMutation.mutate(detailContract.id, {
-                        onSuccess: () => handleSuccess("Đã duyệt hợp đồng"),
-                        onError: handleError,
-                      })
+                    onClick={handleApproveContract}
+                    isLoading={
+                      approveMutation.isPending || isApproveSubmitting
                     }
-                    isLoading={approveMutation.isPending}
                   >
                     Duyệt hợp đồng
                   </Button>
                 )}
-              {detailContract.status === "APPROVED" &&
+              {!isBookingHold &&
+                detailContract.status === "APPROVED" &&
                 hasPermission("contract.activate") && (
                   <Button
                     data-testid="btn-activate-contract"
@@ -1040,8 +1606,9 @@ export default function OperationsContractDrawer({
                     Kích hoạt
                   </Button>
                 )}
-              {(detailContract.status === "ACTIVE" ||
-                detailContract.status === "EXPIRING") &&
+              {!isBookingHold &&
+                (detailContract.status === "ACTIVE" ||
+                  detailContract.status === "EXPIRING") &&
                 hasPermission("contract.terminate") && (
                   <Button
                     data-testid="btn-open-settlement"
@@ -1109,6 +1676,7 @@ export default function OperationsContractDrawer({
                 ))}
 
               {hasPermission("contract.delete") &&
+                !isBookingHold &&
                 detailContract.status === "DRAFT" &&
                 (showDeleteConfirm ? (
                   <div className="flex items-center gap-2 border-l border-border/50 pl-2 ml-2">
@@ -1170,7 +1738,7 @@ export default function OperationsContractDrawer({
                 <Download size={16} className="mr-2" /> In tài liệu (Khai báo
                 lưu trú)
               </Button>
-              {!statusConfig?.isTerminal && remainingDays <= 30 && (
+              {!isBookingHold && !statusConfig?.isTerminal && remainingDays <= 30 && (
                 <Button className="bg-amber-500 hover:bg-amber-600 text-white shadow-lg animate-pulse border-none">
                   <CalendarClock size={16} className="mr-2" /> Gia hạn
                 </Button>
@@ -1190,17 +1758,35 @@ export default function OperationsContractDrawer({
                   <Badge variant="neutral">
                     {roomCode} · {buildingName}
                   </Badge>
-                  <Badge
-                    data-testid="contract-status-badge"
-                    variant={statusConfig?.color || "neutral"}
-                  >
-                    {statusConfig?.label || detailContract.status}
-                  </Badge>
-                  <Badge
-                    variant={signStatus === "Đã ký" ? "success" : "warning"}
-                  >
-                    {signStatus}
-                  </Badge>
+                  {!isBookingHold && (
+                    <>
+                      <Badge
+                        data-testid="contract-status-badge"
+                        variant={statusConfig?.color || "neutral"}
+                      >
+                        {statusConfig?.label || detailContract.status}
+                      </Badge>
+                      <Badge variant="neutral">{contractTypeLabel}</Badge>
+                    </>
+                  )}
+                  {isBookingHold && bookingDeposit ? (
+                    <Badge
+                      variant={
+                        String(bookingDeposit.status).toUpperCase() === "PAID"
+                          ? "success"
+                          : "warning"
+                      }
+                    >
+                      Cọc: {bookingDeposit.status}
+                    </Badge>
+                  ) : null}
+                  {!isBookingHold && (
+                    <Badge
+                      variant={signStatus === "Đã ký" ? "success" : "warning"}
+                    >
+                      {signStatus}
+                    </Badge>
+                  )}
                 </div>
               </div>
               <div className="text-right flex flex-col items-end gap-[4px]">
@@ -1219,7 +1805,7 @@ export default function OperationsContractDrawer({
             <div className="grid grid-cols-4 gap-4 pt-3 border-t border-slate-200/60 dark:border-white/[0.06]">
               <div className="flex flex-col gap-[4px]">
                 <span className="text-[11px] font-bold text-muted uppercase">
-                  Ngày bắt đầu
+                  {isBookingHold ? "Ngày lập cọc" : "Ngày bắt đầu"}
                 </span>
                 <span className="text-[14px] font-bold text-text">
                   {formatDate(detailContract.startDate)}
@@ -1227,7 +1813,7 @@ export default function OperationsContractDrawer({
               </div>
               <div className="flex flex-col gap-[4px]">
                 <span className="text-[11px] font-bold text-muted uppercase">
-                  Ngày kết thúc
+                  {isBookingHold ? "Ngày hẹn vào ở" : "Ngày kết thúc"}
                 </span>
                 <span className="text-[14px] font-bold text-text">
                   {formatDate(detailContract.endDate)}
@@ -1235,10 +1821,10 @@ export default function OperationsContractDrawer({
               </div>
               <div className="flex flex-col gap-[4px]">
                 <span className="text-[11px] font-bold text-muted uppercase">
-                  Thời gian còn lại
+                  {isBookingHold ? "Thời hạn ở" : "Thời gian còn lại"}
                 </span>
-                <span className="text-[14px] font-black flex items-center gap-1 text-[#f97316]">
-                  {remainingDays} ngày
+                <span className={`text-[14px] font-black flex items-center gap-1 ${isBookingHold ? "text-muted" : "text-[#f97316]"}`}>
+                  {isBookingHold ? "Không áp dụng" : `${remainingDays} ngày`}
                 </span>
               </div>
               <div className="flex flex-col gap-[4px]">
@@ -1260,10 +1846,10 @@ export default function OperationsContractDrawer({
                   <FileText size={16} className="text-[#6366f1]" /> Thông tin
                   Tài chính
                 </h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className={`grid grid-cols-1 gap-3 ${isBookingHold ? "md:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-3"}`}>
                   <div className="flex flex-col justify-center p-3 bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800/60 rounded-[10px]">
                     <span className="text-[12px] font-bold text-muted">
-                      Giá thuê / tháng
+                      {isBookingHold ? "Giá thuê dự kiến / tháng" : "Giá thuê / tháng"}
                     </span>
                     <span className="text-[14px] font-black text-text">
                       {Number(detailContract.monthlyRent || 0).toLocaleString(
@@ -1274,7 +1860,7 @@ export default function OperationsContractDrawer({
                   </div>
                   <div className="flex flex-col justify-center p-3 bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800/60 rounded-[10px]">
                     <span className="text-[12px] font-bold text-muted">
-                      Tiền cọc
+                      {isBookingHold ? "Tiền cọc HĐ dự kiến" : "Tiền cọc"}
                     </span>
                     <span className="text-[14px] font-black text-text">
                       {Number(detailContract.depositMoney || 0).toLocaleString(
@@ -1283,6 +1869,16 @@ export default function OperationsContractDrawer({
                       đ
                     </span>
                   </div>
+                  {isBookingHold && (
+                    <div className="flex flex-col justify-center p-3 bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/20 dark:border-emerald-500/30 rounded-[10px]">
+                      <span className="text-[12px] font-bold text-emerald-600 dark:text-emerald-400">
+                        Đã nhận cọc
+                      </span>
+                      <span className="text-[14px] font-black text-emerald-600 dark:text-emerald-400">
+                        {receivedBookingDeposit.toLocaleString("vi-VN")}đ
+                      </span>
+                    </div>
+                  )}
                   <div className="flex flex-col justify-center p-3 bg-rose-500/10 dark:bg-rose-500/15 border border-rose-500/20 dark:border-rose-500/30 rounded-[10px]">
                     <span className="text-[12px] font-bold text-rose-500">
                       Công nợ hiện tại
@@ -1442,7 +2038,7 @@ export default function OperationsContractDrawer({
                     </div>
 
                     {detailContract.attachments &&
-                    detailContract.attachments.length > 0 ? (
+                      detailContract.attachments.length > 0 ? (
                       detailContract.attachments.map(
                         (url: string, index: number) => (
                           <div
@@ -1494,14 +2090,14 @@ export default function OperationsContractDrawer({
                               Cập nhật{" "}
                               {formatDateTime(
                                 detailContract.updatedAt ||
-                                  detailContract.createdAt,
+                                detailContract.createdAt,
                               )}
                             </span>
                           </div>
                         </div>
                       </div>
                     ) : (
-                      <div className="p-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-700/60 bg-slate-50/60 dark:bg-slate-900/40 flex flex-col items-center justify-center text-center gap-2">
+                      <div className="flex h-[128px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 p-4 text-center dark:border-slate-700/60 dark:bg-slate-900/40">
                         <FileText size={24} className="text-muted" />
                         <span className="text-sm font-semibold text-text">
                           Chưa có hợp đồng
@@ -1539,19 +2135,22 @@ export default function OperationsContractDrawer({
                     </div>
 
                     {detailContract.customer?.idImages &&
-                    detailContract.customer.idImages.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
+                      detailContract.customer.idImages.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         {detailContract.customer.idImages.map(
                           (url: string, index: number) => (
                             <div
                               key={index}
-                              className="relative group rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 w-[100px] h-[66px] shrink-0 bg-slate-100 dark:bg-slate-800/40"
+                              className="relative group h-[128px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm transition-all hover:border-primary/40 hover:shadow-md dark:border-slate-800 dark:bg-slate-800/40"
                             >
-                              <img
-                                src={getFileUrl(url)}
+                              <ProtectedDocumentImage
+                                src={url}
                                 alt={`CCCD ${index + 1}`}
-                                className="w-full h-full object-cover"
+                                className="h-full w-full object-cover"
                               />
+                              <div className="pointer-events-none absolute left-2 top-2 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-black text-white backdrop-blur-sm">
+                                CCCD {index + 1}
+                              </div>
                               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                 <button
                                   onClick={() => handlePreview(url)}
@@ -1576,7 +2175,7 @@ export default function OperationsContractDrawer({
                         )}
                       </div>
                     ) : (
-                      <div className="p-3 rounded-lg border border-dashed border-slate-300 dark:border-slate-700/60 bg-slate-50/60 dark:bg-slate-900/40 flex flex-col items-center justify-center text-center gap-1 h-[80px]">
+                      <div className="flex h-[128px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 p-4 text-center dark:border-slate-700/60 dark:bg-slate-900/40">
                         <User size={24} className="text-muted" />
                         <span className="text-sm font-semibold text-text">
                           Chưa có ảnh CCCD
@@ -1622,71 +2221,49 @@ export default function OperationsContractDrawer({
                 <div className="flex flex-col gap-[0px] relative mt-[8px]">
                   <div className="absolute left-[15px] top-[10px] bottom-[20px] w-[2px] bg-border" />
 
-                  <div className="flex gap-[16px] relative z-10 pb-[24px]">
-                    <div className="w-[32px] h-[32px] rounded-full bg-[#8b5cf6] flex items-center justify-center shrink-0 border-[4px] border-card">
-                      <CheckCircle2 size={14} className="text-white" />
-                    </div>
-                    <div className="flex flex-col gap-[4px] pt-[6px]">
-                      <span className="text-[13px] font-bold text-text leading-none">
-                        Tạo hợp đồng
-                      </span>
-                      <span className="text-[11px] text-muted">
-                        {formatDateTime(detailContract.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-                  {signStatus === "Đã ký" && (
-                    <div className="flex gap-[16px] relative z-10 pb-[24px]">
-                      <div className="w-[32px] h-[32px] rounded-full bg-[#8b5cf6] flex items-center justify-center shrink-0 border-[4px] border-card">
-                        <CheckCircle2 size={14} className="text-white" />
-                      </div>
-                      <div className="flex flex-col gap-[4px] pt-[6px]">
-                        <span className="text-[13px] font-bold text-text leading-none">
-                          Đã ký & Upload hồ sơ
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  {detailContract.status === "ACTIVE" && (
-                    <>
-                      <div className="flex gap-[16px] relative z-10 pb-[24px]">
-                        <div className="w-[32px] h-[32px] rounded-full bg-[#3b82f6] flex items-center justify-center shrink-0 border-[4px] border-card">
-                          <div className="w-[8px] h-[8px] bg-white rounded-full" />
+                  {timelineSteps.map((step, index) => {
+                    const isLast = index === timelineSteps.length - 1;
+                    const dotClass = step.done
+                      ? "bg-[#8b5cf6]"
+                      : step.active
+                        ? "bg-[#f97316]"
+                        : "bg-slate-300 dark:bg-slate-700";
+                    const titleClass = step.active
+                      ? "text-[#f97316]"
+                      : step.done
+                        ? "text-text"
+                        : "text-muted";
+                    return (
+                      <div
+                        key={`${step.title}-${index}`}
+                        className={`flex gap-[16px] relative z-10 ${isLast ? "" : "pb-[24px]"}`}
+                      >
+                        <div
+                          className={`w-[32px] h-[32px] rounded-full ${dotClass} flex items-center justify-center shrink-0 border-[4px] border-card`}
+                        >
+                          {step.done ? (
+                            <CheckCircle2 size={14} className="text-white" />
+                          ) : step.active ? (
+                            <CalendarClock size={12} className="text-white" />
+                          ) : (
+                            <div className="w-[8px] h-[8px] rounded-full bg-white/80" />
+                          )}
                         </div>
                         <div className="flex flex-col gap-[4px] pt-[6px]">
-                          <span className="text-[13px] font-bold text-[#3b82f6] leading-none">
-                            Đang thuê
+                          <span
+                            className={`text-[13px] font-bold leading-tight ${titleClass}`}
+                          >
+                            {step.title}
                           </span>
-                          <span className="text-[11px] text-muted">
-                            Hiệu lực đến {formatDate(detailContract.endDate)}
-                          </span>
+                          {step.note ? (
+                            <span className="text-[11px] text-muted leading-snug">
+                              {step.note}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
-                      {(() => {
-                        const nextPay = getNextPaymentPeriod(
-                          detailContract.startDate,
-                          detailContract.endDate,
-                        );
-                        if (!nextPay) return null;
-                        return (
-                          <div className="flex gap-[16px] relative z-10">
-                            <div className="w-[32px] h-[32px] rounded-full bg-[#f97316] flex items-center justify-center shrink-0 border-[4px] border-card">
-                              <CalendarClock size={12} className="text-white" />
-                            </div>
-                            <div className="flex flex-col gap-[4px] pt-[6px]">
-                              <span className="text-[13px] font-bold text-text leading-none">
-                                Thanh toán tiếp theo
-                              </span>
-                              <span className="text-[11px] text-[#f97316] font-semibold">
-                                Hạn đóng: 01/{nextPay.month} - 03/
-                                {nextPay.month}/{nextPay.year}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </>
-                  )}
+                    );
+                  })}
                 </div>
               </Card>
             </div>
@@ -1703,22 +2280,22 @@ export default function OperationsContractDrawer({
         >
           <div className="flex flex-col items-center justify-center p-4">
             {previewType === "image" && (
-              <img
+              <ProtectedDocumentImage
                 src={previewUrl!}
-                className="max-w-full max-h-[75vh] object-contain"
+                className="max-h-[75vh] max-w-full rounded-2xl object-contain"
                 alt="Preview"
               />
             )}
             {previewType === "pdf" && (
               <iframe
-                src={previewUrl!}
+                src={getFileUrl(previewUrl!)}
                 className="w-full h-[75vh] border-0"
                 title="PDF Preview"
               />
             )}
             {previewType === "doc" && (
               <div className="w-full h-full">
-                <DocxViewer url={previewUrl!} />
+                <DocxViewer url={getFileUrl(previewUrl!)} />
               </div>
             )}
           </div>
@@ -1756,6 +2333,277 @@ export default function OperationsContractDrawer({
                 }}
               >
                 Xác nhận xóa
+              </Button>
+            </div>
+          </div>
+        </Modal>
+
+        <Modal
+          isOpen={isBookingConvertModalOpen}
+          onClose={() => setIsBookingConvertModalOpen(false)}
+          title="Chuyển cọc giữ phòng sang hợp đồng thuê dài hạn"
+          maxWidth="max-w-[560px]"
+          testId="booking-hold-convert-modal"
+        >
+          <div className="p-4 flex flex-col gap-4">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-muted">
+              Hệ thống sẽ chuyển số dư cọc giữ phòng sang tiền cọc hợp đồng.
+              Nếu tiền cọc giữ phòng lớn hơn tiền cọc hợp đồng, phần dư có thể
+              ghi nhận công nợ có lợi cho khách hoặc tạo phiếu hoàn.
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                    Ngày bắt đầu HĐ thuê
+                  </label>
+                  <StyledDateInput
+                    value={bookingConvertForm.startDate}
+                    onChange={(val) =>
+                      setBookingConvertForm((prev) => ({
+                        ...prev,
+                        startDate: val,
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                    Ngày kết thúc HĐ thuê
+                  </label>
+                  <StyledDateInput
+                    value={bookingConvertForm.endDate}
+                    onChange={(val) =>
+                      setBookingConvertForm((prev) => ({
+                        ...prev,
+                        endDate: val,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-card p-3 text-xs text-muted">
+                HĐ thuê mới sẽ ở trạng thái DRAFT, cùng khách/phòng/kỳ thuê với
+                HĐ cọc. Giá thuê:{" "}
+                <span className="font-black text-text">
+                  {formatCurrency(Number(detailContract.monthlyRent || 0))}
+                </span>
+                .
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                  Tiền cọc hợp đồng cần giữ
+                </label>
+                <Input
+                  value={formatVndInput(bookingConvertForm.securityRequired)}
+                  onChange={(event) =>
+                    setBookingConvertForm((prev) => ({
+                      ...prev,
+                      securityRequired: event.target.value.replace(/[^0-9]/g, ""),
+                    }))
+                  }
+                  placeholder="Nhập số tiền"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                  Nếu có phần dư
+                </label>
+                <Select
+                  value={bookingConvertForm.excessAction}
+                  onChange={(event) =>
+                    setBookingConvertForm((prev) => ({
+                      ...prev,
+                      excessAction: event.target.value as "CREDIT" | "REFUND",
+                    }))
+                  }
+                  options={[
+                    { label: "Ghi nhận công nợ có lợi cho khách", value: "CREDIT" },
+                    { label: "Tạo phiếu hoàn phần dư", value: "REFUND" },
+                  ]}
+                />
+              </div>
+              {bookingConvertForm.excessAction === "REFUND" ? (
+                <div>
+                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                    Trạng thái hoàn phần dư
+                  </label>
+                  <Select
+                    value={bookingConvertForm.refundStatus}
+                    onChange={(event) =>
+                      setBookingConvertForm((prev) => ({
+                        ...prev,
+                        refundStatus: event.target.value as
+                          | "PENDING"
+                          | "COMPLETED",
+                      }))
+                    }
+                    options={[
+                      { label: "Chờ hoàn tiền", value: "PENDING" },
+                      { label: "Đã hoàn tiền", value: "COMPLETED" },
+                    ]}
+                  />
+                </div>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => setIsBookingConvertModalOpen(false)}
+              >
+                Đóng
+              </Button>
+              <Button
+                data-testid="booking-hold-convert-submit"
+                onClick={handleConvertBookingHold}
+                isLoading={isBookingFlowSaving}
+                disabled={isBookingFlowSaving}
+              >
+                Xác nhận chuyển
+              </Button>
+            </div>
+          </div>
+        </Modal>
+
+        <Modal
+          isOpen={isBookingCancelModalOpen}
+          onClose={() => setIsBookingCancelModalOpen(false)}
+          title="Hủy hợp đồng cọc giữ phòng"
+          maxWidth="max-w-[620px]"
+          testId="booking-hold-cancel-modal"
+        >
+          <div className="p-4 flex flex-col gap-4">
+            <div className="rounded-xl border border-rose-500/25 bg-rose-500/5 p-3 text-sm text-muted">
+              Hủy cọc không xóa lịch sử. Hệ thống ghi ledger theo đúng phân bổ:
+              hoàn đủ, hoàn một phần/cấn trừ, hoặc không hoàn.
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                Lý do hủy
+              </label>
+              <Textarea
+                value={bookingCancelForm.reason}
+                onChange={(event) =>
+                  setBookingCancelForm((prev) => ({
+                    ...prev,
+                    reason: event.target.value,
+                  }))
+                }
+                rows={3}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                  Cách xử lý tiền cọc
+                </label>
+                <Select
+                  value={bookingCancelForm.refundMode}
+                  onChange={(event) =>
+                    setBookingCancelForm((prev) => ({
+                      ...prev,
+                      refundMode: event.target.value as
+                        | "FULL"
+                        | "PARTIAL"
+                        | "NONE",
+                    }))
+                  }
+                  options={[
+                    { label: "Hoàn đủ tiền cọc", value: "FULL" },
+                    { label: "Hoàn một phần / cấn trừ", value: "PARTIAL" },
+                    { label: "Không hoàn tiền", value: "NONE" },
+                  ]}
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                  Trạng thái hoàn tiền
+                </label>
+                <Select
+                  value={bookingCancelForm.refundStatus}
+                  onChange={(event) =>
+                    setBookingCancelForm((prev) => ({
+                      ...prev,
+                      refundStatus: event.target.value as
+                        | "PENDING"
+                        | "COMPLETED",
+                    }))
+                  }
+                  options={[
+                    { label: "Chờ hoàn tiền", value: "PENDING" },
+                    { label: "Đã hoàn tiền", value: "COMPLETED" },
+                  ]}
+                  disabled={bookingCancelForm.refundMode === "NONE"}
+                />
+              </div>
+            </div>
+            {bookingCancelForm.refundMode === "PARTIAL" ? (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                    Số tiền hoàn
+                  </label>
+                  <Input
+                    value={formatVndInput(bookingCancelForm.refundAmount)}
+                    onChange={(event) =>
+                      setBookingCancelForm((prev) => ({
+                        ...prev,
+                        refundAmount: event.target.value.replace(/[^0-9]/g, ""),
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                    Số tiền giữ lại
+                  </label>
+                  <Input
+                    value={formatVndInput(bookingCancelForm.keepAmount)}
+                    onChange={(event) =>
+                      setBookingCancelForm((prev) => ({
+                        ...prev,
+                        keepAmount: event.target.value.replace(/[^0-9]/g, ""),
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
+                    Số tiền cấn trừ
+                  </label>
+                  <Input
+                    value={formatVndInput(bookingCancelForm.deductAmount)}
+                    onChange={(event) =>
+                      setBookingCancelForm((prev) => ({
+                        ...prev,
+                        deductAmount: event.target.value.replace(/[^0-9]/g, ""),
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            ) : null}
+            <div className="rounded-xl border border-border/70 bg-card p-3 text-xs text-muted">
+              Số dư cọc hiện tại:{" "}
+              <span className="font-black text-text">
+                {formatCurrency(bookingDepositBalance)}
+              </span>
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => setIsBookingCancelModalOpen(false)}
+              >
+                Đóng
+              </Button>
+              <Button
+                data-testid="booking-hold-cancel-submit"
+                variant="danger"
+                onClick={handleCancelBookingHold}
+                isLoading={isBookingFlowSaving}
+                disabled={isBookingFlowSaving}
+              >
+                Xác nhận hủy cọc
               </Button>
             </div>
           </div>
@@ -1843,37 +2691,37 @@ export default function OperationsContractDrawer({
                       }
                       options={
                         detailContract?.room?.rentalType === "shared" ||
-                        detailContract?.room?.rentalType === "SHARED"
+                          detailContract?.room?.rentalType === "SHARED"
                           ? [
-                              {
-                                label:
-                                  "Phòng trống / Sẵn sàng đón khách (AVAILABLE)",
-                                value: "AVAILABLE",
-                              },
-                              {
-                                label: "Bàn giao bảo trì giường (MAINTENANCE)",
-                                value: "MAINTENANCE",
-                              },
-                              {
-                                label: "Bàn giao chờ vệ sinh (CLEANING)",
-                                value: "CLEANING",
-                              },
-                            ]
+                            {
+                              label:
+                                "Phòng trống / Sẵn sàng đón khách (AVAILABLE)",
+                              value: "AVAILABLE",
+                            },
+                            {
+                              label: "Bàn giao bảo trì giường (MAINTENANCE)",
+                              value: "MAINTENANCE",
+                            },
+                            {
+                              label: "Bàn giao chờ vệ sinh (CLEANING)",
+                              value: "CLEANING",
+                            },
+                          ]
                           : [
-                              {
-                                label:
-                                  "Phòng trống / Sẵn sàng mở bán (AVAILABLE)",
-                                value: "AVAILABLE",
-                              },
-                              {
-                                label: "Bàn giao chờ bảo trì (MAINTENANCE)",
-                                value: "MAINTENANCE",
-                              },
-                              {
-                                label: "Bàn giao chờ vệ sinh (CLEANING)",
-                                value: "CLEANING",
-                              },
-                            ]
+                            {
+                              label:
+                                "Phòng trống / Sẵn sàng mở bán (AVAILABLE)",
+                              value: "AVAILABLE",
+                            },
+                            {
+                              label: "Bàn giao chờ bảo trì (MAINTENANCE)",
+                              value: "MAINTENANCE",
+                            },
+                            {
+                              label: "Bàn giao chờ vệ sinh (CLEANING)",
+                              value: "CLEANING",
+                            },
+                          ]
                       }
                     />
                   </div>
@@ -2402,9 +3250,9 @@ export default function OperationsContractDrawer({
                           customSharedOccupants ?? (elec.activeOccupants || 1);
                         const totalAmount = Number(
                           elec.totalCalculatedAmountVnd ||
-                            elec.totalRoomAmountVnd ||
-                            elec.calculatedAmountVnd ||
-                            0,
+                          elec.totalRoomAmountVnd ||
+                          elec.calculatedAmountVnd ||
+                          0,
                         );
                         const totalKwh = Number(
                           elec.totalRoomMonthKwh || elec.monthKwh || 0,
@@ -2522,40 +3370,40 @@ export default function OperationsContractDrawer({
 
                     {!settlementPreview.utilitySnapshot.electricity
                       .isSharedRoom && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-2.5 rounded-lg bg-surface/60 border border-border/60">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">
-                            kWh tháng hiện tại
-                          </span>
-                          <span className="text-base font-mono font-black text-text mt-0.5 block">
-                            {Number(
-                              settlementPreview.utilitySnapshot.electricity
-                                .monthKwh || 0,
-                            ).toLocaleString("vi-VN")}{" "}
-                            kWh
-                          </span>
-                        </div>
-                        <div className="p-2.5 rounded-lg bg-surface/60 border border-border/60">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">
-                            Tiền điện tạm tính
-                          </span>
-                          <span className="text-base font-mono font-black text-amber-600 mt-0.5 block">
-                            {formatCurrency(
-                              settlementPreview.utilitySnapshot.electricity
-                                .calculatedAmountVnd ||
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-2.5 rounded-lg bg-surface/60 border border-border/60">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">
+                              kWh tháng hiện tại
+                            </span>
+                            <span className="text-base font-mono font-black text-text mt-0.5 block">
+                              {Number(
+                                settlementPreview.utilitySnapshot.electricity
+                                  .monthKwh || 0,
+                              ).toLocaleString("vi-VN")}{" "}
+                              kWh
+                            </span>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-surface/60 border border-border/60">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">
+                              Tiền điện tạm tính
+                            </span>
+                            <span className="text-base font-mono font-black text-amber-600 mt-0.5 block">
+                              {formatCurrency(
+                                settlementPreview.utilitySnapshot.electricity
+                                  .calculatedAmountVnd ||
                                 settlementPreview.utilitySnapshot.electricity
                                   .monthAmountVnd,
-                            )}
-                          </span>
-                          <span className="text-[9px] text-muted block truncate">
-                            {settlementPreview.utilitySnapshot.electricity
-                              .rateMode
-                              ? `${settlementPreview.utilitySnapshot.electricity.rateMode} · ${settlementPreview.utilitySnapshot.electricity.calculationSource || ""}`
-                              : "Theo số tiền Hunonic"}
-                          </span>
+                              )}
+                            </span>
+                            <span className="text-[9px] text-muted block truncate">
+                              {settlementPreview.utilitySnapshot.electricity
+                                .rateMode
+                                ? `${settlementPreview.utilitySnapshot.electricity.rateMode} · ${settlementPreview.utilitySnapshot.electricity.calculationSource || ""}`
+                                : "Theo số tiền Hunonic"}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     <Button
                       variant="ghost"
@@ -2590,7 +3438,7 @@ export default function OperationsContractDrawer({
                       settlementForm.roomTurnoverStatus) === "MAINTENANCE"
                       ? "Bảo trì trước khi mở bán"
                       : (settlementPreview?.roomTurnoverStatus ||
-                            settlementForm.roomTurnoverStatus) === "CLEANING"
+                        settlementForm.roomTurnoverStatus) === "CLEANING"
                         ? "Vệ sinh trước khi mở bán"
                         : "Phòng trống (Sẵn sàng mở bán)"}
                   </span>
@@ -2601,7 +3449,7 @@ export default function OperationsContractDrawer({
                       settlementForm.roomTurnoverStatus) === "MAINTENANCE"
                       ? "warning"
                       : (settlementPreview?.roomTurnoverStatus ||
-                            settlementForm.roomTurnoverStatus) === "CLEANING"
+                        settlementForm.roomTurnoverStatus) === "CLEANING"
                         ? "primary"
                         : "success"
                   }

@@ -24,6 +24,7 @@ export function getBuildingMetrics(building: CockpitBuildingSpec) {
   const rooms = building.floors.flatMap((floor) => floor.rooms);
   const operationalRooms = rooms.filter((room) => room.sourceRoom);
   const occupiedRooms = rooms.filter((room) => room.status === "occupied" || room.status === "expiring_soon").length;
+  const depositedRooms = rooms.filter((room) => room.status === "deposited").length;
   const vacantRooms = rooms.filter((room) => room.status === "vacant").length;
   const now = Date.now();
   const inThirtyDays = now + 30 * 24 * 60 * 60 * 1000;
@@ -43,6 +44,7 @@ export function getBuildingMetrics(building: CockpitBuildingSpec) {
   return {
     totalRooms: rooms.length,
     occupiedRooms,
+    depositedRooms,
     vacantRooms,
     expiringContracts,
     residentCount,

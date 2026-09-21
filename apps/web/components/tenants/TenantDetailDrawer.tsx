@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Phone,
   Building,
@@ -37,6 +38,8 @@ import { Modal } from "../ui/Modal";
 import { useToast } from "@/components/ui/ToastContext";
 import TenantFormModal from "./TenantFormModal";
 import { useDeleteCustomerMutation } from "@/lib/mutations/customers.mutations";
+import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
+import { auditApi, AuditLogItem } from "@/lib/api/audit.api";
 
 export function getTenantAvatar(avatarUrl?: string, fullName?: string, gender?: string) {
   if (avatarUrl && avatarUrl.trim() !== "" && !avatarUrl.includes("ui-avatars.com/api/?name=undefined") && !avatarUrl.includes("Kh%C3%A1ch")) {
@@ -59,8 +62,96 @@ function formatDate(value?: string | Date) {
   return date.toLocaleDateString("vi-VN");
 }
 
+function formatDateTime(value?: string | Date) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return date.toLocaleString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).replace(",", "");
+}
+
+function humanizeActivity(log: AuditLogItem, context: {
+  fullName: string;
+  roomLabel: string;
+  buildingName: string;
+  isBookingHold: boolean;
+}) {
+  const action = String(log.action || "").toUpperCase();
+  const entity = String(log.entity || "").toUpperCase();
+  const after = (log.after || {}) as any;
+  const code = after.code || after.contractCode || after.invoiceCode || after.depositCode;
+  const subject = context.isBookingHold ? "cọc giữ phòng" : "hợp đồng thuê";
+
+  if (entity === "CUSTOMER" && action === "CREATE") {
+    return {
+      title: context.isBookingHold ? "Khách cọc giữ phòng được ghi nhận" : "Khách thuê được ghi nhận",
+      desc: `KH: ${context.fullName} · Phòng ${context.roomLabel} · Tòa ${context.buildingName}`,
+    };
+  }
+  if (entity === "CONTRACT") {
+    if (action === "CREATE" || action === "SIGNED" || action === "CONVERT_CONTRACT") {
+      return {
+        title: action === "CONVERT_CONTRACT" ? "Đã chuyển sang hợp đồng thuê dài hạn" : `Đã tạo ${subject}`,
+        desc: `${context.fullName} · Phòng ${context.roomLabel}${code ? ` · ${code}` : ""}`,
+      };
+    }
+    if (action === "CANCEL") return { title: `Đã hủy ${subject}`, desc: `${context.fullName} · Phòng ${context.roomLabel}${code ? ` · ${code}` : ""}` };
+    if (action === "UPDATE") return { title: `Đã cập nhật ${subject}`, desc: `${context.fullName} · Phòng ${context.roomLabel}${code ? ` · ${code}` : ""}` };
+  }
+  if (entity === "DEPOSIT") {
+    if (action === "CREATE") return { title: "Đã tạo phiếu cọc giữ phòng", desc: `${context.fullName} · Phòng ${context.roomLabel}${code ? ` · ${code}` : ""}` };
+    if (action === "COLLECT") return { title: "Đã xác nhận thu tiền cọc giữ phòng", desc: `${context.fullName} · Phòng ${context.roomLabel}${code ? ` · ${code}` : ""}` };
+    if (action === "REFUND") return { title: "Đã hoàn tiền cọc giữ phòng", desc: `${context.fullName} · Phòng ${context.roomLabel}${code ? ` · ${code}` : ""}` };
+    if (action === "CANCEL") return { title: "Đã hủy phiếu cọc giữ phòng", desc: `${context.fullName} · Phòng ${context.roomLabel}${code ? ` · ${code}` : ""}` };
+    if (action === "UPDATE") return { title: "Đã cập nhật phiếu cọc giữ phòng", desc: `${context.fullName} · Phòng ${context.roomLabel}${code ? ` · ${code}` : ""}` };
+  }
+  if (entity === "INVOICE") {
+    const invoiceLabel = after.period || (context.isBookingHold ? "Cọc giữ phòng" : "Tiền phòng & dịch vụ");
+    if (action === "CREATE") return { title: "Đã tạo hóa đơn", desc: `${invoiceLabel}${code ? ` · ${code}` : ""}` };
+    if (action === "UPDATE") return { title: "Đã cập nhật hóa đơn", desc: `${invoiceLabel}${code ? ` · ${code}` : ""}` };
+    if (action === "CANCEL") return { title: "Đã hủy hóa đơn", desc: `${invoiceLabel}${code ? ` · ${code}` : ""}` };
+  }
+  return {
+    title: `${action === "CREATE" ? "Đã tạo" : action === "UPDATE" ? "Đã cập nhật" : action === "DELETE" ? "Đã xóa" : "Đã thực hiện"} ${entity.toLowerCase()}`,
+    desc: `KH: ${context.fullName} · Phòng ${context.roomLabel}${log.user?.fullName ? ` · bởi ${log.user.fullName}` : ""}`,
+  };
+}
+
 function formatMoney(value: number) {
   return `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(value || 0)} đ`;
+}
+
+function isBookingHoldContract(contract: any) {
+  if (!contract) return false;
+  const text = [
+    contract.contractTemplate,
+    contract.loaiHopDong,
+    contract.code,
+    contract.purpose,
+    contract.type,
+    contract.contractType,
+    contract.title,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return (
+    contract.isBookingHold === true ||
+    String(contract.code || "").toUpperCase().startsWith("HD-COC") ||
+    text.includes("booking_hold") ||
+    text.includes("cọc giữ phòng") ||
+    text.includes("coc giu phong") ||
+    text.includes("đặt cọc giữ phòng") ||
+    text.includes("giữ phòng")
+  );
 }
 
 export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | null; onClose: () => void }) {
@@ -78,6 +169,17 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
 
   const { showToast } = useToast();
   const deleteMutation = useDeleteCustomerMutation();
+  const customerId = tenant?.id || tenant?.source?.id || "";
+  const { data: invoicesData, isLoading: invoicesLoading } = useInvoicesQuery(
+    { customerId, limit: 100, page: 1 },
+    { enabled: Boolean(customerId) },
+  );
+  const { data: auditData, isLoading: activityLoading } = useQuery({
+    queryKey: ["tenant-detail-activity", customerId],
+    queryFn: () => auditApi.logs({ limit: 100 }),
+    enabled: Boolean(customerId),
+    staleTime: 15_000,
+  });
 
   if (!tenant) return null;
 
@@ -118,15 +220,77 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
   const hasContract = !!activeContract;
   const roomLabel = tenant.roomLabel || activeContract?.room?.number || activeContract?.room?.code || "Chưa xếp phòng";
   const buildingName = tenant.buildingName || activeContract?.room?.building?.name || "Chưa có tòa";
-  const debt = Number(tenant.debt || rawCustomer.kpis?.totalDebt || activeContract?.debt || 0);
-
   const startDate = activeContract?.startDate || tenant.startDate;
   const endDate = activeContract?.endDate || tenant.endDate;
+  const isBookingHold = isBookingHoldContract(activeContract);
+  const debt = Number(tenant.debt || rawCustomer.kpis?.totalDebt || activeContract?.debt || 0);
+  const invoices: any[] = Array.isArray(invoicesData?.data) ? invoicesData.data : [];
+  const invoiceDebt = invoices.reduce((sum, invoice) => {
+    const status = String(invoice.status || "").toUpperCase();
+    if (["PAID", "CANCELLED", "WRITTEN_OFF"].includes(status)) return sum;
+    return sum + Math.max(0, Number(invoice.total || 0) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0));
+  }, 0);
+  const syncedDebt = invoices.length > 0 ? invoiceDebt : debt;
+  const auditLogs: AuditLogItem[] = Array.isArray(auditData) ? auditData : [];
+  const relatedEntityIds = new Set([
+    customerId,
+    ...allCustomerContracts.map((contract) => contract?.id).filter(Boolean),
+    ...invoices.map((invoice) => invoice?.id).filter(Boolean),
+  ]);
+  const activityLogs = auditLogs
+    .filter((log) => {
+      const entity = String(log.entity || "").toUpperCase();
+      const action = String(log.action || "").toUpperCase();
+      if ((entity === "INVOICE" || entity === "DEPOSIT") && action === "UPDATE") return false;
+      if (log.entityId && relatedEntityIds.has(log.entityId)) return true;
+      const serialized = JSON.stringify({ before: log.before, after: log.after });
+      return serialized.includes(customerId);
+    })
+    .slice(0, 20);
+  const paidInvoices = invoices.filter((invoice) => Number(invoice.paidAmount || 0) > 0);
+  const totalPaid = invoices.reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
+  const activityContext = { fullName, roomLabel, buildingName, isBookingHold };
+  const activityItems = [
+    ...(activityLogs.some((log) => String(log.entity).toUpperCase() === "CUSTOMER" && String(log.action).toUpperCase() === "CREATE")
+      ? []
+      : [{
+          id: "customer-registration",
+          timestamp: rawCustomer.createdAt || new Date().toISOString(),
+          title: isBookingHold ? "Khách cọc giữ phòng được ghi nhận" : "Khách thuê được ghi nhận",
+          desc: `KH: ${fullName} · Phòng ${roomLabel} · Tòa ${buildingName}`,
+          source: "system",
+        }]),
+    ...activityLogs.map((log) => {
+      const mapped = humanizeActivity(log, activityContext);
+      return {
+        id: `audit-${log.id}`,
+        timestamp: log.createdAt,
+        title: mapped.title,
+        desc: mapped.desc,
+        source: "audit",
+      };
+    }),
+    ...paidInvoices.flatMap((invoice) =>
+      (Array.isArray(invoice.payments) ? invoice.payments : []).map((payment: any) => ({
+        id: `payment-${payment.id}`,
+        timestamp: payment.paidAt || payment.createdAt || invoice.updatedAt || invoice.createdAt,
+        title: `Đã nhận thanh toán ${invoice.code || "hóa đơn"}`,
+        desc: `Đã thu ${formatMoney(Number(payment.amount || invoice.paidAmount || 0))}${invoice.period ? ` · ${invoice.period}` : ""}${payment.provider ? ` · ${payment.provider}` : ""}`,
+        source: "payment",
+      })),
+    ),
+  ]
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index)
+    .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+
   const contractDaysLeft = tenant.contractDays !== undefined
     ? tenant.contractDays
     : endDate
     ? Math.max(0, Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : 0;
+  const contractTermDisplay = isBookingHold
+    ? "-"
+    : `${formatDate(startDate)} đến ${formatDate(endDate)} (Còn ${contractDaysLeft} ngày)`;
 
   const toggleSection = (key: string) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -168,8 +332,12 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
   };
 
   // Status computation
-  const statusLabel = tenant.statusLabel || (hasContract ? (contractDaysLeft > 0 ? "Đang thuê" : "Hết hạn HĐ") : "Chưa thuê");
-  const statusVariant = tenant.statusVariant || (hasContract ? (contractDaysLeft > 0 ? "success" : "error") : "neutral");
+  const statusLabel = isBookingHold
+    ? "Chờ ký HĐ cọc giữ phòng"
+    : tenant.statusLabel || (hasContract ? (contractDaysLeft > 0 ? "Đang thuê" : "Hết hạn HĐ") : "Chưa thuê");
+  const statusVariant = isBookingHold
+    ? "primary"
+    : tenant.statusVariant || (hasContract ? (contractDaysLeft > 0 ? "success" : "error") : "neutral");
 
   return (
     <>
@@ -300,14 +468,14 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
               label="Trạng thái"
               value={statusLabel}
               badgeVariant={statusVariant}
-              subText={hasContract ? "Hợp đồng chính thức" : "Chưa có hợp đồng"}
+              subText={isBookingHold ? "Chưa vào ở · chờ chuyển HĐ thuê" : hasContract ? "Hợp đồng chính thức" : "Chưa có hợp đồng"}
             />
             <StatCard
               icon={<Calendar size={16} className="text-amber-500" />}
               label="Hạn hợp đồng"
-              value={hasContract ? `Còn ${contractDaysLeft} ngày` : "Chưa ký HĐ"}
-              valueColor={hasContract ? (contractDaysLeft <= 30 ? "text-amber-500" : "text-text") : "text-muted"}
-              subText={hasContract ? `${formatDate(startDate)} - ${formatDate(endDate)}` : "Chưa phát sinh"}
+              value={isBookingHold ? "-" : hasContract ? `Còn ${contractDaysLeft} ngày` : "Chưa ký HĐ"}
+              valueColor={isBookingHold ? "text-muted" : hasContract ? (contractDaysLeft <= 30 ? "text-amber-500" : "text-text") : "text-muted"}
+              subText={isBookingHold ? "Cọc giữ phòng · chưa tính thời hạn ở" : hasContract ? `${formatDate(startDate)} - ${formatDate(endDate)}` : "Chưa phát sinh"}
             />
             <StatCard
               icon={<CreditCard size={16} className={debt > 0 ? "text-rose-500" : "text-emerald-500"} />}
@@ -407,14 +575,28 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
                   </div>
 
                   <div className="rounded-xl border border-border/60 bg-surface/50 p-3.5 space-y-2.5 text-xs">
-                    <InfoRow label="Phòng thuê" value={`Phòng ${roomLabel} (Tòa ${buildingName})`} isBold />
-                    <InfoRow label="Thời hạn hợp đồng" value={`${formatDate(startDate)} đến ${formatDate(endDate)} (Còn ${contractDaysLeft} ngày)`} />
-                    <InfoRow label="Số người đăng ký ở" value={`${activeContract.memberCount || 1} người`} />
-                    <InfoRow label="Ngày chốt hóa đơn định kỳ" value="Ngày 1 - 5 hàng tháng" />
+                    <InfoRow label={isBookingHold ? "Phòng giữ chỗ" : "Phòng thuê"} value={`Phòng ${roomLabel} (Tòa ${buildingName})`} isBold />
+                    <InfoRow label="Thời hạn hợp đồng" value={contractTermDisplay} />
+                    <InfoRow label={isBookingHold ? "Lịch nhắc Admin" : "Số người đăng ký ở"} value={isBookingHold ? "Chuẩn bị phòng + nhắc khách vào ở" : `${activeContract.memberCount || 1} người`} />
+                    <InfoRow label={isBookingHold ? "Trạng thái lưu trú" : "Ngày chốt hóa đơn định kỳ"} value={isBookingHold ? "Khách chưa ở · chưa tính kỳ thuê" : "Ngày 1 - 5 hàng tháng"} />
                   </div>
 
+                  {isBookingHold && (
+                    <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-600" />
+                        <div>
+                          <div className="font-black text-amber-700 dark:text-amber-300">Hợp đồng cọc giữ phòng chưa tính thời hạn thuê</div>
+                          <p className="mt-1 font-medium leading-5 text-muted">
+                            Card hạn hợp đồng để “-”. Hồ sơ này chỉ dùng để nhắc Admin chuẩn bị phòng và nhắc khách vào ở theo lịch hẹn.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Dịch vụ tiện ích */}
-                  <div className="rounded-xl border border-border/60 bg-card p-3 space-y-2 text-xs">
+                  {!isBookingHold && <div className="rounded-xl border border-border/60 bg-card p-3 space-y-2 text-xs">
                     <span className="font-bold text-text block mb-2">Các dịch vụ & Tiện ích đi kèm:</span>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <ServiceChip icon={<Zap size={13} className="text-amber-500" />} label="Điện" value="Theo giá nhà nước" />
@@ -422,7 +604,7 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
                       <ServiceChip icon={<Wifi size={13} className="text-indigo-500" />} label="Wifi" value="Miễn phí" />
                       <ServiceChip icon={<FileText size={13} className="text-emerald-500" />} label="Dịch vụ" value="Vệ sinh / Rác" />
                     </div>
-                  </div>
+                  </div>}
                 </div>
               ) : (
                 <div className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted space-y-2">
@@ -439,15 +621,15 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
               onToggle={() => toggleSection("finance")}
               icon={<CreditCard size={16} className="text-emerald-500" />}
               title="Thanh toán & Tình trạng công nợ"
-              badgeText={debt > 0 ? `Nợ ${formatMoney(debt)}` : "0 đ nợ"}
-              badgeVariant={debt > 0 ? "error" : "success"}
+              badgeText={syncedDebt > 0 ? `Nợ ${formatMoney(syncedDebt)}` : "0 đ nợ"}
+              badgeVariant={syncedDebt > 0 ? "error" : "success"}
             >
               <div className="space-y-3 text-xs">
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-xl border border-border/60 bg-surface/50 p-4">
                   <div>
                     <span className="text-muted font-bold text-[11px] block">Tổng dư nợ hiện tại</span>
-                    <span className={`text-xl font-black font-mono ${debt > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                      {formatMoney(debt)}
+                    <span className={`text-xl font-black font-mono ${syncedDebt > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                      {formatMoney(syncedDebt)}
                     </span>
                   </div>
                   <div className="text-right">
@@ -455,8 +637,13 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
                     <span className="font-bold text-primary">SePay VietQR 24/7</span>
                   </div>
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <MiniMetric label="Hóa đơn" value={invoicesLoading ? "Đang tải..." : `${invoices.length} phiếu`} />
+                  <MiniMetric label="Đã thanh toán" value={formatMoney(totalPaid)} />
+                  <MiniMetric label="Còn phải thu" value={formatMoney(syncedDebt)} />
+                </div>
                 <div className="rounded-xl border border-border/60 bg-card p-3 text-muted">
-                  <p className="text-xs">Khi có hóa đơn mới, hệ thống sẽ tự động đối soát giao dịch chuyển khoản qua SePay để gạch nợ ngay lập tức cho khách thuê này.</p>
+                  <p className="text-xs">Số liệu được đồng bộ trực tiếp từ hóa đơn và khoản thanh toán của khách thuê.</p>
                 </div>
               </div>
             </AccordionItem>
@@ -467,13 +654,38 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
               onToggle={() => toggleSection("invoices")}
               icon={<FileText size={16} className="text-sky-500" />}
               title="Lịch sử hóa đơn tiền phòng & Dịch vụ"
-              badgeText="Hóa đơn"
+              badgeText={invoicesLoading ? "Đang tải..." : `${invoices.length} hóa đơn`}
             >
-              <div className="rounded-xl border border-border/60 bg-surface/40 p-4 text-center text-xs text-muted">
-                <Clock size={20} className="mx-auto text-muted/60 mb-2" />
-                <p className="font-bold text-text mb-0.5">Danh sách hóa đơn của khách thuê</p>
-                <p>Tất cả hóa đơn tiền phòng, tiền điện Hunonic và dịch vụ phát sinh sẽ được hiển thị tại đây.</p>
-              </div>
+              {invoices.length === 0 ? (
+                <div className="rounded-xl border border-border/60 bg-surface/40 p-4 text-center text-xs text-muted">
+                  <Clock size={20} className="mx-auto text-muted/60 mb-2" />
+                  <p className="font-bold text-text mb-0.5">{invoicesLoading ? "Đang đồng bộ hóa đơn..." : "Chưa có hóa đơn phát sinh"}</p>
+                  <p>Tất cả hóa đơn tiền phòng, điện, nước và dịch vụ sẽ được hiển thị tại đây.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {invoices.slice(0, 8).map((invoice) => {
+                    const outstanding = Math.max(0, Number(invoice.total || 0) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0));
+                    const status = String(invoice.status || "").toUpperCase();
+                    const latestPayment = Array.isArray(invoice.payments) ? invoice.payments[0] : null;
+                    return (
+                      <div key={invoice.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-surface/40 p-3 text-xs">
+                        <div className="min-w-0">
+                          <div className="font-black text-text truncate">{invoice.code || "Hóa đơn"} · {invoice.period || "Không kỳ"}</div>
+                          <div className="mt-1 text-muted">
+                            Hạn {formatDate(invoice.dueDate)} · {status === "PAID" ? "Đã thanh toán" : outstanding > 0 ? "Còn phải thu" : "Đã đối soát"}
+                            {latestPayment?.paidAt ? ` · ${latestPayment.provider || "Thanh toán"} ${formatDate(latestPayment.paidAt)}` : ""}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="font-mono font-black text-text">{formatMoney(Number(invoice.total || 0))}</div>
+                          <div className={`mt-1 font-bold ${outstanding > 0 ? "text-rose-500" : "text-emerald-600"}`}>{outstanding > 0 ? `Còn ${formatMoney(outstanding)}` : "Đã thu đủ"}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </AccordionItem>
 
             {/* 5. KHAI BÁO TẠM TRÚ (CT01) */}
@@ -506,18 +718,26 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
               icon={<Clock size={16} className="text-muted" />}
               title="Lịch sử hoạt động (Activity Log)"
             >
-              <div className="relative pl-6 space-y-3.5 text-xs before:absolute before:left-2 before:top-2 before:bottom-2 before:w-[2px] before:bg-border">
-                <TimelineItem
-                  title="Hồ sơ khách thuê được ghi nhận"
-                  time={formatDate(rawCustomer.createdAt || new Date())}
-                  desc={`Khách hàng ${fullName} được thêm vào hệ thống quản lý.`}
-                />
-                {hasContract && (
-                  <TimelineItem
-                    title={`Ký hợp đồng phòng ${roomLabel}`}
-                    time={formatDate(startDate)}
-                    desc={`Hợp đồng kỳ hạn ${formatDate(startDate)} đến ${formatDate(endDate)} có hiệu lực.`}
-                  />
+              <div className="relative space-y-4 pl-12 pr-1 text-xs before:absolute before:left-6 before:top-6 before:bottom-6 before:w-0.5 before:rounded-full before:bg-gradient-to-b before:from-primary/80 before:via-primary/30 before:to-border/60 before:shadow-[0_0_14px_rgb(99_102_241/0.16)]">
+                {activityLoading ? (
+                  <div className="rounded-xl border border-border/60 bg-surface/40 p-4 text-muted">Đang đồng bộ lịch sử hoạt động...</div>
+                ) : (
+                  activityItems.length > 0 ? (
+                    activityItems.map((item, index) => (
+                      <TimelineItem
+                        key={item.id}
+                        title={item.title}
+                        time={formatDateTime(item.timestamp)}
+                        desc={item.desc}
+                        isLatest={index === 0}
+                        showArrow={index < activityItems.length - 1}
+                      />
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-border/60 bg-surface/40 p-4 text-muted">
+                      Chưa có hoạt động nghiệp vụ nào được ghi nhận cho hồ sơ này.
+                    </div>
+                  )
                 )}
               </div>
             </AccordionItem>
@@ -619,6 +839,15 @@ function StatCard({
   );
 }
 
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-surface/50 p-3">
+      <span className="block text-[10px] font-bold uppercase tracking-wider text-muted">{label}</span>
+      <span className="mt-1 block truncate font-mono text-xs font-black text-text">{value}</span>
+    </div>
+  );
+}
+
 function AccordionItem({
   isOpen,
   onToggle,
@@ -689,15 +918,53 @@ function ServiceChip({ icon, label, value }: { icon: React.ReactNode; label: str
   );
 }
 
-function TimelineItem({ title, time, desc }: { title: string; time: string; desc: string }) {
+function TimelineItem({
+  title,
+  time,
+  desc,
+  isLatest = false,
+  showArrow = false,
+}: {
+  title: string;
+  time: string;
+  desc: string;
+  isLatest?: boolean;
+  showArrow?: boolean;
+}) {
   return (
-    <div className="relative">
-      <div className="absolute -left-[29px] top-1 h-3 w-3 rounded-full border-2 border-primary bg-background" />
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-bold text-text text-xs">{title}</span>
-        <span className="text-[10px] font-mono text-muted">{time}</span>
+    <div className={`group relative rounded-2xl border px-4 py-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+      isLatest
+        ? "border-primary/25 bg-gradient-to-br from-primary/[0.09] via-card to-card shadow-primary/5"
+        : "border-border/60 bg-card/80 hover:border-primary/20 hover:bg-primary/[0.035]"
+    }`}>
+      {showArrow && (
+        <div
+          aria-hidden="true"
+          className="absolute -left-[29px] top-[calc(100%+2px)] z-10 h-0 w-0 border-x-[5px] border-b-[9px] border-x-transparent border-b-primary/75 drop-shadow-[0_0_5px_rgb(99_102_241/0.35)] transition-all group-hover:border-b-primary"
+        />
+      )}
+      <div className={`absolute -left-[33px] top-4 z-20 flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 bg-background ring-[5px] ring-background transition-all ${
+        isLatest ? "border-primary shadow-[0_0_0_6px_rgb(99_102_241/0.13)]" : "border-primary/70 group-hover:border-primary group-hover:shadow-[0_0_0_5px_rgb(99_102_241/0.09)]"
+      }`}>
+        <span className={`rounded-full ${isLatest ? "h-2.5 w-2.5 animate-pulse bg-primary" : "h-1.5 w-1.5 bg-primary/25 group-hover:bg-primary/70"}`} />
       </div>
-      <p className="text-[11px] text-muted mt-0.5">{desc}</p>
+      <div className="absolute -left-[14px] top-6 h-px w-3 bg-gradient-to-r from-primary/50 to-transparent" />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-black leading-5 text-text text-xs">{title}</span>
+            {isLatest && (
+              <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-primary">
+                Mới nhất
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-[11px] leading-5 text-muted">{desc}</p>
+        </div>
+        <span className="shrink-0 rounded-lg border border-border/60 bg-surface/70 px-2 py-1 text-[10px] font-mono font-bold text-muted shadow-sm">
+          {time}
+        </span>
+      </div>
     </div>
   );
 }

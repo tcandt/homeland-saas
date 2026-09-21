@@ -154,6 +154,25 @@ export class ContractsController {
     );
   }
 
+  @Post(":id/convert-booking-hold")
+  @RequirePermissions("contract.create")
+  @ApiOperation({
+    summary: "Create a long-term rental draft from a booking-hold contract",
+  })
+  convertBookingHold(
+    @Param("id") id: string,
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    return this.contractsService.createRentalFromBookingHold(
+      id,
+      RenewContractSchema.parse(body),
+      userId,
+      tenantId,
+    );
+  }
+
   @Patch(":id")
   @RequirePermissions("contract.update")
   @ApiOperation({ summary: "Update contract" })

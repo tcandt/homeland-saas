@@ -42,6 +42,7 @@ import { Card } from "@/components/ui/Card";
 import { getTenantAvatar } from "@/components/tenants/TenantDetailDrawer";
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
+const isDirectInvoiceCreationDisabled = true;
 
 const formatDate = (value?: string) => {
   if (!value) return "--/--/----";
@@ -472,11 +473,14 @@ export default function InvoicesPage() {
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
+                      disabled={isDirectInvoiceCreationDisabled}
+                      title="Tạm khóa: hóa đơn sẽ được tạo từ Tòa nhà → Phòng → Khách thuê."
                       onClick={() => {
+                        if (isDirectInvoiceCreationDisabled) return;
                         setCreateModalTab("INVOICE");
                         setIsCreateModalOpen(true);
                       }}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white px-3.5 py-1.5 text-xs font-black shadow-xs transition-colors shrink-0"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-black text-white shadow-xs transition-colors shrink-0 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-primary"
                     >
                       <Plus size={14} /> Lập hóa đơn / Cọc
                     </button>
@@ -488,18 +492,18 @@ export default function InvoicesPage() {
             {/* TABLE CONTAINER CARD */}
             <section data-testid="invoices-list" className="flex min-h-[480px] flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm xl:h-full xl:min-h-0">
               <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
-                <table className="w-full min-w-[1200px] text-left border-collapse">
+                <table className="w-full min-w-[1240px] border-collapse text-left">
                   <thead className="sticky top-0 z-10 bg-surface/90 backdrop-blur-sm text-[11px] uppercase tracking-wider text-muted shadow-[0_1px_0_var(--border)] select-none">
                     <tr>
-                      <th className="w-[120px] px-3.5 py-2.5 font-black whitespace-nowrap">Mã Hóa đơn</th>
-                      <th className="w-[140px] px-3.5 py-2.5 font-black whitespace-nowrap">Chiều / Loại</th>
-                      <th className="w-[200px] px-3.5 py-2.5 font-black whitespace-nowrap">Khách thuê / Phòng</th>
-                      <th className="w-[120px] px-3.5 py-2.5 font-black whitespace-nowrap">Kỳ hóa đơn</th>
-                      <th className="w-[110px] px-3.5 py-2.5 font-black whitespace-nowrap">Hạn thanh toán</th>
-                      <th className="w-[130px] px-3.5 py-2.5 text-right font-black whitespace-nowrap">Tổng tiền</th>
-                      <th className="w-[110px] px-3.5 py-2.5 text-right font-black whitespace-nowrap">Đã thu/chi</th>
-                      <th className="w-[110px] px-3.5 py-2.5 text-right font-black whitespace-nowrap">Còn lại</th>
-                      <th className="w-[130px] px-3.5 py-2.5 font-black whitespace-nowrap">Trạng thái</th>
+                      <th className="w-[145px] px-4 py-3 font-black whitespace-nowrap">Mã hóa đơn</th>
+                      <th className="w-[150px] px-4 py-3 text-center font-black whitespace-nowrap">Chiều / Loại</th>
+                      <th className="w-[240px] px-4 py-3 font-black whitespace-nowrap">Khách thuê / Phòng</th>
+                      <th className="w-[130px] px-4 py-3 text-center font-black whitespace-nowrap">Kỳ hóa đơn</th>
+                      <th className="w-[130px] px-4 py-3 text-center font-black whitespace-nowrap">Hạn thanh toán</th>
+                      <th className="w-[140px] px-4 py-3 text-center font-black whitespace-nowrap">Tổng tiền</th>
+                      <th className="w-[130px] px-4 py-3 text-center font-black whitespace-nowrap">Đã thu/chi</th>
+                      <th className="w-[115px] px-4 py-3 text-center font-black whitespace-nowrap">Còn lại</th>
+                      <th className="w-[145px] px-4 py-3 text-center font-black whitespace-nowrap">Trạng thái</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/40">
@@ -829,19 +833,19 @@ function InvoiceRow({
   return (
     <tr
       data-testid="invoice-card"
-      className="group border-b border-border/40 last:border-b-0 hover:bg-surface/70 cursor-pointer transition-colors"
+      className="group h-[76px] border-b border-border/40 last:border-b-0 hover:bg-surface/70 cursor-pointer transition-colors"
       onClick={onOpen}
       onContextMenu={onContextMenu}
     >
       {/* 1. MÃ HÓA ĐƠN */}
-      <td className="px-3.5 py-3">
+      <td className="px-4 py-3 align-middle">
         <div className="font-mono text-[13px] font-black text-primary group-hover:underline whitespace-nowrap">{code}</div>
         <div className="text-[11px] font-medium text-muted whitespace-nowrap">{invoice.title || "Hóa đơn dịch vụ"}</div>
       </td>
 
       {/* 2. CHIỀU & LOẠI KHOẢN MỤC */}
-      <td className="px-3.5 py-3 whitespace-nowrap">
-        <div className="flex flex-col gap-1 items-start">
+      <td className="px-4 py-3 whitespace-nowrap align-middle">
+        <div className="flex flex-col items-center justify-center gap-1">
           <span
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
               typeInfo.direction === "EXPENSE"
@@ -866,8 +870,8 @@ function InvoiceRow({
       </td>
 
       {/* 3. KHÁCH THUÊ / PHÒNG */}
-      <td className="px-3.5 py-3">
-        <div className="flex items-center gap-2.5">
+      <td className="px-4 py-3 align-middle">
+        <div className="flex items-center gap-3">
           <div className="relative shrink-0">
             <img
               src={avatarUrl}
@@ -885,10 +889,10 @@ function InvoiceRow({
             </span>
           </div>
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-black text-text max-w-[160px] group-hover:text-primary transition-colors">
+            <div className="truncate text-[13px] font-black text-text max-w-[190px] group-hover:text-primary transition-colors">
               {customerName}
             </div>
-            <div className="flex items-center gap-1 text-[11px] font-bold text-muted">
+            <div className="flex items-center gap-1 text-[11px] font-bold text-muted max-w-[205px]">
               <Building2 size={11} className="text-indigo-500 shrink-0" />
               <span className="truncate">{buildingName || "Tòa nhà"}</span>
               <span className="text-muted/40">•</span>
@@ -899,13 +903,13 @@ function InvoiceRow({
       </td>
 
       {/* 4. KỲ HÓA ĐƠN */}
-      <td className="px-3.5 py-3 whitespace-nowrap">
+      <td className="px-4 py-3 text-center align-middle whitespace-nowrap">
         <div className="text-[13px] font-black font-mono text-text">{invoicePeriod(invoice)}</div>
         <div className="text-[11px] font-semibold text-muted">{invoice.month || "Tháng này"}</div>
       </td>
 
       {/* 5. HẠN THANH TOÁN */}
-      <td className="px-3.5 py-3 whitespace-nowrap">
+      <td className="px-4 py-3 text-center align-middle whitespace-nowrap">
         <div className={`text-[12px] font-black font-mono ${invoice.status === "OVERDUE" ? "text-rose-600 dark:text-rose-400" : "text-text"}`}>
           {dueText}
         </div>
@@ -915,27 +919,27 @@ function InvoiceRow({
       </td>
 
       {/* 6. TỔNG TIỀN */}
-      <td className="px-3.5 py-3 text-right text-[13px] font-black font-mono tabular-nums whitespace-nowrap">
+      <td className="px-4 py-3 text-center align-middle text-[13px] font-black font-mono tabular-nums whitespace-nowrap">
         <span className={typeInfo.direction === "EXPENSE" ? "text-rose-600 dark:text-rose-400" : "text-text"}>
           {typeInfo.direction === "EXPENSE" ? `- ${formatVnd(total)}` : `+ ${formatVnd(total)}`}
         </span>
       </td>
 
       {/* 7. ĐÃ THU/CHI */}
-      <td className="px-3.5 py-3 text-right text-[13px] font-bold font-mono tabular-nums whitespace-nowrap">
+      <td className="px-4 py-3 text-center align-middle text-[13px] font-bold font-mono tabular-nums whitespace-nowrap">
         <span className={typeInfo.direction === "EXPENSE" ? "text-rose-600" : "text-emerald-600 dark:text-emerald-400"}>
           {formatVnd(paid)}
         </span>
       </td>
 
       {/* 8. CÒN LẠI */}
-      <td className={`px-3.5 py-3 text-right text-[13px] font-black font-mono tabular-nums whitespace-nowrap ${remaining > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted"}`}>
+      <td className={`px-4 py-3 text-center align-middle text-[13px] font-black font-mono tabular-nums whitespace-nowrap ${remaining > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted"}`}>
         {formatVnd(remaining)}
       </td>
 
       {/* 9. TRẠNG THÁI */}
-      <td className="px-3.5 py-3 whitespace-nowrap">
-        <span className={`inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-bold ${meta.tone}`}>
+      <td className="px-4 py-3 text-center align-middle whitespace-nowrap">
+        <span className={`mx-auto inline-flex items-center justify-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-bold ${meta.tone}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
           {meta.label}
         </span>

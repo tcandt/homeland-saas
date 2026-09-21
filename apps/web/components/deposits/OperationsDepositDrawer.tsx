@@ -49,6 +49,12 @@ import DepositQrModal from "./DepositQrModal";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 
 const currencyFormatter = new Intl.NumberFormat("vi-VN");
+const timelineStepTitleClass =
+  "min-w-0 flex-1 truncate text-xs font-black text-text";
+const timelineStepTitleMutedClass =
+  "min-w-0 flex-1 truncate text-xs font-semibold text-slate-400 dark:text-slate-500";
+const timelineStatusBadgeClass =
+  "shrink-0 whitespace-nowrap rounded-md border px-1.5 py-1 text-[9px] uppercase leading-none tracking-tight";
 
 function createIdempotencyKey(action: string) {
   const suffix = globalThis.crypto?.randomUUID?.()
@@ -175,8 +181,11 @@ export default function OperationsDepositDrawer({
   const wasEverCollected =
     isPaid ||
     Boolean((detailDeposit as any).paidAt) ||
+    (hasAuthoritativeBalance && Number(availableBalance) > 0) ||
     isRefunded ||
     (isBookingDeposit && isConverted);
+  const paymentRequestStatus = String(detailDeposit.paymentRequest?.status || "").toUpperCase();
+  const paymentRequestCreated = Boolean(detailDeposit.paymentRequest?.id);
   const canShowVietQr = !isPaid && !isRefunded && !isCancelled;
 
   const getStatusConfig = (status: string) => {
@@ -194,9 +203,11 @@ export default function OperationsDepositDrawer({
         };
       case "PAID":
         return {
-          label: isContractDeposit
-            ? "Đã thu cọc hợp đồng"
-            : "Đã thu cọc giữ phòng",
+          label: isBookingDeposit
+            ? "Đã thu cọc HĐ giữ chỗ"
+            : isContractDeposit
+              ? "Đã thu cọc hợp đồng"
+              : "Đã thu cọc giữ phòng",
           variant: "success" as const,
           bg: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
         };
@@ -543,7 +554,7 @@ export default function OperationsDepositDrawer({
                 </span>
                 <span
                   data-testid="deposit-status-badge"
-                  className={`text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-wide ${statusConfig.bg}`}
+                  className={`text-[10px] font-black px-2 py-0.5 rounded-md border tracking-wide ${statusConfig.bg}`}
                 >
                   {statusConfig.label}
                 </span>
@@ -886,14 +897,14 @@ export default function OperationsDepositDrawer({
                   <RefreshCcw size={14} className="text-primary" /> Tiến trình
                   xử lý phiếu cọc
                 </h4>
-                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-surface border border-border/60 text-muted">
+                <span className="shrink-0 whitespace-nowrap rounded-md border border-border/60 bg-surface px-1.5 py-1 text-[9px] font-black uppercase leading-none tracking-tight text-muted">
                   {isBookingDeposit
                     ? "6 Bước cọc giữ phòng"
                     : "5 Bước cọc hợp đồng"}
                 </span>
               </div>
 
-              <div className="relative mt-1 flex flex-col gap-0 pl-1">
+              <div className="deposit-flow-timeline relative mt-1 flex flex-col gap-0 pl-1">
                 {isBookingDeposit ? (
                   /* ========================================================================= */
                   /* --- BRANCH 1: CỌC GIỮ PHÒNG (6 BƯỚC)                                   --- */
@@ -918,10 +929,10 @@ export default function OperationsDepositDrawer({
                       <div className="flex-1 min-w-0 pb-3">
                         <div className="p-2.5 rounded-xl bg-surface/50 border border-border/50">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-black text-text">
-                              1. Tạo cọc giữ phòng
+                            <span className={timelineStepTitleClass}>
+                              1. Tạo phiếu cọc giữ phòng
                             </span>
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                            <span className={`${timelineStatusBadgeClass} font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20`}>
                               Đã tạo
                             </span>
                           </div>
@@ -963,10 +974,10 @@ export default function OperationsDepositDrawer({
                       <div className="flex-1 min-w-0 pb-3">
                         <div className="p-2.5 rounded-xl bg-surface/50 border border-border/50">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-black text-text">
-                              2. Tạo HĐ giữ chỗ
+                            <span className={timelineStepTitleClass}>
+                              2. Lập thỏa thuận cọc giữ phòng
                             </span>
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                            <span className={`${timelineStatusBadgeClass} font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20`}>
                               Đã lập thỏa thuận
                             </span>
                           </div>
@@ -1019,28 +1030,28 @@ export default function OperationsDepositDrawer({
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={`text-xs font-black ${wasEverCollected ? "text-text" : "text-amber-900 dark:text-amber-200"}`}
+                              className={`min-w-0 flex-1 truncate text-xs font-black ${wasEverCollected ? "text-text" : "text-amber-900 dark:text-amber-200"}`}
                             >
-                              3. Thanh toán tiền cọc
+                              3. Gửi yêu cầu thanh toán cọc
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                              className={`${timelineStatusBadgeClass} font-black ${
                                 wasEverCollected
                                   ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
                                   : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 flex items-center gap-1.5"
                               }`}
                             >
-                              {wasEverCollected
-                                ? "Đã thanh toán"
-                                : "Chờ thanh toán"}
+                              {paymentRequestCreated
+                                ? "Đã gửi yêu cầu"
+                                : "Chưa gửi yêu cầu"}
                             </span>
                           </div>
                           <p
                             className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-amber-900/80 dark:text-amber-200/80 font-medium"}`}
                           >
-                            {wasEverCollected
-                              ? `Đã thanh toán tiền cọc giữ phòng: ${amountStr}`
-                              : "Tạo hóa đơn cọc giữ phòng và gửi thông tin thanh toán tới Zalo bot khách hàng"}
+                            {paymentRequestCreated
+                                ? `Đã tạo hóa đơn và gửi thông tin thanh toán: ${amountStr}`
+                                : "Tạo hóa đơn cọc giữ phòng và gửi QR thanh toán cho khách hàng"}
                           </p>
                         </div>
                       </div>
@@ -1084,26 +1095,28 @@ export default function OperationsDepositDrawer({
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                              className={wasEverCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
                             >
-                              4. Xác nhận thanh toán
+                              4. Xác nhận đã thu tiền cọc
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                              className={`${timelineStatusBadgeClass} ${
                                 wasEverCollected
                                   ? "font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
                                   : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
                               }`}
                             >
-                              {wasEverCollected ? "Đã nhận đủ" : "Chờ xác nhận"}
+                              {wasEverCollected ? "Đã xác nhận thu" : "Chờ xác nhận thu"}
                             </span>
                           </div>
                           <p
                             className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
                           >
                             {wasEverCollected
-                              ? `Đã nhận đủ ${amountStr} tiền cọc giữ phòng vào tài khoản`
-                              : "Hệ thống tự động xác nhận ngay khi nhận được thanh toán"}
+                              ? `Đã xác nhận thu đủ ${amountStr} tiền cọc giữ phòng`
+                              : paymentRequestStatus === "PENDING"
+                                ? "Đang chờ SePay xác nhận giao dịch"
+                                : "Tự động cập nhật khi SePay xác nhận hoặc admin ghi nhận tiền mặt"}
                           </p>
                           {wasEverCollected && (
                             <div className="flex items-center gap-1 text-[10px] font-bold text-muted mt-1.5 pt-1.5 border-t border-border/30 font-mono">
@@ -1159,28 +1172,28 @@ export default function OperationsDepositDrawer({
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                              className={wasEverCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
                             >
-                              5. Hợp đồng giữ chỗ có hiệu lực
+                              5. Phiếu cọc giữ phòng có hiệu lực
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                              className={`${timelineStatusBadgeClass} ${
                                 wasEverCollected
                                   ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
                                   : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
                               }`}
                             >
                               {wasEverCollected
-                                ? "Có hiệu lực"
-                                : "Chờ kích hoạt"}
+                                ? "Đã có hiệu lực"
+                                : "Chờ xác nhận thu"}
                             </span>
                           </div>
                           <p
                             className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
                           >
                             {wasEverCollected
-                              ? `Hợp đồng giữ chỗ có hiệu lực, phòng ${detailDeposit.roomCode || ""} được khóa giữ chỗ thành công`
-                              : "Sẽ kích hoạt hiệu lực giữ chỗ ngay sau khi nhận đủ tiền cọc"}
+                              ? `Phiếu cọc có hiệu lực, phòng ${detailDeposit.roomCode || ""} đã được giữ chỗ`
+                              : "Phiếu cọc sẽ có hiệu lực sau khi xác nhận đủ tiền cọc"}
                           </p>
                         </div>
                       </div>
@@ -1190,7 +1203,6 @@ export default function OperationsDepositDrawer({
                     {(() => {
                       const isCompleted =
                         isConverted ||
-                        Boolean(detailDeposit.contractId) ||
                         isRefunded ||
                         isCancelled;
                       return (
@@ -1202,7 +1214,7 @@ export default function OperationsDepositDrawer({
                                   ? "bg-amber-500 text-white ring-4 ring-amber-500/20"
                                   : isCancelled
                                     ? "bg-rose-500 text-white ring-4 ring-rose-500/20"
-                                    : isConverted || detailDeposit.contractId
+                                    : isConverted
                                       ? "bg-indigo-600 text-white ring-4 ring-indigo-600/15"
                                       : wasEverCollected
                                         ? "bg-sky-500 text-white ring-4 ring-sky-500/20"
@@ -1213,7 +1225,7 @@ export default function OperationsDepositDrawer({
                                 <RefreshCcw size={15} />
                               ) : isCancelled ? (
                                 <X size={15} />
-                              ) : isConverted || detailDeposit.contractId ? (
+                              ) : isConverted ? (
                                 <ShieldCheck size={16} />
                               ) : wasEverCollected ? (
                                 <Clock3 size={15} />
@@ -1232,24 +1244,23 @@ export default function OperationsDepositDrawer({
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span
-                                  className={`text-xs ${isCompleted || wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                                  className={isCompleted || wasEverCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
                                 >
                                   {isRefunded
                                     ? "6. Đã hoàn cọc"
                                     : isCancelled
                                       ? "6. Đã hủy phiếu cọc"
-                                      : isConverted || detailDeposit.contractId
-                                        ? "6. Đã lên HĐ chính thức"
-                                        : "6. Thông báo sắp tới hạn"}
+                                      : isConverted
+                                        ? "6. Đã chuyển sang hợp đồng thuê"
+                                        : "6. Theo dõi hạn giữ chỗ"}
                                 </span>
                                 <span
-                                  className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                                  className={`${timelineStatusBadgeClass} ${
                                     isRefunded
                                       ? "font-black bg-amber-500/10 text-amber-600 border-amber-500/20"
                                       : isCancelled
                                         ? "font-black bg-rose-500/10 text-rose-600 border-rose-500/20"
-                                        : isConverted ||
-                                            detailDeposit.contractId
+                                        : isConverted
                                           ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
                                           : wasEverCollected
                                             ? "font-bold bg-sky-500/10 text-sky-600 border-sky-500/20"
@@ -1260,11 +1271,11 @@ export default function OperationsDepositDrawer({
                                     ? "Đã hoàn"
                                     : isCancelled
                                       ? "Đã hủy"
-                                      : isConverted || detailDeposit.contractId
-                                        ? "Đã lên HĐ"
+                                      : isConverted
+                                        ? "Đã chuyển đổi"
                                         : wasEverCollected
-                                          ? "Đang theo dõi"
-                                          : "Chờ đóng cọc"}
+                                          ? "Đang hiệu lực"
+                                          : "Chờ thu cọc"}
                                 </span>
                               </div>
                               <p
@@ -1274,8 +1285,8 @@ export default function OperationsDepositDrawer({
                                   ? "Đã hoàn lại tiền cọc giữ phòng cho khách qua kế toán"
                                   : isCancelled
                                     ? "Phiếu cọc giữ phòng đã bị hủy hoặc thu hồi"
-                                    : isConverted || detailDeposit.contractId
-                                      ? `Đã chuyển cọc giữ phòng thành Hợp đồng thuê: ${detailDeposit.contractCode || "Liên kết"}`
+                                    : isConverted
+                                      ? `Đã chuyển phiếu cọc sang hợp đồng thuê: ${detailDeposit.contractCode || "Liên kết"}`
                                       : wasEverCollected
                                         ? `Tự động thông báo cho Admin khi cọc giữ phòng sắp tới hạn (${formatDate(detailDeposit.expiredAt)}) để bố trí sắp xếp`
                                         : "Chỉ theo dõi sau khi nhận đủ tiền cọc giữ phòng"}
@@ -1328,10 +1339,10 @@ export default function OperationsDepositDrawer({
                       <div className="flex-1 min-w-0 pb-3">
                         <div className="p-2.5 rounded-xl bg-surface/50 border border-border/50">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-black text-text">
+                            <span className={timelineStepTitleClass}>
                               1. Tạo phiếu HĐ
                             </span>
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                            <span className={`${timelineStatusBadgeClass} font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20`}>
                               Đã tạo
                             </span>
                           </div>
@@ -1392,12 +1403,12 @@ export default function OperationsDepositDrawer({
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={`text-xs font-black ${wasEverCollected ? "text-text" : "text-amber-900 dark:text-amber-200"}`}
+                              className={`min-w-0 flex-1 truncate text-xs font-black ${wasEverCollected ? "text-text" : "text-amber-900 dark:text-amber-200"}`}
                             >
                               2. Thanh toán tiền cọc
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                              className={`${timelineStatusBadgeClass} font-black ${
                                 wasEverCollected
                                   ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
                                   : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 flex items-center gap-1.5"
@@ -1463,12 +1474,12 @@ export default function OperationsDepositDrawer({
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                              className={wasEverCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
                             >
                               3. Đã nhận tiền cọc
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                              className={`${timelineStatusBadgeClass} ${
                                 wasEverCollected
                                   ? "font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
                                   : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
@@ -1538,12 +1549,12 @@ export default function OperationsDepositDrawer({
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={`text-xs ${wasEverCollected ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                              className={wasEverCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
                             >
                               4. HĐ có hiệu lực
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                              className={`${timelineStatusBadgeClass} ${
                                 wasEverCollected
                                   ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
                                   : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
@@ -1600,7 +1611,11 @@ export default function OperationsDepositDrawer({
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={`text-xs ${wasEverCollected || isRefunded || isCancelled ? "font-black text-text" : "font-semibold text-slate-400 dark:text-slate-500"}`}
+                              className={
+                                wasEverCollected || isRefunded || isCancelled
+                                  ? timelineStepTitleClass
+                                  : timelineStepTitleMutedClass
+                              }
                             >
                               {isRefunded
                                 ? "5. Đã hoàn cọc khi thanh lý HĐ"
@@ -1611,7 +1626,7 @@ export default function OperationsDepositDrawer({
                                     : "5. Lưu giữ cọc hợp đồng"}
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-md text-[10px] uppercase border ${
+                              className={`${timelineStatusBadgeClass} ${
                                 isRefunded
                                   ? "font-black bg-amber-500/10 text-amber-600 border-amber-500/20"
                                   : isCancelled

@@ -213,7 +213,7 @@ describe("Contracts Workflow Verification", () => {
     expect(currentContract.status).toBe(ContractStatus.APPROVED);
     expect(currentRoom.status).toBe(RoomStatus.RESERVED);
     expect(currentDeposit).toBeDefined();
-    expect(currentDeposit.status).toBe("DRAFT");
+    expect(currentDeposit.status).toBe("PENDING");
     expect(auditService.log).toHaveBeenCalled();
     auditService.log.mockClear();
 
@@ -316,6 +316,7 @@ describe("Contracts Workflow Verification", () => {
     it("should fail approve occupied room", async () => {
       currentContract.status = ContractStatus.PENDING_APPROVAL;
       currentRoom.status = RoomStatus.OCCUPIED;
+      prismaService.tx.occupancy.count.mockResolvedValue(1);
       await expect(service.approveContract("c1", "u1")).rejects.toThrow();
     });
 

@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -44,7 +44,7 @@ jobs:
     needs: [lint]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -65,7 +65,7 @@ jobs:
     needs: [typecheck]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -95,7 +95,7 @@ env:
       RUN_DESTRUCTIVE_E2E: true
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -118,7 +118,7 @@ env:
     needs: [integration-test]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -148,7 +148,7 @@ env:
     needs: [integration-test]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '20', cache: 'npm' }
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -191,7 +191,7 @@ env:
       security-events: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '20', cache: 'npm' }
       - run: npm ci
       - run: mkdir -p security
@@ -280,7 +280,7 @@ env:
       SEED_FORCE_PASSWORD_CHANGE: "false"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '20', cache: 'npm' }
       - name: Set Environment Variables
         run: |
@@ -355,7 +355,7 @@ env:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '20', cache: 'npm' }
       - run: npm ci
       - name: Semantic Release
@@ -520,7 +520,7 @@ env:
       release_version: ${{ needs.deploy-staging.outputs.release_version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm ci

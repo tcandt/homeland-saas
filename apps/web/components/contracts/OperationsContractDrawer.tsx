@@ -564,9 +564,20 @@ export default function OperationsContractDrawer({
     bookingDeposit?.availableBalance ?? bookingDeposit?.amount ?? 0,
   );
   const bookingDepositStatus = String(bookingDeposit?.status || "").toUpperCase();
+  const pendingReviewBookingDeposit = Math.max(
+    0,
+    Number(
+      bookingDeposit?.sepayPendingReviewAmount
+      || detailContract?.bookingPaymentRequest?.actualReceivedAmount
+      || detailContract?.bookingPaymentRequest?.pendingReviewAmount
+      || detailContract?.bookingInvoice?.pendingReviewReceivedAmount
+      || 0,
+    ) || 0,
+  );
   const receivedBookingDeposit = isBookingHold && ["PAID", "CONVERTED_TO_CONTRACT"].includes(bookingDepositStatus)
     ? Number(bookingDeposit?.amount ?? bookingDepositBalance ?? 0)
-    : 0;
+    : Math.min(Number(bookingDeposit?.amount ?? detailContract?.depositMoney ?? 0), pendingReviewBookingDeposit);
+  const hasPendingReviewBookingDeposit = isBookingHold && !["PAID", "CONVERTED_TO_CONTRACT"].includes(bookingDepositStatus) && receivedBookingDeposit > 0;
   const canOperateBookingDeposit =
     isBookingHold &&
     !!bookingDeposit?.id &&
@@ -1877,6 +1888,11 @@ export default function OperationsContractDrawer({
                       <span className="text-[14px] font-black text-emerald-600 dark:text-emerald-400">
                         {receivedBookingDeposit.toLocaleString("vi-VN")}đ
                       </span>
+                      {hasPendingReviewBookingDeposit && (
+                        <span className="mt-0.5 text-[9px] font-black uppercase tracking-tight text-amber-600">
+                          Chờ xử lý
+                        </span>
+                      )}
                     </div>
                   )}
                   <div className="flex flex-col justify-center p-3 bg-rose-500/10 dark:bg-rose-500/15 border border-rose-500/20 dark:border-rose-500/30 rounded-[10px]">

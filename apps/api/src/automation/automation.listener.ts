@@ -71,16 +71,21 @@ export class AutomationListener {
     // For this sprint, we statically map them in workflow engine, but we trigger the check here.
     
     // We only process specific events to avoid infinite loops for now
-    const supportedEvents = ['deposit.created', 'deposit.collected', 'deposit.refunded', 'deposit.refund_requested', 'deposit.deducted', 'invoice.issued', 'invoice.paid', 'invoice.payment.recorded', 'contract.created', 'contract.settlement.refunded', 'contract.settlement.completed'];
+    const supportedEvents = ['deposit.created', 'deposit.collected', 'deposit.refunded', 'deposit.refund_requested', 'deposit.deducted', 'invoice.issued', 'invoice.overdue', 'invoice.paid', 'invoice.payment.recorded', 'contract.created', 'contract.settlement.refunded', 'contract.settlement.completed'];
     if (supportedEvents.includes(eventName)) {
       // Find workflows that trigger on this event
       const workflows = await this.automationService.getWorkflows();
       const triggeredWorkflows = workflows.filter(w => w.triggerEvent === eventName);
+      const shouldPropagateWorkflowFailure = Boolean((payload as any)?.outboxDelivery);
       
       for (const w of triggeredWorkflows) {
-        this.automationService.triggerWorkflow(w.name, eventName, payload).catch(e => {
-          this.logger.error(`Workflow ${w.name} failed`, e.stack);
-        });
+        if (shouldPropagateWorkflowFailure) {
+          await this.automationService.triggerWorkflow(w.name, eventName, payload);
+        } else {
+          this.automationService.triggerWorkflow(w.name, eventName, payload).catch(e => {
+            this.logger.error(`Workflow ${w.name} failed`, e.stack);
+          });
+        }
       }
     }
   }

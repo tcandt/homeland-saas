@@ -439,7 +439,16 @@ describe("InvoicesService", () => {
           }),
         }),
       );
-      expect(eventPublisher.publish).not.toHaveBeenCalled();
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        "invoice.payment.recorded",
+        expect.objectContaining({
+          sourceId: "inv-1",
+          outboxEventId: "outbox-1",
+          paymentAmount: 40,
+          paymentProvider: "MANUAL",
+          paymentRef: "manual-partial-1",
+        }),
+      );
     });
 
     it("records a full payment as durable invoice.paid", async () => {
@@ -479,7 +488,16 @@ describe("InvoicesService", () => {
           }),
         }),
       );
-      expect(eventPublisher.publish).not.toHaveBeenCalled();
+      expect(eventPublisher.publish).toHaveBeenCalledWith(
+        "invoice.paid",
+        expect.objectContaining({
+          sourceId: "inv-1",
+          outboxEventId: "outbox-1",
+          paymentAmount: 60,
+          paymentProvider: "MANUAL",
+          paymentRef: "manual-full-1",
+        }),
+      );
     });
 
     it("uses invoice credit in remaining balance", async () => {

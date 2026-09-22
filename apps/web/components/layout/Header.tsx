@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Search, Moon, Sun, Bell, Menu } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import useSWR from "swr";
 import { useTheme } from "next-themes";
 import { useAuthStore } from "@/lib/auth/auth-store";
@@ -139,8 +140,30 @@ function persistSpokenPaymentNotificationIds(ids: Set<string>) {
   }
 }
 
+function normalizeNotificationListPayload(payload: any): any[] {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.notifications)) return payload.notifications;
+  return [];
+}
+
+function mergeNotificationLists(currentPayload: any, incomingNotifications: any[]) {
+  const currentNotifications = normalizeNotificationListPayload(currentPayload);
+  const byId = new Map<string, any>();
+  for (const item of incomingNotifications) {
+    if (item?.id) byId.set(String(item.id), item);
+  }
+  for (const item of currentNotifications) {
+    if (item?.id && !byId.has(String(item.id))) byId.set(String(item.id), item);
+  }
+  return Array.from(byId.values()).sort(
+    (left, right) => new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime(),
+  );
+}
+
 export default function Header({ onToggleSidebar }: HeaderProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
   const current =
@@ -165,6 +188,18 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   const unreadCountInitializedRef = useRef(false);
   const previousUnreadCountRef = useRef(0);
   const spokenPaymentNotificationIdsRef = useRef<Set<string>>(new Set());
+  const pendingAudioNotificationsRef = useRef<any[]>([]);
+  const pendingAudioNotificationIdsRef = useRef<Set<string>>(new Set());
+
+  const handleUnauthorizedSession = () => {
+    useAuthStore.getState().clearSession();
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("auth-storage");
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
+  };
 
   const fetchNotifications = async (url: string) => {
     if (!accessToken) return [];
@@ -172,7 +207,11 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (res.status === 401 || !res.ok) return [];
+      if (res.status === 401) {
+        handleUnauthorizedSession();
+        return [];
+      }
+      if (!res.ok) return [];
       return res.json();
     } catch {
       return [];
@@ -184,11 +223,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     fetchNotifications,
     { revalidateOnFocus: false, refreshInterval: 30000 },
   );
-  const recentNotifications = Array.isArray(notificationList?.data)
-    ? notificationList.data.slice(0, 5)
-    : Array.isArray(notificationList)
-      ? notificationList.slice(0, 5)
-      : [];
+  const recentNotifications = normalizeNotificationListPayload(notificationList).slice(0, 5);
   const { data: notificationSettings } = useSettingsSectionQuery<any>(
     "notifications",
     "TENANT",
@@ -216,35 +251,81 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     return (audioSettings.systemSound || "pop") as NotificationSoundId;
   };
 
+  const playNotificationAlert = async (type?: string, notification?: any) => {
+    if (!audioSettings.enabled) return false;
+    const played = await playNotificationSound(soundForType(type), audioVolume);
+    if (played) setAudioEnabled(true);
+    let speechQueued = false;
+    if (
+      type === "PAYMENT_RECEIVED"
+      && audioSettings.speakPaymentAmount !== false
+      && (played || audioEnabled || paymentSound === "none")
+    ) {
+      const notificationId = notification?.id ? String(notification.id) : "";
+      if (notificationId && spokenPaymentNotificationIdsRef.current.has(notificationId)) {
+        return true;
+      }
+      const amount = Number(
+        notification?.metadata?.amount
+        ?? notification?.metadata?.paymentAmount
+        ?? notification?.metadata?.paidAmount,
+      );
+      if (Number.isFinite(amount) && amount > 0) {
+        speechQueued = speakPaymentAmount(amount, audioVolume, {
+          voiceName: typeof audioSettings.voiceName === "string" ? audioSettings.voiceName : undefined,
+          rate: Number(audioSettings.speechRate ?? 0.95),
+          pitch: Number(audioSettings.speechPitch ?? 1),
+        });
+        if (speechQueued && notificationId) {
+          spokenPaymentNotificationIdsRef.current.add(notificationId);
+          persistSpokenPaymentNotificationIds(spokenPaymentNotificationIdsRef.current);
+        }
+      }
+    }
+    return played || speechQueued;
+  };
+
+  const flushPendingAudioNotifications = () => {
+    const pending = pendingAudioNotificationsRef.current.splice(0);
+    pendingAudioNotificationIdsRef.current.clear();
+    for (const notification of pending) {
+      void playNotificationAlert(notification.type, notification).then((played) => {
+        if (!played && notification?.id) {
+          pendingAudioNotificationsRef.current.push(notification);
+          pendingAudioNotificationIdsRef.current.add(String(notification.id));
+        }
+      });
+    }
+  };
+
+  const queueNotificationAlert = (notification: any) => {
+    const id = notification?.id ? String(notification.id) : `${notification?.type || "notification"}:${notification?.createdAt || Date.now()}`;
+    if (!pendingAudioNotificationIdsRef.current.has(id)) {
+      pendingAudioNotificationsRef.current.push(notification);
+      pendingAudioNotificationIdsRef.current.add(id);
+    }
+    if (audioEnabled) flushPendingAudioNotifications();
+  };
+
   const primeNotificationAudio = async () => {
     if (!audioSettings.enabled) return false;
     const enabled = await unlockNotificationAudio();
     setAudioEnabled(enabled);
+    if (enabled) flushPendingAudioNotifications();
     return enabled;
   };
 
-  const playNotificationAlert = async (type?: string, notification?: any) => {
-    if (!audioSettings.enabled) return;
-    const played = await playNotificationSound(soundForType(type), audioVolume);
-    setAudioEnabled(played);
-    if (type === "PAYMENT_RECEIVED" && audioSettings.speakPaymentAmount !== false) {
-      const notificationId = notification?.id ? String(notification.id) : "";
-      if (notificationId && spokenPaymentNotificationIdsRef.current.has(notificationId)) {
-        return;
-      }
-      const amount = Number(notification?.metadata?.amount);
-      if (Number.isFinite(amount) && amount > 0) {
-        if (notificationId) {
-          spokenPaymentNotificationIdsRef.current.add(notificationId);
-          persistSpokenPaymentNotificationIds(spokenPaymentNotificationIdsRef.current);
-        }
-        window.setTimeout(() => speakPaymentAmount(amount, audioVolume, {
-          voiceName: typeof audioSettings.voiceName === "string" ? audioSettings.voiceName : undefined,
-          rate: Number(audioSettings.speechRate ?? 0.95),
-          pitch: Number(audioSettings.speechPitch ?? 1),
-        }), 360);
-      }
-    }
+  const invalidatePaymentAffectedQueries = () => {
+    void queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    void queryClient.invalidateQueries({ queryKey: ["rooms"] });
+    void queryClient.invalidateQueries({ queryKey: ["buildings"] });
+    void queryClient.invalidateQueries({ queryKey: ["customers"] });
+    void queryClient.invalidateQueries({ queryKey: ["contracts"] });
+    void queryClient.invalidateQueries({ queryKey: ["deposits"] });
+    void queryClient.invalidateQueries({ queryKey: ["room-finance-summary"] });
+    void queryClient.invalidateQueries({ queryKey: ["rental-cycle-finance-summary"] });
+    void queryClient.invalidateQueries({ queryKey: ["finance"] });
+    void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   };
 
   useEffect(() => {
@@ -280,6 +361,12 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     if (!notificationsInitializedRef.current) {
       knownNotificationIdsRef.current = currentIds;
       notificationsInitializedRef.current = true;
+      const freshPayment = recentNotifications.find((item: any) => {
+        if (item?.type !== "PAYMENT_RECEIVED" || item?.status === "READ") return false;
+        const createdAt = new Date(item?.createdAt || 0).getTime();
+        return Number.isFinite(createdAt) && Date.now() - createdAt <= 15 * 60 * 1000;
+      });
+      if (freshPayment) queueNotificationAlert(freshPayment);
       return;
     }
 
@@ -287,13 +374,20 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       (item: any) => !knownNotificationIdsRef.current.has(String(item.id)),
     );
     if (newNotifications.length > 0) {
+      if (newNotifications.some((item: any) => item?.type === "PAYMENT_RECEIVED")) {
+        invalidatePaymentAffectedQueries();
+      }
       setBellAttention(true);
       window.setTimeout(() => setBellAttention(false), 900);
       const soundNotification = newNotifications.find((item: any) => item.status !== "READ");
-      if (soundNotification) void playNotificationAlert(soundNotification.type, soundNotification);
+      if (soundNotification) {
+        void playNotificationAlert(soundNotification.type, soundNotification).then((played) => {
+          if (!played) queueNotificationAlert(soundNotification);
+        });
+      }
     }
     knownNotificationIdsRef.current = currentIds;
-  }, [recentNotifications]);
+  }, [queryClient, recentNotifications]);
 
   useEffect(() => {
     if (!unreadCountInitializedRef.current) {
@@ -305,9 +399,10 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       setBellAttention(true);
       window.setTimeout(() => setBellAttention(false), 900);
       void mutateNotifications();
+      invalidatePaymentAffectedQueries();
     }
     previousUnreadCountRef.current = unreadCount;
-  }, [mutateNotifications, unreadCount]);
+  }, [mutateNotifications, queryClient, unreadCount]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -323,10 +418,15 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
-        if (res.ok && isSubscribed) {
-          const data = await res.json();
-          setUnreadCount(data.count || data.data?.count || 0);
-        }
+          if (res.status === 401) {
+            handleUnauthorizedSession();
+            return;
+          }
+
+          if (res.ok && isSubscribed) {
+            const data = await res.json();
+            setUnreadCount(data.count || data.data?.count || 0);
+          }
       } catch {
         // Silent catch for dev server restarts
       }
@@ -339,6 +439,13 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
         const data = JSON.parse(rawData);
         if (data && data.count !== undefined && isSubscribed) {
           setUnreadCount(data.count);
+        }
+        const streamedNotifications = normalizeNotificationListPayload(data);
+        if (streamedNotifications.length > 0 && isSubscribed) {
+          void mutateNotifications(
+            (current: any) => mergeNotificationLists(current, streamedNotifications),
+            { revalidate: false },
+          );
         }
       } catch {
         // ignore malformed events
@@ -357,6 +464,11 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
         signal: streamController.signal,
       })
         .then(async (response) => {
+          if (response.status === 401) {
+            handleUnauthorizedSession();
+            return;
+          }
+
           if (response.ok && isSubscribed) {
             await consumeServerSentEvents(response, handleSseData);
           } else if (isSubscribed && response.status !== 401 && response.status !== 403) {

@@ -292,7 +292,10 @@ export function buildTenantWebhookUrl(value: any) {
     || '',
   ).trim();
   if (!rawBaseUrl) return '';
-  return `${rawBaseUrl.replace(/\/+$/, '')}/api/v1/notifications/zalo/webhook`;
+  const normalized = rawBaseUrl.replace(/\/+$/, '');
+  const apiMarker = normalized.indexOf('/api/v1/');
+  const origin = apiMarker >= 0 ? normalized.slice(0, apiMarker) : normalized;
+  return `${origin}/api/v1/notifications/zalo/webhook`;
 }
 
 function firstStringValue(source: any, paths: string[]) {

@@ -97,7 +97,7 @@ export class PaymentsController {
     @Headers('x-sepay-signature') signature?: string,
     @Headers('x-sepay-timestamp') timestamp?: string,
   ) {
-    return this.paymentsService.handleSePayWebhook(body, {
+    return this.paymentsService.acceptSePayWebhook(body, {
       authorization,
       signature,
       timestamp,

@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma.service';
 import { TemplateEngine } from './templates/template.engine';
 import { NotificationChannel } from '../automation/automation.constants';
@@ -69,7 +70,12 @@ Số tiền ghi nhận: {{paymentAmount}} đ
 Trạng thái: {{paymentStatusLabel}}
 {{roomAndBuilding}}
 
-Cảm ơn quý khách.`,
+    Cảm ơn quý khách.`,
+  },
+  PAYMENT_RECEIVED: {
+    name: 'Đã nhận được thanh toán',
+    subject: '{{title}}',
+    body: '{{message}}',
   },
   INVOICE_ZALO_PAYMENT_REQUEST: {
     name: 'Yêu cầu thanh toán hóa đơn',
@@ -109,7 +115,10 @@ export class CommunicationService {
   private readonly maxRetryCount = 3;
   private readonly immediateDeliveryEnabled = process.env.COMMUNICATION_IMMEDIATE_DELIVERY !== 'false';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
+  ) {}
 
   registerProvider(provider: CommunicationProvider) {
     this.providers.set(provider.channel, provider);
@@ -184,6 +193,14 @@ export class CommunicationService {
         metadata: context,
       }
     });
+    if (notification.channel === NotificationChannel.IN_APP) {
+      this.eventEmitter?.emit('notification.in_app.created', {
+        tenantId: notification.tenantId,
+        userId: notification.userId,
+        notificationId: notification.id,
+        type: notification.type,
+      });
+    }
 
     // 5. Enqueue and dispatch to channels
     const queueIds: string[] = [];

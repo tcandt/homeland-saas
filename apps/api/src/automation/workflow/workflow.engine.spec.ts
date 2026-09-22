@@ -15,15 +15,20 @@ describe('WorkflowEngine', () => {
       },
       chartOfAccount: {
         findFirst: vi.fn(),
+        create: vi.fn(),
       },
       workflowExecution: {
         create: vi.fn(),
+        findFirst: vi.fn(),
         update: vi.fn(),
       },
       workflowStepExecution: {
         create: vi.fn(),
+        findFirst: vi.fn(),
         update: vi.fn(),
       },
+      $queryRaw: vi.fn(),
+      $transaction: vi.fn(async (callback: any) => callback(prisma)),
     };
     const communicationService = {
       dispatch: vi.fn(),
@@ -57,9 +62,7 @@ describe('WorkflowEngine', () => {
 
   it('sends admin group Zalo notification for SePay payment confirmation when enabled', async () => {
     const { engine, prisma, communicationService } = createEngine();
-    prisma.appSetting.findUnique
-      .mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } })
-      .mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
+    prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
 
     await (engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', {
       tenantId: 'tenant-1',
@@ -82,11 +85,111 @@ describe('WorkflowEngine', () => {
         channel: 'ZALO',
         recipient: 'admin-group-1',
         context: expect.objectContaining({
-          title: 'SePay xác nhận hóa đơn INV-001',
+          chatId: 'admin-group-1',
+          zaloChatId: 'admin-group-1',
+          adminGroupChatId: 'admin-group-1',
+          title: 'Admin - Đã nhận thanh toán INV-001',
           message: expect.stringContaining('Mã giao dịch: txn-1'),
         }),
       }),
     );
+  });
+
+  it('sends booking-hold payment details to the admin group, including move-in date', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({
+      value: {
+        recentWebhookChats: [{ chatId: 'admin-group-from-webhook', chatType: 'group' }],
+      },
+    });
+
+    await (engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-1',
+      customerName: 'Huỳnh Hoàng Hạnh',
+      roomCode: '31-01',
+      buildingName: 'LK01',
+      paymentAmount: 1350000,
+      paidAmount: 1350000,
+      paymentProvider: 'SEPAY',
+      paymentRef: 'TXN-1350',
+      paidAt: '2026-09-22T01:00:00.000Z',
+      moveInDate: '2026-10-01T00:00:00.000Z',
+      metadata: { code: 'HD-COC-001', bookingHoldDepositInvoice: true },
+    }, undefined, 'invoice.paid');
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: 'admin-group-from-webhook',
+        context: expect.objectContaining({
+          title: 'Admin - Đã nhận cọc giữ phòng HD-COC-001',
+          message: expect.stringContaining('Ngày vào ở/dự kiến vào ở:'),
+        }),
+      }),
+    );
+    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Mã giao dịch: TXN-1350');
+    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Phòng: 31-01');
+    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Tòa nhà: LK01');
+  });
+
+  it('still sends admin payment Zalo when customer SePay Zalo result is disabled', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
+
+    await (engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-1',
+      customerName: 'Khach A',
+      amount: 150000,
+      paymentProvider: 'SEPAY',
+      paymentRef: 'txn-150',
+      metadata: { code: 'INV-150' },
+    }, undefined, 'invoice.payment.recorded');
+
+    expect(prisma.appSetting.findUnique).toHaveBeenCalledTimes(1);
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: 'admin-group-1',
+        context: expect.objectContaining({
+          message: expect.stringContaining('Mã giao dịch: txn-150'),
+        }),
+      }),
+    );
+  });
+
+  it('fails payment admin Zalo step when admin group is not configured so outbox can retry', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique
+      .mockResolvedValueOnce({ value: {} })
+      .mockResolvedValueOnce({ value: {} });
+
+    await expect((engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-1',
+      amount: 150000,
+      paymentProvider: 'SEPAY',
+      metadata: { code: 'INV-150' },
+    }, undefined, 'invoice.payment.recorded')).rejects.toThrow('ZALO_ADMIN_GROUP_CHAT_ID_REQUIRED');
+
+    expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
+  });
+
+  it('propagates payment admin Zalo delivery errors so the workflow records a failed step', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
+    communicationService.dispatchDirect.mockRejectedValueOnce(new Error('Zalo rejected chat'));
+
+    await expect((engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-1',
+      amount: 150000,
+      paymentProvider: 'SEPAY',
+      metadata: { code: 'INV-150' },
+    }, undefined, 'invoice.payment.recorded')).rejects.toThrow('Zalo rejected chat');
   });
 
   it('skips Zalo payment confirmations when sepay.sendPaymentResultToZalo is false', async () => {
@@ -151,6 +254,117 @@ describe('WorkflowEngine', () => {
         channel: 'IN_APP',
       }),
     );
+  });
+
+  it('continues payment notifications when journal posting fails', async () => {
+    const { engine, prisma, communicationService, journalEntryService } = createEngine();
+    prisma.workflowExecution.create.mockResolvedValue({ id: 'execution-1' });
+    prisma.workflowStepExecution.create.mockImplementation(async ({ data }: any) => ({ id: `step-${data.order}` }));
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' });
+    journalEntryService.createJournalEntry.mockRejectedValueOnce(new Error('Ledger unavailable'));
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'admin-1', roles: [{ role: { code: 'ADMIN' } }] },
+    ]);
+    prisma.appSetting.findUnique
+      .mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } })
+      .mockResolvedValueOnce({ value: { adminGroupChatId: 'group-1' } });
+    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
+
+    await engine.executeWorkflow('invoice.paid.workflow', 'invoice.paid', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-1',
+      customerId: 'customer-1',
+      amount: 500000,
+      paymentAmount: 500000,
+      paymentProvider: 'SEPAY',
+      metadata: { code: 'INV-001' },
+    });
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient: 'group-1', channel: 'ZALO' }),
+    );
+    expect(communicationService.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin-1',
+        templateCode: 'PAYMENT_RECEIVED',
+      }),
+    );
+    expect(prisma.workflowStepExecution.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'FAILED',
+          error: 'Ledger unavailable',
+        }),
+      }),
+    );
+    expect(prisma.workflowExecution.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'FAILED' }),
+      }),
+    );
+  });
+
+  it('rejects outbox delivery when a non-blocking workflow step fails so the outbox can retry', async () => {
+    const { engine, prisma, communicationService, journalEntryService } = createEngine();
+    prisma.workflowExecution.create.mockResolvedValue({ id: 'execution-1' });
+    prisma.workflowExecution.findFirst.mockResolvedValue(null);
+    prisma.workflowStepExecution.findFirst.mockResolvedValue(null);
+    prisma.workflowStepExecution.create.mockImplementation(async ({ data }: any) => ({ id: `step-${data.order}` }));
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' });
+    journalEntryService.createJournalEntry.mockRejectedValueOnce(new Error('Ledger unavailable'));
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'admin-1', roles: [{ role: { code: 'ADMIN' } }] },
+    ]);
+    prisma.appSetting.findUnique
+      .mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } })
+      .mockResolvedValueOnce({ value: { adminGroupChatId: 'group-1' } });
+    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
+
+    await expect(engine.executeWorkflow('invoice.paid.workflow', 'invoice.paid', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-1',
+      customerId: 'customer-1',
+      amount: 500000,
+      paymentAmount: 500000,
+      paymentProvider: 'SEPAY',
+      metadata: { code: 'INV-001' },
+      outboxEventId: 'outbox-1',
+      outboxDelivery: true,
+    })).rejects.toThrow('WORKFLOW_COMPLETED_WITH_ERRORS');
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient: 'group-1', channel: 'ZALO' }),
+    );
+    expect(prisma.workflowExecution.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'FAILED' }),
+      }),
+    );
+  });
+
+  it('rejects outbox delivery when the same outbox workflow is already running', async () => {
+    const { engine, prisma } = createEngine();
+    prisma.workflowExecution.findFirst.mockResolvedValueOnce({
+      id: 'running-execution-1',
+      status: 'RUNNING',
+    });
+
+    await expect(engine.executeWorkflow('invoice.paid.workflow', 'invoice.paid', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-1',
+      amount: 500000,
+      outboxEventId: 'outbox-1',
+      outboxDelivery: true,
+    })).rejects.toThrow('WORKFLOW_ALREADY_RUNNING');
+
+    expect(prisma.workflowExecution.create).not.toHaveBeenCalled();
   });
 
   it('posts collected deposits to bank and deposit liability accounts', async () => {

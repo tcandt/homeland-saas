@@ -66,7 +66,12 @@ export default function Providers({ children }: { children: React.ReactNode }) {
           queries: {
             staleTime: 60 * 1000, // 1 minute
             refetchOnWindowFocus: false,
-            retry: 1,
+            retry: (failureCount, error: any) => {
+              if (error?.status === 401 || error?.code === "UNAUTHORIZED") {
+                return false;
+              }
+              return failureCount < 1;
+            },
           },
         },
       }),

@@ -15,9 +15,18 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 2,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'DEPOSIT_CREATED',
+        },
+      },
+      {
         name: 'Invalidate Dashboard Cache',
         type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 2,
+        order: 3,
       },
     ],
   },
@@ -38,6 +47,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         name: 'Create Journal Entry',
         type: 'CREATE_JOURNAL_ENTRY',
         order: 2,
+        params: { continueOnError: true },
       },
       {
         name: 'Notify Admin Group via Zalo',
@@ -52,7 +62,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
         order: 4,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'PAYMENT_RECEIVED',
         },
       },
       {
@@ -94,9 +104,47 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 2,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'INVOICE_ISSUED',
+        },
+      },
+      {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
+        order: 3,
+      },
+    ],
+  },
+  {
+    name: 'invoice.overdue.workflow',
+    description: 'Notify admins when an invoice becomes overdue',
+    triggerEvent: 'invoice.overdue',
+    steps: [
+      {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 1,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'INVOICE_OVERDUE',
+        },
+      },
+      {
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
         order: 2,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+        },
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 3,
       },
     ],
   },
@@ -117,6 +165,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         name: 'Create Journal Entry',
         type: 'CREATE_JOURNAL_ENTRY',
         order: 2,
+        params: { continueOnError: true },
       },
       {
         name: 'Notify Admin Group via Zalo',
@@ -131,7 +180,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
         order: 4,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'PAYMENT_RECEIVED',
         },
       },
       {
@@ -166,13 +215,14 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         name: 'Create Journal Entry',
         type: 'CREATE_JOURNAL_ENTRY',
         order: 2,
+        params: { continueOnError: true },
       },
       {
         name: 'Notify Admin In-App',
         type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
         order: 4,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'PAYMENT_RECEIVED',
         },
       },
       {
@@ -196,14 +246,23 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 2,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'DEPOSIT_REFUND_REQUESTED',
+        },
+      },
+      {
         name: 'Invalidate Dashboard Cache',
         type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 2,
+        order: 3,
       },
       {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 3,
+        order: 4,
       },
     ],
   },
@@ -265,14 +324,44 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         }
       },
       {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 2,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'CONTRACT_SETTLEMENT_COMPLETED',
+        },
+      },
+      {
         name: 'Invalidate Dashboard Cache',
         type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 2,
+        order: 3,
       },
       {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 3,
+        order: 4,
+      },
+    ],
+  },
+  {
+    name: 'contract.created.workflow',
+    description: 'Notify admins when a contract is created',
+    triggerEvent: 'contract.created',
+    steps: [
+      {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 1,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'CONTRACT_CREATED',
+        },
+      },
+      {
+        name: 'Invalidate Dashboard Cache',
+        type: 'INVALIDATE_DASHBOARD_CACHE',
+        order: 2,
       },
     ],
   },

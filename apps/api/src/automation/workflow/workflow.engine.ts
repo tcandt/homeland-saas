@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AccountType, SettingScope } from '@prisma/client';
+import { AccountType, Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { WORKFLOW_REGISTRY } from './workflow.registry';
 import { WorkflowStatus } from '../automation.constants';
@@ -33,36 +33,98 @@ export class WorkflowEngine {
     }
 
     const tenantId = payload.tenantId;
-    if (payload.outboxEventId) {
-      const previous = await this.prisma.workflowExecution?.findFirst({
-        where: {
-          tenantId,
-          workflowName,
-          correlationId: String(payload.outboxEventId),
-          status: WorkflowStatus.SUCCESS,
-        },
-      });
-      if (previous) {
-        this.logger.debug(`Skip duplicate workflow ${workflowName} for outbox ${payload.outboxEventId}`);
-        return previous;
+    const shouldPropagateWorkflowFailure = Boolean(payload?.outboxDelivery);
+    const correlationId = payload.outboxEventId ? String(payload.outboxEventId) : '';
+    const claim = correlationId
+      ? await this.prisma.$transaction(async (tx) => {
+          const lockKey = `${tenantId}:workflow:${workflowName}:${correlationId}`;
+          await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))::text AS "lock"`);
+          const previous = await tx.workflowExecution.findFirst({
+            where: {
+              tenantId,
+              workflowName,
+              correlationId,
+              status: { in: [WorkflowStatus.RUNNING, WorkflowStatus.SUCCESS] as any },
+            },
+            orderBy: { createdAt: 'asc' },
+          });
+          if (previous) {
+            return { execution: previous, duplicate: true };
+          }
+          const execution = await tx.workflowExecution.create({
+            data: {
+              tenantId,
+              workflowName,
+              eventName,
+              correlationId,
+              status: WorkflowStatus.RUNNING,
+              startedAt: new Date(),
+              input: payload,
+            },
+          });
+          return { execution, duplicate: false };
+        })
+      : {
+          execution: await this.prisma.workflowExecution.create({
+            data: {
+              tenantId,
+              workflowName,
+              eventName,
+              status: WorkflowStatus.RUNNING,
+              startedAt: new Date(),
+              input: payload,
+            },
+          }),
+          duplicate: false,
+        };
+    if (claim.duplicate) {
+      this.logger.debug(`Skip duplicate workflow ${workflowName} for outbox ${payload.outboxEventId}`);
+      if (shouldPropagateWorkflowFailure && claim.execution.status === WorkflowStatus.RUNNING) {
+        throw new Error(`WORKFLOW_ALREADY_RUNNING:${workflowName}:${correlationId}`);
       }
+      return claim.execution;
     }
-    const execution = await this.prisma.workflowExecution.create({
-      data: {
-        tenantId,
-        workflowName,
-        eventName,
-        correlationId: payload.outboxEventId ? String(payload.outboxEventId) : undefined,
-        status: WorkflowStatus.RUNNING,
-        startedAt: new Date(),
-        input: payload,
-      },
-    });
+    const execution = claim.execution;
 
+    const stepErrors: string[] = [];
+    let executionAlreadyMarkedFailed = false;
     try {
       const steps = [...workflow.steps].sort((left, right) => left.order - right.order);
 
       for (const step of steps) {
+        if (correlationId) {
+          const completedStep = await this.prisma.workflowStepExecution.findFirst({
+            where: {
+              workflowExecution: {
+                tenantId,
+                workflowName,
+                correlationId,
+              },
+              stepName: step.name,
+              stepType: step.type,
+              order: step.order,
+              status: WorkflowStatus.SUCCESS,
+            } as any,
+            orderBy: { completedAt: 'asc' },
+          });
+          if (completedStep) {
+            await this.prisma.workflowStepExecution.create({
+              data: {
+                workflowExecutionId: execution.id,
+                stepName: step.name,
+                stepType: step.type,
+                order: step.order,
+                status: WorkflowStatus.SUCCESS,
+                startedAt: new Date(),
+                completedAt: new Date(),
+                input: payload,
+                output: { skippedDuplicate: true, sourceStepExecutionId: completedStep.id } as any,
+              },
+            });
+            continue;
+          }
+        }
+
         const stepExec = await this.prisma.workflowStepExecution.create({
           data: {
             workflowExecutionId: execution.id,
@@ -83,29 +145,53 @@ export class WorkflowEngine {
             data: { status: WorkflowStatus.SUCCESS, completedAt: new Date() },
           });
         } catch (stepErr: any) {
+          const message = String(stepErr?.message || stepErr || 'Unknown workflow step error');
           await this.prisma.workflowStepExecution.update({
             where: { id: stepExec.id },
             data: {
               status: WorkflowStatus.FAILED,
               completedAt: new Date(),
-              error: stepErr.message,
+              error: message,
             },
           });
-          throw stepErr;
+          stepErrors.push(`${step.name}: ${message}`);
+          if (!step.params?.continueOnError) {
+            throw stepErr;
+          }
+          this.logger.warn(
+            `Workflow ${workflowName} continued after non-blocking step ${step.name} failed: ${message}`,
+          );
         }
       }
 
       await this.prisma.workflowExecution.update({
         where: { id: execution.id },
-        data: { status: WorkflowStatus.SUCCESS, completedAt: new Date() },
+        data: {
+          status: stepErrors.length > 0 ? WorkflowStatus.FAILED : WorkflowStatus.SUCCESS,
+          completedAt: new Date(),
+          ...(stepErrors.length > 0 ? { error: stepErrors.join('; ') } : {}),
+        },
       });
-      this.logger.log(`Workflow ${workflowName} completed successfully.`);
+      if (stepErrors.length > 0) {
+        executionAlreadyMarkedFailed = true;
+        this.logger.warn(`Workflow ${workflowName} completed with ${stepErrors.length} non-blocking error(s).`);
+        if (shouldPropagateWorkflowFailure) {
+          throw new Error(`WORKFLOW_COMPLETED_WITH_ERRORS:${stepErrors.join('; ')}`);
+        }
+      } else {
+        this.logger.log(`Workflow ${workflowName} completed successfully.`);
+      }
     } catch (err: any) {
-      await this.prisma.workflowExecution.update({
-        where: { id: execution.id },
-        data: { status: WorkflowStatus.FAILED, completedAt: new Date(), error: err.message },
-      });
+      if (!executionAlreadyMarkedFailed) {
+        await this.prisma.workflowExecution.update({
+          where: { id: execution.id },
+          data: { status: WorkflowStatus.FAILED, completedAt: new Date(), error: err.message },
+        });
+      }
       this.logger.error(`Workflow ${workflowName} failed`, err.stack);
+      if (shouldPropagateWorkflowFailure) {
+        throw err;
+      }
     }
   }
 
@@ -132,7 +218,7 @@ export class WorkflowEngine {
             tenantId: payload.tenantId,
             userId,
             channel: 'IN_APP' as any,
-            templateCode: params?.templateCode || 'SYSTEM_ALERT',
+            templateCode: params?.templateCode || 'PAYMENT_RECEIVED',
             context: { ...payload, title, message },
           });
         }
@@ -179,11 +265,13 @@ export class WorkflowEngine {
         }
         break;
       case 'SEND_ADMIN_GROUP_ZALO':
-        if (!(await this.safeShouldSendSePayResultToZalo(payload))) {
-          break;
-        }
+        const isPaymentAdminZaloEvent = this.isPaymentAdminZaloEvent(eventName, payload);
         const adminGroupChatId = await this.resolveAdminGroupChatId(payload.tenantId);
         if (!adminGroupChatId) {
+          const message = 'ZALO_ADMIN_GROUP_CHAT_ID_REQUIRED';
+          if (isPaymentAdminZaloEvent) {
+            throw new Error(message);
+          }
           this.logger.warn('Skipping admin group Zalo notification because adminGroupChatId is missing');
           break;
         }
@@ -196,14 +284,20 @@ export class WorkflowEngine {
             userId: null,
             context: {
               ...payload,
-              title: this.buildAdminPaymentTitle(payload),
-              message: this.buildAdminPaymentMessage(payload),
+              chatId: adminGroupChatId,
+              zaloChatId: adminGroupChatId,
+              adminGroupChatId,
+              title: this.buildAdminZaloTitle(payload, params, eventName),
+              message: this.buildAdminZaloMessage(payload, params, eventName),
             },
           });
         } catch (error: any) {
           this.logger.error(
             `Admin payment Zalo notification failed for ${payload.metadata?.code || payload.sourceId || '-'}: ${error?.message || error}`,
           );
+          if (isPaymentAdminZaloEvent) {
+            throw error;
+          }
         }
         break;
       case 'INVALIDATE_DASHBOARD_CACHE':
@@ -276,7 +370,12 @@ export class WorkflowEngine {
       payload.metadata?.adjustmentType === 'DEPOSIT_SETTLEMENT_APPLICATION';
 
     if (isDepositDeduction || isDepositSettlementApplication) {
-      const depositLiability = await this.resolveChartOfAccount(payload.tenantId, '1300');
+      const depositLiability = await this.resolveChartOfAccount(
+        payload.tenantId,
+        '1300',
+        'Deposits Held',
+        AccountType.LIABILITY,
+      );
       const offsetAccount = await this.resolveChartOfAccount(
         payload.tenantId,
         isDepositSettlementApplication ? '4000' : '4300',
@@ -333,9 +432,9 @@ export class WorkflowEngine {
         Math.abs(rawDepositRefundAmount + rawRevenueRefundAmount - refundAmount) < 0.01;
       const depositRefundAmount = hasValidBreakdown ? rawDepositRefundAmount : 0;
       const revenueRefundAmount = hasValidBreakdown ? rawRevenueRefundAmount : refundAmount;
-      const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100');
+      const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100', 'Bank', AccountType.ASSET);
       const depositLiability = depositRefundAmount > 0
-        ? await this.resolveChartOfAccount(payload.tenantId, '1300')
+        ? await this.resolveChartOfAccount(payload.tenantId, '1300', 'Deposits Held', AccountType.LIABILITY)
         : null;
       const contraRevenue = revenueRefundAmount > 0
         ? await this.resolveChartOfAccount(
@@ -398,9 +497,14 @@ export class WorkflowEngine {
       return;
     }
 
-    const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100');
+    const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100', 'Bank', AccountType.ASSET);
     const offsetAccountCode = payload.sourceType === 'INVOICE' ? '4000' : '1300';
-    const offsetAccount = await this.resolveChartOfAccount(payload.tenantId, offsetAccountCode);
+    const offsetAccount = await this.resolveChartOfAccount(
+      payload.tenantId,
+      offsetAccountCode,
+      offsetAccountCode === '4000' ? 'Rental Revenue' : 'Deposits Held',
+      offsetAccountCode === '4000' ? AccountType.REVENUE : AccountType.LIABILITY,
+    );
     if (!bankAccount || !offsetAccount) {
       throw new Error('Required Chart of Accounts not found');
     }
@@ -502,9 +606,8 @@ export class WorkflowEngine {
       },
     });
     const settings = (record?.value as any) || {};
-    if (String(settings.adminGroupChatId || '').trim()) {
-      return String(settings.adminGroupChatId).trim();
-    }
+    const zaloCandidate = this.pickAdminGroupChatId(settings);
+    if (zaloCandidate) return zaloCandidate;
     const sepayRecord = await this.prisma.appSetting.findUnique({
       where: {
         tenantId_scope_ownerId_key: {
@@ -515,7 +618,22 @@ export class WorkflowEngine {
         },
       },
     });
-    return String((sepayRecord?.value as any)?.adminGroupChatId || '').trim();
+    return this.pickAdminGroupChatId((sepayRecord?.value as any) || {});
+  }
+
+  private pickAdminGroupChatId(settings: any) {
+    const direct = String(
+      settings?.adminGroupChatId ||
+      settings?.adminChatId ||
+      settings?.groupChatId ||
+      settings?.defaultGroupChatId ||
+      '',
+    ).trim();
+    if (direct) return direct;
+    const recentGroup = Array.isArray(settings?.recentWebhookChats)
+      ? settings.recentWebhookChats.find((item: any) => String(item?.chatType || '').toLowerCase() === 'group' && String(item?.chatId || '').trim())
+      : null;
+    return String(recentGroup?.chatId || '').trim();
   }
 
   private async resolveCustomerZaloRecipient(payload: any) {
@@ -560,29 +678,103 @@ export class WorkflowEngine {
   }
 
   private buildAdminPaymentTitle(payload: any) {
-    if (payload.sourceType === 'DEPOSIT') {
-      return `SePay xác nhận phiếu cọc ${payload.metadata?.code || ''}`.trim();
+    if (payload.sourceType === 'DEPOSIT' || payload.metadata?.bookingHoldDepositInvoice) {
+      return `Admin - Đã nhận cọc giữ phòng ${payload.metadata?.code || ''}`.trim();
     }
-    return `SePay xác nhận hóa đơn ${payload.metadata?.code || ''}`.trim();
+    return `Admin - Đã nhận thanh toán ${payload.metadata?.code || ''}`.trim();
   }
 
   private buildAdminPaymentMessage(payload: any) {
-    const sourceLabel = payload.sourceType === 'DEPOSIT' ? 'Phiếu cọc' : 'Hóa đơn';
+    const isBookingHold = payload.sourceType === 'DEPOSIT' || Boolean(payload.metadata?.bookingHoldDepositInvoice);
+    const sourceLabel = isBookingHold ? 'Cọc giữ phòng' : 'Hóa đơn';
     const roomLabel = payload.roomCode ? `\nPhòng: ${payload.roomCode}${payload.roomRentalTypeLabel ? ` (${payload.roomRentalTypeLabel})` : ''}` : '';
     const buildingLabel = payload.buildingName ? `\nTòa nhà: ${payload.buildingName}` : '';
     const memberLabel = payload.roomMemberCount ? `\nSố người: ${payload.roomMemberCount}` : '';
+    const receivedAt = payload.paidAt || payload.occurredAt || new Date().toISOString();
+    const moveInAt = payload.moveInDate || payload.expectedMoveInDate || payload.startDate || payload.contract?.startDate || payload.metadata?.moveInDate || payload.metadata?.startDate;
+    const receivedAtLabel = this.formatDateTime(receivedAt);
+    const moveInLabel = moveInAt ? this.formatDateTime(moveInAt) : '';
     return [
-      'HomeLand - Đã nhận thanh toán',
+      isBookingHold ? 'HomeLand Admin - Đã nhận thanh toán cọc giữ phòng' : 'HomeLand Admin - Đã nhận thanh toán',
       `${sourceLabel}: ${payload.metadata?.code || payload.sourceId || '-'}`,
       `Khách: ${payload.customerName || '-'}`,
       `Số tiền nhận lần này: ${Number(payload.paymentAmount ?? payload.amount ?? 0).toLocaleString('vi-VN')} VND`,
       payload.paidAmount != null
         ? `Đã thanh toán cộng dồn: ${Number(payload.paidAmount || 0).toLocaleString('vi-VN')} VND`
         : null,
+      receivedAtLabel ? `Thời gian nhận: ${receivedAtLabel}` : null,
       payload.paymentRef ? `Mã giao dịch: ${payload.paymentRef}` : null,
+      moveInLabel ? `Ngày vào ở/dự kiến vào ở: ${moveInLabel}` : null,
       roomLabel ? roomLabel.trimStart() : null,
       buildingLabel ? buildingLabel.trimStart() : null,
       memberLabel ? memberLabel.trimStart() : null,
+      isBookingHold ? 'Việc cần làm: xác nhận đã thu cọc, giữ phòng, chuẩn bị phòng và nhắc khách lịch vào ở.' : null,
+    ].filter(Boolean).join('\n');
+  }
+
+  private formatDateTime(value: any) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return new Intl.DateTimeFormat('vi-VN', {
+      timeZone: 'Asia/Bangkok',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(date);
+  }
+
+  private isPaymentAdminZaloEvent(eventName?: string, payload?: any) {
+    return ['invoice.paid', 'invoice.payment.recorded', 'deposit.collected'].includes(String(eventName || ''))
+      || Boolean(payload?.paymentProvider || payload?.paymentRef || payload?.paymentId);
+  }
+
+  private buildAdminZaloTitle(payload: any, params?: any, eventName?: string) {
+    if (this.isPaymentAdminZaloEvent(eventName, payload)) return this.buildAdminPaymentTitle(payload);
+    const code = payload.metadata?.code || payload.invoiceCode || payload.contractCode || payload.depositCode || payload.code || payload.sourceId || '';
+    const kind = String(params?.alertKind || eventName || '').toUpperCase();
+    if (kind.includes('DEPOSIT_CREATED')) return `Cọc giữ phòng mới ${code}`.trim();
+    if (kind.includes('INVOICE_OVERDUE')) return `Khách trễ thanh toán ${code}`.trim();
+    if (kind.includes('INVOICE_ISSUED')) return `Đã phát hành hóa đơn ${code}`.trim();
+    if (kind.includes('CONTRACT_CREATED')) return `Hợp đồng mới ${code}`.trim();
+    if (kind.includes('SETTLEMENT')) return `Cập nhật quyết toán hợp đồng ${code}`.trim();
+    if (kind.includes('REFUND')) return `Yêu cầu xử lý cọc ${code}`.trim();
+    return `HomeLand - Thông báo vận hành ${code}`.trim();
+  }
+
+  private buildAdminZaloMessage(payload: any, params?: any, eventName?: string) {
+    if (this.isPaymentAdminZaloEvent(eventName, payload)) return this.buildAdminPaymentMessage(payload);
+    const code = payload.metadata?.code || payload.invoiceCode || payload.contractCode || payload.depositCode || payload.code || payload.sourceId || '-';
+    const amount = Number(payload.paymentAmount ?? payload.remainingAmount ?? payload.amount ?? payload.total ?? 0);
+    const dateValue = payload.dueDate || payload.endDate || payload.startDate || payload.moveInDate || payload.expectedMoveInDate || payload.occurredAt;
+    const dateLabel = dateValue ? new Date(dateValue).toLocaleString('vi-VN', { timeZone: 'Asia/Bangkok' }) : '';
+    const roomCode = payload.roomCode || payload.metadata?.roomCode || '';
+    const buildingName = payload.buildingName || payload.metadata?.buildingName || '';
+    const customerName = payload.customerName || payload.metadata?.customerName || '-';
+    const kind = String(params?.alertKind || eventName || '').toUpperCase();
+    const header = kind.includes('DEPOSIT_CREATED')
+      ? 'HomeLand - Cần chuẩn bị phòng/đặt lịch khách vào ở'
+      : kind.includes('INVOICE_OVERDUE')
+        ? 'HomeLand - Cảnh báo khách trễ thanh toán'
+        : kind.includes('INVOICE_ISSUED')
+          ? 'HomeLand - Hóa đơn mới cần theo dõi'
+          : kind.includes('CONTRACT_CREATED')
+            ? 'HomeLand - Hợp đồng mới cần theo dõi'
+            : 'HomeLand - Thông báo vận hành';
+
+    return [
+      header,
+      `Mã: ${code}`,
+      `Khách: ${customerName}`,
+      roomCode ? `Phòng: ${roomCode}${payload.roomRentalTypeLabel ? ` (${payload.roomRentalTypeLabel})` : ''}` : null,
+      buildingName ? `Tòa nhà: ${buildingName}` : null,
+      amount > 0 ? `Số tiền: ${amount.toLocaleString('vi-VN')} VND` : null,
+      dateLabel ? `Mốc thời gian: ${dateLabel}` : null,
+      payload.status ? `Trạng thái: ${payload.status}` : null,
+      kind.includes('DEPOSIT_CREATED') ? 'Việc cần làm: xác nhận cọc, giữ phòng, chuẩn bị phòng và nhắc lịch khách vào ở.' : null,
+      kind.includes('INVOICE_OVERDUE') ? 'Việc cần làm: liên hệ khách, nhắc thanh toán và kiểm tra công nợ còn phải thu.' : null,
     ].filter(Boolean).join('\n');
   }
 
@@ -598,13 +790,22 @@ export class WorkflowEngine {
     if (existing) return existing;
     if (!fallbackName || !fallbackType) return null;
 
-    return this.prisma.chartOfAccount.create({
-      data: {
-        tenantId,
-        code,
-        name: fallbackName,
-        type: fallbackType,
-      },
-    });
+    try {
+      return await this.prisma.chartOfAccount.create({
+        data: {
+          tenantId,
+          code,
+          name: fallbackName,
+          type: fallbackType,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return this.prisma.chartOfAccount.findFirst({
+          where: { tenantId, code },
+        });
+      }
+      throw error;
+    }
   }
 }

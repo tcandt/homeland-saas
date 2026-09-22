@@ -7,6 +7,7 @@ export interface UI_Deposit {
   status: string;
   amount: number;
   availableBalance?: number;
+  sepayPendingReviewAmount?: number;
   pendingOperationId?: string | null;
   expiredAt: string | null;
   note: string | null;
@@ -32,6 +33,9 @@ export interface UI_Deposit {
     paidAt?: string | null;
     createdAt?: string | null;
     metadata?: Record<string, unknown> | null;
+    amount?: number | null;
+    actualReceivedAmount?: number | null;
+    pendingReviewAmount?: number | null;
   } | null;
 }
 
@@ -49,6 +53,7 @@ export const depositAdapter = {
       status: apiDeposit.status,
       amount: Number(apiDeposit.amount) || 0,
       availableBalance: Number.isFinite(availableBalance) ? availableBalance : undefined,
+      sepayPendingReviewAmount: Number(apiDeposit.sepayPendingReviewAmount || 0),
       pendingOperationId: apiDeposit.pendingOperationId ?? apiDeposit.refundSummary?.operationId ?? null,
       expiredAt: apiDeposit.expiredAt,
       note: apiDeposit.note,

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import {
   AuditAction,
   JournalSourceType,
@@ -146,6 +146,7 @@ function randomCode(prefix: string, scope: string) {
 @Injectable()
 export class PaymentsService {
   private static readonly processingSePayTransactionIds = new Set<string>();
+  private readonly logger = new Logger(PaymentsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -951,9 +952,12 @@ export class PaymentsService {
 
   async createInvoiceRequest(invoiceId: string, userId: string) {
     const invoice = await this.invoicesService.getDetail(invoiceId);
+    const pendingReviewAmount = await this.getPendingReviewSePayAmountForInvoice(invoice.tenantId, invoice.id);
     const remaining = Math.max(
       0,
-      Number(invoice.total) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0),
+      Number(invoice.total) -
+        Number(invoice.paidAmount || 0) -
+        Number(invoice.creditAmount || 0),
     );
 
     if (remaining <= 0) {
@@ -986,6 +990,10 @@ export class PaymentsService {
         invoiceCode: invoice.code,
         customerId: invoice.customerId,
         createdBy: userId,
+        originalAmount: Number(invoice.total || 0),
+        paidAmount: Number(invoice.paidAmount || 0),
+        pendingReviewAmount,
+        remainingAmount: remaining,
         roomCode: room?.code || room?.number || '',
         roomNumber: room?.number || room?.code || '',
         buildingName: building?.name || '',
@@ -1004,6 +1012,9 @@ export class PaymentsService {
     const customerPhone = invoice.customer?.phone || '';
     const zaloRecipient = this.resolveZaloRecipient(invoice.customer);
     const request = await this.createInvoiceRequest(invoiceId, userId);
+    const pendingReviewAmount = await this.getPendingReviewSePayAmountForInvoice(invoice.tenantId, invoice.id);
+    const confirmedPaidAmount = Number(invoice.paidAmount || 0) + Number(invoice.creditAmount || 0);
+    const receivedOrSettledAmount = confirmedPaidAmount + pendingReviewAmount;
 
     // Format date in Vietnam timezone dd/MM/yyyy
     let dueDateFormatted = '--/--/----';
@@ -1030,7 +1041,13 @@ export class PaymentsService {
       return `- ${name}: ${prefix}${formattedAmt}`;
     });
 
-    const itemsSummary = items.length > 0 ? items.join('\n') : `- Tiền thuê phòng: ${amountFormatted} đ`;
+    const itemsSummary = receivedOrSettledAmount > 0
+      ? [
+          `- Tổng hóa đơn: ${new Intl.NumberFormat('vi-VN').format(Number(invoice.total || 0))} đ`,
+          `- Đã nhận/đã cấn trừ: ${new Intl.NumberFormat('vi-VN').format(receivedOrSettledAmount)} đ`,
+          `- Còn phải thanh toán: ${amountFormatted} đ`,
+        ].join('\n')
+      : items.length > 0 ? items.join('\n') : `- Tiền thuê phòng: ${amountFormatted} đ`;
 
     // Resolve room and building name
     let room = invoice.contract?.room;
@@ -1076,6 +1093,9 @@ export class PaymentsService {
         period: periodStr,
         amount: amountFormatted,
         rawAmount: Number(request.amount),
+        originalAmount: Number(invoice.total || 0),
+        receivedAmount: receivedOrSettledAmount,
+        remainingAmount: Number(request.amount),
         itemsSummary,
         paymentCode: request.paymentCode,
         qrUrl: request.qrUrl,
@@ -1109,6 +1129,51 @@ export class PaymentsService {
     );
 
     return request;
+  }
+
+  private async getPendingReviewSePayAmountForInvoice(tenantId: string, invoiceId: string) {
+    const requests = await this.prisma.paymentRequest.findMany({
+      where: {
+        tenantId,
+        sourceType: PaymentSourceType.INVOICE,
+        sourceId: invoiceId,
+        status: PaymentRequestStatus.PENDING,
+      },
+      select: { paymentCode: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const paymentCodes = Array.from(
+      new Set(requests.map((request) => String(request.paymentCode || '').trim()).filter(Boolean)),
+    ).sort((a, b) => b.length - a.length);
+    if (paymentCodes.length === 0) return 0;
+
+    const logs = await this.prisma.paymentWebhookLog.findMany({
+      where: {
+        tenantId,
+        provider: PaymentProvider.SEPAY,
+        status: 'NEEDS_REVIEW' as any,
+        createdAt: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+      },
+      select: { providerTransactionId: true, payload: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    }).catch(() => []);
+
+    const seenTransactions = new Set<string>();
+    let total = 0;
+    for (const log of logs) {
+      const payload = (log.payload || {}) as Record<string, any>;
+      const matchedCode = this.resolveWebhookPaymentCodeFromPayload(payload, paymentCodes);
+      if (!matchedCode) continue;
+      const transactionKey = String(log.providerTransactionId || `${matchedCode}:${log.createdAt?.toISOString?.() || ''}`);
+      if (seenTransactions.has(transactionKey)) continue;
+      const amount = Number(payload.transferAmount ?? payload.amount ?? 0);
+      if (Number.isFinite(amount) && amount > 0) {
+        seenTransactions.add(transactionKey);
+        total += amount;
+      }
+    }
+    return total;
   }
 
   async createDepositRequest(depositId: string, userId: string) {
@@ -2004,6 +2069,34 @@ export class PaymentsService {
     return match?.[0] || '';
   }
 
+  private resolveWebhookPaymentCodeFromPayload(payload: Record<string, any>, paymentCodes: string[]) {
+    const directCode = String(
+      payload.paymentCode || payload.payment_code || payload.code || payload.memo || '',
+    ).trim();
+    if (directCode && paymentCodes.includes(directCode)) return directCode;
+
+    const haystack = [
+      payload.content,
+      payload.description,
+      payload.transferContent,
+      payload.transfer_content,
+      payload.remark,
+      payload.memo,
+      payload.reference,
+    ].map((value) => String(value || '')).join(' ');
+
+    return [...paymentCodes]
+      .sort((a, b) => b.length - a.length)
+      .find((code) => this.textContainsPaymentCode(haystack, code)) || '';
+  }
+
+  private textContainsPaymentCode(text: string, code: string) {
+    const normalizedCode = String(code || '').trim();
+    if (!normalizedCode) return false;
+    const escapedCode = normalizedCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^A-Za-z0-9])${escapedCode}(?=$|[^A-Za-z0-9])`).test(text);
+  }
+
   private normalizeBankAccountNumber(value?: string | null) {
     return String(value || '')
       .trim()
@@ -2504,6 +2597,82 @@ export class PaymentsService {
           rawBody?: string;
         } = {},
   ) {
+    const authenticatedTenantIds = await this.authenticateSePayWebhook(authorizationOrHeaders);
+    const transactionId = this.resolveWebhookTransactionId(payload);
+    if (!transactionId) {
+      return { success: true };
+    }
+
+    if (PaymentsService.processingSePayTransactionIds.has(transactionId)) {
+      return { success: true };
+    }
+
+    PaymentsService.processingSePayTransactionIds.add(transactionId);
+    try {
+      return await this.processSePayWebhookPayload(payload, transactionId, authenticatedTenantIds);
+    } catch (error: any) {
+      await this.markSePayWebhookFailed(transactionId, error);
+      throw error;
+    } finally {
+      PaymentsService.processingSePayTransactionIds.delete(transactionId);
+    }
+  }
+
+  async acceptSePayWebhook(
+    payload: SePayWebhookPayload,
+    authorizationOrHeaders:
+      | string
+      | {
+          authorization?: string;
+          signature?: string;
+          timestamp?: string;
+          rawBody?: string;
+        } = {},
+  ) {
+    const authenticatedTenantIds = await this.authenticateSePayWebhook(authorizationOrHeaders);
+    const transactionId = this.resolveWebhookTransactionId(payload);
+    if (!transactionId) {
+      return { success: true, accepted: false };
+    }
+
+    const webhookTenantId = authenticatedTenantIds[0];
+    const log = await this.prisma.paymentWebhookLog.upsert({
+      where: {
+        provider_providerTransactionId: {
+          provider: PaymentProvider.SEPAY,
+          providerTransactionId: transactionId,
+        },
+      },
+      create: {
+        tenantId: webhookTenantId,
+        provider: PaymentProvider.SEPAY,
+        providerTransactionId: transactionId,
+        payload,
+        status: 'RECEIVED' as any,
+      } as any,
+      update: {
+        payload,
+        tenantId: webhookTenantId,
+      } as any,
+    });
+
+    if (!log.processedAt && !PaymentsService.processingSePayTransactionIds.has(transactionId)) {
+      this.processSePayWebhookInBackground(payload, transactionId, authenticatedTenantIds);
+    }
+
+    return { success: true, accepted: true };
+  }
+
+  private async authenticateSePayWebhook(
+    authorizationOrHeaders:
+      | string
+      | {
+          authorization?: string;
+          signature?: string;
+          timestamp?: string;
+          rawBody?: string;
+        } = {},
+  ) {
     const headers =
       typeof authorizationOrHeaders === 'string' ? { authorization: authorizationOrHeaders } : authorizationOrHeaders;
     const webhookSettings = await this.prisma.appSetting.findMany({
@@ -2553,37 +2722,46 @@ export class PaymentsService {
       throw new UnauthorizedException('Unauthorized SePay webhook');
     }
 
-    const transactionId = this.resolveWebhookTransactionId(payload);
-    if (!transactionId) {
-      return { success: true };
-    }
+    return authenticatedTenantIds;
+  }
 
-    if (PaymentsService.processingSePayTransactionIds.has(transactionId)) {
-      return { success: true };
-    }
-
+  private processSePayWebhookInBackground(
+    payload: SePayWebhookPayload,
+    transactionId: string,
+    authenticatedTenantIds: string[],
+  ) {
+    if (PaymentsService.processingSePayTransactionIds.has(transactionId)) return;
     PaymentsService.processingSePayTransactionIds.add(transactionId);
-    try {
-      return await this.processSePayWebhookPayload(payload, transactionId, authenticatedTenantIds);
-    } catch (error: any) {
-      await this.prisma.paymentWebhookLog
-        .update({
-          where: {
-            provider_providerTransactionId: {
-              provider: PaymentProvider.SEPAY,
-              providerTransactionId: transactionId,
-            },
+    void (async () => {
+      try {
+        await this.processSePayWebhookPayload(payload, transactionId, authenticatedTenantIds);
+      } catch (error: any) {
+        await this.markSePayWebhookFailed(transactionId, error);
+        this.logger.error(
+          `SePay webhook background processing failed for ${transactionId}: ${String(error?.message || error)}`,
+          error?.stack,
+        );
+      } finally {
+        PaymentsService.processingSePayTransactionIds.delete(transactionId);
+      }
+    })();
+  }
+
+  private async markSePayWebhookFailed(transactionId: string, error: any) {
+    await this.prisma.paymentWebhookLog
+      .update({
+        where: {
+          provider_providerTransactionId: {
+            provider: PaymentProvider.SEPAY,
+            providerTransactionId: transactionId,
           },
-          data: {
-            status: 'FAILED' as any,
-            lastError: String(error?.message || error || 'Unknown SePay webhook processing error').slice(0, 1000),
-          } as any,
-        })
-        .catch(() => undefined);
-      throw error;
-    } finally {
-      PaymentsService.processingSePayTransactionIds.delete(transactionId);
-    }
+        },
+        data: {
+          status: 'FAILED' as any,
+          lastError: String(error?.message || error || 'Unknown SePay webhook processing error').slice(0, 1000),
+        } as any,
+      })
+      .catch(() => undefined);
   }
 
   private async processSePayWebhookPayload(
@@ -2785,6 +2963,9 @@ export class PaymentsService {
       });
     }
 
+    let appliedAmount = 0;
+    let shouldConfirmRequest = false;
+
     if (request.sourceType === PaymentSourceType.INVOICE) {
       const existingPayment = await this.prisma.payment.findFirst({
         where: {
@@ -2793,12 +2974,15 @@ export class PaymentsService {
           providerRef: transactionId,
           deletedAt: null,
         },
-        select: { id: true },
+        select: { id: true, amount: true },
       });
       if (!existingPayment) {
         const invoice = await this.prisma.invoice.findFirst({
           where: { id: request.sourceId, tenantId: request.tenantId, deletedAt: null },
           select: {
+            total: true,
+            paidAmount: true,
+            creditAmount: true,
             period: true,
             rentalCycleId: true,
             contractId: true,
@@ -2806,15 +2990,27 @@ export class PaymentsService {
             contract: { select: { roomId: true } },
           },
         });
-        await this.invoicesService.pay(
-          request.sourceId,
-          Number(request.amount),
-          'SEPAY',
-          transactionId,
-          'SEPAY_WEBHOOK',
-          request.tenantId,
+        const remainingToApply = Math.max(
+          0,
+          Number(invoice?.total || 0) - Number(invoice?.paidAmount || 0) - Number(invoice?.creditAmount || 0),
         );
-        await this.collectLinkedBookingDepositForInvoicePayment(request, transactionId, invoice);
+        const currentAmount = Math.min(providerAmount, remainingToApply);
+        if (currentAmount > 0) {
+          await this.invoicesService.pay(
+            request.sourceId,
+            currentAmount,
+            'SEPAY',
+            transactionId,
+            'SEPAY_WEBHOOK',
+            request.tenantId,
+          );
+          appliedAmount = currentAmount;
+          shouldConfirmRequest = true;
+          await this.collectLinkedBookingDepositForInvoicePayment(request, transactionId, invoice);
+        }
+      } else {
+        appliedAmount = Number(existingPayment.amount || 0);
+        shouldConfirmRequest = true;
       }
     } else if (request.sourceType === PaymentSourceType.DEPOSIT) {
       await this.depositsService.collect(
@@ -2823,39 +3019,49 @@ export class PaymentsService {
         'SEPAY_WEBHOOK',
         `sepay:${transactionId}`,
       );
+      appliedAmount = providerAmount;
+      shouldConfirmRequest = true;
     }
 
-    await this.prisma.paymentRequest.update({
-      where: { id: request.id },
-      data: {
-        status: PaymentRequestStatus.CONFIRMED,
-        providerTransactionId: transactionId,
-        paidAt: new Date(),
-      },
-    });
+    if (shouldConfirmRequest) {
+      await this.prisma.paymentRequest.update({
+        where: { id: request.id },
+        data: {
+          status: PaymentRequestStatus.CONFIRMED,
+          providerTransactionId: transactionId,
+          paidAt: new Date(),
+        },
+      });
 
-    await this.logPaymentAudit(
-      request.tenantId,
-      'PaymentRequest',
-      request.id,
-      {
-        status: request.status,
-        paymentCode,
-        amount: Number(request.amount || 0),
-        providerTransactionId: request.providerTransactionId || null,
-      },
-      {
-        status: PaymentRequestStatus.CONFIRMED,
-        paymentCode,
-        amount: Number(request.amount || 0),
-        providerTransactionId: transactionId,
-        paidAt: new Date().toISOString(),
-      },
-      'SEPAY_WEBHOOK',
-    );
+      await this.logPaymentAudit(
+        request.tenantId,
+        'PaymentRequest',
+        request.id,
+        {
+          status: request.status,
+          paymentCode,
+          amount: Number(request.amount || 0),
+          providerTransactionId: request.providerTransactionId || null,
+        },
+        {
+          status: PaymentRequestStatus.CONFIRMED,
+          paymentCode,
+          amount: Number(request.amount || 0),
+          appliedAmount,
+          unappliedAmount: Math.max(0, providerAmount - appliedAmount),
+          providerTransactionId: transactionId,
+          paidAt: new Date().toISOString(),
+        },
+        'SEPAY_WEBHOOK',
+      );
+    }
 
-    await this.markSePayWebhookLog(log.id, providerAmount > Number(request.amount) ? 'NEEDS_REVIEW' : 'PROCESSED', {
+    await this.markSePayWebhookLog(log.id, shouldConfirmRequest && appliedAmount >= providerAmount ? 'PROCESSED' : 'NEEDS_REVIEW', {
       tenantId: request.tenantId,
+      error:
+        shouldConfirmRequest && appliedAmount >= providerAmount
+          ? null
+          : `SEPAY_UNAPPLIED_AMOUNT:${Math.max(0, providerAmount - appliedAmount)}`,
     });
 
     return { success: true };

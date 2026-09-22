@@ -40,6 +40,7 @@ import { invoicesApi } from "@/lib/api/invoices.api";
 import toast from "react-hot-toast";
 import { Card } from "@/components/ui/Card";
 import { getTenantAvatar } from "@/components/tenants/TenantDetailDrawer";
+import OperationsSidePanelShell from "@/components/layout/OperationsSidePanelShell";
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
 const isDirectInvoiceCreationDisabled = true;
@@ -177,6 +178,7 @@ export default function InvoicesPage() {
   const [page, setPage] = useState(1);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [billingPanelOpen, setBillingPanelOpen] = useState(false);
   const [createModalTab, setCreateModalTab] = useState<InvoiceModalTab>("RENT");
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; invoice: any } | null>(null);
 
@@ -193,8 +195,19 @@ export default function InvoicesPage() {
   const [invoiceToDelete, setInvoiceToDelete] = useState<any | null>(null);
   const [isDeletingInvoice, setIsDeletingInvoice] = useState(false);
 
-  const { data, isLoading, isError, refetch } = useInvoicesQuery({ limit: 100 });
+  const { data, isLoading, isError, refetch } = useInvoicesQuery(
+    { limit: 100 },
+    { refetchInterval: 3000, refetchOnWindowFocus: true },
+  );
   const invoices = (data as any)?.data || [];
+
+  React.useEffect(() => {
+    if (!selectedInvoice?.id) return;
+    const freshInvoice = invoices.find((invoice: any) => invoice.id === selectedInvoice.id);
+    if (freshInvoice) {
+      setSelectedInvoice(freshInvoice);
+    }
+  }, [invoices, selectedInvoice?.id]);
 
   const handleConfirmDeleteInvoice = async () => {
     if (!invoiceToDelete) return;
@@ -320,7 +333,7 @@ export default function InvoicesPage() {
   return (
     <AppShell>
       <div data-testid="invoices-root" className="-m-4 h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background md:h-[calc(100dvh-80px)] xl:overflow-hidden">
-        <div className="grid min-h-full w-full max-w-none grid-cols-1 gap-2.5 p-2 md:p-3 2xl:h-full 2xl:min-h-0 2xl:grid-cols-[minmax(0,1fr)_minmax(310px,14vw)]">
+        <div className="grid min-h-full w-full max-w-none grid-cols-1 gap-2.5 p-2 md:p-3 2xl:h-full 2xl:min-h-0">
           {/* LEFT MAIN COLUMN */}
           <div className="flex min-w-0 flex-col gap-2.5 2xl:h-full 2xl:min-h-0">
             {/* 4 COMPACT INLINE KPI CARDS */}
@@ -598,7 +611,13 @@ export default function InvoicesPage() {
           </div>
 
           {/* RIGHT SIDEBAR COLUMN */}
-          <aside data-testid="billing-right-panel" className="hidden flex-col gap-3.5 2xl:flex 2xl:h-full 2xl:min-h-0">
+          <OperationsSidePanelShell
+            open={billingPanelOpen}
+            onOpenChange={setBillingPanelOpen}
+            label="Tổng quan thu chi"
+            testId="billing-side-panel"
+          >
+          <aside data-testid="billing-right-panel" className="flex flex-col gap-3.5 p-4">
             {/* Card 1: Tổng quan thu hồi */}
             <section className="flex shrink-0 flex-col rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -671,6 +690,7 @@ export default function InvoicesPage() {
               </div>
             </section>
           </aside>
+          </OperationsSidePanelShell>
         </div>
 
         {/* MODAL LẬP HÓA ĐƠN & CỌC */}
@@ -820,6 +840,7 @@ function InvoiceRow({
   const dueText = invoice.status === "OVERDUE" && overdueDays > 0 ? `Quá hạn ${overdueDays} ngày` : formatDate(invoice.dueDate);
   const total = invoiceAmount(invoice);
   const paid = invoicePaid(invoice);
+  const financials = getInvoiceFinancials(invoice);
   const remaining = invoiceRemaining(invoice);
   const code = formatInvoiceCode(invoice);
   const customerName = invoiceCustomer(invoice);
@@ -930,6 +951,11 @@ function InvoiceRow({
         <span className={typeInfo.direction === "EXPENSE" ? "text-rose-600" : "text-emerald-600 dark:text-emerald-400"}>
           {formatVnd(paid)}
         </span>
+        {financials.pendingReviewReceived > 0 && (
+          <div className="mt-0.5 text-[9px] font-black uppercase tracking-tight text-amber-600">
+            Chờ xử lý
+          </div>
+        )}
       </td>
 
       {/* 8. CÒN LẠI */}

@@ -1,8 +1,7 @@
 import { Controller, Get, Patch, Param, Post, Sse, MessageEvent, UseGuards, Req, Delete, Body, ForbiddenException, BadRequestException, Headers, Header, Logger, Query } from '@nestjs/common';
 import { CommunicationService } from './communication.service';
 import { PrismaService } from '../prisma.service';
-import { Observable, interval, timer } from 'rxjs';
-import { map, switchMap } from 'rxjs/operators';
+import { Observable } from 'rxjs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -41,7 +40,7 @@ export class CommunicationController {
   async getNotifications(@Req() req) {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
-    await this.ensureOperationalNotifications(tenantId, userId);
+    await this.safeEnsureOperationalNotifications(tenantId, userId);
     return this.prisma.notification.findMany({
       where: { tenantId, userId, channel: 'IN_APP' },
       orderBy: { createdAt: 'desc' },
@@ -53,9 +52,9 @@ export class CommunicationController {
   async getUnreadCount(@Req() req) {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
-    await this.ensureOperationalNotifications(tenantId, userId);
+    await this.safeEnsureOperationalNotifications(tenantId, userId);
     const count = await this.prisma.notification.count({
-      where: { tenantId, userId, channel: 'IN_APP', status: { in: ['CREATED', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED'] } }
+      where: { tenantId, userId, channel: 'IN_APP', status: { not: 'READ' } }
     });
     return { count };
   }
@@ -68,17 +67,82 @@ export class CommunicationController {
   stream(@Req() req): Observable<MessageEvent> {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
-    
-    // Emit every 15s to keep HTTP/2 & HTTP/3 QUIC connection alive through Cloudflare/Nginx proxy
-    return timer(0, 15000).pipe(
-      switchMap(async () => {
-        await this.ensureOperationalNotifications(tenantId, userId);
-        const count = await this.prisma.notification.count({
-          where: { tenantId, userId, channel: 'IN_APP', status: { in: ['CREATED', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED'] } }
-        });
-        return { data: { count } } as MessageEvent;
-      })
-    );
+    let lastOperationalEnsureAt = 0;
+
+    const buildSnapshot = async () => {
+        const now = Date.now();
+        if (now - lastOperationalEnsureAt >= 15000) {
+          lastOperationalEnsureAt = now;
+          await this.safeEnsureOperationalNotifications(tenantId, userId);
+        }
+        const [count, notifications] = await Promise.all([
+          this.prisma.notification.count({
+            where: { tenantId, userId, channel: 'IN_APP', status: { not: 'READ' } }
+          }),
+          this.prisma.notification.findMany({
+            where: { tenantId, userId, channel: 'IN_APP' },
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+          }),
+        ]);
+        return { data: { count, notifications } } as MessageEvent;
+    };
+
+    return new Observable<MessageEvent>((subscriber) => {
+      let disposed = false;
+      let pendingSnapshot: Promise<void> | null = null;
+
+      const emitSnapshot = () => {
+        if (pendingSnapshot) return;
+        pendingSnapshot = buildSnapshot()
+          .then((event) => {
+            if (!disposed) subscriber.next(event);
+          })
+          .catch((error) => {
+            this.logger.error(
+              `Notification SSE snapshot failed for tenant ${tenantId}: ${String(error?.message || error)}`,
+              error?.stack,
+            );
+          })
+          .finally(() => {
+            pendingSnapshot = null;
+          });
+      };
+
+      const handleInAppNotification = (payload: any) => {
+        if (String(payload?.tenantId || '') !== tenantId) return;
+        if (payload?.userId && String(payload.userId) !== userId) return;
+        emitSnapshot();
+      };
+
+      const heartbeat = setInterval(() => {
+        if (!disposed) {
+          subscriber.next({ type: 'heartbeat', data: { at: new Date().toISOString() } } as MessageEvent);
+        }
+      }, 15000);
+
+      this.eventEmitter.on('notification.in_app.created', handleInAppNotification);
+      this.eventEmitter.on('notification.in_app.sent', handleInAppNotification);
+      emitSnapshot();
+
+      return () => {
+        disposed = true;
+        clearInterval(heartbeat);
+        this.eventEmitter.off('notification.in_app.created', handleInAppNotification);
+        this.eventEmitter.off('notification.in_app.sent', handleInAppNotification);
+      };
+    });
+  }
+
+  private async safeEnsureOperationalNotifications(tenantId: string, userId: string) {
+    try {
+      await this.ensureOperationalNotifications(tenantId, userId);
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to ensure operational notifications for tenant ${tenantId}: ${String(error?.message || error)}`,
+        error?.stack,
+      );
+    }
   }
 
   private async ensureOperationalNotifications(tenantId: string, userId: string) {

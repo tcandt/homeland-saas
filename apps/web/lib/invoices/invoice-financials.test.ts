@@ -5,12 +5,29 @@ describe('getInvoiceFinancials', () => {
   it('subtracts both cash payments and credits from the remaining balance', () => {
     expect(getInvoiceFinancials({ total: 1_000_000, paidAmount: 300_000, creditAmount: 200_000 })).toEqual({
       total: 1_000_000,
+      confirmedPaid: 300_000,
+      pendingReviewReceived: 0,
       paid: 300_000,
       credit: 200_000,
       settled: 500_000,
       overpaid: 0,
       remaining: 500_000,
       settledPercent: 50,
+    });
+  });
+
+  it('keeps SePay review money separate from confirmed paid balance', () => {
+    expect(getInvoiceFinancials({
+      total: 1_500_000,
+      paidAmount: 0,
+      pendingReviewReceivedAmount: 1_350_000,
+    })).toMatchObject({
+      total: 1_500_000,
+      confirmedPaid: 0,
+      pendingReviewReceived: 1_350_000,
+      paid: 0,
+      remaining: 1_500_000,
+      settledPercent: 0,
     });
   });
 

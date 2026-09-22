@@ -74,6 +74,7 @@ export class DepositOutboxPublisher {
         const payload = {
           ...(event.payload as unknown as DomainEventInterface),
           outboxEventId: event.id,
+          outboxDelivery: true,
         };
         await this.publisher.publishAsync(event.eventName, payload);
         await this.prisma.outboxEvent.update({

@@ -294,6 +294,7 @@ test.describe("Deposits Refund Desktop Regression", () => {
     await admin.page.goto("/deposits", { waitUntil: "domcontentloaded" });
 
     await expect(admin.page.getByTestId("deposits-refund-center")).toBeVisible();
+    await admin.page.getByTestId("deposits-refund-center-expand").click();
     await expect(admin.page.getByTestId("refund-center-item-dep-cancelled")).toBeVisible();
 
     await admin.page.getByTestId("refund-center-item-dep-cancelled").click();
@@ -308,6 +309,7 @@ test.describe("Deposits Refund Desktop Regression", () => {
 
     await admin.page.goto("/deposits", { waitUntil: "domcontentloaded" });
 
+    await admin.page.getByTestId("deposits-refund-center-expand").click();
     await admin.page.locator("[data-testid='deposit-card']:visible").filter({ hasText: "DEP-PAID" }).first().click({
       position: { x: 10, y: 10 },
     });
@@ -337,6 +339,7 @@ test.describe("Deposits Refund Desktop Regression", () => {
 
     await admin.page.goto("/deposits", { waitUntil: "domcontentloaded" });
 
+    await admin.page.getByTestId("deposits-refund-center-expand").click();
     await admin.page.locator("[data-testid='deposit-card']:visible").filter({ hasText: "DEP-PAID" }).first().click({
       position: { x: 10, y: 10 },
     });
@@ -414,6 +417,7 @@ test.describe("Deposits Refund Desktop Regression", () => {
 
     await admin.page.goto("/deposits", { waitUntil: "domcontentloaded" });
 
+    await admin.page.getByTestId("deposits-refund-center-expand").click();
     await admin.page.getByTestId("refund-center-item-dep-cancelled").click();
 
     await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();

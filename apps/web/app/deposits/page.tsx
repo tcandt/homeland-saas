@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import OperationsDepositKpi from "@/components/deposits/OperationsDepositKpi";
 import OperationsDepositPipeline from "@/components/deposits/OperationsDepositPipeline";
@@ -13,6 +13,7 @@ import { useDepositStore } from "@/lib/stores/deposit.store";
 
 export default function DepositsPage() {
   const { selectedDeposit, setSelectedDeposit } = useDepositStore();
+  const [refundCenterCollapsed, setRefundCenterCollapsed] = useState(true);
 
   return (
     <AppShell>
@@ -26,7 +27,7 @@ export default function DepositsPage() {
         </div>
 
         {/* Desktop View */}
-        <div className="hidden min-h-full w-full grid-cols-1 gap-2.5 p-2 md:grid md:p-3 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(310px,16vw)]">
+        <div className="relative hidden min-h-full w-full grid-cols-1 gap-2.5 p-2 md:grid md:p-3 xl:h-full xl:min-h-0">
           {/* Main Left Workspace */}
           <div className="flex min-w-0 flex-col gap-2.5 xl:min-h-0">
             {/* 1. Compact 4-Card KPI Grid */}
@@ -43,8 +44,11 @@ export default function DepositsPage() {
           </div>
 
           {/* Right Sidebar: Refund & Cancellation Center */}
-          <div className="hidden xl:block min-w-0">
-            <OperationsRefundCenter />
+          <div className="pointer-events-none fixed inset-0 z-[100] hidden xl:block">
+            <OperationsRefundCenter
+              collapsed={refundCenterCollapsed}
+              onCollapsedChange={setRefundCenterCollapsed}
+            />
           </div>
         </div>
       </div>

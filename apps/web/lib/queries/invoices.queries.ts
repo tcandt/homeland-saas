@@ -5,6 +5,8 @@ export type InvoiceQueryOptions = {
   /** Do not fetch a finance-scoped list until its exact rental cycle is known. */
   requireRentalCycle?: boolean;
   enabled?: boolean;
+  refetchInterval?: number | false;
+  refetchOnWindowFocus?: boolean;
 };
 
 export function shouldEnableInvoicesQuery(
@@ -49,10 +51,15 @@ export const useInvoicesQuery = (
         },
       };
     },
+    refetchInterval: options.refetchInterval,
+    refetchOnWindowFocus: options.refetchOnWindowFocus,
   });
 };
 
-export const useInvoiceDetailQuery = (id: string) => {
+export const useInvoiceDetailQuery = (
+  id: string,
+  options: Pick<InvoiceQueryOptions, "enabled" | "refetchInterval" | "refetchOnWindowFocus"> = {},
+) => {
   return useQuery({
     queryKey: invoiceKeys.detail(id),
     queryFn: async () => {
@@ -60,7 +67,9 @@ export const useInvoiceDetailQuery = (id: string) => {
       const response = await invoicesApi.getDetail(id);
       return { data: response };
     },
-    enabled: !!id,
+    enabled: !!id && (options.enabled ?? true),
+    refetchInterval: options.refetchInterval,
+    refetchOnWindowFocus: options.refetchOnWindowFocus,
   });
 };
 

@@ -36,7 +36,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
   constructor(
     repository: InvoicesRepository,
     auditService: AuditService,
-    _eventPublisher: DomainEventPublisher,
+    private readonly eventPublisher: DomainEventPublisher,
     private readonly prisma: PrismaService,
   ) {
     super(repository, auditService, "Invoice");
@@ -178,8 +178,49 @@ export class InvoicesService extends BaseCrudService<Invoice> {
           Number((log.payload as any)?.transferAmount ?? (log.payload as any)?.amount ?? 0),
         ]),
       );
+      const paymentCodes = Array.from(
+        new Set(requests.map((request) => String(request.paymentCode || "").trim()).filter(Boolean)),
+      ).sort((a, b) => b.length - a.length);
+      const reviewLogs = paymentCodes.length
+        ? await this.prisma.paymentWebhookLog.findMany({
+            where: {
+              tenantId,
+              provider: "SEPAY",
+              status: "NEEDS_REVIEW" as any,
+              createdAt: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+            },
+            select: { providerTransactionId: true, payload: true, createdAt: true },
+            orderBy: { createdAt: "desc" },
+            take: 500,
+          })
+        : [];
+      const reviewAmountByPaymentCode = new Map<string, number>();
+      const seenReviewTransactions = new Set<string>();
+      for (const log of reviewLogs) {
+        const payload = (log.payload || {}) as Record<string, any>;
+        const matchedCode = this.resolveWebhookPaymentCodeFromPayload(payload, paymentCodes);
+        if (!matchedCode) continue;
+        const transactionKey = String(log.providerTransactionId || `${matchedCode}:${log.createdAt?.toISOString?.() || ""}`);
+        if (seenReviewTransactions.has(transactionKey)) continue;
+        const amount = Number(payload.transferAmount ?? payload.amount ?? 0);
+        if (Number.isFinite(amount) && amount > 0) {
+          seenReviewTransactions.add(transactionKey);
+          reviewAmountByPaymentCode.set(
+            matchedCode,
+            (reviewAmountByPaymentCode.get(matchedCode) || 0) + amount,
+          );
+        }
+      }
       const requestsByInvoice = new Map<string, any[]>();
       for (const request of requests) {
+        const reviewAmount =
+          request.status === "PENDING"
+            ? reviewAmountByPaymentCode.get(String(request.paymentCode || "").trim()) || 0
+            : 0;
+        if (reviewAmount > 0) {
+          (request as any).actualReceivedAmount = reviewAmount;
+          (request as any).pendingReviewAmount = reviewAmount;
+        }
         const list = requestsByInvoice.get(request.sourceId) || [];
         list.push(request);
         requestsByInvoice.set(request.sourceId, list);
@@ -187,6 +228,19 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       for (const invoice of result.data as any[]) {
         const paymentRequests = requestsByInvoice.get(invoice.id) || [];
         invoice.paymentRequests = paymentRequests;
+        const pendingReviewReceivedAmount = paymentRequests.reduce(
+          (sum, request) => sum + Number((request as any).pendingReviewAmount || 0),
+          0,
+        );
+        invoice.pendingReviewReceivedAmount = Math.min(
+          pendingReviewReceivedAmount,
+          Math.max(
+            0,
+            Number(invoice.total || 0) -
+              Number(invoice.paidAmount || 0) -
+              Number(invoice.creditAmount || 0),
+          ),
+        );
         invoice.overpaymentAmount = paymentRequests.reduce(
           (sum, request) =>
             sum +
@@ -203,6 +257,36 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       }
     }
     return result;
+  }
+
+  private resolveWebhookPaymentCodeFromPayload(payload: Record<string, any>, paymentCodes: string[]) {
+    const directCode = String(
+      payload.paymentCode || payload.payment_code || payload.code || payload.memo || "",
+    ).trim();
+    if (directCode && paymentCodes.includes(directCode)) return directCode;
+
+    const haystack = [
+      payload.content,
+      payload.description,
+      payload.transferContent,
+      payload.transfer_content,
+      payload.remark,
+      payload.memo,
+      payload.reference,
+    ]
+      .map((value) => String(value || ""))
+      .join(" ");
+
+    return [...paymentCodes]
+      .sort((a, b) => b.length - a.length)
+      .find((code) => this.textContainsPaymentCode(haystack, code)) || "";
+  }
+
+  private textContainsPaymentCode(text: string, code: string) {
+    const normalizedCode = String(code || "").trim();
+    if (!normalizedCode) return false;
+    const escapedCode = normalizedCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^A-Za-z0-9])${escapedCode}(?=$|[^A-Za-z0-9])`).test(text);
   }
 
   async getDetail(id: string, include?: any) {
@@ -255,6 +339,49 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       },
       orderBy: { createdAt: "desc" },
     });
+    const paymentCodes = Array.from(
+      new Set(paymentRequests.map((request) => String(request.paymentCode || "").trim()).filter(Boolean)),
+    ).sort((a, b) => b.length - a.length);
+    const reviewLogs = paymentCodes.length
+      ? await this.prisma.paymentWebhookLog.findMany({
+          where: {
+            tenantId,
+            provider: "SEPAY",
+            status: "NEEDS_REVIEW" as any,
+            createdAt: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+          },
+          select: { providerTransactionId: true, payload: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+          take: 500,
+        })
+      : [];
+    const reviewAmountByPaymentCode = new Map<string, number>();
+    const seenReviewTransactions = new Set<string>();
+    for (const log of reviewLogs) {
+      const payload = (log.payload || {}) as Record<string, any>;
+      const matchedCode = this.resolveWebhookPaymentCodeFromPayload(payload, paymentCodes);
+      if (!matchedCode) continue;
+      const transactionKey = String(log.providerTransactionId || `${matchedCode}:${log.createdAt?.toISOString?.() || ""}`);
+      if (seenReviewTransactions.has(transactionKey)) continue;
+      const amount = Number(payload.transferAmount ?? payload.amount ?? 0);
+      if (Number.isFinite(amount) && amount > 0) {
+        seenReviewTransactions.add(transactionKey);
+        reviewAmountByPaymentCode.set(
+          matchedCode,
+          (reviewAmountByPaymentCode.get(matchedCode) || 0) + amount,
+        );
+      }
+    }
+    for (const request of paymentRequests as any[]) {
+      const reviewAmount =
+        request.status === "PENDING"
+          ? reviewAmountByPaymentCode.get(String(request.paymentCode || "").trim()) || 0
+          : 0;
+      if (reviewAmount > 0) {
+        request.actualReceivedAmount = reviewAmount;
+        request.pendingReviewAmount = reviewAmount;
+      }
+    }
     const transactionIds = paymentRequests
       .map((request) => request.providerTransactionId)
       .filter((value): value is string => Boolean(value));
@@ -286,7 +413,25 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         ),
       0,
     );
-    return { ...invoice, familyTotals, paymentRequests, overpaymentAmount };
+    const pendingReviewReceivedAmount = paymentRequests.reduce(
+      (sum, request: any) => sum + Number(request.pendingReviewAmount || 0),
+      0,
+    );
+    return {
+      ...invoice,
+      familyTotals,
+      paymentRequests,
+      pendingReviewReceivedAmount: Math.min(
+        pendingReviewReceivedAmount,
+        Math.max(
+          0,
+          Number(invoice.total || 0) -
+            Number(invoice.paidAmount || 0) -
+            Number(invoice.creditAmount || 0),
+        ),
+      ),
+      overpaymentAmount,
+    };
   }
 
   async createAdjustment(
@@ -855,8 +1000,25 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         paidAmount: newPaidAmount,
         status: newStatus,
         paymentId: payment.id,
+        paidAt: payment.paidAt,
       };
-      await this.writeLifecycleEvidence(tx, {
+      const eventName =
+        newStatus === InvoiceStatus.PAID
+          ? "invoice.paid"
+          : "invoice.payment.recorded";
+      const eventPayload = this.invoicePaymentEventPayload(
+        invoice,
+        tenantId,
+        userId,
+        result,
+        newStatus,
+        creditAmount,
+        newPaidAmount,
+        amount,
+        normalizedProvider,
+        normalizedProviderRef,
+      );
+      const outboxEventId = await this.writeLifecycleEvidence(tx, {
         tenantId,
         userId,
         invoiceId: id,
@@ -869,25 +1031,17 @@ export class InvoicesService extends BaseCrudService<Invoice> {
           provider: normalizedProvider,
           providerRef: normalizedProviderRef,
         },
-        eventName:
-          newStatus === InvoiceStatus.PAID
-            ? "invoice.paid"
-            : "invoice.payment.recorded",
-        eventPayload: this.invoicePaymentEventPayload(
-          invoice,
-          tenantId,
-          userId,
-          result,
-          newStatus,
-          creditAmount,
-          newPaidAmount,
-          amount,
-          normalizedProvider,
-          normalizedProviderRef,
-        ),
+        eventName,
+        eventPayload,
       });
-      return { result };
+      return { result, eventName, eventPayload, outboxEventId };
     }, "INVOICE_PAYMENT_CONCURRENT_UPDATE");
+    if (operation.eventName && operation.eventPayload) {
+      this.eventPublisher.publish(operation.eventName, {
+        ...(operation.eventPayload as any),
+        outboxEventId: operation.outboxEventId,
+      });
+    }
     return operation.result;
   }
 
@@ -1109,7 +1263,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         after: { status: input.afterStatus, ...input.payload },
       },
     });
-    await tx.outboxEvent.create({
+    const outboxEvent = await tx.outboxEvent.create({
       data: {
         tenantId: input.tenantId,
         aggregateType: "Invoice",
@@ -1126,6 +1280,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         idempotencyKey: `invoice-lifecycle:${input.invoiceId}:${input.action}:${evidenceKey}`,
       },
     });
+    return outboxEvent.id;
   }
 
   private invoiceIssuedEventPayload(
@@ -1201,6 +1356,22 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         roomRentalTypeLabel: roomContext.roomRentalTypeLabel,
         roomMemberCount: roomContext.roomMemberCount,
       },
+      contractId: invoice.contract?.id || invoice.contractId || null,
+      contractCode: invoice.contract?.code || null,
+      startDate: invoice.contract?.startDate
+        ? new Date(invoice.contract.startDate).toISOString()
+        : null,
+      endDate: invoice.contract?.endDate
+        ? new Date(invoice.contract.endDate).toISOString()
+        : null,
+      firstPaymentDate: invoice.contract?.firstPaymentDate
+        ? new Date(invoice.contract.firstPaymentDate).toISOString()
+        : null,
+      moveInDate: invoice.contract?.startDate
+        ? new Date(invoice.contract.startDate).toISOString()
+        : invoice.contract?.firstPaymentDate
+          ? new Date(invoice.contract.firstPaymentDate).toISOString()
+          : null,
       sourceId: invoice.id,
       sourceType: "INVOICE",
       amount: Number(result.paidAmount ?? newPaidAmount),
@@ -1209,6 +1380,9 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       paymentAmount: Number(paymentAmount),
       paymentProvider: provider,
       paymentRef: providerRef,
+      paidAt: result.paidAt
+        ? new Date(result.paidAt).toISOString()
+        : new Date().toISOString(),
       occurredAt: new Date().toISOString(),
     };
   }

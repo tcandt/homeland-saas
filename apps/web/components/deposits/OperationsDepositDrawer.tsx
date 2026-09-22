@@ -184,6 +184,20 @@ export default function OperationsDepositDrawer({
     (hasAuthoritativeBalance && Number(availableBalance) > 0) ||
     isRefunded ||
     (isBookingDeposit && isConverted);
+  const pendingReviewReceivedAmount = Math.max(
+    0,
+    Number(
+      (detailDeposit as any).sepayPendingReviewAmount
+      || (detailDeposit as any).paymentRequest?.actualReceivedAmount
+      || (detailDeposit as any).paymentRequest?.pendingReviewAmount
+      || 0,
+    ) || 0,
+  );
+  const receivedAmount = wasEverCollected
+    ? amount
+    : Math.min(amount, pendingReviewReceivedAmount);
+  const receivedAmountStr = formatCurrency(receivedAmount);
+  const hasPendingReviewReceived = !wasEverCollected && receivedAmount > 0;
   const paymentRequestStatus = String(detailDeposit.paymentRequest?.status || "").toUpperCase();
   const paymentRequestCreated = Boolean(detailDeposit.paymentRequest?.id);
   const canShowVietQr = !isPaid && !isRefunded && !isCancelled;
@@ -739,10 +753,15 @@ export default function OperationsDepositDrawer({
                 Đã thu
               </span>
               <span
-                className={`text-sm sm:text-base font-black mt-0.5 block font-mono ${wasEverCollected ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}
+                className={`text-sm sm:text-base font-black mt-0.5 block font-mono ${wasEverCollected || hasPendingReviewReceived ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}
               >
-                {wasEverCollected ? amountStr : "0đ"}
+                {wasEverCollected || hasPendingReviewReceived ? receivedAmountStr : "0đ"}
               </span>
+              {hasPendingReviewReceived && (
+                <span className="mt-0.5 block text-[9px] font-black uppercase tracking-tight text-amber-600">
+                  Chờ xử lý
+                </span>
+              )}
             </div>
             <div className="bg-surface/50 border border-border/70 rounded-2xl p-3 shadow-2xs">
               <span className="text-[10px] font-black uppercase tracking-wider text-muted block">

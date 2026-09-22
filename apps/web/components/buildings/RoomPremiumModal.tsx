@@ -2962,12 +2962,22 @@ export default function RoomPremiumModal({
 
   let tenantName = "Trống";
   let daysLeft = "-";
+  // The room finance endpoint is the authoritative source for the header
+  // debt badge. Its outstanding amount lives under `totals`, while the
+  // rental-cycle endpoint exposes it under `invoices`; reading only the latter
+  // made the badge say "Không nợ" while the finance tab showed a balance.
+  const financeSummaryTotals = (roomFinanceSummary as any)?.totals;
   const summaryOutstanding = Number(
-    (roomFinanceSummary as any)?.invoices?.outstanding ||
-      (roomFinanceSummary as any)?.summary?.outstanding ||
+    financeSummaryTotals?.outstanding ??
+      (roomFinanceSummary as any)?.invoices?.outstanding ??
+      (roomFinanceSummary as any)?.summary?.outstanding ??
       0,
   );
-  let rDebt = Number(roomData.debt || 0) || summaryOutstanding;
+  const hasAuthoritativeFinanceSummary =
+    !!roomFinanceSummary && !!financeSummaryTotals;
+  let rDebt = hasAuthoritativeFinanceSummary
+    ? summaryOutstanding
+    : Number(roomData.debt || 0);
   if (roomData.tenant) {
     tenantName = roomData.tenant.name;
     if (roomData.contract) {
@@ -2983,7 +2993,7 @@ export default function RoomPremiumModal({
       count > 0
         ? `${count} khách ghép`
         : financeRoomIdentity?.customerName || "Trống";
-    if (count > 0) {
+    if (count > 0 && !hasAuthoritativeFinanceSummary) {
       rDebt =
         roomData.sharedTenants?.reduce((acc, st) => acc + (st.debt || 0), 0) ||
         0;

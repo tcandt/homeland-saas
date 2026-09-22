@@ -1,6 +1,11 @@
 export function getInvoiceFinancials(invoice: any) {
   const total = Math.max(0, Number(invoice?.total ?? invoice?.totalAmount ?? invoice?.amount ?? 0) || 0);
-  const paid = Math.max(0, Number(invoice?.paidAmount ?? invoice?.paid ?? 0) || 0);
+  const confirmedPaid = Math.max(0, Number(invoice?.paidAmount ?? invoice?.paid ?? 0) || 0);
+  const pendingReviewReceived = Math.max(
+    0,
+    Number(invoice?.pendingReviewReceivedAmount ?? invoice?.sepayPendingReviewAmount ?? 0) || 0,
+  );
+  const paid = confirmedPaid;
   const credit = Math.max(0, Number(invoice?.creditAmount ?? invoice?.credit ?? 0) || 0);
   const settled = Math.min(total, paid + credit);
   const reportedOverpaid = Math.max(0, Number(invoice?.overpaymentAmount ?? invoice?.overpaidAmount ?? 0) || 0);
@@ -8,6 +13,8 @@ export function getInvoiceFinancials(invoice: any) {
 
   return {
     total,
+    confirmedPaid,
+    pendingReviewReceived,
     paid,
     credit,
     settled,

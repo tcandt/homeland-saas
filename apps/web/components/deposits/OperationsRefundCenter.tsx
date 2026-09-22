@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useMemo } from "react";
-import { AlertTriangle, CalendarClock, ChevronRight, RefreshCcw, ArrowRight } from "lucide-react";
+import React, { useEffect, useMemo, useRef } from "react";
+import { AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, RefreshCcw } from "lucide-react";
 import { useDepositsQuery } from "@/lib/queries/deposits.queries";
 import { useDepositStore } from "@/lib/stores/deposit.store";
 import { Card } from "../ui/Card";
@@ -10,7 +10,18 @@ import { Button } from "../ui/Button";
 const money = (value: number) =>
   new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(value || 0) + " đ";
 
-export default function OperationsRefundCenter() {
+type OperationsRefundCenterProps = {
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+};
+
+export default function OperationsRefundCenter({
+  collapsed = true,
+  onCollapsedChange,
+}: OperationsRefundCenterProps) {
+  const centerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const badgeRef = useRef<HTMLButtonElement>(null);
   const { data } = useDepositsQuery({ limit: 100 });
   const setSelectedDeposit = useDepositStore((state) => state.setSelectedDeposit);
   const deposits = data?.data?.items || [];
@@ -66,8 +77,61 @@ export default function OperationsRefundCenter() {
   const pendingCount = refunds.filter((item: any) => item.isPending).length;
   const overdueCount = refunds.filter((item: any) => item.tag.startsWith("Trễ")).length;
 
+  useEffect(() => {
+    if (collapsed) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        !panelRef.current?.contains(target) &&
+        !badgeRef.current?.contains(target)
+      ) {
+        onCollapsedChange?.(true);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [collapsed, onCollapsedChange]);
+
   return (
-    <div data-testid="deposits-refund-center" className="sticky top-[20px] flex flex-col gap-3 p-4 rounded-2xl bg-card/60 border border-border/60 shadow-xs backdrop-blur-sm">
+    <div
+      data-testid="deposits-refund-center"
+      ref={centerRef}
+      className="pointer-events-none fixed right-0 top-[72px] bottom-4 z-[101] flex items-center"
+      aria-label="Trung tâm hoàn cọc"
+    >
+      <button
+        type="button"
+        data-testid="deposits-refund-center-expand"
+        aria-label={collapsed ? "Mở Trung tâm hoàn cọc" : "Thu gọn Trung tâm hoàn cọc"}
+        aria-expanded={!collapsed}
+        onClick={() => onCollapsedChange?.(!collapsed)}
+        ref={badgeRef}
+        className={`pointer-events-auto relative z-50 flex shrink-0 cursor-pointer list-none items-center gap-1.5 rounded-l-xl border-y border-l border-rose-500/40 bg-card/95 px-2 py-3 text-xs font-black text-rose-600 shadow-xl backdrop-blur-md transition-all hover:border-rose-500 hover:bg-rose-500/10 hover:pl-3 dark:text-rose-400 [writing-mode:vertical-rl] select-none ${
+          collapsed ? "translate-x-6" : "translate-x-0"
+        }`}
+      >
+        {collapsed ? (
+          <ChevronLeft size={13} className="text-rose-500" />
+        ) : (
+          <ChevronRight size={13} className="text-rose-500" />
+        )}
+        <span className={`transition-transform duration-300 ${collapsed ? "" : "[transform:rotate(180deg)]"}`}>
+          Trung tâm hoàn cọc
+        </span>
+      </button>
+
+      <aside
+        aria-hidden={collapsed}
+        ref={panelRef}
+        className={`pointer-events-auto relative z-40 flex h-full max-h-none min-w-0 shrink-0 flex-col gap-3 overflow-y-auto rounded-l-[28px] border border-r-0 border-border/80 bg-card p-4 shadow-modal transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
+          collapsed
+            ? "pointer-events-none w-0 -translate-x-3 overflow-hidden border-0 p-0 opacity-0"
+            : "w-[min(460px,calc(100vw-64px))] translate-x-0 opacity-100"
+        }`}
+      >
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -79,16 +143,18 @@ export default function OperationsRefundCenter() {
             <span className="text-[11px] font-medium text-muted">Xử lý hoàn tiền & phạt cọc</span>
           </div>
         </div>
-        {refunds.length > 0 && (
-          <button
-            type="button"
-            data-testid="deposits-refund-center-open-first"
-            onClick={() => refunds[0] && setSelectedDeposit(refunds[0].deposit)}
-            className="text-[12px] font-bold text-primary hover:underline"
-          >
-            Mở nhanh
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {refunds.length > 0 && (
+            <button
+              type="button"
+              data-testid="deposits-refund-center-open-first"
+              onClick={() => refunds[0] && setSelectedDeposit(refunds[0].deposit)}
+              className="rounded-lg px-2 py-1 text-[12px] font-bold text-primary hover:bg-primary/5 hover:underline"
+            >
+              Mở nhanh
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 3 Metric Pills */}
@@ -161,6 +227,7 @@ export default function OperationsRefundCenter() {
         <RefreshCcw size={13} className="mr-1.5" />
         Xử lý hoàn tiền
       </Button>
+      </aside>
     </div>
   );
 }

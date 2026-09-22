@@ -458,13 +458,14 @@ export class DepositsService extends BaseCrudService<Deposit> {
       },
       orderBy: { createdAt: 'desc' },
       select: {
-        id: true,
-        status: true,
-        paymentCode: true,
-        provider: true,
-        paidAt: true,
-        createdAt: true,
-        metadata: true,
+          id: true,
+          status: true,
+          paymentCode: true,
+          amount: true,
+          provider: true,
+          paidAt: true,
+          createdAt: true,
+          metadata: true,
       },
       }).catch(() => null)
       : Promise.resolve(null));
@@ -497,6 +498,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
             id: true,
             status: true,
             paymentCode: true,
+            amount: true,
             provider: true,
             paidAt: true,
             createdAt: true,
@@ -505,14 +507,63 @@ export class DepositsService extends BaseCrudService<Deposit> {
         }).catch(() => null);
       }
     }
+    if (paymentRequest && String(paymentRequest.status || '').toUpperCase() === 'PENDING') {
+      const pendingReviewAmount = await this.getPendingReviewSePayAmount(
+        deposit.tenantId,
+        String(paymentRequest.paymentCode || ''),
+      );
+      if (pendingReviewAmount > 0) {
+        paymentRequest = {
+          ...paymentRequest,
+          actualReceivedAmount: pendingReviewAmount,
+          pendingReviewAmount,
+        };
+      }
+    }
 
     return {
       ...deposit,
+      sepayPendingReviewAmount: Number((paymentRequest as any)?.pendingReviewAmount || 0),
       ...(availableBalance === undefined ? {} : { availableBalance }),
       paymentRequest: paymentRequest || null,
       pendingOperationId: refundSummary?.pending ? refundSummary.operationId : null,
       refundSummary,
     };
+  }
+
+  private async getPendingReviewSePayAmount(tenantId: string, paymentCode: string) {
+    const code = String(paymentCode || '').trim();
+    if (!code) return 0;
+    const logs = await this.prisma.paymentWebhookLog.findMany({
+      where: {
+        tenantId,
+        provider: 'SEPAY',
+        status: 'NEEDS_REVIEW' as any,
+        createdAt: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+      },
+      select: { payload: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    }).catch(() => []);
+    for (const log of logs) {
+      const payload = (log.payload || {}) as Record<string, any>;
+      const haystack = [
+        payload.paymentCode,
+        payload.payment_code,
+        payload.code,
+        payload.content,
+        payload.description,
+        payload.transferContent,
+        payload.transfer_content,
+        payload.remark,
+        payload.memo,
+        payload.reference,
+      ].map((value) => String(value || '')).join(' ');
+      if (!haystack.includes(code)) continue;
+      const amount = Number(payload.transferAmount ?? payload.amount ?? 0);
+      return Number.isFinite(amount) && amount > 0 ? amount : 0;
+    }
+    return 0;
   }
 
   async collect(id: string, note: string | null, userId: string, idempotencyKey?: string, holdExpiresAt?: string | null) {

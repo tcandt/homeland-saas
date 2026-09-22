@@ -308,7 +308,7 @@ export class DepositCoreService {
           room: { include: { building: true, floor: true } },
           rentalCycle: true,
           customer: { select: { fullName: true, phone: true, zaloChatId: true, zaloUserId: true } },
-          contract: { select: { id: true, code: true, roomId: true } },
+          contract: { select: { id: true, code: true, roomId: true, startDate: true, endDate: true, firstPaymentDate: true } },
         },
       });
       if (!deposit) throw new BadRequestException('DEPOSIT_NOT_FOUND');
@@ -396,6 +396,20 @@ export class DepositCoreService {
         sourceId: deposit.id,
         sourceType: 'DEPOSIT',
         amount: collectionAmount,
+        paymentAmount: collectionAmount,
+        paidAmount: this.toMoney(currentBalance + collectionAmount),
+        paidAt: new Date().toISOString(),
+        moveInDate: deposit.contract?.startDate
+          ? new Date(deposit.contract.startDate).toISOString()
+          : deposit.contract?.firstPaymentDate
+            ? new Date(deposit.contract.firstPaymentDate).toISOString()
+            : null,
+        startDate: deposit.contract?.startDate
+          ? new Date(deposit.contract.startDate).toISOString()
+          : null,
+        endDate: deposit.contract?.endDate
+          ? new Date(deposit.contract.endDate).toISOString()
+          : null,
         occurredAt: new Date().toISOString(),
         metadata: { code: deposit.code, operationId: operation.id },
       });

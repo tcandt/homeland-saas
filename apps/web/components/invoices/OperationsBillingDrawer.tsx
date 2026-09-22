@@ -37,6 +37,7 @@ import {
   usePayInvoiceMutation,
   useCancelInvoiceMutation,
   useWriteoffInvoiceMutation,
+  useInvoiceDetailQuery,
 } from "@/lib/queries/invoices.queries";
 import {
   useCreateInvoicePaymentRequestMutation,
@@ -130,12 +131,17 @@ export default function OperationsBillingDrawer(props: {
 }
 
 function OperationsBillingDrawerContent({
-  invoice,
+  invoice: initialInvoice,
   onClose,
 }: {
   invoice: any;
   onClose: () => void;
 }) {
+  const detailQuery = useInvoiceDetailQuery(initialInvoice.id, {
+    refetchInterval: 3000,
+    refetchOnWindowFocus: true,
+  });
+  const invoice = (detailQuery.data as any)?.data || initialInvoice;
   const issueMutation = useIssueInvoiceMutation();
   const payMutation = usePayInvoiceMutation();
   const cancelMutation = useCancelInvoiceMutation();
@@ -157,6 +163,7 @@ function OperationsBillingDrawerContent({
   const financials = getInvoiceFinancials(invoice);
   const totalAmount = financials.total || Number(invoice.total || invoice.totalAmount || 0);
   const paidAmount = financials.paid || Number(invoice.paidAmount || 0);
+  const pendingReviewReceivedAmount = financials.pendingReviewReceived || 0;
   const remainingAmount = financials.remaining;
   const overpaidAmount = financials.overpaid;
   const paymentRows = Array.isArray(invoice.payments)
@@ -255,6 +262,7 @@ function OperationsBillingDrawerContent({
   const currentStatus = (invoice.status || "DRAFT").toUpperCase();
   const isPaid = currentStatus === "PAID";
   const isPartiallyPaid = currentStatus === "PARTIALLY_PAID";
+  const hasPartialReceived = !isPaid && paidAmount > 0 && remainingAmount > 0;
   const isOverdue = currentStatus === "OVERDUE";
   const isDraft = currentStatus === "DRAFT";
   const isIssued = currentStatus === "ISSUED";
@@ -264,7 +272,7 @@ function OperationsBillingDrawerContent({
       : hasCashPayment
         ? "Đã nhận tiền mặt đủ"
         : "Đã thu đủ"
-    : isPartiallyPaid
+    : hasPartialReceived || isPartiallyPaid
       ? `Đã thu một phần · Còn ${formatVnd(remainingAmount)}`
       : null;
 
@@ -283,38 +291,56 @@ function OperationsBillingDrawerContent({
       ? invoice.paymentRequests.find((request: any) => request?.status === "PENDING") ||
         invoice.paymentRequests[0]
       : null);
-  const activePaymentRequest = paymentRequest || embeddedPaymentRequest || null;
   const amountToPay = remainingAmount > 0 ? remainingAmount : totalAmount;
+  const rawPaymentRequest = paymentRequest || embeddedPaymentRequest || null;
+  const rawPaymentRequestAmount = Number(rawPaymentRequest?.amount || 0);
+  const isPaymentRequestCurrent =
+    Boolean(rawPaymentRequest?.qrUrl) &&
+    amountToPay > 0 &&
+    Math.abs(rawPaymentRequestAmount - amountToPay) < 1;
+  const activePaymentRequest = isPaymentRequestCurrent ? rawPaymentRequest : null;
   const qrUrl = activePaymentRequest?.qrUrl || "";
   const bankName = activePaymentRequest?.bankName || "Chưa tạo QR theo Settings";
   const bankAccount = activePaymentRequest?.bankAccountNumber || "Chưa có";
   const paymentMemo = activePaymentRequest?.paymentCode || invoiceCode;
 
   useEffect(() => {
-    setPaymentRequest(embeddedPaymentRequest || null);
-  }, [invoice.id]);
+    const embeddedAmount = Number(embeddedPaymentRequest?.amount || 0);
+    const embeddedMatchesRemaining =
+      Boolean(embeddedPaymentRequest?.qrUrl) &&
+      amountToPay > 0 &&
+      Math.abs(embeddedAmount - amountToPay) < 1;
+    setPaymentRequest(embeddedMatchesRemaining ? embeddedPaymentRequest : null);
+  }, [invoice.id, amountToPay]);
 
   useEffect(() => {
     if (isPaid) setActiveTab("ITEMS");
   }, [isPaid]);
 
   useEffect(() => {
-    if (!invoice?.id || isPaid || remainingAmount <= 0 || isDraft) return;
+    if (activeTab !== "QR" || !invoice?.id || isPaid || remainingAmount <= 0 || isDraft) return;
     createPaymentRequestMutation.mutate(invoice.id, {
       onSuccess: (response: any) => {
         setPaymentRequest((response?.data || response) as PaymentRequestResponse);
       },
       onError: (error: any) => {
-        toast.error(
+        const message = String(
           error?.response?.data?.message ||
             error?.message ||
-            "Không thể tạo QR thanh toán theo Settings bank",
+            "",
         );
+        if (message.includes("không còn số tiền cần thanh toán")) {
+          setPaymentRequest(null);
+          setActiveTab("ITEMS");
+          void detailQuery.refetch();
+          return;
+        }
+        toast.error(message || "Không thể tạo QR thanh toán theo Settings bank");
       },
     });
     // Chỉ tạo/làm mới request khi mở tab QR hoặc đổi hóa đơn; backend tự replay/cập nhật request PENDING.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [invoice.id, isPaid, isDraft, remainingAmount]);
+    }, [activeTab, invoice.id, isPaid, isDraft, remainingAmount]);
 
   // Breakdown items depending on payment category
   const defaultItems =
@@ -715,13 +741,13 @@ function OperationsBillingDrawerContent({
                 </div>
                 <div className="min-w-0">
                   <div className="text-[11px] font-black text-text leading-tight truncate">
-                    3. {isPaid ? "Đã nhận đủ" : isPartiallyPaid ? "Nhận 1 phần" : isOverdue ? "Bot nhắc hẹn" : "Chờ thu"}
+                    3. {isPaid ? "Đã nhận đủ" : hasPartialReceived || isPartiallyPaid ? "Nhận 1 phần" : isOverdue ? "Bot nhắc hẹn" : "Chờ thu"}
                   </div>
                   <div
                     className={`text-[9px] font-bold truncate ${
                       isPaid
                         ? "text-emerald-600"
-                        : isPartiallyPaid
+                        : hasPartialReceived || isPartiallyPaid
                         ? "text-blue-600"
                         : isOverdue
                         ? "text-rose-600"
@@ -730,7 +756,7 @@ function OperationsBillingDrawerContent({
                   >
                     {isPaid
                       ? "Xác nhận đủ"
-                      : isPartiallyPaid
+                      : hasPartialReceived || isPartiallyPaid
                       ? `Còn ${formatVnd(remainingAmount)}`
                       : isOverdue
                       ? "Quá hạn nợ"
@@ -744,10 +770,10 @@ function OperationsBillingDrawerContent({
           {/* 3. TOTAL AMOUNT & HIGHLIGHT METRICS */}
           <div className="rounded-xl border border-border/70 bg-gradient-to-br from-card via-surface/40 to-card p-3.5 text-center shadow-2xs">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted block mb-1">
-              Tổng tiền cần thanh toán
+              {hasPartialReceived ? "Còn phải thanh toán" : "Tổng tiền cần thanh toán"}
             </span>
             <div className="font-mono text-2xl font-black text-primary leading-tight">
-              {formatVnd(totalAmount)}
+              {formatVnd(hasPartialReceived ? remainingAmount : totalAmount)}
             </div>
 
             <div className="grid grid-cols-3 gap-2 pt-3 mt-3 border-t border-border/50 text-left">
@@ -772,18 +798,11 @@ function OperationsBillingDrawerContent({
                 </span>
               </div>
             </div>
-            {(settlementLabel || overpaidAmount > 0) && (
+            {overpaidAmount > 0 && (
               <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[11px] font-black">
-                {settlementLabel && (
-                  <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-emerald-600">
-                    {settlementLabel}
-                  </span>
-                )}
-                {overpaidAmount > 0 && (
-                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-700">
-                    Tiền thừa: {formatVnd(overpaidAmount)}
-                  </span>
-                )}
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-700">
+                  Tiền thừa: {formatVnd(overpaidAmount)}
+                </span>
               </div>
             )}
           </div>
@@ -851,6 +870,30 @@ function OperationsBillingDrawerContent({
                 <span className="font-black uppercase text-text">Tổng cộng</span>
                 <span className="font-mono font-black text-sm text-primary">{formatVnd(totalAmount)}</span>
               </div>
+              {pendingReviewReceivedAmount > 0 && paidAmount <= 0 && (
+                <div className="flex items-center justify-between px-3.5 py-2 border-t border-amber-500/20 bg-amber-500/5 text-xs">
+                  <span className="font-black uppercase text-amber-700">Bank báo về · chờ xử lý</span>
+                  <span className="font-mono font-black text-amber-700">{formatVnd(pendingReviewReceivedAmount)}</span>
+                </div>
+              )}
+              {paidAmount > 0 && remainingAmount > 0 && (
+                <>
+                  <div className="flex items-center justify-between px-3.5 py-2 border-t border-emerald-500/20 bg-emerald-500/5 text-xs">
+                    <span className="font-black uppercase text-emerald-700">Đã nhận</span>
+                    <span className="font-mono font-black text-emerald-700">{formatVnd(paidAmount)}</span>
+                  </div>
+                  {pendingReviewReceivedAmount > 0 && (
+                    <div className="flex items-center justify-between px-3.5 py-2 border-t border-amber-500/20 bg-amber-500/5 text-xs">
+                      <span className="font-black uppercase text-amber-700">Bank báo về · chờ xử lý</span>
+                      <span className="font-mono font-black text-amber-700">{formatVnd(pendingReviewReceivedAmount)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between px-3.5 py-2 border-t border-rose-500/20 bg-rose-500/5 text-xs">
+                    <span className="font-black uppercase text-rose-600">Còn phải thanh toán</span>
+                    <span className="font-mono font-black text-rose-600">{formatVnd(remainingAmount)}</span>
+                  </div>
+                </>
+              )}
               {overpaidAmount > 0 && (
                 <div className="flex items-center justify-between px-3.5 py-2 border-t border-amber-500/20 bg-amber-500/5 text-xs">
                   <span className="font-black uppercase text-amber-700">Tiền thừa</span>
@@ -901,6 +944,14 @@ function OperationsBillingDrawerContent({
                   </div>
                 </div>
                 <div className="col-span-2 rounded-xl border border-primary/20 bg-primary/5 p-2">
+                  <div className="mb-2 flex items-center justify-between rounded-lg border border-rose-500/20 bg-rose-500/10 px-2 py-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-tight text-rose-600">
+                      QR này thu phần còn lại
+                    </span>
+                    <span className="font-mono text-sm font-black text-rose-600">
+                      {formatVnd(amountToPay)}
+                    </span>
+                  </div>
                   <span className="text-[10px] text-primary font-bold block">Nội dung chuyển khoản (Memo)</span>
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-black text-primary text-sm">{paymentMemo}</span>

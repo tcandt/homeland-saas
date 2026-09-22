@@ -49,6 +49,16 @@ export class AutomationListener {
     await this.processEvent('deposit.deducted', payload);
   }
 
+  @OnEvent('deposit.cancelled')
+  async handleDepositCancelled(payload: DomainEventPayload) {
+    await this.processEvent('deposit.cancelled', payload);
+  }
+
+  @OnEvent('deposit.converted_to_security')
+  async handleDepositConvertedToSecurity(payload: DomainEventPayload) {
+    await this.processEvent('deposit.converted_to_security', payload);
+  }
+
   @OnEvent('contract.created')
   async handleContractCreated(payload: DomainEventPayload) {
     await this.processEvent('contract.created', payload);
@@ -71,7 +81,22 @@ export class AutomationListener {
     // For this sprint, we statically map them in workflow engine, but we trigger the check here.
     
     // We only process specific events to avoid infinite loops for now
-    const supportedEvents = ['deposit.created', 'deposit.collected', 'deposit.refunded', 'deposit.refund_requested', 'deposit.deducted', 'invoice.issued', 'invoice.overdue', 'invoice.paid', 'invoice.payment.recorded', 'contract.created', 'contract.settlement.refunded', 'contract.settlement.completed'];
+    const supportedEvents = [
+      'deposit.created',
+      'deposit.collected',
+      'deposit.refunded',
+      'deposit.refund_requested',
+      'deposit.deducted',
+      'deposit.cancelled',
+      'deposit.converted_to_security',
+      'invoice.issued',
+      'invoice.overdue',
+      'invoice.paid',
+      'invoice.payment.recorded',
+      'contract.created',
+      'contract.settlement.refunded',
+      'contract.settlement.completed',
+    ];
     if (supportedEvents.includes(eventName)) {
       // Find workflows that trigger on this event
       const workflows = await this.automationService.getWorkflows();

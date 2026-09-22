@@ -23,7 +23,6 @@ import { useAuthStore } from "@/lib/auth/auth-store";
 import { ApiError } from "@/lib/api/client";
 import { getLoginErrorMessage } from "@/lib/auth/login-errors";
 import { clearPasswordChangePromptDeferral } from "@/lib/auth/password-change-prompt";
-import { requestLoginVersionCheck } from "@/lib/system-update/login-version-check";
 import { saveMobileLoginCredentials } from "@/lib/auth/mobile-session-recovery";
 import BrandLogo from "@/components/ui/BrandLogo";
 import toast from "react-hot-toast";
@@ -91,7 +90,6 @@ export default function LoginPage() {
         saveMobileLoginCredentials(emailOrPhone, password);
       }
       clearPasswordChangePromptDeferral(response.user.id);
-      requestLoginVersionCheck(response.user.id);
       router.replace("/");
     } catch (err: any) {
       setLoading(false);
@@ -462,4 +460,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

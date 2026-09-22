@@ -15,7 +15,7 @@ export class DepositOutboxPublisher {
     private readonly publisher: DomainEventPublisher,
   ) {}
 
-  @Interval(5_000)
+  @Interval(1_000)
   async scheduledDrain() {
     if (process.env.DISABLE_DEPOSIT_OUTBOX === 'true' || this.draining) return;
     this.draining = true;

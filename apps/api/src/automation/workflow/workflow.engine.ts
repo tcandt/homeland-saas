@@ -202,6 +202,9 @@ export class WorkflowEngine {
         await this.createJournalEntryFromPaymentEvent(payload);
         break;
       case 'CREATE_IN_APP_NOTIFICATION':
+        if (this.shouldSuppressLinkedInvoicePaymentNotification(payload)) {
+          break;
+        }
         await this.communicationService.dispatch({
           tenantId: payload.tenantId,
           userId: payload.customerId || payload.userId,
@@ -210,6 +213,9 @@ export class WorkflowEngine {
         });
         break;
       case 'CREATE_ADMIN_IN_APP_NOTIFICATION': {
+        if (this.shouldSuppressAdminNotification(payload)) {
+          break;
+        }
         const adminUserIds = await this.resolveAdminUserIds(payload.tenantId);
         const title = this.buildAdminPaymentTitle(payload);
         const message = this.buildAdminPaymentMessage(payload);
@@ -225,6 +231,12 @@ export class WorkflowEngine {
         break;
       }
       case 'SEND_PAYMENT_CONFIRMATION_ZALO':
+        if (this.shouldSuppressCustomerPaymentConfirmation(payload)) {
+          this.logger.debug(
+            `Skip customer payment Zalo confirmation for ${payload.metadata?.code || payload.sourceId || '-'} because it was already confirmed by the linked invoice payment.`,
+          );
+          break;
+        }
         if (!(await this.safeShouldSendSePayResultToZalo(payload))) {
           break;
         }
@@ -265,6 +277,9 @@ export class WorkflowEngine {
         }
         break;
       case 'SEND_ADMIN_GROUP_ZALO':
+        if (this.shouldSuppressAdminNotification(payload)) {
+          break;
+        }
         const isPaymentAdminZaloEvent = this.isPaymentAdminZaloEvent(eventName, payload);
         const adminGroupChatId = await this.resolveAdminGroupChatId(payload.tenantId);
         if (!adminGroupChatId) {
@@ -662,12 +677,36 @@ export class WorkflowEngine {
       },
       orderBy: { createdAt: 'asc' },
     });
-    return (users || [])
+    const adminUserIds = (users || [])
       .filter((user: any) =>
         (user.roles || []).some((item: any) => ['ADMIN', 'MANAGER', 'FINANCE'].includes(String(item.role?.code || '').toUpperCase())),
       )
       .map((user: any) => String(user.id || '').trim())
       .filter(Boolean);
+    if (adminUserIds.length > 0) return adminUserIds;
+    return (users || [])
+      .map((user: any) => String(user.id || '').trim())
+      .filter(Boolean);
+  }
+
+  private shouldSuppressCustomerPaymentConfirmation(payload: any) {
+    return this.shouldSuppressLinkedInvoicePaymentNotification(payload);
+  }
+
+  private shouldSuppressAdminNotification(payload: any) {
+    return Boolean(payload?.metadata?.suppressAdminNotification)
+      || this.shouldSuppressLinkedInvoicePaymentNotification(payload);
+  }
+
+  private shouldSuppressLinkedInvoicePaymentNotification(payload: any) {
+    const metadata = payload?.metadata || {};
+    return String(payload?.sourceType || '').toUpperCase() === 'DEPOSIT' && (
+      metadata.suppressCustomerZaloConfirmation === true ||
+      metadata.linkedInvoicePayment === true ||
+      String(metadata.collectionNote || '').toLowerCase().startsWith('sepay invoice confirmation') ||
+      String(metadata.idempotencyKey || '').startsWith('sepay:invoice:') ||
+      String(metadata.idempotencyKey || '').startsWith('sepay:security-deposit-invoice:')
+    );
   }
 
   private buildPaymentStatusLabel(payload: any) {
@@ -678,6 +717,20 @@ export class WorkflowEngine {
   }
 
   private buildAdminPaymentTitle(payload: any) {
+    const sourceType = String(payload?.sourceType || '').toUpperCase();
+    const eventKind = String(payload?.metadata?.eventKind || '').toUpperCase();
+    if (sourceType === 'REFUND' || eventKind.includes('REFUND')) {
+      return `Admin - Hoàn cọc ${payload.metadata?.code || payload.sourceId || ''}`.trim();
+    }
+    if (sourceType === 'ADJUSTMENT') {
+      return `Admin - ${eventKind.includes('RETAIN') ? 'Giữ lại' : 'Khấu trừ'} cọc ${payload.metadata?.code || payload.sourceId || ''}`.trim();
+    }
+    if (eventKind === 'DEPOSIT_CANCELLED') {
+      return `Admin - Đã hủy cọc ${payload.metadata?.code || payload.sourceId || ''}`.trim();
+    }
+    if (eventKind === 'DEPOSIT_CONVERTED') {
+      return `Admin - Đã chuyển cọc sang HĐ dài hạn ${payload.metadata?.code || payload.sourceId || ''}`.trim();
+    }
     if (payload.sourceType === 'DEPOSIT' || payload.metadata?.bookingHoldDepositInvoice) {
       return `Admin - Đã nhận cọc giữ phòng ${payload.metadata?.code || ''}`.trim();
     }
@@ -685,6 +738,61 @@ export class WorkflowEngine {
   }
 
   private buildAdminPaymentMessage(payload: any) {
+    const sourceType = String(payload?.sourceType || '').toUpperCase();
+    const eventKind = String(payload?.metadata?.eventKind || '').toUpperCase();
+    const code = payload.metadata?.code || payload.sourceId || '-';
+    const paymentRoomLabel = payload.roomCode ? `\nPhòng: ${payload.roomCode}` : '';
+    const paymentBuildingLabel = payload.buildingName ? `\nTòa nhà: ${payload.buildingName}` : '';
+    const reason = payload.metadata?.reason || payload.metadata?.note || payload.reason || '';
+    const amount = Number(payload.paymentAmount ?? payload.amount ?? 0);
+    if (sourceType === 'REFUND' || eventKind.includes('REFUND')) {
+      return [
+        'HomeLand Admin - Hoàn tiền cọc',
+        `Mã phiếu: ${code}`,
+        `Khách: ${payload.customerName || '-'}`,
+        `Số tiền hoàn: ${amount.toLocaleString('vi-VN')} VND`,
+        payload.metadata?.originalAmount != null
+          ? `Tiền cọc ban đầu: ${Number(payload.metadata.originalAmount).toLocaleString('vi-VN')} VND`
+          : null,
+        payload.metadata?.retainedAmount > 0
+          ? `Giữ lại: ${Number(payload.metadata.retainedAmount).toLocaleString('vi-VN')} VND`
+          : null,
+        payload.metadata?.refundStatus ? `Trạng thái hoàn: ${payload.metadata.refundStatus}` : null,
+        reason ? `Lý do: ${reason}` : null,
+        paymentRoomLabel ? paymentRoomLabel.trimStart() : null,
+        paymentBuildingLabel ? paymentBuildingLabel.trimStart() : null,
+        `Thời gian: ${this.formatDateTime(payload.occurredAt || new Date().toISOString())}`,
+      ].filter(Boolean).join('\n');
+    }
+    if (sourceType === 'ADJUSTMENT' || eventKind === 'DEPOSIT_CANCELLED' || eventKind === 'DEPOSIT_CONVERTED') {
+      const metadata = payload.metadata || {};
+      return [
+        eventKind === 'DEPOSIT_CONVERTED'
+          ? 'HomeLand Admin - Đã chuyển cọc giữ phòng sang cọc hợp đồng'
+          : eventKind === 'DEPOSIT_CANCELLED'
+            ? 'HomeLand Admin - Đã hủy cọc'
+            : 'HomeLand Admin - Điều chỉnh tiền cọc',
+        `Mã phiếu: ${code}`,
+        `Khách: ${payload.customerName || '-'}`,
+        amount > 0 ? `Số tiền xử lý: ${amount.toLocaleString('vi-VN')} VND` : null,
+        metadata.transferAmount != null ? `Đã chuyển sang cọc HĐ: ${Number(metadata.transferAmount).toLocaleString('vi-VN')} VND` : null,
+        metadata.additionalCashRequired != null ? `Còn phải thu thêm: ${Number(metadata.additionalCashRequired).toLocaleString('vi-VN')} VND` : null,
+        metadata.excessAmount != null ? `Tiền dư: ${Number(metadata.excessAmount).toLocaleString('vi-VN')} VND` : null,
+        metadata.refundAmount != null && Number(metadata.refundAmount) > 0
+          ? `Số tiền hoàn: ${Number(metadata.refundAmount).toLocaleString('vi-VN')} VND`
+          : null,
+        metadata.keepAmount != null && Number(metadata.keepAmount) > 0
+          ? `Giữ lại: ${Number(metadata.keepAmount).toLocaleString('vi-VN')} VND`
+          : null,
+        metadata.deductAmount != null && Number(metadata.deductAmount) > 0
+          ? `Khấu trừ: ${Number(metadata.deductAmount).toLocaleString('vi-VN')} VND`
+          : null,
+        reason ? `Lý do: ${reason}` : null,
+        paymentRoomLabel ? paymentRoomLabel.trimStart() : null,
+        paymentBuildingLabel ? paymentBuildingLabel.trimStart() : null,
+        `Thời gian: ${this.formatDateTime(payload.occurredAt || new Date().toISOString())}`,
+      ].filter(Boolean).join('\n');
+    }
     const isBookingHold = payload.sourceType === 'DEPOSIT' || Boolean(payload.metadata?.bookingHoldDepositInvoice);
     const sourceLabel = isBookingHold ? 'Cọc giữ phòng' : 'Hóa đơn';
     const roomLabel = payload.roomCode ? `\nPhòng: ${payload.roomCode}${payload.roomRentalTypeLabel ? ` (${payload.roomRentalTypeLabel})` : ''}` : '';
@@ -735,6 +843,10 @@ export class WorkflowEngine {
     if (this.isPaymentAdminZaloEvent(eventName, payload)) return this.buildAdminPaymentTitle(payload);
     const code = payload.metadata?.code || payload.invoiceCode || payload.contractCode || payload.depositCode || payload.code || payload.sourceId || '';
     const kind = String(params?.alertKind || eventName || '').toUpperCase();
+    if (kind.includes('DEPOSIT_REFUNDED')) return `Đã hoàn cọc ${code}`.trim();
+    if (kind.includes('DEPOSIT_DEDUCTED')) return `Đã khấu trừ cọc ${code}`.trim();
+    if (kind.includes('DEPOSIT_CANCELLED')) return `Đã hủy cọc ${code}`.trim();
+    if (kind.includes('DEPOSIT_CONVERTED')) return `Đã chuyển cọc sang HĐ dài hạn ${code}`.trim();
     if (kind.includes('DEPOSIT_CREATED')) return `Cọc giữ phòng mới ${code}`.trim();
     if (kind.includes('INVOICE_OVERDUE')) return `Khách trễ thanh toán ${code}`.trim();
     if (kind.includes('INVOICE_ISSUED')) return `Đã phát hành hóa đơn ${code}`.trim();
@@ -754,6 +866,12 @@ export class WorkflowEngine {
     const buildingName = payload.buildingName || payload.metadata?.buildingName || '';
     const customerName = payload.customerName || payload.metadata?.customerName || '-';
     const kind = String(params?.alertKind || eventName || '').toUpperCase();
+    if (kind.includes('DEPOSIT_REFUNDED') || kind.includes('DEPOSIT_DEDUCTED') || kind.includes('DEPOSIT_CANCELLED') || kind.includes('DEPOSIT_CONVERTED')) {
+      return this.buildAdminPaymentMessage({
+        ...payload,
+        metadata: { ...(payload.metadata || {}), eventKind: kind },
+      });
+    }
     const header = kind.includes('DEPOSIT_CREATED')
       ? 'HomeLand - Cần chuẩn bị phòng/đặt lịch khách vào ở'
       : kind.includes('INVOICE_OVERDUE')

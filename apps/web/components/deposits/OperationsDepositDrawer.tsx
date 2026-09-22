@@ -2015,12 +2015,15 @@ export default function OperationsDepositDrawer({
               const available = availableBalance;
               if (available === undefined) return null;
               const required = Number(convertSecurityRequired) || 0;
+              const transfer = Math.min(available, Math.max(required, 0));
+              const additional = Math.max(required - available, 0);
+              const excess = Math.max(available - required, 0);
               if (required < available) {
                 return (
-                  <div>
+                  <div className="space-y-2">
                     <label className="text-xs font-bold text-text block mb-1">
                       Xử lý phần tiền cọc dư (
-                      {formatCurrency(available - required)} VNĐ)
+                      {formatCurrency(excess)} VNĐ)
                     </label>
                     <Select
                       data-testid="deposit-convert-excess-action"
@@ -2039,17 +2042,31 @@ export default function OperationsDepositDrawer({
                         },
                       ]}
                     />
+                    <div className="rounded-xl border border-border bg-surface/50 p-3 text-[11px] leading-5">
+                      <div className="flex justify-between"><span>Chuyển sang cọc HĐ</span><b>{formatCurrency(transfer)} VNĐ</b></div>
+                      <div className="flex justify-between"><span>Tiền dư cần xử lý</span><b>{formatCurrency(excess)} VNĐ</b></div>
+                    </div>
                   </div>
                 );
               } else if (required > available) {
                 return (
-                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300">
-                    Khách cần đóng thêm{" "}
-                    <b>{formatCurrency(required - available)} VNĐ</b>.
+                  <div className="space-y-2">
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300">
+                      Khách cần đóng thêm <b>{formatCurrency(additional)} VNĐ</b>.
+                    </div>
+                    <div className="rounded-xl border border-border bg-surface/50 p-3 text-[11px] leading-5">
+                      <div className="flex justify-between"><span>Đã chuyển từ cọc giữ phòng</span><b>{formatCurrency(transfer)} VNĐ</b></div>
+                      <div className="flex justify-between"><span>Còn phải thu thêm</span><b>{formatCurrency(additional)} VNĐ</b></div>
+                    </div>
                   </div>
                 );
               }
-              return null;
+              return (
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-[11px] leading-5">
+                  <div className="flex justify-between"><span>Chuyển sang cọc HĐ</span><b>{formatCurrency(transfer)} VNĐ</b></div>
+                  <div className="flex justify-between"><span>Còn phải thu thêm</span><b>0 VNĐ</b></div>
+                </div>
+              );
             })()}
           </div>
         </div>

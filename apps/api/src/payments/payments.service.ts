@@ -3139,6 +3139,14 @@ export class PaymentsService {
         `SePay invoice confirmation ${transactionId}`,
         'SEPAY_WEBHOOK',
         `sepay:invoice:${request.sourceId}:${transactionId}`,
+        null,
+        {
+          suppressCustomerZaloConfirmation: true,
+          linkedInvoicePayment: true,
+          sourceInvoiceId: request.sourceId,
+          paymentProvider: 'SEPAY',
+          paymentRef: transactionId,
+        },
       );
     } catch (error: any) {
       // Invoice/payment confirmation is authoritative. A missing or temporarily
@@ -3222,6 +3230,14 @@ export class PaymentsService {
         `Đồng bộ thanh toán hóa đơn ${invoiceId}`,
         userId,
         `sepay:security-deposit-invoice:${invoiceId}:${transactionId}`,
+        null,
+        {
+          suppressCustomerZaloConfirmation: true,
+          linkedInvoicePayment: true,
+          sourceInvoiceId: invoiceId,
+          paymentProvider: 'SEPAY',
+          paymentRef: transactionId,
+        },
       );
     } catch (error: any) {
       await this.logPaymentAudit(

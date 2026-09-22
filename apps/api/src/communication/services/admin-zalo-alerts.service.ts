@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { SettingScope } from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma.service';
@@ -20,7 +20,7 @@ type TenantZaloConfig = {
 };
 
 @Injectable()
-export class AdminZaloAlertsService implements OnApplicationBootstrap {
+export class AdminZaloAlertsService {
   private readonly logger = new Logger(AdminZaloAlertsService.name);
   private readonly updateCooldownMs = Number(process.env.ADMIN_ZALO_UPDATE_ALERT_COOLDOWN_MS || 12 * 60 * 60 * 1000);
   private readonly overloadCooldownMs = Number(process.env.ADMIN_ZALO_OVERLOAD_ALERT_COOLDOWN_MS || 15 * 60 * 1000);
@@ -35,13 +35,6 @@ export class AdminZaloAlertsService implements OnApplicationBootstrap {
     private readonly systemUpdateService: SystemUpdateService,
     private readonly requestAnomalyTracker: RequestAnomalyTrackerService,
   ) {}
-
-  onApplicationBootstrap() {
-    if (!shouldRunGeneralSchedulers()) return;
-    void this.checkVersionUpgradeAndNotify().catch((err: any) => {
-      this.logger.warn(`Failed to check version upgrade notification on startup: ${err?.message || err}`);
-    });
-  }
 
   async checkVersionUpgradeAndNotify() {
     const check = await this.systemUpdateService.checkForUpdates();

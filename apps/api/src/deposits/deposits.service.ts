@@ -566,7 +566,20 @@ export class DepositsService extends BaseCrudService<Deposit> {
     return 0;
   }
 
-  async collect(id: string, note: string | null, userId: string, idempotencyKey?: string, holdExpiresAt?: string | null) {
+  async collect(
+    id: string,
+    note: string | null,
+    userId: string,
+    idempotencyKey?: string,
+    holdExpiresAt?: string | null,
+    notificationContext?: {
+      suppressCustomerZaloConfirmation?: boolean;
+      linkedInvoicePayment?: boolean;
+      sourceInvoiceId?: string | null;
+      paymentProvider?: string | null;
+      paymentRef?: string | null;
+    },
+  ) {
     const deposit = await this.getDetail(id, undefined, { skipPaymentReconcile: true });
     if (!deposit) throw new BadRequestException('Deposit not found');
     if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING) {
@@ -578,6 +591,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
         idempotencyKey: idempotencyKey || `collect:${id}`,
         note,
         holdExpiresAt: holdExpiresAt || deposit.expiredAt || null,
+        notificationContext,
       }, userId);
       return result as any;
     }
@@ -1303,6 +1317,31 @@ export class DepositsService extends BaseCrudService<Deposit> {
       after: updated,
     });
 
+    this.eventPublisher.publish('deposit.cancelled', {
+      tenantId: deposit.tenantId,
+      userId,
+      customerId: deposit.customerId,
+      customerName: deposit.customer?.fullName,
+      customerPhone: deposit.customer?.phone,
+      customerZaloChatId: deposit.customer?.zaloChatId,
+      customerZaloUserId: deposit.customer?.zaloUserId,
+      ...buildRoomContext(deposit.room, deposit.contract),
+      metadata: {
+        code: deposit.code,
+        eventKind: 'DEPOSIT_CANCELLED',
+        reason,
+        originalStatus: deposit.status,
+        refundAmount: 0,
+        keepAmount: 0,
+        deductAmount: 0,
+      },
+      sourceId: deposit.id,
+      sourceType: 'DEPOSIT',
+      amount: 0,
+      paymentProvider: 'MANUAL',
+      occurredAt: new Date(),
+    });
+
     if (deposit.status === DepositStatus.PAID && resolutionAction === 'DEDUCT') {
       this.eventPublisher.publish('deposit.deducted', {
         tenantId: deposit.tenantId,
@@ -1318,6 +1357,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
           note: reason,
           adjustmentType: 'DEPOSIT_DEDUCTION',
           resolutionAction,
+          suppressAdminNotification: true,
         },
         sourceId: deposit.id,
         sourceType: 'ADJUSTMENT',

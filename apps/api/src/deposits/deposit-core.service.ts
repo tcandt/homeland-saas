@@ -28,6 +28,13 @@ export interface CollectDepositCommand {
   idempotencyKey: string;
   note?: string | null;
   holdExpiresAt?: string | Date | null;
+  notificationContext?: {
+    suppressCustomerZaloConfirmation?: boolean;
+    linkedInvoicePayment?: boolean;
+    sourceInvoiceId?: string | null;
+    paymentProvider?: string | null;
+    paymentRef?: string | null;
+  };
 }
 
 export interface CreateDepositCommand {
@@ -398,6 +405,8 @@ export class DepositCoreService {
         amount: collectionAmount,
         paymentAmount: collectionAmount,
         paidAmount: this.toMoney(currentBalance + collectionAmount),
+        paymentProvider: command.input.notificationContext?.paymentProvider || null,
+        paymentRef: command.input.notificationContext?.paymentRef || null,
         paidAt: new Date().toISOString(),
         moveInDate: deposit.contract?.startDate
           ? new Date(deposit.contract.startDate).toISOString()
@@ -411,7 +420,15 @@ export class DepositCoreService {
           ? new Date(deposit.contract.endDate).toISOString()
           : null,
         occurredAt: new Date().toISOString(),
-        metadata: { code: deposit.code, operationId: operation.id },
+        metadata: {
+          code: deposit.code,
+          operationId: operation.id,
+          collectionNote: command.input.note || null,
+          idempotencyKey: command.idempotencyKey,
+          suppressCustomerZaloConfirmation: Boolean(command.input.notificationContext?.suppressCustomerZaloConfirmation),
+          linkedInvoicePayment: Boolean(command.input.notificationContext?.linkedInvoicePayment),
+          sourceInvoiceId: command.input.notificationContext?.sourceInvoiceId || null,
+        },
       });
       await this.completeOperation(tx, tenantId, operation.id, response);
       await this.writeAudit(tx, tenantId, userId, 'COLLECT', deposit.id, deposit, response);
@@ -431,7 +448,11 @@ export class DepositCoreService {
 
       const booking = await tx.deposit.findFirst({
         where: { id: bookingDepositId, tenantId, deletedAt: null },
-        include: { rentalCycle: true },
+        include: {
+          rentalCycle: true,
+          customer: { select: { fullName: true } },
+          room: { select: { code: true, building: { select: { name: true, code: true } } } },
+        },
       });
       if (!booking) throw new BadRequestException('DEPOSIT_NOT_FOUND');
       if (booking.type !== DepositType.BOOKING && booking.type !== DepositType.RESERVATION) {
@@ -578,13 +599,22 @@ export class DepositCoreService {
         tenantId,
         userId,
         customerId: booking.customerId,
+        customerName: booking.customer?.fullName || null,
+        roomCode: booking.room?.code || null,
+        buildingName: booking.room?.building?.name || booking.room?.building?.code || null,
         roomId: booking.roomId,
         rentalCycleId: booking.rentalCycleId,
         sourceId: booking.id,
         sourceType: 'DEPOSIT',
         amount: plan.transferAmount,
         occurredAt: new Date().toISOString(),
-        metadata: response,
+        metadata: {
+          ...response,
+          code: booking.code,
+          eventKind: 'DEPOSIT_CONVERTED',
+          securityDepositCode: security.code,
+          reason: 'Chuyển cọc giữ phòng sang cọc hợp đồng',
+        },
       });
       if (response.pending) {
         await tx.depositOperation.update({
@@ -609,6 +639,10 @@ export class DepositCoreService {
 
       const deposit = await tx.deposit.findFirst({
         where: { id: depositId, tenantId, deletedAt: null },
+        include: {
+          customer: { select: { fullName: true } },
+          room: { select: { code: true, building: { select: { name: true, code: true } } } },
+        },
       });
       if (!deposit) throw new BadRequestException('DEPOSIT_NOT_FOUND');
       if (!deposit.rentalCycleId) throw new BadRequestException('DEPOSIT_RENTAL_CYCLE_REQUIRED');
@@ -699,26 +733,46 @@ export class DepositCoreService {
         tenantId,
         userId,
         customerId: deposit.customerId,
+        customerName: deposit.customer?.fullName || null,
+        roomCode: deposit.room?.code || null,
+        buildingName: deposit.room?.building?.name || deposit.room?.building?.code || null,
         roomId: deposit.roomId,
         rentalCycleId: deposit.rentalCycleId,
         sourceId: deposit.id,
         sourceType: 'DEPOSIT',
         amount: plan.refundAmount || plan.keepAmount || plan.deductAmount,
         occurredAt: new Date().toISOString(),
-        metadata: response,
+        metadata: {
+          ...response,
+          code: deposit.code,
+          eventKind: cancellationEvent === 'deposit.cancelled'
+            ? 'DEPOSIT_CANCELLED'
+            : cancellationEvent.replace(/\./g, '_').toUpperCase(),
+          reason: command.input.reason,
+        },
       });
       if (plan.deductAmount > 0) {
         await this.enqueueOutbox(tx, tenantId, operation.id, 'deposit.deducted', {
           tenantId,
           userId,
           customerId: deposit.customerId,
+          customerName: deposit.customer?.fullName || null,
+          roomCode: deposit.room?.code || null,
+          buildingName: deposit.room?.building?.name || deposit.room?.building?.code || null,
           roomId: deposit.roomId,
           rentalCycleId: deposit.rentalCycleId,
           sourceId: deposit.id,
           sourceType: 'DEPOSIT',
           amount: plan.deductAmount,
           occurredAt: new Date().toISOString(),
-          metadata: { operationId: operation.id, reason: command.input.reason },
+          metadata: {
+            operationId: operation.id,
+            code: deposit.code,
+            reason: command.input.reason,
+            eventKind: 'DEPOSIT_DEDUCTED',
+            deductAmount: plan.deductAmount,
+            suppressAdminNotification: true,
+          },
         });
       }
       if (receiptId) {

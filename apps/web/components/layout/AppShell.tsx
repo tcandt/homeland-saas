@@ -4,7 +4,6 @@ import React, { useState, useEffect } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import MobileBottomNav from "./MobileBottomNav";
-import LoginVersionUpdateNotice from "./LoginVersionUpdateNotice";
 import { MaintenanceScreen } from "@/components/settings/sections/SettingsLicense";
 import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/lib/auth/auth-store";
@@ -79,7 +78,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Main Content Area */}
         <main className={`flex-1 min-w-0 transition-all duration-300 ${isSidebarCollapsed ? "md:ml-20" : "md:ml-[260px]"} flex flex-col pb-[90px] md:pb-0 bg-card`}>
-          <LoginVersionUpdateNotice />
           <div className={`flex-1 bg-background md:rounded-tl-[28px] overflow-hidden transition-all duration-300 ${
             pathname.startsWith("/buildings") || pathname.startsWith("/update")
               ? "p-0"

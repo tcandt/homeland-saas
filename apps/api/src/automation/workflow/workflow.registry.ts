@@ -50,19 +50,20 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         params: { continueOnError: true },
       },
       {
-        name: 'Notify Admin Group via Zalo',
-        type: 'SEND_ADMIN_GROUP_ZALO',
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
         order: 3,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'PAYMENT_RECEIVED',
         },
       },
       {
-        name: 'Notify Admin In-App',
-        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
         order: 4,
         params: {
-          templateCode: 'PAYMENT_RECEIVED',
+          templateCode: 'SYSTEM_ALERT',
+          continueOnError: true,
         },
       },
       {
@@ -168,19 +169,20 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         params: { continueOnError: true },
       },
       {
-        name: 'Notify Admin Group via Zalo',
-        type: 'SEND_ADMIN_GROUP_ZALO',
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
         order: 3,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'PAYMENT_RECEIVED',
         },
       },
       {
-        name: 'Notify Admin In-App',
-        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
         order: 4,
         params: {
-          templateCode: 'PAYMENT_RECEIVED',
+          templateCode: 'SYSTEM_ALERT',
+          continueOnError: true,
         },
       },
       {
@@ -204,11 +206,11 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
-        name: 'Notify Admin Group via Zalo',
-        type: 'SEND_ADMIN_GROUP_ZALO',
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
         order: 3,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'PAYMENT_RECEIVED',
         },
       },
       {
@@ -218,11 +220,12 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         params: { continueOnError: true },
       },
       {
-        name: 'Notify Admin In-App',
-        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
         order: 4,
         params: {
-          templateCode: 'PAYMENT_RECEIVED',
+          templateCode: 'SYSTEM_ALERT',
+          continueOnError: true,
         },
       },
       {
@@ -246,12 +249,138 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        order: 2,
+        params: {
+          templateCode: 'PAYMENT_RECEIVED',
+        },
+      },
+      {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 3,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'DEPOSIT_REFUND_REQUESTED',
+          continueOnError: true,
+        },
+      },
+      {
+        name: 'Invalidate Dashboard Cache',
+        type: 'INVALIDATE_DASHBOARD_CACHE',
+        order: 4,
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 5,
+      },
+    ],
+  },
+  {
+    name: 'deposit.refunded.workflow',
+    description: 'Process a refunded deposit',
+    triggerEvent: 'deposit.refunded',
+    steps: [
+      {
+        name: 'Notify Customer',
+        type: 'CREATE_IN_APP_NOTIFICATION',
+        order: 1,
+        params: { templateCode: 'SYSTEM_ALERT' },
+      },
+      {
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        order: 2,
+        params: { templateCode: 'PAYMENT_RECEIVED' },
+      },
+      {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 3,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'DEPOSIT_REFUNDED',
+          continueOnError: true,
+        },
+      },
+      {
+        name: 'Create Journal Entry',
+        type: 'CREATE_JOURNAL_ENTRY',
+        order: 4,
+        params: { continueOnError: true },
+      },
+      {
+        name: 'Invalidate Dashboard Cache',
+        type: 'INVALIDATE_DASHBOARD_CACHE',
+        order: 5,
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 6,
+      },
+    ],
+  },
+  {
+    name: 'deposit.deducted.workflow',
+    description: 'Process a deducted deposit',
+    triggerEvent: 'deposit.deducted',
+    steps: [
+      {
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        order: 1,
+        params: { templateCode: 'PAYMENT_RECEIVED' },
+      },
+      {
         name: 'Notify Admin Group via Zalo',
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 2,
         params: {
           templateCode: 'SYSTEM_ALERT',
-          alertKind: 'DEPOSIT_REFUND_REQUESTED',
+          alertKind: 'DEPOSIT_DEDUCTED',
+          continueOnError: true,
+        },
+      },
+      {
+        name: 'Create Journal Entry',
+        type: 'CREATE_JOURNAL_ENTRY',
+        order: 3,
+        params: { continueOnError: true },
+      },
+      {
+        name: 'Invalidate Dashboard Cache',
+        type: 'INVALIDATE_DASHBOARD_CACHE',
+        order: 4,
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 5,
+      },
+    ],
+  },
+  {
+    name: 'deposit.cancelled.workflow',
+    description: 'Process a cancelled deposit without refund',
+    triggerEvent: 'deposit.cancelled',
+    steps: [
+      {
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        order: 1,
+        params: { templateCode: 'PAYMENT_RECEIVED' },
+      },
+      {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 2,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'DEPOSIT_CANCELLED',
+          continueOnError: true,
         },
       },
       {
@@ -267,46 +396,35 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
     ],
   },
   {
-    name: 'deposit.refunded.workflow',
-    description: 'Process a refunded deposit',
-    triggerEvent: 'deposit.refunded',
+    name: 'deposit.converted_to_security.workflow',
+    description: 'Process booking deposit conversion to contract security deposit',
+    triggerEvent: 'deposit.converted_to_security',
     steps: [
       {
-        name: 'Create Journal Entry',
-        type: 'CREATE_JOURNAL_ENTRY',
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
         order: 1,
+        params: { templateCode: 'PAYMENT_RECEIVED' },
+      },
+      {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 2,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'DEPOSIT_CONVERTED',
+          continueOnError: true,
+        },
       },
       {
         name: 'Invalidate Dashboard Cache',
         type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 2,
+        order: 3,
       },
       {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 3,
-      },
-    ],
-  },
-  {
-    name: 'deposit.deducted.workflow',
-    description: 'Process a deducted deposit',
-    triggerEvent: 'deposit.deducted',
-    steps: [
-      {
-        name: 'Create Journal Entry',
-        type: 'CREATE_JOURNAL_ENTRY',
-        order: 1,
-      },
-      {
-        name: 'Invalidate Dashboard Cache',
-        type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 2,
-      },
-      {
-        name: 'Invalidate Finance Cache',
-        type: 'INVALIDATE_FINANCE_CACHE',
-        order: 3,
+        order: 4,
       },
     ],
   },

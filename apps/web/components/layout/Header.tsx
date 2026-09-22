@@ -322,6 +322,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     void queryClient.invalidateQueries({ queryKey: ["customers"] });
     void queryClient.invalidateQueries({ queryKey: ["contracts"] });
     void queryClient.invalidateQueries({ queryKey: ["deposits"] });
+    void queryClient.invalidateQueries({ queryKey: ["deposit"] });
+    void queryClient.invalidateQueries({ queryKey: ["deposit-stats"] });
     void queryClient.invalidateQueries({ queryKey: ["room-finance-summary"] });
     void queryClient.invalidateQueries({ queryKey: ["rental-cycle-finance-summary"] });
     void queryClient.invalidateQueries({ queryKey: ["finance"] });
@@ -361,12 +363,6 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     if (!notificationsInitializedRef.current) {
       knownNotificationIdsRef.current = currentIds;
       notificationsInitializedRef.current = true;
-      const freshPayment = recentNotifications.find((item: any) => {
-        if (item?.type !== "PAYMENT_RECEIVED" || item?.status === "READ") return false;
-        const createdAt = new Date(item?.createdAt || 0).getTime();
-        return Number.isFinite(createdAt) && Date.now() - createdAt <= 15 * 60 * 1000;
-      });
-      if (freshPayment) queueNotificationAlert(freshPayment);
       return;
     }
 
@@ -410,6 +406,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     let isSubscribed = true;
     let streamController: AbortController | null = null;
     let pollingTimer: ReturnType<typeof setInterval> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const fetchInitialCount = async () => {
       if (!accessToken) return;
@@ -454,6 +451,10 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
     const startStream = () => {
       if (!accessToken) return;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
       streamController = new AbortController();
       fetch(`${apiUrl}/notifications/stream`, {
@@ -471,6 +472,9 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
           if (response.ok && isSubscribed) {
             await consumeServerSentEvents(response, handleSseData);
+            if (isSubscribed) {
+              reconnectTimer = setTimeout(startStream, 1500);
+            }
           } else if (isSubscribed && response.status !== 401 && response.status !== 403) {
             // If SSE not available and authenticated, fallback polling at 60s
             if (!pollingTimer) {
@@ -479,8 +483,11 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
           }
         })
         .catch(() => {
-          if (isSubscribed && !pollingTimer) {
-            pollingTimer = setInterval(fetchInitialCount, 60000);
+          if (isSubscribed) {
+            reconnectTimer = setTimeout(startStream, 2500);
+            if (!pollingTimer) {
+              pollingTimer = setInterval(fetchInitialCount, 60000);
+            }
           }
         });
     };
@@ -494,6 +501,9 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       }
       if (pollingTimer) {
         clearInterval(pollingTimer);
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
       }
     };
   }, [accessToken]);

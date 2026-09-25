@@ -84,6 +84,7 @@ import { depositsApi } from "@/lib/api/deposits.api";
 import { invoicesApi } from "@/lib/api/invoices.api";
 import { paymentsApi } from "@/lib/api/payments.api";
 import { hunonicApi } from "@/lib/api/hunonic.api";
+import { buildRoomBookingIdempotencyKey } from "@/lib/rentals/rental-intent-context";
 import { getAuthorizationHeader } from "@/lib/auth/auth-header";
 import { getRoomDisplayName } from "./building-labels";
 import { formatRoomDisplayLabel } from "../tenants/TenantFormModal";
@@ -105,8 +106,11 @@ import {
 import { maskPhone, maskCccd } from "@/lib/adapters/tenant-masking.adapter";
 import { evaluateExistingCustomerSelection } from '@/lib/adapters/customer-selection';
 import {
+  advanceTenantSelectionContext,
+  createRentalIntentContext,
   isRentalIntentContextCurrent,
   type RentalIntentContext,
+  type RoomOperationContext,
 } from "@/lib/rentals/rental-intent-context";
 import { HunonicSnapshotPresentation } from "../finance/HunonicSnapshotPresentation";
 import {
@@ -505,12 +509,84 @@ export default function RoomPremiumModal({
   const [rentalIntentMode, setRentalIntentMode] = useState<"BOOKING" | "IMMEDIATE" | null>(null);
   const [rentalIntentContext, setRentalIntentContext] =
     useState<RentalIntentContext | null>(null);
-  const tenantSelectionContext = useRef({ roomId, generation: 0 });
-  const tenantSaveInFlightRef = useRef(false);
-  if (tenantSelectionContext.current.roomId !== roomId) {
-    tenantSelectionContext.current = { roomId, generation: tenantSelectionContext.current.generation + 1 };
+
+  let currentRoom: Room | null = null;
+  let currentBuilding: Building | null = null;
+  let currentFloor: any | null = null;
+  for (const b of buildings) {
+    for (const f of b.floors) {
+      const r = f.rooms.find((r) => r.id === roomId);
+      if (r) {
+        currentRoom = r;
+        currentBuilding = b;
+        currentFloor = f;
+        break;
+      }
+    }
+    if (currentRoom) break;
   }
-  useEffect(() => () => { tenantSelectionContext.current.generation++; }, []);
+
+  const currentBuildingId: string = String(
+    currentBuilding?.id || (currentRoom as any)?.buildingId || "",
+  );
+  const currentFloorId: string = String(
+    currentFloor?.id || (currentRoom as any)?.floorId || (currentRoom as any)?.floor?.id || "",
+  );
+  const currentRentalType: string = String(
+    currentRoom?.rentalType || "whole",
+  );
+
+  const tenantSelectionContext = useRef<RoomOperationContext>({
+    roomId,
+    buildingId: currentBuildingId,
+    floorId: currentFloorId,
+    rentalType: currentRentalType,
+    generation: 0,
+  });
+  const tenantSaveInFlightRef = useRef(false);
+
+  if (
+    tenantSelectionContext.current.roomId !== roomId ||
+    (currentBuildingId && tenantSelectionContext.current.buildingId !== currentBuildingId) ||
+    (currentFloorId && tenantSelectionContext.current.floorId !== currentFloorId) ||
+    (currentRentalType && tenantSelectionContext.current.rentalType !== currentRentalType)
+  ) {
+    tenantSelectionContext.current = advanceTenantSelectionContext(
+      tenantSelectionContext.current,
+      {
+        roomId,
+        buildingId: currentBuildingId,
+        floorId: currentFloorId,
+        rentalType: currentRentalType,
+      },
+    );
+  }
+
+  const invalidateTenantSelectionContext = (nextRoomId = roomId) => {
+    tenantSelectionContext.current = advanceTenantSelectionContext(
+      tenantSelectionContext.current,
+      {
+        roomId: nextRoomId,
+        buildingId: currentBuildingId,
+        floorId: currentFloorId,
+        rentalType: currentRentalType,
+      },
+    );
+  };
+  useEffect(
+    () => () => {
+      tenantSelectionContext.current = advanceTenantSelectionContext(
+        tenantSelectionContext.current,
+        {
+          roomId,
+          buildingId: currentBuildingId,
+          floorId: currentFloorId,
+          rentalType: currentRentalType,
+        },
+      );
+    },
+    [],
+  );
   useEffect(() => {
     setIsRentalIntentModalOpen(false);
     setRentalIntentContext(null);
@@ -572,19 +648,6 @@ export default function RoomPremiumModal({
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isSavingNotes, setIsSavingNotes] = useState(false);
-  let currentRoom: Room | null = null;
-  let currentBuilding: Building | null = null;
-  for (const b of buildings) {
-    for (const f of b.floors) {
-      const r = f.rooms.find((r) => r.id === roomId);
-      if (r) {
-        currentRoom = r;
-        currentBuilding = b;
-        break;
-      }
-    }
-    if (currentRoom) break;
-  }
 
   const resolvedLandlordKey = useMemo(() => {
     return resolveBuildingLandlord(currentBuilding, currentRoom);
@@ -650,7 +713,12 @@ export default function RoomPremiumModal({
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [zaloCommandCopied, setZaloCommandCopied] = useState(false);
   const { showToast } = useToast();
-  const closeTenantModal = () => {
+  const closeTenantModal = (afterSave = false) => {
+    if (isExporting && !afterSave) {
+      showToast("Đang lưu khách thuê. Vui lòng đợi thao tác hoàn tất.", "info");
+      return;
+    }
+    invalidateTenantSelectionContext();
     setIsTenantModalOpen(false);
     setTenantModalStep(1);
     setZaloWaiting(null);
@@ -967,6 +1035,7 @@ export default function RoomPremiumModal({
   }, [customersResponse]);
 
   const openTenantSourcePicker = (startAsRepresentative: boolean) => {
+    invalidateTenantSelectionContext();
     setIsContractRepresentative(startAsRepresentative);
     setHouseholdRepId("");
     setTenantDraft({ ...EMPTY_TENANT_DRAFT });
@@ -975,6 +1044,7 @@ export default function RoomPremiumModal({
     setDuplicateWarning(null);
     setIsQrMenuOpen(false);
     setRentalIntentMode(startAsRepresentative ? null : "IMMEDIATE");
+    setRentalIntentContext(null);
     if (startAsRepresentative) {
       setIsRentalIntentModalOpen(true);
     } else {
@@ -989,12 +1059,15 @@ export default function RoomPremiumModal({
   };
 
   const handleBackToRentalIntent = () => {
+    invalidateTenantSelectionContext();
     setIsTenantSourceModalOpen(false);
     setRentalIntentMode(null);
+    setRentalIntentContext(null);
     setIsRentalIntentModalOpen(true);
   };
 
   const handleCreateNewTenant = () => {
+    invalidateTenantSelectionContext();
     setZaloWaiting(null);
     setTenantDraft({ ...EMPTY_TENANT_DRAFT });
     setTenantFieldErrors({});
@@ -1007,7 +1080,8 @@ export default function RoomPremiumModal({
     option: ExistingCustomerOption,
   ): Promise<boolean> => {
     setZaloWaiting(null);
-    const generation = ++tenantSelectionContext.current.generation;
+    invalidateTenantSelectionContext();
+    const generation = tenantSelectionContext.current.generation;
     setIsRentalIntentModalOpen(false);
     setRentalIntentContext(null);
     if (isIntentContractFlow) {
@@ -2047,9 +2121,9 @@ export default function RoomPremiumModal({
     try {
       const roomContext = {
         roomId,
-        buildingId: String(
-          (currentBuilding as any)?.id || (roomData as any)?.buildingId || "",
-        ),
+        buildingId: currentBuildingId,
+        floorId: currentFloorId,
+        rentalType: currentRentalType,
       };
       const isSharedRoom = roomData?.rentalType === "shared";
       const name = tenantDraft.name.trim();
@@ -2278,14 +2352,20 @@ export default function RoomPremiumModal({
           showToast("Vui lòng chọn Thuê ở ngay hoặc Cọc giữ chỗ trước khi lưu khách.", "error");
           return;
         }
-        const intentContext = {
+        const intentContext = createRentalIntentContext({
           customerId,
-          ...roomContext,
+          roomId: roomContext.roomId,
+          buildingId: roomContext.buildingId,
+          floorId: roomContext.floorId,
+          rentalType: roomContext.rentalType,
           generation: expectedGeneration,
-        };
+        });
         setRentalIntentContext(intentContext);
         if (rentalIntentMode === "BOOKING") {
-          const bookingResult = await createBookingHoldFlow(customerId, roomContext);
+          const bookingResult = await createBookingHoldFlow(customerId, {
+            ...roomContext,
+            generation: expectedGeneration,
+          });
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["rooms"] }),
             queryClient.invalidateQueries({ queryKey: ["buildings"] }),
@@ -2334,7 +2414,7 @@ export default function RoomPremiumModal({
             "success",
           );
           if (!beginZaloWaitingIfNeeded(customerId, bookingResult?.invoiceId || null)) {
-            closeTenantModal();
+            closeTenantModal(true);
           }
           return;
         }
@@ -2738,7 +2818,7 @@ export default function RoomPremiumModal({
         showToast("Đã cập nhật thông tin khách hàng.", "success");
       }
       if (!beginZaloWaitingIfNeeded(customerId, pendingZaloInvoiceId)) {
-        closeTenantModal();
+        closeTenantModal(true);
       }
     } catch (error) {
       console.error("Error in commitTenantDraft:", error);
@@ -3071,11 +3151,13 @@ export default function RoomPremiumModal({
   const openDraftContractForIntent = () => {
     if (
       !rentalIntentContext ||
-      !isRentalIntentContextCurrent(
-        rentalIntentContext,
+      !isRentalIntentContextCurrent(rentalIntentContext, {
         roomId,
-        tenantSelectionContext.current.generation,
-      )
+        buildingId: currentBuildingId,
+        floorId: currentFloorId,
+        rentalType: currentRentalType,
+        generation: tenantSelectionContext.current.generation,
+      })
     ) {
       showToast("Ngữ cảnh phòng đã thay đổi. Vui lòng thêm khách lại từ phòng hiện tại.", "error");
       return;
@@ -3103,8 +3185,16 @@ export default function RoomPremiumModal({
 
   const createBookingHoldFlow = async (
     customerId: string,
-    roomContext: { roomId: string; buildingId: string },
+    roomContext: {
+      roomId: string;
+      buildingId: string;
+      floorId?: string;
+      rentalType?: string;
+      generation?: number;
+    },
   ) => {
+    const bookingGeneration =
+      roomContext.generation ?? tenantSelectionContext.current.generation;
     const amount = parseMoney(
       contractDraft.tienCoc,
       Math.min(Number(roomData?.monthlyPrice || 0), 2_000_000) || 1_000_000,
@@ -3157,7 +3247,7 @@ export default function RoomPremiumModal({
           : undefined,
         note: `Tạo từ popup Khách thuê → Cọc giữ chỗ; dự kiến vào ở ngày ${expectedMoveInDateText}`,
       },
-      `room-flow:booking:${roomContext.roomId}:${customerId}:${Date.now()}`,
+      buildRoomBookingIdempotencyKey(roomContext.roomId, customerId, bookingGeneration),
     );
     const deposit = depositResponse?.data || depositResponse;
 
@@ -3605,6 +3695,7 @@ export default function RoomPremiumModal({
                                             <button
                                               type="button"
                                               onClick={() => {
+                                                invalidateTenantSelectionContext();
                                                 setTenantDraft({
                                                   id: t.id,
                                                   name:
@@ -5381,7 +5472,10 @@ export default function RoomPremiumModal({
                 : undefined
           }
           onBackToIntent={rentalIntentMode ? handleBackToRentalIntent : undefined}
-          onClose={() => setIsTenantSourceModalOpen(false)}
+          onClose={() => {
+            invalidateTenantSelectionContext();
+            setIsTenantSourceModalOpen(false);
+          }}
           onCreateNew={handleCreateNewTenant}
           onSelectExisting={handleSelectExistingTenant}
         />
@@ -5447,17 +5541,25 @@ export default function RoomPremiumModal({
         footer={
           <div className="flex gap-3 justify-end w-full">
             {zaloWaiting ? (
-              <Button variant="outline" onClick={closeTenantModal}>
+              <Button variant="outline" onClick={() => closeTenantModal()}>
                 Bỏ qua, cập nhật sau
               </Button>
             ) : (
               <>
                 {tenantModalStep === 2 && (
-                  <Button variant="outline" onClick={() => setTenantModalStep(1)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => setTenantModalStep(1)}
+                    disabled={isExporting}
+                  >
                     Quay lại
                   </Button>
                 )}
-                <Button variant="outline" onClick={closeTenantModal}>
+                <Button
+                  variant="outline"
+                  onClick={() => closeTenantModal()}
+                  disabled={isExporting}
+                >
                   Hủy
                 </Button>
                 <Button
@@ -5551,6 +5653,7 @@ export default function RoomPremiumModal({
                   <button
                     type="button"
                     onClick={() => {
+                      invalidateTenantSelectionContext();
                       setIsTenantModalOpen(false);
                       setIsTenantSourceModalOpen(true);
                     }}
@@ -6412,15 +6515,22 @@ export default function RoomPremiumModal({
       <Modal
         isOpen={isRentalIntentModalOpen}
         onClose={() => {
+          invalidateTenantSelectionContext();
           setIsRentalIntentModalOpen(false);
           setRentalIntentMode(null);
+          setRentalIntentContext(null);
         }}
         title="Chọn luồng thêm khách thuê"
         footer={
           <div className="flex justify-end">
             <Button
               variant="outline"
-              onClick={() => setIsRentalIntentModalOpen(false)}
+              onClick={() => {
+                invalidateTenantSelectionContext();
+                setIsRentalIntentModalOpen(false);
+                setRentalIntentMode(null);
+                setRentalIntentContext(null);
+              }}
             >
               Để sau
             </Button>
@@ -6481,11 +6591,13 @@ export default function RoomPremiumModal({
                 }
                 if (
                   intentContext &&
-                  !isRentalIntentContextCurrent(
-                    intentContext,
+                  !isRentalIntentContextCurrent(intentContext, {
                     roomId,
-                    tenantSelectionContext.current.generation,
-                  )
+                    buildingId: currentBuildingId,
+                    floorId: currentFloorId,
+                    rentalType: currentRentalType,
+                    generation: tenantSelectionContext.current.generation,
+                  })
                 ) {
                   showToast("Ngữ cảnh phòng đã thay đổi. Vui lòng mở lại thao tác.", "error");
                   return;
@@ -6512,11 +6624,13 @@ export default function RoomPremiumModal({
                     onSuccess: async (createdContract: any) => {
                       if (
                         intentContext &&
-                        !isRentalIntentContextCurrent(
-                          intentContext,
+                        !isRentalIntentContextCurrent(intentContext, {
                           roomId,
-                          tenantSelectionContext.current.generation,
-                        )
+                          buildingId: currentBuildingId,
+                          floorId: currentFloorId,
+                          rentalType: currentRentalType,
+                          generation: tenantSelectionContext.current.generation,
+                        })
                       ) {
                         showToast(
                           "Ngữ cảnh phòng đã thay đổi. Hợp đồng đã được gửi, vui lòng kiểm tra lại phòng cũ.",

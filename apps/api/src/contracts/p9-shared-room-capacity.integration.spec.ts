@@ -1,112 +1,124 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ContractsService } from "./contracts.service";
-import { NotFoundException } from "@nestjs/common";
-
 import { ContractsRepository } from "./contracts.repository";
+import { NotFoundException } from "@nestjs/common";
+import { randomUUID } from "crypto";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ||
-  process.env.DATABASE_URL ||
-  "postgresql://postgres:postgres@localhost:5432/homeland_test";
+// FAIL-CLOSED GATE:
+// Strictly require RUN_P9_SHARED_CAPACITY_DB_TESTS === "1" AND a TEST_DATABASE_URL explicitly targeting a test database.
+// NEVER read or fallback to DATABASE_URL to guarantee staging/production are never touched.
+const rawTestDbUrl = process.env.TEST_DATABASE_URL;
+const isSafeTestDb = Boolean(
+  rawTestDbUrl &&
+    /(?:_test|_tmp|_isolated)(?:[/?]|$)/i.test(rawTestDbUrl) &&
+    !rawTestDbUrl.includes("prod") &&
+    !rawTestDbUrl.includes("staging"),
+);
+const isExplicitOptIn = process.env.RUN_P9_SHARED_CAPACITY_DB_TESTS === "1";
+const canRunDbTest = Boolean(isExplicitOptIn && isSafeTestDb);
+const dbDescribe = canRunDbTest ? describe : describe.skip;
 
-const isDbConfigured =
-  process.env.RUN_P9_SHARED_CAPACITY_DB_TESTS === "1" ||
-  process.env.RUN_CONTRACT_CORE_DB_TESTS === "1" ||
-  Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes(":5430"));
-
-const dbDescribe = isDbConfigured ? describe : describe.skip;
+// Safe test URL for describe phase evaluation when skipped
+const safeDatasourceUrl = canRunDbTest ? rawTestDbUrl! : "postgresql://placeholder:placeholder@localhost:5432/placeholder_test";
 
 dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", () => {
-  const prisma = new PrismaClient({
-    datasources: { db: { url: databaseUrl } },
-  });
+  // Use two separate PrismaClient instances to establish two independent connection pools
+  const prisma1 = new PrismaClient({ datasources: { db: { url: safeDatasourceUrl } } });
+  const prisma2 = new PrismaClient({ datasources: { db: { url: safeDatasourceUrl } } });
 
-  const tenantId = "tenant-p9-race-test";
-  const foreignTenantId = "tenant-p9-foreign-test";
-  const buildingId = "bldg-p9-race";
-  const floorId = "floor-p9-race";
-  const roomId = "room-p9-shared-race";
+  // Dynamic run ID to avoid static ID collisions and ensure clean repeatability
+  const runId = randomUUID().slice(0, 8);
+  const tenantId = `t-p9-${runId}`;
+  const foreignTenantId = `t-p9-f-${runId}`;
+  const buildingId = `bldg-p9-${runId}`;
+  const floorId = `floor-p9-${runId}`;
+  const roomId = `room-p9-shared-${runId}`;
 
-  const existingResidentId = "cust-p9-resident";
-  const candidateAId = "cust-p9-cand-a";
-  const candidateBId = "cust-p9-cand-b";
+  const residentId = `cust-resident-${runId}`;
+  const candidateAId = `cust-cand-a-${runId}`;
+  const candidateBId = `cust-cand-b-${runId}`;
 
-  const contractAId = "contract-p9-cand-a";
-  const contractBId = "contract-p9-cand-b";
+  const contractAId = `contract-cand-a-${runId}`;
+  const contractBId = `contract-cand-b-${runId}`;
 
-  const idempotencyKeyA = "p9-race-act-a-key";
-  const idempotencyKeyB = "p9-race-act-b-key";
+  const idempotencyKeyA = `p9-race-act-a-${runId}`;
+  const idempotencyKeyB = `p9-race-act-b-${runId}`;
 
-  const prismaService = new Proxy(prisma, {
-    get(target, prop) {
-      if (prop === "tx") return target;
-      return (target as any)[prop];
-    },
-  });
+  const makePrismaProxy = (client: PrismaClient) =>
+    new Proxy(client, {
+      get(target, prop) {
+        if (prop === "tx") return target;
+        return (target as any)[prop];
+      },
+    });
 
-  const repository = new ContractsRepository({ tx: prisma } as any);
-
-  const service = new ContractsService(
-    repository,
+  const service1 = new ContractsService(
+    new ContractsRepository({ tx: prisma1 } as any),
     { log: vi.fn().mockResolvedValue(undefined) } as any,
-    prismaService as any,
+    makePrismaProxy(prisma1) as any,
     { publish: vi.fn().mockResolvedValue(undefined) } as any,
     { getRoomElectricityPricing: vi.fn().mockResolvedValue(null) } as any,
   );
 
-  async function cleanData() {
+  const service2 = new ContractsService(
+    new ContractsRepository({ tx: prisma2 } as any),
+    { log: vi.fn().mockResolvedValue(undefined) } as any,
+    makePrismaProxy(prisma2) as any,
+    { publish: vi.fn().mockResolvedValue(undefined) } as any,
+    { getRoomElectricityPricing: vi.fn().mockResolvedValue(null) } as any,
+  );
+
+  async function getActiveResourceCount(client: PrismaClient, targetRoomId: string, asOf: Date = new Date()) {
+    const [occupancies, activeHolds] = await Promise.all([
+      client.occupancy.count({ where: { tenantId, roomId: targetRoomId, leftAt: null } }),
+      client.roomHold.count({ where: { tenantId, roomId: targetRoomId, status: "ACTIVE", expiresAt: { gt: asOf } } }),
+    ]);
+    return { occupancies, activeHolds, total: occupancies + activeHolds };
+  }
+
+  async function cleanAllTestData(client: PrismaClient) {
     const tenantIds = [tenantId, foreignTenantId];
-    await prisma.invoiceItem.deleteMany({ where: { invoice: { tenantId: { in: tenantIds } } } }).catch(() => null);
-    await prisma.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.occupancy.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.roomHold.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.depositLedgerEntry.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.depositOperation.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.deposit.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.contractParty.deleteMany({ where: { contract: { tenantId: { in: tenantIds } } } }).catch(() => null);
-    await prisma.contract.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.rentalCycle.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.customer.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.room.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.floor.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.building.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
-    await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } }).catch(() => null);
+    await client.invoiceItem.deleteMany({ where: { invoice: { tenantId: { in: tenantIds } } } });
+    await client.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.occupancy.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.roomHold.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.depositLedgerEntry.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.depositOperation.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.deposit.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.contractParty.deleteMany({ where: { contract: { tenantId: { in: tenantIds } } } });
+    await client.contract.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.rentalCycle.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.customer.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.room.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.floor.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.building.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await client.tenantOrg.deleteMany({ where: { id: { in: tenantIds } } });
   }
 
   beforeAll(async () => {
-    await cleanData();
+    // Fail fast if pre-existing artifacts remain
+    await cleanAllTestData(prisma1);
 
-    // 1. Setup tenants with upsert
-    await prisma.tenantOrg.upsert({
-      where: { id: tenantId },
-      create: { id: tenantId, name: "Tenant P9 Race", code: "P9-RACE" },
-      update: {},
-    });
-    await prisma.tenantOrg.upsert({
-      where: { id: foreignTenantId },
-      create: { id: foreignTenantId, name: "Tenant P9 Foreign", code: "P9-FOREIGN" },
-      update: {},
-    });
+    // 1. Setup tenants
+    await prisma1.tenantOrg.create({ data: { id: tenantId, name: `Tenant P9 ${runId}`, code: `P9-${runId}` } });
+    await prisma1.tenantOrg.create({ data: { id: foreignTenantId, name: `Tenant P9 Foreign ${runId}`, code: `P9F-${runId}` } });
 
     // 2. Setup building & floor
-    await prisma.building.create({
-      data: { id: buildingId, tenantId, code: "B-P9", name: "Toa P9" },
-    });
-    await prisma.floor.create({
-      data: { id: floorId, tenantId, buildingId, level: 1, name: "Tang 1" },
-    });
+    await prisma1.building.create({ data: { id: buildingId, tenantId, code: `B-${runId}`, name: `Toa ${runId}` } });
+    await prisma1.floor.create({ data: { id: floorId, tenantId, buildingId, level: 1, name: "Tang 1" } });
 
     // 3. Setup SHARED room with capacity = 2
-    await prisma.room.create({
+    await prisma1.room.create({
       data: {
         id: roomId,
         tenantId,
         buildingId,
         floorId,
-        code: "R-P9-SHARED",
-        name: "Phong ghep P9",
+        code: `R-SHARED-${runId}`,
+        name: `Phong ghep ${runId}`,
         capacity: 2,
         monthlyPrice: 2_000_000,
         rentalType: "SHARED",
@@ -114,62 +126,38 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
       },
     });
 
-    // 4. Resident 1 already occupies 1 slot (so exactly 1 slot remaining!)
-    await prisma.customer.create({
-      data: {
-        id: existingResidentId,
-        tenantId,
-        fullName: "Nguoi o hien tai",
-        phone: "0909000001",
-        phoneNormalized: "0909000001",
-      },
+    // 4. Resident 1 already occupies 1 slot.
+    // CAPACITY INVARIANT CHECK AT SETUP: 1 Occupancy, 0 Holds = 1 total <= 2 capacity.
+    await prisma1.customer.create({
+      data: { id: residentId, tenantId, fullName: "Resident Da O", phone: `090${runId.slice(0, 7)}`, phoneNormalized: `090${runId.slice(0, 7)}` },
     });
-    const residentCycle = await prisma.rentalCycle.create({
-      data: {
-        id: "cycle-p9-resident",
-        tenantId,
-        customerId: existingResidentId,
-        roomId,
-        status: "ACTIVE",
-      },
+    const residentCycle = await prisma1.rentalCycle.create({
+      data: { id: `cycle-res-${runId}`, tenantId, customerId: residentId, roomId, status: "ACTIVE" },
     });
-    await prisma.occupancy.create({
-      data: {
-        tenantId,
-        roomId,
-        customerId: existingResidentId,
-        rentalCycleId: residentCycle.id,
-        role: "PRIMARY",
-      },
+    await prisma1.occupancy.create({
+      data: { tenantId, roomId, customerId: residentId, rentalCycleId: residentCycle.id, role: "PRIMARY" },
     });
 
-    // 5. Setup competing Candidate A
-    await prisma.customer.create({
-      data: {
-        id: candidateAId,
-        tenantId,
-        fullName: "Ung vien A",
-        phone: "0909000002",
-        phoneNormalized: "0909000002",
-      },
+    const setupCount = await getActiveResourceCount(prisma1, roomId);
+    expect(setupCount.occupancies).toBe(1);
+    expect(setupCount.activeHolds).toBe(0);
+    expect(setupCount.total).toBe(1); // Exactly 1 slot remaining! Never exceeds capacity before test.
+
+    // 5. Setup Candidate A (APPROVED contract, funded security deposit, ZERO initial RoomHold)
+    await prisma1.customer.create({
+      data: { id: candidateAId, tenantId, fullName: "Candidate A", phone: `091${runId.slice(0, 7)}`, phoneNormalized: `091${runId.slice(0, 7)}` },
     });
-    const cycleA = await prisma.rentalCycle.create({
-      data: {
-        id: "cycle-p9-a",
-        tenantId,
-        customerId: candidateAId,
-        roomId,
-        status: "RESERVED",
-      },
+    const cycleA = await prisma1.rentalCycle.create({
+      data: { id: `cycle-a-${runId}`, tenantId, customerId: candidateAId, roomId, status: "RESERVED" },
     });
-    await prisma.contract.create({
+    await prisma1.contract.create({
       data: {
         id: contractAId,
         tenantId,
         roomId,
         customerId: candidateAId,
         rentalCycleId: cycleA.id,
-        code: "HD-P9-A",
+        code: `HD-A-${runId}`,
         status: "APPROVED",
         startDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
         endDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
@@ -179,11 +167,11 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
         memberCount: 1,
       },
     });
-    await prisma.deposit.create({
+    await prisma1.deposit.create({
       data: {
-        id: "dep-p9-a",
+        id: `dep-a-${runId}`,
         tenantId,
-        code: "DEP-P9-A",
+        code: `DEP-A-${runId}`,
         type: "SECURITY",
         roomId,
         customerId: candidateAId,
@@ -193,76 +181,65 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
         status: "PAID",
       },
     });
-    const opA = await prisma.depositOperation.create({
+    const opA = await prisma1.depositOperation.create({
       data: {
         tenantId,
         rentalCycleId: cycleA.id,
-        sourceDepositId: "dep-p9-a",
+        sourceDepositId: `dep-a-${runId}`,
         contractId: contractAId,
         type: "COLLECT",
         status: "COMPLETED",
-        idempotencyKey: "p9-op-a",
-        requestHash: "p9-op-a-hash",
+        idempotencyKey: `op-a-${runId}`,
+        requestHash: `op-a-hash-${runId}`,
         completedAt: new Date(),
       },
     });
-    await prisma.depositLedgerEntry.create({
+    await prisma1.depositLedgerEntry.create({
       data: {
         tenantId,
         rentalCycleId: cycleA.id,
-        depositId: "dep-p9-a",
+        depositId: `dep-a-${runId}`,
         contractId: contractAId,
         operationId: opA.id,
         type: "CASH_IN",
         amount: 2_000_000,
         balanceEffect: 2_000_000,
-        idempotencyKey: "p9-ledger-a",
+        idempotencyKey: `ledger-a-${runId}`,
         sourceType: "INTEGRATION_TEST",
-        sourceId: "dep-p9-a",
-      },
-    });
-    await prisma.roomHold.create({
-      data: {
-        tenantId,
-        rentalCycleId: cycleA.id,
-        depositId: "dep-p9-a",
-        roomId,
-        kind: "SHARED_SLOT",
-        resourceKey: `${tenantId}:${roomId}:SHARED_SLOT:a`,
-        activeResourceKey: `${tenantId}:${roomId}:SHARED_SLOT:a`,
-        status: "ACTIVE",
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-        idempotencyKey: "p9-hold-a",
+        sourceId: `dep-a-${runId}`,
       },
     });
 
-    // 6. Setup competing Candidate B
-    await prisma.customer.create({
+    await prisma1.roomHold.create({
       data: {
-        id: candidateBId,
         tenantId,
-        fullName: "Ung vien B",
-        phone: "0909000003",
-        phoneNormalized: "0909000003",
-      },
-    });
-    const cycleB = await prisma.rentalCycle.create({
-      data: {
-        id: "cycle-p9-b",
-        tenantId,
-        customerId: candidateBId,
+        rentalCycleId: cycleA.id,
+        depositId: `dep-a-${runId}`,
         roomId,
-        status: "RESERVED",
+        kind: "SHARED_SLOT",
+        resourceKey: `${tenantId}:${roomId}:SHARED_SLOT:a`,
+        activeResourceKey: null,
+        status: "CONVERTED",
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        idempotencyKey: `p9-hold-a-${runId}`,
       },
     });
-    await prisma.contract.create({
+
+    // 6. Setup Candidate B (APPROVED contract, funded security deposit, valid CONVERTED hold)
+    await prisma1.customer.create({
+      data: { id: candidateBId, tenantId, fullName: "Candidate B", phone: `092${runId.slice(0, 7)}`, phoneNormalized: `092${runId.slice(0, 7)}` },
+    });
+    const cycleB = await prisma1.rentalCycle.create({
+      data: { id: `cycle-b-${runId}`, tenantId, customerId: candidateBId, roomId, status: "RESERVED" },
+    });
+    await prisma1.contract.create({
       data: {
         id: contractBId,
         tenantId,
         roomId,
         customerId: candidateBId,
         rentalCycleId: cycleB.id,
-        code: "HD-P9-B",
+        code: `HD-B-${runId}`,
         status: "APPROVED",
         startDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
         endDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
@@ -272,11 +249,11 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
         memberCount: 1,
       },
     });
-    await prisma.deposit.create({
+    await prisma1.deposit.create({
       data: {
-        id: "dep-p9-b",
+        id: `dep-b-${runId}`,
         tenantId,
-        code: "DEP-P9-B",
+        code: `DEP-B-${runId}`,
         type: "SECURITY",
         roomId,
         customerId: candidateBId,
@@ -286,60 +263,101 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
         status: "PAID",
       },
     });
-    const opB = await prisma.depositOperation.create({
+    const opB = await prisma1.depositOperation.create({
       data: {
         tenantId,
         rentalCycleId: cycleB.id,
-        sourceDepositId: "dep-p9-b",
+        sourceDepositId: `dep-b-${runId}`,
         contractId: contractBId,
         type: "COLLECT",
         status: "COMPLETED",
-        idempotencyKey: "p9-op-b",
-        requestHash: "p9-op-b-hash",
+        idempotencyKey: `op-b-${runId}`,
+        requestHash: `op-b-hash-${runId}`,
         completedAt: new Date(),
       },
     });
-    await prisma.depositLedgerEntry.create({
+    await prisma1.depositLedgerEntry.create({
       data: {
         tenantId,
         rentalCycleId: cycleB.id,
-        depositId: "dep-p9-b",
+        depositId: `dep-b-${runId}`,
         contractId: contractBId,
         operationId: opB.id,
         type: "CASH_IN",
         amount: 2_000_000,
         balanceEffect: 2_000_000,
-        idempotencyKey: "p9-ledger-b",
+        idempotencyKey: `ledger-b-${runId}`,
         sourceType: "INTEGRATION_TEST",
-        sourceId: "dep-p9-b",
+        sourceId: `dep-b-${runId}`,
       },
     });
-    await prisma.roomHold.create({
+    await prisma1.roomHold.create({
       data: {
         tenantId,
         rentalCycleId: cycleB.id,
-        depositId: "dep-p9-b",
+        depositId: `dep-b-${runId}`,
         roomId,
         kind: "SHARED_SLOT",
         resourceKey: `${tenantId}:${roomId}:SHARED_SLOT:b`,
-        activeResourceKey: `${tenantId}:${roomId}:SHARED_SLOT:b`,
-        status: "ACTIVE",
+        activeResourceKey: null,
+        status: "CONVERTED",
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-        idempotencyKey: "p9-hold-b",
+        idempotencyKey: `p9-hold-b-${runId}`,
       },
     });
   }, 30_000);
 
   afterAll(async () => {
-    await cleanData();
-    await prisma.$disconnect();
+    try {
+      await cleanAllTestData(prisma1);
+    } finally {
+      await Promise.all([prisma1.$disconnect(), prisma2.$disconnect()]);
+    }
   }, 30_000);
 
-  it("P9.1 concurrency: allows exactly 1 winner and rejects the second command with capacity guard", async () => {
-    // Both Candidate A and Candidate B attempt to activate simultaneously for the 1 remaining slot
+  async function getCandidateSnapshot(
+    contractId: string,
+    customerId: string,
+    cycleId: string,
+    depositId: string,
+    idempotencyKey: string,
+  ) {
+    const contract = await prisma1.contract.findUniqueOrThrow({ where: { id: contractId } });
+    const cycle = await prisma1.rentalCycle.findUniqueOrThrow({ where: { id: cycleId } });
+    const deposit = await prisma1.deposit.findUniqueOrThrow({ where: { id: depositId } });
+    const hold = await prisma1.roomHold.findFirstOrThrow({ where: { tenantId, rentalCycleId: cycleId } });
+
+    return {
+      contractStatus: contract.status,
+      cycleStatus: cycle.status,
+      depositStatus: deposit.status,
+      depositAmount: Number(deposit.amount),
+      holdStatus: hold.status,
+      occupancies: await prisma1.occupancy.count({ where: { tenantId, customerId, leftAt: null } }),
+      invoices: await prisma1.invoice.count({ where: { tenantId, contractId } }),
+      invoiceItems: await prisma1.invoiceItem.count({ where: { invoice: { tenantId, contractId } } }),
+      depositOperations: await prisma1.depositOperation.count({ where: { tenantId, contractId } }),
+      ledgers: await prisma1.depositLedgerEntry.count({ where: { tenantId, contractId } }),
+      outboxEvents: await prisma1.outboxEvent.count({ where: { tenantId, idempotencyKey } }),
+      auditLogs: await prisma1.auditLog.count({ where: { tenantId, entityId: contractId } }),
+    };
+  }
+
+  it("P9.1 concurrency: allows exactly 1 winner for the final slot, rejects loser, and guarantees strict capacity invariants", async () => {
+    // Checkpoint 1: Pre-race snapshots and strict capacity invariant assertion
+    const beforeA = await getCandidateSnapshot(contractAId, candidateAId, `cycle-a-${runId}`, `dep-a-${runId}`, idempotencyKeyA);
+    const beforeB = await getCandidateSnapshot(contractBId, candidateBId, `cycle-b-${runId}`, `dep-b-${runId}`, idempotencyKeyB);
+
+    const preRaceResource = await getActiveResourceCount(prisma1, roomId);
+    expect(preRaceResource.occupancies).toBe(1);
+    expect(preRaceResource.activeHolds).toBe(0);
+    expect(preRaceResource.total).toBe(1);
+    expect(preRaceResource.total).toBeLessThanOrEqual(2);
+
+    // Send two concurrent activation commands from two distinct connection pools
     const [resultA, resultB] = await Promise.allSettled([
-      service.activateContract(contractAId, "user-p9-a", tenantId, idempotencyKeyA),
-      service.activateContract(contractBId, "user-p9-b", tenantId, idempotencyKeyB),
+      service1.activateContract(contractAId, "user-p9-a", tenantId, idempotencyKeyA),
+      service2.activateContract(contractBId, "user-p9-b", tenantId, idempotencyKeyB),
     ]);
 
     const fulfilledCount = (resultA.status === "fulfilled" ? 1 : 0) + (resultB.status === "fulfilled" ? 1 : 0);
@@ -351,66 +369,63 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
     const winnerId = resultA.status === "fulfilled" ? contractAId : contractBId;
     const loserId = resultA.status === "rejected" ? contractAId : contractBId;
     const loserCustomerId = resultA.status === "rejected" ? candidateAId : candidateBId;
+    const loserCycleId = loserId === contractAId ? `cycle-a-${runId}` : `cycle-b-${runId}`;
+    const loserDepositId = loserId === contractAId ? `dep-a-${runId}` : `dep-b-${runId}`;
+    const loserKey = resultA.status === "rejected" ? idempotencyKeyA : idempotencyKeyB;
+    const beforeLoser = resultA.status === "rejected" ? beforeA : beforeB;
 
-    // Direct DB Assertion 1: active Hold + active Occupancy <= capacity (2)
-    const activeOccupancyCount = await prisma.occupancy.count({
-      where: { tenantId, roomId, leftAt: null },
-    });
-    expect(activeOccupancyCount).toBe(2);
+    // Checkpoint 2: Post-race strict capacity invariant (active Occupancy + active RoomHold <= capacity)
+    const postRaceResource = await getActiveResourceCount(prisma1, roomId);
+    expect(postRaceResource.occupancies).toBe(2);
+    expect(postRaceResource.activeHolds).toBe(0);
+    expect(postRaceResource.total).toBe(2);
+    expect(postRaceResource.total).toBeLessThanOrEqual(2);
 
-    const roomInDb = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
-    expect(activeOccupancyCount).toBeLessThanOrEqual(roomInDb.capacity || 2);
-
-    // Direct DB Assertion 2: Winner contract is ACTIVE and has invoice
-    const winningContract = await prisma.contract.findUniqueOrThrow({ where: { id: winnerId } });
+    // DIRECT DB ASSERTION 2: Winning contract is ACTIVE and has issued billing invoice
+    const winningContract = await prisma1.contract.findUniqueOrThrow({ where: { id: winnerId } });
     expect(winningContract.status).toBe("ACTIVE");
-    const winningInvoiceCount = await prisma.invoice.count({
-      where: { tenantId, contractId: winnerId },
-    });
+    const winningInvoiceCount = await prisma1.invoice.count({ where: { tenantId, contractId: winnerId } });
     expect(winningInvoiceCount).toBe(1);
 
-    // Direct DB Assertion 3: Loser contract is NOT active and has no orphan occupancy or invoice
-    const losingContract = await prisma.contract.findUniqueOrThrow({ where: { id: loserId } });
-    expect(losingContract.status).toBe("APPROVED"); // Never moved to ACTIVE
+    // DIRECT DB ASSERTION 3: Loser snapshot comparison — ZERO orphan mutations from rejected command
+    // Compare contract, rentalCycle, hold, deposit, depositOperations, ledgers, occupancies, invoices, invoiceItems, outbox, audit
+    const afterLoser = await getCandidateSnapshot(loserId, loserCustomerId, loserCycleId, loserDepositId, loserKey);
+    expect(afterLoser.contractStatus).toBe(beforeLoser.contractStatus); // Remained "APPROVED"
+    expect(afterLoser.cycleStatus).toBe(beforeLoser.cycleStatus); // Remained "RESERVED"
+    expect(afterLoser.depositStatus).toBe(beforeLoser.depositStatus); // Remained "PAID"
+    expect(afterLoser.depositAmount).toBe(beforeLoser.depositAmount); // 2,000,000
+    expect(afterLoser.holdStatus).toBe(beforeLoser.holdStatus); // Remained "CONVERTED"
+    expect(afterLoser.occupancies).toBe(0); // No orphan occupancy
+    expect(afterLoser.invoices).toBe(0); // No orphan invoice
+    expect(afterLoser.invoiceItems).toBe(0); // No orphan invoice item
+    expect(afterLoser.depositOperations).toBe(beforeLoser.depositOperations); // Unchanged count (1)
+    expect(afterLoser.ledgers).toBe(beforeLoser.ledgers); // Unchanged count (1)
+    expect(afterLoser.outboxEvents).toBe(0); // No orphan outbox events
+    expect(afterLoser.auditLogs).toBe(beforeLoser.auditLogs); // No orphan audit logs
 
-    const loserOccupancies = await prisma.occupancy.findMany({
-      where: { tenantId, customerId: loserCustomerId, leftAt: null },
-    });
-    expect(loserOccupancies).toHaveLength(0);
-
-    const loserInvoices = await prisma.invoice.findMany({
-      where: { tenantId, contractId: loserId },
-    });
-    expect(loserInvoices).toHaveLength(0);
-
-    // Direct DB Assertion 4: Retry winning command with same idempotency key replays cleanly without duplicates
+    // Checkpoint 3: Retry winning command with same idempotency key replays cleanly without duplicating side-effects
     const winningKey = winnerId === contractAId ? idempotencyKeyA : idempotencyKeyB;
     const winningUserId = winnerId === contractAId ? "user-p9-a" : "user-p9-b";
 
-    const replayed = await service.activateContract(winnerId, winningUserId, tenantId, winningKey);
+    const replayed = await service1.activateContract(winnerId, winningUserId, tenantId, winningKey);
     expect(replayed.id).toBe(winnerId);
     expect(replayed.status).toBe("ACTIVE");
 
-    // Total occupancies in room must strictly still be 2 (no second occupancy row created)
-    const postReplayOccupancy = await prisma.occupancy.count({
-      where: { tenantId, roomId, leftAt: null },
-    });
-    expect(postReplayOccupancy).toBe(2);
+    const postReplayResource = await getActiveResourceCount(prisma1, roomId);
+    expect(postReplayResource.occupancies).toBe(2);
+    expect(postReplayResource.activeHolds).toBe(0);
+    expect(postReplayResource.total).toBe(2);
+    expect(postReplayResource.total).toBeLessThanOrEqual(2);
 
-    // Total invoices for winning contract must still be 1 (no duplicate billing)
-    const postReplayInvoices = await prisma.invoice.count({
-      where: { tenantId, contractId: winnerId },
-    });
+    const postReplayInvoices = await prisma1.invoice.count({ where: { tenantId, contractId: winnerId } });
     expect(postReplayInvoices).toBe(1);
 
-    // Direct DB Assertion 5: Cross-tenant isolation - foreign tenant cannot access room or activate slot
-    const foreignRoomLookup = await prisma.room.findFirst({
-      where: { id: roomId, tenantId: foreignTenantId },
-    });
+    // DIRECT DB ASSERTION 5: Multi-tenant isolation — foreign tenant cannot read or write the tenant's room/contract
+    const foreignRoomLookup = await prisma1.room.findFirst({ where: { id: roomId, tenantId: foreignTenantId } });
     expect(foreignRoomLookup).toBeNull();
 
     await expect(
-      service.activateContract(winnerId, "user-foreign", foreignTenantId, "foreign-act-key"),
+      service1.activateContract(winnerId, "user-foreign", foreignTenantId, "foreign-act-key"),
     ).rejects.toThrow(NotFoundException);
   }, 30_000);
 });

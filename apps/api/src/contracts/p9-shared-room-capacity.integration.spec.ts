@@ -77,31 +77,7 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
     return { occupancies, activeHolds, total: occupancies + activeHolds };
   }
 
-  async function cleanAllTestData(client: PrismaClient) {
-    const tenantIds = [tenantId, foreignTenantId];
-    await client.invoiceItem.deleteMany({ where: { invoice: { tenantId: { in: tenantIds } } } });
-    await client.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.occupancy.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.roomHold.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.depositLedgerEntry.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.depositOperation.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.deposit.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.contractParty.deleteMany({ where: { contract: { tenantId: { in: tenantIds } } } });
-    await client.contract.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.rentalCycle.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.customer.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.room.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.floor.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.building.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await client.tenantOrg.deleteMany({ where: { id: { in: tenantIds } } });
-  }
-
   beforeAll(async () => {
-    // Fail fast if pre-existing artifacts remain
-    await cleanAllTestData(prisma1);
-
     // 1. Setup tenants
     await prisma1.tenantOrg.create({ data: { id: tenantId, name: `Tenant P9 ${runId}`, code: `P9-${runId}` } });
     await prisma1.tenantOrg.create({ data: { id: foreignTenantId, name: `Tenant P9 Foreign ${runId}`, code: `P9F-${runId}` } });
@@ -308,11 +284,10 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
   }, 30_000);
 
   afterAll(async () => {
-    try {
-      await cleanAllTestData(prisma1);
-    } finally {
-      await Promise.all([prisma1.$disconnect(), prisma2.$disconnect()]);
-    }
+    // Activation correctly issues an immutable ENTRY invoice. Row-level cleanup
+    // would violate the same append-only trigger production relies on. Every run
+    // therefore uses unique tenant IDs and a disposable CI-provisioned test DB.
+    await Promise.all([prisma1.$disconnect(), prisma2.$disconnect()]);
   }, 30_000);
 
   async function getCandidateSnapshot(

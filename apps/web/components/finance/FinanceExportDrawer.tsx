@@ -98,8 +98,8 @@ export default function FinanceExportDrawer() {
         aria-expanded={open}
         aria-controls="finance-export-drawer"
         onClick={() => setOpen((current) => !current)}
-        className={`fixed right-0 top-1/2 z-[10021] hidden min-h-11 -translate-y-1/2 cursor-pointer items-center gap-1.5 rounded-l-xl border-y border-l border-primary/40 bg-card/95 px-2 py-3 text-xs font-black text-primary shadow-xl backdrop-blur-md transition-[right,background-color,border-color,padding] duration-300 hover:border-primary hover:bg-primary/10 hover:pl-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:flex [writing-mode:vertical-rl] ${
-          open ? "right-[420px]" : "right-0"
+        className={`fixed right-3 top-1/2 z-[10021] hidden min-h-11 -translate-y-1/2 cursor-pointer items-center gap-2 rounded-2xl border border-primary/30 bg-card/95 px-2.5 py-3 text-xs font-black text-primary shadow-lg backdrop-blur-md transition-[right,background-color,border-color,box-shadow] duration-300 hover:border-primary/60 hover:bg-primary/10 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:flex [writing-mode:vertical-rl] ${
+          open ? "right-[432px]" : "right-3"
         }`}
       >
         <Download size={14} className="rotate-90" aria-hidden />
@@ -114,7 +114,7 @@ export default function FinanceExportDrawer() {
         aria-expanded={open}
         aria-controls="finance-export-drawer"
         onClick={() => setOpen(true)}
-        className={`fixed right-0 top-1/2 z-[10021] min-h-11 -translate-y-1/2 items-center gap-1.5 rounded-l-xl border-y border-l border-primary/40 bg-card/95 px-2 py-3 text-xs font-black text-primary shadow-xl backdrop-blur-md transition hover:border-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:hidden [writing-mode:vertical-rl] ${open ? "hidden" : "flex"}`}
+        className={`fixed right-2 top-1/2 z-[10021] min-h-11 -translate-y-1/2 items-center gap-2 rounded-2xl border border-primary/30 bg-card/95 px-2.5 py-3 text-xs font-black text-primary shadow-lg backdrop-blur-md transition hover:border-primary/60 hover:bg-primary/10 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:hidden [writing-mode:vertical-rl] ${open ? "hidden" : "flex"}`}
       >
         <Download size={14} className="rotate-90" aria-hidden />
         Xuất báo cáo

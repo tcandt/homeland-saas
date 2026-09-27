@@ -2,7 +2,7 @@
 
 import React, { useMemo } from "react";
 import Link from "next/link";
-import { ArrowRight, BarChart3, History, ReceiptText, Wallet } from "lucide-react";
+import { ArrowRight, History, ReceiptText, Wallet } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import BankCashFlowSummary from "@/components/finance/BankCashFlowSummary";
 import BuildingProfitSummary from "@/components/finance/BuildingProfitSummary";
@@ -33,58 +33,24 @@ export default function FinancePage() {
     };
   }, [ledgerRows]);
 
-  const updatedAtLabel = useMemo(
-    () =>
-      new Intl.DateTimeFormat("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      }).format(new Date()),
-    [],
-  );
-
   return (
     <AppShell>
       {permissions.canExportFinance && <FinanceExportDrawer />}
 
       <main
         data-testid="finance-root"
-        className="-m-4 min-h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background p-3 md:min-h-[calc(100dvh-80px)] md:p-5"
+        className="-m-4 min-h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background p-2 md:min-h-[calc(100dvh-80px)] md:p-3"
       >
-        <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-4">
-          <header className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xs">
-            <div className="bg-gradient-to-br from-primary/12 via-card to-emerald-500/5 px-4 py-5 md:px-6 md:py-6">
-              <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-white shadow-lg shadow-primary/20">
-                    <BarChart3 size={22} aria-hidden />
-                  </span>
-                  <div>
-                    <div className="text-[11px] font-black uppercase tracking-[0.16em] text-primary">Financial overview</div>
-                    <h1 className="mt-1 text-2xl font-black tracking-tight text-text md:text-3xl">Doanh thu & Tài chính</h1>
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-muted md:text-base">
-                      Theo dõi tiền thực thu, công nợ, chi phí và lợi nhuận. Các giao dịch bất thường được chuyển sang trung tâm đối soát riêng.
-                    </p>
-                    <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-1.5 text-xs font-semibold text-muted">
-                      Dữ liệu hiển thị lúc {updatedAtLabel}
-                    </div>
-                  </div>
-                </div>
-
-                <nav aria-label="Lối tắt tài chính" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <FinanceShortcut href="/finance/reconciliation" icon={ReceiptText} label="Đối soát" detail="Xử lý ngoại lệ" primary />
-                  <FinanceShortcut href="/finance/transactions" icon={History} label="Giao dịch" detail="Tra cứu dòng tiền" />
-                  <FinanceShortcut href="/finance/expenses" icon={Wallet} label="Chi phí" detail="Quản lý khoản chi" />
-                </nav>
-              </div>
-            </div>
-          </header>
+        <div className="flex w-full flex-col gap-3">
+          <nav aria-label="Lối tắt tài chính" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <FinanceShortcut href="/finance/reconciliation" icon={ReceiptText} label="Đối soát" detail="Xử lý ngoại lệ" primary />
+            <FinanceShortcut href="/finance/transactions" icon={History} label="Giao dịch" detail="Tra cứu dòng tiền" />
+            <FinanceShortcut href="/finance/expenses" icon={Wallet} label="Chi phí" detail="Quản lý khoản chi" />
+          </nav>
 
           <FinancialCommandKpi />
 
-          <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(320px,0.75fr)]">
+          <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.75fr)_minmax(320px,0.75fr)]">
             <OperationsFinanceChart />
             <FinanceAttentionCard />
           </div>
@@ -168,7 +134,7 @@ function FinanceShortcut({
     <Link
       href={href}
       prefetch={false}
-      className={`group flex min-h-[64px] items-center gap-3 rounded-xl border px-3.5 py-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+      className={`group flex min-h-[56px] items-center gap-3 rounded-2xl border px-3.5 py-2.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
         primary
           ? "border-primary/25 bg-primary text-white shadow-lg shadow-primary/20 hover:brightness-105"
           : "border-border/70 bg-card/85 text-text shadow-2xs hover:border-primary/35 hover:bg-primary/5"

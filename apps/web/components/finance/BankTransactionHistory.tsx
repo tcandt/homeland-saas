@@ -12,10 +12,12 @@ import {
   CreditCard,
   Building2,
   CheckCircle2,
+  ChevronRight,
   Clock,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { useBankTransactionsQuery } from "@/lib/queries/finance.queries";
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
@@ -81,6 +83,7 @@ export default function BankTransactionHistory() {
   const [matchStatus, setMatchStatus] = useState("");
   const [search, setSearch] = useState("");
   const [contentFilter, setContentFilter] = useState("");
+  const [selectedTransaction, setSelectedTransaction] = useState<any | null>(null);
 
   const params = useMemo(
     () => ({
@@ -354,7 +357,17 @@ export default function BankTransactionHistory() {
                   <tr
                     key={row.id}
                     data-testid={`bank-transaction-row-${row.id}`}
-                    className="hover:bg-muted/10 transition-colors"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Xem chi tiết giao dịch ${row.paymentCode || row.providerTransactionId || row.id}`}
+                    onClick={() => setSelectedTransaction(row)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedTransaction(row);
+                      }
+                    }}
+                    className="cursor-pointer transition-colors hover:bg-primary/[0.035] focus-visible:bg-primary/[0.06] focus-visible:outline-none"
                   >
                     {/* Thời điểm */}
                     <td className="py-2.5 px-3.5 whitespace-nowrap">
@@ -436,6 +449,7 @@ export default function BankTransactionHistory() {
                       >
                         <StatusIcon size={12} aria-hidden="true" />
                         {status.label}
+                        <ChevronRight size={12} aria-hidden="true" />
                       </span>
                       {processingStatus && processingStatus.label !== status.label && (
                         <div className="text-[10px] text-muted mt-1">
@@ -453,9 +467,73 @@ export default function BankTransactionHistory() {
         {/* Footer info */}
         <div className="px-3.5 py-2 border-t border-border/60 bg-muted/5 flex items-center justify-between text-[11px] text-muted font-medium shrink-0">
           <span>Hiển thị <b>{rows.length}</b> giao dịch ngân hàng</span>
-          <span className="text-[10px]">Đối soát ngân hàng</span>
+          <span className="text-[10px]">Nhấn vào một hàng để xem chi tiết</span>
         </div>
       </div>
+
+      <Modal
+        isOpen={!!selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+        title="Chi tiết giao dịch ngân hàng"
+        maxWidth="max-w-2xl"
+        testId="bank-transaction-detail-modal"
+        footer={<Button onClick={() => setSelectedTransaction(null)}>Đóng</Button>}
+      >
+        {selectedTransaction && (() => {
+          const isInflow = selectedTransaction.direction === "IN";
+          const status = getTransactionStatus(selectedTransaction.reviewStatus || "UNMATCHED");
+          const StatusIcon = status.icon;
+
+          return (
+            <div className="space-y-4">
+              <div className={`rounded-xl border p-4 ${isInflow ? "border-emerald-500/20 bg-emerald-500/[0.06]" : "border-rose-500/20 bg-rose-500/[0.06]"}`}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-wider text-muted">{isInflow ? "Tiền vào" : "Tiền ra"}</div>
+                    <div className={`mt-1 font-mono text-2xl font-black ${isInflow ? "text-emerald-600" : "text-rose-600"}`}>
+                      {isInflow ? "+" : "-"}{formatVnd(selectedTransaction.amount)}
+                    </div>
+                  </div>
+                  <span className={`inline-flex w-fit items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-black ${statusTones[status.tone]}`}>
+                    <StatusIcon size={14} aria-hidden />
+                    {status.label}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <BankDetail label="Thời điểm" value={formatDateTime(selectedTransaction.createdAt)} />
+                <BankDetail label="Ngân hàng" value={selectedTransaction.bankAccount?.bankName || "Chưa xác định"} />
+                <BankDetail label="Chủ tài khoản" value={selectedTransaction.bankAccount?.accountName || "Chưa xác định"} />
+                <BankDetail label="Số tài khoản" value={maskAccountNumber(selectedTransaction.bankAccount?.accountNumber)} mono />
+                <BankDetail label="Mã thanh toán" value={selectedTransaction.paymentCode || "Chưa có"} mono />
+                <BankDetail label="Mã giao dịch ngân hàng" value={selectedTransaction.providerTransactionId || selectedTransaction.reference || "Chưa có"} mono />
+              </div>
+
+              <div className="rounded-xl border border-border/70 bg-surface/60 p-4">
+                <div className="text-[10px] font-black uppercase tracking-wider text-muted">Nội dung chuyển khoản</div>
+                <div className="mt-2 whitespace-pre-wrap break-words text-sm font-bold leading-6 text-text">{selectedTransaction.content || "Không có nội dung"}</div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <BankDetail label="Nguồn dữ liệu" value={selectedTransaction.bankAccount?.isLinked ? "Đồng bộ SePay" : "Ngân hàng"} />
+                <BankDetail label="Trạng thái webhook" value={getTransactionStatus(selectedTransaction.webhookStatus).label} />
+                {selectedTransaction.owner?.name && <BankDetail label="Chủ thể liên quan" value={selectedTransaction.owner.name} />}
+                {selectedTransaction.reference && <BankDetail label="Mã tham chiếu" value={selectedTransaction.reference} mono />}
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+    </div>
+  );
+}
+
+function BankDetail({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-card p-3">
+      <div className="text-[10px] font-black uppercase tracking-wider text-muted">{label}</div>
+      <div className={`mt-1 break-words text-xs font-black text-text ${mono ? "font-mono" : ""}`}>{value}</div>
     </div>
   );
 }

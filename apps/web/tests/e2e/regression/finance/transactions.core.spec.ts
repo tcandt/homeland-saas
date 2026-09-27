@@ -164,14 +164,66 @@ async function mockBankTransactions(page: any) {
   };
 }
 
+async function mockUnifiedTransactions(page: any) {
+  await page.route('**/api/v1/finance/reconciliation*', async (route: any) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        data: {
+          lines: [
+            {
+              journalLineId: 'line-cash-in',
+              journalEntryId: 'entry-payment-1',
+              journalEntryCode: 'JE-2026-0001',
+              journalEntryStatus: 'POSTED',
+              entryDate: '2026-09-20T08:30:00.000Z',
+              sourceType: 'PAYMENT',
+              debit: 2500000,
+              credit: 0,
+              account: { code: '1100', name: 'Tiền gửi ngân hàng', type: 'ASSET' },
+              source: { kind: 'INVOICE', code: 'INV-3101-09', path: 'Hóa đơn INV-3101-09 · Phòng 31-01' },
+            },
+            {
+              journalLineId: 'line-receivable',
+              journalEntryId: 'entry-payment-1',
+              journalEntryCode: 'JE-2026-0001',
+              journalEntryStatus: 'POSTED',
+              entryDate: '2026-09-20T08:30:00.000Z',
+              sourceType: 'PAYMENT',
+              debit: 0,
+              credit: 2500000,
+              account: { code: '1310', name: 'Phải thu khách thuê', type: 'ASSET' },
+              source: { kind: 'INVOICE', code: 'INV-3101-09', path: 'Hóa đơn INV-3101-09 · Phòng 31-01' },
+            },
+          ],
+        },
+      }),
+    });
+  });
+}
+
 async function openBankTransactionHistory(page: any) {
-  await page.getByRole('tab', { name: 'Ngân hàng / SePay' }).click();
+  await page.getByRole('tab', { name: 'Ngân hàng', exact: true }).click();
   await expect(page.getByTestId('bank-transactions-root')).toBeVisible();
 }
 
 test.describe('Finance Transactions Regression', () => {
   test.beforeEach(async ({ admin }, testInfo) => {
     test.skip(!/Desktop|Laptop/.test(testInfo.project.name), 'Desktop-only regression');
+  });
+
+  test('opens journal detail from the unified cashflow table', async ({ admin }) => {
+    await mockUnifiedTransactions(admin.page);
+
+    await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+
+    await expect(admin.page.getByTestId('unified-transaction-entry-payment-1')).toBeVisible();
+    await admin.page.getByTestId('unified-transaction-entry-payment-1').click();
+    await expect(admin.page.getByTestId('unified-transaction-detail-modal')).toBeVisible();
+    await expect(admin.page.getByTestId('unified-transaction-detail-modal')).toContainText('JE-2026-0001');
+    await expect(admin.page.getByTestId('unified-transaction-detail-modal')).toContainText('Tiền gửi ngân hàng');
   });
 
   test('renders populated desktop bank transaction history', async ({ admin }) => {
@@ -205,6 +257,9 @@ test.describe('Finance Transactions Regression', () => {
     await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('3.400.000');
     await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('780.000');
     await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('2.620.000');
+
+    await admin.page.getByTestId('bank-transaction-row-txn-0').click();
+    await expect(admin.page.getByTestId('bank-transaction-detail-modal')).toBeVisible();
   });
 
   test('filters rows by direction on desktop', async ({ admin }) => {

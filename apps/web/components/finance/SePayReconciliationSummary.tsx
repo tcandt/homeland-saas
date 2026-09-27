@@ -273,24 +273,22 @@ export default function SePayReconciliationSummary() {
     <>
       <section
         data-testid="sepay-reconciliation-summary"
-        className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xs"
+        className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xs"
       >
-        <div className="border-b border-border/70 p-3 md:p-4">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="border-b border-border/70 px-3 py-3 md:px-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-primary">
                 <SearchCheck size={14} aria-hidden />
-                SePay reconciliation
+                Trung tâm đối soát
               </div>
-              <h2 className="mt-1.5 text-lg font-black tracking-tight text-text">Danh sách giao dịch</h2>
-              <p className="mt-1 max-w-2xl text-xs leading-5 text-muted">
-                So khớp webhook với hóa đơn hoặc phiếu cọc; mọi sai lệch đều được giữ lại để xử lý có kiểm soát.
-              </p>
+              <h2 className="mt-1 text-lg font-black tracking-tight text-text">Đối soát giao dịch SePay</h2>
+              <p className="mt-0.5 text-xs text-muted">Kiểm tra kết quả khớp, chênh lệch và xử lý ngoại lệ trên cùng một bảng.</p>
             </div>
 
-            <div className="grid grid-cols-1 gap-2 rounded-2xl border border-border/70 bg-surface/60 p-2 sm:grid-cols-3 xl:min-w-[540px]">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:min-w-[520px]">
               <label className="min-w-0">
-                <span className="mb-1 block px-1 text-[10px] font-black uppercase tracking-wide text-muted">Năm</span>
+                <span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-muted">Năm</span>
                 <Select
                   data-testid="sepay-reconciliation-year"
                   value={year}
@@ -299,7 +297,7 @@ export default function SePayReconciliationSummary() {
                 />
               </label>
               <label className="min-w-0">
-                <span className="mb-1 block px-1 text-[10px] font-black uppercase tracking-wide text-muted">Kỳ đối soát</span>
+                <span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-muted">Kỳ đối soát</span>
                 <Select
                   data-testid="sepay-reconciliation-month"
                   value={month}
@@ -308,7 +306,7 @@ export default function SePayReconciliationSummary() {
                 />
               </label>
               <label className="min-w-0">
-                <span className="mb-1 block px-1 text-[10px] font-black uppercase tracking-wide text-muted">Trạng thái</span>
+                <span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-muted">Trạng thái</span>
                 <Select
                   data-testid="sepay-reconciliation-status"
                   value={status}
@@ -320,7 +318,7 @@ export default function SePayReconciliationSummary() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-b border-border/70 bg-background/30 p-3 md:grid-cols-5">
+        <div className="grid grid-cols-2 divide-x divide-y divide-border/70 border-b border-border/70 bg-surface/50 md:grid-cols-5 md:divide-y-0">
           <Metric label="Tổng giao dịch" value={data?.summary?.total || 0} />
           <Metric label="Đã khớp" value={data?.summary?.matched || 0} tone="success" />
           <Metric label="Cần xử lý" value={actionRequiredCount} tone="danger" />
@@ -329,9 +327,9 @@ export default function SePayReconciliationSummary() {
         </div>
 
         {isLoading && (
-          <div className="grid gap-3 p-4" aria-label="Đang tải đối soát SePay">
-            <div className="h-20 animate-pulse rounded-2xl bg-surface" />
-            <div className="h-20 animate-pulse rounded-2xl bg-surface" />
+          <div className="grid gap-2 p-4" aria-label="Đang tải đối soát SePay">
+            <div className="h-12 animate-pulse rounded-lg bg-surface" />
+            <div className="h-12 animate-pulse rounded-lg bg-surface" />
           </div>
         )}
         {isError && (
@@ -341,10 +339,10 @@ export default function SePayReconciliationSummary() {
         )}
 
         {!isLoading && !isError && (
-          <div>
-            <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
+          <div className="min-h-0 flex-1">
+            <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-2.5">
               <div>
-                <div className="text-sm font-black text-text">Kết quả đối soát</div>
+                <div className="text-xs font-black uppercase tracking-wide text-text">Kết quả đối soát</div>
                 <div className="mt-0.5 text-xs text-muted">{rows.length} giao dịch theo bộ lọc hiện tại</div>
               </div>
               {status ? (
@@ -354,16 +352,7 @@ export default function SePayReconciliationSummary() {
               ) : null}
             </div>
 
-            <div className="hidden grid-cols-[128px_150px_minmax(180px,1fr)_minmax(220px,1.15fr)_170px_150px] gap-4 border-b border-border/70 bg-surface/70 px-4 py-2.5 text-[10px] font-black uppercase tracking-wide text-muted xl:grid">
-              <div>Thời điểm</div>
-              <div>Trạng thái</div>
-              <div>Giao dịch</div>
-              <div>Nguồn và liên quan</div>
-              <div className="text-right">Đối chiếu tiền</div>
-              <div className="text-right">Thao tác</div>
-            </div>
-
-            <div className="divide-y divide-border/70">
+            <div className="overflow-auto">
               {rows.length === 0 && (
                 <div className="px-4 py-12 text-center">
                   <SearchCheck size={28} className="mx-auto text-muted/60" aria-hidden />
@@ -371,7 +360,21 @@ export default function SePayReconciliationSummary() {
                   <div className="mt-1 text-xs text-muted">Hãy đổi kỳ hoặc trạng thái để xem dữ liệu khác.</div>
                 </div>
               )}
-              {rows.map((row: any) => {
+
+              {rows.length > 0 && (
+                <table className="w-full min-w-[1080px] border-collapse text-center text-xs">
+                  <thead className="sticky top-0 z-10 border-b border-border/70 bg-surface text-[10px] font-black uppercase tracking-wide text-muted">
+                    <tr>
+                      <th className="w-[135px] px-3 py-3">Thời điểm</th>
+                      <th className="w-[145px] px-3 py-3">Trạng thái</th>
+                      <th className="w-[190px] px-3 py-3">Giao dịch</th>
+                      <th className="px-3 py-3">Chứng từ liên quan</th>
+                      <th className="w-[180px] px-3 py-3">Đối chiếu tiền</th>
+                      <th className="w-[175px] px-3 py-3">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {rows.map((row: any) => {
                   const isContentDuplicate = row.status === "DUPLICATE_CONTENT";
                   const canManualAssign = ["UNMATCHED", "SHORT_AMOUNT", "OVER_AMOUNT", "WRONG_BANK", "FAILED", "NEEDS_REVIEW"].includes(row.status);
                   const isRefundPending =
@@ -390,30 +393,25 @@ export default function SePayReconciliationSummary() {
                             ? "Chờ hoàn dư"
                             : null;
                   return (
-                    <article
+                    <tr
                       key={row.id}
                       data-testid={`sepay-row-${row.id}`}
-                      className="grid grid-cols-1 gap-3 px-4 py-4 transition-colors hover:bg-primary/[0.025] md:grid-cols-2 xl:grid-cols-[128px_150px_minmax(180px,1fr)_minmax(220px,1.15fr)_170px_150px] xl:gap-4"
+                      className="align-middle transition-colors hover:bg-primary/[0.03]"
                     >
-                      <div className="min-w-0">
-                        <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-muted xl:hidden">Thời điểm</div>
-                        <div className="text-xs font-semibold leading-5 text-muted">{formatDateTime(row.createdAt)}</div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-muted xl:hidden">Trạng thái</div>
+                      <td className="px-3 py-3 font-semibold leading-5 text-muted">{formatDateTime(row.createdAt)}</td>
+                      <td className="px-3 py-3">
                         <span
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-black ${
+                          className={`inline-flex items-center justify-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-black ${
                             statusClass[row.status] || "border-slate-500/20 bg-slate-500/10 text-slate-600"
                           }`}
                         >
                           {row.status === "MATCHED" ? <CheckCircle2 size={13} aria-hidden /> : <AlertTriangle size={13} aria-hidden />}
                           {statusLabels[row.status] || row.status}
                         </span>
-                      </div>
-                      <div className="min-w-0 break-words">
-                        <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-muted xl:hidden">Giao dịch</div>
+                      </td>
+                      <td className="px-3 py-3">
                         <div className="font-mono text-sm font-black text-text">{row.paymentCode || "Không có mã"}</div>
-                        <div className="mt-1 break-all text-[11px] text-muted">
+                        <div className="mt-1 truncate font-mono text-[11px] text-muted">
                           {row.providerTransactionId || "Chưa có mã giao dịch"}
                         </div>
                         <div className="mt-1 text-[11px] text-muted">
@@ -422,11 +420,10 @@ export default function SePayReconciliationSummary() {
                         {row.bankMatch === "SEPAY_VIRTUAL_ACCOUNT" ? (
                           <div className="mt-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">Tài khoản ảo SePay đã xác minh</div>
                         ) : row.bankMatch === "MISMATCH" ? (
-                          <div className="mt-1 text-[11px] font-semibold text-rose-700 dark:text-rose-300">Tài khoản nhận không trùng QR đã tạo</div>
+                          <div className="mt-1 text-[11px] font-semibold text-rose-700 dark:text-rose-300">Sai tài khoản nhận</div>
                         ) : null}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-muted xl:hidden">Nguồn và liên quan</div>
+                      </td>
+                      <td className="px-3 py-3">
                         <div className="text-sm font-black text-text">{row.sourceType || "Chưa gắn chứng từ"}</div>
                         <div className="mt-1 text-[11px] text-muted">
                           {row.roomCode || "Chưa xác định phòng"} · {row.buildingName || "Chưa xác định tòa"}
@@ -441,18 +438,16 @@ export default function SePayReconciliationSummary() {
                         {Array.isArray(row.overpaymentRefundAttachmentUrls) && row.overpaymentRefundAttachmentUrls.length > 0 ? (
                           <div className="mt-1 text-[11px] text-muted">{row.overpaymentRefundAttachmentUrls.length} tệp chứng từ đã lưu</div>
                         ) : null}
-                      </div>
-                      <div className="min-w-0 xl:text-right">
-                        <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-muted xl:hidden">Đối chiếu tiền</div>
+                      </td>
+                      <td className="px-3 py-3">
                         <div className="font-mono text-sm font-black text-emerald-600 dark:text-emerald-300">{formatVnd(row.amount)}</div>
                         <div className="mt-1 text-[11px] font-semibold text-text">Phải thu: {formatVnd(row.expectedAmount)}</div>
                         <div className={`mt-1 text-[11px] font-semibold ${Number(row.amountDiff || 0) === 0 ? "text-muted" : Number(row.amountDiff || 0) < 0 ? "text-amber-700 dark:text-amber-300" : "text-blue-700 dark:text-blue-300"}`}>
                           {Number(row.amountDiff || 0) === 0 ? "Khớp số tiền" : `Chênh ${formatVnd(Math.abs(Number(row.amountDiff || 0)))}`}
                         </div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="mb-1 text-[10px] font-black uppercase tracking-wide text-muted xl:hidden">Thao tác</div>
-                        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex flex-wrap items-center justify-center gap-1.5">
                           {isRefundPending && (
                             <Button
                               data-testid={`sepay-refund-complete-open-${row.id}`}
@@ -489,10 +484,13 @@ export default function SePayReconciliationSummary() {
                             <span className="text-[12px] font-semibold text-muted">-</span>
                           ) : null}
                         </div>
-                      </div>
-                    </article>
+                      </td>
+                    </tr>
                   );
-                })}
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         )}
@@ -502,7 +500,7 @@ export default function SePayReconciliationSummary() {
         isOpen={!!activeRow}
         onClose={closeAssignModal}
         title="Gán giao dịch SePay"
-        maxWidth="max-w-2xl"
+        maxWidth="max-w-3xl"
         testId="sepay-manual-assign-modal"
         footer={
           <div className="flex items-center justify-end gap-3">
@@ -517,22 +515,26 @@ export default function SePayReconciliationSummary() {
       >
         {activeRow && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-[14px] border border-border bg-surface p-3">
-                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Payment code</div>
-                <div className="mt-2 text-[14px] font-black text-text">{activeRow.paymentCode || "-"}</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-xl border border-border/70 bg-surface/60 p-3">
+                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Mã thanh toán</div>
+                <div className="mt-1 font-mono text-sm font-black text-text">{activeRow.paymentCode || "-"}</div>
               </div>
-              <div className="rounded-[14px] border border-border bg-surface p-3">
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-3">
                 <div className="text-[10px] font-black uppercase tracking-wide text-muted">Tiền vào</div>
-                <div className="mt-2 text-[14px] font-black text-[#059669]">{formatVnd(activeRow.amount || 0)}</div>
+                <div className="mt-1 font-mono text-sm font-black text-emerald-600">{formatVnd(activeRow.amount || 0)}</div>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-surface/60 p-3">
+                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Ngân hàng nhận</div>
+                <div className="mt-1 text-sm font-black text-text">{activeRow.bankAccount?.bankName || activeRow.accountNumber || "Chưa xác định"}</div>
               </div>
             </div>
 
-            <div className="rounded-[8px] border border-amber-200 bg-amber-50 p-3 text-[12px] leading-5 text-amber-800">
-              Chọn chứng từ từ danh sách được lọc theo tenant, trạng thái và số tiền. Hệ thống vẫn kiểm tra số dư, ngân hàng, idempotency và audit trước khi ghi nhận.
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.06] px-3 py-2.5 text-xs leading-5 text-blue-800 dark:text-blue-200">
+              Chọn chứng từ đề xuất phù hợp nhất. Hệ thống vẫn kiểm tra tenant, số dư, ngân hàng và chống ghi nhận trùng trước khi lưu.
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 rounded-xl border border-border/70 p-3.5">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-[12px] font-black uppercase tracking-wide text-muted">Chứng từ đề xuất</div>
                 <div className="text-[11px] font-semibold text-muted">{allAssignmentCandidates.length} chứng từ có thể gán</div>
@@ -556,12 +558,12 @@ export default function SePayReconciliationSummary() {
                 ]}
               />
               {selectedCandidate ? (
-                <div data-testid="sepay-manual-assign-selected" className="rounded-[8px] border border-emerald-200 bg-emerald-50 p-3">
+                <div data-testid="sepay-manual-assign-selected" className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.07] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="font-black text-emerald-900">{candidateLabel(selectedCandidate)}</div>
-                    <div className="text-[12px] font-black text-emerald-700">Chênh {formatVnd(selectedCandidate.amountDelta)}</div>
+                    <div className="text-sm font-black text-emerald-900 dark:text-emerald-200">{candidateLabel(selectedCandidate)}</div>
+                    <div className="text-xs font-black text-emerald-700 dark:text-emerald-300">Chênh {formatVnd(selectedCandidate.amountDelta)}</div>
                   </div>
-                  <div className="mt-1 text-[11px] font-semibold text-emerald-800">
+                  <div className="mt-1 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">
                     {selectedCandidate.matchReasons?.length ? selectedCandidate.matchReasons.join(" · ") : "Cần kiểm tra lại trước khi gán"}
                   </div>
                 </div>
@@ -572,10 +574,10 @@ export default function SePayReconciliationSummary() {
               )}
             </div>
 
-            <div className="border-t border-border pt-3">
+            <div className="rounded-xl border border-dashed border-border/80 bg-surface/30 p-3">
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={() => {
                   setShowManualCodeEntry((visible) => !visible);
@@ -586,7 +588,7 @@ export default function SePayReconciliationSummary() {
                 {showManualCodeEntry ? "Ẩn nhập mã thay thế" : "Không thấy chứng từ? Nhập mã thay thế"}
               </Button>
               {showManualCodeEntry ? (
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-3 border-t border-border/70 pt-3 md:grid-cols-2">
                   <div>
                     <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">Loại nguồn</div>
                     <Select
@@ -633,16 +635,16 @@ export default function SePayReconciliationSummary() {
       >
         {resolutionRow && (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-[14px] border border-border bg-surface p-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-xl border border-border/70 bg-surface/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-wide text-muted">Payment code</div>
                 <div className="mt-2 text-[13px] font-black text-text">{resolutionRow.paymentCode || "-"}</div>
               </div>
-              <div className="rounded-[14px] border border-border bg-surface p-3">
+              <div className="rounded-xl border border-border/70 bg-surface/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-wide text-muted">Tiền vào</div>
                 <div className="mt-2 text-[13px] font-black text-[#059669]">{formatVnd(resolutionRow.amount || 0)}</div>
               </div>
-              <div className="rounded-[14px] border border-border bg-surface p-3">
+              <div className="rounded-xl border border-border/70 bg-surface/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-wide text-muted">
                   {resolutionRow.status === "DUPLICATE_CONTENT" ? "Giao dịch cần xử lý" : "Tiền thừa"}
                 </div>
@@ -656,7 +658,7 @@ export default function SePayReconciliationSummary() {
               </div>
             </div>
 
-            <div className="rounded-[14px] border border-blue-200 bg-blue-50 p-3 text-[12px] leading-5 text-blue-900">
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.06] p-3 text-xs leading-5 text-blue-900 dark:text-blue-200">
               {resolutionRow.status === "DUPLICATE_CONTENT"
                 ? "Đây là giao dịch ngân hàng mới có cùng nội dung với giao dịch đã xác nhận. Hệ thống không thu lần hai vào hóa đơn cũ; toàn bộ giao dịch này phải được ghi dư có, cấn kỳ sau hoặc hoàn lại."
                 : "`Dư có khách hàng` và `Cấn trừ kỳ sau` sẽ tạo credit note để dùng về sau. `Chờ hoàn lại` sẽ tạo tác vụ vận hành để kế toán xử lý hoàn tiền."}
@@ -702,12 +704,12 @@ export default function SePayReconciliationSummary() {
       >
         {refundCompletionRow && (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-[14px] border border-border bg-surface p-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-xl border border-border/70 bg-surface/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-wide text-muted">Payment code</div>
                 <div className="mt-2 text-[13px] font-black text-text">{refundCompletionRow.paymentCode || "-"}</div>
               </div>
-              <div className="rounded-[14px] border border-border bg-surface p-3">
+              <div className="rounded-xl border border-border/70 bg-surface/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-wide text-muted">Tiền thừa</div>
                 <div className="mt-2 text-[13px] font-black text-blue-600">
                   {formatVnd(
@@ -719,7 +721,7 @@ export default function SePayReconciliationSummary() {
                   )}
                 </div>
               </div>
-              <div className="rounded-[14px] border border-border bg-surface p-3">
+              <div className="rounded-xl border border-border/70 bg-surface/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-wide text-muted">Tác vụ</div>
                 <div className="mt-2 text-[13px] font-black text-text">
                   {refundCompletionRow.overpaymentTaskTitle || "Đang chờ hoàn"}
@@ -727,7 +729,7 @@ export default function SePayReconciliationSummary() {
               </div>
             </div>
 
-            <div className="rounded-[14px] border border-amber-200 bg-amber-50 p-3 text-[12px] leading-5 text-amber-900">
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.07] p-3 text-xs leading-5 text-amber-900 dark:text-amber-200">
               Xác nhận này sẽ đóng tác vụ hoàn dư, hoàn tất chứng từ và ghi bút toán chi tiền để đối soát sau.
             </div>
 
@@ -768,19 +770,19 @@ function Metric({
 }) {
   const valueClass =
     tone === "success"
-      ? "text-[#059669]"
+      ? "text-emerald-600 dark:text-emerald-300"
       : tone === "warning"
-        ? "text-[#f97316]"
+        ? "text-orange-600 dark:text-orange-300"
         : tone === "danger"
-          ? "text-rose-500"
+          ? "text-rose-600 dark:text-rose-300"
           : tone === "info"
-            ? "text-blue-600"
+            ? "text-blue-600 dark:text-blue-300"
             : "text-text";
 
   return (
-    <div className="rounded-2xl border border-border/70 bg-card px-3 py-3 shadow-2xs">
+    <div className="px-3 py-2.5 text-center">
       <div className="text-[10px] font-black uppercase tracking-[0.08em] text-muted">{label}</div>
-      <div className={`mt-1.5 font-mono text-xl font-black ${valueClass}`}>{value}</div>
+      <div className={`mt-1 font-mono text-lg font-black ${valueClass}`}>{value}</div>
     </div>
   );
 }

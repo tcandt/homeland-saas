@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
-import { BadgeCheck, Landmark, ListTree } from "lucide-react";
+import { useState } from "react";
 import BankTransactionHistory from "@/components/finance/BankTransactionHistory";
 import FinanceDisclosureSection from "@/components/finance/FinanceDisclosureSection";
 import SePayReconciliationAuditPanel from "@/components/finance/SePayReconciliationAuditPanel";
@@ -17,26 +16,18 @@ type FinanceTransactionsWorkspaceProps = {
 const tabs: Array<{
   id: FinanceTransactionView;
   label: string;
-  description: string;
-  icon: React.ElementType;
 }> = [
   {
     id: "unified",
     label: "Tất cả dòng tiền",
-    description: "Bút toán hợp nhất",
-    icon: ListTree,
   },
   {
     id: "bank",
-    label: "Ngân hàng / SePay",
-    description: "Biến động tài khoản",
-    icon: Landmark,
+    label: "Ngân hàng",
   },
   {
     id: "reconciliation",
     label: "Đối soát",
-    description: "Khớp và xử lý sai lệch",
-    icon: BadgeCheck,
   },
 ];
 
@@ -50,14 +41,9 @@ export default function FinanceTransactionsWorkspace({
       data-testid="finance-transactions-workspace"
       className="-m-4 flex h-[calc(100dvh-87px)] w-[calc(100%+32px)] flex-col gap-2.5 overflow-auto bg-background p-2.5 md:h-[calc(100dvh-80px)] md:p-3"
     >
-      <nav
-        role="tablist"
-        aria-label="Nhóm lịch sử giao dịch"
-        className="grid shrink-0 grid-cols-1 gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-2xs sm:grid-cols-3"
-      >
+      <nav role="tablist" aria-label="Nhóm lịch sử giao dịch" className="flex shrink-0 gap-1 overflow-x-auto rounded-xl border border-border/70 bg-card p-1 shadow-2xs">
         {tabs.map((tab) => {
           const active = view === tab.id;
-          const Icon = tab.icon;
 
           return (
             <button
@@ -69,25 +55,13 @@ export default function FinanceTransactionsWorkspace({
               aria-controls={`finance-transactions-panel-${tab.id}`}
               data-testid={`finance-transactions-tab-${tab.id}`}
               onClick={() => setView(tab.id)}
-              className={`flex min-h-14 items-center gap-3 rounded-xl border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+              className={`min-h-10 shrink-0 rounded-lg px-4 text-xs font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 active
-                  ? "border-primary/30 bg-primary text-white shadow-md shadow-primary/15"
-                  : "border-transparent text-muted hover:border-border hover:bg-background hover:text-text"
+                  ? "bg-primary text-white shadow-sm"
+                  : "text-muted hover:bg-background hover:text-text"
               }`}
             >
-              <span
-                className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                  active ? "bg-white/15" : "bg-primary/10 text-primary"
-                }`}
-              >
-                <Icon size={18} aria-hidden />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-black">{tab.label}</span>
-                <span className={`mt-0.5 block truncate text-[11px] font-semibold ${active ? "text-white/75" : "text-muted"}`}>
-                  {tab.description}
-                </span>
-              </span>
+              {tab.label}
             </button>
           );
         })}

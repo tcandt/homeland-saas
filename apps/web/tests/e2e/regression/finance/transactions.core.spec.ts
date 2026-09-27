@@ -178,6 +178,11 @@ test.describe('Finance Transactions Regression', () => {
     const mock = await mockBankTransactions(admin.page);
 
     await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+    await expect(admin.page.getByTestId('finance-transactions-tab-unified')).toBeVisible();
+    await expect(admin.page.getByTestId('finance-transactions-tab-bank')).toBeVisible();
+    await expect(admin.page.getByTestId('finance-transactions-tab-reconciliation')).toBeVisible();
+    await expect(admin.page.getByTestId('sidebar-nav-finance-transactions')).toBeVisible();
+    await expect(admin.page.getByTestId('sidebar-nav-finance-reconciliation')).toHaveCount(0);
     await openBankTransactionHistory(admin.page);
 
     await expect

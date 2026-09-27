@@ -405,6 +405,8 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
 
     await admin.page.goto('/finance/reconciliation', { waitUntil: 'domcontentloaded' });
 
+    await expect(admin.page).toHaveURL(/\/finance\/transactions\?view=reconciliation$/);
+    await expect(admin.page.getByTestId('finance-transactions-tab-reconciliation')).toHaveAttribute('aria-selected', 'true');
     await expect(admin.page.getByTestId('sepay-reconciliation-summary')).toBeVisible();
     await expect
       .poll(() => mock.getLastFilters(), { timeout: 10000 })

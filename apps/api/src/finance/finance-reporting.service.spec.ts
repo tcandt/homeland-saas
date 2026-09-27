@@ -567,6 +567,78 @@ describe('FinanceReportingService', () => {
     });
   });
 
+  it('uses the matched payment request account holder for a SePay virtual account transaction', async () => {
+    const canonicalBankAccount = {
+      id: 'bank-bidv-1',
+      tenantId: 'tenant-1',
+      bankName: 'BIDV',
+      accountNumber: 'SBSEPAYMKYNGRD9RLQJ',
+      accountName: 'HO KINH DOANH NGUYEN DUC TINH',
+      owner: { id: 'owner-1', code: 'OWNER-1', name: 'Tính' },
+    };
+    const { service } = createService({
+      bankAccount: {
+        findMany: vi.fn().mockResolvedValue([canonicalBankAccount]),
+      },
+      paymentWebhookLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'log-virtual-account-1',
+            tenantId: 'tenant-1',
+            provider: 'SEPAY',
+            providerTransactionId: '33121',
+            payload: {
+              gateway: 'BIDV',
+              accountNumber: '0000000001',
+              code: 'HD31070926',
+              transferType: 'in',
+              transferAmount: 10500000,
+              content: 'HD31070926',
+            },
+            status: 'PROCESSED',
+            createdAt: new Date('2026-09-22T03:12:01.000Z'),
+            processedAt: new Date('2026-09-22T03:12:02.000Z'),
+          },
+        ]),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            paymentCode: 'HD31070926',
+            amount: 10500000,
+            sourceType: 'INVOICE',
+            sourceId: 'invoice-1',
+            status: 'CONFIRMED',
+            owner: canonicalBankAccount.owner,
+            bankAccount: {
+              id: canonicalBankAccount.id,
+              bankName: canonicalBankAccount.bankName,
+              accountNumber: canonicalBankAccount.accountNumber,
+              accountName: canonicalBankAccount.accountName,
+            },
+          },
+        ]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+    });
+
+    const result = await service.getBankTransactions('tenant-1', { year: '2026', month: '9' });
+
+    expect(result.rows[0]).toMatchObject({
+      providerTransactionId: '33121',
+      paymentCode: 'HD31070926',
+      bankAccount: {
+        id: 'bank-bidv-1',
+        bankName: 'BIDV',
+        accountNumber: '0000000001',
+        accountName: 'HO KINH DOANH NGUYEN DUC TINH',
+        isLinked: true,
+      },
+      owner: { id: 'owner-1', name: 'Tính' },
+      reviewStatus: 'MATCHED',
+    });
+  });
+
   it('ranks only eligible tenant-scoped manual assignment candidates for a SePay exception', async () => {
     const candidateRequests = vi.fn()
       .mockResolvedValueOnce([])

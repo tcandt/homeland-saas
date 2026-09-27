@@ -1283,7 +1283,9 @@ export class FinanceReportingService {
         const accountNumber = String(payload?.accountNumber || payload?.account_number || payload?.bank_account_xid || '').trim();
         const request = paymentCode ? requestByCode.get(paymentCode) : null;
         const linkedBankAccount = accountNumber ? bankByAccountNumber.get(accountNumber) || null : null;
-        if (options.bankAccountId && (!linkedBankAccount || linkedBankAccount.id !== options.bankAccountId)) return null;
+        const requestBankAccount = request?.bankAccount || null;
+        const resolvedBankAccount = linkedBankAccount || requestBankAccount;
+        if (options.bankAccountId && (!resolvedBankAccount || resolvedBankAccount.id !== options.bankAccountId)) return null;
 
         const direction = this.resolveWebhookDirection(payload);
         const amount = this.resolveWebhookAmount(payload);
@@ -1293,12 +1295,12 @@ export class FinanceReportingService {
           payload?.gateway || payload?.bankName || payload?.bank_name || payload?.bankCode || payload?.bank_code || 'SEPAY',
         ).trim();
         const providerAccountName = String(payload?.accountName || payload?.account_name || '').trim();
-        const bankAccount = linkedBankAccount
+        const bankAccount = resolvedBankAccount
           ? {
-              id: linkedBankAccount.id,
-              bankName: linkedBankAccount.bankName,
-              accountNumber: linkedBankAccount.accountNumber,
-              accountName: linkedBankAccount.accountName,
+              id: resolvedBankAccount.id,
+              bankName: resolvedBankAccount.bankName,
+              accountNumber: accountNumber || resolvedBankAccount.accountNumber,
+              accountName: providerAccountName || resolvedBankAccount.accountName,
               isLinked: true,
             }
           : {
@@ -1329,8 +1331,8 @@ export class FinanceReportingService {
             accountName: bankAccount.accountName,
             isLinked: bankAccount.isLinked,
           },
-          owner: linkedBankAccount
-            ? request?.owner || (bankAccounts.find((bank) => bank.id === linkedBankAccount.id) as any)?.owner || null
+          owner: resolvedBankAccount
+            ? request?.owner || (bankAccounts.find((bank) => bank.id === resolvedBankAccount.id) as any)?.owner || null
             : null,
           match: request ? {
             sourceType: request.sourceType,

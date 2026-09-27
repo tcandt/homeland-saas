@@ -23,7 +23,7 @@ export class AnalyticsController {
   }
 
   @Get('revenue')
-  @ApiOperation({ summary: 'Get Revenue Analytics' })
+  @ApiOperation({ summary: 'Get period-scoped revenue analytics from authoritative finance reporting' })
   async getRevenue() {
     const tenantId = await this.getTenantId();
     return await this.analyticsService.getRevenueAnalytics(tenantId);
@@ -44,7 +44,7 @@ export class AnalyticsController {
   }
 
   @Get('finance')
-  @ApiOperation({ summary: 'Get Finance Analytics' })
+  @ApiOperation({ summary: 'Get period-scoped finance analytics from authoritative finance reporting' })
   async getFinance() {
     const tenantId = await this.getTenantId();
     return await this.analyticsService.getFinanceAnalytics(tenantId);

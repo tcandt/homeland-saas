@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Homeland — Bản đồ logic nghiệp vụ</title>
+  <link rel="stylesheet" href="lifecycle.css">
+  <script defer src="lifecycle-data.js"></script>
+  <script defer src="lifecycle.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#overview"><span class="brand-mark" aria-hidden="true">H</span><span>HOMELAND<small>BẢN ĐỒ LOGIC NGHIỆP VỤ</small></span></a>
+    <div class="search-wrap"><label class="sr-only" for="search">Tìm bước, vấn đề hoặc mã lỗi</label><input id="search" type="search" placeholder="Tìm bước, vấn đề, mã lỗi…" autocomplete="off"><div id="results" class="results" hidden aria-live="polite"></div></div>
+    <button id="theme" class="button" aria-label="Đổi giao diện sáng tối">Sáng / tối</button>
+  </header>
+  <main class="workspace">
+    <aside class="navigation" aria-label="Các miền logic nghiệp vụ">
+      <p class="eyebrow">P0–P20 · 11 MIỀN LOGIC</p>
+      <nav id="chapters"></nav>
+      <div class="nav-note"><strong>Mỗi miền là một tab</strong><p>Đọc từ trên xuống; chọn node để xem điều kiện, kết quả, điểm lỗi và source code.</p></div>
+      <a class="secondary-link" href="lifecycle-overview.html" target="_blank" rel="noopener" title="Bản tổng quan Archify: nội dung tiếng Việt, điều khiển viewer tiếng Anh">Mở tổng quan SVG / xuất hình ↗</a>
+      <a class="secondary-link" href="index.html">Bảng lộ trình P0–P20 ↗</a>
+    </aside>
+    <section class="diagram-area" aria-labelledby="chapter-title">
+      <div class="chapter-heading"><div><p id="chapter-number" class="eyebrow"></p><h1 id="chapter-title"></h1><p id="chapter-description"></p></div></div>
+      <div class="legend" aria-label="Chú giải trạng thái">
+        <span class="badge code">Có code</span><span class="badge fixed">Đã xử lý</span><span class="badge error">Sai / xung đột</span><span class="badge gap">Thiếu / chưa nối</span><span class="badge review">Nghi dư / cần rà</span>
+      </div>
+      <div class="diagram-toolbar"><span id="graph-count"></span><button id="issues-toggle" class="button" aria-pressed="false">Đánh dấu điểm cần xử lý</button></div>
+      <div class="canvas"><svg id="diagram" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Sơ đồ vòng đời có thể tương tác"></svg></div>
+      <p class="canvas-caption">Đường liền: bước xử lý chính · Đường nét đứt: liên kết dữ liệu hoặc quay lại miền khác.</p>
+    </section>
+    <aside class="inspector" aria-labelledby="detail-title"><div id="detail" aria-live="polite"></div></aside>
+  </main>
+  <footer>Đối chiếu source ngày 24/09/2026 · Không phải mô phỏng giao dịch hay chứng nhận E2E · Không thay đổi dữ liệu vận hành.</footer>
+  <noscript><p>Vui lòng bật JavaScript để xem sơ đồ. <a href="lifecycle-overview.html">Mở bản SVG tổng quan</a>.</p></noscript>
+</body>
+</html>

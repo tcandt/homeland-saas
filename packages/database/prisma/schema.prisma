@@ -69,6 +69,25 @@ enum PaymentStatus {
   OVERPAID
 }
 
+enum PaymentPromiseStatus {
+  PENDING
+  OVERDUE
+  FULFILLED
+  CANCELLED
+}
+
+enum AiChatRequestStatus {
+  RUNNING
+  PROVIDER_COMPLETED
+  COMPLETED
+  FAILED
+}
+
+enum NotificationTemplateVersionStatus {
+  DRAFT
+  PUBLISHED
+}
+
 enum PaymentProvider {
   SEPAY
   MANUAL
@@ -427,12 +446,14 @@ model Room {
 }
 
 model Customer {
-  id             String    @id @default(cuid())
-  tenantId       String
-  fullName       String
-  phone          String
-  email          String?
-  identityNo     String?
+  id                   String    @id @default(cuid())
+  tenantId             String
+  fullName             String
+  phone                String
+  phoneNormalized      String
+  email                String?
+  identityNo           String?
+  identityNoNormalized String?
   gender         String?
   birthDate      DateTime?
   nationality    String?
@@ -459,6 +480,8 @@ model Customer {
   rentalCycles    RentalCycle[]
 
   @@index([tenantId, phone])
+  @@index([tenantId, phoneNormalized], map: "Customer_tenantId_phoneNormalized_lookup_idx")
+  @@index([tenantId, identityNoNormalized], map: "Customer_tenantId_identityNoNormalized_lookup_idx")
   @@index([tenantId, zaloChatId])
   @@index([tenantId, zaloUserId])
   @@index([tenantId, fullName])
@@ -798,6 +821,7 @@ model Invoice {
   creditNotes  CreditNote[]
   items        InvoiceItem[]
   allocations  PaymentAllocation[]
+  paymentPromises PaymentPromise[]
   adjustmentOf Invoice?            @relation("InvoiceAdjustments", fields: [tenantId, adjustmentOfInvoiceId], references: [tenantId, id], onDelete: Restrict)
   adjustments  Invoice[]           @relation("InvoiceAdjustments")
 
@@ -840,6 +864,34 @@ model Payment {
   @@index([tenantId, rentalCycleId, status])
 }
 
+// A customer promise is an operational follow-up record. It never changes the
+// original invoice obligation or payment allocation; only a confirmed payment
+// can settle that obligation.
+model PaymentPromise {
+  id             String               @id @default(cuid())
+  tenantId       String
+  invoiceId      String
+  customerId     String
+  contractId     String?
+  rentalCycleId  String?
+  amount         Decimal              @db.Decimal(14, 2)
+  dueDate        DateTime
+  status         PaymentPromiseStatus @default(PENDING)
+  note           String?
+  idempotencyKey String
+  createdBy      String?
+  resolvedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, dueDate])
+  @@index([tenantId, invoiceId, status])
+  @@index([tenantId, customerId, status])
+}
+
 model CreditNote {
   id               String   @id @default(cuid())
   tenantId         String
@@ -861,6 +913,9 @@ model CreditNote {
 model Task {
   id           String       @id @default(cuid())
   tenantId     String
+  contractId   String?
+  rentalCycleId String?
+  customerId   String?
   title        String
   description  String?
   status       TaskStatus   @default(TODO)
@@ -876,6 +931,9 @@ model Task {
   @@index([tenantId, status])
   @@index([tenantId, assigneeId])
   @@index([tenantId, assigneeId, status])
+  @@index([tenantId, contractId])
+  @@index([tenantId, rentalCycleId])
+  @@index([tenantId, customerId])
 }
 
 model SalesLead {
@@ -1353,16 +1411,36 @@ model Notification {
 }
 
 model NotificationTemplate {
-  id        String   @id @default(cuid())
+  id              String   @id @default(cuid())
+  tenantId        String
+  code            String // e.g. INVOICE_OVERDUE
+  name            String
+  subject         String?
+  body            String
+  publishedVersion Int    @default(0)
+  publishedAt     DateTime?
+  publishedById   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, code])
+}
+
+model NotificationTemplateVersion {
+  id        String                            @id @default(cuid())
   tenantId  String
-  code      String // e.g. INVOICE_OVERDUE
+  code      String
+  version   Int
   name      String
   subject   String?
   body      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status    NotificationTemplateVersionStatus @default(DRAFT)
+  createdById String?
+  createdAt DateTime                          @default(now())
+  updatedAt DateTime                          @updatedAt
 
-  @@unique([tenantId, code])
+  @@unique([tenantId, code, version])
+  @@index([tenantId, code, status, updatedAt])
 }
 
 model NotificationPreference {
@@ -1635,6 +1713,26 @@ model AiConversation {
   messages AiMessage[]
 
   @@index([tenantId, userId])
+}
+
+model AiChatRequest {
+  id             String              @id @default(cuid())
+  tenantId       String
+  userId         String
+  conversationId String
+  idempotencyKey String
+  requestHash    String
+  status         AiChatRequestStatus @default(RUNNING)
+  result         Json?
+  errorCode      String?
+  leaseExpiresAt DateTime
+  completedAt    DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([tenantId, userId, idempotencyKey])
+  @@index([tenantId, userId, status, leaseExpiresAt])
+  @@index([conversationId])
 }
 
 model AiMessage {

@@ -16,6 +16,7 @@ import {
 } from "@prisma/client";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import { HunonicService } from "../hunonic/hunonic.service";
+import { DepositCoreService } from "../deposits/deposit-core.service";
 
 describe("ContractsService", () => {
   let service: ContractsService;
@@ -23,6 +24,7 @@ describe("ContractsService", () => {
   let auditService: any;
   let eventPublisher: any;
   let hunonicService: any;
+  let depositCoreService: any;
 
   beforeEach(async () => {
     prismaService = {
@@ -40,7 +42,17 @@ describe("ContractsService", () => {
       },
       tx: {
         $queryRaw: vi.fn().mockResolvedValue([{ id: "r1" }]),
-        invoice: { create: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+        invoice: {
+          create: vi.fn().mockResolvedValue({
+            id: "entry-invoice-1",
+            code: "INV-ENTRY-HD-THUE-P101-ABCD1234",
+            total: 3000000,
+            dueDate: new Date("2026-10-01T00:00:00.000Z"),
+            status: "DRAFT",
+          }),
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
         contract: {
           create: vi.fn(),
           update: vi.fn(),
@@ -114,6 +126,9 @@ describe("ContractsService", () => {
     hunonicService = {
       getRoomElectricityPricing: vi.fn().mockResolvedValue(null),
     };
+    depositCoreService = {
+      convertToSecurityInTransaction: vi.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -140,6 +155,10 @@ describe("ContractsService", () => {
         {
           provide: HunonicService,
           useValue: hunonicService,
+        },
+        {
+          provide: DepositCoreService,
+          useValue: depositCoreService,
         },
       ],
     }).compile();
@@ -173,6 +192,309 @@ describe("ContractsService", () => {
           type: "BOOKING",
         },
       });
+    });
+  });
+
+  describe("booking-hold conversion", () => {
+    it("creates the rental draft and deposit conversion in one transaction", async () => {
+      const source = {
+        id: "booking-contract-1",
+        tenantId: "tenant-1",
+        code: "HD-COC-001",
+        purpose: "Cọc giữ phòng",
+        rentalCycleId: "cycle-1",
+        customerId: "customer-1",
+        roomId: "room-1",
+        monthlyRent: 3000000,
+        depositMoney: 5000000,
+        memberCount: 1,
+        firstPaymentDate: null,
+        coRepresentativeIds: [],
+        roomSnapshot: { code: "P101" },
+      };
+      const created = {
+        ...source,
+        id: "rental-contract-1",
+        code: "HD-THUE-P101-ABCD1234",
+        termsSnapshot: { convertedFromBookingHold: { sourceContractId: source.id } },
+      };
+      const converted = {
+        ...created,
+        termsSnapshot: {
+          convertedFromBookingHold: {
+            sourceContractId: source.id,
+            bookingDepositConversion: { operationId: "operation-1" },
+          },
+        },
+      };
+      prismaService.tx.contract.findFirst
+        .mockResolvedValueOnce(source)
+        .mockResolvedValueOnce(null);
+      prismaService.tx.contract.create.mockResolvedValue(created);
+      prismaService.tx.contract.update.mockResolvedValue(converted);
+      prismaService.tx.deposit.findFirst.mockResolvedValue({ id: "booking-deposit-1" });
+      depositCoreService.convertToSecurityInTransaction.mockResolvedValue({
+        operationId: "operation-1",
+        securityDepositId: "security-deposit-1",
+        securityRequired: 5000000,
+        transferAmount: 2000000,
+        additionalCashRequired: 3000000,
+        excessAmount: 0,
+        excessAction: null,
+        creditNoteId: null,
+        refundReceiptId: null,
+      });
+      (service as any).withContractSnapshots = vi.fn().mockResolvedValue({
+        tenantId: "tenant-1",
+        customerId: "customer-1",
+        roomId: "room-1",
+        rentalCycleId: "cycle-1",
+        code: created.code,
+        status: ContractStatus.DRAFT,
+        startDate: new Date("2026-10-01T00:00:00.000Z"),
+        endDate: new Date("2027-09-30T00:00:00.000Z"),
+        monthlyRent: 3000000,
+        depositMoney: 5000000,
+        memberCount: 1,
+        firstPaymentDate: new Date("2026-10-01T00:00:00.000Z"),
+        purpose: "Hợp đồng thuê dài hạn",
+        coRepresentativeIds: [],
+        attachments: [],
+      });
+      (service as any).syncContractHistory = vi.fn().mockResolvedValue(undefined);
+
+      await expect(
+        service.createRentalFromBookingHold(
+          source.id,
+          {
+            startDate: "2026-10-01T00:00:00.000Z",
+            endDate: "2027-09-30T00:00:00.000Z",
+            depositAmount: 5000000,
+            purpose: "Hợp đồng thuê dài hạn",
+          },
+          "user-1",
+          "tenant-1",
+          "booking-convert-command-1:contract",
+        ),
+      ).resolves.toEqual(converted);
+
+      expect(depositCoreService.convertToSecurityInTransaction).toHaveBeenCalledWith(
+        prismaService.tx,
+        "tenant-1",
+        "booking-deposit-1",
+        expect.objectContaining({
+          idempotencyKey: "booking-convert-command-1:deposit",
+          contractId: "rental-contract-1",
+          securityRequired: 5000000,
+        }),
+        "user-1",
+      );
+      expect(prismaService.tx.contract.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "rental-contract-1", tenantId: "tenant-1" } }),
+      );
+      expect((service as any).syncContractHistory).toHaveBeenCalledWith(converted, prismaService.tx);
+      expect(prismaService.tx.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            contractId: "rental-contract-1",
+            billingKind: "ENTRY",
+            status: "DRAFT",
+            baseInvoiceKey: expect.stringMatching(/^ENTRY:rental-contract-1:/),
+          }),
+        }),
+      );
+    });
+
+    it("finishes a legacy draft that was created before the paired deposit command", async () => {
+      const source = {
+        id: "booking-contract-legacy",
+        tenantId: "tenant-1",
+        code: "HD-COC-LEGACY",
+        purpose: "Cọc giữ phòng",
+        rentalCycleId: "cycle-legacy",
+        customerId: "customer-1",
+        roomId: "room-1",
+        monthlyRent: 3000000,
+        depositMoney: 5000000,
+        memberCount: 1,
+        firstPaymentDate: null,
+        coRepresentativeIds: [],
+        roomSnapshot: { code: "P102" },
+      };
+      const commandKey = "legacy-convert:contract";
+      const input = {
+        startDate: "2026-10-01T00:00:00.000Z",
+        endDate: "2027-09-30T00:00:00.000Z",
+        depositAmount: 5000000,
+        purpose: "Hợp đồng thuê dài hạn",
+      };
+      const requestHash = (service as any).hashSettlementRequest({
+        sourceContractId: source.id,
+        tenantId: "tenant-1",
+        commandKey,
+        startDate: new Date(input.startDate).toISOString(),
+        endDate: new Date(input.endDate).toISOString(),
+        rentAmount: null,
+        depositAmount: input.depositAmount,
+        memberCount: null,
+        firstPaymentDate: new Date(input.startDate).toISOString(),
+        purpose: input.purpose,
+        coRepresentativeIds: null,
+        securityDepositId: null,
+        excessAction: null,
+        refundStatus: null,
+      });
+      const legacy = {
+        id: "legacy-rental-contract",
+        ...source,
+        code: "HD-THUE-P102-LEGACY",
+        termsSnapshot: {
+          convertedFromBookingHold: {
+            sourceContractId: source.id,
+            sourceRentalCycleId: source.rentalCycleId,
+            policyVersion: "BOOKING_HOLD_TO_RENTAL_V1",
+            idempotencyKey: commandKey,
+            requestHash,
+          },
+        },
+      };
+      const completed = {
+        ...legacy,
+        termsSnapshot: {
+          ...legacy.termsSnapshot,
+          convertedFromBookingHold: {
+            ...legacy.termsSnapshot.convertedFromBookingHold,
+            bookingDepositConversion: { operationId: "operation-legacy" },
+          },
+        },
+      };
+      prismaService.tx.contract.findFirst
+        .mockResolvedValueOnce(source)
+        .mockResolvedValueOnce(legacy);
+      prismaService.tx.deposit.findFirst.mockResolvedValue({ id: "booking-deposit-legacy" });
+      prismaService.tx.contract.update.mockResolvedValue(completed);
+      depositCoreService.convertToSecurityInTransaction.mockResolvedValue({
+        operationId: "operation-legacy",
+        securityDepositId: "security-legacy",
+        securityRequired: 5000000,
+        transferAmount: 2000000,
+        additionalCashRequired: 3000000,
+        excessAmount: 0,
+        excessAction: null,
+        creditNoteId: null,
+        refundReceiptId: null,
+      });
+      (service as any).syncContractHistory = vi.fn().mockResolvedValue(undefined);
+
+      await expect(service.createRentalFromBookingHold(
+        source.id,
+        input,
+        "user-1",
+        "tenant-1",
+        commandKey,
+      )).resolves.toEqual(completed);
+
+      expect(prismaService.tx.contract.create).not.toHaveBeenCalled();
+      expect(depositCoreService.convertToSecurityInTransaction).toHaveBeenCalledWith(
+        prismaService.tx,
+        "tenant-1",
+        "booking-deposit-legacy",
+        expect.objectContaining({ idempotencyKey: "legacy-convert:deposit" }),
+        "user-1",
+      );
+    });
+
+    it("replays a completed conversion after the booking deposit is already marked converted", async () => {
+      const source = {
+        id: "booking-contract-replay",
+        tenantId: "tenant-1",
+        code: "HD-COC-REPLAY",
+        purpose: "Cọc giữ phòng",
+        rentalCycleId: "cycle-replay",
+        customerId: "customer-1",
+        roomId: "room-1",
+        monthlyRent: 3000000,
+        depositMoney: 5000000,
+        memberCount: 1,
+        firstPaymentDate: new Date("2026-10-01T00:00:00.000Z"),
+        coRepresentativeIds: [],
+        roomSnapshot: { code: "P103" },
+      };
+      const commandKey = "replay-convert:contract";
+      const input = {
+        startDate: "2026-10-01T00:00:00.000Z",
+        endDate: "2027-09-30T00:00:00.000Z",
+        depositAmount: 5000000,
+      };
+      const requestHash = (service as any).hashSettlementRequest({
+        sourceContractId: source.id,
+        tenantId: "tenant-1",
+        commandKey,
+        startDate: new Date(input.startDate).toISOString(),
+        endDate: new Date(input.endDate).toISOString(),
+        rentAmount: null,
+        depositAmount: input.depositAmount,
+        memberCount: null,
+        firstPaymentDate: new Date(input.startDate).toISOString(),
+        purpose: null,
+        coRepresentativeIds: null,
+        securityDepositId: null,
+        excessAction: null,
+        refundStatus: null,
+      });
+      const replayedRental = {
+        ...source,
+        id: "rental-contract-replay",
+        code: "HD-THUE-P103-REPLAY",
+        startDate: new Date(input.startDate),
+        endDate: new Date(input.endDate),
+        termsSnapshot: {
+          convertedFromBookingHold: {
+            sourceContractId: source.id,
+            idempotencyKey: commandKey,
+            requestHash,
+            bookingDepositConversion: {
+              operationId: "operation-replay",
+              securityDepositId: "security-replay",
+              additionalCashRequired: 3000000,
+            },
+          },
+        },
+      };
+      prismaService.tx.contract.findFirst
+        .mockResolvedValueOnce(source)
+        .mockResolvedValueOnce(replayedRental);
+      prismaService.tx.deposit.findFirst.mockResolvedValue({ id: "booking-deposit-replay" });
+      prismaService.tx.contract.update.mockResolvedValue(replayedRental);
+      depositCoreService.convertToSecurityInTransaction.mockResolvedValue({
+        operationId: "operation-replay",
+        securityDepositId: "security-replay",
+        securityRequired: 5000000,
+        transferAmount: 2000000,
+        additionalCashRequired: 3000000,
+        excessAmount: 0,
+        excessAction: null,
+        creditNoteId: null,
+        refundReceiptId: null,
+      });
+      (service as any).syncContractHistory = vi.fn().mockResolvedValue(undefined);
+
+      await expect(service.createRentalFromBookingHold(
+        source.id,
+        input,
+        "user-1",
+        "tenant-1",
+        commandKey,
+      )).resolves.toEqual(replayedRental);
+
+      expect(prismaService.tx.contract.create).not.toHaveBeenCalled();
+      expect(depositCoreService.convertToSecurityInTransaction).toHaveBeenCalledWith(
+        prismaService.tx,
+        "tenant-1",
+        "booking-deposit-replay",
+        expect.objectContaining({ idempotencyKey: "replay-convert:deposit" }),
+        "user-1",
+      );
     });
   });
 
@@ -449,6 +771,103 @@ describe("ContractsService", () => {
       expect(prismaService.tx.deposit.create).not.toHaveBeenCalled();
     });
 
+    it("approves a rental that owns the active booking hold and consumes that hold", async () => {
+      const contract = {
+        id: "rental-contract-1",
+        code: "HD-THUE-001",
+        status: ContractStatus.PENDING_APPROVAL,
+        tenantId: "tenant-1",
+        roomId: "room-1",
+        customerId: "customer-1",
+        rentalCycleId: "cycle-1",
+        depositMoney: 5_000_000,
+        startDate: new Date("2026-10-01T00:00:00.000Z"),
+      };
+      const approved = { ...contract, status: ContractStatus.APPROVED };
+      vi.spyOn(service, "getDetail").mockResolvedValue(contract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue({
+        id: "room-1",
+        code: "P101",
+        status: RoomStatus.RESERVED,
+      });
+      prismaService.tx.room.update.mockResolvedValue({ id: "room-1", status: RoomStatus.RESERVED });
+      prismaService.tx.contract.update.mockResolvedValue(approved);
+      prismaService.tx.deposit.findFirst.mockResolvedValue({
+        id: "security-deposit-1",
+        contractId: contract.id,
+        status: DepositStatus.PAID,
+      });
+      prismaService.tx.roomHold = {
+        findFirst: vi.fn().mockResolvedValue({ id: "own-hold-1" }),
+        count: vi.fn().mockResolvedValue(1),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      };
+
+      await expect(service.approveContract(contract.id, "user-1")).resolves.toEqual(approved);
+
+      expect(prismaService.tx.roomHold.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: "own-hold-1",
+          tenantId: "tenant-1",
+          status: "ACTIVE",
+        },
+        data: expect.objectContaining({
+          status: "CONVERTED",
+          activeResourceKey: null,
+          releaseReason: `CONVERTED_TO_CONTRACT:${contract.id}`,
+        }),
+      });
+    });
+
+    it("creates an approval hold for a renewal cycle that has no booking hold", async () => {
+      const contract = {
+        id: "renewal-contract-1",
+        code: "RN-001",
+        status: ContractStatus.PENDING_APPROVAL,
+        tenantId: "tenant-1",
+        roomId: "room-1",
+        customerId: "customer-1",
+        rentalCycleId: "renewal-cycle-1",
+        depositMoney: 5_000_000,
+        startDate: new Date("2026-10-01T00:00:00.000Z"),
+        endDate: new Date("2027-10-01T00:00:00.000Z"),
+        termsSnapshot: { renewal: { sourceContractId: "source-contract-1" } },
+      };
+      const approved = { ...contract, status: ContractStatus.APPROVED };
+      vi.spyOn(service, "getDetail").mockResolvedValue(contract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue({
+        id: "room-1",
+        code: "P101",
+        status: RoomStatus.AVAILABLE,
+        rentalType: "WHOLE",
+      });
+      prismaService.tx.room.update.mockResolvedValue({ id: "room-1", status: RoomStatus.RESERVED });
+      prismaService.tx.contract.update.mockResolvedValue(approved);
+      prismaService.tx.deposit.create.mockResolvedValue({
+        id: "renewal-deposit-1",
+        amount: contract.depositMoney,
+      });
+      prismaService.tx.roomHold = {
+        findFirst: vi.fn().mockResolvedValue(null),
+        count: vi.fn().mockResolvedValue(0),
+        create: vi.fn().mockResolvedValue({ id: "renewal-hold-1" }),
+      };
+
+      await expect(service.approveContract(contract.id, "user-1")).resolves.toEqual(approved);
+
+      expect(prismaService.tx.roomHold.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId: "tenant-1",
+          rentalCycleId: "renewal-cycle-1",
+          depositId: "renewal-deposit-1",
+          roomId: "room-1",
+          kind: "WHOLE",
+          status: "ACTIVE",
+          idempotencyKey: "CONTRACT_APPROVAL:renewal-contract-1",
+        }),
+      });
+    });
+
     it("should throw BadRequestException if contract is not PENDING_APPROVAL", async () => {
       vi.spyOn(service, "getDetail").mockResolvedValue({
         id: "c1",
@@ -621,7 +1040,7 @@ describe("ContractsService", () => {
           after: updatedContract,
         }),
       );
-      expect(result).toEqual(updatedContract);
+      expect(result).toMatchObject({ ...updatedContract, entryInvoice: { id: "inv1" } });
     });
 
     it("should throw BadRequestException if contract is not APPROVED", async () => {

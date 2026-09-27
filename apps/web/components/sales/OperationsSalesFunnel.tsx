@@ -3,7 +3,7 @@
 import React from "react";
 import { ChevronRight } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSalesLeadsQuery } from "@/lib/queries/sales.queries";
+import { useSalesSummaryQuery } from "@/lib/queries/sales.queries";
 import { SALES_STAGE_LABELS } from "./sales.types";
 import { Card } from "../ui/Card";
 import { Skeleton } from "../ui/Skeleton";
@@ -21,9 +21,8 @@ export default function OperationsSalesFunnel() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeStage = searchParams.get("stage");
-  const { data, isLoading } = useSalesLeadsQuery({ limit: 100 });
-  const leads = Array.isArray((data as any)?.data?.data) ? (data as any).data.data : [];
-  const totalLeads = Math.max(leads.length, 1);
+  const { data: summary, isLoading } = useSalesSummaryQuery();
+  const totalLeads = Math.max(summary?.total ?? 0, 1);
 
   const toggleStage = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -37,7 +36,7 @@ export default function OperationsSalesFunnel() {
 
   const totals = funnelStages.map((stage) => ({
     ...stage,
-    count: leads.filter((lead: any) => lead.status === stage.status).length,
+    count: summary?.stageCounts[stage.status] ?? 0,
   }));
 
   if (isLoading) {

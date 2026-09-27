@@ -176,7 +176,11 @@ export default function ContractsMobileFlow() {
         </div>
       </section>
 
-      <OperationsContractDrawer contract={selectedContract} onClose={() => setSelectedContract(null)} />
+      <OperationsContractDrawer
+        contract={selectedContract}
+        onClose={() => setSelectedContract(null)}
+        onOpenContract={(nextContract) => setSelectedContract(nextContract)}
+      />
     </div>
   );
 }

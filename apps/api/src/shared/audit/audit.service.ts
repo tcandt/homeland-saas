@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { ClsService } from 'nestjs-cls';
 import { AuditAction, Prisma } from '@prisma/client';
 
 @Injectable()
 export class AuditService {
+  private readonly logger = new Logger(AuditService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cls: ClsService,
@@ -22,7 +24,9 @@ export class AuditService {
     ip?: string;
     userAgent?: string;
   }) {
-    try {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
       const requestId = this.cls.getId();
       const duration = 0; // Can be calculated if using interceptor
       // fallback to current user/tenant if not provided
@@ -45,10 +49,16 @@ export class AuditService {
           duration,
         },
       });
-    } catch (error) {
-      // Don't crash the main process if audit logging fails
-      console.error('Audit Log Error:', error);
+        return;
+      } catch (error) {
+        lastError = error;
+        this.logger.error(`Audit log write failed (attempt ${attempt + 1}/3)`, error instanceof Error ? error.stack : String(error));
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt));
+      }
     }
+    // A successful command must not silently lose its audit trail. Callers can
+    // surface this failure or roll back when they are inside a transaction.
+    throw lastError instanceof Error ? lastError : new Error('AUDIT_LOG_WRITE_FAILED');
   }
 
   async listRecent(params: {

@@ -66,8 +66,8 @@ dbDescribe("CORE-07.05 PostgreSQL shared-room immutable snapshot replay", () => 
     });
     await prisma.customer.createMany({
       data: [
-        { id: ids.customerA, tenantId: ids.tenant, fullName: "Khách A", phone: `0705A${suffix.slice(0, 5)}` },
-        { id: ids.customerB, tenantId: ids.tenant, fullName: "Khách B", phone: `0705B${suffix.slice(0, 5)}` },
+        { id: ids.customerA, tenantId: ids.tenant, fullName: "Khách A", phone: `0705${suffix.slice(0, 5)}`, phoneNormalized: `0705${suffix.slice(0, 5)}` },
+        { id: ids.customerB, tenantId: ids.tenant, fullName: "Khách B", phone: `0706${suffix.slice(0, 5)}`, phoneNormalized: `0706${suffix.slice(0, 5)}` },
       ],
     });
     await prisma.rentalCycle.createMany({

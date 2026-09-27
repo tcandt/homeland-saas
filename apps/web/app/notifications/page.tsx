@@ -78,14 +78,18 @@ function formatNotificationDate(value: string) {
 export default function InboxCenter() {
   const [activeTab, setActiveTab] = useState<(typeof notificationGroups)[number]["id"]>("all");
   const [selectedNotification, setSelectedNotification] = useState<any>(null);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [readError, setReadError] = useState("");
 
   const { data: notifications, mutate } = useSWR(
-    "notifications-list",
+    "/api/v1/notifications",
     async () => {
       const response: any = await apiClient.fetch("/notifications");
       return response?.data || response;
     },
-    { refreshInterval: 15000 },
+    // Share the Header cache so reading a notification updates both views.
+    // Header owns polling and the authenticated SSE connection.
+    { revalidateOnFocus: true },
   );
   const notificationItems = useMemo(
     () => normalizeNotifications(notifications).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
@@ -102,20 +106,29 @@ export default function InboxCenter() {
   });
 
   const markAsRead = async (id: string) => {
+    setReadError("");
     try {
       await apiClient.fetch(`/notifications/${id}/read`, { method: "PATCH" });
+      setSelectedNotification((current: any) => current?.id === id ? { ...current, status: "READ" } : current);
       await mutate();
     } catch {
-      // Keep the inbox usable when the request is interrupted.
+      setReadError("Chưa đánh dấu được thông báo đã đọc. Vui lòng thử lại.");
     }
   };
 
   const markAllAsRead = async () => {
+    if (markingAllRead) return;
+    setMarkingAllRead(true);
+    setReadError("");
     try {
       await apiClient.fetch("/notifications/read-all", { method: "PATCH" });
+      await mutate((current: any) => normalizeNotifications(current).map((item: any) => ({ ...item, status: "READ" })), { revalidate: false });
+      setSelectedNotification((current: any) => current ? { ...current, status: "READ" } : current);
       await mutate();
     } catch {
-      // Keep the inbox usable when the request is interrupted.
+      setReadError("Chưa đánh dấu được thông báo đã đọc. Vui lòng thử lại.");
+    } finally {
+      setMarkingAllRead(false);
     }
   };
 
@@ -129,8 +142,9 @@ export default function InboxCenter() {
               <h1 className="text-2xl font-black tracking-tight text-text md:text-3xl">Thông báo & việc cần xử lý</h1>
               <p className="mt-1 text-sm font-medium text-muted">Theo dõi dòng tiền, hợp đồng, công nợ và các cảnh báo vận hành.</p>
             </div>
-            <Button data-testid="notification-mark-read" variant="outline" size="sm" onClick={markAllAsRead} className="gap-2 self-start rounded-xl md:self-auto"><CheckCircle2 size={15} /> Đánh dấu tất cả đã đọc</Button>
+            <Button data-testid="notification-mark-read" variant="outline" size="sm" onClick={markAllAsRead} disabled={markingAllRead || unreadCount === 0} title="Chỉ đổi trạng thái đã đọc, không xóa thông báo" className="gap-2 self-start rounded-xl md:self-auto"><CheckCircle2 size={15} /> {markingAllRead ? "Đang cập nhật…" : "Đánh dấu tất cả đã đọc"}</Button>
           </div>
+          {readError && <p role="alert" className="mb-4 text-sm text-red-600">{readError}</p>}
 
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <SummaryCard icon={<Bell size={17} />} label="Tổng thông báo" value={notificationItems.length} tone="primary" />

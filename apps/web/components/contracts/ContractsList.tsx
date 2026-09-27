@@ -116,7 +116,11 @@ export default function ContractsList() {
         onRowClick={(row) => setSelectedContract(row)}
       />
 
-      <OperationsContractDrawer contract={selectedContract} onClose={() => setSelectedContract(null)} />
+      <OperationsContractDrawer
+        contract={selectedContract}
+        onClose={() => setSelectedContract(null)}
+        onOpenContract={(nextContract) => setSelectedContract(nextContract)}
+      />
     </div>
   );
 }

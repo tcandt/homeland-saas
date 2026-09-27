@@ -10,9 +10,9 @@ import { InvoicesRepository } from "./invoices.repository";
 import { AuditService } from "../shared/audit/audit.service";
 import {
   CreateInvoiceAdjustmentInput,
+  CreatePaymentPromiseInput,
   PaginatedResult,
 } from "@homeland/shared";
-import { DomainEventPublisher } from "../shared/events/domain-event.publisher";
 import { PrismaService } from "../prisma.service";
 import { buildRoomContext } from "../shared/context/room-context";
 import { createHash } from "node:crypto";
@@ -36,7 +36,6 @@ export class InvoicesService extends BaseCrudService<Invoice> {
   constructor(
     repository: InvoicesRepository,
     auditService: AuditService,
-    private readonly eventPublisher: DomainEventPublisher,
     private readonly prisma: PrismaService,
   ) {
     super(repository, auditService, "Invoice");
@@ -864,6 +863,138 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     }, "INVOICE_OVERDUE_CONCURRENT_UPDATE");
   }
 
+  /**
+   * Records an agreed follow-up date after a partial payment. This deliberately
+   * does not alter Invoice.total/paidAmount: it is a task/reminder, never a
+   * substitute for a payment allocation.
+   */
+  async createPaymentPromise(
+    id: string,
+    input: CreatePaymentPromiseInput,
+    userId: string,
+    tenantIdInput?: string,
+    idempotencyKeyInput?: string,
+  ) {
+    const tenantId = this.requireTenantId(tenantIdInput);
+    const idempotencyKey = this.requireIdempotencyKey(idempotencyKeyInput || input.idempotencyKey || "");
+    const dueDate = new Date(input.dueDate);
+    if (Number.isNaN(dueDate.getTime())) {
+      throw new BadRequestException("PAYMENT_PROMISE_DUE_DATE_INVALID");
+    }
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    if (dueDate < startOfToday) {
+      throw new BadRequestException("PAYMENT_PROMISE_DUE_DATE_IN_PAST");
+    }
+    const amount = this.toMoney(input.amount);
+    return this.runSerializable(async (tx) => {
+      const paymentPromiseModel = (tx as any).paymentPromise;
+      const existing = await paymentPromiseModel?.findFirst?.({
+        where: { tenantId, idempotencyKey },
+      });
+      if (existing) {
+        if (
+          existing.invoiceId === id &&
+          this.toMoney(existing.amount) === amount &&
+          new Date(existing.dueDate).getTime() === dueDate.getTime()
+        ) return existing;
+        throw new ConflictException("PAYMENT_PROMISE_IDEMPOTENCY_CONFLICT");
+      }
+      await this.lockInvoice(tx, tenantId, id, "INVOICE_NOT_FOUND");
+      const invoice = await tx.invoice.findFirst({
+        where: { id, tenantId, deletedAt: null },
+        select: {
+          id: true,
+          customerId: true,
+          contractId: true,
+          rentalCycleId: true,
+          total: true,
+          paidAmount: true,
+          creditAmount: true,
+          status: true,
+        },
+      });
+      if (!invoice) throw new NotFoundException("INVOICE_NOT_FOUND");
+      if (!([InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.OVERDUE] as InvoiceStatus[]).includes(invoice.status)) {
+        throw new ConflictException("PAYMENT_PROMISE_INVOICE_NOT_OPEN");
+      }
+      const remaining = this.toMoney(
+        Math.max(0, Number(invoice.total) - Number(invoice.paidAmount) - Number(invoice.creditAmount)),
+      );
+      if (remaining <= 0 || amount > remaining) {
+        throw new BadRequestException("PAYMENT_PROMISE_AMOUNT_EXCEEDS_REMAINING");
+      }
+      if (!paymentPromiseModel?.create) {
+        throw new ConflictException("PAYMENT_PROMISE_MODEL_UNAVAILABLE");
+      }
+      // One current promise represents the next agreed follow-up. Older open
+      // promises stay auditable as CANCELLED instead of creating competing
+      // reminders for the same invoice.
+      const superseded = await paymentPromiseModel.updateMany({
+        where: {
+          tenantId,
+          invoiceId: invoice.id,
+          status: { in: ["PENDING", "OVERDUE"] as any },
+        },
+        data: { status: "CANCELLED" as any, resolvedAt: new Date() },
+      });
+      const promise = await paymentPromiseModel.create({
+        data: {
+          tenantId,
+          invoiceId: invoice.id,
+          customerId: invoice.customerId,
+          contractId: invoice.contractId,
+          rentalCycleId: invoice.rentalCycleId,
+          amount,
+          dueDate,
+          note: input.note || null,
+          idempotencyKey,
+          createdBy: userId,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId,
+          userId,
+          module: "InvoicesPaymentPromise",
+          entity: "PaymentPromise",
+          entityId: promise.id,
+          action: "CREATE",
+          before: null,
+          after: {
+            invoiceId: invoice.id,
+            amount,
+            dueDate: dueDate.toISOString(),
+            remaining,
+            supersededPromiseCount: superseded.count,
+            idempotencyKey,
+          },
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          tenantId,
+          aggregateType: "PaymentPromise",
+          aggregateId: promise.id,
+          eventName: "invoice.payment_promise.created",
+          payload: { tenantId, invoiceId: invoice.id, paymentPromiseId: promise.id, customerId: invoice.customerId, amount, dueDate: dueDate.toISOString() },
+          idempotencyKey: `payment-promise:${idempotencyKey}`,
+        },
+      });
+      return promise;
+    }, "PAYMENT_PROMISE_CONCURRENT_CONFLICT");
+  }
+
+  async listPaymentPromises(id: string, tenantIdInput?: string) {
+    const tenantId = this.requireTenantId(tenantIdInput);
+    const paymentPromiseModel = (this.prisma.tx as any).paymentPromise;
+    if (!paymentPromiseModel?.findMany) throw new ConflictException("PAYMENT_PROMISE_MODEL_UNAVAILABLE");
+    return paymentPromiseModel.findMany({
+      where: { tenantId, invoiceId: id },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+    });
+  }
+
   async pay(
     id: string,
     amount: number,
@@ -1002,6 +1133,17 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         paymentId: payment.id,
         paidAt: payment.paidAt,
       };
+      const paymentPromiseModel = (tx as any).paymentPromise;
+      if (newStatus === InvoiceStatus.PAID && paymentPromiseModel?.updateMany) {
+        await paymentPromiseModel.updateMany({
+          where: {
+            tenantId,
+            invoiceId: invoice.id,
+            status: { in: ["PENDING", "OVERDUE"] as any },
+          },
+          data: { status: "FULFILLED" as any, resolvedAt: payment.paidAt },
+        });
+      }
       const eventName =
         newStatus === InvoiceStatus.PAID
           ? "invoice.paid"
@@ -1036,12 +1178,11 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       });
       return { result, eventName, eventPayload, outboxEventId };
     }, "INVOICE_PAYMENT_CONCURRENT_UPDATE");
-    if (operation.eventName && operation.eventPayload) {
-      this.eventPublisher.publish(operation.eventName, {
-        ...(operation.eventPayload as any),
-        outboxEventId: operation.outboxEventId,
-      });
-    }
+    // Payment notifications must only leave through the ordered outbox.  A
+    // direct in-process publish can overtake the already committed
+    // invoice.issued event when a bank webhook arrives immediately after QR
+    // creation. DepositOutboxPublisher keeps the durable issue-before-payment
+    // dependency across retries and concurrent workers.
     return operation.result;
   }
 

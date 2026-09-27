@@ -34,9 +34,9 @@ const createRoleFixture = (email: string, roleName: string, passwordEnv?: string
       context = await browser.newContext({ storageState: authFile, baseURL: finalBaseURL });
       page = await context.newPage();
       
-      // Block SSE to prevent networkidle from hanging due to open EventSource
+      // Complete an empty stream so network-idle is deterministic without a console error.
       await page.route('**/api/v1/notifications/stream*', async (route) => {
-        await route.fulfill({ status: 503, headers: { 'x-intentional-error': 'true' } });
+        await route.fulfill({ status: 204 });
       });
       
       const state = JSON.parse(fs.readFileSync(authFile, 'utf-8'));
@@ -69,9 +69,9 @@ const createRoleFixture = (email: string, roleName: string, passwordEnv?: string
       context = await browser.newContext({ baseURL: finalBaseURL });
       page = await context.newPage();
       
-      // Block SSE to prevent networkidle from hanging due to open EventSource
+      // Complete an empty stream so network-idle is deterministic without a console error.
       await page.route('**/api/v1/notifications/stream*', async (route) => {
-        await route.fulfill({ status: 503, headers: { 'x-intentional-error': 'true' } });
+        await route.fulfill({ status: 204 });
       });
       
       await page.goto('/');

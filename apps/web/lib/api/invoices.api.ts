@@ -13,6 +13,24 @@ export type InvoiceListParams = {
   overdue?: boolean;
 };
 
+export type PaymentPromiseInput = {
+  amount: number;
+  dueDate: string;
+  note?: string | null;
+  idempotencyKey?: string;
+};
+
+export type PaymentPromiseResponse = {
+  id: string;
+  invoiceId: string;
+  amount: number;
+  dueDate: string;
+  status: "PENDING" | "OVERDUE" | "FULFILLED" | "CANCELLED";
+  note?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+};
+
 export const invoicesApi = {
   list: (params?: InvoiceListParams) => {
     return apiClient.get("/invoices", { params });
@@ -48,6 +66,17 @@ export const invoicesApi = {
       amount,
       provider,
       providerRef,
+    });
+  },
+
+  listPaymentPromises: (id: string) => {
+    return apiClient.get<PaymentPromiseResponse[]>(`/invoices/${id}/payment-promises`);
+  },
+
+  createPaymentPromise: (id: string, input: PaymentPromiseInput) => {
+    const { idempotencyKey, ...payload } = input;
+    return apiClient.post<PaymentPromiseResponse>(`/invoices/${id}/payment-promises`, payload, {
+      headers: idempotencyKey ? { "idempotency-key": idempotencyKey } : undefined,
     });
   },
 

@@ -2,22 +2,16 @@
 
 import React, { FormEvent, useEffect, useState } from "react";
 import {
-  AlertTriangle,
-  CheckCircle2,
   Clock,
   Eye,
   EyeOff,
   Key,
   KeyRound,
-  Lock,
   LogOut,
-  QrCode,
   Save,
   Shield,
-  ShieldAlert,
   ShieldCheck,
   Smartphone,
-  Sparkles,
   Timer,
 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
@@ -47,6 +41,7 @@ function formatTimeoutLabel(minutes: number): string {
 export default function SettingsSecurity() {
   const user = useAuthStore((state) => state.user);
   const clearSession = useAuthStore((state) => state.clearSession);
+  const updateTokens = useAuthStore((state) => state.updateTokens);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -58,9 +53,10 @@ export default function SettingsSecurity() {
 
   // 2FA state
   const [is2FAModalOpen, setIs2FAModalOpen] = useState(false);
-  const [twoFactorType, setTwoFactorType] = useState<"EMAIL" | "APP">("EMAIL");
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFactorTargetEnabled, setTwoFactorTargetEnabled] = useState(true);
   const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [isRequesting2FA, setIsRequesting2FA] = useState(false);
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
 
   // Session state
@@ -72,37 +68,39 @@ export default function SettingsSecurity() {
   const [customMinutes, setCustomMinutes] = useState<string>("1440");
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("homeland_session_idle_timeout_minutes");
-      if (stored) {
-        const parsed = parseInt(stored, 10);
-        if (!isNaN(parsed) && parsed > 0) {
-          setIdleTimeoutMinutes(parsed);
-          setCustomMinutes(String(parsed));
-          return;
-        }
-      }
-    } catch {
-      // Ignore
-    }
-    setIdleTimeoutMinutes(1440);
-    setCustomMinutes("1440");
+    let active = true;
+    void authApi.security()
+      .then((settings) => {
+        if (!active) return;
+        setTwoFactorEnabled(settings.twoFactorEnabled);
+        setIdleTimeoutMinutes(settings.idleTimeoutMinutes);
+        setCustomMinutes(String(settings.idleTimeoutMinutes));
+        localStorage.setItem("homeland_session_idle_timeout_minutes", String(settings.idleTimeoutMinutes));
+        window.dispatchEvent(new CustomEvent("homeland:session-timeout-updated"));
+      })
+      .catch((error) => {
+        if (active) toast.error(error instanceof ApiError ? error.message : "Không thể tải cấu hình bảo mật.");
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const saveTimeout = (minutes: number) => {
+  const saveTimeout = async (minutes: number) => {
     if (minutes <= 0) {
       toast.error("Thời gian giữ phiên phải lớn hơn 0 phút");
       return;
     }
-    setIdleTimeoutMinutes(minutes);
-    setCustomMinutes(String(minutes));
     try {
+      const settings = await authApi.updateSecurity({ idleTimeoutMinutes: minutes });
+      setIdleTimeoutMinutes(settings.idleTimeoutMinutes);
+      setCustomMinutes(String(settings.idleTimeoutMinutes));
       localStorage.setItem("homeland_session_idle_timeout_minutes", String(minutes));
       window.dispatchEvent(new CustomEvent("homeland:session-timeout-updated"));
-    } catch {
-      // Ignore
+      toast.success(`Đã lưu thời gian giữ phiên: ${formatTimeoutLabel(minutes)} (${minutes} phút)`);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Không thể lưu thời gian giữ phiên.");
     }
-    toast.success(`Đã lưu thời gian giữ phiên: ${formatTimeoutLabel(minutes)} (${minutes} phút)`);
   };
 
   const handleSaveTimeout = (e: React.FormEvent) => {
@@ -112,13 +110,13 @@ export default function SettingsSecurity() {
       toast.error("Vui lòng nhập số phút hợp lệ (ví dụ: 15, 30, 60, 120, 1440...)");
       return;
     }
-    saveTimeout(val);
+    void saveTimeout(val);
   };
 
   const changePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (newPassword.length < 8) {
-      toast.error("Mật khẩu mới phải có ít nhất 8 ký tự.");
+    if (newPassword.length < 12) {
+      toast.error("Mật khẩu mới phải có ít nhất 12 ký tự.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -142,37 +140,53 @@ export default function SettingsSecurity() {
     }
   };
 
-  const handleToggle2FA = () => {
-    if (twoFactorEnabled) {
-      setTwoFactorEnabled(false);
-      toast.success("Đã tắt xác thực 2 bước (2FA)");
-    } else {
+  const handleToggle2FA = async () => {
+    const enabled = !twoFactorEnabled;
+    setIsRequesting2FA(true);
+    try {
+      await authApi.requestTwoFactorChange({ enabled });
+      setTwoFactorTargetEnabled(enabled);
+      setTwoFactorCode("");
       setIs2FAModalOpen(true);
+      toast.success("Mã OTP đã được gửi tới email tài khoản.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Không thể gửi mã OTP.");
+    } finally {
+      setIsRequesting2FA(false);
     }
   };
 
-  const handleConfirm2FA = () => {
+  const handleConfirm2FA = async () => {
     if (!twoFactorCode || twoFactorCode.length < 6) {
       toast.error("Vui lòng nhập mã xác thực gồm 6 chữ số");
       return;
     }
     setIsVerifying2FA(true);
-    setTimeout(() => {
-      setIsVerifying2FA(false);
-      setTwoFactorEnabled(true);
+    try {
+      const result = await authApi.confirmTwoFactorChange({ enabled: twoFactorTargetEnabled, code: twoFactorCode });
+      setTwoFactorEnabled(result.twoFactorEnabled);
       setIs2FAModalOpen(false);
       setTwoFactorCode("");
-      toast.success(`Đã kích hoạt xác thực 2 bước qua ${twoFactorType === "EMAIL" ? "Email OTP" : "Ứng dụng Authenticator"}`);
-    }, 1000);
+      toast.success(result.twoFactorEnabled ? "Đã bật xác thực 2 bước qua Email OTP" : "Đã tắt xác thực 2 bước");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Không thể xác nhận mã OTP.");
+    } finally {
+      setIsVerifying2FA(false);
+    }
   };
 
-  const handleLogoutOtherSessions = () => {
+  const handleLogoutOtherSessions = async () => {
     setIsLoggingOutOthers(true);
-    setTimeout(() => {
-      setIsLoggingOutOthers(false);
+    try {
+      const session = await authApi.logoutOtherSessions();
+      updateTokens({ accessToken: session.accessToken, refreshToken: session.refreshToken });
       setIsLogoutOtherModalOpen(false);
-      toast.success("Đã đăng xuất khỏi tất cả các thiết bị và phiên làm việc khác");
-    }, 1000);
+      toast.success("Đã thu hồi tất cả phiên cũ; thiết bị hiện tại vẫn đăng nhập.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Không thể thu hồi các phiên cũ.");
+    } finally {
+      setIsLoggingOutOthers(false);
+    }
   };
 
   return (
@@ -186,7 +200,7 @@ export default function SettingsSecurity() {
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Trạng thái bảo mật</div>
             <div className="font-mono font-black text-[15px] text-emerald-600 dark:text-emerald-400 leading-tight">Được bảo vệ</div>
-            <div className="text-[10px] text-muted truncate mt-0.5">Tiêu chuẩn mã hóa AES-256</div>
+            <div className="text-[10px] text-muted truncate mt-0.5">JWT thu hồi được + Email OTP</div>
           </div>
         </Card>
 
@@ -197,7 +211,7 @@ export default function SettingsSecurity() {
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold text-muted uppercase tracking-wider truncate">Mật khẩu tài khoản</div>
             <div className="font-mono font-black text-[15px] text-text leading-tight">Đã thiết lập</div>
-            <div className="text-[10px] text-muted truncate mt-0.5">Argon2id Hash Salt</div>
+            <div className="text-[10px] text-muted truncate mt-0.5">Bcrypt có salt</div>
           </div>
         </Card>
 
@@ -318,11 +332,11 @@ export default function SettingsSecurity() {
                   <Input
                     type={showNew ? "text" : "password"}
                     required
-                    minLength={8}
+                    minLength={12}
                     disabled={isChangingPassword}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Mật khẩu mới (tối thiểu 8 ký tự)"
+                    placeholder="Mật khẩu mới (tối thiểu 12 ký tự)"
                     data-testid="settings-new-password"
                     className="h-8.5 rounded-xl text-xs pr-8"
                   />
@@ -342,7 +356,7 @@ export default function SettingsSecurity() {
                   <Input
                     type={showConfirm ? "text" : "password"}
                     required
-                    minLength={8}
+                    minLength={12}
                     disabled={isChangingPassword}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
@@ -395,7 +409,7 @@ export default function SettingsSecurity() {
                   </span>
                 </div>
                 <p className="text-[11px] text-muted leading-relaxed">
-                  Khi đăng nhập từ trình duyệt mới, hệ thống sẽ yêu cầu mã OTP gửi qua Email hoặc ứng dụng Google/Microsoft Authenticator.
+                  Khi đăng nhập, hệ thống yêu cầu mã OTP 6 số được gửi tới email tài khoản và hết hạn sau 5 phút.
                 </p>
               </div>
 
@@ -409,9 +423,10 @@ export default function SettingsSecurity() {
                   variant={twoFactorEnabled ? "outline" : "primary"}
                   size="sm"
                   onClick={handleToggle2FA}
+                  disabled={isRequesting2FA}
                   className="h-8 rounded-xl text-xs font-bold"
                 >
-                  {twoFactorEnabled ? "Tắt 2FA" : "Bật 2FA"}
+                  {isRequesting2FA ? "Đang gửi OTP..." : twoFactorEnabled ? "Tắt 2FA" : "Bật 2FA"}
                 </Button>
               </div>
             </div>
@@ -436,22 +451,10 @@ export default function SettingsSecurity() {
                 <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shrink-0 animate-pulse" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-text">Trình duyệt hiện tại (Chrome / Windows)</span>
+                    <span className="text-xs font-bold text-text">Phiên đăng nhập hiện tại</span>
                     <span className="text-[10px] font-bold text-emerald-600">Hiện tại</span>
                   </div>
-                  <div className="text-[11px] text-muted mt-0.5">IP: 118.69.182.42 · Hồ Chí Minh, Việt Nam</div>
-                  <div className="text-[10px] text-muted mt-0.5">Đăng nhập lúc: {new Date().toLocaleTimeString("vi-VN")} hôm nay</div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border/70 bg-background p-3 flex items-start gap-2.5 opacity-70">
-                <div className="w-2 h-2 rounded-full bg-muted mt-1.5 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-text">Homeland App (iPhone 15 Pro)</span>
-                    <span className="text-[10px] text-muted">2 ngày trước</span>
-                  </div>
-                  <div className="text-[11px] text-muted mt-0.5">IP: 14.161.22.18 · Hồ Chí Minh</div>
+                  <div className="text-[11px] text-muted mt-0.5">Phiên này sẽ được cấp token mới khi thu hồi các phiên cũ.</div>
                 </div>
               </div>
             </div>
@@ -474,21 +477,21 @@ export default function SettingsSecurity() {
       <Modal
         isOpen={is2FAModalOpen}
         onClose={() => setIs2FAModalOpen(false)}
-        title="Kích hoạt xác thực 2 bước (2FA)"
+        title={twoFactorTargetEnabled ? "Kích hoạt xác thực 2 bước (2FA)" : "Tắt xác thực 2 bước (2FA)"}
         footer={
           <div className="flex items-center justify-end gap-2 w-full">
             <Button variant="outline" size="sm" onClick={() => setIs2FAModalOpen(false)} disabled={isVerifying2FA} className="h-9 rounded-xl text-xs font-bold">
               Hủy
             </Button>
             <Button variant="primary" size="sm" onClick={handleConfirm2FA} disabled={isVerifying2FA} className="h-9 rounded-xl px-4 text-xs font-bold">
-              {isVerifying2FA ? "Đang xác thực..." : "Kích hoạt ngay"}
+              {isVerifying2FA ? "Đang xác thực..." : twoFactorTargetEnabled ? "Kích hoạt ngay" : "Xác nhận tắt"}
             </Button>
           </div>
         }
       >
         <div className="flex flex-col gap-3 py-1 text-xs">
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-muted leading-relaxed">
-            Mã OTP 6 số đã được tạo để liên kết bảo vệ tài khoản <span className="font-bold text-text">{user?.email || "admin@homeland.vn"}</span>.
+            Mã OTP 6 số đã được gửi tới <span className="font-bold text-text">{user?.email || "email tài khoản"}</span> để xác nhận {twoFactorTargetEnabled ? "bật" : "tắt"} 2FA.
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-[11px] font-bold text-muted uppercase">Nhập mã xác thực 6 số (OTP)</label>
@@ -515,7 +518,7 @@ export default function SettingsSecurity() {
               Hủy
             </Button>
             <Button variant="danger" size="sm" onClick={handleLogoutOtherSessions} disabled={isLoggingOutOthers} className="h-9 rounded-xl px-4 text-xs font-bold">
-              {isLoggingOutOthers ? "Đang đăng xuất..." : "Đăng xuất tất cả"}
+              {isLoggingOutOthers ? "Đang thu hồi..." : "Thu hồi phiên cũ"}
             </Button>
           </div>
         }

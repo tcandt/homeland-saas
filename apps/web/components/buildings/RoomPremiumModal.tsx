@@ -85,6 +85,7 @@ import { invoicesApi } from "@/lib/api/invoices.api";
 import { paymentsApi } from "@/lib/api/payments.api";
 import { hunonicApi } from "@/lib/api/hunonic.api";
 import { buildRoomBookingIdempotencyKey } from "@/lib/rentals/rental-intent-context";
+import { getWholeRoomOccupantCommandPreflightError } from "@/lib/rentals/whole-room-occupant-guard";
 import { getAuthorizationHeader } from "@/lib/auth/auth-header";
 import { getRoomDisplayName } from "./building-labels";
 import { formatRoomDisplayLabel } from "../tenants/TenantFormModal";
@@ -2126,6 +2127,36 @@ export default function RoomPremiumModal({
         rentalType: currentRentalType,
       };
       const isSharedRoom = roomData?.rentalType === "shared";
+      const wholeRoomContractIdForSecondary =
+        !isSharedRoom && !isContractRepresentative
+          ? roomData?.contract?.id || null
+          : null;
+      const wholeRoomContractStatus = String(
+        roomData?.contract?.status || "",
+      ).toUpperCase();
+      const wholeRoomContractIsActive =
+        wholeRoomContractStatus === "ACTIVE" ||
+        wholeRoomContractStatus === "EXPIRING";
+      const isKnownWholeRoomSecondary = Boolean(
+        tenantDraft.id &&
+          getOccupantsList().some((occupant: any) => occupant.id === tenantDraft.id),
+      );
+      const requiresWholeRoomOccupancyCommand = Boolean(
+        wholeRoomContractIdForSecondary && !isKnownWholeRoomSecondary,
+      );
+      const wholeRoomOccupantPreflightError =
+        getWholeRoomOccupantCommandPreflightError({
+          requiresCommand: requiresWholeRoomOccupancyCommand,
+          contractStatus: wholeRoomContractStatus,
+          rentalCycleId: (roomData?.contract as any)?.rentalCycleId,
+        });
+      if (wholeRoomOccupantPreflightError) {
+        showToast(
+          "Hợp đồng nguyên căn đang hiệu lực chưa có kỳ thuê chuẩn. Hãy chạy quy trình repair/backfill được phê duyệt trước khi thêm người ở cùng.",
+          "error",
+        );
+        return;
+      }
       const name = tenantDraft.name.trim();
       const phone = tenantDraft.phone.trim();
       const cccd = tenantDraft.cccd.trim();
@@ -2220,7 +2251,10 @@ export default function RoomPremiumModal({
         zaloUserId: tenantDraft.zaloUserId?.trim() || null,
         notes: tenantDraft.notes?.trim() || null,
         status: "ACTIVE",
-        roomId: !isContractRepresentative ? roomId : null,
+        roomId:
+          !isContractRepresentative && !requiresWholeRoomOccupancyCommand
+            ? roomId
+            : null,
         relationship:
           (!isContractRepresentative && tenantDraft.relationship?.trim()) ||
           null,
@@ -2289,6 +2323,41 @@ export default function RoomPremiumModal({
       if (customerId && customerId !== tenantDraft.id) {
         // A later intent choice must reuse this customer instead of creating it again.
         setTenantDraft((previous) => ({ ...previous, id: customerId }));
+      }
+
+      if (requiresWholeRoomOccupancyCommand && customerId) {
+        try {
+          if (wholeRoomContractIsActive) {
+            await contractsApi.addWholeRoomOccupant(
+              wholeRoomContractIdForSecondary!,
+              {
+                customerId,
+                moveInAt: new Date().toISOString(),
+                relationship: tenantDraft.relationship?.trim() || null,
+              },
+              `whole-occupant:${wholeRoomContractIdForSecondary}:${customerId}:${expectedGeneration}`,
+            );
+          } else {
+            const contractMemberIds = Array.isArray(
+              (roomData?.contract as any)?.coRepresentativeIds,
+            )
+              ? (roomData?.contract as any).coRepresentativeIds
+              : [];
+            await contractsApi.update(wholeRoomContractIdForSecondary!, {
+              coRepresentativeIds: Array.from(
+                new Set([...contractMemberIds, customerId]),
+              ),
+            });
+          }
+        } catch (error: any) {
+          console.error("[AddWholeRoomOccupant]", error);
+          showToast(
+            error?.message ||
+              "Đã lưu hồ sơ khách nhưng chưa thể gắn vào hợp đồng nguyên căn.",
+            "error",
+          );
+          return;
+        }
       }
 
       let existingContractId: string | null | undefined = undefined;
@@ -2488,10 +2557,17 @@ export default function RoomPremiumModal({
         existingContractId
       ) {
         try {
-          const updatePayload: any = {
-            coRepresentativeIds: existingCoReps,
-            memberCount: getDefaultMemberCount(),
-          };
+          const updatePayload: any = {};
+          const existingContractStatus = String(
+            roomData?.contract?.status || "",
+          ).toUpperCase();
+          if (
+            existingContractStatus !== "ACTIVE" &&
+            existingContractStatus !== "EXPIRING"
+          ) {
+            updatePayload.coRepresentativeIds = existingCoReps;
+            updatePayload.memberCount = getDefaultMemberCount();
+          }
           if (isCustomContract) {
             updatePayload.startDate = contractDraft.ngayBatDau
               ? new Date(contractDraft.ngayBatDau)
@@ -2513,10 +2589,12 @@ export default function RoomPremiumModal({
             );
             updatePayload.purpose = contractDraft.mucDichThue;
           }
-          updatedContract = await contractsApi.update(
-            existingContractId,
-            updatePayload,
-          );
+          if (Object.keys(updatePayload).length > 0) {
+            updatedContract = await contractsApi.update(
+              existingContractId,
+              updatePayload,
+            );
+          }
         } catch (error) {
           console.error(error);
           showToast("Không thể cập nhật thông tin hợp đồng.", "error");

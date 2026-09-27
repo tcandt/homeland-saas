@@ -23,6 +23,11 @@ const SECRET_ADMIN_EMAILS = new Set([
   'admin@homeland.vn',
 ]);
 
+const RESERVED_INTERNAL_SETTING_KEYS = new Set([
+  'auth-security',
+  'system-backup-schedule',
+]);
+
 @Injectable()
 export class SettingsService {
   constructor(
@@ -36,6 +41,7 @@ export class SettingsService {
   }
 
   async getSection(tenantId: string, userId: string, key: string, scope: SettingScope = SettingScope.TENANT): Promise<SettingsSectionRecord> {
+    this.assertPublicSettingKey(key);
     const ownerId = this.resolveOwnerId(scope, tenantId, userId);
     const canRevealSecrets = await this.canRevealProtectedFields(tenantId, userId);
     const record = await this.prisma.appSetting.findUnique({
@@ -97,6 +103,7 @@ export class SettingsService {
     value: Prisma.InputJsonValue,
     updatedBy?: string,
   ): Promise<SettingsSectionRecord> {
+    this.assertPublicSettingKey(key);
     const ownerId = this.resolveOwnerId(scope, tenantId, userId);
     await this.ensureSecretUpdateAllowed(tenantId, userId, key, value);
     const previous = await this.prisma.appSetting.findUnique({
@@ -212,6 +219,12 @@ export class SettingsService {
     });
     const email = user?.email?.toLowerCase() ?? '';
     return SECRET_ADMIN_EMAILS.has(email);
+  }
+
+  private assertPublicSettingKey(key: string) {
+    if (RESERVED_INTERNAL_SETTING_KEYS.has(key)) {
+      throw new BadRequestException('Cấu hình bảo mật nội bộ chỉ được thay đổi qua API chuyên dụng.');
+    }
   }
 }
 

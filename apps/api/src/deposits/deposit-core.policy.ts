@@ -2,6 +2,9 @@ import { BadRequestException } from '@nestjs/common';
 
 export type DepositExcessAction = 'CREDIT' | 'REFUND';
 
+/** Versioned policy identifier persisted in command/audit metadata. */
+export const DEPOSIT_POLICY_VERSION = 'DEPOSIT_POLICY_V1';
+
 export interface DepositConversionPlan {
   bookingBalance: number;
   securityRequired: number;
@@ -81,4 +84,19 @@ export function buildDepositCancellationPlan(input: {
   }
 
   return { availableBalance, refundAmount, keepAmount, deductAmount };
+}
+
+/**
+ * P31 invariant: a booking hold may only be terminally cancelled when it is
+ * not already backing an active rental contract. This is intentionally a
+ * pure helper so controllers/services can fail closed before any ledger write.
+ */
+export function assertBookingHoldCanBeCancelled(input: {
+  depositType: string;
+  contractStatus?: string | null;
+}) {
+  const isBooking = input.depositType === 'BOOKING' || input.depositType === 'RESERVATION';
+  if (isBooking && input.contractStatus === 'ACTIVE') {
+    throw new BadRequestException('BOOKING_HOLD_ACTIVE_CONTRACT_CANNOT_CANCEL');
+  }
 }

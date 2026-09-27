@@ -164,6 +164,11 @@ async function mockBankTransactions(page: any) {
   };
 }
 
+async function openBankTransactionHistory(page: any) {
+  await page.getByRole('tab', { name: 'Ngân hàng / SePay' }).click();
+  await expect(page.getByTestId('bank-transactions-root')).toBeVisible();
+}
+
 test.describe('Finance Transactions Regression', () => {
   test.beforeEach(async ({ admin }, testInfo) => {
     test.skip(!/Desktop|Laptop/.test(testInfo.project.name), 'Desktop-only regression');
@@ -173,6 +178,7 @@ test.describe('Finance Transactions Regression', () => {
     const mock = await mockBankTransactions(admin.page);
 
     await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+    await openBankTransactionHistory(admin.page);
 
     await expect
       .poll(() => mock.getLastQuery(), { timeout: 10000 })
@@ -200,6 +206,7 @@ test.describe('Finance Transactions Regression', () => {
     const mock = await mockBankTransactions(admin.page);
 
     await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+    await openBankTransactionHistory(admin.page);
 
     await admin.page.getByTestId('bank-transactions-direction').selectOption('OUT');
 
@@ -221,6 +228,7 @@ test.describe('Finance Transactions Regression', () => {
     const mock = await mockBankTransactions(admin.page);
 
     await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+    await openBankTransactionHistory(admin.page);
     await admin.page.getByTestId('bank-transactions-search').fill('NO-MATCH-KEYWORD');
 
     await expect
@@ -240,6 +248,7 @@ test.describe('Finance Transactions Regression', () => {
     const mock = await mockBankTransactions(admin.page);
 
     await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+    await openBankTransactionHistory(admin.page);
 
     await admin.page.getByTestId('bank-transactions-account').selectOption('bank-1');
     await admin.page.getByTestId('bank-transactions-content-filter').fill('thu tien phong');
@@ -263,6 +272,7 @@ test.describe('Finance Transactions Regression', () => {
     const mock = await mockBankTransactions(admin.page);
 
     await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+    await openBankTransactionHistory(admin.page);
 
     await admin.page.getByTestId('bank-transactions-month').selectOption('7');
     await admin.page.getByTestId('bank-transactions-search').fill('mb bank');

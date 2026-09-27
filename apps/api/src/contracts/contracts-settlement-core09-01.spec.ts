@@ -15,7 +15,17 @@ function createFixture() {
       id: "contract-1", tenantId: "tenant-1", customerId: "customer-1",
       roomId: "room-1", rentalCycleId: "cycle-1", code: "CT-01",
       status: ContractStatus.ACTIVE, monthlyRent: 3000, depositMoney: 1000,
-      deletedAt: null, customer: { id: "customer-1" }, room: { id: "room-1" },
+      deletedAt: null,
+      customer: { id: "customer-1", fullName: "Khách quyết toán", phone: "0909000001" },
+      room: {
+        id: "room-1",
+        code: "P-101",
+        name: "Phòng 101",
+        buildingId: "building-1",
+        rentalType: "WHOLE",
+        capacity: 1,
+        building: { id: "building-1", name: "Tòa nhà A" },
+      },
     },
     room: { id: "room-1", tenantId: "tenant-1", status: "OCCUPIED", deletedAt: null },
     cycle: { id: "cycle-1", tenantId: "tenant-1", customerId: "customer-1", roomId: "room-1" },
@@ -177,7 +187,12 @@ describe("CORE-09.01 authoritative settlement command", () => {
     await service.terminateContract(
       "contract-1",
       "user-1",
-      { actualMoveOutDate: "2026-09-12", rentDaysCharged: 0, depositToRefund: deposit },
+      {
+        actualMoveOutDate: "2026-09-12",
+        rentDaysCharged: 0,
+        depositToRefund: deposit,
+        refundAttachmentUrls: ["https://proof.test/refund.jpg"],
+      },
       "tenant-1",
       `settle-old-debt-${deposit}-${debt}`,
     );
@@ -196,7 +211,13 @@ describe("CORE-09.01 authoritative settlement command", () => {
     await service.terminateContract(
       "contract-1",
       "user-1",
-      { actualMoveOutDate: "2026-09-12", rentDaysCharged: 0, electricityAmount: 200, depositToRefund: 700 },
+      {
+        actualMoveOutDate: "2026-09-12",
+        rentDaysCharged: 0,
+        electricityAmount: 200,
+        depositToRefund: 700,
+        refundAttachmentUrls: ["https://proof.test/refund.jpg"],
+      },
       "tenant-1",
       "settle-old-debt-utilities",
     );
@@ -219,7 +240,12 @@ describe("CORE-09.01 authoritative settlement command", () => {
     await service.terminateContract(
       "contract-1",
       "user-1",
-      { actualMoveOutDate: "2026-09-12", rentDaysCharged: 0, depositToRefund: 1000 },
+      {
+        actualMoveOutDate: "2026-09-12",
+        rentDaysCharged: 0,
+        depositToRefund: 1000,
+        refundAttachmentUrls: ["https://proof.test/refund.jpg"],
+      },
       "tenant-1",
       "settle-reversed-credit",
     );
@@ -252,6 +278,7 @@ describe("CORE-09.01 authoritative settlement command", () => {
         actualMoveOutDate: "2026-09-12",
         rentDaysCharged: 0,
         depositToRefund: 1000,
+        refundAttachmentUrls: ["https://proof.test/refund.jpg"],
       },
       "tenant-1",
       "settle-family-credit-distribution",
@@ -271,6 +298,28 @@ describe("CORE-09.01 authoritative settlement command", () => {
     expect(state.operations).toHaveLength(1);
     expect(state.ledger.filter((row: any) => row.type === "DEDUCT")).toHaveLength(1);
     expect(tx.outboxEvent.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes a complete settlement notification context to the durable outbox", async () => {
+    const { state, service } = createFixture();
+    await service.terminateContract("contract-1", "user-1", settlementInput, "tenant-1", "settle-notification-0001");
+
+    expect(state.outbox).toHaveLength(1);
+    expect(state.outbox[0]).toMatchObject({
+      eventName: "contract.settlement.completed",
+      payload: expect.objectContaining({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        sourceId: "contract-1",
+        sourceType: "CONTRACT",
+        customerId: "customer-1",
+        customerName: "Khách quyết toán",
+        customerPhone: "0909000001",
+        roomCode: "P-101",
+        buildingName: "Tòa nhà A",
+        metadata: expect.objectContaining({ code: "CT-01", settlementId: "settlement-1" }),
+      }),
+    });
   });
 
   it("allows only one concurrent settlement and leaves no duplicate ledger effect", async () => {
@@ -300,6 +349,26 @@ describe("CORE-09.01 authoritative settlement command", () => {
     await expect(service.terminateContract("contract-1", "user-1", { ...settlementInput, depositToDeduct: 1001 }, "tenant-1", "settle-key-0004")).rejects.toThrow(BadRequestException);
   });
 
+  it("rejects an immediate settlement refund without proof before it creates a claim", async () => {
+    const { state, service } = createFixture();
+    await expect(
+      service.terminateContract(
+        "contract-1",
+        "user-1",
+        {
+          actualMoveOutDate: "2026-09-12",
+          rentDaysCharged: 0,
+          depositToRefund: 500,
+          refundReceiptStatus: "COMPLETED",
+        },
+        "tenant-1",
+        "settle-proof-required",
+      ),
+    ).rejects.toThrow("SETTLEMENT_REFUND_PROOF_REQUIRED");
+    expect(state.settlement).toBeNull();
+    expect(state.receipts).toHaveLength(0);
+  });
+
   it("completes a pending refund once and replays its completion without a second ledger debit", async () => {
     const { state, service } = createFixture();
     await service.terminateContract(
@@ -307,10 +376,42 @@ describe("CORE-09.01 authoritative settlement command", () => {
       { actualMoveOutDate: "2026-09-12", rentDaysCharged: 1, depositToRefund: 500, refundReceiptStatus: "PENDING" },
       "tenant-1", "settle-key-0006",
     );
-    await service.completePendingSettlementRefund("contract-1", "user-1", "bank confirmed", "tenant-1", "refund-key-0006");
-    await service.completePendingSettlementRefund("contract-1", "user-1", "bank confirmed", "tenant-1", "refund-key-0006");
+    await expect(
+      service.completePendingSettlementRefund(
+        "contract-1",
+        "user-1",
+        "bank confirmed",
+        "tenant-1",
+        "refund-key-0006",
+      ),
+    ).rejects.toThrow("SETTLEMENT_REFUND_PROOF_REQUIRED");
+    await service.completePendingSettlementRefund(
+      "contract-1",
+      "user-1",
+      "bank confirmed",
+      "tenant-1",
+      "refund-key-0006",
+      ["https://proof.test/pending-refund.pdf"],
+    );
+    await service.completePendingSettlementRefund(
+      "contract-1",
+      "user-1",
+      "bank confirmed",
+      "tenant-1",
+      "refund-key-0006",
+      ["https://proof.test/pending-refund.pdf"],
+    );
     expect(state.ledger.filter((row: any) => row.type === "REFUND")).toHaveLength(1);
     expect(state.receipts[0].status).toBe("COMPLETED");
+    expect(state.settlement.details.refundCompletion.result.attachmentUrls).toEqual([
+      "https://proof.test/pending-refund.pdf",
+    ]);
+    expect(state.audits.at(-1).after.attachmentUrls).toEqual([
+      "https://proof.test/pending-refund.pdf",
+    ]);
+    expect(state.outbox.at(-1).payload.attachmentUrls).toEqual([
+      "https://proof.test/pending-refund.pdf",
+    ]);
   });
 
   it("fails closed for a tenant that does not own the contract", async () => {

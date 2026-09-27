@@ -4,8 +4,27 @@ import { PrismaService } from '../prisma.service';
 import { CommunicationService } from '../communication/communication.service';
 import { buildRoomContext } from '../shared/context/room-context';
 import { authoritativeJournalLineWhere, cashAccountWhere } from './journal-effect.policy';
+import { classifySePayWebhookBankAccount } from '../payments/sepay-bank-account.policy';
 
 type SePayAuditSeverity = 'CRITICAL' | 'WARNING' | 'INFO';
+
+type SePayManualAssignmentCandidate = {
+  sourceType: 'INVOICE' | 'DEPOSIT';
+  sourceCode: string;
+  customerId: string | null;
+  customerName: string | null;
+  roomId: string | null;
+  roomCode: string | null;
+  buildingId: string | null;
+  buildingName: string | null;
+  expectedAmount: number;
+  amountDelta: number;
+  matchReasons: string[];
+};
+
+type SePayManualAssignmentSource = Omit<SePayManualAssignmentCandidate, 'amountDelta' | 'matchReasons'> & {
+  sourceId: string;
+};
 
 type SePayAuditIssue = {
   id: string;
@@ -206,13 +225,16 @@ export class FinanceReportingService {
     }
     const byType = (type: string) => [...sourceEntries.values()].filter((entry: any) => entry.sourceType === type).map((entry: any) => entry.sourceId);
     const ids = (type: string) => [...new Set(byType(type).filter(Boolean))];
+    // Reconciliation only needs the customer identifier for dimensional lineage.
+    // Selecting the whole record ties this read path to unrelated customer columns.
+    const customerReference = { select: { id: true } };
     const [invoices, payments, deposits, expenses, contracts, credits] = await Promise.all([
-      this.prisma.invoice.findMany({ where: { tenantId, id: { in: [...ids('INVOICE'), ...ids('REFUND'), ...ids('ADJUSTMENT')] } }, include: { customer: true, rentalCycle: true, contract: { include: { customer: true, rentalCycle: true, room: { include: { building: { include: { owner: true } } } } } } } }),
-      this.prisma.payment.findMany({ where: { tenantId, id: { in: ids('PAYMENT') } }, include: { rentalCycle: true, invoice: { include: { customer: true, rentalCycle: true, contract: { include: { customer: true, rentalCycle: true, room: { include: { building: { include: { owner: true } } } } } } } } } }),
-      this.prisma.deposit.findMany({ where: { tenantId, id: { in: [...ids('DEPOSIT'), ...ids('REFUND'), ...ids('ADJUSTMENT')] } }, include: { customer: true, rentalCycle: true, contract: { include: { customer: true, rentalCycle: true } }, room: { include: { building: { include: { owner: true } } } } } }),
+      this.prisma.invoice.findMany({ where: { tenantId, id: { in: [...ids('INVOICE'), ...ids('REFUND'), ...ids('ADJUSTMENT')] } }, include: { customer: customerReference, rentalCycle: true, contract: { include: { customer: customerReference, rentalCycle: true, room: { include: { building: { include: { owner: true } } } } } } } }),
+      this.prisma.payment.findMany({ where: { tenantId, id: { in: ids('PAYMENT') } }, include: { rentalCycle: true, invoice: { include: { customer: customerReference, rentalCycle: true, contract: { include: { customer: customerReference, rentalCycle: true, room: { include: { building: { include: { owner: true } } } } } } } } } }),
+      this.prisma.deposit.findMany({ where: { tenantId, id: { in: [...ids('DEPOSIT'), ...ids('REFUND'), ...ids('ADJUSTMENT')] } }, include: { customer: customerReference, rentalCycle: true, contract: { include: { customer: customerReference, rentalCycle: true } }, room: { include: { building: { include: { owner: true } } } } } }),
       this.prisma.expense.findMany({ where: { tenantId, id: { in: ids('EXPENSE') } }, include: { owner: true, costCenter: true } }),
-      this.prisma.contract.findMany({ where: { tenantId, id: { in: [...ids('REFUND'), ...ids('ADJUSTMENT')] } }, include: { customer: true, rentalCycle: true, room: { include: { building: { include: { owner: true } } } } } }),
-      this.prisma.creditNote.findMany({ where: { tenantId, id: { in: [...ids('REFUND'), ...ids('ADJUSTMENT')] } }, include: { sourceInvoice: { include: { customer: true, rentalCycle: true, contract: { include: { customer: true, rentalCycle: true, room: { include: { building: { include: { owner: true } } } } } } } } } }),
+      this.prisma.contract.findMany({ where: { tenantId, id: { in: [...ids('REFUND'), ...ids('ADJUSTMENT')] } }, include: { customer: customerReference, rentalCycle: true, room: { include: { building: { include: { owner: true } } } } } }),
+      this.prisma.creditNote.findMany({ where: { tenantId, id: { in: [...ids('REFUND'), ...ids('ADJUSTMENT')] } }, include: { sourceInvoice: { include: { customer: customerReference, rentalCycle: true, contract: { include: { customer: customerReference, rentalCycle: true, room: { include: { building: { include: { owner: true } } } } } } } } } }),
     ]);
     const sourceProfiles = new Map<string, any>();
     const add = (type: string, record: any, profile: any) => sourceProfiles.set(`${type}:${record.id}`, profile);
@@ -359,6 +381,46 @@ export class FinanceReportingService {
       expense: expenseAmount,
       profit: revenueAmount - expenseAmount,
       margin: revenueAmount > 0 ? ((revenueAmount - expenseAmount) / revenueAmount) * 100 : 0
+    };
+  }
+
+  async getProfitLossHistory(
+    tenantId: string,
+    options: { months?: string; year?: string; month?: string } = {},
+  ) {
+    const monthCount = Number(options.months ?? 6);
+    if (!Number.isInteger(monthCount) || monthCount < 1 || monthCount > 24) {
+      throw new BadRequestException('PERIOD_MONTH_COUNT_INVALID');
+    }
+
+    const now = new Date();
+    const endYear = Number(options.year ?? now.getFullYear());
+    const endMonth = Number(options.month ?? now.getMonth() + 1);
+    // Reuse the existing report range validation before calculating prior periods.
+    this.buildPeriodRange(String(endYear), String(endMonth));
+
+    const rows = await Promise.all(
+      Array.from({ length: monthCount }, async (_, index) => {
+        const absoluteMonth = endYear * 12 + (endMonth - 1) - (monthCount - 1 - index);
+        const year = Math.floor(absoluteMonth / 12);
+        const month = (absoluteMonth % 12) + 1;
+        const period = this.buildPeriodRange(String(year), String(month));
+        const { revenue, expense } = await this.getJournalProfitTotals(tenantId, {}, period);
+
+        return {
+          month: `T${month}`,
+          key: `${year}-${String(month).padStart(2, '0')}`,
+          period: { year, month, startDate: period.gte, endDate: period.lte },
+          revenue,
+          expense,
+          profit: revenue - expense,
+        };
+      }),
+    );
+
+    return {
+      period: { months: monthCount, endYear, endMonth },
+      data: rows,
     };
   }
 
@@ -1189,6 +1251,7 @@ export class FinanceReportingService {
 
     const logs = await this.prisma.paymentWebhookLog.findMany({
       where: {
+        tenantId,
         provider: 'SEPAY' as any,
         createdAt: period,
       },
@@ -1350,10 +1413,89 @@ export class FinanceReportingService {
     };
   }
 
+  private rankSePayManualAssignmentCandidates(
+    sources: SePayManualAssignmentSource[],
+    context: {
+      paymentCode: string | null;
+      amount: number;
+      sourceType: string | null;
+      roomId: string | null;
+      buildingId: string | null;
+      customerId: string | null;
+    },
+    paymentCodesBySource: Map<string, string[]>,
+  ): SePayManualAssignmentCandidate[] {
+    const normalizedPaymentCode = String(context.paymentCode || '').trim().toUpperCase();
+    const inferredSourceType = /^DEP(?:[-_]|$)/.test(normalizedPaymentCode)
+      ? 'DEPOSIT'
+      : /^INV(?:[-_]|$)/.test(normalizedPaymentCode)
+        ? 'INVOICE'
+        : null;
+    const preferredSourceType = context.sourceType === 'INVOICE' || context.sourceType === 'DEPOSIT'
+      ? context.sourceType
+      : inferredSourceType;
+
+    return sources
+      .map((source) => {
+        const sourcePaymentCodes = paymentCodesBySource.get(`${source.sourceType}:${source.sourceId}`) || [];
+        const exactPaymentCode = Boolean(normalizedPaymentCode) && (
+          source.sourceCode.trim().toUpperCase() === normalizedPaymentCode ||
+          sourcePaymentCodes.some((code) => String(code || '').trim().toUpperCase() === normalizedPaymentCode)
+        );
+        const sameType = source.sourceType === preferredSourceType;
+        const sameRoom = Boolean(context.roomId && source.roomId === context.roomId);
+        const sameCustomer = Boolean(context.customerId && source.customerId === context.customerId);
+        const sameBuilding = Boolean(context.buildingId && source.buildingId === context.buildingId);
+        const amountDelta = Math.abs(Number(context.amount || 0) - source.expectedAmount);
+        const exactAmount = amountDelta === 0;
+        const matchReasons = [
+          ...(exactPaymentCode ? ['Đúng mã thanh toán'] : []),
+          ...(sameType ? ['Đúng loại chứng từ'] : []),
+          ...(sameRoom ? ['Cùng phòng'] : []),
+          ...(sameCustomer ? ['Cùng khách thuê'] : []),
+          ...(sameBuilding ? ['Cùng tòa nhà'] : []),
+          ...(exactAmount ? ['Khớp số tiền'] : []),
+        ];
+
+        return {
+          ...source,
+          amountDelta,
+          matchReasons,
+          _rank: {
+            exactPaymentCode,
+            sameType,
+            sameRoom,
+            sameCustomer,
+            sameBuilding,
+            exactAmount,
+          },
+        };
+      })
+      .filter((candidate) =>
+        candidate.sourceType === 'DEPOSIT'
+          ? candidate.amountDelta === 0
+          : Number(context.amount || 0) > 0 && Number(context.amount || 0) <= candidate.expectedAmount,
+      )
+      .sort((left, right) => {
+        const rank = Number(right._rank.exactPaymentCode) - Number(left._rank.exactPaymentCode) ||
+          Number(right._rank.sameType) - Number(left._rank.sameType) ||
+          Number(right._rank.sameRoom) - Number(left._rank.sameRoom) ||
+          Number(right._rank.sameCustomer) - Number(left._rank.sameCustomer) ||
+          Number(right._rank.sameBuilding) - Number(left._rank.sameBuilding) ||
+          Number(right._rank.exactAmount) - Number(left._rank.exactAmount) ||
+          left.amountDelta - right.amountDelta ||
+          left.sourceCode.localeCompare(right.sourceCode, 'vi');
+        return rank;
+      })
+      .slice(0, 8)
+      .map(({ _rank, sourceId, ...candidate }) => candidate);
+  }
+
   async getSePayReconciliation(tenantId: string, options: { year?: string; month?: string; status?: string } = {}) {
     const period = this.buildPeriodRange(options.year, options.month);
     const logs = await this.prisma.paymentWebhookLog.findMany({
       where: {
+        tenantId,
         provider: 'SEPAY' as any,
         createdAt: period,
       },
@@ -1410,6 +1552,112 @@ export class FinanceReportingService {
       : [];
     const roomById = new Map(rooms.map((room) => [room.id, room]));
     const buildingById = new Map(buildings.map((building) => [building.id, building]));
+    const [candidateInvoices, candidateDeposits, candidatePaymentRequests] = logs.length
+      ? await Promise.all([
+          this.prisma.invoice.findMany({
+            where: {
+              tenantId,
+              deletedAt: null,
+              status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] as any },
+            },
+            include: {
+              customer: { select: { id: true, fullName: true } },
+              contract: {
+                select: {
+                  room: {
+                    select: {
+                      id: true,
+                      code: true,
+                      name: true,
+                      buildingId: true,
+                      building: { select: { id: true, name: true } },
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+            take: 500,
+          }),
+          this.prisma.deposit.findMany({
+            where: {
+              tenantId,
+              deletedAt: null,
+              status: { in: ['DRAFT', 'PENDING'] as any },
+              OR: [{ expiredAt: null }, { expiredAt: { gt: new Date() } }],
+            },
+            include: {
+              customer: { select: { id: true, fullName: true } },
+              room: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                  buildingId: true,
+                  building: { select: { id: true, name: true } },
+                },
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 500,
+          }),
+          this.prisma.paymentRequest.findMany({
+            where: {
+              tenantId,
+              provider: 'SEPAY' as any,
+              status: 'PENDING' as any,
+              sourceType: { in: ['INVOICE', 'DEPOSIT'] as any },
+            },
+            select: { sourceType: true, sourceId: true, paymentCode: true },
+          }),
+        ])
+      : [[], [], []];
+    const paymentCodesBySource = new Map<string, string[]>();
+    for (const request of candidatePaymentRequests) {
+      const key = `${request.sourceType}:${request.sourceId}`;
+      const codes = paymentCodesBySource.get(key) || [];
+      codes.push(request.paymentCode);
+      paymentCodesBySource.set(key, codes);
+    }
+    const manualAssignmentSources: SePayManualAssignmentSource[] = [
+      ...candidateInvoices
+        .filter((invoice) => invoice.tenantId === tenantId)
+        .map((invoice) => {
+          const expectedAmount = Math.max(
+            0,
+            Number(invoice.total || 0) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0),
+          );
+          const room = invoice.contract?.room || null;
+          return {
+            sourceType: 'INVOICE' as const,
+            sourceId: invoice.id,
+            sourceCode: invoice.code,
+            customerId: invoice.customerId || invoice.customer?.id || null,
+            customerName: invoice.customer?.fullName || null,
+            roomId: room?.id || null,
+            roomCode: room?.code || room?.name || null,
+            buildingId: room?.buildingId || room?.building?.id || null,
+            buildingName: room?.building?.name || null,
+            expectedAmount,
+          };
+        })
+        .filter((invoice) => invoice.expectedAmount > 0),
+      ...candidateDeposits
+        .filter((deposit) => deposit.tenantId === tenantId)
+        .map((deposit) => ({
+          sourceType: 'DEPOSIT' as const,
+          sourceId: deposit.id,
+          sourceCode: deposit.code,
+          customerId: deposit.customerId || deposit.customer?.id || null,
+          customerName: deposit.customer?.fullName || null,
+          roomId: deposit.roomId || deposit.room?.id || null,
+          roomCode: deposit.room?.code || deposit.room?.name || null,
+          buildingId: deposit.room?.buildingId || deposit.room?.building?.id || null,
+          buildingName: deposit.room?.building?.name || null,
+          expectedAmount: Number(deposit.amount || 0),
+        }))
+        .filter((deposit) => deposit.expectedAmount > 0),
+    ];
 
     const rows = logs.map((log) => {
       const payload = log.payload as any;
@@ -1418,6 +1666,20 @@ export class FinanceReportingService {
       const accountNumber = String(payload?.accountNumber || payload?.account_number || payload?.bank_account_xid || '').trim();
       const transferType = String(payload?.transferType || payload?.transfer_type || '').toLowerCase();
       const request = paymentCode ? requestByCode.get(paymentCode) : null;
+      const bankMatch = request
+        ? classifySePayWebhookBankAccount({
+            expectedAccountNumber: request.bankAccountNumber,
+            expectedBankName: request.bankName,
+            webhookAccountNumbers: [
+              payload?.accountNumber,
+              payload?.account_number,
+              payload?.bank_account_xid,
+              payload?.va,
+              payload?.subAccount,
+            ],
+            webhookBankName: payload?.gateway || payload?.bank || '',
+          })
+        : null;
       const requestMetadata = (request?.metadata as any) || {};
       const requestRoom = request?.roomId ? roomById.get(request.roomId) || null : null;
       const requestBuilding = request?.buildingId ? buildingById.get(request.buildingId) || null : null;
@@ -1445,16 +1707,104 @@ export class FinanceReportingService {
       const directionInvalid = transferType === 'debit' || transferType === 'out';
 
       const webhookStatus = String((log as any).status || '').toUpperCase();
+      const webhookLastError = String((log as any).lastError || '');
+      const isContentDuplicate =
+        webhookStatus === 'NEEDS_REVIEW' &&
+        webhookLastError.startsWith('SEPAY_DUPLICATE_CONTENT:');
       let status = 'UNMATCHED';
       if (webhookStatus === 'FAILED') status = 'FAILED';
       else if (webhookStatus === 'PROCESSING') status = 'PROCESSING';
       else if (webhookStatus === 'RECEIVED' && !log.processedAt) status = 'PENDING_PROCESSING';
       else if (directionInvalid) status = 'IGNORED_OUTGOING';
+      else if (isContentDuplicate) status = 'DUPLICATE_CONTENT';
       else if (!paymentCode || !request) status = 'UNMATCHED';
-      else if (accountNumber && request.bankAccountNumber !== accountNumber) status = 'WRONG_BANK';
+      else if (bankMatch && !bankMatch.matches) status = 'WRONG_BANK';
       else if (amount < expectedAmount) status = 'SHORT_AMOUNT';
       else if (amount > expectedAmount) status = 'OVER_AMOUNT';
+      else if (webhookStatus === 'NEEDS_REVIEW') status = 'NEEDS_REVIEW';
       else status = 'MATCHED';
+
+      const eventResolution = requestMetadata.overpaymentResolutions?.[log.id] || {};
+      const isLegacyResolutionForLog = requestMetadata.overpaymentLogId === log.id;
+      const overpaymentResolution =
+        payload?.overpaymentResolution ||
+        eventResolution.resolution ||
+        (isLegacyResolutionForLog ? requestMetadata.overpaymentResolution : null);
+      const overpaymentAmount = Number(
+        payload?.overpaymentAmount ??
+          eventResolution.overpaymentAmount ??
+          (isLegacyResolutionForLog ? requestMetadata.overpaymentAmount : Math.max(amountDiff, 0)),
+      );
+      const overpaymentResolvedAt =
+        payload?.overpaymentResolvedAt ||
+        eventResolution.resolvedAt ||
+        (isLegacyResolutionForLog ? requestMetadata.overpaymentResolvedAt : null);
+      const overpaymentRefundCompletedAt =
+        payload?.overpaymentRefundCompletedAt ||
+        eventResolution.refundCompletedAt ||
+        (isLegacyResolutionForLog ? requestMetadata.overpaymentRefundCompletedAt : null);
+      const overpaymentRefundCompletionNote =
+        payload?.overpaymentRefundCompletionNote ||
+        eventResolution.refundCompletionNote ||
+        (isLegacyResolutionForLog ? requestMetadata.overpaymentRefundCompletionNote : null);
+      const overpaymentTaskId =
+        payload?.overpaymentTaskId ||
+        eventResolution.taskId ||
+        (isLegacyResolutionForLog ? requestMetadata.overpaymentTaskId : null);
+      const overpaymentTaskTitle =
+        payload?.overpaymentTaskTitle ||
+        eventResolution.taskTitle ||
+        (isLegacyResolutionForLog ? requestMetadata.overpaymentTaskTitle : null);
+      const overpaymentRefundReceiptId =
+        payload?.overpaymentRefundReceiptId ||
+        eventResolution.refundReceiptId ||
+        (isLegacyResolutionForLog ? requestMetadata.overpaymentRefundReceiptId : null);
+      const overpaymentRefundPendingJournalId =
+        payload?.overpaymentRefundPendingJournalId ||
+        eventResolution.refundPendingJournalId ||
+        (isLegacyResolutionForLog ? requestMetadata.overpaymentRefundPendingJournalId : null);
+      const overpaymentRefundJournalId =
+        payload?.overpaymentRefundJournalId ||
+        eventResolution.refundJournalId ||
+        (isLegacyResolutionForLog ? requestMetadata.overpaymentRefundJournalId : null);
+      const overpaymentRefundAttachmentUrls = Array.from(
+        new Set(
+          [
+            ...(Array.isArray(payload?.overpaymentRefundAttachmentUrls)
+              ? payload.overpaymentRefundAttachmentUrls
+              : []),
+            ...(Array.isArray(eventResolution.refundAttachmentUrls)
+              ? eventResolution.refundAttachmentUrls
+              : []),
+            ...(isLegacyResolutionForLog && Array.isArray(requestMetadata.overpaymentRefundAttachmentUrls)
+              ? requestMetadata.overpaymentRefundAttachmentUrls
+              : []),
+          ]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean),
+        ),
+      );
+      const manualAssignmentCandidates = [
+        'UNMATCHED',
+        'SHORT_AMOUNT',
+        'OVER_AMOUNT',
+        'WRONG_BANK',
+        'FAILED',
+        'NEEDS_REVIEW',
+      ].includes(status)
+        ? this.rankSePayManualAssignmentCandidates(
+            manualAssignmentSources,
+            {
+              paymentCode,
+              amount,
+              sourceType: request?.sourceType || null,
+              roomId: roomContext.roomId || null,
+              buildingId: roomContext.buildingId || null,
+              customerId: requestMetadata.customerId || payload?.customerId || null,
+            },
+            paymentCodesBySource,
+          )
+        : [];
 
       return {
         id: log.id,
@@ -1463,13 +1813,14 @@ export class FinanceReportingService {
         processedAt: log.processedAt,
         status,
         webhookStatus: webhookStatus || null,
-        webhookLastError: (log as any).lastError || null,
+        webhookLastError: webhookLastError || null,
         webhookAttemptCount: Number((log as any).attemptCount || 0),
         paymentCode,
         amount,
         expectedAmount,
         amountDiff,
         accountNumber,
+        bankMatch: bankMatch?.kind || null,
         transferType,
         sourceType: request?.sourceType || null,
         sourceId: request?.sourceId || null,
@@ -1477,20 +1828,19 @@ export class FinanceReportingService {
         ...roomContext,
         owner: request?.owner || null,
         bankAccount: request?.bankAccount || null,
-        overpaymentResolution: requestMetadata.overpaymentResolution || payload?.overpaymentResolution || null,
-        overpaymentAmount: Number(
-          requestMetadata.overpaymentAmount ??
-            payload?.overpaymentAmount ??
-            Math.max(amountDiff, 0),
-        ),
-        overpaymentResolvedAt:
-          requestMetadata.overpaymentResolvedAt || payload?.overpaymentResolvedAt || null,
-        overpaymentRefundCompletedAt:
-          requestMetadata.overpaymentRefundCompletedAt || payload?.overpaymentRefundCompletedAt || null,
-        overpaymentRefundCompletionNote:
-          requestMetadata.overpaymentRefundCompletionNote || payload?.overpaymentRefundCompletionNote || null,
-        overpaymentTaskId: requestMetadata.overpaymentTaskId || payload?.overpaymentTaskId || null,
-        overpaymentTaskTitle: requestMetadata.overpaymentTaskTitle || payload?.overpaymentTaskTitle || null,
+        manualAssignmentCandidates,
+        isContentDuplicate,
+        overpaymentResolution,
+        overpaymentAmount,
+        overpaymentResolvedAt,
+        overpaymentRefundCompletedAt,
+        overpaymentRefundCompletionNote,
+        overpaymentTaskId,
+        overpaymentTaskTitle,
+        overpaymentRefundReceiptId,
+        overpaymentRefundPendingJournalId,
+        overpaymentRefundJournalId,
+        overpaymentRefundAttachmentUrls,
       };
     });
 
@@ -1513,6 +1863,7 @@ export class FinanceReportingService {
         failed: rows.filter((row) => row.status === 'FAILED').length,
         processing: rows.filter((row) => row.status === 'PROCESSING').length,
         pendingProcessing: rows.filter((row) => row.status === 'PENDING_PROCESSING').length,
+        needsReview: rows.filter((row) => ['NEEDS_REVIEW', 'DUPLICATE_CONTENT'].includes(row.status)).length,
       },
       rows: filteredRows,
     };
@@ -2053,6 +2404,10 @@ export class FinanceReportingService {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('EXPENSE_AMOUNT_INVALID');
     }
+    const requestedStatus = String(data.status || 'PENDING').toUpperCase();
+    if (requestedStatus !== 'PENDING') {
+      throw new BadRequestException('EXPENSE_CREATE_STATUS_FORBIDDEN');
+    }
 
     const costCenter = await this.resolveCostCenter(tenantId, data.costCenterId, data.buildingId);
     const ownerId = data.ownerId || costCenter.ownerId;
@@ -2061,7 +2416,6 @@ export class FinanceReportingService {
     }
 
     const code = data.code || await this.nextExpenseCode(tenantId);
-    const status = data.status || 'PENDING';
     const expense = await this.prisma.expense.create({
       data: {
         tenantId,
@@ -2075,19 +2429,15 @@ export class FinanceReportingService {
         category: data.category || 'OTHER',
         vendor: data.vendor || null,
         amount,
-        status,
+        status: 'PENDING',
         settlementStatus: data.settlementStatus || (data.paidByOwnerId || data.paidByName ? 'PENDING_REIMBURSEMENT' : 'NONE'),
         description: data.description || null,
         attachmentUrls: Array.isArray(data.attachmentUrls) ? data.attachmentUrls : [],
-        approvedBy: status === 'APPROVED' || status === 'PAID' ? userId : null,
-        approvedAt: status === 'APPROVED' || status === 'PAID' ? new Date() : null,
+        approvedBy: null,
+        approvedAt: null,
         date: data.date ? new Date(data.date) : new Date(),
       } as any,
     });
-
-    if (status === 'PAID') {
-      await this.postExpenseJournal(tenantId, expense);
-    }
 
     await this.logExpenseAudit(tenantId, userId, expense.id, 'CREATE', null, expense);
     await this.notifyExpenseCreated(tenantId, { ...expense, code: expense.code || code });
@@ -2147,18 +2497,19 @@ export class FinanceReportingService {
     if (expense.status === 'CANCELLED') throw new BadRequestException('EXPENSE_CANCELLED');
     if (expense.status === 'PAID') throw new BadRequestException('EXPENSE_PAID_LOCKED');
 
-    const updated = await this.prisma.expense.update({
-      where: { id },
-      data: {
-        status: markPaid ? 'PAID' : 'APPROVED',
-        approvedBy: userId,
-        approvedAt: expense.approvedAt || new Date(),
-      } as any,
-    });
-
-    if (markPaid) {
-      await this.postExpenseJournal(tenantId, updated);
-    }
+    const updateData = {
+      status: markPaid ? 'PAID' : 'APPROVED',
+      approvedBy: userId,
+      approvedAt: expense.approvedAt || new Date(),
+    } as any;
+    const updateAndPost = async (client: any) => {
+      const next = await client.expense.update({ where: { id }, data: updateData });
+      if (markPaid) await this.postExpenseJournal(tenantId, next, client);
+      return next;
+    };
+    const updated = markPaid && typeof (this.prisma as any).$transaction === 'function'
+      ? await (this.prisma as any).$transaction((tx: any) => updateAndPost(tx))
+      : await updateAndPost(this.prisma);
 
     await this.logExpenseAudit(tenantId, userId, id, 'UPDATE', expense, updated);
     if (!markPaid && updated.status === 'APPROVED') {
@@ -2861,17 +3212,17 @@ export class FinanceReportingService {
     return 0;
   }
 
-  private async postExpenseJournal(tenantId: string, expense: any) {
-    const existing = await this.prisma.journalEntry.findFirst({
+  private async postExpenseJournal(tenantId: string, expense: any, client: any = this.prisma) {
+    const existing = await client.journalEntry.findFirst({
       where: { tenantId, sourceType: 'EXPENSE' as any, sourceId: expense.id, status: 'POSTED' },
     });
     if (existing) return existing;
 
     const [expenseAccount, bankAccount] = await Promise.all([
-      this.prisma.chartOfAccount.findFirst({ where: { tenantId, type: 'EXPENSE', code: '5400' } }),
-      this.prisma.chartOfAccount.findFirst({ where: { tenantId, type: 'ASSET', code: '1100' } }),
+      client.chartOfAccount.findFirst({ where: { tenantId, type: 'EXPENSE', code: '5400' } }),
+      client.chartOfAccount.findFirst({ where: { tenantId, type: 'ASSET', code: '1100' } }),
     ]);
-    if (!expenseAccount || !bankAccount) return null;
+    if (!expenseAccount || !bankAccount) throw new BadRequestException('EXPENSE_JOURNAL_ACCOUNTS_REQUIRED');
 
     const lines = [
       {
@@ -2893,7 +3244,7 @@ export class FinanceReportingService {
     ];
     this.assertBalancedJournalLines(lines);
 
-    return this.prisma.journalEntry.create({
+    return client.journalEntry.create({
       data: {
         tenantId,
         code: `JE-EXP-${expense.code}`,

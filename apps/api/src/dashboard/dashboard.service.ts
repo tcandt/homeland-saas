@@ -121,7 +121,7 @@ export class DashboardService {
                   deletedAt: null,
                   status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
                 },
-                select: { id: true, endDate: true, monthlyRent: true },
+                select: { id: true, endDate: true },
               },
               occupancies: {
                 where: { tenantId, leftAt: null },
@@ -224,30 +224,14 @@ export class DashboardService {
       Number(depositLiabilityDebit._sum.amount || 0) > 0
         ? journalDepositBalance
         : Number(depositHeld._sum.amount || 0);
-    const contractMonthlyRevenue = roomsFromBuildings.reduce((sum, room) => {
-      return (
-        sum +
-        room.contracts.reduce(
-          (roomSum, contract) => roomSum + Number(contract.monthlyRent || 0),
-          0,
-        )
-      );
-    }, 0);
-    const syncedRevenue =
-      Number(profitLoss.revenue || 0) > 0
-        ? Number(profitLoss.revenue)
-        : contractMonthlyRevenue;
-    const syncedProfit =
-      Number(profitLoss.revenue || 0) > 0
-        ? Number(profitLoss.profit || 0)
-        : contractMonthlyRevenue - Number(profitLoss.expense || 0);
-    const syncedCashFlow =
-      Number(cashFlow.net || 0) !== 0
-        ? Number(cashFlow.net)
-        : syncedRevenue - Number(cashFlow.outflow || 0);
+    // P&L and cashflow must come from posted journals only. Contract rent is
+    // expected revenue, not recognized revenue or collected cash.
+    const syncedRevenue = Number(profitLoss.revenue || 0);
+    const syncedProfit = Number(profitLoss.profit || 0);
+    const syncedCashFlow = Number(cashFlow.net || 0);
 
     // Quick default history structure (detailed loaded on-demand by chart)
-    const revenueHistory = this.buildQuickRevenueMonths(now, syncedRevenue);
+    const revenueHistory = this.buildQuickRevenueMonths(now, syncedRevenue, syncedProfit);
 
     const buildingHealth = buildings.map((building) => {
       const roomCount = building.rooms.length;
@@ -426,8 +410,7 @@ export class DashboardService {
           syncedRevenue > 0
             ? (syncedProfit / syncedRevenue) * 100
             : profitLoss.margin,
-        inflow:
-          Number(cashFlow.inflow || 0) > 0 ? cashFlow.inflow : syncedRevenue,
+        inflow: Number(cashFlow.inflow || 0),
         outflow: cashFlow.outflow,
       },
       revenueHistory,
@@ -451,116 +434,26 @@ export class DashboardService {
   }
 
   async getRevenueHistoryByMonths(tenantId: string, monthCount = 6) {
-    const now = new Date();
-    const startDate = new Date(
-      now.getFullYear(),
-      now.getMonth() - (monthCount - 1),
-      1,
-    );
-
-    const months = Array.from({ length: monthCount }, (_, index) => {
-      const date = new Date(
-        now.getFullYear(),
-        now.getMonth() - (monthCount - 1 - index),
-        1,
-      );
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-      return {
-        month: `T${date.getMonth() + 1}`,
-        key,
-        revenue: 0,
-        profit: 0,
-      };
+    const result = await this.finance.getProfitLossHistory(tenantId, {
+      months: String(monthCount),
     });
-
-    try {
-      // 1 single lightning-fast SQL group-by query across all 6 months
-      const rows: any[] = await this.prisma.$queryRaw`
-        SELECT 
-          TO_CHAR(je."entryDate", 'YYYY-MM') AS "monthKey",
-          COALESCE(SUM(CASE WHEN a."type" = 'REVENUE' AND jl."type" = 'CREDIT' THEN jl."amount" ELSE 0 END), 0)::float AS "revenue",
-          COALESCE(SUM(CASE WHEN a."type" = 'EXPENSE' AND jl."type" = 'DEBIT' THEN jl."amount" ELSE 0 END), 0)::float AS "expense"
-        FROM "JournalLine" jl
-        JOIN "JournalEntry" je ON jl."journalEntryId" = je."id"
-        JOIN "ChartOfAccount" a ON jl."accountId" = a."id"
-        WHERE jl."tenantId" = ${tenantId}
-          AND je."entryDate" >= ${startDate}
-        GROUP BY TO_CHAR(je."entryDate", 'YYYY-MM')
-        ORDER BY "monthKey" ASC
-      `;
-
-      const resultMap = new Map<string, { revenue: number; expense: number }>();
-      for (const row of rows) {
-        resultMap.set(row.monthKey, {
-          revenue: Number(row.revenue || 0),
-          expense: Number(row.expense || 0),
-        });
-      }
-
-      const result = months.map((m) => {
-        const found = resultMap.get(m.key);
-        const revenue = found ? found.revenue : 0;
-        const expense = found ? found.expense : 0;
-        return {
-          month: m.month,
-          revenue,
-          profit: revenue - expense,
-        };
-      });
-
-      // If current month has no journal entries yet, fallback to active operational contract revenue
-      if (result.every((r) => r.revenue === 0)) {
-        const contracts = await this.prisma.contract.findMany({
-          where: {
-            tenantId,
-            deletedAt: null,
-            status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
-          },
-          select: { monthlyRent: true },
-        });
-        const currentRevenue = contracts.reduce(
-          (sum, c) => sum + Number(c.monthlyRent || 0),
-          0,
-        );
-        if (currentRevenue > 0) {
-          result[result.length - 1].revenue = currentRevenue;
-          result[result.length - 1].profit = currentRevenue;
-        }
-      }
-
-      return result;
-    } catch {
-      return months.map((m) => ({ month: m.month, revenue: 0, profit: 0 }));
-    }
+    return result.data;
   }
 
-  private buildQuickRevenueMonths(now: Date, currentRevenue: number) {
+  private buildQuickRevenueMonths(
+    now: Date,
+    currentRevenue: number,
+    currentProfit: number,
+  ) {
     return Array.from({ length: 6 }, (_, index) => {
       const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
       const isCurrent = index === 5;
       return {
         month: `T${date.getMonth() + 1}`,
         revenue: isCurrent ? currentRevenue : 0,
-        profit: isCurrent ? currentRevenue : 0,
+        profit: isCurrent ? currentProfit : 0,
       };
     });
-  }
-
-  private withOperationalRevenueFallback<
-    T extends { revenue: number; profit: number },
-  >(history: T[], monthlyRevenue: number): T[] {
-    if (
-      monthlyRevenue <= 0 ||
-      history.some((item) => Number(item.revenue || 0) > 0)
-    ) {
-      return history;
-    }
-
-    return history.map((item, index) =>
-      index === history.length - 1
-        ? { ...item, revenue: monthlyRevenue, profit: monthlyRevenue }
-        : item,
-    );
   }
 
   private buildInsights(input: {

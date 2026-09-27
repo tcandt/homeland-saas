@@ -22,6 +22,9 @@ export const financeApi = {
   getProfitLoss: async (params?: Record<string, any>) => {
     return await apiClient.get<any>('/finance/profit-loss', { params });
   },
+  getReconciliation: async (params?: Record<string, any>) => {
+    return await apiClient.get<any>('/finance/reconciliation', { params });
+  },
   getBuildingFinance: async (code: string, params?: Record<string, any>) => {
     return await apiClient.get<any>(`/finance/building/${code}`, { params });
   },
@@ -66,7 +69,7 @@ export const financeApi = {
   resolveSePayOverpayment: async (payload: { logId: string; resolution: 'CREDIT_BALANCE' | 'CARRY_FORWARD' | 'REFUND_PENDING' }) => {
     return await apiClient.post<any>('/payments/sepay/resolve-overpayment', payload);
   },
-  completeSePayOverpaymentRefund: async (payload: { logId: string; note?: string }) => {
+  completeSePayOverpaymentRefund: async (payload: { logId: string; note?: string; attachmentUrls: string[] }) => {
     return await apiClient.post<any>('/payments/sepay/complete-overpayment-refund', payload);
   },
   getExpenses: async (params?: Record<string, any>) => {

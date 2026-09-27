@@ -24,6 +24,7 @@
     "db:seed": "prisma db seed --schema=packages/database/prisma/schema.prisma",
     "db:reset:prod": "cross-env SEED_MODE=production prisma db push --schema=packages/database/prisma/schema.prisma --force-reset && cross-env SEED_MODE=production prisma db seed --schema=packages/database/prisma/schema.prisma",
     "db:check-seed": "tsx packages/database/scripts/check-seed.ts",
+    "e2e:preflight:staging": "node scripts/e2e-staging-preflight.js",
     "e2e:provision:core1004": "node scripts/core1004-uat-provision.js",
     "audit:core-lifecycle": "node scripts/core-lifecycle-detector.js",
     "review:duplicate-customers": "node scripts/customer-duplicate-review.js",

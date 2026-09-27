@@ -1,5 +1,9 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ContractSettlementPayload, contractsApi } from "../api/contracts.api";
+import {
+  ContractSettlementPayload,
+  contractsApi,
+  RenewContractPayload,
+} from "../api/contracts.api";
 
 export const contractKeys = {
   all: ["contracts"] as const,
@@ -80,16 +84,39 @@ export const useActivateContractMutation = () => {
   });
 };
 
+export const useRenewContractMutation = () => {
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+      idempotencyKey,
+    }: {
+      id: string;
+      payload: RenewContractPayload;
+      idempotencyKey: string;
+    }) => contractsApi.renew(id, payload, idempotencyKey),
+  });
+};
+
 export const useTerminateContractMutation = () => {
   return useMutation({
     mutationFn: (
       input:
-        string | { id: string; payload?: Partial<ContractSettlementPayload> },
+        | string
+        | {
+            id: string;
+            payload?: Partial<ContractSettlementPayload>;
+            idempotencyKey?: string;
+          },
     ) => {
       if (typeof input === "string") {
         return contractsApi.terminate(input);
       }
-      return contractsApi.terminate(input.id, input.payload);
+      return contractsApi.terminate(
+        input.id,
+        input.payload,
+        input.idempotencyKey,
+      );
     },
   });
 };
@@ -108,10 +135,21 @@ export const useSettlementPreviewMutation = () => {
 
 export const useCompletePendingSettlementRefundMutation = () => {
   return useMutation({
-    mutationFn: ({ id, note }: { id: string; note?: string }) =>
+    mutationFn: ({
+      id,
+      note,
+      attachmentUrls,
+      idempotencyKey,
+    }: {
+      id: string;
+      note?: string;
+      attachmentUrls?: string[];
+      idempotencyKey?: string;
+    }) =>
       contractsApi.completePendingSettlementRefund(
         id,
-        note ? { note } : undefined,
+        note || attachmentUrls ? { note, attachmentUrls } : undefined,
+        idempotencyKey,
       ),
   });
 };

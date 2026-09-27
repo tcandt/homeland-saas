@@ -17,6 +17,7 @@ import { PermissionsGuard } from '../shared/guards/permissions.guard';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 
 const DOCUMENT_UPLOAD_LIMIT_BYTES = Number(process.env.DOCUMENT_UPLOAD_LIMIT_BYTES || 20 * 1024 * 1024);
+const ALLOWED_UPLOAD_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
 @ApiTags('Documents')
 @ApiBearerAuth()
@@ -36,11 +37,12 @@ export class DocumentsController {
 
   @Get('storage/*')
   @RequirePermissions('document.download')
-  async serveStorage(@Param('0') path: string, @Res({ passthrough: true }) res: Response) {
+  async serveStorage(@Req() req: any, @Param('0') path: string, @Res({ passthrough: true }) res: Response) {
     const normalizedPath = normalizeStorageReference(path || '');
-    const buffer = await this.storageProvider.read(normalizedPath);
+    const storagePath = await this.documentsService.resolveTenantStoragePath(this.getTenantId(req), normalizedPath);
+    const buffer = await this.storageProvider.read(storagePath);
     res.set({
-      'Content-Type': inferMimeTypeFromPath(normalizedPath),
+      'Content-Type': inferMimeTypeFromPath(storagePath),
       'Cache-Control': 'private, no-store',
     });
     return new StreamableFile(Readable.from(buffer));
@@ -49,27 +51,29 @@ export class DocumentsController {
   @Get('storage-link')
   @RequirePermissions('document.download')
   @Redirect()
-  async getStorageLink(@Query('path') path: string, @Query('direct') direct?: string) {
+  async getStorageLink(@Req() req: any, @Query('path') path: string, @Query('direct') direct?: string) {
     const normalizedPath = normalizeStorageReference(path || '');
     if (!normalizedPath) {
       throw new BadRequestException('Missing file path');
     }
+    const storagePath = await this.documentsService.resolveTenantStoragePath(this.getTenantId(req), normalizedPath);
     if (direct === 'true' && this.storageProvider.getDownloadUrl) {
-      return { url: await this.storageProvider.getDownloadUrl(normalizedPath) };
+      return { url: await this.storageProvider.getDownloadUrl(storagePath) };
     }
-    return { url: normalizedPath ? `/api/v1/documents/storage?path=${encodeURIComponent(normalizedPath)}` : '' };
+    return { url: `/api/v1/documents/storage?path=${encodeURIComponent(normalizedPath)}` };
   }
 
   @Get('storage')
   @RequirePermissions('document.download')
-  async serveStorageByQuery(@Query('path') path: string, @Res({ passthrough: true }) res: Response) {
+  async serveStorageByQuery(@Req() req: any, @Query('path') path: string, @Res({ passthrough: true }) res: Response) {
     const normalizedPath = normalizeStorageReference(path || '');
     if (!normalizedPath) {
       throw new BadRequestException('Missing file path');
     }
-    const buffer = await this.storageProvider.read(normalizedPath);
+    const storagePath = await this.documentsService.resolveTenantStoragePath(this.getTenantId(req), normalizedPath);
+    const buffer = await this.storageProvider.read(storagePath);
     res.set({
-      'Content-Type': inferMimeTypeFromPath(normalizedPath),
+      'Content-Type': inferMimeTypeFromPath(storagePath),
       'Cache-Control': 'private, no-store',
     });
     return new StreamableFile(Readable.from(buffer));
@@ -79,6 +83,12 @@ export class DocumentsController {
   @RequirePermissions('document.read')
   async findAll(@Req() req: any) {
     return this.documentsService.findAll(this.getTenantId(req));
+  }
+
+  @Get('templates')
+  @RequirePermissions('document.read')
+  async listTemplates(@Req() req: any) {
+    return this.documentsService.listTemplates(this.getTenantId(req));
   }
 
   @Get(':id')
@@ -117,13 +127,24 @@ export class DocumentsController {
   @Post(':id/generate')
   @RequirePermissions('document.create')
   async generate(@Req() req: any, @Param('id') id: string, @Body() body: any) {
-    // For our simplified implementation, we pass templateCode in body or param.
-    // The ID might refer to a new document or an existing record.
-    return this.documentsService.generateDocument(this.getTenantId(req), body.templateCode, body.payload, {
+    const templateCode = typeof body?.templateCode === 'string' ? body.templateCode.trim() : '';
+    if (!templateCode) {
+      throw new BadRequestException('Template code is required');
+    }
+
+    if (body?.payload !== undefined && (
+      body.payload === null ||
+      typeof body.payload !== 'object' ||
+      Array.isArray(body.payload)
+    )) {
+      throw new BadRequestException('Document payload must be an object');
+    }
+
+    return this.documentsService.generateDocument(this.getTenantId(req), templateCode, body?.payload || {}, {
       createdBy: req.user?.email || 'system',
-      title: body.title,
-      sourceType: body.sourceType,
-      sourceId: body.sourceId,
+      title: typeof body?.title === 'string' ? body.title.trim() || undefined : undefined,
+      sourceType: typeof body?.sourceType === 'string' ? body.sourceType.trim() || undefined : undefined,
+      sourceId: typeof body?.sourceId === 'string' ? body.sourceId.trim() || undefined : undefined,
     });
   }
 
@@ -147,20 +168,31 @@ export class DocumentsController {
     @Body() body: any,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
+    const byteLength = Number(file.size ?? file.buffer?.length ?? 0);
+    if (byteLength > DOCUMENT_UPLOAD_LIMIT_BYTES) {
+      throw new BadRequestException(`File exceeds the ${Math.floor(DOCUMENT_UPLOAD_LIMIT_BYTES / (1024 * 1024))} MB upload limit`);
+    }
+    const mimeType = typeof file.mimetype === 'string' ? file.mimetype.toLowerCase().trim() : '';
+    if (!ALLOWED_UPLOAD_MIME_TYPES.has(mimeType)) {
+      throw new BadRequestException('Only PDF or image files are supported');
+    }
     const tenantId = this.getTenantId(req);
     const fileName = file.originalname;
     const folder = body.folder || 'uploads';
-    const storageResult = await this.documentsService.saveFile(
+    const upload = await this.documentsService.createUploadedDocument(
       tenantId,
       folder,
       fileName,
       file.buffer,
-      file.mimetype,
+      mimeType,
+      { createdBy: req.user?.email },
     );
     return {
-      url: storageResult.url,
-      size: storageResult.size,
-      mimeType: storageResult.mimeType,
+      url: upload.url,
+      size: upload.size,
+      mimeType: upload.mimeType,
+      documentId: upload.documentId,
+      versionId: upload.versionId,
     };
   }
 }

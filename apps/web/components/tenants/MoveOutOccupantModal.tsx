@@ -117,6 +117,7 @@ export default function MoveOutOccupantModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previewRequestRef = useRef(0);
+  const moveOutCommandKeyRef = useRef<string | null>(null);
 
   const occupantName = occupant?.name || occupant?.fullName || "Khách thuê";
   const contractId = occupant?.contractId || fallbackContractId || contract?.id;
@@ -153,7 +154,11 @@ export default function MoveOutOccupantModal({
   const settlementPayloadKey = JSON.stringify(settlementPayload);
 
   useEffect(() => {
-    if (!isOpen || !occupant?.id) return;
+    if (!isOpen || !occupant?.id) {
+      moveOutCommandKeyRef.current = null;
+      return;
+    }
+    moveOutCommandKeyRef.current = `move-out:${roomId}:${occupant.id}:${Date.now().toString(36)}`;
     let active = true;
     setContract(null);
     setPreview(null);
@@ -234,17 +239,21 @@ export default function MoveOutOccupantModal({
     setIsSubmitting(true);
     setError(null);
     try {
-      const result = await contractsApi.moveOutOccupant({
-        ...(needsSettlement ? settlementPayload : {
-          actualMoveOutDate: form.actualMoveOutDate,
-          roomTurnoverStatus: form.roomTurnoverStatus as ContractSettlementPayload["roomTurnoverStatus"],
-          note: form.reason.trim() || undefined,
-        }),
-        roomId,
-        customerId: occupant.id,
-        contractId: contractId || null,
-        reason: form.reason.trim() || undefined,
-      });
+      const result = await contractsApi.moveOutOccupant(
+        {
+          ...(needsSettlement ? settlementPayload : {
+            actualMoveOutDate: form.actualMoveOutDate,
+            roomTurnoverStatus: form.roomTurnoverStatus as ContractSettlementPayload["roomTurnoverStatus"],
+            note: form.reason.trim() || undefined,
+          }),
+          roomId,
+          customerId: occupant.id,
+          contractId: contractId || null,
+          reason: form.reason.trim() || undefined,
+        },
+        moveOutCommandKeyRef.current ||
+          `move-out:${roomId}:${occupant.id}:${Date.now().toString(36)}`,
+      );
       try {
         await onCompleted(result);
       } catch {

@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { PuppeteerPdfProvider } from './providers/pdf/puppeteer-pdf.provider';
 import { InternalSignatureProvider } from './providers/signature/internal-signature.provider';
@@ -34,6 +35,20 @@ export class DocumentsService {
         folder: true,
       },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async listTemplates(tenantId: string) {
+    return this.prisma.documentTemplate.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        type: true,
+        updatedAt: true,
+      },
+      orderBy: { name: 'asc' },
     });
   }
 
@@ -75,6 +90,34 @@ export class DocumentsService {
       fileName: targetVersion.fileName,
       mimeType: targetVersion.mimeType,
     };
+  }
+
+  async resolveTenantStoragePath(tenantId: string, normalizedPath: string): Promise<string> {
+    const filePath = String(normalizedPath || '').trim();
+    if (!filePath) {
+      throw new NotFoundException('Document storage file not found');
+    }
+
+    const version = await this.prisma.documentVersion.findFirst({
+      where: {
+        filePath: {
+          in: [filePath, `document-storage://${filePath}`],
+        },
+        document: {
+          tenantId,
+          deletedAt: null,
+        },
+      },
+      select: {
+        filePath: true,
+      },
+    });
+
+    if (!version) {
+      throw new NotFoundException('Document storage file not found');
+    }
+
+    return version.filePath;
   }
 
   async generateDocument(tenantId: string, templateCode: string, payload: any, metadata: any) {
@@ -261,5 +304,64 @@ export class DocumentsService {
 
   async saveFile(tenantId: string, folder: string, fileName: string, buffer: Buffer, mimeType: string) {
     return this.storageProvider.save(tenantId, folder, fileName, buffer, mimeType);
+  }
+
+  async createUploadedDocument(
+    tenantId: string,
+    folder: string,
+    fileName: string,
+    buffer: Buffer,
+    mimeType: string,
+    metadata: { createdBy?: string } = {},
+  ) {
+    const storageResult = await this.saveFile(tenantId, folder, fileName, buffer, mimeType);
+
+    try {
+      const records = await this.prisma.$transaction(async (tx) => {
+        const document = await tx.document.create({
+          data: {
+            tenantId,
+            code: `DOC-UPLOAD-${Date.now()}-${randomUUID()}`,
+            title: fileName,
+            type: 'OTHER' as any,
+            status: 'DRAFT' as any,
+            tags: [],
+            createdBy: metadata.createdBy,
+          },
+        });
+        const version = await tx.documentVersion.create({
+          data: {
+            documentId: document.id,
+            versionNumber: 1,
+            fileName,
+            filePath: storageResult.url,
+            mimeType: storageResult.mimeType,
+            size: storageResult.size,
+            createdBy: metadata.createdBy,
+          },
+        });
+        await tx.document.update({
+          where: { id: document.id },
+          data: { currentVersionId: version.id },
+        });
+
+        return { document, version };
+      });
+
+      return {
+        ...storageResult,
+        documentId: records.document.id,
+        versionId: records.version.id,
+      };
+    } catch (error) {
+      // Storage is written before the database transaction so its reference can
+      // be persisted. Roll it back when that transaction fails.
+      try {
+        await this.storageProvider.delete(storageResult.url);
+      } catch (cleanupError) {
+        this.logger.error(`Failed to clean up uploaded document storage ${storageResult.url}`, cleanupError);
+      }
+      throw error;
+    }
   }
 }

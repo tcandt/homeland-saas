@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
+import { RefundProofUploader } from "@/components/common/RefundProofUploader";
 import { financeApi, manualSePayAssignmentIdempotencyKey } from "@/lib/api/finance.api";
 import { financeKeys, useSePayReconciliationQuery } from "@/lib/queries/finance.queries";
 
@@ -17,11 +18,13 @@ const statusOptions = [
   { value: "UNMATCHED", label: "Chưa khớp" },
   { value: "SHORT_AMOUNT", label: "Thiếu tiền" },
   { value: "OVER_AMOUNT", label: "Thừa tiền" },
-  { value: "WRONG_BANK", label: "Sai ngân hàng" },
+  { value: "WRONG_BANK", label: "Sai tài khoản nhận" },
   { value: "IGNORED_OUTGOING", label: "Giao dịch ra" },
   { value: "FAILED", label: "Lỗi xử lý" },
   { value: "PROCESSING", label: "Đang xử lý" },
   { value: "PENDING_PROCESSING", label: "Chờ xử lý" },
+  { value: "NEEDS_REVIEW", label: "Cần rà soát" },
+  { value: "DUPLICATE_CONTENT", label: "Trùng nội dung" },
 ];
 
 const sourceTypeOptions = [
@@ -40,11 +43,13 @@ const statusLabels: Record<string, string> = {
   UNMATCHED: "Chưa khớp",
   SHORT_AMOUNT: "Thiếu tiền",
   OVER_AMOUNT: "Thừa tiền",
-  WRONG_BANK: "Sai ngân hàng",
+  WRONG_BANK: "Sai tài khoản nhận",
   IGNORED_OUTGOING: "Giao dịch ra",
   FAILED: "Lỗi xử lý",
   PROCESSING: "Đang xử lý",
   PENDING_PROCESSING: "Chờ xử lý",
+  NEEDS_REVIEW: "Cần rà soát",
+  DUPLICATE_CONTENT: "Trùng nội dung",
 };
 
 const statusClass: Record<string, string> = {
@@ -57,10 +62,29 @@ const statusClass: Record<string, string> = {
   FAILED: "bg-rose-50 text-rose-700",
   PROCESSING: "bg-amber-50 text-amber-700",
   PENDING_PROCESSING: "bg-amber-50 text-amber-700",
+  NEEDS_REVIEW: "bg-amber-50 text-amber-800",
+  DUPLICATE_CONTENT: "bg-rose-50 text-rose-700",
 };
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
 const formatDateTime = (value?: string | null) => (value ? new Date(value).toLocaleString("vi-VN") : "-");
+
+type ManualAssignmentCandidate = {
+  sourceType: "INVOICE" | "DEPOSIT";
+  sourceCode: string;
+  customerName?: string | null;
+  roomCode?: string | null;
+  buildingName?: string | null;
+  expectedAmount: number;
+  amountDelta: number;
+  matchReasons?: string[];
+};
+
+const candidateKey = (candidate: Pick<ManualAssignmentCandidate, "sourceType" | "sourceCode">) =>
+  `${candidate.sourceType}:${candidate.sourceCode}`;
+
+const candidateLabel = (candidate: ManualAssignmentCandidate) =>
+  `${candidate.sourceType === "INVOICE" ? "Hóa đơn" : "Phiếu cọc"} · ${candidate.sourceCode} · ${candidate.customerName || "Chưa rõ khách"} · ${candidate.roomCode || candidate.buildingName || "Chưa rõ phòng"} · ${formatVnd(candidate.expectedAmount)}`;
 
 export default function SePayReconciliationSummary() {
   const queryClient = useQueryClient();
@@ -72,13 +96,24 @@ export default function SePayReconciliationSummary() {
   const [resolutionRow, setResolutionRow] = useState<any | null>(null);
   const [refundCompletionRow, setRefundCompletionRow] = useState<any | null>(null);
   const [refundCompletionNote, setRefundCompletionNote] = useState("");
+  const [refundCompletionAttachmentUrls, setRefundCompletionAttachmentUrls] = useState<string[]>([]);
+  const [isRefundCompletionProofUploading, setIsRefundCompletionProofUploading] = useState(false);
   const [sourceType, setSourceType] = useState<"INVOICE" | "DEPOSIT">("INVOICE");
   const [sourceCode, setSourceCode] = useState("");
+  const [selectedCandidateKey, setSelectedCandidateKey] = useState("");
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [showManualCodeEntry, setShowManualCodeEntry] = useState(false);
   const [overpaymentResolution, setOverpaymentResolution] = useState<"CREDIT_BALANCE" | "CARRY_FORWARD" | "REFUND_PENDING">("CREDIT_BALANCE");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const params = useMemo(() => ({ year, ...(month ? { month } : {}), ...(status ? { status } : {}) }), [month, status, year]);
   const { data, isLoading, isError } = useSePayReconciliationQuery(params);
   const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const actionRequiredCount = Number(data?.summary?.unmatched || 0) +
+    Number(data?.summary?.wrongBank || 0) +
+    Number(data?.summary?.failed || 0) +
+    Number(data?.summary?.needsReview || 0);
+  const amountExceptionCount = Number(data?.summary?.shortAmount || 0) + Number(data?.summary?.overAmount || 0);
+  const inFlightCount = Number(data?.summary?.processing || 0) + Number(data?.summary?.pendingProcessing || 0);
 
   const yearOptions = useMemo(
     () =>
@@ -98,12 +133,50 @@ export default function SePayReconciliationSummary() {
     setActiveRow(row);
     setSourceType(row.sourceType === "DEPOSIT" ? "DEPOSIT" : "INVOICE");
     setSourceCode("");
+    setSelectedCandidateKey("");
+    setCandidateSearch("");
+    setShowManualCodeEntry(false);
   };
 
   const closeAssignModal = () => {
     setActiveRow(null);
     setSourceCode("");
+    setSelectedCandidateKey("");
+    setCandidateSearch("");
+    setShowManualCodeEntry(false);
     setIsSubmitting(false);
+  };
+
+  const allAssignmentCandidates = useMemo<ManualAssignmentCandidate[]>(() => {
+    return Array.isArray(activeRow?.manualAssignmentCandidates)
+      ? activeRow.manualAssignmentCandidates
+      : [];
+  }, [activeRow?.manualAssignmentCandidates]);
+
+  const assignmentCandidates = useMemo<ManualAssignmentCandidate[]>(() => {
+    const candidates = allAssignmentCandidates;
+    const normalizedSearch = candidateSearch.trim().toLocaleLowerCase("vi-VN");
+    if (!normalizedSearch) return candidates;
+
+    return candidates.filter((candidate: ManualAssignmentCandidate) =>
+      [candidate.sourceCode, candidate.customerName, candidate.roomCode, candidate.buildingName]
+        .filter(Boolean)
+        .some((value) => String(value).toLocaleLowerCase("vi-VN").includes(normalizedSearch)),
+    );
+  }, [allAssignmentCandidates, candidateSearch]);
+
+  const selectedCandidate = useMemo(
+    () => allAssignmentCandidates.find((candidate) => candidateKey(candidate) === selectedCandidateKey) || null,
+    [allAssignmentCandidates, selectedCandidateKey],
+  );
+
+  const selectAssignmentCandidate = (key: string) => {
+    setSelectedCandidateKey(key);
+    const candidate = assignmentCandidates.find((item) => candidateKey(item) === key);
+    if (!candidate) return;
+    setSourceType(candidate.sourceType);
+    setSourceCode(candidate.sourceCode);
+    setShowManualCodeEntry(false);
   };
 
   const openResolveModal = (row: any) => {
@@ -119,17 +192,21 @@ export default function SePayReconciliationSummary() {
   const openRefundCompletionModal = (row: any) => {
     setRefundCompletionRow(row);
     setRefundCompletionNote("");
+    setRefundCompletionAttachmentUrls([]);
+    setIsRefundCompletionProofUploading(false);
   };
 
   const closeRefundCompletionModal = () => {
     setRefundCompletionRow(null);
     setRefundCompletionNote("");
+    setRefundCompletionAttachmentUrls([]);
+    setIsRefundCompletionProofUploading(false);
     setIsSubmitting(false);
   };
 
   const handleManualAssign = async () => {
     if (!activeRow || !sourceCode.trim()) {
-      toast.error("Cần nhập mã hóa đơn hoặc mã cọc.");
+      toast.error("Cần chọn chứng từ đề xuất hoặc nhập mã thay thế.");
       return;
     }
 
@@ -172,11 +249,16 @@ export default function SePayReconciliationSummary() {
 
   const handleCompleteOverpaymentRefund = async () => {
     if (!refundCompletionRow) return;
+    if (refundCompletionAttachmentUrls.length === 0) {
+      toast.error("Cần tải chứng từ hoàn tiền trước khi xác nhận.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       await financeApi.completeSePayOverpaymentRefund({
         logId: refundCompletionRow.id,
         note: refundCompletionNote.trim() || undefined,
+        attachmentUrls: refundCompletionAttachmentUrls,
       });
       await queryClient.invalidateQueries({ queryKey: financeKeys.all });
       toast.success("Đã xác nhận hoàn tất hoàn dư.");
@@ -201,7 +283,7 @@ export default function SePayReconciliationSummary() {
             </div>
             <h2 className="mt-2 text-[16px] font-black text-text md:text-[18px]">Đối soát SePay</h2>
             <p className="mt-1 max-w-[760px] text-[12px] leading-5 text-muted md:text-[13px]">
-              Đọc webhook raw payload, phân loại giao dịch khớp hóa đơn hoặc cọc, thiếu tiền, thừa tiền, sai bank hoặc chưa match payment code.
+              Đọc webhook raw payload, phân loại giao dịch khớp hóa đơn hoặc cọc, thiếu tiền, thừa tiền, sai tài khoản nhận hoặc chưa khớp mã thanh toán.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:min-w-[470px] sm:grid-cols-3">
@@ -226,16 +308,12 @@ export default function SePayReconciliationSummary() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 border-b border-border p-[16px] md:grid-cols-4 lg:grid-cols-9 md:p-[20px]">
-          <Metric label="Tổng log" value={data?.summary?.total || 0} />
+        <div className="grid grid-cols-2 gap-3 border-b border-border p-[16px] md:grid-cols-5 md:p-[20px]">
+          <Metric label="Tổng giao dịch" value={data?.summary?.total || 0} />
           <Metric label="Đã khớp" value={data?.summary?.matched || 0} tone="success" />
-          <Metric label="Chưa match" value={data?.summary?.unmatched || 0} />
-          <Metric label="Thiếu" value={data?.summary?.shortAmount || 0} tone="warning" />
-          <Metric label="Thừa" value={data?.summary?.overAmount || 0} tone="info" />
-          <Metric label="Sai bank" value={data?.summary?.wrongBank || 0} tone="danger" />
-          <Metric label="Lỗi" value={data?.summary?.failed || 0} tone="danger" />
-          <Metric label="Đang xử lý" value={data?.summary?.processing || 0} tone="warning" />
-          <Metric label="Chờ xử lý" value={data?.summary?.pendingProcessing || 0} tone="warning" />
+          <Metric label="Cần xử lý" value={actionRequiredCount} tone="danger" />
+          <Metric label="Chênh lệch tiền" value={amountExceptionCount} tone="warning" />
+          <Metric label="Đang chạy" value={inFlightCount} tone="info" />
         </div>
 
         {isLoading && <div className="p-8 text-center text-[13px] font-semibold text-muted">Đang tải đối soát SePay...</div>}
@@ -243,33 +321,33 @@ export default function SePayReconciliationSummary() {
 
         {!isLoading && !isError && (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1460px] text-left text-sm">
+            <table className="w-full min-w-[960px] table-fixed text-left text-sm">
               <thead className="bg-surface text-[11px] uppercase text-muted">
                 <tr>
-                  <th className="px-4 py-3 font-black">Thời điểm</th>
-                  <th className="px-4 py-3 font-black">Trạng thái</th>
-                  <th className="px-4 py-3 font-black">Payment code</th>
-                  <th className="px-4 py-3 font-black">Nguồn</th>
-                  <th className="px-4 py-3 font-black">Phòng / tòa nhà</th>
-                  <th className="px-4 py-3 text-right font-black">Tiền vào</th>
-                  <th className="px-4 py-3 text-right font-black">Phải thu</th>
-                  <th className="px-4 py-3 font-black">Bank / owner</th>
-                  <th className="px-4 py-3 text-right font-black">Thao tác</th>
+                  <th className="w-[13%] px-4 py-3 font-black">Thời điểm</th>
+                  <th className="w-[14%] px-4 py-3 font-black">Trạng thái</th>
+                  <th className="w-[20%] px-4 py-3 font-black">Giao dịch</th>
+                  <th className="w-[25%] px-4 py-3 font-black">Nguồn và liên quan</th>
+                  <th className="w-[16%] px-4 py-3 text-right font-black">Đối chiếu tiền</th>
+                  <th className="w-[12%] px-4 py-3 text-right font-black">Thao tác</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-[13px] font-semibold text-muted">
+                    <td colSpan={6} className="px-4 py-8 text-center text-[13px] font-semibold text-muted">
                       Chưa có webhook SePay phù hợp bộ lọc.
                     </td>
                   </tr>
                 )}
                 {rows.map((row: any) => {
-                  const canManualAssign = ["UNMATCHED", "SHORT_AMOUNT", "OVER_AMOUNT", "WRONG_BANK", "FAILED"].includes(row.status);
+                  const isContentDuplicate = row.status === "DUPLICATE_CONTENT";
+                  const canManualAssign = ["UNMATCHED", "SHORT_AMOUNT", "OVER_AMOUNT", "WRONG_BANK", "FAILED", "NEEDS_REVIEW"].includes(row.status);
                   const isRefundPending =
                     row.overpaymentResolution === "REFUND_PENDING" && !row.overpaymentRefundCompletedAt;
-                  const canResolveOverpayment = row.status === "OVER_AMOUNT" && !row.overpaymentResolution;
+                  const canResolveOverpayment =
+                    ["OVER_AMOUNT", "DUPLICATE_CONTENT"].includes(row.status) &&
+                    !row.overpaymentResolution;
                   const resolutionLabel =
                     row.overpaymentResolution === "CREDIT_BALANCE"
                       ? "Đã chuyển dư có"
@@ -293,38 +371,45 @@ export default function SePayReconciliationSummary() {
                           {statusLabels[row.status] || row.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-black text-text">{row.paymentCode || "-"}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-text">{row.sourceType || "-"}</div>
-                        <div className="text-[11px] text-muted">
-                          {row.requestStatus || row.providerTransactionId || "-"}
+                      <td className="break-words px-4 py-3">
+                        <div className="font-black text-text">{row.paymentCode || "Không có mã"}</div>
+                        <div className="mt-1 text-[11px] text-muted">
+                          {row.providerTransactionId || "Chưa có mã giao dịch"}
                         </div>
+                        <div className="mt-1 text-[11px] text-muted">
+                          {row.bankAccount?.bankName || row.accountNumber || "Chưa xác định ngân hàng"}
+                        </div>
+                        {row.bankMatch === "SEPAY_VIRTUAL_ACCOUNT" ? (
+                          <div className="mt-1 text-[11px] font-semibold text-emerald-700">Tài khoản ảo SePay đã xác minh</div>
+                        ) : row.bankMatch === "MISMATCH" ? (
+                          <div className="mt-1 text-[11px] font-semibold text-rose-700">Tài khoản nhận không trùng QR đã tạo</div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-bold text-text">{row.sourceType || "Chưa gắn chứng từ"}</div>
+                        <div className="mt-1 text-[11px] text-muted">
+                          {row.roomCode || "Chưa xác định phòng"} · {row.buildingName || "Chưa xác định tòa"}
+                        </div>
+                        <div className="mt-1 text-[11px] text-muted">{row.owner?.name || "Chưa xác định chủ sở hữu"}</div>
                         {resolutionLabel ? (
-                          <div className="mt-1 text-[11px] font-semibold text-[#2563eb]">
-                            {resolutionLabel}
-                          </div>
+                          <div className="mt-1 text-[11px] font-semibold text-[#2563eb]">{resolutionLabel}</div>
                         ) : null}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-text">{row.roomCode || "-"}</div>
-                        <div className="text-[11px] text-muted">
-                          {row.buildingName || "Chưa xác định tòa nhà"}
-                        </div>
-                        {row.roomRentalTypeLabel ? (
-                          <div className="mt-1 text-[11px] font-semibold text-[#7c3aed]">
-                            {row.roomRentalTypeLabel}
-                            {row.roomMemberCount ? ` • ${row.roomMemberCount} người` : ""}
-                          </div>
+                        {row.overpaymentRefundReceiptId ? (
+                          <div className="mt-1 text-[11px] text-muted">Chứng từ hoàn: {row.overpaymentRefundReceiptId}</div>
                         ) : null}
-                      </td>
-                      <td className="px-4 py-3 text-right font-black text-[#059669]">{formatVnd(row.amount)}</td>
-                      <td className="px-4 py-3 text-right font-black text-text">{formatVnd(row.expectedAmount)}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-text">{row.bankAccount?.bankName || row.accountNumber || "-"}</div>
-                        <div className="text-[11px] text-muted">{row.owner?.name || "Chưa xác định owner"}</div>
+                        {Array.isArray(row.overpaymentRefundAttachmentUrls) && row.overpaymentRefundAttachmentUrls.length > 0 ? (
+                          <div className="mt-1 text-[11px] text-muted">{row.overpaymentRefundAttachmentUrls.length} tệp chứng từ đã lưu</div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="font-black text-[#059669]">{formatVnd(row.amount)}</div>
+                        <div className="mt-1 text-[11px] font-semibold text-text">Phải thu: {formatVnd(row.expectedAmount)}</div>
+                        <div className={`mt-1 text-[11px] font-semibold ${Number(row.amountDiff || 0) === 0 ? "text-muted" : Number(row.amountDiff || 0) < 0 ? "text-amber-700" : "text-blue-700"}`}>
+                          {Number(row.amountDiff || 0) === 0 ? "Khớp số tiền" : `Chênh ${formatVnd(Math.abs(Number(row.amountDiff || 0)))}`}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                           {isRefundPending && (
                             <Button
                               data-testid={`sepay-refund-complete-open-${row.id}`}
@@ -344,7 +429,7 @@ export default function SePayReconciliationSummary() {
                               onClick={() => openResolveModal(row)}
                             >
                               <RotateCcw size={14} className="mr-1.5" />
-                              Xử lý thừa
+                              {isContentDuplicate ? "Xử lý giao dịch trùng" : "Xử lý thừa"}
                             </Button>
                           )}
                           {canManualAssign ? (
@@ -355,7 +440,7 @@ export default function SePayReconciliationSummary() {
                               onClick={() => openAssignModal(row)}
                             >
                               <Link2 size={14} className="mr-1.5" />
-                              Gán tay
+                              Gán giao dịch
                             </Button>
                           ) : !canResolveOverpayment && !isRefundPending ? (
                             <span className="text-[12px] font-semibold text-muted">-</span>
@@ -375,15 +460,15 @@ export default function SePayReconciliationSummary() {
         isOpen={!!activeRow}
         onClose={closeAssignModal}
         title="Gán giao dịch SePay"
-        maxWidth="max-w-xl"
+        maxWidth="max-w-2xl"
         testId="sepay-manual-assign-modal"
         footer={
           <div className="flex items-center justify-end gap-3">
             <Button variant="outline" onClick={closeAssignModal}>
               Hủy
             </Button>
-            <Button data-testid="sepay-manual-assign-submit" onClick={handleManualAssign} disabled={isSubmitting}>
-              {isSubmitting ? "Đang gán..." : "Xác nhận gán"}
+            <Button data-testid="sepay-manual-assign-submit" onClick={handleManualAssign} disabled={isSubmitting || !sourceCode.trim()}>
+              {isSubmitting ? "Đang gán..." : "Gán theo lựa chọn"}
             </Button>
           </div>
         }
@@ -401,31 +486,87 @@ export default function SePayReconciliationSummary() {
               </div>
             </div>
 
-            <div className="rounded-[14px] border border-amber-200 bg-amber-50 p-3 text-[12px] leading-5 text-amber-800">
-              Gán tay sẽ đi qua luồng thanh toán hiện có của hóa đơn hoặc phiếu cọc. Hệ thống không tự xử lý phần tiền thừa ở bước này.
+            <div className="rounded-[8px] border border-amber-200 bg-amber-50 p-3 text-[12px] leading-5 text-amber-800">
+              Chọn chứng từ từ danh sách được lọc theo tenant, trạng thái và số tiền. Hệ thống vẫn kiểm tra số dư, ngân hàng, idempotency và audit trước khi ghi nhận.
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div>
-                <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">Loại nguồn</div>
-                <Select
-                  data-testid="sepay-manual-assign-source-type"
-                  value={sourceType}
-                  onChange={(event) => setSourceType(event.target.value as "INVOICE" | "DEPOSIT")}
-                  options={sourceTypeOptions}
-                />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[12px] font-black uppercase tracking-wide text-muted">Chứng từ đề xuất</div>
+                <div className="text-[11px] font-semibold text-muted">{allAssignmentCandidates.length} chứng từ có thể gán</div>
               </div>
-              <div>
-                <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">
-                  {sourceType === "INVOICE" ? "Mã hóa đơn" : "Mã phiếu cọc"}
+              <Input
+                data-testid="sepay-manual-assign-suggestion-search"
+                value={candidateSearch}
+                onChange={(event) => setCandidateSearch(event.target.value)}
+                placeholder="Lọc theo mã, khách thuê, phòng hoặc tòa nhà"
+              />
+              <Select
+                data-testid="sepay-manual-assign-suggestion-select"
+                value={selectedCandidateKey}
+                onChange={(event) => selectAssignmentCandidate(event.target.value)}
+                options={[
+                  { value: "", label: assignmentCandidates.length ? "Chọn chứng từ để gán" : "Không có chứng từ phù hợp" },
+                  ...assignmentCandidates.map((candidate) => ({
+                    value: candidateKey(candidate),
+                    label: candidateLabel(candidate),
+                  })),
+                ]}
+              />
+              {selectedCandidate ? (
+                <div data-testid="sepay-manual-assign-selected" className="rounded-[8px] border border-emerald-200 bg-emerald-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-black text-emerald-900">{candidateLabel(selectedCandidate)}</div>
+                    <div className="text-[12px] font-black text-emerald-700">Chênh {formatVnd(selectedCandidate.amountDelta)}</div>
+                  </div>
+                  <div className="mt-1 text-[11px] font-semibold text-emerald-800">
+                    {selectedCandidate.matchReasons?.length ? selectedCandidate.matchReasons.join(" · ") : "Cần kiểm tra lại trước khi gán"}
+                  </div>
                 </div>
-                <Input
-                  data-testid="sepay-manual-assign-source-code"
-                  value={sourceCode}
-                  onChange={(event) => setSourceCode(event.target.value)}
-                  placeholder={sourceType === "INVOICE" ? "VD: INV-001" : "VD: DEP-001"}
-                />
-              </div>
+              ) : (
+                <p className="text-[12px] leading-5 text-muted">
+                  Danh sách ưu tiên đúng mã thanh toán, loại chứng từ, phòng/khách/tòa nhà và chênh lệch số tiền thấp nhất.
+                </p>
+              )}
+            </div>
+
+            <div className="border-t border-border pt-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowManualCodeEntry((visible) => !visible);
+                  setSelectedCandidateKey("");
+                  setSourceCode("");
+                }}
+              >
+                {showManualCodeEntry ? "Ẩn nhập mã thay thế" : "Không thấy chứng từ? Nhập mã thay thế"}
+              </Button>
+              {showManualCodeEntry ? (
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">Loại nguồn</div>
+                    <Select
+                      data-testid="sepay-manual-assign-source-type"
+                      value={sourceType}
+                      onChange={(event) => setSourceType(event.target.value as "INVOICE" | "DEPOSIT")}
+                      options={sourceTypeOptions}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-2 text-[12px] font-black uppercase tracking-wide text-muted">
+                      {sourceType === "INVOICE" ? "Mã hóa đơn" : "Mã phiếu cọc"}
+                    </div>
+                    <Input
+                      data-testid="sepay-manual-assign-source-code"
+                      value={sourceCode}
+                      onChange={(event) => setSourceCode(event.target.value)}
+                      placeholder={sourceType === "INVOICE" ? "VD: INV-001" : "VD: DEP-001"}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         )}
@@ -434,7 +575,7 @@ export default function SePayReconciliationSummary() {
       <Modal
         isOpen={!!resolutionRow}
         onClose={closeResolveModal}
-        title="Xử lý tiền thừa SePay"
+        title={resolutionRow?.status === "DUPLICATE_CONTENT" ? "Xử lý giao dịch trùng nội dung" : "Xử lý tiền thừa SePay"}
         maxWidth="max-w-xl"
         testId="sepay-resolve-modal"
         footer={
@@ -460,13 +601,23 @@ export default function SePayReconciliationSummary() {
                 <div className="mt-2 text-[13px] font-black text-[#059669]">{formatVnd(resolutionRow.amount || 0)}</div>
               </div>
               <div className="rounded-[14px] border border-border bg-surface p-3">
-                <div className="text-[10px] font-black uppercase tracking-wide text-muted">Tiền thừa</div>
-                <div className="mt-2 text-[13px] font-black text-blue-600">{formatVnd(Math.max(0, Number(resolutionRow.amount || 0) - Number(resolutionRow.expectedAmount || 0)))}</div>
+                <div className="text-[10px] font-black uppercase tracking-wide text-muted">
+                  {resolutionRow.status === "DUPLICATE_CONTENT" ? "Giao dịch cần xử lý" : "Tiền thừa"}
+                </div>
+                <div className="mt-2 text-[13px] font-black text-blue-600">
+                  {formatVnd(
+                    resolutionRow.status === "DUPLICATE_CONTENT"
+                      ? Number(resolutionRow.amount || 0)
+                      : Math.max(0, Number(resolutionRow.amount || 0) - Number(resolutionRow.expectedAmount || 0)),
+                  )}
+                </div>
               </div>
             </div>
 
             <div className="rounded-[14px] border border-blue-200 bg-blue-50 p-3 text-[12px] leading-5 text-blue-900">
-              `Dư có khách hàng` và `Cấn trừ kỳ sau` sẽ tạo credit note để dùng về sau. `Chờ hoàn lại` sẽ tạo tác vụ vận hành để kế toán xử lý hoàn tiền.
+              {resolutionRow.status === "DUPLICATE_CONTENT"
+                ? "Đây là giao dịch ngân hàng mới có cùng nội dung với giao dịch đã xác nhận. Hệ thống không thu lần hai vào hóa đơn cũ; toàn bộ giao dịch này phải được ghi dư có, cấn kỳ sau hoặc hoàn lại."
+                : "`Dư có khách hàng` và `Cấn trừ kỳ sau` sẽ tạo credit note để dùng về sau. `Chờ hoàn lại` sẽ tạo tác vụ vận hành để kế toán xử lý hoàn tiền."}
             </div>
 
             <div>
@@ -500,7 +651,7 @@ export default function SePayReconciliationSummary() {
             <Button
               data-testid="sepay-refund-complete-submit"
               onClick={handleCompleteOverpaymentRefund}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isRefundCompletionProofUploading}
             >
               {isSubmitting ? "Đang cập nhật..." : "Xác nhận đã hoàn"}
             </Button>
@@ -535,7 +686,7 @@ export default function SePayReconciliationSummary() {
             </div>
 
             <div className="rounded-[14px] border border-amber-200 bg-amber-50 p-3 text-[12px] leading-5 text-amber-900">
-              Xác nhận này sẽ đóng tác vụ hoàn dư và ghi dấu vết vào payment request để đối soát sau.
+              Xác nhận này sẽ đóng tác vụ hoàn dư, hoàn tất chứng từ và ghi bút toán chi tiền để đối soát sau.
             </div>
 
             <div>
@@ -549,6 +700,14 @@ export default function SePayReconciliationSummary() {
                 placeholder="Mã giao dịch hoàn tiền, người thực hiện hoặc ghi chú nội bộ"
               />
             </div>
+            <RefundProofUploader
+              value={refundCompletionAttachmentUrls}
+              onChange={setRefundCompletionAttachmentUrls}
+              onUploadingChange={setIsRefundCompletionProofUploading}
+              disabled={isSubmitting}
+              required
+              folder="sepay-overpayment-refunds"
+            />
           </div>
         )}
       </Modal>

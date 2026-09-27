@@ -1,12 +1,82 @@
 "use client";
 
 import React, { useState } from "react";
-import { Search, SlidersHorizontal, ChevronDown, X, ArrowUpDown } from "lucide-react";
-import { useRoomsStore } from "@/lib/hooks/useRoomsStore";
+import { Search, SlidersHorizontal, X, ArrowUpDown } from "lucide-react";
+import { useRoomsStore } from "../../lib/hooks/useRoomsStore";
+import { useBuildingsQuery } from "../../lib/queries/buildings.queries";
+import { Select } from "../ui/Select";
+
+interface RoomFilterActions {
+  setSearch: (value: string) => void;
+  setBuildingId: (value: string) => void;
+  setFloorId: (value: string) => void;
+  setStatus: (value: string) => void;
+  setType: (value: string) => void;
+}
+
+export function resetRoomFilters(actions: RoomFilterActions) {
+  actions.setSearch("");
+  actions.setBuildingId("");
+  actions.setFloorId("");
+  actions.setStatus("");
+  actions.setType("");
+}
+
+const roomStatusOptions = [
+  { label: "Tất cả trạng thái", value: "" },
+  { label: "Trống", value: "AVAILABLE" },
+  { label: "Đã đặt chỗ", value: "RESERVED" },
+  { label: "Đang thuê", value: "OCCUPIED" },
+  { label: "Bảo trì", value: "MAINTENANCE" },
+  { label: "Đang dọn", value: "CLEANING" },
+  { label: "Ngưng sử dụng", value: "INACTIVE" },
+];
+
+const roomTypeOptions = [
+  { label: "Tất cả loại phòng", value: "" },
+  { label: "1 phòng ngủ", value: "1PN" },
+  { label: "2 phòng ngủ", value: "2PN" },
+  { label: "Studio", value: "Studio" },
+  { label: "Văn phòng", value: "Office" },
+  { label: "Ký túc xá", value: "Dorm" },
+];
 
 export default function RoomFilters() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const { search, setSearch, buildingId, setBuildingId, status, setStatus } = useRoomsStore();
+  const {
+    search,
+    setSearch,
+    buildingId,
+    setBuildingId,
+    floorId,
+    setFloorId,
+    status,
+    setStatus,
+    type,
+    setType,
+  } = useRoomsStore();
+  const { data: buildings = [] } = useBuildingsQuery({ limit: 100 });
+  const selectedBuilding = buildings.find((building: any) => building.id === buildingId);
+  const buildingOptions = [
+    { label: "Tất cả tòa nhà", value: "" },
+    ...buildings.map((building: any) => ({ label: building.name, value: building.id })),
+  ];
+  const floorOptions = [
+    { label: buildingId ? "Tất cả tầng" : "Chọn tòa nhà trước", value: "" },
+    ...((selectedBuilding?.floors || []).map((floor: any) => ({
+      label: `Tầng ${floor.number}`,
+      value: floor.id,
+    }))),
+  ];
+
+  const handleBuildingChange = (nextBuildingId: string) => {
+    setBuildingId(nextBuildingId);
+    setFloorId("");
+  };
+
+  const handleReset = () => {
+    resetRoomFilters({ setSearch, setBuildingId, setFloorId, setStatus, setType });
+  };
   
   return (
     <div className={`flex items-center gap-[6px] md:gap-[12px] bg-card border border-border rounded-[12px] md:rounded-[16px] h-[50px] md:h-[56px] p-[6px] md:px-[6px] md:py-0 shadow-sm w-full relative overflow-visible ${isFilterOpen ? 'z-[150]' : 'z-20'}`}>
@@ -61,37 +131,74 @@ export default function RoomFilters() {
               </button>
             </div>
             
-            <div className="grid grid-cols-2 gap-[10px]">
-              <FilterOption label="Tòa nhà" value={buildingId || "Tất cả"} onClick={() => setBuildingId(buildingId === "Tất cả" ? "" : "b1")} />
-              <FilterOption label="Trạng thái" value={status || "Tất cả"} onClick={() => setStatus(status === "Tất cả" ? "" : "occupied")} />
-              <FilterOption label="Loại phòng" value="Tất cả" onClick={() => {}} />
-              <FilterOption label="Tầng" value="Tất cả" onClick={() => {}} />
-              <FilterOption label="Tài chính" value="Tất cả" onClick={() => {}} />
-              <FilterOption label="Tạm trú" value="Tất cả" onClick={() => {}} />
+            <div className="grid grid-cols-1 gap-[12px]">
+              <label className="flex flex-col gap-1.5 text-[12px] font-bold text-muted" htmlFor="room-filter-building">
+                Tòa nhà
+                <Select
+                  id="room-filter-building"
+                  data-testid="room-filter-building"
+                  aria-label="Lọc theo tòa nhà"
+                  options={buildingOptions}
+                  value={buildingId}
+                  onChange={(event) => handleBuildingChange(event.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[12px] font-bold text-muted" htmlFor="room-filter-floor">
+                Tầng
+                <Select
+                  id="room-filter-floor"
+                  data-testid="room-filter-floor"
+                  aria-label="Lọc theo tầng"
+                  options={floorOptions}
+                  value={floorId}
+                  disabled={!buildingId || floorOptions.length === 1}
+                  onChange={(event) => setFloorId(event.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[12px] font-bold text-muted" htmlFor="room-filter-status">
+                Trạng thái
+                <Select
+                  id="room-filter-status"
+                  data-testid="room-filter-status"
+                  aria-label="Lọc theo trạng thái"
+                  options={roomStatusOptions}
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[12px] font-bold text-muted" htmlFor="room-filter-type">
+                Loại phòng
+                <Select
+                  id="room-filter-type"
+                  data-testid="room-filter-type"
+                  aria-label="Lọc theo loại phòng"
+                  options={roomTypeOptions}
+                  value={type}
+                  onChange={(event) => setType(event.target.value)}
+                />
+              </label>
             </div>
 
-            <button 
-              onClick={() => setIsFilterOpen(false)}
-              className="w-full mt-[20px] h-[44px] bg-[#6366f1] hover:bg-[#4f46e5] text-white rounded-[12px] font-bold text-[14px] transition-all duration-200 shadow-lg shadow-[#6366f1]/30 hover:shadow-xl hover:-translate-y-[2px]"
-            >
-              Áp dụng bộ lọc
-            </button>
+            <div className="mt-[20px] grid grid-cols-2 gap-[10px]">
+              <button
+                type="button"
+                data-testid="room-filter-reset"
+                onClick={handleReset}
+                className="h-[44px] rounded-[12px] border border-border font-bold text-[14px] text-text transition-colors hover:bg-surface"
+              >
+                Đặt lại
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen(false)}
+                className="h-[44px] bg-[#6366f1] hover:bg-[#4f46e5] text-white rounded-[12px] font-bold text-[14px] transition-all duration-200 shadow-lg shadow-[#6366f1]/30 hover:shadow-xl hover:-translate-y-[2px]"
+              >
+                Áp dụng bộ lọc
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
-
-function FilterOption({ label, value, onClick }: { label: string, value: string, onClick?: () => void }) {
-  return (
-    <div onClick={onClick} className="flex flex-col items-center justify-center p-[10px] md:p-[12px] bg-black/5 dark:bg-white/5 rounded-[10px] cursor-pointer hover:bg-black/10 dark:hover:bg-white/10 transition-colors text-center">
-      <span className="text-[10px] md:text-[11px] font-bold text-muted uppercase tracking-wider mb-[2px]">{label}</span>
-      <div className="flex items-center gap-[4px]">
-        <span className="text-[13px] md:text-[14px] font-bold text-[#6366f1] truncate max-w-[80px]">{value}</span>
-        <ChevronDown size={14} className="text-[#6366f1] shrink-0" />
-      </div>
-    </div>
-  );
-}
-

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { financeAdapter } from '../adapters/finance.adapter';
+import { financeApi } from '../api/finance.api';
 
 export const financeKeys = {
   all: ['finance'] as const,
@@ -7,6 +8,7 @@ export const financeKeys = {
   ledger: (params: any) => [...financeKeys.all, 'ledger', params] as const,
   cashFlow: (params: any) => [...financeKeys.all, 'cashFlow', params] as const,
   profitLoss: (params: any) => [...financeKeys.all, 'profitLoss', params] as const,
+  reconciliation: (params: any) => [...financeKeys.all, 'reconciliation', params] as const,
   building: (code: string, params: any) => [...financeKeys.all, 'building', code, params] as const,
   buildingProfitSummary: (params: any) => [...financeKeys.all, 'buildingProfitSummary', params] as const,
   ownerProfitSummary: () => [...financeKeys.all, 'ownerProfitSummary'] as const,
@@ -37,6 +39,13 @@ export function useProfitLossQuery(params?: Record<string, any>) {
   return useQuery({
     queryKey: financeKeys.profitLoss(params),
     queryFn: () => financeAdapter.getProfitLoss(params),
+  });
+}
+
+export function useReconciliationQuery(params?: Record<string, any>) {
+  return useQuery({
+    queryKey: financeKeys.reconciliation(params),
+    queryFn: () => financeApi.getReconciliation(params),
   });
 }
 

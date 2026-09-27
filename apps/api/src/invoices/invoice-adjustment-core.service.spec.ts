@@ -57,8 +57,10 @@ describe("InvoicesService CORE-07.01 adjustment command", () => {
       outboxEvent: { create: vi.fn() },
       payment: { create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
       paymentAllocation: { create: vi.fn(), findMany: vi.fn() },
+      paymentRequest: { findMany: vi.fn().mockResolvedValue([]) },
     };
     prisma = {
+      paymentRequest: { findMany: vi.fn().mockResolvedValue([]) },
       tx: {
         ...tx,
         $transaction: vi.fn(async (callback: any) => callback(tx)),
@@ -67,7 +69,6 @@ describe("InvoicesService CORE-07.01 adjustment command", () => {
     service = new InvoicesService(
       {} as any,
       { log: vi.fn() } as any,
-      { publish: vi.fn() } as any,
       prisma,
     );
   });

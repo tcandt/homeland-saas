@@ -145,6 +145,7 @@ export default function OperationsContractList() {
         <OperationsContractDrawer
           contract={selectedContract}
           onClose={() => setSelectedContract(null)}
+          onOpenContract={(nextContract) => setSelectedContract(nextContract)}
         />
       )}
     </div>

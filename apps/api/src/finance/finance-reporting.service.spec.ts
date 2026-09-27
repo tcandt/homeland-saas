@@ -88,6 +88,68 @@ describe('FinanceReportingService', () => {
     };
   }
 
+  it('builds period-scoped history from authoritative journals and excludes booking deposits', async () => {
+    const aggregate = vi.fn(({ where }: any) => {
+      const month = where.journalEntry.entryDate.gte.getMonth() + 1;
+      const amountByMonth: Record<number, Record<string, number>> = {
+        8: {
+          'REVENUE:CREDIT': 100,
+          'REVENUE:DEBIT': 20,
+          'EXPENSE:DEBIT': 50,
+          'EXPENSE:CREDIT': 10,
+        },
+        9: {
+          'REVENUE:CREDIT': 200,
+          'REVENUE:DEBIT': 0,
+          'EXPENSE:DEBIT': 80,
+          'EXPENSE:CREDIT': 0,
+        },
+      };
+      const key = `${where.account.type}:${where.type}`;
+      return Promise.resolve({ _sum: { amount: amountByMonth[month][key] } });
+    });
+    const journalLineFindMany = vi.fn(({ where }: any) => {
+      const month = where.journalEntry.entryDate.gte.getMonth() + 1;
+      return Promise.resolve(month === 9
+        ? [{ type: 'CREDIT', amount: 60, journalEntry: { sourceId: 'booking-invoice-1' } }]
+        : []);
+    });
+    const { service, prisma } = createService({
+      journalLine: { aggregate, findMany: journalLineFindMany },
+      invoice: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'booking-invoice-1', billingKind: 'BOOKING_DEPOSIT', total: 60, items: [] },
+        ]),
+        count: vi.fn(),
+      },
+    });
+
+    const history = await service.getProfitLossHistory('tenant-1', {
+      months: '2',
+      year: '2026',
+      month: '9',
+    });
+
+    expect(history).toMatchObject({
+      period: { months: 2, endYear: 2026, endMonth: 9 },
+      data: [
+        { key: '2026-08', revenue: 80, expense: 40, profit: 40 },
+        { key: '2026-09', revenue: 140, expense: 80, profit: 60 },
+      ],
+    });
+    expect(aggregate).toHaveBeenCalledTimes(8);
+    expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        journalEntry: expect.objectContaining({
+          status: { in: ['POSTED', 'REVERSED'] },
+          entryDate: expect.objectContaining({ gte: expect.any(Date), lte: expect.any(Date) }),
+        }),
+      }),
+    }));
+    expect(prisma.contract.findMany).not.toHaveBeenCalled();
+  });
+
   it('creates an expense with owner and audit metadata', async () => {
     const currentYear = new Date().getFullYear();
     const createdExpense = {
@@ -163,6 +225,17 @@ describe('FinanceReportingService', () => {
         title: expect.stringContaining('Yeu cau duyet chi'),
       }),
     }));
+  });
+
+  it('rejects create-time approval or payment states before writing an expense', async () => {
+    const { service, prisma } = createService();
+
+    await expect(service.createExpense('tenant-1', 'creator-1', {
+      amount: 250000,
+      status: 'PAID',
+    })).rejects.toThrow('EXPENSE_CREATE_STATUS_FORBIDDEN');
+
+    expect(prisma.expense.create).not.toHaveBeenCalled();
   });
 
   it('returns bank usage metadata for owners', async () => {
@@ -437,6 +510,308 @@ describe('FinanceReportingService', () => {
       buildingName: 'LK01-31',
       roomRentalTypeLabel: 'Phòng ghép',
       roomMemberCount: 3,
+    });
+  });
+
+  it('reconciles a SePay virtual account when the webhook also reports the main BIDV account', async () => {
+    const paymentRequests = vi.fn()
+      .mockResolvedValueOnce([
+        {
+          id: 'request-va-1',
+          tenantId: 'tenant-1',
+          paymentCode: 'HD31030926',
+          amount: 1000000,
+          sourceType: 'INVOICE',
+          sourceId: 'invoice-1',
+          status: 'CONFIRMED',
+          bankName: 'BIDV',
+          bankAccountNumber: 'SBSEPAYMKYNGRD9RLQJ',
+          metadata: {},
+          owner: null,
+          bankAccount: null,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    const { service } = createService({
+      paymentWebhookLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'log-va-1',
+            tenantId: 'tenant-1',
+            provider: 'SEPAY',
+            providerTransactionId: '32798',
+            payload: {
+              gateway: 'BIDV',
+              accountNumber: '0000000001',
+              subAccount: 'SBSEPAYMKYNGRD9RLQJ',
+              code: 'HD31030926',
+              transferType: 'in',
+              transferAmount: 1000000,
+            },
+            status: 'PROCESSED',
+            createdAt: new Date('2026-09-20T11:01:50.000Z'),
+            processedAt: new Date('2026-09-20T11:01:51.000Z'),
+          },
+        ]),
+      },
+      paymentRequest: { findMany: paymentRequests, count: vi.fn().mockResolvedValue(0) },
+    });
+
+    const result = await service.getSePayReconciliation('tenant-1', { year: '2026', month: '9' });
+
+    expect(result.summary).toMatchObject({ total: 1, matched: 1, wrongBank: 0 });
+    expect(result.rows[0]).toMatchObject({
+      status: 'MATCHED',
+      bankMatch: 'SEPAY_VIRTUAL_ACCOUNT',
+      paymentCode: 'HD31030926',
+    });
+  });
+
+  it('ranks only eligible tenant-scoped manual assignment candidates for a SePay exception', async () => {
+    const candidateRequests = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { sourceType: 'INVOICE', sourceId: 'invoice-exact-code', paymentCode: 'PAY-EXACT-1' },
+      ]);
+    const { service, prisma } = createService({
+      paymentWebhookLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'log-manual-candidate-1',
+            tenantId: 'tenant-1',
+            provider: 'SEPAY',
+            providerTransactionId: 'txn-manual-candidate-1',
+            payload: {
+              id: 'txn-manual-candidate-1',
+              code: 'PAY-EXACT-1',
+              transferType: 'in',
+              transferAmount: 250000,
+              accountNumber: '123456789',
+            },
+            status: 'NEEDS_REVIEW',
+            createdAt: new Date('2026-08-10T00:00:00.000Z'),
+            processedAt: new Date('2026-08-10T00:01:00.000Z'),
+          },
+        ]),
+      },
+      paymentRequest: { findMany: candidateRequests, count: vi.fn().mockResolvedValue(0) },
+      invoice: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'invoice-amount-match',
+            tenantId: 'tenant-1',
+            customerId: 'customer-amount-match',
+            code: 'INV-AMOUNT-MATCH',
+            total: 250000,
+            paidAmount: 0,
+            creditAmount: 0,
+            customer: { id: 'customer-amount-match', fullName: 'Khách đúng số tiền' },
+            contract: { room: { id: 'room-1', code: '31-01', name: null, buildingId: 'building-1', building: { id: 'building-1', name: 'LK01-31' } } },
+          },
+          {
+            id: 'invoice-exact-code',
+            tenantId: 'tenant-1',
+            customerId: 'customer-exact-code',
+            code: 'INV-EXACT-CODE',
+            total: 260000,
+            paidAmount: 0,
+            creditAmount: 0,
+            customer: { id: 'customer-exact-code', fullName: 'Khách đúng mã' },
+            contract: { room: { id: 'room-2', code: '31-02', name: null, buildingId: 'building-1', building: { id: 'building-1', name: 'LK01-31' } } },
+          },
+          {
+            id: 'invoice-other-tenant',
+            tenantId: 'tenant-2',
+            customerId: 'customer-other-tenant',
+            code: 'INV-OTHER-TENANT',
+            total: 250000,
+            paidAmount: 0,
+            creditAmount: 0,
+            customer: { id: 'customer-other-tenant', fullName: 'Không được lộ' },
+            contract: { room: { id: 'room-other', code: '99-99', name: null, buildingId: 'building-other', building: { id: 'building-other', name: 'Tòa khác' } } },
+          },
+        ]),
+        count: vi.fn(),
+      },
+      deposit: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'deposit-invalid-amount',
+            tenantId: 'tenant-1',
+            customerId: 'customer-deposit',
+            roomId: 'room-3',
+            code: 'DEP-INVALID-AMOUNT',
+            amount: 200000,
+            customer: { id: 'customer-deposit', fullName: 'Cọc sai số tiền' },
+            room: { id: 'room-3', code: '31-03', name: null, buildingId: 'building-1', building: { id: 'building-1', name: 'LK01-31' } },
+          },
+        ]),
+      },
+    });
+
+    const result = await service.getSePayReconciliation('tenant-1', { year: '2026', month: '8' });
+
+    expect(result.rows[0].manualAssignmentCandidates).toEqual([
+      expect.objectContaining({
+        sourceType: 'INVOICE',
+        sourceCode: 'INV-EXACT-CODE',
+        expectedAmount: 260000,
+        amountDelta: 10000,
+        matchReasons: expect.arrayContaining(['Đúng mã thanh toán']),
+      }),
+      expect.objectContaining({
+        sourceCode: 'INV-AMOUNT-MATCH',
+        expectedAmount: 250000,
+        amountDelta: 0,
+      }),
+    ]);
+    expect(result.rows[0].manualAssignmentCandidates).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ sourceCode: 'INV-OTHER-TENANT' })]),
+    );
+    expect(result.rows[0].manualAssignmentCandidates).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ sourceCode: 'DEP-INVALID-AMOUNT' })]),
+    );
+    expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        deletedAt: null,
+        status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] },
+      }),
+    }));
+    expect(prisma.deposit.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: 'tenant-1', deletedAt: null }),
+    }));
+  });
+
+  it('shows a distinct transfer with a confirmed memo as duplicate content inside its tenant only', async () => {
+    const { service, prisma } = createService({
+      paymentWebhookLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'log-content-duplicate',
+            tenantId: 'tenant-1',
+            provider: 'SEPAY',
+            providerTransactionId: 'txn-second-real-transfer',
+            payload: {
+              id: 'txn-second-real-transfer',
+              code: 'PAY-TENANT-ABC-XYZ',
+              transferType: 'in',
+              transferAmount: 100000,
+              accountNumber: '123456789',
+            },
+            status: 'NEEDS_REVIEW',
+            lastError: 'SEPAY_DUPLICATE_CONTENT:txn-canonical',
+            createdAt: new Date('2026-08-10T00:00:00.000Z'),
+            processedAt: new Date('2026-08-10T00:01:00.000Z'),
+          },
+        ]),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'request-1',
+            tenantId: 'tenant-1',
+            paymentCode: 'PAY-TENANT-ABC-XYZ',
+            amount: 100000,
+            sourceType: 'INVOICE',
+            sourceId: 'invoice-1',
+            status: 'CONFIRMED',
+            providerTransactionId: 'txn-canonical',
+            bankAccountNumber: '123456789',
+            metadata: {},
+            owner: null,
+            bankAccount: null,
+            room: null,
+            building: null,
+          },
+        ]),
+      },
+      room: { findMany: vi.fn().mockResolvedValue([]) },
+      building: { findMany: vi.fn().mockResolvedValue([]) },
+    });
+
+    const result = await service.getSePayReconciliation('tenant-1', { year: '2026', month: '8' });
+
+    expect(result.summary.needsReview).toBe(1);
+    expect(result.rows[0]).toMatchObject({
+      status: 'DUPLICATE_CONTENT',
+      isContentDuplicate: true,
+      paymentCode: 'PAY-TENANT-ABC-XYZ',
+    });
+    expect(prisma.paymentWebhookLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId: 'tenant-1' }),
+      }),
+    );
+  });
+
+  it('returns the refund receipt, journals, and proof files for each resolved overpayment log', async () => {
+    const { service } = createService({
+      paymentWebhookLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'log-refund-trace-1',
+            tenantId: 'tenant-1',
+            provider: 'SEPAY',
+            providerTransactionId: 'txn-refund-trace-1',
+            payload: {
+              id: 'txn-refund-trace-1',
+              code: 'PAY-TENANT-REFUND-TRACE-001',
+              transferType: 'in',
+              transferAmount: 150000,
+              overpaymentResolution: 'REFUND_PENDING',
+              overpaymentAmount: 50000,
+              overpaymentRefundReceiptId: 'receipt-refund-1',
+              overpaymentRefundPendingJournalId: 'journal-pending-1',
+              overpaymentRefundJournalId: 'journal-completed-1',
+              overpaymentRefundAttachmentUrls: ['/documents/refunds/txn-refund-trace-1.jpg'],
+            },
+            status: 'PROCESSED',
+            createdAt: new Date('2026-08-10T00:00:00.000Z'),
+            processedAt: new Date('2026-08-10T00:01:00.000Z'),
+          },
+        ]),
+      },
+      paymentRequest: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'request-refund-trace-1',
+            tenantId: 'tenant-1',
+            paymentCode: 'PAY-TENANT-REFUND-TRACE-001',
+            amount: 100000,
+            sourceType: 'INVOICE',
+            sourceId: 'invoice-refund-trace-1',
+            status: 'CONFIRMED',
+            bankAccountNumber: '123456789',
+            metadata: {
+              overpaymentResolutions: {
+                'log-refund-trace-1': {
+                  resolution: 'REFUND_PENDING',
+                  refundReceiptId: 'receipt-refund-1',
+                  refundPendingJournalId: 'journal-pending-1',
+                  refundJournalId: 'journal-completed-1',
+                  refundAttachmentUrls: ['/documents/refunds/txn-refund-trace-1.jpg'],
+                },
+              },
+            },
+            owner: null,
+            bankAccount: null,
+            room: null,
+            building: null,
+          },
+        ]),
+      },
+      room: { findMany: vi.fn().mockResolvedValue([]) },
+      building: { findMany: vi.fn().mockResolvedValue([]) },
+    });
+
+    const result = await service.getSePayReconciliation('tenant-1', { year: '2026', month: '8' });
+
+    expect(result.rows[0]).toMatchObject({
+      overpaymentRefundReceiptId: 'receipt-refund-1',
+      overpaymentRefundPendingJournalId: 'journal-pending-1',
+      overpaymentRefundJournalId: 'journal-completed-1',
+      overpaymentRefundAttachmentUrls: ['/documents/refunds/txn-refund-trace-1.jpg'],
     });
   });
 

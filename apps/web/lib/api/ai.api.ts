@@ -1,8 +1,10 @@
 import { apiClient } from './client';
 
 export const aiApi = {
-  chat: async (messages: any[], options?: any) => {
-    return apiClient.post('/ai/chat', { messages, options });
+  chat: async (messages: any[], options: any, idempotencyKey: string) => {
+    return apiClient.post('/ai/chat', { messages, options }, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
   },
 
   getConversations: async () => {

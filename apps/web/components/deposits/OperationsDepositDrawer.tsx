@@ -47,6 +47,7 @@ import { Select } from "../ui/Select";
 import { Badge } from "../ui/Badge";
 import DepositQrModal from "./DepositQrModal";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
+import { RefundProofUploader } from "../common/RefundProofUploader";
 
 const currencyFormatter = new Intl.NumberFormat("vi-VN");
 const timelineStepTitleClass =
@@ -82,13 +83,6 @@ function formatCurrency(value?: number | null) {
   return `${currencyFormatter.format(Number(value || 0))}đ`;
 }
 
-function parseAttachmentUrls(input: string) {
-  return input
-    .split(/\r?\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 export default function OperationsDepositDrawer({
   deposit,
   onClose,
@@ -122,7 +116,8 @@ export default function OperationsDepositDrawer({
   const [refundReceiptStatus, setRefundReceiptStatus] = useState<
     "COMPLETED" | "PENDING"
   >("COMPLETED");
-  const [refundAttachmentInput, setRefundAttachmentInput] = useState("");
+  const [refundAttachmentUrls, setRefundAttachmentUrls] = useState<string[]>([]);
+  const [isRefundProofUploading, setIsRefundProofUploading] = useState(false);
 
   // Form states for Cancel Modal
   const [cancelReason, setCancelReason] = useState("");
@@ -132,6 +127,8 @@ export default function OperationsDepositDrawer({
   const [cancelReceiptStatus, setCancelReceiptStatus] = useState<
     "COMPLETED" | "PENDING"
   >("COMPLETED");
+  const [cancelAttachmentUrls, setCancelAttachmentUrls] = useState<string[]>([]);
+  const [isCancelProofUploading, setIsCancelProofUploading] = useState(false);
 
   // Form states for Convert Modal
   const [convertSecurityRequired, setConvertSecurityRequired] = useState("");
@@ -141,6 +138,10 @@ export default function OperationsDepositDrawer({
 
   // Form state for Complete Pending Refund Modal
   const [completePendingNote, setCompletePendingNote] = useState("");
+  const [completePendingAttachmentUrls, setCompletePendingAttachmentUrls] =
+    useState<string[]>([]);
+  const [isCompletePendingProofUploading, setIsCompletePendingProofUploading] =
+    useState(false);
 
   // Shared idempotency key for actions
   const [actionIdempotencyKey, setActionIdempotencyKey] = useState("");
@@ -319,7 +320,8 @@ export default function OperationsDepositDrawer({
     setRefundReason("");
     setRefundAmountInput(String(availableBalance));
     setRefundReceiptStatus("COMPLETED");
-    setRefundAttachmentInput("");
+    setRefundAttachmentUrls([]);
+    setIsRefundProofUploading(false);
     setIsRefundModalOpen(true);
   };
 
@@ -340,14 +342,17 @@ export default function OperationsDepositDrawer({
       return;
     }
 
-    const attachmentUrls = parseAttachmentUrls(refundAttachmentInput);
+    if (refundReceiptStatus === "COMPLETED" && refundAttachmentUrls.length === 0) {
+      showToast("Cần tải ảnh, ảnh chụp camera hoặc PDF chứng minh đã hoàn tiền", "error");
+      return;
+    }
 
     refundMutation.mutate(
       {
         id: detailDeposit.id,
         reason: refundReason.trim(),
         receiptStatus: refundReceiptStatus,
-        attachmentUrls,
+        attachmentUrls: refundAttachmentUrls,
         refundAmount: parsedAmount,
         idempotencyKey: actionIdempotencyKey,
       },
@@ -378,6 +383,8 @@ export default function OperationsDepositDrawer({
     setCancelKeepAmount(isPaid ? String(availableBalance) : "");
     setCancelDeductAmount("");
     setCancelReceiptStatus("COMPLETED");
+    setCancelAttachmentUrls([]);
+    setIsCancelProofUploading(false);
     setIsCancelModalOpen(true);
   };
 
@@ -426,6 +433,14 @@ export default function OperationsDepositDrawer({
       );
       return;
     }
+    if (
+      parsedRefund > 0 &&
+      cancelReceiptStatus === "COMPLETED" &&
+      cancelAttachmentUrls.length === 0
+    ) {
+      showToast("Cần tải ảnh, ảnh chụp camera hoặc PDF chứng minh đã hoàn tiền", "error");
+      return;
+    }
 
     cancelMutation.mutate(
       {
@@ -436,6 +451,7 @@ export default function OperationsDepositDrawer({
         keepAmount: parsedKeep,
         deductAmount: parsedDeduct,
         receiptStatus: parsedRefund > 0 ? cancelReceiptStatus : undefined,
+        attachmentUrls: cancelAttachmentUrls,
         idempotencyKey: actionIdempotencyKey,
       },
       {
@@ -510,6 +526,8 @@ export default function OperationsDepositDrawer({
 
     setActionIdempotencyKey(createIdempotencyKey("complete-refund"));
     setCompletePendingNote("");
+    setCompletePendingAttachmentUrls([]);
+    setIsCompletePendingProofUploading(false);
     setIsCompletePendingModalOpen(true);
   };
 
@@ -519,12 +537,17 @@ export default function OperationsDepositDrawer({
       showToast("Lỗi: Không tìm thấy ID tác vụ (operationId)", "error");
       return;
     }
+    if (completePendingAttachmentUrls.length === 0) {
+      showToast("Cần tải ảnh, ảnh chụp camera hoặc PDF chứng minh đã hoàn tiền", "error");
+      return;
+    }
 
     completePendingRefundMutation.mutate(
       {
         operationId,
         depositId: detailDeposit.id,
         note: completePendingNote,
+        attachmentUrls: completePendingAttachmentUrls,
         idempotencyKey: actionIdempotencyKey,
       },
       {
@@ -892,6 +915,19 @@ export default function OperationsDepositDrawer({
                       {formatCurrency(refundSummary.receiptAmount)}
                     </span>
                   </div>
+                  {refundSummary.attachmentUrls?.length ? (
+                    <div className="border-t border-amber-500/20 pt-2 text-xs">
+                      <span className="block text-muted">Chứng từ đã tải:</span>
+                      <ul className="mt-1 space-y-1 text-text">
+                        {refundSummary.attachmentUrls.map((url) => (
+                          <li key={url} className="truncate" title={url}>
+                            <FileText size={12} className="mr-1 inline text-primary" />
+                            {decodeURIComponent(url.split("/").pop() || "Chứng từ hoàn tiền")}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {(refundSummary.taskStatus === "PENDING" ||
                     refundSummary.receiptStatus === "PENDING") && (
                     <div className="mt-1 flex justify-end">
@@ -1710,7 +1746,7 @@ export default function OperationsDepositDrawer({
               variant="outline"
               size="sm"
               onClick={() => setIsRefundModalOpen(false)}
-              disabled={refundMutation.isPending}
+              disabled={refundMutation.isPending || isRefundProofUploading}
             >
               Hủy bỏ
             </Button>
@@ -1720,6 +1756,7 @@ export default function OperationsDepositDrawer({
               className="bg-amber-500 hover:bg-amber-600 text-white font-bold"
               onClick={submitRefund}
               isLoading={refundMutation.isPending}
+              disabled={isRefundProofUploading}
             >
               Xác nhận hoàn cọc
             </Button>
@@ -1785,16 +1822,14 @@ export default function OperationsDepositDrawer({
             />
           </div>
 
-          <div>
-            <label className="text-xs font-bold text-text block mb-1">
-              Chứng từ / Link biên nhận (nếu có)
-            </label>
-            <Input
-              value={refundAttachmentInput}
-              onChange={(e) => setRefundAttachmentInput(e.target.value)}
-              placeholder="Nhập link ảnh giao dịch / biên lai chuyển khoản..."
-            />
-          </div>
+          <RefundProofUploader
+            value={refundAttachmentUrls}
+            onChange={setRefundAttachmentUrls}
+            onUploadingChange={setIsRefundProofUploading}
+            disabled={refundMutation.isPending}
+            required={refundReceiptStatus === "COMPLETED"}
+            folder="deposit-refunds"
+          />
         </div>
       </Modal>
 
@@ -1814,7 +1849,7 @@ export default function OperationsDepositDrawer({
               variant="outline"
               size="sm"
               onClick={() => setIsCancelModalOpen(false)}
-              disabled={cancelMutation.isPending || cancelUnpaidMutation.isPending}
+              disabled={cancelMutation.isPending || cancelUnpaidMutation.isPending || isCancelProofUploading}
             >
               Đóng
             </Button>
@@ -1824,6 +1859,7 @@ export default function OperationsDepositDrawer({
               className="bg-rose-500 hover:bg-rose-600 text-white font-bold"
               onClick={submitCancel}
               isLoading={cancelMutation.isPending || cancelUnpaidMutation.isPending}
+              disabled={isCancelProofUploading}
             >
               Xác nhận hủy phiếu
             </Button>
@@ -1917,29 +1953,39 @@ export default function OperationsDepositDrawer({
               </div>
 
               {Number(cancelRefundAmount) > 0 && (
-                <div>
-                  <label htmlFor="cancelReceiptStatus" className="text-xs font-bold text-text block mb-1">
-                    Trạng thái chi tiền hoàn
-                  </label>
-                  <Select
-                    data-testid="deposit-cancel-refund-status"
-                    id="cancelReceiptStatus"
-                    value={cancelReceiptStatus}
-                    onChange={(e) =>
-                      setCancelReceiptStatus(e.target.value as any)
-                    }
-                    options={[
-                      {
-                        label: "Đã chi tiền ngay cho khách (Hoàn tất)",
-                        value: "COMPLETED",
-                      },
-                      {
-                        label: "Tạo lệnh hoàn chờ xử lý (Kế toán duyệt)",
-                        value: "PENDING",
-                      },
-                    ]}
+                <>
+                  <div>
+                    <label htmlFor="cancelReceiptStatus" className="text-xs font-bold text-text block mb-1">
+                      Trạng thái chi tiền hoàn
+                    </label>
+                    <Select
+                      data-testid="deposit-cancel-refund-status"
+                      id="cancelReceiptStatus"
+                      value={cancelReceiptStatus}
+                      onChange={(e) =>
+                        setCancelReceiptStatus(e.target.value as any)
+                      }
+                      options={[
+                        {
+                          label: "Đã chi tiền ngay cho khách (Hoàn tất)",
+                          value: "COMPLETED",
+                        },
+                        {
+                          label: "Tạo lệnh hoàn chờ xử lý (Kế toán duyệt)",
+                          value: "PENDING",
+                        },
+                      ]}
+                    />
+                  </div>
+                  <RefundProofUploader
+                    value={cancelAttachmentUrls}
+                    onChange={setCancelAttachmentUrls}
+                    onUploadingChange={setIsCancelProofUploading}
+                    disabled={cancelMutation.isPending}
+                    required={cancelReceiptStatus === "COMPLETED"}
+                    folder="deposit-cancel-refunds"
                   />
-                </div>
+                </>
               )}
             </>
           )}
@@ -2088,7 +2134,7 @@ export default function OperationsDepositDrawer({
               variant="outline"
               size="sm"
               onClick={() => setIsCompletePendingModalOpen(false)}
-              disabled={completePendingRefundMutation.isPending}
+              disabled={completePendingRefundMutation.isPending || isCompletePendingProofUploading}
             >
               Hủy bỏ
             </Button>
@@ -2098,6 +2144,7 @@ export default function OperationsDepositDrawer({
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
               onClick={submitCompletePendingRefund}
               isLoading={completePendingRefundMutation.isPending}
+              disabled={isCompletePendingProofUploading}
             >
               Xác nhận đã chi tiền
             </Button>
@@ -2120,6 +2167,14 @@ export default function OperationsDepositDrawer({
               placeholder="Ví dụ: Đã CK Vietcombank FT123456789..."
             />
           </div>
+          <RefundProofUploader
+            value={completePendingAttachmentUrls}
+            onChange={setCompletePendingAttachmentUrls}
+            onUploadingChange={setIsCompletePendingProofUploading}
+            disabled={completePendingRefundMutation.isPending}
+            required
+            folder="deposit-refunds"
+          />
         </div>
       </Modal>
 

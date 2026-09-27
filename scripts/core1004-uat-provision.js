@@ -1,14 +1,30 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const { PrismaClient } = require('@prisma/client');
 const { readCanonicalInventory, fingerprint } = require('./baseline-v2-inventory');
 
-const EXPECTED_MIGRATIONS = 18;
+const migrationsRoot = path.resolve(__dirname, '../packages/database/prisma/migrations');
 const FLOW_KEYS = ['booking-hold','deposit-insufficient','deposit-exact','deposit-excess-refund','contract-activation','invoice-payment-retry','shared-room-a-b','renewal','transfer-shared-leave','final-settlement-move-out','reconciliation-drilldown'];
+
+function expectedMigrationCount(root = migrationsRoot) {
+  return fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(root, entry.name, 'migration.sql')))
+    .length;
+}
 
 function assertStaticGuards(env) {
   const deploymentEnv = env.DEPLOY_ENV || env.APP_ENV || env.ENVIRONMENT;
   if (deploymentEnv !== 'staging') throw new Error('REFUSED: deployment environment must be staging');
   if (env.ALLOW_UAT_FIXTURE_PROVISION !== 'true') throw new Error('REFUSED: ALLOW_UAT_FIXTURE_PROVISION must be true');
   if (!env.STAGING_DB_ID) throw new Error('REFUSED: STAGING_DB_ID is required');
+  if (!env.E2E_TARGET_DB_ID || env.E2E_TARGET_DB_ID !== env.STAGING_DB_ID) throw new Error('REFUSED: E2E_TARGET_DB_ID must equal STAGING_DB_ID');
+  if (!env.E2E_DATABASE_URL) throw new Error('REFUSED: E2E_DATABASE_URL is required');
+  if (env.E2E_DISPOSABLE_DATABASE !== 'true') throw new Error('REFUSED: E2E_DISPOSABLE_DATABASE must be true');
+  if (env.RUN_DESTRUCTIVE_E2E !== 'true') throw new Error('REFUSED: RUN_DESTRUCTIVE_E2E must be true');
+  if (!env.E2E_RUN_ID || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,80}$/.test(env.E2E_RUN_ID)) throw new Error('REFUSED: E2E_RUN_ID is required and has an invalid format');
+  const databaseUrl = new URL(env.E2E_DATABASE_URL);
+  if (!['postgres:', 'postgresql:'].includes(databaseUrl.protocol)) throw new Error('REFUSED: E2E_DATABASE_URL must be PostgreSQL');
+  if (decodeURIComponent(databaseUrl.pathname).replace(/^\//, '') !== env.STAGING_DB_ID) throw new Error('REFUSED: E2E_DATABASE_URL and STAGING_DB_ID disagree');
   if (!env.CORE1004_SCHEMA_FINGERPRINT) throw new Error('REFUSED: CORE1004_SCHEMA_FINGERPRINT is required');
   if (!env.FIXTURE_ID) throw new Error('REFUSED: FIXTURE_ID is required');
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,40}$/.test(env.FIXTURE_ID)) throw new Error('REFUSED: FIXTURE_ID format is invalid');
@@ -22,7 +38,7 @@ async function readIdentity(prisma) {
 
 function assertDatabaseGuards(identity, env) {
   if (identity.databaseId !== env.STAGING_DB_ID) throw new Error('REFUSED: connected database identity mismatch');
-  if (identity.migrationCount !== EXPECTED_MIGRATIONS) throw new Error('REFUSED: migration count mismatch');
+  if (identity.migrationCount !== expectedMigrationCount()) throw new Error('REFUSED: migration count mismatch');
   if (identity.schemaFingerprint !== env.CORE1004_SCHEMA_FINGERPRINT) throw new Error('REFUSED: schema fingerprint mismatch');
 }
 
@@ -102,7 +118,7 @@ async function provision(prisma, env = process.env) {
   });
   return validateProvisionResult({
     STATUS: 'PASS',
-    RUN_ID: env.E2E_RUN_ID || `core1004-${Date.now()}`,
+    RUN_ID: env.E2E_RUN_ID,
     FIXTURE_ID: fixtureId,
     TENANT_ID: tenantId,
     OWNER_A_ID: ownerAId,
@@ -117,9 +133,9 @@ async function provision(prisma, env = process.env) {
 }
 
 async function main() {
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({ datasources: { db: { url: process.env.E2E_DATABASE_URL } } });
   try { console.log(JSON.stringify(await provision(prisma))); }
   finally { await prisma.$disconnect(); }
 }
 if (require.main === module) main().catch((error) => { console.error(error.message); process.exit(1); });
-module.exports = { assertStaticGuards, assertDatabaseGuards, readIdentity, provision, stableId, validateProvisionResult, assertFixtureOwnership };
+module.exports = { assertStaticGuards, assertDatabaseGuards, expectedMigrationCount, readIdentity, provision, stableId, validateProvisionResult, assertFixtureOwnership };

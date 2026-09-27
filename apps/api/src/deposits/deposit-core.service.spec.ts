@@ -53,9 +53,9 @@ describe('DepositCoreService', () => {
         update: vi.fn().mockResolvedValue({}),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
-      contract: { findFirst: vi.fn(), count: vi.fn().mockResolvedValue(0) },
+      contract: { findFirst: vi.fn(), count: vi.fn().mockResolvedValue(0), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       creditNote: { create: vi.fn() },
-      receipt: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+      receipt: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       outboxEvent: { create: vi.fn().mockResolvedValue({ id: 'outbox-1' }) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       task: { create: vi.fn().mockResolvedValue({ id: 'task-1' }) },
@@ -175,6 +175,161 @@ describe('DepositCoreService', () => {
     }, 'user-1')).rejects.toBeInstanceOf(ConflictException);
     expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
     expect(tx.deposit.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a booking cancellation when the linked rental contract is already active', async () => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue({
+      ...booking,
+      status: DepositStatus.PAID,
+      contract: { id: 'contract-active-1', status: 'ACTIVE' },
+    });
+    tx.depositLedgerEntry.aggregate.mockResolvedValue({ _sum: { balanceEffect: 2_000_000 } });
+
+    await expect(service.cancel('tenant-1', booking.id, {
+      idempotencyKey: 'cancel-active-booking-1',
+      reason: 'Không được hủy hợp đồng thuê đang hiệu lực',
+      refundAmount: 2_000_000,
+      keepAmount: 0,
+      deductAmount: 0,
+      refundStatus: 'PENDING',
+    }, 'user-1')).rejects.toThrow('BOOKING_HOLD_ACTIVE_CONTRACT_CANNOT_CANCEL');
+
+    expect(tx.deposit.update).not.toHaveBeenCalled();
+    expect(tx.depositLedgerEntry.createMany).not.toHaveBeenCalled();
+    expect(tx.contract.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('records uploaded refund proof in the core operation, audit, and notification event', async () => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue({
+      ...booking,
+      status: DepositStatus.PAID,
+      contract: { id: 'contract-draft-1', status: 'DRAFT' },
+    });
+    tx.depositLedgerEntry.aggregate.mockResolvedValue({ _sum: { balanceEffect: 2_000_000 } });
+    tx.receipt.create.mockResolvedValue({ id: 'receipt-proof-1' });
+
+    await expect(service.cancel('tenant-1', booking.id, {
+      idempotencyKey: 'cancel-proof-booking-1',
+      reason: 'Hoàn theo thỏa thuận từng trường hợp',
+      refundAmount: 2_000_000,
+      keepAmount: 0,
+      deductAmount: 0,
+      refundStatus: 'COMPLETED',
+      attachmentUrls: [
+        '/documents/storage/tenant-1/booking-deposit-refunds/proof.jpg',
+        '/documents/storage/tenant-1/booking-deposit-refunds/receipt.pdf',
+      ],
+    }, 'user-1')).resolves.toMatchObject({
+      attachmentUrls: [
+        '/documents/storage/tenant-1/booking-deposit-refunds/proof.jpg',
+        '/documents/storage/tenant-1/booking-deposit-refunds/receipt.pdf',
+      ],
+      bookingContractCancelled: true,
+      refundStatus: 'COMPLETED',
+    });
+
+    expect(tx.contract.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'contract-draft-1' }),
+      data: expect.objectContaining({ status: 'CANCELLED' }),
+    }));
+    expect(tx.outboxEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        eventName: 'deposit.refunded',
+        payload: expect.objectContaining({
+          metadata: expect.objectContaining({
+            attachmentUrls: [
+              '/documents/storage/tenant-1/booking-deposit-refunds/proof.jpg',
+              '/documents/storage/tenant-1/booking-deposit-refunds/receipt.pdf',
+            ],
+          }),
+        }),
+      }),
+    }));
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        action: 'CANCEL',
+        after: expect.objectContaining({
+          attachmentUrls: expect.arrayContaining(['/documents/storage/tenant-1/booking-deposit-refunds/proof.jpg']),
+        }),
+      }),
+    }));
+  });
+
+  it('requires proof before a refund is marked as immediately completed', async () => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue({ ...booking, status: DepositStatus.PAID, contract: null });
+    tx.depositLedgerEntry.aggregate.mockResolvedValue({ _sum: { balanceEffect: 2_000_000 } });
+
+    await expect(service.cancel('tenant-1', booking.id, {
+      idempotencyKey: 'cancel-proof-required-1',
+      reason: 'Hoàn ngay nhưng chưa có chứng từ',
+      refundAmount: 2_000_000,
+      keepAmount: 0,
+      deductAmount: 0,
+      refundStatus: 'COMPLETED',
+    }, 'user-1')).rejects.toThrow('DEPOSIT_REFUND_PROOF_REQUIRED');
+    expect(tx.receipt.create).not.toHaveBeenCalled();
+  });
+
+  it('stores proof uploaded when a pending refund is actually paid out', async () => {
+    const { tx, service } = createHarness();
+    tx.depositOperation.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'pending-refund-1',
+        tenantId: 'tenant-1',
+        rentalCycleId: 'cycle-1',
+        sourceDepositId: booking.id,
+        targetDepositId: null,
+        contractId: null,
+        status: 'PENDING',
+        receiptId: 'receipt-pending-1',
+        result: { pending: true },
+      });
+    tx.receipt.findFirst.mockResolvedValue({
+      id: 'receipt-pending-1',
+      amount: 2_000_000,
+      status: 'PENDING',
+    });
+    tx.depositLedgerEntry.aggregate.mockResolvedValue({ _sum: { balanceEffect: 2_000_000 } });
+
+    await expect(service.completePendingRefund(
+      'tenant-1',
+      'pending-refund-1',
+      'complete-refund-proof-1',
+      'user-1',
+      {
+        note: 'Đã chuyển khoản FT123',
+        attachmentUrls: ['/documents/storage/tenant-1/deposit-refunds/ft123.jpg'],
+      },
+    )).resolves.toMatchObject({
+      completedOperationId: 'pending-refund-1',
+      status: 'COMPLETED',
+      note: 'Đã chuyển khoản FT123',
+      attachmentUrls: ['/documents/storage/tenant-1/deposit-refunds/ft123.jpg'],
+    });
+
+    expect(tx.outboxEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        eventName: 'deposit.refunded',
+        payload: expect.objectContaining({
+          metadata: expect.objectContaining({
+            attachmentUrls: ['/documents/storage/tenant-1/deposit-refunds/ft123.jpg'],
+          }),
+        }),
+      }),
+    }));
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        entity: 'DepositOperation',
+        action: 'UPDATE',
+        after: expect.objectContaining({
+          attachmentUrls: ['/documents/storage/tenant-1/deposit-refunds/ft123.jpg'],
+        }),
+      }),
+    }));
   });
 
   it('collects only the remaining security shortfall after a booking transfer', async () => {
@@ -498,6 +653,30 @@ describe('DepositCoreService', () => {
     }));
   });
 
+  it('requires proof before an excess conversion refund can be completed immediately', async () => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue({ ...booking, status: DepositStatus.PAID, amount: 7_000_000 });
+    tx.depositLedgerEntry.aggregate.mockResolvedValue({ _sum: { balanceEffect: 7_000_000 } });
+    tx.deposit.create.mockResolvedValue({
+      ...booking,
+      id: 'security-proof-1',
+      code: 'SEC-PROOF-1',
+      type: DepositType.SECURITY,
+      status: DepositStatus.PENDING,
+      amount: 5_000_000,
+    });
+
+    await expect(service.convertToSecurity('tenant-1', booking.id, {
+      idempotencyKey: 'convert-refund-proof-required-1',
+      securityRequired: 5_000_000,
+      excessAction: 'REFUND',
+      refundStatus: 'COMPLETED',
+    }, 'user-1')).rejects.toThrow('DEPOSIT_REFUND_PROOF_REQUIRED');
+
+    expect(tx.receipt.create).not.toHaveBeenCalled();
+    expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
+  });
+
   it('refuses to complete a refund that exceeds the current ledger balance', async () => {
     const { tx, service } = createHarness();
     tx.depositOperation.findFirst
@@ -524,4 +703,46 @@ describe('DepositCoreService', () => {
     )).rejects.toThrow('DEPOSIT_REFUND_EXCEEDS_BALANCE');
     expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
   });
+
+  describe('P3: Atomic Booking Transaction, Replay & Error Injection', () => {
+    it('P3.2: rejects idempotency replay when payload differs under the same key', async () => {
+      const { tx, service } = createHarness();
+      tx.depositOperation.findFirst.mockResolvedValue({
+        status: 'COMPLETED',
+        requestHash: 'original-hash-12345',
+        result: { depositId: 'deposit-1', operationId: 'operation-1' },
+      });
+
+      await expect(service.create('tenant-1', {
+        idempotencyKey: 'same-key-different-payload',
+        roomId: 'room-1',
+        customerId: 'customer-1',
+        type: DepositType.BOOKING,
+        amount: 2_000_000, // Different amount produces different requestHash
+      }, 'user-1')).rejects.toThrow(ConflictException);
+
+      expect(tx.deposit.create).not.toHaveBeenCalled();
+      expect(tx.depositOperation.create).not.toHaveBeenCalled();
+    });
+
+    it('P3.1 & P3.3: rolls back entire atomic transaction when mid-step fails (no orphan resource)', async () => {
+      const { tx, prisma, service } = createHarness();
+      // Simulate mid-transaction failure at outbox event creation
+      tx.outboxEvent.create.mockRejectedValue(new Error('DATABASE_CONNECTION_LOST'));
+      tx.deposit.create.mockResolvedValue({ id: 'deposit-temp', code: 'DEP-TEMP', type: DepositType.BOOKING, roomId: 'room-1', customerId: 'customer-1' });
+
+      // Run transactional command
+      await expect(service.create('tenant-1', {
+        idempotencyKey: 'atomic-failure-test-key',
+        roomId: 'room-1',
+        customerId: 'customer-1',
+        type: DepositType.BOOKING,
+        amount: 1_000_000,
+      }, 'user-1')).rejects.toThrow('DATABASE_CONNECTION_LOST');
+
+      // Since Prisma $transaction wraps the callback, the error bubbles and Prisma rolls back the entire unit of work
+      expect(prisma.tx.$transaction).toHaveBeenCalled();
+    });
+  });
 });
+

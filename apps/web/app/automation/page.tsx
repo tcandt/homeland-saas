@@ -8,6 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { LoadingState } from "@/components/ui/LoadingState";
+import { manualRunPresentation, parseManualExecution, type ManualExecution } from '@/lib/automation/manual-run-status';
 import { Play, Settings, Clock, Activity, Bell, ListTodo, RefreshCw, CircleX } from 'lucide-react';
 
 const getAuthToken = () => {
@@ -25,24 +27,34 @@ const getAuthToken = () => {
 
 const fetcher = async (url: string) => {
   const token = getAuthToken();
-  console.log(`[Fetcher] Token present? ${!!token} for url ${url}`);
-  if (token) {
-    console.log(`[Fetcher] Token prefix: ${token.substring(0, 15)}`);
-  }
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
   if (!res.ok) {
-    console.error(`[Fetcher] Request failed with status ${res.status} for ${url}`);
-    throw new Error('An error occurred while fetching the data.');
+    throw new Error(`Không thể tải dữ liệu tự động (HTTP ${res.status}).`);
   }
   const json = await res.json();
   return json.data || json;
+};
+
+const getResponseError = async (response: Response, fallback: string) => {
+  try {
+    const body = await response.json();
+    const message = body?.message || body?.error?.message;
+    if (typeof message === 'string' && message.trim()) {
+      return message;
+    }
+  } catch {
+    // Fall through to the HTTP status when the response has no JSON error body.
+  }
+
+  return `${fallback} (HTTP ${response.status}).`;
 };
 
 export default function AutomationCommandCenter() {
   const [activeTab, setActiveTab] = useState('workflows');
   const [workflowPayloads, setWorkflowPayloads] = useState<Record<string, string>>({
     'deposit.collected.workflow': JSON.stringify({
-      tenantId: '',
       customerId: '',
       roomId: '',
       buildingId: '',
@@ -51,7 +63,6 @@ export default function AutomationCommandCenter() {
       id: ''
     }, null, 2),
     'invoice.paid.workflow': JSON.stringify({
-      tenantId: '',
       customerId: '',
       amount: 5000000,
       sourceType: 'INVOICE',
@@ -61,12 +72,10 @@ export default function AutomationCommandCenter() {
 
   const [rulePayloads, setRulePayloads] = useState<Record<string, string>>({
     'contract.expiring.30_days': JSON.stringify({
-      tenantId: '',
       customerId: '',
       endDate: new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString()
     }, null, 2),
     'invoice.overdue.7_days': JSON.stringify({
-      tenantId: '',
       customerId: '',
       dueDate: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString(),
       status: 'UNPAID'
@@ -79,7 +88,35 @@ export default function AutomationCommandCenter() {
   const { data: rules, error: rulesErr, mutate: mutateRules } = useSWR('/api/v1/automation/rules', fetcher);
   const { data: executions, error: executionsErr, mutate: mutateExecutions } = useSWR('/api/v1/automation/executions', fetcher, { refreshInterval: 2000 });
   const { data: queue, error: queueErr, mutate: mutateQueue } = useSWR('/api/v1/notifications/queue', fetcher, { refreshInterval: 2000 });
+  const workflowRows = Array.isArray(workflows) ? workflows : [];
+  const ruleRows = Array.isArray(rules) ? rules : [];
   const queueRows = Array.isArray(queue) ? queue : Array.isArray(queue?.rows) ? queue.rows : [];
+
+  const pollManualExecution = async (type: 'Workflow' | 'Rule', name: string, executionId: string) => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 1000));
+      try {
+        const execution = parseManualExecution(await fetcher(`/api/v1/automation/executions/${executionId}`));
+        const presentation = manualRunPresentation(type, name, execution);
+        setStatusMessage(presentation.message);
+        void mutateExecutions().catch(() => undefined);
+        if (!presentation.shouldPoll) {
+          return;
+        }
+      } catch {
+        return;
+      }
+    }
+  };
+
+  const showManualExecutionStatus = (type: 'Workflow' | 'Rule', name: string, execution: ManualExecution) => {
+    const presentation = manualRunPresentation(type, name, execution);
+    setStatusMessage(presentation.message);
+    void mutateExecutions().catch(() => undefined);
+    if (presentation.shouldPoll) {
+      void pollManualExecution(type, name, execution.executionId);
+    }
+  };
 
   const runWorkflow = async (name: string) => {
     try {
@@ -91,14 +128,15 @@ export default function AutomationCommandCenter() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload)
       });
       
-      if (!res.ok) throw new Error('Failed to execute workflow');
-      setStatusMessage(`Workflow ${name} triggered successfully.`);
-      mutateExecutions();
+      if (!res.ok) {
+        throw new Error(await getResponseError(res, 'Không thể gửi yêu cầu chạy workflow'));
+      }
+      showManualExecutionStatus('Workflow', name, parseManualExecution(await res.json()));
     } catch (err: any) {
       setStatusMessage(`Error: ${err.message}`);
     }
@@ -114,14 +152,15 @@ export default function AutomationCommandCenter() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload)
       });
       
-      if (!res.ok) throw new Error('Failed to execute rule');
-      setStatusMessage(`Rule ${name} triggered successfully.`);
-      mutateExecutions();
+      if (!res.ok) {
+        throw new Error(await getResponseError(res, 'Không thể gửi yêu cầu chạy rule'));
+      }
+      showManualExecutionStatus('Rule', name, parseManualExecution(await res.json()));
     } catch (err: any) {
       setStatusMessage(`Error: ${err.message}`);
     }
@@ -191,9 +230,23 @@ export default function AutomationCommandCenter() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  {(workflows || [
-                    { name: 'deposit.collected.workflow', triggerEvent: 'deposit.collected', steps: [] }
-                  ]).map((w: any, i: number) => (
+                  {workflowsErr ? (
+                    <EmptyState
+                      data-testid="workflows-unavailable"
+                      title="Không thể tải workflows"
+                      message={workflowsErr.message || 'Không có dữ liệu workflow để hiển thị.'}
+                      icon={<Settings size={48} />}
+                    />
+                  ) : !workflows ? (
+                    <LoadingState message="Đang tải workflows..." />
+                  ) : workflowRows.length === 0 ? (
+                    <EmptyState
+                      data-testid="workflows-empty"
+                      title="Chưa có workflow"
+                      message="Tenant này chưa có workflow khả dụng."
+                      icon={<Settings size={48} />}
+                    />
+                  ) : workflowRows.map((w: any, i: number) => (
                     <div key={i} data-testid="workflow-card" className="p-4 border border-border rounded-xl bg-surface shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
@@ -292,9 +345,23 @@ export default function AutomationCommandCenter() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  {(rules || [
-                    { name: 'contract.expiring.30_days', description: 'Trigger when a contract expires within 30 days' }
-                  ]).map((r: any, i: number) => (
+                  {rulesErr ? (
+                    <EmptyState
+                      data-testid="rules-unavailable"
+                      title="Không thể tải rules"
+                      message={rulesErr.message || 'Không có dữ liệu rule để hiển thị.'}
+                      icon={<Clock size={48} />}
+                    />
+                  ) : !rules ? (
+                    <LoadingState message="Đang tải rules..." />
+                  ) : ruleRows.length === 0 ? (
+                    <EmptyState
+                      data-testid="rules-empty"
+                      title="Chưa có rule"
+                      message="Tenant này chưa có rule khả dụng."
+                      icon={<Clock size={48} />}
+                    />
+                  ) : ruleRows.map((r: any, i: number) => (
                     <div key={i} data-testid="rule-card" className="p-4 border border-border rounded-xl bg-surface shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
                         <div>

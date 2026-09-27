@@ -1,15 +1,19 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { PaginationSchema } from '@homeland/shared';
 import { SalesService } from './sales.service';
+import { SalesStageService, UpdateSalesLeadStageInput } from './sales-stage.service';
 
 @ApiTags('Sales')
 @ApiBearerAuth()
 @Controller('sales')
 export class SalesController {
-  constructor(private readonly salesService: SalesService) {}
+  constructor(
+    private readonly salesService: SalesService,
+    private readonly salesStageService: SalesStageService,
+  ) {}
 
   @Get()
   @RequirePermissions('sales.read')
@@ -22,6 +26,26 @@ export class SalesController {
     const { page, limit, search, sort, order } = PaginationSchema.parse(query);
     const status = query.status;
     return this.salesService.listLeads(page, limit, search, status, sort, order);
+  }
+
+  @Get('summary')
+  @RequirePermissions('sales.read')
+  @ApiOperation({ summary: 'Get tenant sales summary' })
+  summary(@CurrentUser('tenantId') tenantId: string) {
+    return this.salesService.getSummary(tenantId);
+  }
+
+  @Patch(':id/stage')
+  @RequirePermissions('sales.update')
+  @ApiOperation({ summary: 'Update a sales lead pipeline stage' })
+  updateStage(
+    @Param('id') id: string,
+    @Body() input: UpdateSalesLeadStageInput,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.salesStageService.updateStage(tenantId, userId, id, input, idempotencyKey);
   }
 
   @Get(':id')

@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { InvoiceListParams, invoicesApi } from "../api/invoices.api";
+import {
+  InvoiceListParams,
+  invoicesApi,
+  PaymentPromiseInput,
+} from "../api/invoices.api";
+import { financeKeys } from "./finance.queries";
 
 export type InvoiceQueryOptions = {
   /** Do not fetch a finance-scoped list until its exact rental cycle is known. */
@@ -23,6 +28,8 @@ export const invoiceKeys = {
   list: (params: any) => [...invoiceKeys.lists(), params] as const,
   details: () => [...invoiceKeys.all, "detail"] as const,
   detail: (id: string) => [...invoiceKeys.details(), id] as const,
+  paymentPromises: (id: string) =>
+    [...invoiceKeys.detail(id), "payment-promises"] as const,
 };
 
 export const useInvoicesQuery = (
@@ -103,6 +110,32 @@ export const usePayInvoiceMutation = () => {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
       queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
+    },
+  });
+};
+
+export const useInvoicePaymentPromisesQuery = (
+  id: string,
+  options: Pick<InvoiceQueryOptions, "enabled" | "refetchInterval"> = {},
+) => {
+  return useQuery({
+    queryKey: invoiceKeys.paymentPromises(id),
+    queryFn: () => invoicesApi.listPaymentPromises(id),
+    enabled: !!id && (options.enabled ?? true),
+    refetchInterval: options.refetchInterval,
+  });
+};
+
+export const useCreateInvoicePaymentPromiseMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: PaymentPromiseInput }) =>
+      invoicesApi.createPaymentPromise(id, input),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.paymentPromises(id) });
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
     },
   });
 };

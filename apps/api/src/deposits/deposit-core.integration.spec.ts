@@ -30,7 +30,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
     });
     for (const suffix of ['a', 'b']) {
       await prisma.customer.create({
-        data: { id: `customer-core04-${suffix}`, tenantId, fullName: `Khách ${suffix}`, phone: `090000000${suffix === 'a' ? '1' : '2'}` },
+        data: { id: `customer-core04-${suffix}`, tenantId, fullName: `Khách ${suffix}`, phone: `090000000${suffix === 'a' ? '1' : '2'}`, phoneNormalized: `090000000${suffix === 'a' ? '1' : '2'}` },
       });
       await prisma.rentalCycle.create({
         data: { id: `cycle-core04-${suffix}`, tenantId, customerId: `customer-core04-${suffix}`, roomId, status: 'PLANNED' },
@@ -83,7 +83,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
       },
     });
     const resident = await prisma.customer.create({
-      data: { id: 'customer-core04-shared-resident', tenantId, fullName: 'Khách đang ở', phone: '0900000100' },
+      data: { id: 'customer-core04-shared-resident', tenantId, fullName: 'Khách đang ở', phone: '0900000100', phoneNormalized: '0900000100' },
     });
     const residentCycle = await prisma.rentalCycle.create({
       data: { id: 'cycle-core04-shared-resident', tenantId, customerId: resident.id, roomId: sharedRoom.id, status: 'ACTIVE' },
@@ -100,7 +100,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
     const depositIds: string[] = [];
     for (const suffix of ['1', '2', '3']) {
       const customer = await prisma.customer.create({
-        data: { id: `customer-core04-shared-${suffix}`, tenantId, fullName: `Khách ghép ${suffix}`, phone: `090000010${suffix}` },
+        data: { id: `customer-core04-shared-${suffix}`, tenantId, fullName: `Khách ghép ${suffix}`, phone: `090000010${suffix}`, phoneNormalized: `090000010${suffix}` },
       });
       const cycle = await prisma.rentalCycle.create({
         data: { id: `cycle-core04-shared-${suffix}`, tenantId, customerId: customer.id, roomId: sharedRoom.id, status: 'PLANNED' },
@@ -169,7 +169,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
       },
     });
     const customer = await prisma.customer.create({
-      data: { id: 'customer-core05-convert', tenantId, fullName: 'Khách chuyển cọc', phone: '0900000188' },
+      data: { id: 'customer-core05-convert', tenantId, fullName: 'Khách chuyển cọc', phone: '0900000188', phoneNormalized: '0900000188' },
     });
     const cycle = await prisma.rentalCycle.create({
       data: { id: 'cycle-core05-convert', tenantId, customerId: customer.id, roomId: room.id, status: 'PLANNED' },
@@ -216,6 +216,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
         data: {
           id: `customer-core05-matrix-${suffix}`, tenantId, fullName: `Khách ma trận ${suffix}`,
           phone: `0900001${suffix === 'lt' ? '501' : suffix === 'credit' ? '502' : '503'}`,
+          phoneNormalized: `0900001${suffix === 'lt' ? '501' : suffix === 'credit' ? '502' : '503'}`,
         },
       });
       const cycle = await prisma.rentalCycle.create({
@@ -254,9 +255,15 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
     expect(await service.getBalance(tenantId, (creditResult as any).securityDepositId)).toBe(5_000_000);
 
     const refund = await createPaidBooking('refund', 7_000_000);
+    await expect(service.convertToSecurity(tenantId, refund.deposit.id, {
+      idempotencyKey: 'integration-matrix-refund-convert', securityRequired: 5_000_000,
+      excessAction: 'REFUND', refundStatus: 'COMPLETED',
+    }, 'user-finance')).rejects.toThrow('DEPOSIT_REFUND_PROOF_REQUIRED');
+
     const refundResult = await service.convertToSecurity(tenantId, refund.deposit.id, {
       idempotencyKey: 'integration-matrix-refund-convert', securityRequired: 5_000_000,
       excessAction: 'REFUND', refundStatus: 'COMPLETED',
+      attachmentUrls: ['https://example.test/integration-refund-proof.pdf'],
     }, 'user-finance');
     expect(refundResult).toMatchObject({
       transferAmount: 5_000_000, excessAmount: 2_000_000, excessAction: 'REFUND', refundStatus: 'COMPLETED', pending: false,
@@ -285,7 +292,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
       }),
     ]);
     const customer = await prisma.customer.create({
-      data: { id: 'customer-core04-move', tenantId, fullName: 'Khách chuyển phòng', phone: '0900000177' },
+      data: { id: 'customer-core04-move', tenantId, fullName: 'Khách chuyển phòng', phone: '0900000177', phoneNormalized: '0900000177' },
     });
     const cycle = await prisma.rentalCycle.create({
       data: { id: 'cycle-core04-move', tenantId, customerId: customer.id, roomId: sourceRoom.id, status: 'PLANNED' },
@@ -354,7 +361,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
       },
     });
     const seedCustomer = await prisma.customer.create({
-      data: { id: 'customer-core05-rollback-seed', tenantId, fullName: 'Khách seed', phone: '0900000160' },
+      data: { id: 'customer-core05-rollback-seed', tenantId, fullName: 'Khách seed', phone: '0900000160', phoneNormalized: '0900000160' },
     });
     const seedCycle = await prisma.rentalCycle.create({
       data: { id: 'cycle-core05-rollback-seed', tenantId, customerId: seedCustomer.id, roomId: room.id, status: 'RESERVED' },
@@ -379,7 +386,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
       },
     });
     const customer = await prisma.customer.create({
-      data: { id: 'customer-core05-rollback', tenantId, fullName: 'Khách rollback', phone: '0900000161' },
+      data: { id: 'customer-core05-rollback', tenantId, fullName: 'Khách rollback', phone: '0900000161', phoneNormalized: '0900000161' },
     });
     const cycle = await prisma.rentalCycle.create({
       data: { id: 'cycle-core05-rollback', tenantId, customerId: customer.id, roomId: room.id, status: 'PLANNED' },
@@ -417,7 +424,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
 
   it('replays concurrent requests with the same idempotency key and writes one cash-in', async () => {
     const customer = await prisma.customer.create({
-      data: { id: 'customer-core05-idempotent', tenantId, fullName: 'Khách retry', phone: '0900000199' },
+      data: { id: 'customer-core05-idempotent', tenantId, fullName: 'Khách retry', phone: '0900000199', phoneNormalized: '0900000199' },
     });
     const cycle = await prisma.rentalCycle.create({
       data: { id: 'cycle-core05-idempotent', tenantId, customerId: customer.id, roomId, status: 'PLANNED' },
@@ -468,7 +475,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
 
   it('allows exactly one concurrent completion of a pending refund', async () => {
     const customer = await prisma.customer.create({
-      data: { id: 'customer-core05-refund', tenantId, fullName: 'Khách hoàn cọc', phone: '0900000099' },
+      data: { id: 'customer-core05-refund', tenantId, fullName: 'Khách hoàn cọc', phone: '0900000099', phoneNormalized: '0900000099' },
     });
     const cycle = await prisma.rentalCycle.create({
       data: { id: 'cycle-core05-refund', tenantId, customerId: customer.id, roomId, status: 'RESERVED' },
@@ -522,6 +529,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
       keepAmount: 0,
       deductAmount: 0,
       refundStatus: 'PENDING',
+      attachmentUrls: ['https://example.test/integration-pending-refund.pdf'],
     }, 'user-finance');
 
     const results = await Promise.allSettled([

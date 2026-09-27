@@ -3,7 +3,10 @@ import { execFile, execFileSync, spawn } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
 import { isAbsolute, join, resolve } from 'path';
 import * as bcrypt from 'bcryptjs';
+import { Cron } from '@nestjs/schedule';
+import { SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
+import { normalizeCustomerIdentityNo, normalizeCustomerPhone } from '../customers/customer-identifiers';
 
 type UpdateJobStatus =
   | 'IDLE'
@@ -105,6 +108,7 @@ export class SystemUpdateService {
   private readonly versionCheckCacheMs = readVersionCheckCacheMs();
   private versionCheckCache: { expiresAt: number; value: SystemUpdateCheckResult } | null = null;
   private versionCheckInFlight: Promise<SystemUpdateCheckResult> | null = null;
+  private backupInProgress = false;
 
   constructor(private readonly prisma?: PrismaService) {}
 
@@ -253,7 +257,7 @@ export class SystemUpdateService {
     );
   }
 
-  getBackupStatus() {
+  async getBackupStatus(tenantId?: string) {
     const backupDir = join(process.cwd(), '.codex-backups', 'production');
     const updateBackupDir = join(process.cwd(), '.codex-backups', 'system-update');
     const backups: any[] = [];
@@ -287,7 +291,7 @@ export class SystemUpdateService {
                 sizeBytes: size,
                 commitSha: meta?.commitSha || meta?.commit || getCurrentCommit(),
                 version: meta?.version || readPackageVersion(),
-                type: entry.name.includes('before') ? 'pre_update' : 'manual',
+                type: meta?.type || (entry.name.includes('before') ? 'pre_update' : 'manual'),
                 filesCount: meta?.files?.length || 2,
                 status: 'READY',
               });
@@ -301,36 +305,88 @@ export class SystemUpdateService {
 
     backups.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    // If no backups exist yet, populate default baseline snapshot
-    if (backups.length === 0) {
-      backups.push({
-        id: 'snapshot-production-baseline',
-        name: 'Snapshot production-baseline',
-        createdAt: new Date().toISOString(),
-        sizeBytes: 1548290,
-        commitSha: getCurrentCommit(),
-        version: readPackageVersion(),
-        type: 'daily_schedule',
-        filesCount: 3,
-        status: 'READY',
-      });
-      totalSizeBytes += 1548290;
-    }
+    const schedule = tenantId && this.prisma?.appSetting
+      ? await this.prisma.appSetting.findUnique({
+          where: {
+            tenantId_scope_ownerId_key: {
+              tenantId,
+              scope: SettingScope.TENANT,
+              ownerId: tenantId,
+              key: 'system-backup-schedule',
+            },
+          },
+          select: { value: true },
+        })
+      : null;
+    const scheduleValue = schedule?.value && typeof schedule.value === 'object' && !Array.isArray(schedule.value)
+      ? schedule.value as Record<string, unknown>
+      : {};
 
     return {
       connected: true,
       agentVersion: readCurrentVersion(readPackageVersion()),
-      scheduleEnabled: true,
+      scheduleEnabled: scheduleValue.enabled === true,
       scheduleCron: '0 2 * * *',
       scheduleDescription: 'Tự động chụp snapshot định kỳ vào 02:00 AM',
-      lastBackupAt: backups[0]?.createdAt || new Date().toISOString(),
+      lastBackupAt: backups[0]?.createdAt || null,
       totalBackups: backups.length,
       storageUsedBytes: totalSizeBytes,
       backups,
     };
   }
 
-  async createBackupSnapshot(input?: { note?: string }) {
+  async updateBackupSchedule(tenantId: string, userId: string, enabled: boolean) {
+    if (!this.prisma) throw new ConflictException('Database connection is unavailable');
+    await this.prisma.appSetting.upsert({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: tenantId,
+          key: 'system-backup-schedule',
+        },
+      },
+      create: {
+        tenantId,
+        scope: SettingScope.TENANT,
+        ownerId: tenantId,
+        key: 'system-backup-schedule',
+        value: { enabled, cron: '0 2 * * *', timeZone: 'Asia/Ho_Chi_Minh' },
+        updatedBy: userId,
+      },
+      update: {
+        value: { enabled, cron: '0 2 * * *', timeZone: 'Asia/Ho_Chi_Minh' },
+        updatedBy: userId,
+      },
+    });
+    return this.getBackupStatus(tenantId);
+  }
+
+  @Cron('0 2 * * *', { timeZone: 'Asia/Ho_Chi_Minh' })
+  async runScheduledBackup() {
+    if (!this.prisma || this.backupInProgress) return;
+    const schedules = await this.prisma.appSetting.findMany({
+      where: { scope: SettingScope.TENANT, key: 'system-backup-schedule' },
+      select: { value: true },
+    });
+    const enabled = schedules.some((schedule) => {
+      const value = schedule.value;
+      return Boolean(value && typeof value === 'object' && !Array.isArray(value) && (value as Record<string, unknown>).enabled === true);
+    });
+    if (!enabled) return;
+
+    this.backupInProgress = true;
+    try {
+      await this.createBackupSnapshot({
+        note: 'Sao lưu tự động hàng ngày lúc 02:00',
+        type: 'daily_schedule',
+      });
+    } finally {
+      this.backupInProgress = false;
+    }
+  }
+
+  async createBackupSnapshot(input?: { note?: string; type?: 'manual' | 'daily_schedule' | 'pre_update' }, tenantId?: string) {
     const backupRoot = join(process.cwd(), '.codex-backups', 'production');
     if (!existsSync(backupRoot)) {
       mkdirSync(backupRoot, { recursive: true });
@@ -372,7 +428,7 @@ export class SystemUpdateService {
       commitSha: currentCommit,
       version,
       note: input?.note || 'Bản sao lưu thủ công từ giao diện web',
-      type: 'manual',
+      type: input?.type || 'manual',
       summary: {
         totalFiles: 3,
         totalSizeBytes: dumpSizeBytes > 0 ? dumpSizeBytes : 1845200,
@@ -383,24 +439,20 @@ export class SystemUpdateService {
     writeFileSync(join(snapshotDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
     writeFileSync(join(backupRoot, 'latest-manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
 
-    return this.getBackupStatus();
+    return this.getBackupStatus(tenantId);
   }
 
   async deleteBackupSnapshot(snapshotId: string) {
-    if (!snapshotId) {
-      throw new BadRequestException('Vui lòng chỉ định bản sao lưu cần xóa');
-    }
+    assertBackupSnapshotId(snapshotId);
     const backupDirs = [
       join(process.cwd(), '.codex-backups', 'production', snapshotId),
       join(process.cwd(), '.codex-backups', snapshotId),
       join(process.cwd(), 'backups', snapshotId),
     ];
-    let deleted = false;
     for (const dir of backupDirs) {
       if (existsSync(dir)) {
         try {
           rmSync(dir, { recursive: true, force: true });
-          deleted = true;
         } catch (e: any) {
           this.logger.warn(`Could not delete backup dir ${dir}: ${e.message}`);
         }
@@ -421,6 +473,7 @@ export class SystemUpdateService {
     if (!body?.snapshotId) {
       throw new BadRequestException('Vui lòng chọn bản sao lưu snapshot cần khôi phục');
     }
+    assertBackupSnapshotId(body.snapshotId);
     if (!body?.password) {
       throw new BadRequestException('Vui lòng nhập mật khẩu quản trị viên để xác nhận');
     }
@@ -440,7 +493,7 @@ export class SystemUpdateService {
     const manifestPath = join(snapshotDir, 'manifest.json');
     const dataDumpPath = join(snapshotDir, 'data.json');
 
-    if (!existsSync(snapshotDir) && body.snapshotId !== 'snapshot-production-baseline') {
+    if (!existsSync(snapshotDir)) {
       throw new NotFoundException(`Không tìm thấy bản sao lưu ${body.snapshotId}`);
     }
 
@@ -470,7 +523,18 @@ export class SystemUpdateService {
           // 2. Restore customers
           if (Array.isArray(dump.customers) && dump.customers.length > 0) {
             for (const c of dump.customers) {
-              await (tx as any).customer.create({ data: c }).catch(() => null);
+              if (c?.tenantId !== tenantId) continue;
+              const phoneNormalized = normalizeCustomerPhone(c.phone);
+              if (!phoneNormalized) {
+                throw new BadRequestException(`Snapshot has a customer without a canonical phone: ${c.id || 'unknown'}`);
+              }
+              await (tx as any).customer.create({
+                data: {
+                  ...c,
+                  phoneNormalized,
+                  identityNoNormalized: normalizeCustomerIdentityNo(c.identityNo) || null,
+                },
+              });
             }
           }
           // 3. Restore contracts
@@ -1447,4 +1511,10 @@ END $$;
 
 function isTerminalStatus(status: UpdateJobStatus) {
   return ['DONE', 'FAILED', 'ROLLED_BACK', 'BLOCKED'].includes(status);
+}
+
+function assertBackupSnapshotId(snapshotId: string) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,128}$/.test(snapshotId || '')) {
+    throw new BadRequestException('Mã bản sao lưu không hợp lệ');
+  }
 }

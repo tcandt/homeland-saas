@@ -4,6 +4,12 @@ import { PrismaService } from '../prisma.service';
 import { TemplateEngine } from './templates/template.engine';
 import { NotificationChannel } from '../automation/automation.constants';
 import { buildRoomContext } from '../shared/context/room-context';
+import {
+  DEFAULT_NOTIFICATION_TEMPLATES,
+  getNotificationTemplateDefinition,
+  NOTIFICATION_TEMPLATE_CATALOG,
+  type NotificationTemplateDefinition,
+} from './templates/notification-template-catalog';
 
 export interface CommunicationPayload {
   tenantId: string;
@@ -20,6 +26,18 @@ type DispatchResult = {
   queueIds: string[];
 };
 
+type TemplateContentInput = {
+  name?: string;
+  subject?: string | null;
+  body?: string;
+};
+
+type TemplateContent = {
+  name: string;
+  subject: string | null;
+  body: string;
+};
+
 export abstract class CommunicationProvider {
   abstract channel: NotificationChannel;
   abstract send(payload: any): Promise<any>;
@@ -30,82 +48,17 @@ function normalizeDispatchContext(context: any) {
   const roomSource = baseContext.room || baseContext.contract?.room || null;
   const contractSource = baseContext.contract || null;
   const roomContext = buildRoomContext(roomSource, contractSource);
+  const roomCode = roomContext.roomCode || baseContext.roomCode || null;
+  const buildingName = roomContext.buildingName || baseContext.buildingName || null;
 
   return {
     ...baseContext,
     ...roomContext,
-    roomAndBuilding: [roomContext.roomCode, roomContext.buildingName].filter(Boolean).join(' - '),
+    roomCode,
+    buildingName,
+    roomAndBuilding: baseContext.roomAndBuilding || [roomCode, buildingName].filter(Boolean).join(' - '),
   };
 }
-
-const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { name: string; subject?: string; body: string }> = {
-  SYSTEM_ALERT: {
-    name: 'Thông báo HomeLand',
-    subject: '{{title}}',
-    body: '{{message}}',
-  },
-  INVOICE_ZALO_PAYMENT_CONFIRMATION: {
-    name: 'Xác nhận thanh toán hóa đơn',
-    subject: 'HomeLand - Đã nhận thanh toán {{metadata.code}}',
-    body: `HomeLand - Đã nhận thanh toán
-
-Kính gửi: {{customerName}}
-Hóa đơn: {{metadata.code}}
-Số tiền ghi nhận: {{paymentAmount}} đ
-Đã thanh toán: {{amount}} đ
-Trạng thái: {{paymentStatusLabel}}
-{{roomAndBuilding}}
-
-Cảm ơn quý khách.`,
-  },
-  DEPOSIT_ZALO_PAYMENT_CONFIRMATION: {
-    name: 'Xác nhận thanh toán tiền cọc',
-    subject: 'HomeLand - Đã nhận tiền cọc {{metadata.code}}',
-    body: `HomeLand - Đã nhận tiền cọc
-
-Kính gửi: {{customerName}}
-Phiếu cọc/hóa đơn: {{metadata.code}}
-Số tiền ghi nhận: {{paymentAmount}} đ
-Đã thanh toán: {{amount}} đ
-Trạng thái: {{paymentStatusLabel}}
-{{roomAndBuilding}}
-
-    Cảm ơn quý khách.`,
-  },
-  PAYMENT_RECEIVED: {
-    name: 'Đã nhận được thanh toán',
-    subject: '{{title}}',
-    body: '{{message}}',
-  },
-  INVOICE_ZALO_PAYMENT_REQUEST: {
-    name: 'Yêu cầu thanh toán hóa đơn',
-    subject: 'HomeLand - Hóa đơn tiền nhà {{period}}',
-    body: `HomeLand - Hóa đơn tiền nhà {{period}}
-
-Kính gửi: {{customerName}}
-{{roomAndBuilding}}
-
-Chi tiết khoản thu:
-{{itemsSummary}}
-Tổng: {{amount}} đ
-
-(Quét mã QR đính kèm để thanh toán nhanh)`,
-  },
-  DEPOSIT_ZALO_PAYMENT_REQUEST: {
-    name: 'Yêu cầu thanh toán cọc',
-    subject: 'HomeLand - Hóa đơn tiền cọc {{roomAndBuilding}}',
-    body: `HomeLand - Hóa đơn tiền cọc {{roomAndBuilding}}
-
-Kính gửi: {{customerName}}
-{{roomAndBuilding}}
-
-Chi tiết khoản thu:
-{{itemsSummary}}
-Tổng: {{amount}} đ
-
-(Quét mã QR đính kèm để thanh toán nhanh)`,
-  },
-};
 
 @Injectable()
 export class CommunicationService {
@@ -125,6 +78,263 @@ export class CommunicationService {
     this.logger.log(`Registered Communication Provider: ${provider.channel}`);
   }
 
+  private getDefinition(code: string): NotificationTemplateDefinition {
+    const definition = getNotificationTemplateDefinition(code);
+    if (!definition) {
+      throw new BadRequestException(`Không hỗ trợ mã mẫu tin ${code}.`);
+    }
+    return definition;
+  }
+
+  private normalizeTemplateContent(definition: NotificationTemplateDefinition, input: TemplateContentInput): TemplateContent {
+    const name = String(input?.name ?? definition.name).trim();
+    const subjectInput = input?.subject === undefined ? definition.subject || null : input.subject;
+    const subject = subjectInput === null ? null : String(subjectInput).trim() || null;
+    const body = String(input?.body ?? definition.body).trim();
+
+    if (!name || name.length > 120) {
+      throw new BadRequestException('Tên mẫu tin phải có từ 1 đến 120 ký tự.');
+    }
+    if (subject && subject.length > 250) {
+      throw new BadRequestException('Tiêu đề mẫu tin không được quá 250 ký tự.');
+    }
+    if (!body || body.length > 5000) {
+      throw new BadRequestException('Nội dung mẫu tin phải có từ 1 đến 5.000 ký tự.');
+    }
+
+    const allowedVariables = definition.variables.map((variable) => variable.path);
+    try {
+      if (subject) this.templateEngine.validateTemplate(subject, allowedVariables);
+      this.templateEngine.validateTemplate(body, allowedVariables);
+    } catch (error: any) {
+      throw new BadRequestException(error?.message || 'Mẫu tin không hợp lệ.');
+    }
+
+    return { name, subject, body };
+  }
+
+  private serializeTemplateVersion(version: any) {
+    return {
+      id: version.id,
+      version: version.version,
+      name: version.name,
+      subject: version.subject,
+      body: version.body,
+      status: version.status,
+      createdById: version.createdById || null,
+      createdAt: version.createdAt,
+      updatedAt: version.updatedAt,
+    };
+  }
+
+  async getTemplateCatalog(tenantId: string) {
+    const [published, versions] = await Promise.all([
+      this.prisma.notificationTemplate.findMany({
+        where: { tenantId },
+        orderBy: { code: 'asc' },
+      }),
+      this.prisma.notificationTemplateVersion.findMany({
+        where: { tenantId },
+        orderBy: [{ code: 'asc' }, { version: 'desc' }],
+      }),
+    ]);
+    const publishedByCode = new Map(published.map((template) => [template.code, template]));
+    const versionsByCode = new Map<string, any[]>();
+    for (const version of versions) {
+      const existing = versionsByCode.get(version.code) || [];
+      existing.push(version);
+      versionsByCode.set(version.code, existing);
+    }
+
+    return {
+      templates: NOTIFICATION_TEMPLATE_CATALOG.map((definition) => {
+        const tenantTemplate = publishedByCode.get(definition.code) || null;
+        const history = versionsByCode.get(definition.code) || [];
+        const draft = history.find((version) => version.status === 'DRAFT') || null;
+        return {
+          code: definition.code,
+          variables: definition.variables,
+          default: {
+            name: definition.name,
+            subject: definition.subject || null,
+            body: definition.body,
+          },
+          effective: tenantTemplate
+            ? {
+                name: tenantTemplate.name,
+                subject: tenantTemplate.subject,
+                body: tenantTemplate.body,
+                source: 'TENANT',
+                version: tenantTemplate.publishedVersion || 0,
+                publishedAt: tenantTemplate.publishedAt,
+              }
+            : {
+                name: definition.name,
+                subject: definition.subject || null,
+                body: definition.body,
+                source: 'DEFAULT',
+                version: 0,
+                publishedAt: null,
+              },
+          draft: draft ? this.serializeTemplateVersion(draft) : null,
+          versions: history.slice(0, 20).map((version) => this.serializeTemplateVersion(version)),
+        };
+      }),
+    };
+  }
+
+  async saveTemplateDraft(tenantId: string, code: string, input: TemplateContentInput, actorId: string) {
+    const definition = this.getDefinition(code);
+    const content = this.normalizeTemplateContent(definition, input);
+    const existingDraft = await this.prisma.notificationTemplateVersion.findFirst({
+      where: { tenantId, code: definition.code, status: 'DRAFT' as any },
+      orderBy: { version: 'desc' },
+    });
+
+    if (existingDraft) {
+      const draft = await this.prisma.notificationTemplateVersion.update({
+        where: { id: existingDraft.id },
+        data: { ...content, createdById: actorId },
+      });
+      return { draft: this.serializeTemplateVersion(draft) };
+    }
+
+    const latest = await this.prisma.notificationTemplateVersion.findFirst({
+      where: { tenantId, code: definition.code },
+      orderBy: { version: 'desc' },
+    });
+    const template = await this.prisma.notificationTemplate.findUnique({
+      where: { tenantId_code: { tenantId, code: definition.code } },
+      select: { publishedVersion: true },
+    });
+    const version = Math.max(Number(latest?.version || 0), Number(template?.publishedVersion || 0)) + 1;
+    const draft = await this.prisma.notificationTemplateVersion.create({
+      data: {
+        tenantId,
+        code: definition.code,
+        version,
+        ...content,
+        status: 'DRAFT' as any,
+        createdById: actorId,
+      },
+    });
+    return { draft: this.serializeTemplateVersion(draft) };
+  }
+
+  async previewTemplate(code: string, input: TemplateContentInput, context?: Record<string, unknown>) {
+    const definition = this.getDefinition(code);
+    const content = this.normalizeTemplateContent(definition, input);
+    const previewContext = { ...definition.sampleContext, ...(context || {}) };
+    try {
+      return {
+        code: definition.code,
+        title: content.subject ? this.templateEngine.compile(content.subject, previewContext) : content.name,
+        message: this.templateEngine.compile(content.body, previewContext),
+        variables: definition.variables,
+      };
+    } catch (error: any) {
+      throw new BadRequestException(error?.message || 'Không thể render mẫu tin.');
+    }
+  }
+
+  async publishTemplate(tenantId: string, code: string, actorId: string) {
+    const definition = this.getDefinition(code);
+    return this.prisma.$transaction(async (tx) => {
+      const draft = await tx.notificationTemplateVersion.findFirst({
+        where: { tenantId, code: definition.code, status: 'DRAFT' as any },
+        orderBy: { version: 'desc' },
+      });
+      if (!draft) {
+        throw new BadRequestException('Chưa có bản nháp để xuất bản.');
+      }
+
+      const published = await tx.notificationTemplateVersion.update({
+        where: { id: draft.id },
+        data: { status: 'PUBLISHED' as any, createdById: actorId },
+      });
+      const now = new Date();
+      const template = await tx.notificationTemplate.upsert({
+        where: { tenantId_code: { tenantId, code: definition.code } },
+        create: {
+          tenantId,
+          code: definition.code,
+          name: published.name,
+          subject: published.subject,
+          body: published.body,
+          publishedVersion: published.version,
+          publishedAt: now,
+          publishedById: actorId,
+        },
+        update: {
+          name: published.name,
+          subject: published.subject,
+          body: published.body,
+          publishedVersion: published.version,
+          publishedAt: now,
+          publishedById: actorId,
+        },
+      });
+      return { template, version: this.serializeTemplateVersion(published) };
+    });
+  }
+
+  async rollbackTemplate(tenantId: string, code: string, targetVersion: number, actorId: string) {
+    const definition = this.getDefinition(code);
+    const requestedVersion = Number(targetVersion);
+    if (!Number.isInteger(requestedVersion) || requestedVersion < 1) {
+      throw new BadRequestException('Phiên bản cần khôi phục không hợp lệ.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const source = await tx.notificationTemplateVersion.findFirst({
+        where: { tenantId, code: definition.code, version: requestedVersion, status: 'PUBLISHED' as any },
+      });
+      if (!source) {
+        throw new BadRequestException('Không tìm thấy phiên bản đã xuất bản cần khôi phục.');
+      }
+      const latest = await tx.notificationTemplateVersion.findFirst({
+        where: { tenantId, code: definition.code },
+        orderBy: { version: 'desc' },
+      });
+      const nextVersion = Number(latest?.version || 0) + 1;
+      const restored = await tx.notificationTemplateVersion.create({
+        data: {
+          tenantId,
+          code: definition.code,
+          version: nextVersion,
+          name: source.name,
+          subject: source.subject,
+          body: source.body,
+          status: 'PUBLISHED' as any,
+          createdById: actorId,
+        },
+      });
+      const now = new Date();
+      const template = await tx.notificationTemplate.upsert({
+        where: { tenantId_code: { tenantId, code: definition.code } },
+        create: {
+          tenantId,
+          code: definition.code,
+          name: restored.name,
+          subject: restored.subject,
+          body: restored.body,
+          publishedVersion: restored.version,
+          publishedAt: now,
+          publishedById: actorId,
+        },
+        update: {
+          name: restored.name,
+          subject: restored.subject,
+          body: restored.body,
+          publishedVersion: restored.version,
+          publishedAt: now,
+          publishedById: actorId,
+        },
+      });
+      return { template, version: this.serializeTemplateVersion(restored) };
+    });
+  }
+
   async dispatch(payload: CommunicationPayload): Promise<DispatchResult | null> {
     const context = normalizeDispatchContext(payload.context);
 
@@ -134,19 +344,7 @@ export class CommunicationService {
       where: { tenantId_code: { tenantId: payload.tenantId, code: payload.templateCode } }
     });
 
-    if (defaultTpl && (payload.templateCode === 'INVOICE_ZALO_PAYMENT_REQUEST' || payload.templateCode === 'DEPOSIT_ZALO_PAYMENT_REQUEST')) {
-      template = {
-        id: template?.id || 'default',
-        tenantId: payload.tenantId,
-        code: payload.templateCode,
-        name: defaultTpl.name,
-        subject: defaultTpl.subject || defaultTpl.name,
-        body: defaultTpl.body,
-        type: 'SYSTEM' as any,
-        createdAt: template?.createdAt || new Date(),
-        updatedAt: new Date(),
-      } as any;
-    } else if (!template) {
+    if (!template) {
       if (defaultTpl) {
         template = {
           id: 'default',
@@ -155,7 +353,7 @@ export class CommunicationService {
           name: defaultTpl.name,
           subject: defaultTpl.subject || defaultTpl.name,
           body: defaultTpl.body,
-          type: 'SYSTEM' as any,
+          publishedVersion: 0,
           createdAt: new Date(),
           updatedAt: new Date(),
         } as any;
@@ -166,19 +364,44 @@ export class CommunicationService {
     }
 
     // 2. Fetch User Preferences (Fallback to IN_APP and CONSOLE if none)
-    const preferences = await this.prisma.notificationPreference.findUnique({
-      where: {
-        tenantId_userId_type: { tenantId: payload.tenantId, userId: payload.userId, type: payload.moduleType || 'SYSTEM' }
-      }
-    });
+    const preferences = payload.userId
+      ? await this.prisma.notificationPreference.findUnique({
+          where: {
+            tenantId_userId_type: {
+              tenantId: payload.tenantId,
+              userId: payload.userId,
+              type: payload.moduleType || 'SYSTEM',
+            },
+          },
+        })
+      : null;
 
     const channelsToUse = payload.channel
       ? [payload.channel]
       : preferences?.channels || [NotificationChannel.IN_APP, NotificationChannel.CONSOLE];
 
     // 3. Compile template
-    const title = template.subject ? this.templateEngine.compile(template.subject, context) : template.name;
-    const message = this.templateEngine.compile(template.body, context);
+    let title: string;
+    let message: string;
+    try {
+      title = template.subject ? this.templateEngine.compile(template.subject, context) : template.name;
+      message = this.templateEngine.compile(template.body, context);
+    } catch (error: any) {
+      this.logger.error(`Cannot render notification template ${payload.templateCode}: ${error?.message || error}`);
+      throw new BadRequestException(error?.message || 'Không thể render mẫu thông báo.');
+    }
+    const templateSnapshot = {
+      code: payload.templateCode,
+      source: template.id === 'default' ? 'DEFAULT' : 'TENANT',
+      templateId: template.id || null,
+      version: Number((template as any).publishedVersion || 0),
+      name: template.name,
+      subject: template.subject || null,
+      body: template.body,
+      title,
+      message,
+      renderedAt: new Date().toISOString(),
+    };
 
     // 4. Create master Notification record
     const notification = await this.prisma.notification.create({
@@ -190,7 +413,7 @@ export class CommunicationService {
         message,
         type: payload.templateCode,
         status: 'QUEUED',
-        metadata: context,
+        metadata: { ...context, templateSnapshot },
       }
     });
     if (notification.channel === NotificationChannel.IN_APP) {
@@ -222,6 +445,7 @@ export class CommunicationService {
             title,
             message,
             context,
+            templateSnapshot,
           },
           status: 'QUEUED'
         }
@@ -376,6 +600,35 @@ export class CommunicationService {
     return { success: true };
   }
 
+  private async syncNotificationStatus(notificationId: string) {
+    const queueItems = await this.prisma.notificationQueue.findMany({
+      where: { notificationId },
+      select: { status: true },
+    });
+    if (!queueItems.length) return;
+
+    const statuses = queueItems.map((queueItem) => String(queueItem.status));
+    let status: string;
+    if (statuses.every((value) => value === 'DELIVERED')) {
+      status = 'DELIVERED';
+    } else if (statuses.includes('SENDING')) {
+      status = 'SENDING';
+    } else if (statuses.includes('QUEUED') || statuses.includes('RETRYING')) {
+      status = 'QUEUED';
+    } else if (statuses.includes('FAILED')) {
+      status = 'FAILED';
+    } else if (statuses.includes('DEAD_LETTER')) {
+      status = 'DEAD_LETTER';
+    } else {
+      status = 'QUEUED';
+    }
+
+    await this.prisma.notification.update({
+      where: { id: notificationId },
+      data: { status: status as any },
+    });
+  }
+
   async cancelQueueItem(tenantId: string, queueId: string) {
     const item = await this.prisma.notificationQueue.findFirst({
       where: { id: queueId, tenantId },
@@ -393,10 +646,7 @@ export class CommunicationService {
         nextRetryAt: null,
       },
     });
-    await this.prisma.notification.update({
-      where: { id: item.notificationId },
-      data: { status: 'FAILED' },
-    });
+    await this.syncNotificationStatus(item.notificationId);
 
     return { success: true };
   }
@@ -419,8 +669,18 @@ export class CommunicationService {
     const provider = this.providers.get(item.channel as NotificationChannel);
     
     if (!provider) {
-       await this.markQueueFailed(item, 'No provider registered');
-       return;
+      const error = 'No provider registered';
+      await this.markQueueFailed(item, error);
+      await this.prisma.notificationDelivery.create({
+        data: {
+          notificationId: item.notificationId,
+          channel: item.channel as NotificationChannel,
+          status: 'FAILED',
+          error,
+        },
+      });
+      await this.syncNotificationStatus(item.notificationId);
+      return;
     }
 
     try {
@@ -430,7 +690,6 @@ export class CommunicationService {
         where: { id: queueId },
         data: { status: 'DELIVERED', error: null, nextRetryAt: null }
       });
-      await this.prisma.notification.update({ where: { id: item.notificationId }, data: { status: 'DELIVERED' }});
       
       await this.prisma.notificationDelivery.create({
         data: {
@@ -441,6 +700,7 @@ export class CommunicationService {
           providerResponse: response || {}
         }
       });
+      await this.syncNotificationStatus(item.notificationId);
 
     } catch (err) {
       this.logger.error(`Failed to send via ${item.channel}`, err.stack);
@@ -453,6 +713,7 @@ export class CommunicationService {
           error: err.message
         }
       });
+      await this.syncNotificationStatus(item.notificationId);
     }
   }
 

@@ -79,7 +79,7 @@ dbDescribe("CORE-07.04 PostgreSQL billing evidence invariants", () => {
       ] as any,
     });
     await prisma.customer.create({
-      data: { id: ids.customerA, tenantId: ids.tenantA, fullName: "Khách A", phone: `0704${suffix.slice(0, 6)}` },
+      data: { id: ids.customerA, tenantId: ids.tenantA, fullName: "Khách A", phone: `0704${suffix.slice(0, 6)}`, phoneNormalized: `0704${suffix.slice(0, 6)}` },
     });
     await prisma.invoice.create({
       data: {

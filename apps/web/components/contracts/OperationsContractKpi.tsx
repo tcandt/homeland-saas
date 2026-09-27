@@ -4,27 +4,13 @@ import React, { useMemo } from "react";
 import { FileText, CheckCircle2, CalendarClock, AlertTriangle } from "lucide-react";
 import { Card } from "../ui/Card";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
+import { getOperationsContractKpiSummary } from "@/lib/contracts/operations-contract-kpi";
 
 export default function OperationsContractKpi() {
   const { data } = useContractsQuery({ limit: 100 });
   const contracts = (data as any)?.data || (data as any)?.items || [];
 
-  const summary = useMemo(() => {
-    const total = contracts.length;
-    const active = contracts.filter((c: any) => c.status === "ACTIVE" || c.status === "APPROVED").length;
-
-    const expiring = contracts.filter((c: any) => {
-      if (c.status === "EXPIRING") return true;
-      if (!c.endDate || c.status !== "ACTIVE") return false;
-      const daysLeft = (new Date(c.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-      return daysLeft >= 0 && daysLeft <= 30;
-    }).length;
-
-    const pending = contracts.filter((c: any) => ["DRAFT", "PENDING_APPROVAL"].includes(c.status)).length;
-    const debt = contracts.filter((c: any) => Number(c.debt || 0) > 0 && c.status !== "TERMINATED").length;
-
-    return { total, active, expiring, pending, debt };
-  }, [contracts]);
+  const summary = useMemo(() => getOperationsContractKpiSummary(contracts), [contracts]);
 
   return (
     <div data-testid="contracts-kpi-grid" className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-2.5 shrink-0">

@@ -51,6 +51,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import { hunonicApi, HunonicLockedPeriodRow, HunonicRateApplyPayload } from "@/lib/api/hunonic.api";
 import { formatHunonicHistoryValue, resolveHunonicRateMode, getHunonicConnection, getHunonicMonthlyTotals } from "@/lib/hunonic/presentation";
+import { getHunonicHistoryFilterOptions, toHunonicHistoryParams, updateHunonicHistoryFilter } from "@/lib/hunonic/history-filters";
 import toast from "react-hot-toast";
 
 function formatCurrency(value?: number | string | null) {
@@ -186,6 +187,7 @@ export function ElectricityManagerContent() {
   const [historyTab, setHistoryTab] = useState<"readings" | "sync_logs">("readings");
   const [historySearch, setHistorySearch] = useState("");
   const [historyBuilding, setHistoryBuilding] = useState("all");
+  const [historyRoom, setHistoryRoom] = useState("all");
   const [historyYear, setHistoryYear] = useState<string>("all");
   const [historyMonth, setHistoryMonth] = useState<string>("all");
   const [historyPage, setHistoryPage] = useState(1);
@@ -197,6 +199,7 @@ export function ElectricityManagerContent() {
           historyTab,
           historySearch,
           historyBuilding,
+          historyRoom,
           historyYear,
           historyMonth,
           historyPage,
@@ -204,14 +207,14 @@ export function ElectricityManagerContent() {
       : null,
     () =>
       historyTab === "readings"
-        ? hunonicApi.history({
-            search: historySearch || undefined,
-            buildingCode: historyBuilding !== "all" ? historyBuilding : undefined,
-            year: historyYear !== "all" ? historyYear : undefined,
-            month: historyMonth !== "all" ? historyMonth : undefined,
+        ? hunonicApi.history(toHunonicHistoryParams({
+            search: historySearch,
+            building: historyBuilding,
+            room: historyRoom,
+            year: historyYear,
+            month: historyMonth,
             page: historyPage,
-            limit: 20,
-          })
+          }))
         : hunonicApi.syncLogs({
             page: historyPage,
             limit: 20,
@@ -229,6 +232,15 @@ export function ElectricityManagerContent() {
         month: historyMonth !== "all" ? historyMonth : undefined,
       }),
     { revalidateOnFocus: false },
+  );
+
+  const historyPayload = (historyDataRes as any)?.data || historyDataRes || {};
+  const historyFilterOptions = getHunonicHistoryFilterOptions(
+    historyPayload.filters,
+    historyPayload.monthlyRows,
+  );
+  const historyRoomOptions = historyFilterOptions.rooms.filter(
+    (room) => historyBuilding === "all" || room.buildingCode === historyBuilding,
   );
 
   // Close dropdowns on outside click
@@ -1601,15 +1613,14 @@ export function ElectricityManagerContent() {
 
             {/* Filter Toolbar (Áp dụng cho tab Chỉ số theo kỳ) */}
             {historyTab === "readings" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 bg-muted/10 p-2.5 rounded-xl border border-border/60">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 bg-muted/10 p-2.5 rounded-xl border border-border/60">
                 {/* 1. Search */}
                 <div className="relative">
                   <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
                   <Input
                     value={historySearch}
                     onChange={(e) => {
-                      setHistorySearch(e.target.value);
-                      setHistoryPage(1);
+                      updateHunonicHistoryFilter(setHistorySearch, setHistoryPage, e.target.value);
                     }}
                     placeholder="Tìm phòng, công tơ..."
                     className="h-8 pl-8 text-xs font-medium"
@@ -1621,13 +1632,13 @@ export function ElectricityManagerContent() {
                   <select
                     value={historyBuilding}
                     onChange={(e) => {
-                      setHistoryBuilding(e.target.value);
-                      setHistoryPage(1);
+                      updateHunonicHistoryFilter(setHistoryBuilding, setHistoryPage, e.target.value);
+                      setHistoryRoom("all");
                     }}
                     className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
                     <option value="all">Tất cả tòa nhà</option>
-                    {(buildings.length > 0 ? buildings : ["LK01-31", "LK01-32"]).map((bCode: string) => (
+                    {historyFilterOptions.buildings.map((bCode) => (
                       <option key={bCode} value={bCode}>
                         Tòa {bCode}
                       </option>
@@ -1635,18 +1646,33 @@ export function ElectricityManagerContent() {
                   </select>
                 </div>
 
-                {/* 3. Tháng */}
+                {/* 3. Phòng */}
+                <div>
+                  <select
+                    value={historyRoom}
+                    onChange={(e) => updateHunonicHistoryFilter(setHistoryRoom, setHistoryPage, e.target.value)}
+                    className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
+                  >
+                    <option value="all">Tất cả phòng</option>
+                    {historyRoomOptions.map((room) => (
+                      <option key={`${room.buildingCode}:${room.roomCode}`} value={room.roomCode || ""}>
+                        {room.displayName || room.roomCode} • Tòa {room.buildingCode}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 4. Tháng */}
                 <div>
                   <select
                     value={historyMonth}
                     onChange={(e) => {
-                      setHistoryMonth(e.target.value);
-                      setHistoryPage(1);
+                      updateHunonicHistoryFilter(setHistoryMonth, setHistoryPage, e.target.value);
                     }}
                     className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
                     <option value="all">Tất cả các tháng</option>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    {historyFilterOptions.months.map((m) => (
                       <option key={m} value={String(m)}>
                         Tháng {m}
                       </option>
@@ -1654,18 +1680,17 @@ export function ElectricityManagerContent() {
                   </select>
                 </div>
 
-                {/* 4. Năm */}
+                {/* 5. Năm */}
                 <div>
                   <select
                     value={historyYear}
                     onChange={(e) => {
-                      setHistoryYear(e.target.value);
-                      setHistoryPage(1);
+                      updateHunonicHistoryFilter(setHistoryYear, setHistoryPage, e.target.value);
                     }}
                     className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
                     <option value="all">Tất cả các năm</option>
-                    {[2026, 2025, 2024].map((y) => (
+                    {historyFilterOptions.years.map((y) => (
                       <option key={y} value={String(y)}>
                         Năm {y}
                       </option>
@@ -1891,11 +1916,11 @@ export function ElectricityManagerContent() {
                 <div className="flex items-center gap-1.5">
                   <select
                     value={historyMonth}
-                    onChange={(e) => setHistoryMonth(e.target.value)}
+                    onChange={(e) => updateHunonicHistoryFilter(setHistoryMonth, setHistoryPage, e.target.value)}
                     className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
                     <option value="all">Tất cả tháng</option>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    {historyFilterOptions.months.map((m) => (
                       <option key={m} value={String(m)}>
                         Tháng {m}
                       </option>
@@ -1904,11 +1929,11 @@ export function ElectricityManagerContent() {
 
                   <select
                     value={historyYear}
-                    onChange={(e) => setHistoryYear(e.target.value)}
+                    onChange={(e) => updateHunonicHistoryFilter(setHistoryYear, setHistoryPage, e.target.value)}
                     className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-text"
                   >
                     <option value="all">Tất cả năm</option>
-                    {[2026, 2025, 2024].map((y) => (
+                    {historyFilterOptions.years.map((y) => (
                       <option key={y} value={String(y)}>
                         Năm {y}
                       </option>

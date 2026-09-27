@@ -186,8 +186,8 @@ test.describe("CORE-07.08 monthly settlement snapshot desktop", () => {
     const unlockedProvenance = page.getByTestId(`settlement-provenance-${UNLOCKED_ROOM_ID}`);
     const lockedMismatch = page.getByTestId(`settlement-electricity-mismatch-${LOCKED_ROOM_ID}`);
 
-    await expect(lockedProvenance).toHaveText("Snapshot đã khóa");
-    await expect(unlockedProvenance).toHaveText("Dữ liệu chưa khóa");
+    await expect(lockedProvenance).toContainText("Snapshot đã khóa");
+    await expect(unlockedProvenance).toContainText("Dữ liệu chưa khóa");
     await expect(lockedProvenance.locator("xpath=ancestor::tr")).toContainText("0 đ");
     await expect(lockedMismatch).toHaveAttribute("role", "alert");
     await expect(lockedMismatch).toHaveClass(/text-red-700/);

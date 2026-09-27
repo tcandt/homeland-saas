@@ -5,6 +5,7 @@ import {
   DepositOperationType,
   DepositStatus,
   DepositType,
+  ContractStatus,
   Prisma,
   ReceiptStatus,
   RentalCycleStatus,
@@ -18,6 +19,8 @@ import { PrismaService } from '../prisma.service';
 import {
   buildDepositCancellationPlan,
   buildDepositConversionPlan,
+  assertBookingHoldCanBeCancelled,
+  DEPOSIT_POLICY_VERSION,
   DepositExcessAction,
 } from './deposit-core.policy';
 import { summarizeAuthoritativeFinance } from './finance-summary.policy';
@@ -58,6 +61,7 @@ export interface ConvertDepositCommand {
   securityDepositId?: string | null;
   excessAction?: DepositExcessAction;
   refundStatus?: 'PENDING' | 'COMPLETED';
+  attachmentUrls?: string[];
 }
 
 export interface CancelDepositCommand {
@@ -67,6 +71,7 @@ export interface CancelDepositCommand {
   keepAmount?: number;
   deductAmount?: number;
   refundStatus?: 'PENDING' | 'COMPLETED';
+  attachmentUrls?: string[];
 }
 
 export interface RenewRoomHoldCommand {
@@ -309,7 +314,7 @@ export class DepositCoreService {
       if (replay) return replay;
       await this.lockDeposit(tx, tenantId, depositId);
 
-      const deposit = await tx.deposit.findFirst({
+      let deposit = await tx.deposit.findFirst({
         where: { id: depositId, tenantId, deletedAt: null },
         include: {
           room: { include: { building: true, floor: true } },
@@ -319,7 +324,44 @@ export class DepositCoreService {
         },
       });
       if (!deposit) throw new BadRequestException('DEPOSIT_NOT_FOUND');
-      if (!deposit.rentalCycleId) throw new BadRequestException('DEPOSIT_RENTAL_CYCLE_REQUIRED');
+      if (!deposit.rentalCycleId) {
+        let rentalCycleId: string | null = null;
+        if (deposit.contractId) {
+          const contract = await tx.contract.findFirst({
+            where: { id: deposit.contractId, tenantId, deletedAt: null },
+            select: { rentalCycleId: true },
+          });
+          rentalCycleId = contract?.rentalCycleId || null;
+        } else if ([DepositType.BOOKING, DepositType.RESERVATION].includes(deposit.type)) {
+          const existingCycle = await tx.rentalCycle.findFirst({
+            where: {
+              tenantId,
+              customerId: deposit.customerId,
+              roomId: deposit.roomId,
+              status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED] },
+              contracts: { none: {} },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          const cycle = existingCycle || await tx.rentalCycle.create({
+            data: {
+              tenantId,
+              customerId: deposit.customerId,
+              roomId: deposit.roomId,
+              status: RentalCycleStatus.PLANNED,
+            },
+          });
+          rentalCycleId = cycle.id;
+        }
+        if (!rentalCycleId) throw new BadRequestException('DEPOSIT_RENTAL_CYCLE_REQUIRED');
+
+        const linked = await tx.deposit.updateMany({
+          where: { id: deposit.id, tenantId, rentalCycleId: null },
+          data: { rentalCycleId },
+        });
+        if (linked.count !== 1) throw new ConflictException('DEPOSIT_CONCURRENT_UPDATE');
+        deposit = { ...deposit, rentalCycleId };
+      }
       if (![DepositStatus.DRAFT, DepositStatus.PENDING].includes(deposit.status)) {
         throw new ConflictException('DEPOSIT_ALREADY_PROCESSED');
       }
@@ -439,18 +481,35 @@ export class DepositCoreService {
   }
 
   async convertToSecurity(tenantId: string, bookingDepositId: string, input: ConvertDepositCommand, userId: string) {
-    const command = this.normalizeCommand(input);
     return this.runSerializable(async (tx: TransactionClient) => {
-      await this.lockCommand(tx, tenantId, command.idempotencyKey);
-      const replay = await this.getReplay(tx, tenantId, command.idempotencyKey, command.requestHash);
-      if (replay) return replay;
-      await this.lockDeposit(tx, tenantId, bookingDepositId);
+      return this.convertToSecurityInTransaction(tx, tenantId, bookingDepositId, input, userId);
+    });
+  }
+
+  /**
+   * Lets the booking-hold conversion command compose the deposit transfer with
+   * its contract creation in one caller-owned SERIALIZABLE transaction.  This
+   * method never opens a nested transaction: a failure rolls back both sides.
+   */
+  async convertToSecurityInTransaction(
+    tx: TransactionClient,
+    tenantId: string,
+    bookingDepositId: string,
+    input: ConvertDepositCommand,
+    userId: string,
+  ) {
+    const command = this.normalizeCommand(input);
+    await this.lockCommand(tx, tenantId, command.idempotencyKey);
+    const replay = await this.getReplay(tx, tenantId, command.idempotencyKey, command.requestHash);
+    if (replay) return replay;
+    await this.lockDeposit(tx, tenantId, bookingDepositId);
 
       const booking = await tx.deposit.findFirst({
         where: { id: bookingDepositId, tenantId, deletedAt: null },
         include: {
           rentalCycle: true,
           customer: { select: { fullName: true } },
+          contract: { select: { id: true, status: true } },
           room: { select: { code: true, building: { select: { name: true, code: true } } } },
         },
       });
@@ -525,6 +584,7 @@ export class DepositCoreService {
 
       let creditNoteId: string | null = null;
       let refundReceiptId: string | null = null;
+      const attachmentUrls = this.normalizeAttachmentUrls(command.input.attachmentUrls);
       if (plan.excessAmount > 0 && plan.excessAction === 'CREDIT') {
         const credit = await tx.creditNote.create({
           data: {
@@ -543,13 +603,19 @@ export class DepositCoreService {
 
       if (plan.excessAmount > 0 && plan.excessAction === 'REFUND') {
         const refundStatus = command.input.refundStatus === 'COMPLETED' ? ReceiptStatus.COMPLETED : ReceiptStatus.PENDING;
+        if (refundStatus === ReceiptStatus.COMPLETED && attachmentUrls.length === 0) {
+          throw new BadRequestException('DEPOSIT_REFUND_PROOF_REQUIRED');
+        }
         const receipt = await tx.receipt.create({
           data: {
             tenantId,
             code: `RCT-${booking.code}-EXCESS-${operation.id.slice(-8).toUpperCase()}`,
             amount: plan.excessAmount,
             status: refundStatus,
-            description: `Hoàn phần dư khi chuyển cọc ${booking.code}`,
+            description: [
+              `Hoàn phần dư khi chuyển cọc ${booking.code}`,
+              attachmentUrls.length > 0 ? `Chứng từ: ${attachmentUrls.join(', ')}` : null,
+            ].filter(Boolean).join('\n'),
             date: new Date(),
           },
         });
@@ -594,6 +660,7 @@ export class DepositCoreService {
         refundReceiptId,
         refundStatus: refundReceiptId ? (command.input.refundStatus || 'PENDING') : null,
         pending: Boolean(refundReceiptId && command.input.refundStatus !== 'COMPLETED'),
+        attachmentUrls,
       };
       await this.enqueueOutbox(tx, tenantId, operation.id, 'deposit.converted_to_security', {
         tenantId,
@@ -626,8 +693,7 @@ export class DepositCoreService {
       }
       await this.writeAudit(tx, tenantId, userId, 'CONVERT_CONTRACT', booking.id, booking, response);
       return response;
-    });
-  }
+    }
 
   async cancel(tenantId: string, depositId: string, input: CancelDepositCommand, userId: string) {
     const command = this.normalizeCommand(input);
@@ -642,11 +708,16 @@ export class DepositCoreService {
         include: {
           customer: { select: { fullName: true } },
           room: { select: { code: true, building: { select: { name: true, code: true } } } },
+          contract: { select: { id: true, status: true } },
         },
       });
       if (!deposit) throw new BadRequestException('DEPOSIT_NOT_FOUND');
       if (!deposit.rentalCycleId) throw new BadRequestException('DEPOSIT_RENTAL_CYCLE_REQUIRED');
       if (deposit.status !== DepositStatus.PAID) throw new BadRequestException('DEPOSIT_SOURCE_MUST_BE_PAID');
+      assertBookingHoldCanBeCancelled({
+        depositType: String(deposit.type),
+        contractStatus: deposit.contract?.status || null,
+      });
 
       const availableBalance = await this.getBalanceInTransaction(tx, tenantId, deposit.id);
       const plan = buildDepositCancellationPlan({ availableBalance, ...command.input });
@@ -670,6 +741,10 @@ export class DepositCoreService {
 
       let receiptId: string | null = null;
       const refundStatus = command.input.refundStatus === 'COMPLETED' ? ReceiptStatus.COMPLETED : ReceiptStatus.PENDING;
+      const attachmentUrls = this.normalizeAttachmentUrls(command.input.attachmentUrls);
+      if (plan.refundAmount > 0 && refundStatus === ReceiptStatus.COMPLETED && attachmentUrls.length === 0) {
+        throw new BadRequestException('DEPOSIT_REFUND_PROOF_REQUIRED');
+      }
       if (plan.refundAmount > 0) {
         const receipt = await tx.receipt.create({
           data: {
@@ -717,6 +792,35 @@ export class DepositCoreService {
         });
       }
 
+      // The booking contract is a pre-active document for this hold. Keep its
+      // history, but make its terminal state explicit so a cancelled hold does
+      // not leave a misleading DRAFT/PENDING booking contract behind. ACTIVE
+      // is rejected by the policy guard above and is never mutated here.
+      let bookingContractCancelled = false;
+      if (
+        (deposit.type === DepositType.BOOKING || deposit.type === DepositType.RESERVATION) &&
+        deposit.contract?.id
+      ) {
+        const cancelledContract = await tx.contract.updateMany({
+          where: {
+            id: deposit.contract.id,
+            tenantId,
+            status: {
+              in: [
+                ContractStatus.DRAFT,
+                ContractStatus.PENDING_APPROVAL,
+                ContractStatus.APPROVED,
+              ],
+            },
+          },
+          data: {
+            status: ContractStatus.CANCELLED,
+            terminationReason: command.input.reason,
+          },
+        });
+        bookingContractCancelled = cancelledContract.count === 1;
+      }
+
       const response = {
         operationId: operation.id,
         depositId: deposit.id,
@@ -724,7 +828,10 @@ export class DepositCoreService {
         ...plan,
         receiptId,
         refundStatus: receiptId ? refundStatus : null,
+        attachmentUrls,
         pending: isPendingRefund,
+        policyVersion: DEPOSIT_POLICY_VERSION,
+        bookingContractCancelled,
       };
       const cancellationEvent = plan.refundAmount > 0
         ? (isPendingRefund ? 'deposit.refund_requested' : 'deposit.refunded')
@@ -749,6 +856,7 @@ export class DepositCoreService {
             ? 'DEPOSIT_CANCELLED'
             : cancellationEvent.replace(/\./g, '_').toUpperCase(),
           reason: command.input.reason,
+          policyVersion: DEPOSIT_POLICY_VERSION,
         },
       });
       if (plan.deductAmount > 0) {
@@ -1017,6 +1125,13 @@ export class DepositCoreService {
     const cutOff = asOf ? new Date(asOf) : new Date();
     if (Number.isNaN(cutOff.getTime())) throw new BadRequestException('ROOM_HOLD_EXPIRY_INVALID');
     return this.prisma.tx.$transaction(async (tx: TransactionClient) => {
+      const expiredHolds = await tx.roomHold.findMany({
+        where: { tenantId, status: RoomHoldStatus.ACTIVE, expiresAt: { lte: cutOff } },
+        include: {
+          deposit: { select: { id: true, code: true, customerId: true, roomId: true, rentalCycleId: true } },
+          room: { select: { id: true, code: true } },
+        },
+      });
       const changed = await tx.roomHold.updateMany({
         where: { tenantId, status: RoomHoldStatus.ACTIVE, expiresAt: { lte: cutOff } },
         data: {
@@ -1036,6 +1151,32 @@ export class DepositCoreService {
           after: { asOf: cutOff, expiredCount: changed.count },
         },
       });
+      for (const hold of expiredHolds) {
+        const payload = {
+          tenantId,
+          holdId: hold.id,
+          depositId: hold.deposit?.id || null,
+          depositCode: hold.deposit?.code || null,
+          customerId: hold.deposit?.customerId || null,
+          roomId: hold.roomId,
+          roomCode: hold.room?.code || null,
+          rentalCycleId: hold.rentalCycleId,
+          expiredAt: cutOff,
+          metadata: { code: hold.deposit?.code || hold.id, eventKind: 'ROOM_HOLD_EXPIRED' },
+        };
+        await tx.outboxEvent.upsert({
+          where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: `room-hold-expired:${hold.id}` } },
+          create: {
+            tenantId,
+            aggregateType: 'RoomHold',
+            aggregateId: hold.id,
+            eventName: 'deposit.hold.expired',
+            payload,
+            idempotencyKey: `room-hold-expired:${hold.id}`,
+          },
+          update: {},
+        });
+      }
       return { asOf: cutOff, expiredCount: changed.count };
     });
   }
@@ -1366,11 +1507,23 @@ export class DepositCoreService {
     if (invalid) throw new BadRequestException('FINANCE_CYCLE_RELATION_INVARIANT_VIOLATION');
   }
 
-  async completePendingRefund(tenantId: string, operationId: string, idempotencyKey: string, userId: string) {
+  async completePendingRefund(
+    tenantId: string,
+    operationId: string,
+    idempotencyKey: string,
+    userId: string,
+    input?: { note?: string; attachmentUrls?: string[] },
+  ) {
     const normalizedKey = this.requireIdempotencyKey(idempotencyKey);
+    const completionNote = String(input?.note || '').trim();
+    const completionAttachmentUrls = this.normalizeAttachmentUrls(input?.attachmentUrls);
     return this.runSerializable(async (tx: TransactionClient) => {
       await this.lockCommand(tx, tenantId, normalizedKey);
-      const completionRequestHash = this.hash({ operationId });
+      const completionRequestHash = this.hash({
+        operationId,
+        note: completionNote || null,
+        attachmentUrls: completionAttachmentUrls,
+      });
       const existingCompletion = await tx.depositOperation.findFirst({
         where: { tenantId, idempotencyKey: normalizedKey, type: DepositOperationType.COMPLETE_REFUND },
       });
@@ -1396,6 +1549,13 @@ export class DepositCoreService {
       const availableBalance = await this.getBalanceInTransaction(tx, tenantId, pending.sourceDepositId);
       if (this.toMoney(receipt.amount) > availableBalance) {
         throw new BadRequestException('DEPOSIT_REFUND_EXCEEDS_BALANCE');
+      }
+      const pendingAttachmentUrls = this.normalizeAttachmentUrls(
+        (pending.result as Record<string, unknown> | null)?.attachmentUrls,
+      );
+      const attachmentUrls = [...new Set([...pendingAttachmentUrls, ...completionAttachmentUrls])];
+      if (attachmentUrls.length === 0) {
+        throw new BadRequestException('DEPOSIT_REFUND_PROOF_REQUIRED');
       }
 
       const completion = await tx.depositOperation.create({
@@ -1435,7 +1595,15 @@ export class DepositCoreService {
         },
       });
 
-      const response = { operationId: completion.id, completedOperationId: pending.id, receiptId: receipt.id, amount: this.toMoney(receipt.amount), status: 'COMPLETED' };
+      const response = {
+        operationId: completion.id,
+        completedOperationId: pending.id,
+        receiptId: receipt.id,
+        amount: this.toMoney(receipt.amount),
+        status: 'COMPLETED',
+        note: completionNote || null,
+        attachmentUrls,
+      };
       await this.enqueueOutbox(tx, tenantId, completion.id, 'deposit.refunded', {
         tenantId,
         userId,
@@ -1443,10 +1611,17 @@ export class DepositCoreService {
         sourceType: 'DEPOSIT',
         amount: this.toMoney(receipt.amount),
         occurredAt: new Date().toISOString(),
-        metadata: { operationId: completion.id, completedOperationId: pending.id, receiptId: receipt.id },
+        metadata: response,
       });
       await this.completeOperation(tx, tenantId, completion.id, response);
-      await this.completeOperation(tx, tenantId, pending.id, { ...(pending.result || {}), pending: false, refundStatus: 'COMPLETED' });
+      await this.completeOperation(tx, tenantId, pending.id, {
+        ...(pending.result || {}),
+        pending: false,
+        refundStatus: 'COMPLETED',
+        refundCompletionNote: completionNote || null,
+        attachmentUrls,
+      });
+      await this.writeAudit(tx, tenantId, userId, 'UPDATE', pending.sourceDepositId, pending, response, 'DepositOperation');
       return response;
     });
   }
@@ -1668,6 +1843,13 @@ export class DepositCoreService {
     if (Prisma.Decimal.isDecimal(value)) return JSON.stringify(value.toFixed(2));
     if (Array.isArray(value)) return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
     return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(value[key])}`).join(',')}}`;
+  }
+
+  private normalizeAttachmentUrls(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value
+      .map((item) => String(item || '').trim())
+      .filter(Boolean))];
   }
 
   private toMoney(value: Prisma.Decimal | number | string) {

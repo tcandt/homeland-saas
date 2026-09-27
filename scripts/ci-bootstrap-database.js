@@ -26,10 +26,20 @@ function runPrisma(args) {
 
 function assertHistoricalManifest() {
   const directories = fs.readdirSync(migrationsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  if (historicalManifest.migrations.length !== 18 || directories.length !== 18) throw new Error(`Historical manifest coverage drift: manifest=${historicalManifest.migrations.length}, disk=${directories.length}; expected 18.`);
+  const historicalCount = historicalManifest.migrations.length;
+  if (historicalCount !== 18 || directories.length < historicalCount) throw new Error(`Historical manifest coverage drift: manifest=${historicalCount}, disk=${directories.length}; expected at least 18.`);
+  const historicalDirectories = directories.slice(0, historicalCount);
   historicalManifest.migrations.forEach((migration, index) => {
-    if (migration.order !== index + 1 || migration.name !== directories[index] || sha256(migrationFile(migration.name)) !== migration.sha256) throw new Error(`Historical migration checksum/order drift: ${migration.name}.`);
+    if (migration.order !== index + 1 || migration.name !== historicalDirectories[index] || sha256(migrationFile(migration.name)) !== migration.sha256) throw new Error(`Historical migration checksum/order drift: ${migration.name}.`);
   });
+  // BASELINE-V2 represents migrations 1..18 only. Migrations added later
+  // remain forward-only: Prisma verifies and deploys them after the reviewed
+  // baseline history has been recorded. Do not extend the baseline manifest
+  // or resolve their history here.
+  const latestHistorical = historicalManifest.migrations[historicalCount - 1]?.name;
+  if (directories.slice(historicalCount).some((name) => name <= latestHistorical)) {
+    throw new Error('Forward migration ordering drift after BASELINE-V2 history.');
+  }
 }
 
 function assertBaselineV2Artifact() {
@@ -146,7 +156,9 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     if (mode === 'FRESH') await freshApprovedBaseline(prisma); else await existingVerifiedBaseline(prisma);
-    runPrisma(['migrate', 'status', '--schema', schema]);
+    // Prisma exits non-zero while expected forward migrations are pending. The
+    // baseline verification above has already proved the historical state, so
+    // deploy them first and retain the status command as the final gate only.
     runPrisma(['migrate', 'deploy', '--schema', schema]);
     runPrisma(['migrate', 'status', '--schema', schema]);
   } finally { await prisma.$disconnect(); }

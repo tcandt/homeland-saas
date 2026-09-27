@@ -1,21 +1,15 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BaseCrudService } from '../shared/services/base-crud.service';
-import { ContractStatus, Customer } from '@prisma/client';
+import { AuditAction, ContractStatus, Customer, Prisma } from '@prisma/client';
+import { createHash } from 'crypto';
 import { CustomersRepository } from './customers.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { PrismaService } from '../prisma.service';
 import { PaginatedResult } from '@homeland/shared';
 import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
+import { normalizeCustomerIdentityNo, normalizeCustomerPhone } from './customer-identifiers';
 
-function normalizePhone(phone?: string | null): string {
-  if (!phone) return '';
-  return phone.replace(/[\s.()-]/g, '').trim();
-}
-
-function normalizeIdentityNo(identityNo?: string | null): string {
-  if (!identityNo) return '';
-  return identityNo.replace(/[\s.-]/g, '').trim();
-}
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class CustomersService extends BaseCrudService<Customer> {
@@ -37,8 +31,8 @@ export class CustomersService extends BaseCrudService<Customer> {
     identityNo?: string | null;
     excludeId?: string | null;
   }) {
-    const cleanPhone = normalizePhone(params.phone);
-    const cleanIdentityNo = normalizeIdentityNo(params.identityNo);
+    const cleanPhone = normalizeCustomerPhone(params.phone);
+    const cleanIdentityNo = normalizeCustomerIdentityNo(params.identityNo);
 
     if (!cleanPhone && !cleanIdentityNo) {
       return { isDuplicate: false, duplicateField: null, duplicateCustomer: null, message: null };
@@ -48,7 +42,7 @@ export class CustomersService extends BaseCrudService<Customer> {
       const existingByPhone = await this.prisma.tx.customer.findFirst({
         where: {
           deletedAt: null,
-          phone: { equals: cleanPhone, mode: 'insensitive' },
+          phoneNormalized: cleanPhone,
           ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
         },
         include: {
@@ -105,7 +99,7 @@ export class CustomersService extends BaseCrudService<Customer> {
       const existingByIdentity = await this.prisma.tx.customer.findFirst({
         where: {
           deletedAt: null,
-          identityNo: { equals: cleanIdentityNo, mode: 'insensitive' },
+          identityNoNormalized: cleanIdentityNo,
           ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
         },
         include: {
@@ -165,14 +159,14 @@ export class CustomersService extends BaseCrudService<Customer> {
    * Kiểm tra trùng lặp Số điện thoại và Số CCCD/CMND khi lưu thông tin khách thuê
    */
   async validateCustomerUniqueness(phone?: string | null, identityNo?: string | null, excludeId?: string): Promise<void> {
-    const cleanPhone = normalizePhone(phone);
-    const cleanIdentityNo = normalizeIdentityNo(identityNo);
+    const cleanPhone = normalizeCustomerPhone(phone);
+    const cleanIdentityNo = normalizeCustomerIdentityNo(identityNo);
 
     if (cleanPhone) {
       const existingByPhone = await this.prisma.tx.customer.findFirst({
         where: {
           deletedAt: null,
-          phone: { equals: cleanPhone, mode: 'insensitive' },
+          phoneNormalized: cleanPhone,
           ...(excludeId ? { id: { not: excludeId } } : {}),
         },
       });
@@ -190,7 +184,7 @@ export class CustomersService extends BaseCrudService<Customer> {
       const existingByIdentity = await this.prisma.tx.customer.findFirst({
         where: {
           deletedAt: null,
-          identityNo: { equals: cleanIdentityNo, mode: 'insensitive' },
+          identityNoNormalized: cleanIdentityNo,
           ...(excludeId ? { id: { not: excludeId } } : {}),
         },
       });
@@ -206,18 +200,92 @@ export class CustomersService extends BaseCrudService<Customer> {
   }
 
   override async create(data: any, userId?: string, moduleName?: string): Promise<Customer> {
-    await this.validateCustomerUniqueness(data.phone, data.identityNo);
-    const created = await super.create(data, userId, moduleName);
+    const dataWithNormalizedIdentifiers = this.withNormalizedIdentifiers(data, { requirePhone: true });
+    await this.validateCustomerUniqueness(dataWithNormalizedIdentifiers.phone, dataWithNormalizedIdentifiers.identityNo);
+    const created = await super.create(dataWithNormalizedIdentifiers, userId, moduleName);
     await this.syncRoomOccupancy(created, null);
     return created;
   }
 
+  async createIdempotent(tenantId: string, userId: string, data: any, idempotencyKey: string): Promise<Customer> {
+    const key = this.requireIdempotencyKey(idempotencyKey);
+    const dataWithNormalizedIdentifiers = this.withNormalizedIdentifiers(data, { requirePhone: true });
+    const requestHash = this.createRequestHash(dataWithNormalizedIdentifiers);
+    const customerId = this.deterministicId('customer', tenantId, key);
+    const auditId = this.deterministicId('audit', tenantId, key);
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const replay = await this.resolveCreateReplay(tx, auditId, tenantId, key, requestHash);
+        if (replay) return replay;
+
+        const roomId = await this.ensureRoomBelongsToTenant(tx, tenantId, dataWithNormalizedIdentifiers.roomId);
+        await this.validateCreateUniqueness(
+          tx,
+          tenantId,
+          dataWithNormalizedIdentifiers.phoneNormalized,
+          dataWithNormalizedIdentifiers.identityNoNormalized,
+        );
+
+        const customer = await tx.customer.create({
+          data: {
+            ...dataWithNormalizedIdentifiers,
+            id: customerId,
+            tenantId,
+            roomId,
+          },
+        });
+
+        if (roomId) {
+          await tx.occupancy.create({
+            data: {
+              tenantId,
+              roomId,
+              customerId: customer.id,
+              role: 'ROOMMATE',
+              joinedAt: new Date(),
+            },
+          });
+        }
+
+        await tx.auditLog.create({
+          data: {
+            id: auditId,
+            tenantId,
+            userId,
+            module: 'Customers',
+            entity: 'Customer',
+            entityId: customer.id,
+            action: AuditAction.CREATE,
+            after: {
+              idempotencyKey: key,
+              requestHash,
+              customerId: customer.id,
+              fullName: customer.fullName,
+              phone: customer.phone,
+              roomId: customer.roomId,
+            },
+          },
+        });
+
+        return customer;
+      });
+    } catch (error) {
+      if (!this.isUniqueConstraint(error)) throw error;
+
+      const replay = await this.resolveCreateReplay(this.prisma, auditId, tenantId, key, requestHash);
+      if (replay) return replay;
+      throw error;
+    }
+  }
+
   override async update(id: string, data: any, userId?: string, moduleName?: string): Promise<Customer> {
     const before = data.roomId !== undefined ? await this.getDetail(id) : null;
-    if (data.phone !== undefined || data.identityNo !== undefined) {
-      await this.validateCustomerUniqueness(data.phone, data.identityNo, id);
+    const dataWithNormalizedIdentifiers = this.withNormalizedIdentifiers(data);
+    if (dataWithNormalizedIdentifiers.phone !== undefined || dataWithNormalizedIdentifiers.identityNo !== undefined) {
+      await this.validateCustomerUniqueness(dataWithNormalizedIdentifiers.phone, dataWithNormalizedIdentifiers.identityNo, id);
     }
-    const updated = await super.update(id, data, userId, moduleName);
+    const updated = await super.update(id, dataWithNormalizedIdentifiers, userId, moduleName);
     if (before && before.roomId !== updated.roomId) {
       await this.syncRoomOccupancy(updated, before.roomId);
     }
@@ -262,6 +330,132 @@ export class CustomersService extends BaseCrudService<Customer> {
         },
       });
     }
+  }
+
+  private async ensureRoomBelongsToTenant(tx: any, tenantId: string, value: unknown): Promise<string | null> {
+    const roomId = String(value || '').trim();
+    if (!roomId) return null;
+
+    const room = await tx.room.findFirst({
+      where: { id: roomId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!room) throw new NotFoundException('Không tìm thấy phòng trong đơn vị hiện tại');
+    return room.id;
+  }
+
+  private async validateCreateUniqueness(
+    tx: any,
+    tenantId: string,
+    phoneNormalized: string,
+    identityNoNormalized?: string | null,
+  ) {
+    const cleanPhone = phoneNormalized;
+    if (cleanPhone) {
+      const existingByPhone = await tx.customer.findFirst({
+        where: { tenantId, deletedAt: null, phoneNormalized: cleanPhone },
+      });
+      if (existingByPhone) {
+        throw new BadRequestException(`Số điện thoại đã được đăng ký cho khách thuê "${existingByPhone.fullName}"`);
+      }
+    }
+    const cleanIdentityNo = identityNoNormalized || '';
+    if (cleanIdentityNo) {
+      const existingByIdentity = await tx.customer.findFirst({
+        where: { tenantId, deletedAt: null, identityNoNormalized: cleanIdentityNo },
+      });
+      if (existingByIdentity) {
+        throw new BadRequestException(`Số CCCD/CMND đã được đăng ký cho khách thuê "${existingByIdentity.fullName}"`);
+      }
+    }
+  }
+
+  private withNormalizedIdentifiers(data: any, options: { requirePhone?: boolean } = {}) {
+    const normalized = { ...data };
+
+    if (data.phone !== undefined || options.requirePhone) {
+      const phoneNormalized = normalizeCustomerPhone(data.phone);
+      if (!phoneNormalized) {
+        throw new BadRequestException('Số điện thoại phải chứa ít nhất một chữ số');
+      }
+      normalized.phoneNormalized = phoneNormalized;
+    }
+
+    if (data.identityNo !== undefined) {
+      normalized.identityNoNormalized = normalizeCustomerIdentityNo(data.identityNo) || null;
+    }
+
+    return normalized;
+  }
+
+  private async resolveCreateReplay(
+    client: { auditLog: { findFirst: (args: any) => Promise<any> }; customer: { findFirst: (args: any) => Promise<any> } },
+    auditId: string,
+    tenantId: string,
+    idempotencyKey: string,
+    requestHash: string,
+  ): Promise<Customer | null> {
+    const audit = await client.auditLog.findFirst({ where: { id: auditId, tenantId } });
+    if (!audit) return null;
+
+    const after = audit.after as Record<string, unknown> | null;
+    const matches = audit.tenantId === tenantId
+      && audit.module === 'Customers'
+      && audit.entity === 'Customer'
+      && audit.action === AuditAction.CREATE
+      && after?.idempotencyKey === idempotencyKey
+      && after.requestHash === requestHash;
+    if (!matches) {
+      throw new ConflictException('Idempotency-Key đã được dùng cho dữ liệu khách thuê khác');
+    }
+
+    const customerId = String(after?.customerId || audit.entityId || '').trim();
+    const customer = customerId
+      ? await client.customer.findFirst({ where: { id: customerId, tenantId, deletedAt: null } })
+      : null;
+    if (!customer) throw new NotFoundException('Không tìm thấy khách thuê của yêu cầu đã xử lý');
+    return customer as Customer;
+  }
+
+  private createRequestHash(data: any) {
+    const birthDate = data.birthDate ? new Date(data.birthDate) : null;
+    const canonical = {
+      fullName: String(data.fullName || '').trim(),
+      phone: normalizeCustomerPhone(data.phone),
+      email: String(data.email || '').trim().toLowerCase() || null,
+      identityNo: normalizeCustomerIdentityNo(data.identityNo),
+      gender: String(data.gender || '').trim() || null,
+      birthDate: birthDate && !Number.isNaN(birthDate.getTime()) ? birthDate.toISOString() : null,
+      nationality: String(data.nationality || '').trim() || null,
+      address: String(data.address || '').trim() || null,
+      zaloChatId: String(data.zaloChatId || '').trim() || null,
+      zaloUserId: String(data.zaloUserId || '').trim() || null,
+      emergencyPhone: normalizeCustomerPhone(data.emergencyPhone) || null,
+      roomId: String(data.roomId || '').trim() || null,
+      relationship: String(data.relationship || '').trim() || null,
+    };
+    return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+  }
+
+  private requireIdempotencyKey(value: string) {
+    const key = String(value || '').trim().toLowerCase();
+    if (!UUID_PATTERN.test(key)) {
+      throw new BadRequestException('Idempotency-Key phải là UUID hợp lệ');
+    }
+    return key;
+  }
+
+  private deterministicId(kind: 'customer' | 'audit', tenantId: string, idempotencyKey: string) {
+    const hash = createHash('sha256').update(`customer-create:${kind}:${tenantId}:${idempotencyKey}`).digest('hex');
+    // Customer and AuditLog use CUID defaults. A deterministic CUID-shaped ID
+    // preserves that project convention while making duplicate commands collide.
+    return `c${hash.slice(0, 24)}`;
+  }
+
+  private isUniqueConstraint(error: unknown) {
+    return error instanceof Prisma.PrismaClientKnownRequestError
+      ? error.code === 'P2002'
+      : Boolean(error && typeof error === 'object' && (error as { code?: string }).code === 'P2002');
   }
 
   override async softDelete(id: string, userId?: string, moduleName?: string): Promise<Customer> {
@@ -337,12 +531,12 @@ export class CustomersService extends BaseCrudService<Customer> {
       const identityMap = new Map<string, typeof activeCustomers>();
 
       for (const c of activeCustomers) {
-        const p = normalizePhone(c.phone);
+        const p = normalizeCustomerPhone(c.phone);
         if (p) {
           if (!phoneMap.has(p)) phoneMap.set(p, []);
           phoneMap.get(p)!.push(c);
         }
-        const idNo = normalizeIdentityNo(c.identityNo);
+        const idNo = normalizeCustomerIdentityNo(c.identityNo);
         if (idNo) {
           if (!identityMap.has(idNo)) identityMap.set(idNo, []);
           identityMap.get(idNo)!.push(c);
@@ -558,6 +752,31 @@ export class CustomersService extends BaseCrudService<Customer> {
           contractId: true,
           role: true,
           joinedAt: true,
+          room: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              building: { select: { id: true, code: true, name: true } },
+            },
+          },
+        },
+      },
+      // Keep the tenant grid relationship bounded to this customer page. The
+      // grid only needs the current effective contract and its room identity.
+      contracts: {
+        where: {
+          deletedAt: null,
+          status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+        },
+        orderBy: { endDate: 'asc' },
+        take: 1,
+        select: {
+          id: true,
+          code: true,
+          status: true,
+          startDate: true,
+          endDate: true,
           room: {
             select: {
               id: true,

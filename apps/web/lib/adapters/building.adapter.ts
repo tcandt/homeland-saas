@@ -44,15 +44,10 @@ export const adaptFloor = (apiFloor: any, allRooms: any[] = []): Floor => {
   };
 };
 
-export const isTempResidenceDeclared = (customer: any, roomId?: string): boolean => {
+export const isTempResidenceDeclared = (customer: any): boolean => {
   if (!customer) return false;
   if (Array.isArray(customer.idImages) && customer.idImages.includes("TEMP_RESIDENCE_DECLARED")) {
     return true;
-  }
-  if (typeof window !== "undefined") {
-    if (customer.id && localStorage.getItem(`homeland_temp_residence_${customer.id}`) === "true") {
-      return true;
-    }
   }
   return false;
 };
@@ -85,7 +80,7 @@ export const adaptRoom = (apiRoom: any): Room => {
     address: activeContract.customer.address || "",
     emergencyPhone: activeContract.customer.emergencyPhone || "",
     idImages: activeContract.customer.idImages || [],
-    tempResidence: isTempResidenceDeclared(activeContract.customer, apiRoom.id),
+    tempResidence: isTempResidenceDeclared(activeContract.customer),
     contractId: activeContract.id,
     contractCode: activeContract.code,
     contractStatus: activeContract.status,
@@ -118,7 +113,7 @@ export const adaptRoom = (apiRoom: any): Room => {
     address: c.customer.address || "",
     emergencyPhone: c.customer.emergencyPhone || "",
     idImages: c.customer.idImages || [],
-    tempResidence: isTempResidenceDeclared(c.customer, apiRoom.id),
+    tempResidence: isTempResidenceDeclared(c.customer),
     isRep: true,
     contractId: c.id,
     contractCode: c.code,
@@ -155,7 +150,7 @@ export const adaptRoom = (apiRoom: any): Room => {
       address: rep.address || "",
       emergencyPhone: rep.emergencyPhone || "",
       idImages: rep.idImages || [],
-      tempResidence: isTempResidenceDeclared(rep, apiRoom.id),
+      tempResidence: isTempResidenceDeclared(rep),
       isRep: true,
       contractId: c.id,
       contractCode: c.code,
@@ -197,7 +192,7 @@ export const adaptRoom = (apiRoom: any): Room => {
     address: r.address || "",
     emergencyPhone: r.emergencyPhone || "",
     idImages: r.idImages || [],
-    tempResidence: isTempResidenceDeclared(r, apiRoom.id),
+    tempResidence: isTempResidenceDeclared(r),
     isRep: false,
     bedPosition: "",
     invoices: [],

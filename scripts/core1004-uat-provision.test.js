@@ -1,15 +1,25 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { assertStaticGuards, assertDatabaseGuards, stableId, validateProvisionResult, assertFixtureOwnership } = require('./core1004-uat-provision');
-const good = { DEPLOY_ENV:'staging', ALLOW_UAT_FIXTURE_PROVISION:'true', STAGING_DB_ID:'homeland_staging_authoritative_v2', CORE1004_SCHEMA_FINGERPRINT:'abc', FIXTURE_ID:'core1004' };
+const { assertStaticGuards, assertDatabaseGuards, expectedMigrationCount, stableId, validateProvisionResult, assertFixtureOwnership } = require('./core1004-uat-provision');
+const good = {
+  DEPLOY_ENV: 'staging', ALLOW_UAT_FIXTURE_PROVISION: 'true', STAGING_DB_ID: 'homeland_staging_authoritative_v2', E2E_TARGET_DB_ID: 'homeland_staging_authoritative_v2',
+  E2E_DATABASE_URL: 'postgresql://test:masked@db.example.test:5432/homeland_staging_authoritative_v2', E2E_DISPOSABLE_DATABASE: 'true', RUN_DESTRUCTIVE_E2E: 'true',
+  E2E_RUN_ID: 'core1004-20260926-2020', CORE1004_SCHEMA_FINGERPRINT: 'abc', FIXTURE_ID: 'core1004',
+};
 test('pre-write environment and opt-in guards fail closed', () => {
   assert.throws(() => assertStaticGuards({ ...good, DEPLOY_ENV:'production' }), /staging/);
   assert.throws(() => assertStaticGuards({ ...good, ALLOW_UAT_FIXTURE_PROVISION:'false' }), /ALLOW/);
+  assert.throws(() => assertStaticGuards({ ...good, E2E_TARGET_DB_ID:'other' }), /must equal/);
+  assert.throws(() => assertStaticGuards({ ...good, E2E_DATABASE_URL:'postgresql://test:masked@db.example.test:5432/other' }), /disagree/);
 });
 test('database and fingerprint guards fail closed', () => {
-  assert.throws(() => assertDatabaseGuards({ databaseId:'wrong',migrationCount:18,schemaFingerprint:'abc' }, good), /identity/);
-  assert.throws(() => assertDatabaseGuards({ databaseId:good.STAGING_DB_ID,migrationCount:18,schemaFingerprint:'wrong' }, good), /fingerprint/);
-  assert.throws(() => assertDatabaseGuards({ databaseId:good.STAGING_DB_ID,migrationCount:17,schemaFingerprint:'abc' }, good), /migration/);
+  const currentCount = expectedMigrationCount();
+  assert.throws(() => assertDatabaseGuards({ databaseId:'wrong',migrationCount:currentCount,schemaFingerprint:'abc' }, good), /identity/);
+  assert.throws(() => assertDatabaseGuards({ databaseId:good.STAGING_DB_ID,migrationCount:currentCount,schemaFingerprint:'wrong' }, good), /fingerprint/);
+  assert.throws(() => assertDatabaseGuards({ databaseId:good.STAGING_DB_ID,migrationCount:currentCount - 1,schemaFingerprint:'abc' }, good), /migration/);
+});
+test('migration guard follows the checked-in forward migration inventory', () => {
+  assert.ok(expectedMigrationCount() > 18);
 });
 test('fixture identities are deterministic', () => assert.equal(stableId('same','room',1), stableId('same','room',1)));
 test('provision output is structured and bound to requested fixture', () => {

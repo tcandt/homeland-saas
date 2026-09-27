@@ -23,10 +23,20 @@ describe('CommunicationService', () => {
     return {
       notificationTemplate: {
         findUnique: vi.fn().mockResolvedValue({
+          id: 'template-1',
+          publishedVersion: 1,
           name: 'Payment request',
           subject: '{{title}}',
           body: '{{message}}',
         }),
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn(),
+      },
+      notificationTemplateVersion: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+        update: vi.fn(),
       },
       notificationPreference: {
         findUnique: vi.fn(),
@@ -49,6 +59,16 @@ describe('CommunicationService', () => {
       notificationDelivery: {
         create: vi.fn(),
       },
+      $transaction: vi.fn(async (callback) => callback({
+        notificationTemplate: {
+          upsert: vi.fn(),
+        },
+        notificationTemplateVersion: {
+          findFirst: vi.fn(),
+          create: vi.fn(),
+          update: vi.fn(),
+        },
+      })),
     };
   }
 
@@ -153,6 +173,131 @@ describe('CommunicationService', () => {
     });
   });
 
+  it('provides an effective default for overdue invoice events that do not have a tenant override', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationTemplate.findUnique.mockResolvedValueOnce(null);
+    const service = new CommunicationService(prisma as any);
+
+    await service.dispatch({
+      tenantId: 'tenant-1',
+      userId: 'customer-1',
+      templateCode: 'INVOICE_OVERDUE',
+      context: {
+        invoiceCode: 'INV-OVERDUE-01',
+        remainingAmount: '1.250.000',
+      },
+    });
+
+    expect(prisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        title: 'HomeLand - Hóa đơn INV-OVERDUE-01 đã quá hạn',
+        message: expect.stringContaining('1.250.000 đ'),
+      }),
+    });
+  });
+
+  it('uses a published tenant QR payment-request template instead of replacing it with the built-in default', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationTemplate.findUnique.mockResolvedValueOnce({
+      id: 'template-qr-4',
+      publishedVersion: 4,
+      name: 'Nhắc thanh toán riêng',
+      subject: 'Chào {{customerName}}',
+      body: 'Vui lòng thanh toán theo hướng dẫn của tòa nhà.',
+    });
+    const service = new CommunicationService(prisma as any);
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    service.registerProvider({ channel: NotificationChannel.ZALO, send });
+
+    await service.dispatchDirect({
+      tenantId: 'tenant-1',
+      userId: 'customer-1',
+      channel: NotificationChannel.ZALO,
+      recipient: 'zalo-user-1',
+      templateCode: 'INVOICE_ZALO_PAYMENT_REQUEST',
+      context: { customerName: 'Khách A' },
+    });
+
+    expect(prisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        title: 'Chào Khách A',
+        message: 'Vui lòng thanh toán theo hướng dẫn của tòa nhà.',
+      }),
+    });
+    expect(prisma.notificationQueue.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        payload: expect.objectContaining({
+          title: 'Chào Khách A',
+          message: 'Vui lòng thanh toán theo hướng dẫn của tòa nhà.',
+          templateSnapshot: expect.objectContaining({
+            source: 'TENANT',
+            version: 4,
+            templateId: 'template-qr-4',
+          }),
+        }),
+      }),
+    });
+  });
+
+  it('rejects an unsupported variable before a tenant draft is saved', async () => {
+    const prisma = createPrismaMock();
+    const service = new CommunicationService(prisma as any);
+
+    await expect(
+      service.saveTemplateDraft(
+        'tenant-1',
+        'INVOICE_ZALO_PAYMENT_REQUEST',
+        { body: 'Xin chào {{unknownVariable}}' },
+        'user-1',
+      ),
+    ).rejects.toThrow('Biến {{unknownVariable}} chưa được hỗ trợ');
+
+    expect(prisma.notificationTemplateVersion.create).not.toHaveBeenCalled();
+  });
+
+  it('publishes only the latest saved draft to the live tenant template', async () => {
+    const prisma = createPrismaMock();
+    const draft = {
+      id: 'draft-2',
+      tenantId: 'tenant-1',
+      code: 'INVOICE_ZALO_PAYMENT_REQUEST',
+      version: 2,
+      name: 'Mẫu nhắc mới',
+      subject: 'Chào {{customerName}}',
+      body: 'Xin cảm ơn {{customerName}}',
+      status: 'DRAFT',
+      createdById: 'user-1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const published = { ...draft, status: 'PUBLISHED' };
+    const tx = {
+      notificationTemplateVersion: {
+        findFirst: vi.fn().mockResolvedValue(draft),
+        update: vi.fn().mockResolvedValue(published),
+      },
+      notificationTemplate: {
+        upsert: vi.fn().mockResolvedValue({ id: 'template-2', publishedVersion: 2 }),
+      },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    const service = new CommunicationService(prisma as any);
+
+    const result = await service.publishTemplate('tenant-1', 'INVOICE_ZALO_PAYMENT_REQUEST', 'user-1');
+
+    expect(result.version).toMatchObject({ id: 'draft-2', version: 2, status: 'PUBLISHED' });
+    expect(tx.notificationTemplateVersion.update).toHaveBeenCalledWith({
+      where: { id: 'draft-2' },
+      data: { status: 'PUBLISHED', createdById: 'user-1' },
+    });
+    expect(tx.notificationTemplate.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: expect.objectContaining({
+        body: 'Xin cảm ơn {{customerName}}',
+        publishedVersion: 2,
+      }),
+    }));
+  });
+
   it('marks queue failed with retry schedule when provider throws', async () => {
     const prisma = createPrismaMock();
     const service = new CommunicationService(prisma as any);
@@ -184,6 +329,38 @@ describe('CommunicationService', () => {
         status: 'FAILED',
       }),
     }));
+  });
+
+  it('records a delivery failure when the queue channel has no registered provider', async () => {
+    const prisma = createPrismaMock();
+    const service = new CommunicationService(prisma as any);
+
+    await service.processQueueItem('queue-1');
+
+    expect(prisma.notificationDelivery.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        notificationId: 'notif-1',
+        channel: NotificationChannel.ZALO,
+        status: 'FAILED',
+        error: 'No provider registered',
+      }),
+    });
+  });
+
+  it('keeps the master notification failed when one channel has failed', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.findMany.mockResolvedValueOnce([
+      { status: 'DELIVERED' },
+      { status: 'FAILED' },
+    ]);
+    const service = new CommunicationService(prisma as any);
+
+    await (service as any).syncNotificationStatus('notif-1');
+
+    expect(prisma.notification.update).toHaveBeenCalledWith({
+      where: { id: 'notif-1' },
+      data: { status: 'FAILED' },
+    });
   });
 
   it('throws from dispatchDirect when immediate provider delivery fails', async () => {
@@ -281,6 +458,7 @@ describe('CommunicationService', () => {
 
   it('moves queue item to dead letter on manual cancel', async () => {
     const prisma = createPrismaMock();
+    prisma.notificationQueue.findMany.mockResolvedValueOnce([{ status: 'DEAD_LETTER' }]);
     const service = new CommunicationService(prisma as any);
 
     await service.cancelQueueItem('tenant-1', 'queue-1');
@@ -295,7 +473,7 @@ describe('CommunicationService', () => {
     });
     expect(prisma.notification.update).toHaveBeenCalledWith({
       where: { id: 'notif-1' },
-      data: { status: 'FAILED' },
+      data: { status: 'DEAD_LETTER' },
     });
   });
 });

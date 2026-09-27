@@ -3,8 +3,19 @@ import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Global Prisma instance for test helpers
-const prisma = new PrismaClient();
+let prisma: PrismaClient | null = null;
+
+function getIsolatedE2ePrisma() {
+  const databaseUrl = process.env.E2E_DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error(
+      "E2E_DATABASE_URL is required for database-backed E2E evidence. Refusing to use DATABASE_URL.",
+    );
+  }
+
+  prisma ??= new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+  return prisma;
+}
 
 export class EvidenceCollector {
   private page: Page;
@@ -89,6 +100,6 @@ export class EvidenceCollector {
    * Gets the shared Prisma client for DB validations
    */
   getPrisma() {
-    return prisma;
+    return getIsolatedE2ePrisma();
   }
 }

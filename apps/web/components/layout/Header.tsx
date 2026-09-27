@@ -203,22 +203,20 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
   const fetchNotifications = async (url: string) => {
     if (!accessToken) return [];
-    try {
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (res.status === 401) {
         handleUnauthorizedSession();
-        return [];
+        throw new Error("Phiên đăng nhập đã hết hạn.");
       }
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Không tải được thông báo. Vui lòng thử lại.");
       return res.json();
-    } catch {
-      return [];
-    }
   };
 
-  const { data: notificationList, mutate: mutateNotifications } = useSWR(
+  const [markingRead, setMarkingRead] = useState(false);
+  const [notificationActionError, setNotificationActionError] = useState("");
+  const { data: notificationList, error: notificationLoadError, isLoading: notificationsLoading, mutate: mutateNotifications } = useSWR(
     accessToken ? "/api/v1/notifications" : null,
     fetchNotifications,
     { revalidateOnFocus: false, refreshInterval: 30000 },
@@ -684,20 +682,33 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
                 variant="ghost"
                 size="sm"
                 className="h-[30px] px-[10px] text-[12px]"
+                disabled={markingRead || unreadCount === 0}
+                title="Chỉ đổi trạng thái đã đọc, không xóa thông báo"
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await fetch("/api/v1/notifications/read-all", {
+                  if (!accessToken || markingRead) return;
+                  setMarkingRead(true);
+                  setNotificationActionError("");
+                  try {
+                  const response = await fetch("/api/v1/notifications/read-all", {
                     method: "PATCH",
                     headers: { Authorization: `Bearer ${accessToken}` },
                   });
+                  if (!response.ok) throw new Error("read-all failed");
                   setUnreadCount(0);
-                  await mutateNotifications();
+                  await mutateNotifications((current: any) => normalizeNotificationListPayload(current).map((item: any) => ({ ...item, status: "READ" })), { revalidate: false });
+                  void mutateNotifications();
+                  } catch {
+                    setNotificationActionError("Chưa đánh dấu được thông báo đã đọc. Vui lòng thử lại.");
+                  } finally {
+                    setMarkingRead(false);
+                  }
                 }}
               >
-                Đánh dấu đã đọc
+                {markingRead ? "Đang cập nhật…" : "Đánh dấu tất cả đã đọc"}
               </Button>
             </div>
 
+            {(notificationActionError || notificationLoadError) && <div role="alert" className="px-[14px] py-2 text-xs text-red-600">{notificationActionError || "Không tải được thông báo. Vui lòng thử lại."}<button type="button" className="ml-2 underline" onClick={() => void mutateNotifications()}>Tải lại</button></div>}
             <div className="max-h-[420px] overflow-y-auto">
               {recentNotifications.length > 0 ? recentNotifications.map((item: any) => {
                 const isUnread = item.status !== "READ";
@@ -708,12 +719,19 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
                     className={`block w-full border-b border-border px-[14px] py-[12px] text-left transition hover:bg-background last:border-b-0 ${isUnread ? "bg-primary/5" : ""}`}
                     onClick={async () => {
                       if (isUnread && accessToken) {
-                        await fetch(`/api/v1/notifications/${item.id}/read`, {
+                        try {
+                        const response = await fetch(`/api/v1/notifications/${item.id}/read`, {
                           method: "PATCH",
                           headers: { Authorization: `Bearer ${accessToken}` },
                         });
+                        if (!response.ok) throw new Error("mark-read failed");
                         setUnreadCount((currentValue) => Math.max(0, currentValue - 1));
+                        await mutateNotifications((current: any) => normalizeNotificationListPayload(current).map((notification: any) => notification.id === item.id ? { ...notification, status: "READ" } : notification), { revalidate: false });
                         void mutateNotifications();
+                        } catch {
+                          setNotificationActionError("Chưa đánh dấu được thông báo đã đọc. Vui lòng thử lại.");
+                          return;
+                        }
                       }
                       closeNotificationsMenu();
                       router.push("/notifications");
@@ -727,6 +745,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
                             {item.title || "Thông báo"}
                           </div>
                           <div className="shrink-0 text-[10px] font-medium text-muted">
+                            <span className="mr-2">{isUnread ? "Chưa đọc" : "Đã đọc"}</span>
                             {formatNotificationTime(item.createdAt)}
                           </div>
                         </div>
@@ -739,7 +758,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
                 );
               }) : (
                 <div className="px-[14px] py-[24px] text-center text-[12px] font-medium text-muted">
-                  Chưa có thông báo mới.
+                  {notificationsLoading ? "Đang tải thông báo…" : notificationLoadError ? "Danh sách thông báo tạm thời chưa tải được." : "Chưa có thông báo."}
                 </div>
               )}
             </div>

@@ -13,14 +13,36 @@ import {
   Building2,
   CheckCircle2,
   Clock,
-  ShieldCheck,
   Zap,
 } from "lucide-react";
-import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useBankTransactionsQuery } from "@/lib/queries/finance.queries";
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
+
+const statusTones = {
+  success: "bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:text-emerald-400",
+  warning: "bg-amber-500/10 text-amber-800 border-amber-500/25 dark:text-amber-400",
+  danger: "bg-rose-500/10 text-rose-700 border-rose-500/25 dark:text-rose-400",
+  pending: "bg-sky-500/10 text-sky-700 border-sky-500/25 dark:text-sky-400",
+  neutral: "bg-slate-500/10 text-slate-600 border-slate-500/25 dark:text-slate-300",
+};
+
+const transactionStatuses: Record<string, { label: string; tone: keyof typeof statusTones; icon: typeof Clock }> = {
+  MATCHED: { label: "Đã khớp", tone: "success", icon: CheckCircle2 },
+  NEEDS_REVIEW: { label: "Cần kiểm tra", tone: "warning", icon: AlertTriangle },
+  FAILED: { label: "Xử lý thất bại", tone: "danger", icon: XCircle },
+  UNMATCHED: { label: "Chưa khớp", tone: "warning", icon: AlertTriangle },
+  PENDING_REQUEST: { label: "Chờ xác nhận", tone: "pending", icon: Clock },
+  IGNORED: { label: "Đã bỏ qua", tone: "neutral", icon: XCircle },
+  RECEIVED: { label: "Đã tiếp nhận", tone: "pending", icon: Clock },
+  PROCESSING: { label: "Đang xử lý", tone: "pending", icon: RefreshCw },
+  PROCESSED: { label: "Đã xử lý", tone: "success", icon: CheckCircle2 },
+};
+
+const getTransactionStatus = (status?: string | null) => transactionStatuses[status || ""] || {
+  label: "Chưa xác định", tone: "neutral" as const, icon: Clock,
+};
 
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
@@ -110,8 +132,8 @@ export default function BankTransactionHistory() {
   ];
 
   const matchOptions = [
-    { value: "", label: "Tất cả trạng thái match" },
-    ...((Array.isArray(data?.filters?.matchStatuses) ? data.filters.matchStatuses : []) as Array<{ value: string; label: string }>),
+    { value: "", label: "Tất cả trạng thái đối soát" },
+    ...((Array.isArray(data?.filters?.matchStatuses) ? data.filters.matchStatuses : []) as Array<{ value: string; label: string }>).map((option) => ({ ...option, label: getTransactionStatus(option.value).label })),
   ];
 
   return (
@@ -120,13 +142,15 @@ export default function BankTransactionHistory() {
       <div data-testid="bank-transactions-kpis" className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-2.5 shrink-0">
         <KpiCard
           title="Tổng giao dịch"
+          tone="sky"
           value={String(data?.summary?.total || 0)}
           subtext="Lượt biến động số dư"
-          icon={<History size={16} className="text-indigo-600 dark:text-indigo-400" />}
-          iconBg="bg-indigo-500/10 border border-indigo-500/20"
+          icon={<History size={16} className="text-sky-700 dark:text-sky-400" />}
+          iconBg="bg-sky-500/10 border border-sky-500/20"
         />
         <KpiCard
           title="Tổng tiền vào"
+          tone="emerald"
           value={formatVnd(data?.summary?.inflow || 0)}
           subtext="Dòng tiền thu ngân hàng"
           icon={<ArrowDownLeft size={16} className="text-emerald-600 dark:text-emerald-400" />}
@@ -135,6 +159,7 @@ export default function BankTransactionHistory() {
         />
         <KpiCard
           title="Tổng tiền ra"
+          tone="rose"
           value={formatVnd(data?.summary?.outflow || 0)}
           subtext="Dòng tiền chi ngân hàng"
           icon={<ArrowUpRight size={16} className="text-rose-600 dark:text-rose-400" />}
@@ -143,14 +168,15 @@ export default function BankTransactionHistory() {
         />
         <KpiCard
           title="Dòng tiền thuần"
+          tone="amber"
           value={formatVnd(data?.summary?.net ?? ((data?.summary?.inflow || 0) - (data?.summary?.outflow || 0)))}
           subtext={
             Number(data?.summary?.needsReview || 0) > 0
-              ? `${data?.summary?.needsReview} GD cần đối soát`
-              : "Thuần thu trừ chi"
+              ? `${data?.summary?.needsReview} giao dịch cần kiểm tra`
+              : "Tiền vào trừ tiền ra"
           }
-          icon={<AlertTriangle size={16} className="text-primary" />}
-          iconBg="bg-primary/10 border border-primary/20"
+          icon={<CreditCard size={16} className="text-amber-700 dark:text-amber-400" />}
+          iconBg="bg-amber-500/10 border border-amber-500/20"
         />
       </div>
 
@@ -287,7 +313,7 @@ export default function BankTransactionHistory() {
                 <th className="py-2.5 px-3.5">Nội dung giao dịch</th>
                 <th className="py-2.5 px-3.5 w-[160px]">Mã đối soát</th>
                 <th className="py-2.5 px-3.5 w-[140px] text-right">Số tiền</th>
-                <th className="py-2.5 px-3.5 w-[130px] text-center">Trạng thái match</th>
+                <th className="py-2.5 px-3.5 w-[150px] text-center">Trạng thái đối soát</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
@@ -320,7 +346,9 @@ export default function BankTransactionHistory() {
 
               {rows.map((row: any) => {
                 const isInflow = row.direction === "IN";
-                const isMatched = !!row.match;
+                const status = getTransactionStatus(row.reviewStatus || "UNMATCHED");
+                const StatusIcon = status.icon;
+                const processingStatus = row.webhookStatus ? getTransactionStatus(row.webhookStatus) : null;
 
                 return (
                   <tr
@@ -364,7 +392,7 @@ export default function BankTransactionHistory() {
                       </div>
                       {row.bankAccount?.isLinked && (
                         <div className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 mt-0.5">
-                          <Zap size={10} /> SePay Sync
+                          <Zap size={10} /> Đồng bộ SePay
                         </div>
                       )}
                     </td>
@@ -404,18 +432,14 @@ export default function BankTransactionHistory() {
                     {/* Trạng thái match */}
                     <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
                       <span
-                        className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-black uppercase border ${
-                          isMatched
-                            ? "bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
-                            : "bg-muted/10 text-muted border-border/70"
-                        }`}
+                        className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold border ${statusTones[status.tone]}`}
                       >
-                        {isMatched ? <CheckCircle2 size={10} /> : null}
-                        {row.reviewStatus || (isMatched ? row.match.status : "Chưa match")}
+                        <StatusIcon size={12} aria-hidden="true" />
+                        {status.label}
                       </span>
-                      {row.webhookStatus && (
-                        <div className="text-[9px] font-mono text-muted mt-0.5 truncate">
-                          {row.webhookStatus}
+                      {processingStatus && processingStatus.label !== status.label && (
+                        <div className="text-[10px] text-muted mt-1">
+                          {processingStatus.label}
                         </div>
                       )}
                     </td>
@@ -429,7 +453,7 @@ export default function BankTransactionHistory() {
         {/* Footer info */}
         <div className="px-3.5 py-2 border-t border-border/60 bg-muted/5 flex items-center justify-between text-[11px] text-muted font-medium shrink-0">
           <span>Hiển thị <b>{rows.length}</b> giao dịch ngân hàng</span>
-          <span className="font-mono text-[10px]">Bank Reconciliation Engine</span>
+          <span className="text-[10px]">Đối soát ngân hàng</span>
         </div>
       </div>
     </div>
@@ -437,6 +461,7 @@ export default function BankTransactionHistory() {
 }
 
 function KpiCard({
+  tone,
   title,
   value,
   subtext,
@@ -446,6 +471,7 @@ function KpiCard({
   highlight,
   highlightColor,
 }: {
+  tone: "sky" | "emerald" | "rose" | "amber";
   title: string;
   value: string;
   subtext?: string;
@@ -455,8 +481,14 @@ function KpiCard({
   highlight?: boolean;
   highlightColor?: string;
 }) {
+  const cardTones = {
+    sky: "border-sky-500/25 bg-sky-500/5",
+    emerald: "border-emerald-500/25 bg-emerald-500/5",
+    rose: "border-rose-500/25 bg-rose-500/5",
+    amber: "border-amber-500/25 bg-amber-500/5",
+  };
   return (
-    <Card className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-3.5 py-2.5 shadow-2xs transition-all hover:border-primary/30">
+    <div className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 shadow-2xs ${cardTones[tone]}`}>
       <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>
         {icon}
       </div>
@@ -476,6 +508,6 @@ function KpiCard({
           </span>
         )}
       </div>
-    </Card>
+    </div>
   );
 }

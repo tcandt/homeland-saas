@@ -326,11 +326,13 @@ async function main() {
     const room = allRooms[roomIndex++];
     
     // Create Customer
+    const phone = `090${getRandomInt(1000000, 9999999)}`;
     const customer = await prisma.customer.create({
       data: {
         tenantId: org.id,
         fullName: `Khách Hàng ${room.code}`,
-        phone: `090${getRandomInt(1000000, 9999999)}`,
+        phone,
+        phoneNormalized: phone,
         email: `khach${roomIndex}@example.com`,
       }
     });
@@ -403,11 +405,13 @@ async function main() {
   for (let i = 0; i < reservedRoomCount; i++) {
     const room = allRooms[roomIndex++];
     
+    const phone = `091${getRandomInt(1000000, 9999999)}`;
     const customer = await prisma.customer.create({
       data: {
         tenantId: org.id,
         fullName: `Khách Cọc ${room.code}`,
-        phone: `091${getRandomInt(1000000, 9999999)}`,
+        phone,
+        phoneNormalized: phone,
       }
     });
 
@@ -434,11 +438,13 @@ async function main() {
   for (let i = 0; i < expiringRoomCount; i++) {
     const room = allRooms[roomIndex++];
     
+    const phone = `092${getRandomInt(1000000, 9999999)}`;
     const customer = await prisma.customer.create({
       data: {
         tenantId: org.id,
         fullName: `Khách Sắp Hết Hạn ${room.code}`,
-        phone: `092${getRandomInt(1000000, 9999999)}`,
+        phone,
+        phoneNormalized: phone,
       }
     });
 

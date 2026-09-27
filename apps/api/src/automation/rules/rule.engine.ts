@@ -112,6 +112,31 @@ export class RuleEngine {
             title: `Hợp đồng sắp đến hạn ${context.contractCode || ''}`.trim(),
             message: this.buildAdminReminderMessage('HomeLand - Hợp đồng sắp đến hạn', context),
           });
+        } else if (ruleName === 'invoice.payment_promise_due') {
+          const roomLabel = context.roomCode ? `phòng ${context.roomCode}` : 'phòng thuê';
+          await this.communicationService.dispatch({
+            tenantId,
+            userId: context.customerId,
+            templateCode: 'SYSTEM_ALERT',
+            context: {
+              title: `Đến hẹn thanh toán ${context.invoiceCode || ''}`.trim(),
+              message: `Khoản thanh toán đã hẹn cho hóa đơn ${context.invoiceCode || ''} của ${roomLabel} đã đến hạn. Số tiền còn lại: ${Number(context.remainingAmount || 0).toLocaleString('vi-VN')} VND.`,
+            },
+          });
+          await this.sendAdminGroupZaloAlert(tenantId, {
+            title: `Khách đến hẹn thanh toán ${context.invoiceCode || ''}`.trim(),
+            message: this.buildAdminReminderMessage('HomeLand - Khách đến hẹn thanh toán', context),
+          });
+          await this.prisma.task.create({
+            data: {
+              tenantId,
+              title: `Theo dõi hẹn thanh toán ${context.invoiceCode || context.paymentPromiseId || ''}`.trim(),
+              description: `PaymentPromise ${context.paymentPromiseId || '-'} đã đến hạn. Dư nợ còn lại: ${Number(context.remainingAmount || 0).toLocaleString('vi-VN')} VND.`,
+              status: 'TODO' as any,
+              priority: 'HIGH' as any,
+              dueDate: new Date(),
+            },
+          });
         }
 
         await rule.action(context);
@@ -123,12 +148,15 @@ export class RuleEngine {
         where: { id: execution.id },
         data: { status: WorkflowStatus.SUCCESS, completedAt: new Date(), output: { isMatch } }
       });
+      return { id: execution.id, status: WorkflowStatus.SUCCESS };
     } catch (err) {
       this.logger.error(`Rule ${ruleName} failed`, err.stack);
+      const error = err?.message || String(err || 'Unknown rule error');
       await this.prisma.ruleExecution.update({
         where: { id: execution.id },
-        data: { status: WorkflowStatus.FAILED, completedAt: new Date(), error: err.message }
+        data: { status: WorkflowStatus.FAILED, completedAt: new Date(), error }
       });
+      return { id: execution.id, status: WorkflowStatus.FAILED, error };
     }
   }
 

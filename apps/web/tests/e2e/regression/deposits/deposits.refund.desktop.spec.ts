@@ -110,6 +110,27 @@ async function mockDeposits(page: any) {
     }),
   ];
 
+  await page.route("**/api/v1/documents/upload", async (route: any) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          url: "/uploads/deposit-refund-proof.png",
+          size: 24,
+          mimeType: "image/png",
+          documentId: "deposit-refund-proof-document",
+          versionId: "deposit-refund-proof-version",
+        },
+      }),
+    });
+  });
+
   await page.route(/\/api\/v1\/deposits(\?.*)?$/, async (route: any) => {
     await route.fulfill({
       status: 200,
@@ -392,6 +413,7 @@ test.describe("Deposits Refund Desktop Regression", () => {
     await expect(admin.page.getByTestId("refund-center-item-dep-paid")).toBeVisible();
     await admin.page.getByTestId("deposit-detail-close").click();
     await expect(admin.page.getByTestId("deposit-detail-drawer")).not.toBeVisible();
+    await admin.page.getByTestId("deposits-refund-center-expand").click();
     await admin.page.getByTestId("refund-center-item-dep-paid").click();
 
     const drawer = admin.page.getByTestId("deposit-detail-drawer");
@@ -402,11 +424,21 @@ test.describe("Deposits Refund Desktop Regression", () => {
     await admin.page.getByTestId("deposit-action-complete-refund").click();
     await expect(admin.page.getByTestId("deposit-complete-refund-modal")).toBeVisible();
     await admin.page.getByTestId("deposit-complete-refund-note").fill("Đã chuyển khoản hoàn dư cọc");
+    const completeRefundModal = admin.page.getByTestId("deposit-complete-refund-modal");
+    await completeRefundModal.locator('input[type="file"]').first().setInputFiles({
+      name: "deposit-refund-proof.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("deposit-refund-proof"),
+    });
+    await expect(completeRefundModal.getByText("deposit-refund-proof.png")).toBeVisible();
     await admin.page.getByTestId("deposit-complete-refund-submit").click();
 
     await expect
       .poll(() => mock.getCompletePendingRefundPayload(), { timeout: 10000 })
-      .toMatchObject({ note: "Đã chuyển khoản hoàn dư cọc" });
+      .toMatchObject({
+        note: "Đã chuyển khoản hoàn dư cọc",
+        attachmentUrls: ["/uploads/deposit-refund-proof.png"],
+      });
     expect(mock.getCompletePendingRefundOperationId()).toBe("operation-dep-paid");
     expect(mock.getCompletePendingRefundIdempotencyKey()).toMatch(/^complete-refund-/);
     await expect(admin.page.getByTestId("deposit-action-complete-refund")).not.toBeVisible();
@@ -426,12 +458,20 @@ test.describe("Deposits Refund Desktop Regression", () => {
     await admin.page.getByTestId("deposit-action-complete-refund").click();
     await expect(admin.page.getByTestId("deposit-complete-refund-modal")).toBeVisible();
     await admin.page.getByTestId("deposit-complete-refund-note").fill("Đã chuyển khoản hoàn cọc");
+    const refundCenterCompleteModal = admin.page.getByTestId("deposit-complete-refund-modal");
+    await refundCenterCompleteModal.locator('input[type="file"]').first().setInputFiles({
+      name: "deposit-refund-proof.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("deposit-refund-proof"),
+    });
+    await expect(refundCenterCompleteModal.getByText("deposit-refund-proof.png")).toBeVisible();
     await admin.page.getByTestId("deposit-complete-refund-submit").click();
 
     await expect
       .poll(() => mock.getCompletePendingRefundPayload(), { timeout: 10000 })
       .toMatchObject({
         note: "Đã chuyển khoản hoàn cọc",
+        attachmentUrls: ["/uploads/deposit-refund-proof.png"],
       });
     expect(mock.getCompletePendingRefundOperationId()).toBe("operation-refund-pending-1");
     expect(mock.getCompletePendingRefundIdempotencyKey()).toMatch(/^complete-refund-/);
@@ -453,6 +493,13 @@ test.describe("Deposits Refund Desktop Regression", () => {
     await admin.page.getByTestId("deposit-refund-reason").fill("Hoàn cọc theo thỏa thuận");
     await admin.page.getByTestId("deposit-refund-amount").fill("3200000");
     await admin.page.getByTestId("deposit-refund-status").selectOption("COMPLETED");
+    const refundModal = admin.page.getByTestId("deposit-refund-modal");
+    await refundModal.locator('input[type="file"]').first().setInputFiles({
+      name: "deposit-refund-proof.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("deposit-refund-proof"),
+    });
+    await expect(refundModal.getByText("deposit-refund-proof.png")).toBeVisible();
     await admin.page.getByTestId("deposit-refund-submit").click();
 
     await expect
@@ -461,6 +508,7 @@ test.describe("Deposits Refund Desktop Regression", () => {
         reason: "Hoàn cọc theo thỏa thuận",
         receiptStatus: "COMPLETED",
         refundAmount: 3200000,
+        attachmentUrls: ["/uploads/deposit-refund-proof.png"],
       });
     expect(mock.getRefundIdempotencyKey()).toMatch(/^refund-/);
   });

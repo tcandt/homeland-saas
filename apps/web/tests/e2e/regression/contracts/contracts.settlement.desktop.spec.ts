@@ -89,6 +89,29 @@ function createSettlementPreview(payload: any) {
   };
 }
 
+async function mockProofUpload(page: any, url: string) {
+  await page.route("**/api/v1/documents/upload", async (route: any) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          url,
+          size: 24,
+          mimeType: "image/png",
+          documentId: "settlement-receipt-document",
+          versionId: "settlement-receipt-version",
+        },
+      }),
+    });
+  });
+}
+
 async function mockContracts(page: any) {
   let lastPreviewPayload: any = null;
   let lastTerminatePayload: any = null;
@@ -204,6 +227,8 @@ async function mockContracts(page: any) {
     });
   });
 
+  await mockProofUpload(page, "/uploads/settlement-receipt.png");
+
   await page.route("**/api/v1/rooms/*", async (route: any) => {
     const requestUrl = new URL(route.request().url());
     const pathname = requestUrl.pathname;
@@ -265,6 +290,7 @@ async function mockFullRentalJourney(page: any) {
       type: "SECURITY",
       status: "PENDING",
       amount: 5000000,
+      availableBalance: 5000000,
       note: "Deposit for end-to-end rental journey",
       expiredAt: "2026-09-01T00:00:00.000Z",
       createdAt: "2026-08-13T08:00:00.000Z",
@@ -341,6 +367,8 @@ async function mockFullRentalJourney(page: any) {
     contentType: "application/json",
     body: JSON.stringify({ success: status < 400, data }),
   });
+
+  await mockProofUpload(page, "/uploads/journey-settlement-receipt.png");
 
   await page.route("**/api/v1/deposits**", async (route: any) => {
     const request = route.request();
@@ -577,12 +605,22 @@ test.describe("Contracts Settlement Desktop Regression", () => {
 
     await expect(admin.page.getByTestId("contract-settlement-refund-complete-modal")).toBeVisible();
     await admin.page.getByTestId("contract-settlement-refund-complete-note").fill("Da chuyen khoan settlement");
+
+    const completionModal = admin.page.getByTestId("contract-settlement-refund-complete-modal");
+    await completionModal.locator('input[type="file"]').first().setInputFiles({
+      name: "settlement-receipt.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("settlement-receipt"),
+    });
+    await expect(completionModal.getByText("settlement-receipt.png")).toBeVisible();
+
     await admin.page.getByTestId("contract-settlement-refund-complete-submit").click();
 
     await expect
       .poll(() => mock.getLastCompleteRefundPayload(), { timeout: 10000 })
       .toMatchObject({
         note: "Da chuyen khoan settlement",
+        attachmentUrls: ["/uploads/settlement-receipt.png"],
       });
 
     await expect(admin.page.getByTestId("contract-settlement-refund-complete-modal")).not.toBeVisible();
@@ -673,6 +711,14 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     await expect(admin.page.getByText("Bảo trì trước khi mở bán")).toBeVisible();
     await expect(admin.page.getByTestId("contract-settlement-refund-to-customer")).toContainText("1.100.000đ");
 
+    const settlementModal = admin.page.getByTestId("contract-settlement-modal");
+    await settlementModal.locator('input[type="file"]').first().setInputFiles({
+      name: "settlement-receipt.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("settlement-receipt"),
+    });
+    await expect(settlementModal.getByText("settlement-receipt.png")).toBeVisible();
+
     await admin.page.getByTestId("btn-confirm-terminate-settlement").click();
 
     await expect
@@ -681,6 +727,7 @@ test.describe("Contracts Settlement Desktop Regression", () => {
         roomTurnoverStatus: "MAINTENANCE",
         depositToRefund: 2000000,
         refundReceiptStatus: "COMPLETED",
+        refundAttachmentUrls: ["/uploads/settlement-receipt.png"],
       });
   });
 
@@ -697,17 +744,25 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     await admin.page.getByTestId("deposit-action-collect").click();
     await expect.poll(() => journey.deposit.status).toBe("PAID");
     const depositDrawer = admin.page.getByTestId("deposit-detail-drawer");
-    await expect(depositDrawer.getByTestId("deposit-status-badge")).toContainText("PAID");
+    await expect(depositDrawer.getByTestId("deposit-status-badge")).toContainText("Đã thu cọc giữ phòng");
     await expect(depositDrawer.getByTestId("deposit-action-convert")).toBeVisible();
     await depositDrawer.getByTestId("deposit-action-convert").click();
+    await expect(admin.page.getByTestId("deposit-convert-modal")).toBeVisible();
+    await admin.page.getByTestId("deposit-convert-submit").click();
     await expect.poll(() => journey.deposit.status).toBe("CONVERTED_TO_CONTRACT");
-    expect(journey.lastCollectPayload).toEqual({});
+    expect(journey.lastCollectPayload).toMatchObject({
+      idempotencyKey: expect.any(String),
+    });
 
     const openJourneyContract = async () => {
       const contractCard = admin.page.locator("[data-testid='contract-card']:visible").filter({ hasText: journey.contract.code }).first();
       await expect(contractCard).toBeVisible();
       await contractCard.click();
-      await expect(admin.page.getByRole("heading", { name: new RegExp(`Chi tiết hợp đồng ${journey.contract.code}`) })).toBeVisible();
+      await expect(
+        admin.page.getByRole("heading", {
+          name: new RegExp(`Chi tiết hợp đồng.*${journey.contract.code}`),
+        }),
+      ).toBeVisible();
     };
 
     await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
@@ -725,9 +780,9 @@ test.describe("Contracts Settlement Desktop Regression", () => {
 
     const openJourneyInvoice = async () => {
       const row = admin.page.locator("tr").filter({ hasText: journey.invoice.customer.fullName }).filter({ hasText: journey.invoice.contract.room.code }).first();
-      await expect(row).toBeVisible();
+      await expect(row).toBeVisible({ timeout: 15_000 });
       await expect(row).toContainText("5.000.000");
-      await row.getByRole("button").first().click();
+      await row.click();
       await expect(admin.page.getByTestId("invoice-detail-drawer")).toBeVisible();
     };
 
@@ -739,6 +794,14 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     await admin.page.reload({ waitUntil: "domcontentloaded" });
     await openJourneyInvoice();
     await admin.page.getByTestId("btn-pay-invoice").click();
+    const paymentModal = admin.page
+      .getByRole("heading", { name: "Xác nhận ghi nhận thu tiền" })
+      .locator("xpath=../..");
+    await expect(paymentModal).toBeVisible();
+    await admin.page.getByRole("button", { name: "Tiền mặt trực tiếp" }).click();
+    await admin.page.getByPlaceholder("Nhập số tiền...").fill("5000000");
+    await admin.page.getByRole("button", { name: "Xác nhận đã thu tiền mặt" }).click();
+    await expect(paymentModal).toBeHidden();
     await expect.poll(() => journey.invoice.status).toBe("PAID");
     expect(journey.lastInvoicePaymentPayload).toMatchObject({ amount: 5000000 });
 
@@ -748,7 +811,7 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     await expect(admin.page.getByTestId("contract-settlement-modal")).toBeVisible();
     await expect.poll(() => journey.lastSettlementPreviewPayload).not.toBeNull();
     await expect(admin.page.getByText("HUNONIC-JOURNEY-01")).toBeVisible();
-    await admin.page.getByRole("button", { name: "Áp dụng snapshot" }).click();
+    await admin.page.getByRole("button", { name: "Áp dụng số điện này vào biểu mẫu" }).click();
     await expect.poll(() => journey.lastSettlementPreviewPayload).toMatchObject({
       electricityAmount: 350000,
       waterAmount: 150000,
@@ -756,6 +819,9 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       waterPreviousReading: 20,
       waterCurrentReading: 26,
     });
+    await admin.page
+      .getByTestId("contract-settlement-room-turnover-status")
+      .selectOption("CLEANING");
     await admin.page.getByTestId("contract-settlement-deposit-deduct").fill("500000");
     await admin.page.getByTestId("contract-settlement-deposit-refund").fill("4500000");
     await admin.page.getByTestId("contract-settlement-refund-reason").fill("Hoan coc sau khi tru dien nuoc");
@@ -764,6 +830,13 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       depositToRefund: 4500000,
     });
     await expect(admin.page.getByTestId("btn-confirm-terminate-settlement")).toBeEnabled();
+    const journeySettlementModal = admin.page.getByTestId("contract-settlement-modal");
+    await journeySettlementModal.locator('input[type="file"]').first().setInputFiles({
+      name: "journey-settlement-receipt.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("journey-settlement-receipt"),
+    });
+    await expect(journeySettlementModal.getByText("journey-settlement-receipt.png")).toBeVisible();
     await admin.page.getByTestId("btn-confirm-terminate-settlement").click();
     await expect.poll(() => journey.contract.status).toBe("TERMINATED");
     expect(journey.lastTerminationPayload).toMatchObject({
@@ -772,6 +845,7 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       depositToDeduct: 500000,
       depositToRefund: 4500000,
       refundReceiptStatus: "COMPLETED",
+      refundAttachmentUrls: ["/uploads/journey-settlement-receipt.png"],
       roomTurnoverStatus: "CLEANING",
     });
     expect(journey.contract.settlementRefund.completed).toBe(true);

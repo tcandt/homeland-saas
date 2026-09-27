@@ -131,8 +131,23 @@ function validateRestoreTarget(databaseUrl, confirmTargetDb) {
   return pass('restore_target', `Restore target is explicitly confirmed: ${identity.maskedUrl}.`);
 }
 
+function resolvePrismaInvocation(command, args, platform = process.platform) {
+  const cli = String(command || '');
+  if (platform !== 'win32' || !/\.(?:cmd|bat)$/i.test(cli)) {
+    return { command: cli, args };
+  }
+
+  const localBatchCli = path.resolve('node_modules', '.bin', 'prisma.cmd');
+  const localPrismaEntrypoint = path.resolve('node_modules', 'prisma', 'build', 'index.js');
+  if (path.resolve(cli).toLowerCase() !== localBatchCli.toLowerCase() || !fs.existsSync(localPrismaEntrypoint)) {
+    throw new Error('Windows batch Prisma launchers are not supported for restore drills. Use the bundled Prisma CLI or set PRISMA_CLI_PATH to a non-batch executable.');
+  }
+
+  return { command: process.execPath, args: [localPrismaEntrypoint, ...args] };
+}
+
 function runCommand(id, command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const result = (options.spawnSync || spawnSync)(command, args, {
     stdio: 'pipe',
     encoding: 'utf8',
     env: options.env || process.env,
@@ -215,13 +230,15 @@ function runRestoreDrill(options, deps = {}) {
   );
 
   if (!options.skipMigrateStatus && (restoreResult.status === 0 || harmlessCompatibilityWarning)) {
-    checks.push(runCommand('prisma_migrate_status', options.prisma, [
+    const prismaInvocation = resolvePrismaInvocation(options.prisma, [
       'migrate',
       'status',
       `--schema=${options.schema}`,
-    ], {
+    ], deps.platform || process.platform);
+    checks.push(runCommand('prisma_migrate_status', prismaInvocation.command, prismaInvocation.args, {
       env: { ...process.env, DATABASE_URL: options.databaseUrl },
       successMessage: 'Prisma migration status can inspect the restored database.',
+      spawnSync: spawn,
     }));
   } else if (options.skipMigrateStatus) {
     checks.push(pass('prisma_migrate_status', 'Prisma migration status check skipped.'));
@@ -270,6 +287,7 @@ if (require.main === module) {
 
 module.exports = {
   normalizePostgresCliUrl,
+  resolvePrismaInvocation,
   isHarmlessTransactionTimeoutCompatibilityWarning,
   formatHumanReport,
   parseArguments,

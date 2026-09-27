@@ -631,6 +631,45 @@ export class DepositsService extends BaseCrudService<Deposit> {
     return updated;
   }
 
+  /**
+   * Provider webhooks do not carry CLS tenant context. The caller must pass
+   * the tenant authenticated by the provider signature, so this path never
+   * uses presentation queries or falls back to an unscoped deposit lookup.
+   */
+  async collectForTenant(
+    tenantId: string,
+    id: string,
+    note: string | null,
+    userId: string,
+    idempotencyKey?: string,
+    holdExpiresAt?: string | null,
+    notificationContext?: {
+      suppressCustomerZaloConfirmation?: boolean;
+      linkedInvoicePayment?: boolean;
+      sourceInvoiceId?: string | null;
+      paymentProvider?: string | null;
+      paymentRef?: string | null;
+    },
+  ) {
+    if (!tenantId) throw new BadRequestException('Tenant context is required');
+    const deposit = await this.prisma.deposit.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      select: { id: true, status: true, expiredAt: true },
+    });
+    if (!deposit) throw new BadRequestException('Deposit not found');
+    if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING) {
+      throw new BadRequestException('Can only collect DRAFT or PENDING deposits');
+    }
+    if (!this.depositCoreService) throw new BadRequestException('Deposit collection is unavailable');
+
+    return this.depositCoreService.collect(tenantId, id, {
+      idempotencyKey: idempotencyKey || `collect:${id}`,
+      note,
+      holdExpiresAt: holdExpiresAt || deposit.expiredAt || null,
+      notificationContext,
+    }, userId) as any;
+  }
+
   private async reconcileConfirmedPayment(deposit: any) {
     try {
       const paymentRequest = (this.prisma as any).paymentRequest;
@@ -774,6 +813,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
     if (this.depositCoreService) {
       const balance = await this.depositCoreService.getBalance(deposit.tenantId, id);
       const refundAmount = refundAmountInput === undefined ? balance : Number(refundAmountInput);
+      const proofUrls = Array.isArray(attachmentUrls) ? attachmentUrls.filter(Boolean) : [];
       const result = await this.depositCoreService.cancel(deposit.tenantId, id, {
         idempotencyKey: idempotencyKey || `refund:${id}:${refundAmount}`,
         reason,
@@ -781,6 +821,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
         keepAmount: Math.max(balance - refundAmount, 0),
         deductAmount: 0,
         refundStatus: receiptStatus,
+        attachmentUrls: proofUrls,
       }, userId);
       return result as any;
     }
@@ -793,6 +834,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
     const refundAmount = Number.isFinite(requestedRefundAmount) ? requestedRefundAmount : 0;
     if (refundAmount <= 0 || refundAmount > originalAmount) {
       throw new BadRequestException('DEPOSIT_REFUND_AMOUNT_INVALID');
+    }
+    if (receiptMode === ReceiptStatus.COMPLETED && proofUrls.length === 0) {
+      throw new BadRequestException('DEPOSIT_REFUND_PROOF_REQUIRED');
     }
     const retainedAmount = Math.max(originalAmount - refundAmount, 0);
     const refundNote = [
@@ -1112,6 +1156,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
           keepAmount,
           deductAmount,
           refundStatus: receiptStatus,
+          attachmentUrls,
         }, userId);
         return result as any;
       }
@@ -1408,7 +1453,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
   private async getRefundSummary(deposit: any) {
     if (!deposit?.id || !deposit?.code) return null;
 
-    const [receipt, task, pendingOperation] = await Promise.all([
+    const [receipt, task, pendingOperation, latestRefundOperation] = await Promise.all([
       this.prisma.receipt.findFirst({
         where: {
           tenantId: deposit.tenantId,
@@ -1435,6 +1480,22 @@ export class DepositsService extends BaseCrudService<Deposit> {
               id: true,
               receiptId: true,
               status: true,
+              result: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve(null),
+      this.depositCoreService
+        ? this.prisma.tx.depositOperation.findFirst({
+            where: {
+              tenantId: deposit.tenantId,
+              sourceDepositId: deposit.id,
+              receiptId: { not: null },
+            },
+            select: {
+              id: true,
+              result: true,
               createdAt: true,
             },
             orderBy: { createdAt: 'desc' },
@@ -1454,6 +1515,9 @@ export class DepositsService extends BaseCrudService<Deposit> {
       receiptStatus: receipt?.status || null,
       receiptAmount: Number(receipt?.amount || 0),
       receiptDescription: receipt?.description || null,
+      attachmentUrls: Array.isArray(((pendingOperation || latestRefundOperation)?.result as any)?.attachmentUrls)
+        ? ((pendingOperation || latestRefundOperation)?.result as any).attachmentUrls.filter(Boolean)
+        : [],
       taskId: task?.id || null,
       taskTitle: task?.title || null,
       taskStatus: task?.status || null,

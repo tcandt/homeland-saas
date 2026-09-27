@@ -4,13 +4,45 @@ import { HealthController } from './health.controller';
 
 describe('HealthController readiness', () => {
   it('returns READY when the database probe succeeds', async () => {
-    const prisma = { $queryRaw: vi.fn().mockResolvedValue([{ ok: 1 }]) };
+    const prisma = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ ok: 1 }])
+        .mockResolvedValueOnce([{ compatible: true }]),
+    };
     const controller = new HealthController(prisma as any);
 
     const result = await controller.checkReadiness();
 
     expect(result.status).toBe('READY');
     expect(result.checks.database.status).toBe('UP');
+    expect(result.checks.schema.status).toBe('UP');
+  });
+
+  it('throws 503 when the database is reachable but has an incompatible schema', async () => {
+    const prisma = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ ok: 1 }])
+        .mockResolvedValueOnce([{ compatible: false }]),
+    };
+    const controller = new HealthController(prisma as any);
+
+    await expect(controller.checkReadiness()).rejects.toBeInstanceOf(ServiceUnavailableException);
+    try {
+      await controller.checkReadiness();
+    } catch (error) {
+      const exception = error as ServiceUnavailableException;
+      expect(exception.getStatus()).toBe(503);
+      expect(exception.getResponse()).toMatchObject({
+        code: 'SERVICE_NOT_READY',
+        details: {
+          status: 'NOT_READY',
+          checks: {
+            database: { status: 'UP' },
+            schema: { status: 'DOWN' },
+          },
+        },
+      });
+    }
   });
 
   it('throws 503 with sanitized dependency details when the database probe fails', async () => {

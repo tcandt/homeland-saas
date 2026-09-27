@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { FinanceReportingService } from '../finance/finance-reporting.service';
 import { AnalyticsCacheService } from './analytics-cache.service';
 
 @Injectable()
 export class AnalyticsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly cache: AnalyticsCacheService
+    private readonly cache: AnalyticsCacheService,
+    private readonly financeReportingService: FinanceReportingService,
   ) {}
 
   async getRevenueAnalytics(tenantId: string) {
@@ -14,19 +16,39 @@ export class AnalyticsService {
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    // Simulate complex aggregation from Invoice/Payment/Ledger
+    const now = new Date();
+    const period = { year: String(now.getFullYear()), month: String(now.getMonth() + 1) };
+    const [history, buildings] = await Promise.all([
+      this.financeReportingService.getProfitLossHistory(tenantId, { ...period, months: '2' }),
+      this.financeReportingService.getBuildingProfitSummary(tenantId, period),
+    ]);
+    const rows = Array.isArray(history?.data) ? history.data : [];
+    const current = rows.at(-1) || { revenue: 0 };
+    const previous = rows.at(-2) || { revenue: 0 };
+    const previousRevenue = Number(previous.revenue || 0);
+    const categoryTotals = (Array.isArray(buildings) ? buildings : []).reduce(
+      (totals: any, row: any) => ({
+        rent: totals.rent + Number(row?.revenueBreakdown?.rent || 0),
+        electricity: totals.electricity + Number(row?.revenueBreakdown?.electricity || 0),
+        waterAndService: totals.waterAndService + Number(row?.revenueBreakdown?.waterAndService || 0),
+        other: totals.other + Number(row?.revenueBreakdown?.other || 0),
+      }),
+      { rent: 0, electricity: 0, waterAndService: 0, other: 0 },
+    );
+    const totalRevenue = Number(current.revenue || 0);
     const data = {
-      totalRevenue: 285000000,
-      growth: 12.5, // 12.5% vs last month
+      period,
+      totalRevenue,
+      growth: previousRevenue > 0 ? ((totalRevenue - previousRevenue) / previousRevenue) * 100 : null,
       breakdown: [
-        { category: 'Room Rent', amount: 200000000 },
-        { category: 'Electricity', amount: 50000000 },
-        { category: 'Water', amount: 15000000 },
-        { category: 'Services', amount: 20000000 }
-      ]
+        { category: 'Room Rent', amount: categoryTotals.rent },
+        { category: 'Electricity', amount: categoryTotals.electricity },
+        { category: 'Water & Services', amount: categoryTotals.waterAndService },
+        { category: 'Other', amount: categoryTotals.other },
+      ],
     };
 
-    await this.cache.set(cacheKey, data, 5 * 60 * 1000); // 5 mins
+    await this.cache.set(cacheKey, data, 5 * 60 * 1000);
     return data;
   }
 
@@ -35,12 +57,22 @@ export class AnalyticsService {
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
+    const activeRoomWhere = { tenantId, deletedAt: null };
+    const [totalRooms, occupiedRooms, vacantRooms, maintenanceRooms] = await Promise.all([
+      this.prisma.room.count({
+        where: { ...activeRoomWhere, status: { not: 'INACTIVE' } },
+      }),
+      this.prisma.room.count({ where: { ...activeRoomWhere, status: 'OCCUPIED' } }),
+      this.prisma.room.count({ where: { ...activeRoomWhere, status: 'AVAILABLE' } }),
+      this.prisma.room.count({ where: { ...activeRoomWhere, status: 'MAINTENANCE' } }),
+    ]);
+
     const data = {
-      occupancyRate: 85, // 85%
-      totalRooms: 100,
-      occupiedRooms: 85,
-      vacantRooms: 15,
-      maintenanceRooms: 0
+      occupancyRate: totalRooms === 0 ? 0 : (occupiedRooms / totalRooms) * 100,
+      totalRooms,
+      occupiedRooms,
+      vacantRooms,
+      maintenanceRooms,
     };
 
     await this.cache.set(cacheKey, data, 5 * 60 * 1000);
@@ -52,14 +84,16 @@ export class AnalyticsService {
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
+    const summary = await this.financeReportingService.getDebtSummary(tenantId);
     const data = {
-      totalDebt: 45000000,
-      atRisk: 15000000,
-      collectionRate: 92, // 92%
-      topDebtors: [
-        { customer: 'Nguyen Van A', amount: 10000000 },
-        { customer: 'Tran Thi B', amount: 5000000 }
-      ]
+      totalDebt: summary.totals.debt,
+      atRisk: summary.totals.overdueDebt,
+      // An open-balance summary has no billed-versus-collected denominator.
+      collectionRate: null,
+      topDebtors: summary.customers.slice(0, 2).map((customer) => ({
+        customer: customer.label,
+        amount: customer.debt,
+      })),
     };
 
     await this.cache.set(cacheKey, data, 5 * 60 * 1000);
@@ -71,14 +105,23 @@ export class AnalyticsService {
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
+    const now = new Date();
+    const period = { year: String(now.getFullYear()), month: String(now.getMonth() + 1) };
+    const buildings = await this.financeReportingService.getBuildingProfitSummary(tenantId, period);
+    const rows = Array.isArray(buildings) ? buildings : [];
+    const revenue = rows.reduce((sum: number, row: any) => sum + Number(row.revenue || 0), 0);
+    const expense = rows.reduce((sum: number, row: any) => sum + Number(row.expense || 0), 0);
+    const netProfit = revenue - expense;
     const data = {
-      netProfit: 176000000,
-      margin: 61.7, // 61.7%
-      expensesBreakdown: [
-        { category: 'Maintenance', amount: 45000000 },
-        { category: 'Salary', amount: 40000000 },
-        { category: 'Utilities', amount: 24000000 }
-      ]
+      period,
+      revenue,
+      expense,
+      netProfit,
+      margin: revenue > 0 ? (netProfit / revenue) * 100 : 0,
+      expensesBreakdown: rows.map((row: any) => ({
+        category: row?.building?.code || row?.building?.name || 'Unassigned building',
+        amount: Number(row.expense || 0),
+      })),
     };
 
     await this.cache.set(cacheKey, data, 5 * 60 * 1000);

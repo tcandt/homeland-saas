@@ -77,4 +77,16 @@ describe('DepositOutboxPublisher', () => {
       }),
     }));
   });
+
+  it('does not claim an invoice payment before its issue event and linked QR request are delivered', async () => {
+    const { tx, service } = createHarness();
+
+    await service.drain();
+
+    const statement = (tx.$queryRaw.mock.calls[0][0] as any).strings.join('');
+    expect(statement).toContain("issued.\"eventName\" = 'invoice.issued'");
+    expect(statement).toContain("issued.\"status\" <> 'PUBLISHED'");
+    expect(statement).toContain("request.\"providerTransactionId\" = event.\"payload\"->>'paymentRef'");
+    expect(statement).toContain("request.\"metadata\"->>'zaloSentAt'");
+  });
 });

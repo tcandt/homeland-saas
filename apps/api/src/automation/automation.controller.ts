@@ -54,7 +54,8 @@ export class AutomationController {
     @Param('name') name: string,
     @Body() payload: any
   ) {
-    return await this.automationService.triggerWorkflow(name, 'manual_run', payload);
+    const tenantId = await this.getTenantId();
+    return await this.automationService.runWorkflow(name, tenantId, payload);
   }
 
   @Post('rules/:name/run')
@@ -63,6 +64,7 @@ export class AutomationController {
     @Param('name') name: string,
     @Body() context: any
   ) {
-    return await this.automationService.runRule(name, context);
+    const tenantId = await this.getTenantId();
+    return await this.automationService.runRule(name, tenantId, context);
   }
 }

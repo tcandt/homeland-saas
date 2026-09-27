@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { WorkflowStatus } from './automation.constants';
 import { WorkflowEngine } from './workflow/workflow.engine';
@@ -19,9 +19,22 @@ export class AutomationService {
     return await this.workflowEngine.executeWorkflow(workflowName, eventName, payload);
   }
 
-  async runRule(ruleName: string, context?: any) {
+  async runWorkflow(workflowName: string, tenantId: string, payload: any) {
+    this.logger.log(`Manually running workflow ${workflowName}`);
+    const execution = await this.workflowEngine.executeWorkflow(workflowName, 'manual_run', {
+      ...(payload || {}),
+      tenantId,
+    });
+    return this.manualExecutionResponse(execution);
+  }
+
+  async runRule(ruleName: string, tenantId: string, context?: any) {
     this.logger.log(`Running rule ${ruleName}`);
-    return await this.ruleEngine.executeRule(ruleName, context);
+    const execution = await this.ruleEngine.executeRule(ruleName, {
+      ...(context || {}),
+      tenantId,
+    });
+    return this.manualExecutionResponse(execution);
   }
 
   async getWorkflows() {
@@ -42,9 +55,35 @@ export class AutomationService {
   }
 
   async getExecutionById(tenantId: string, id: string) {
-    return this.prisma.workflowExecution.findUnique({
-      where: { id },
+    const workflowExecution = await this.prisma.workflowExecution.findFirst({
+      where: { id, tenantId },
       include: { steps: true }
     });
+    if (workflowExecution) {
+      return workflowExecution;
+    }
+
+    const ruleExecution = await this.prisma.ruleExecution.findFirst({
+      where: { id, tenantId },
+    });
+    if (ruleExecution) {
+      return ruleExecution;
+    }
+
+    throw new NotFoundException('Execution not found');
+  }
+
+  private manualExecutionResponse(execution: any) {
+    const executionId = execution?.executionId || execution?.id;
+    const status = execution?.status;
+    if (!executionId || !status) {
+      throw new NotFoundException('Automation definition not found');
+    }
+
+    return {
+      executionId,
+      status,
+      ...(execution.error ? { error: execution.error } : {}),
+    };
   }
 }

@@ -43,12 +43,36 @@ export class DepositOutboxPublisher {
 
     const claimedIds = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT "id"
-        FROM "OutboxEvent"
-        WHERE "status" IN ('PENDING', 'FAILED')
-          AND "availableAt" <= NOW()
-          AND "attempts" < 10
-        ORDER BY "createdAt" ASC
+        SELECT event."id"
+        FROM "OutboxEvent" AS event
+        WHERE event."status" IN ('PENDING', 'FAILED')
+          AND event."availableAt" <= NOW()
+          AND event."attempts" < 10
+          AND (
+            event."aggregateType" <> 'Invoice'
+            OR event."eventName" NOT IN ('invoice.paid', 'invoice.payment.recorded')
+            OR (
+              NOT EXISTS (
+                SELECT 1
+                FROM "OutboxEvent" AS issued
+                WHERE issued."tenantId" = event."tenantId"
+                  AND issued."aggregateType" = 'Invoice'
+                  AND issued."aggregateId" = event."aggregateId"
+                  AND issued."eventName" = 'invoice.issued'
+                  AND issued."status" <> 'PUBLISHED'
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM "PaymentRequest" AS request
+                WHERE request."tenantId" = event."tenantId"
+                  AND request."sourceType" = 'INVOICE'
+                  AND request."sourceId" = event."aggregateId"
+                  AND request."providerTransactionId" = event."payload"->>'paymentRef'
+                  AND COALESCE(request."metadata"->>'zaloSentAt', '') = ''
+              )
+            )
+          )
+        ORDER BY event."createdAt" ASC, event."id" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT ${batchSize}
       `);

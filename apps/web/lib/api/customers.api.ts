@@ -9,8 +9,13 @@ export const customersApi = {
     return apiClient.get(`/customers/${id}`);
   },
 
-  create: (data: any) => {
-    return apiClient.post('/customers', data);
+  create: (data: any, idempotencyKey?: string) => {
+    if (!idempotencyKey) {
+      return apiClient.post('/customers', data);
+    }
+    return apiClient.post('/customers', data, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
   },
 
   update: (id: string, data: any) => {

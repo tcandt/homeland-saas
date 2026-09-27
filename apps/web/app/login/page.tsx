@@ -34,6 +34,8 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [emailOrPhone, setEmailOrPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [capsLockOn, setCapsLockOn] = useState(false);
@@ -76,7 +78,16 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const response = await authApi.login({ emailOrPhone, password });
+      const response = twoFactorChallenge
+        ? await authApi.verifyTwoFactorLogin({ challengeToken: twoFactorChallenge, code: twoFactorCode })
+        : await authApi.login({ emailOrPhone, password });
+      if ('requiresTwoFactor' in response) {
+        setTwoFactorChallenge(response.challengeToken);
+        setTwoFactorCode("");
+        setLoading(false);
+        toast.success("Mã OTP đã được gửi tới email của bạn.");
+        return;
+      }
       toast.success("Đăng nhập thành công", {
         id: "login-toast",
         duration: 2500,
@@ -361,6 +372,40 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {twoFactorChallenge && (
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="login-two-factor-code"
+                  className={`block text-[11px] font-bold uppercase tracking-wider ${
+                    isDark ? "text-slate-300" : "text-slate-700"
+                  }`}
+                >
+                  Mã OTP Email
+                </label>
+                <input
+                  id="login-two-factor-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={twoFactorCode}
+                  onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, ""))}
+                  required
+                  disabled={loading}
+                  data-testid="login-two-factor-code"
+                  placeholder="Nhập 6 chữ số"
+                  className={`h-12 w-full rounded-2xl px-4 text-center font-mono text-lg font-black tracking-[0.35em] transition-all focus:outline-none focus:ring-4 disabled:opacity-60 ${
+                    isDark
+                      ? "border border-white/10 bg-slate-950/70 text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-indigo-500/20"
+                      : "border border-slate-200/90 bg-slate-50/90 text-slate-900 placeholder-slate-400 focus:border-indigo-600 focus:ring-indigo-500/15"
+                  }`}
+                />
+                <p className={`text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  Mã có hiệu lực trong 5 phút. Không chia sẻ mã này cho người khác.
+                </p>
+              </div>
+            )}
+
             {/* Row: Remember Me & Forgot Password */}
             <div className="flex items-center justify-between pt-1 pb-1">
               <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -414,7 +459,7 @@ export default function LoginPage() {
                   </>
                 ) : (
                   <>
-                    <span>Đăng nhập hệ thống</span>
+                    <span>{twoFactorChallenge ? "Xác nhận OTP" : "Đăng nhập hệ thống"}</span>
                     <ArrowRight
                       size={16}
                       className="transition-transform duration-200 group-hover:translate-x-1"

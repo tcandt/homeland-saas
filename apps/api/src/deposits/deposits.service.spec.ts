@@ -77,6 +77,7 @@ describe('DepositsService', () => {
       id: 'operation-1',
       receiptId: 'receipt-1',
       status: 'PENDING',
+      result: { attachmentUrls: ['document-storage://tenant-1/deposit-refunds/proof.jpg'] },
       createdAt: new Date(),
     });
 
@@ -88,6 +89,7 @@ describe('DepositsService', () => {
           operationId: 'operation-1',
           receiptId: 'receipt-1',
           pending: true,
+          attachmentUrls: ['document-storage://tenant-1/deposit-refunds/proof.jpg'],
         }),
       }),
     );
@@ -306,7 +308,13 @@ describe('DepositsService', () => {
       description: 'Deposit refund for DEP-001 - Tra coc',
     });
 
-    await expect(service.refund('deposit-1', 'Tra coc', 'user-1')).resolves.toMatchObject({
+    await expect(service.refund(
+      'deposit-1',
+      'Tra coc',
+      'user-1',
+      'COMPLETED',
+      ['document-storage://tenant-1/deposit-refunds/refund-1.jpg'],
+    )).resolves.toMatchObject({
       status: DepositStatus.REFUNDED,
       note: 'Tra coc',
     });
@@ -440,7 +448,14 @@ describe('DepositsService', () => {
     });
 
     await expect(
-      service.refund('deposit-2b', 'Hoan mot phan', 'user-1', 'COMPLETED', [], 1800000),
+      service.refund(
+        'deposit-2b',
+        'Hoan mot phan',
+        'user-1',
+        'COMPLETED',
+        ['document-storage://tenant-1/deposit-refunds/refund-2b.pdf'],
+        1800000,
+      ),
     ).resolves.toMatchObject({
       status: DepositStatus.REFUNDED,
     });

@@ -20,41 +20,15 @@ export class KnowledgeService {
       });
       if (!doc) throw new BadRequestException('Document not found');
 
-      // Check vector db availability (simplified check)
-      try {
-        await this.prisma.$queryRaw`SELECT 1 FROM pg_extension WHERE extname = 'vector'`;
-      } catch (e) {
-        throw new BadRequestException('AI_VECTOR_STORE_NOT_READY');
-      }
-
-      const textToEmbed = `Tài liệu: ${doc.title}\nLoại: ${doc.type}\nTrạng thái: ${doc.status}`;
-
-      // 2. Chunking (Stub)
-      const chunks = [textToEmbed]; // Replace with real chunker later
-
-      // 3. Generate Embeddings
-      for (const chunk of chunks) {
-        const embedding = await this.aiService.embed(chunk);
-
-        // 4. Save to Vector Store
-        const knowledgeDoc = await this.prisma.aiKnowledgeDocument.upsert({
-          where: { tenantId_sourceType_sourceId: { tenantId, sourceType: 'Document', sourceId: doc.id } },
-          update: { status: 'COMPLETED' },
-          create: { tenantId, sourceType: 'Document', sourceId: doc.id, title: doc.title, status: 'COMPLETED' },
-        });
-
-        const tokenCount = Math.ceil(chunk.length / 4); // Approximation
-
-        // Raw SQL insert for pgvector
-        await this.prisma.$executeRaw`
-          INSERT INTO "AiKnowledgeChunk" ("id", "tenantId", "documentId", "content", "tokenCount", "embedding", "createdAt")
-          VALUES (gen_random_uuid()::text, ${tenantId}, ${knowledgeDoc.id}, ${chunk}, ${tokenCount}, ${embedding}::vector, NOW())
-        `;
-      }
-
-      return { success: true, message: 'Ingestion completed' };
+      // Metadata is not document content. Do not claim a document was ingested
+      // until a real extractor supplies text from its current version.
+      throw new BadRequestException('AI_DOCUMENT_TEXT_EXTRACTION_UNSUPPORTED');
     } catch (error: any) {
-      if (error.message === 'AI_VECTOR_STORE_NOT_READY' || error.message.includes('AI_PROVIDER_NOT_CONFIGURED')) {
+      if (
+        error instanceof BadRequestException ||
+        error.message === 'AI_VECTOR_STORE_NOT_READY' ||
+        error.message.includes('AI_PROVIDER_NOT_CONFIGURED')
+      ) {
         throw error;
       }
       this.logger.error(`Ingestion Error: ${error.message}`, error.stack);

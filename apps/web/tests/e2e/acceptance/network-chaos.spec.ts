@@ -125,8 +125,10 @@ rbacTest.describe('Level 3 - Network Chaos Suite', () => {
     await admin.page.goto('/automation');
     await admin.page.waitForLoadState('domcontentloaded');
 
-    // UI should handle the timeout without crashing
-    await expect(admin.page.locator('main')).toBeVisible();
+    await expect(admin.page.getByTestId('automation-root')).toBeVisible();
+    await admin.page.getByTestId('tab-rules').click();
+    await expect(admin.page.getByTestId('rules-unavailable')).toBeVisible();
+    await expect(admin.page.getByTestId('rule-card')).toHaveCount(0);
   });
 
   rbacTest('6. Notifications - Offline Mode', async ({ browser, admin }) => {

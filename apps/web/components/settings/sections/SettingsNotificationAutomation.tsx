@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
 import {
   Bell,
   Check,
@@ -15,12 +16,21 @@ import {
   Sparkles,
   Zap,
   Play,
+  FilePenLine,
+  History,
+  RotateCcw,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
+import {
+  notificationTemplatesApi,
+  type NotificationTemplateCatalogItem,
+  type NotificationTemplateContent,
+  type NotificationTemplatePreview,
+} from "@/lib/api/notification-templates.api";
 import toast from "react-hot-toast";
 import {
   getSpeechVoices,
@@ -87,7 +97,7 @@ const FALLBACK_SETTINGS: NotificationAutomationSettings = {
   notifications: defaultEvents,
   reminderDays: {
     invoiceDueSoonDays: 3,
-    invoiceOverdueDays: 7,
+    invoiceOverdueDays: 3,
     contractExpiringDays: 30,
   },
   audioSettings: {
@@ -128,6 +138,47 @@ export default function SettingsNotificationAutomation() {
     ...(draft.audioSettings || {}),
   };
   const [speechVoices, setSpeechVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedTemplateCode, setSelectedTemplateCode] = useState("INVOICE_ZALO_PAYMENT_REQUEST");
+  const [templateEditor, setTemplateEditor] = useState<NotificationTemplateContent>({
+    name: "",
+    subject: "",
+    body: "",
+  });
+  const [templatePreview, setTemplatePreview] = useState<NotificationTemplatePreview | null>(null);
+  const [isTemplateSaving, setIsTemplateSaving] = useState(false);
+  const {
+    data: templateCatalog,
+    isLoading: isLoadingTemplates,
+    mutate: mutateTemplateCatalog,
+  } = useSWR("notification-template-catalog", notificationTemplatesApi.list, { revalidateOnFocus: false });
+  const notificationTemplates = templateCatalog?.templates || [];
+  const selectedTemplate = useMemo<NotificationTemplateCatalogItem | null>(
+    () => notificationTemplates.find((template) => template.code === selectedTemplateCode) || notificationTemplates[0] || null,
+    [notificationTemplates, selectedTemplateCode],
+  );
+
+  useEffect(() => {
+    if (!selectedTemplate) return;
+    if (selectedTemplate.code !== selectedTemplateCode) {
+      setSelectedTemplateCode(selectedTemplate.code);
+      return;
+    }
+    const source = selectedTemplate.draft || selectedTemplate.effective;
+    setTemplateEditor({
+      name: source.name,
+      subject: source.subject || "",
+      body: source.body,
+    });
+    setTemplatePreview(null);
+  }, [
+    selectedTemplate,
+    selectedTemplateCode,
+    selectedTemplate?.draft?.id,
+    selectedTemplate?.draft?.updatedAt,
+    selectedTemplate?.effective.name,
+    selectedTemplate?.effective.subject,
+    selectedTemplate?.effective.body,
+  ]);
 
   useEffect(() => {
     const refreshVoices = () => setSpeechVoices(getSpeechVoices());
@@ -169,6 +220,73 @@ export default function SettingsNotificationAutomation() {
         [field]: value,
       },
     });
+  };
+
+  const previewTemplate = async () => {
+    if (!selectedTemplate) return;
+    setIsTemplateSaving(true);
+    try {
+      const preview = await notificationTemplatesApi.preview(selectedTemplate.code, {
+        ...templateEditor,
+        subject: templateEditor.subject || null,
+      });
+      setTemplatePreview(preview);
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể xem trước mẫu tin");
+    } finally {
+      setIsTemplateSaving(false);
+    }
+  };
+
+  const saveTemplateDraft = async () => {
+    if (!selectedTemplate) return false;
+    setIsTemplateSaving(true);
+    try {
+      await notificationTemplatesApi.saveDraft(selectedTemplate.code, {
+        ...templateEditor,
+        subject: templateEditor.subject || null,
+      });
+      await mutateTemplateCatalog();
+      toast.success("Đã lưu bản nháp mẫu tin");
+      return true;
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể lưu bản nháp mẫu tin");
+      return false;
+    } finally {
+      setIsTemplateSaving(false);
+    }
+  };
+
+  const publishTemplate = async () => {
+    if (!selectedTemplate) return;
+    setIsTemplateSaving(true);
+    try {
+      await notificationTemplatesApi.saveDraft(selectedTemplate.code, {
+        ...templateEditor,
+        subject: templateEditor.subject || null,
+      });
+      await notificationTemplatesApi.publish(selectedTemplate.code);
+      await mutateTemplateCatalog();
+      toast.success("Đã xuất bản mẫu tin");
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể xuất bản mẫu tin");
+    } finally {
+      setIsTemplateSaving(false);
+    }
+  };
+
+  const rollbackTemplate = async (version: number) => {
+    if (!selectedTemplate || !window.confirm(`Khôi phục nội dung phiên bản ${version} và xuất bản thành phiên bản mới?`)) return;
+    setIsTemplateSaving(true);
+    try {
+      await notificationTemplatesApi.rollback(selectedTemplate.code, version);
+      await mutateTemplateCatalog();
+      toast.success(`Đã khôi phục phiên bản ${version}`);
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể khôi phục phiên bản mẫu tin");
+    } finally {
+      setIsTemplateSaving(false);
+    }
   };
 
   const previewSound = async (soundId: NotificationSoundId) => {
@@ -279,6 +397,136 @@ export default function SettingsNotificationAutomation() {
           <span>Lưu cấu hình thông báo</span>
         </Button>
       </div>
+
+      <Card className="rounded-xl border border-border/70 bg-card p-4 shadow-2xs" data-testid="settings-notification-template-editor">
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
+              <FilePenLine size={17} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-text">Mẫu tin theo sự kiện</h3>
+              <p className="mt-0.5 text-xs font-medium text-muted">Bản nháp chỉ có hiệu lực sau khi xuất bản.</p>
+            </div>
+          </div>
+          {selectedTemplate && (
+            <span className={`self-start rounded-md border px-2 py-1 text-[10px] font-black uppercase tracking-wider ${selectedTemplate.effective.source === "TENANT" ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"}`}>
+              {selectedTemplate.effective.source === "TENANT" ? `Tenant · v${selectedTemplate.effective.version}` : "Mặc định hệ thống"}
+            </span>
+          )}
+        </div>
+
+        {isLoadingTemplates ? (
+          <div className="h-36 animate-pulse rounded-lg bg-muted/20" />
+        ) : !selectedTemplate ? (
+          <div className="rounded-lg border border-dashed border-border p-4 text-xs font-medium text-muted">Chưa tải được danh mục mẫu tin.</div>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
+            <div className="space-y-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-muted">Sự kiện</span>
+                <select
+                  aria-label="Chọn sự kiện mẫu tin"
+                  value={selectedTemplate.code}
+                  onChange={(event) => setSelectedTemplateCode(event.target.value)}
+                  className="h-10 rounded-lg border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary"
+                  data-testid="settings-notification-template-code"
+                >
+                  {notificationTemplates.map((template) => (
+                    <option key={template.code} value={template.code}>{template.default.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-muted">Tên mẫu</span>
+                  <input
+                    value={templateEditor.name}
+                    onChange={(event) => setTemplateEditor((current) => ({ ...current, name: event.target.value }))}
+                    className="h-10 rounded-lg border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary"
+                    data-testid="settings-notification-template-name"
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-muted">Tiêu đề</span>
+                  <input
+                    value={templateEditor.subject || ""}
+                    onChange={(event) => setTemplateEditor((current) => ({ ...current, subject: event.target.value }))}
+                    className="h-10 rounded-lg border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary"
+                    data-testid="settings-notification-template-subject"
+                  />
+                </label>
+              </div>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-muted">Nội dung</span>
+                <textarea
+                  value={templateEditor.body}
+                  onChange={(event) => setTemplateEditor((current) => ({ ...current, body: event.target.value }))}
+                  className="min-h-48 resize-y rounded-lg border border-border bg-background px-3 py-2.5 font-mono text-xs leading-5 text-text outline-none focus:border-primary"
+                  data-testid="settings-notification-template-body"
+                />
+              </label>
+
+              <div className="flex flex-wrap gap-1.5" aria-label="Biến khả dụng">
+                {selectedTemplate.variables.map((variable) => (
+                  <span key={variable.path} title={variable.label} className="rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-1 font-mono text-[10px] font-bold text-sky-700 dark:text-sky-300">
+                    {`{{${variable.path}}}`}
+                  </span>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button type="button" variant="outline" size="sm" onClick={() => void previewTemplate()} isLoading={isTemplateSaving} className="h-8 gap-1.5 px-3 text-[11px]" data-testid="settings-notification-template-preview">
+                  <Play size={12} /> Xem trước
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => void saveTemplateDraft()} isLoading={isTemplateSaving} className="h-8 gap-1.5 px-3 text-[11px]" data-testid="settings-notification-template-save-draft">
+                  <Save size={12} /> Lưu nháp
+                </Button>
+                <Button type="button" variant="primary" size="sm" onClick={() => void publishTemplate()} isLoading={isTemplateSaving} className="h-8 gap-1.5 px-3 text-[11px]" data-testid="settings-notification-template-publish">
+                  <Send size={12} /> Xuất bản
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-lg border border-border/70 bg-background/60 p-3">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-black text-text"><Play size={13} className="text-primary" /> Bản xem trước</div>
+                {templatePreview ? (
+                  <div className="space-y-2">
+                    <div className="text-xs font-black text-text">{templatePreview.title}</div>
+                    <pre className="whitespace-pre-wrap break-words font-sans text-[11px] leading-5 text-muted">{templatePreview.message}</pre>
+                  </div>
+                ) : (
+                  <div className="text-[11px] font-medium text-muted">Mẫu dữ liệu giả lập, không gửi đến khách hàng.</div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-border/70 bg-background/60 p-3">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-black text-text"><History size={13} className="text-primary" /> Phiên bản đã xuất bản</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedTemplate.versions.filter((version) => version.status === "PUBLISHED").map((version) => (
+                    <button
+                      key={version.id}
+                      type="button"
+                      onClick={() => void rollbackTemplate(version.version)}
+                      disabled={isTemplateSaving}
+                      title={`Khôi phục phiên bản ${version.version}`}
+                      className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-card px-2 text-[10px] font-black text-text transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <RotateCcw size={11} /> v{version.version}
+                    </button>
+                  ))}
+                  {selectedTemplate.versions.filter((version) => version.status === "PUBLISHED").length === 0 && (
+                    <span className="text-[11px] font-medium text-muted">Chưa có phiên bản tenant.</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
 
       <Card className="rounded-xl border border-border/70 bg-card p-4 shadow-2xs">
         <div className="mb-3 flex items-center gap-2">

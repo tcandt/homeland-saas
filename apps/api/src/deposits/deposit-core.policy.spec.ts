@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { buildDepositCancellationPlan, buildDepositConversionPlan } from './deposit-core.policy';
+import { assertBookingHoldCanBeCancelled, buildDepositCancellationPlan, buildDepositConversionPlan } from './deposit-core.policy';
 
 describe('deposit core policy', () => {
   describe('booking to security conversion', () => {
@@ -83,6 +83,17 @@ describe('deposit core policy', () => {
         availableBalance: 5_000_000,
         refundAmount: 5_000_001,
       })).toThrow('DEPOSIT_RESOLUTION_MUST_EQUAL_AVAILABLE_BALANCE');
+    });
+  });
+
+  describe('booking-hold lifecycle guard', () => {
+    it('never lets a booking cancellation cancel an already active rental', () => {
+      expect(() => assertBookingHoldCanBeCancelled({ depositType: 'BOOKING', contractStatus: 'ACTIVE' }))
+        .toThrow('BOOKING_HOLD_ACTIVE_CONTRACT_CANNOT_CANCEL');
+    });
+
+    it('still allows a pre-active booking hold to be cancelled through its ledger allocation', () => {
+      expect(() => assertBookingHoldCanBeCancelled({ depositType: 'BOOKING', contractStatus: 'DRAFT' })).not.toThrow();
     });
   });
 });

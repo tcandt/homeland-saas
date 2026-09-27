@@ -34,6 +34,11 @@ export class AutomationListener {
     await this.processEvent('invoice.payment.recorded', payload);
   }
 
+  @OnEvent('invoice.overdue')
+  async handleInvoiceOverdue(payload: DomainEventPayload) {
+    await this.processEvent('invoice.overdue', payload);
+  }
+
   @OnEvent('deposit.refunded')
   async handleDepositRefunded(payload: DomainEventPayload) {
     await this.processEvent('deposit.refunded', payload);
@@ -52,6 +57,11 @@ export class AutomationListener {
   @OnEvent('deposit.cancelled')
   async handleDepositCancelled(payload: DomainEventPayload) {
     await this.processEvent('deposit.cancelled', payload);
+  }
+
+  @OnEvent('deposit.hold.expired')
+  async handleDepositHoldExpired(payload: DomainEventPayload) {
+    await this.processEvent('deposit.hold.expired', payload);
   }
 
   @OnEvent('deposit.converted_to_security')
@@ -88,6 +98,7 @@ export class AutomationListener {
       'deposit.refund_requested',
       'deposit.deducted',
       'deposit.cancelled',
+      'deposit.hold.expired',
       'deposit.converted_to_security',
       'invoice.issued',
       'invoice.overdue',
@@ -102,9 +113,10 @@ export class AutomationListener {
       const workflows = await this.automationService.getWorkflows();
       const triggeredWorkflows = workflows.filter(w => w.triggerEvent === eventName);
       const shouldPropagateWorkflowFailure = Boolean((payload as any)?.outboxDelivery);
+      const isPaymentConfirmation = ['deposit.collected', 'invoice.paid', 'invoice.payment.recorded'].includes(eventName);
       
       for (const w of triggeredWorkflows) {
-        if (shouldPropagateWorkflowFailure) {
+        if (shouldPropagateWorkflowFailure || isPaymentConfirmation) {
           await this.automationService.triggerWorkflow(w.name, eventName, payload);
         } else {
           this.automationService.triggerWorkflow(w.name, eventName, payload).catch(e => {

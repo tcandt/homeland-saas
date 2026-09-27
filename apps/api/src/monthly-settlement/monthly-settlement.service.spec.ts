@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   MonthlySettlementService,
@@ -26,10 +26,13 @@ describe("MonthlySettlementService", () => {
   let storedBillingSnapshot: any;
 
   it("uses standard_conforming_strings-safe month regexes in the billing migration", () => {
-    const migration = readFileSync(
+    const candidatePaths = [
+      resolve(process.cwd(), "packages/database/prisma/migrations/20260909153000_add_billing_snapshot/migration.sql"),
       resolve(process.cwd(), "../../packages/database/prisma/migrations/20260909153000_add_billing_snapshot/migration.sql"),
-      "utf8",
-    );
+      resolve(__dirname, "../../../../packages/database/prisma/migrations/20260909153000_add_billing_snapshot/migration.sql"),
+    ];
+    const migrationPath = candidatePaths.find((p) => existsSync(p)) || candidatePaths[0];
+    const migration = readFileSync(migrationPath, "utf8");
     const safePeriodRegex = "^[0-9]{4}-(0[1-9]|1[0-2])$";
 
     expect(migration.split(safePeriodRegex)).toHaveLength(5);

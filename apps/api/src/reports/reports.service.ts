@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { authoritativeJournalLineWhere, cashAccountWhere, normalBalance } from '../finance/journal-effect.policy';
+import { summarizeDepositLedger } from '../deposits/finance-summary.policy';
 
 @Injectable()
 export class ReportsService {
@@ -101,24 +102,46 @@ export class ReportsService {
 
   async getDepositLiability(tenantId: string) {
     const deposits = await this.prisma.deposit.findMany({
-      where: { tenantId, status: { in: ['PAID'] } },
-      include: { customer: true, room: { include: { floor: { include: { building: true } } } } }
+      where: { tenantId, deletedAt: null },
+      include: {
+        customer: true,
+        room: { include: { floor: { include: { building: true } } } },
+        ledgerEntries: {
+          where: { tenantId },
+          select: { id: true, depositId: true, type: true, amount: true, balanceEffect: true, createdAt: true },
+        },
+      },
     });
 
-    return deposits.map(d => ({
-      code: d.code,
-      customer: d.customer.fullName,
-      room: d.room?.name || 'N/A',
-      building: d.room?.floor.building.name || 'N/A',
-      amount: Number(d.amount),
-      date: d.createdAt
-    }));
+    return deposits
+      .map((d: any) => {
+        const balance = summarizeDepositLedger(d.ledgerEntries || []).balances.get(d.id) || 0;
+        return {
+          code: d.code,
+          customer: d.customer?.fullName || 'N/A',
+          room: d.room?.name || 'N/A',
+          building: d.room?.floor?.building?.name || 'N/A',
+          amount: Number(d.amount || 0),
+          balance,
+          date: d.createdAt,
+        };
+      })
+      .filter((row) => row.balance > 0);
   }
 
   async getReceivableAging(tenantId: string) {
     const invoices = await this.prisma.invoice.findMany({
       where: { tenantId, status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] } },
-      include: { customer: true }
+      include: {
+        customer: true,
+        contract: {
+          include: {
+            room: {
+              include: { building: true },
+            },
+          },
+        },
+      },
     });
 
     return invoices.map((inv: any) => {
@@ -128,8 +151,16 @@ export class ReportsService {
       );
       const daysOverdue = Math.max(0, Math.floor((new Date().getTime() - inv.dueDate.getTime()) / (1000 * 3600 * 24)));
       return {
+        invoiceId: inv.id,
         invoiceCode: inv.code || inv.id,
+        customerId: inv.customerId,
         customer: inv.customer?.fullName || 'Unknown',
+        phone: inv.customer?.phone || null,
+        roomId: inv.contract?.room?.id || null,
+        roomCode: inv.contract?.room?.code || inv.contract?.room?.name || null,
+        buildingId: inv.contract?.room?.building?.id || null,
+        buildingCode: inv.contract?.room?.building?.code || null,
+        buildingName: inv.contract?.room?.building?.name || null,
         dueDate: inv.dueDate,
         totalAmount: Number(inv.total),
         remainingAmount: remaining,

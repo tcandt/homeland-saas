@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import useSWR from "swr";
 import {
   AlertTriangle,
@@ -62,7 +62,7 @@ export default function SettingsBackup() {
   const [selectedSnapshotForRestore, setSelectedSnapshotForRestore] = useState<BackupManifestInfo | null>(null);
 
   // Daily Schedule state
-  const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(true);
+  const [isTogglingSchedule, setIsTogglingSchedule] = useState(false);
 
   // 3-dots dropdown menu state
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
@@ -81,29 +81,23 @@ export default function SettingsBackup() {
   const [isWiping, setIsWiping] = useState(false);
 
   const backups = backupData?.backups || [];
+  const scheduleEnabled = backupData?.scheduleEnabled === true;
 
-  // Load schedule setting from localStorage or backend
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("system_backup_schedule_enabled");
-      if (saved !== null) {
-        setScheduleEnabled(saved === "true");
-      } else if (backupData?.scheduleEnabled !== undefined) {
-        setScheduleEnabled(backupData.scheduleEnabled);
-      }
-    }
-  }, [backupData]);
-
-  const handleToggleSchedule = () => {
+  const handleToggleSchedule = async () => {
     const next = !scheduleEnabled;
-    setScheduleEnabled(next);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("system_backup_schedule_enabled", String(next));
-    }
-    if (next) {
-      toast.success("Đã bật lịch trình sao lưu tự động hàng ngày (02:00 AM)");
-    } else {
-      toast("Đã tạm tắt lịch trình sao lưu tự động hàng ngày", { icon: "⏸️" });
+    setIsTogglingSchedule(true);
+    try {
+      const status = await systemUpdateApi.updateBackupSchedule(next);
+      await mutate(status, false);
+      if (next) {
+        toast.success("Đã bật lịch trình sao lưu tự động hàng ngày (02:00 AM)");
+      } else {
+        toast("Đã tạm tắt lịch trình sao lưu tự động hàng ngày", { icon: "⏸️" });
+      }
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể cập nhật lịch sao lưu tự động");
+    } finally {
+      setIsTogglingSchedule(false);
     }
   };
 
@@ -291,6 +285,7 @@ export default function SettingsBackup() {
             type="button"
             role="switch"
             aria-checked={scheduleEnabled}
+            disabled={isTogglingSchedule || isLoading}
             onClick={handleToggleSchedule}
             className="flex items-center gap-2.5 cursor-pointer select-none group focus:outline-none p-1 rounded-lg hover:bg-muted/10 transition"
             title={scheduleEnabled ? "Bấm để tạm tắt lịch trình sao lưu tự động" : "Bấm để bật lịch trình sao lưu tự động"}

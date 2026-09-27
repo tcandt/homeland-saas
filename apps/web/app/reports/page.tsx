@@ -28,20 +28,12 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import { Card } from "@/components/ui/Card";
-import { getInvoiceFinancials, isBookingHoldInvoice } from "@/lib/invoices/invoice-financials";
-import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
-import { useContractsQuery } from "@/lib/queries/contracts.queries";
-import { useDepositsQuery } from "@/lib/queries/deposits.queries";
-import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
-import { useRoomsQuery } from "@/lib/queries/rooms.queries";
-
-function getList(response: any): any[] {
-  if (Array.isArray(response)) return response;
-  const data = response?.data;
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.items)) return data.items;
-  return [];
-}
+import { useDashboardQuery } from "@/lib/queries/dashboard.queries";
+import {
+  useProfitLossHistoryReportQuery,
+  useReceivableAgingReportQuery,
+  useRevenueByBuildingReportQuery,
+} from "@/lib/queries/reports.queries";
 
 function formatVnd(value: number) {
   return `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(value || 0)} đ`;
@@ -57,152 +49,89 @@ function formatCompactVnd(value: number) {
   return formatVnd(value);
 }
 
-function buildingLabel(item: any) {
-  return (
-    item?.room?.building?.name ||
-    item?.room?.building?.code ||
-    item?.contract?.room?.building?.name ||
-    item?.contract?.room?.building?.code ||
-    item?.building?.name ||
-    item?.building?.code ||
-    item?.buildingCode ||
-    "Toàn hệ thống"
-  );
-}
-
-const reportableInvoiceStatuses = new Set(["ISSUED", "PARTIALLY_PAID", "OVERDUE", "PAID"]);
-
 const PIE_COLORS = ["#6366f1", "#10b981", "#0ea5e9", "#f59e0b", "#ec4899", "#8b5cf6", "#14b8a6"];
 
 export default function ReportsPage() {
-  const buildingsQuery = useBuildingsQuery({ limit: 100 });
-  const invoicesQuery = useInvoicesQuery({ limit: 500 });
-  const contractsQuery = useContractsQuery({ limit: 500 });
-  const depositsQuery = useDepositsQuery({ limit: 500 });
-  const roomsQuery = useRoomsQuery({ limit: 500 });
+  const dashboardQuery = useDashboardQuery();
+  const revenueHistoryQuery = useProfitLossHistoryReportQuery();
+  const revenueByBuildingQuery = useRevenueByBuildingReportQuery();
+  const receivableAgingQuery = useReceivableAgingReportQuery();
 
-  const rawBuildings = getList(buildingsQuery.data);
-  const invoices = getList(invoicesQuery.data).filter((invoice) =>
-    reportableInvoiceStatuses.has(invoice.status)
-  );
-  const rentalInvoices = invoices.filter((invoice) => !isBookingHoldInvoice(invoice));
-  const bookingHoldInvoices = invoices.filter((invoice) => isBookingHoldInvoice(invoice));
-  const contracts = getList(contractsQuery.data);
-  const deposits = getList(depositsQuery.data);
-  const rooms = getList(roomsQuery.data);
-
+  const dashboard = dashboardQuery.data;
+  const revenueHistory = Array.isArray(revenueHistoryQuery.data) ? revenueHistoryQuery.data : [];
+  const revenueByBuilding = Array.isArray(revenueByBuildingQuery.data)
+    ? revenueByBuildingQuery.data
+    : [];
+  const receivableAging = Array.isArray(receivableAgingQuery.data)
+    ? receivableAgingQuery.data
+    : [];
+  const buildingHealth = Array.isArray(dashboard?.buildingHealth) ? dashboard.buildingHealth : [];
   const isLoading =
-    invoicesQuery.isLoading || contractsQuery.isLoading || depositsQuery.isLoading || roomsQuery.isLoading;
+    dashboardQuery.isLoading ||
+    revenueHistoryQuery.isLoading ||
+    revenueByBuildingQuery.isLoading ||
+    receivableAgingQuery.isLoading;
 
-  // Overall Financial & Operational Summary for all 4 buildings combined
   const summary = useMemo(() => {
-    const totals = rentalInvoices.reduce(
-      (result, invoice) => {
-        const financials = getInvoiceFinancials(invoice);
-        result.totalRevenue += financials.total;
-        result.collected += financials.paid;
-        result.settled += financials.settled;
-        result.debt += financials.remaining;
-        if (financials.remaining > 0) result.debtInvoiceCount += 1;
+    const totals = revenueByBuilding.reduce(
+      (result, row) => {
+        result.totalRevenue += Number(row.totalAmount || 0);
+        result.collected += Number(row.paidAmount || 0);
+        result.settled += Number(row.paidAmount || 0) + Number(row.creditAmount || 0);
+        result.debt += Number(row.remainingAmount || 0);
+        result.invoiceCount += Number(row.invoiceCount || 0);
         return result;
       },
-      { totalRevenue: 0, collected: 0, settled: 0, debt: 0, debtInvoiceCount: 0 }
+      { totalRevenue: 0, collected: 0, settled: 0, debt: 0, invoiceCount: 0 }
     );
-    const bookingHoldLiability = deposits
-      .filter((deposit) =>
-        ["BOOKING", "RESERVATION"].includes(String(deposit.type || "").toUpperCase()) &&
-        ["PAID", "CONVERTED_TO_CONTRACT"].includes(String(deposit.status || "").toUpperCase())
-      )
-      .reduce((total, deposit) => total + Number(deposit.availableBalance ?? deposit.amount ?? 0), 0);
-
-    const activeContracts = contracts.filter((contract) => contract.status === "ACTIVE").length;
-    const expiringContracts = contracts.filter((contract) => contract.status === "EXPIRING").length;
-
-    const occupiedRooms = rooms.filter((room) =>
-      ["occupied", "rented", "active", "expiring_soon"].includes(
-        String(room.status || "").toLowerCase()
-      )
-    ).length;
-
-    const occupancyRate = rooms.length ? (occupiedRooms / rooms.length) * 100 : 0;
+    const totalRooms = Number(dashboard?.occupancy?.totalRooms || 0);
+    const occupiedRooms = Number(dashboard?.occupancy?.occupiedRooms || 0);
+    const occupancyRate = totalRooms
+      ? (occupiedRooms / totalRooms) * 100
+      : Number(dashboard?.occupancy?.rate || 0);
     const recoveryRate = totals.totalRevenue ? (totals.collected / totals.totalRevenue) * 100 : 0;
-    const revPar = rooms.length ? Math.round(totals.totalRevenue / rooms.length) : 0;
+    const revPar = totalRooms ? Math.round(totals.totalRevenue / totalRooms) : 0;
 
     return {
       ...totals,
-      bookingHoldLiability,
-      bookingHoldInvoiceCount: bookingHoldInvoices.length,
-      activeContracts,
-      expiringContracts,
-      totalRooms: rooms.length,
+      debtInvoiceCount: receivableAging.filter((invoice) => Number(invoice.remainingAmount || 0) > 0).length,
+      depositHeld: Number(dashboard?.kpisRaw?.depositHeld || 0),
+      activeContracts: Number(dashboard?.operations?.activeContracts || 0),
+      expiringContracts: Number(dashboard?.operations?.expiringContracts || 0),
+      totalRooms,
       occupiedRooms,
       occupancyRate,
       recoveryRate,
       revPar,
     };
-  }, [bookingHoldInvoices.length, contracts, deposits, rentalInvoices, rooms]);
+  }, [dashboard, receivableAging, revenueByBuilding]);
 
-  // 6-Month Combined Revenue & Collection Trend
   const revenueTrend = useMemo(() => {
-    const current = new Date();
-    const months = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(current.getFullYear(), current.getMonth() - (5 - index), 1);
-      return {
-        key: `${date.getFullYear()}-${date.getMonth()}`,
-        label: `T${date.getMonth() + 1}/${date.getFullYear()}`,
-        revenue: 0,
-        collected: 0,
-        debt: 0,
-      };
-    });
-    const byMonth = new Map(months.map((month) => [month.key, month]));
+    return revenueHistory.map((month: any) => ({
+      label: month.month || month.label,
+      revenue: Number(month.revenue || 0),
+      profit: Number(month.profit || 0),
+    }));
+  }, [revenueHistory]);
 
-    rentalInvoices.forEach((invoice) => {
-      const date = new Date(invoice.createdAt || invoice.dueDate);
-      if (Number.isNaN(date.getTime())) return;
-      const month = byMonth.get(`${date.getFullYear()}-${date.getMonth()}`);
-      if (!month) return;
-      const financials = getInvoiceFinancials(invoice);
-      month.revenue += financials.total;
-      month.collected += financials.paid;
-      month.debt += financials.remaining;
-    });
-
-    return months;
-  }, [rentalInvoices]);
-
-  // Revenue Structure (Donut Chart)
   const revenueStructure = useMemo(() => {
     if (summary.totalRevenue <= 0) {
       return [{ label: "Chưa có phát sinh", value: 1, displayValue: 0, color: "#94a3b8" }];
     }
 
     const map = new Map<string, number>();
-    rentalInvoices.forEach((invoice) => {
-      const items = invoice.items || invoice.invoiceItems || [];
-      if (Array.isArray(items) && items.length > 0) {
-        items.forEach((item: any) => {
-          const type = item.type || item.category || "Tiền phòng";
-          const title =
-            type === "ROOM" || type === "RENT"
-              ? "Tiền thuê phòng"
-              : type === "ELECTRICITY" || type === "ELECTRIC"
-              ? "Tiền điện"
-              : type === "WATER"
-              ? "Tiền nước"
-              : type === "SERVICE" || type === "SERVICE_FEE"
-              ? "Dịch vụ & Tiện ích"
-              : type === "PARKING"
-              ? "Gửi xe"
-              : item.name || "Khác";
-          const amount = Number(item.amount || item.total || item.unitPrice * (item.quantity || 1) || 0);
-          map.set(title, (map.get(title) || 0) + amount);
-        });
-      } else {
-        const title = "Tiền thuê phòng";
-        const amt = getInvoiceFinancials(invoice).total;
-        map.set(title, (map.get(title) || 0) + amt);
-      }
+    revenueByBuilding.forEach((row) => {
+      const breakdown = row.revenueBreakdown || {};
+      const categories = [
+        ["Tiền thuê phòng", breakdown.rent],
+        ["Tiền điện", breakdown.electricity],
+        ["Nước & dịch vụ", breakdown.waterAndService],
+        ["Khác", breakdown.other],
+      ] as const;
+      categories.forEach(([label, amount]) => {
+        const value = Number(amount || 0);
+        if (value > 0) map.set(label, (map.get(label) || 0) + value);
+      });
     });
 
     const entries = Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
@@ -216,35 +145,33 @@ export default function ReportsPage() {
       displayValue: value,
       color: PIE_COLORS[idx % PIE_COLORS.length],
     }));
-  }, [rentalInvoices, summary.totalRevenue]);
+  }, [revenueByBuilding, summary.totalRevenue]);
 
-  // All 4 Buildings Performance Comparison Table
   const buildingRows = useMemo(() => {
     const grouped = new Map<
       string,
       { code: string; name: string; totalRooms: number; occupiedRooms: number; revenue: number; collected: number; debt: number }
     >();
 
-    // Seed with all buildings
-    rawBuildings.forEach((b: any) => {
-      grouped.set(b.code || b.name, {
-        code: b.code || "N/A",
-        name: b.name || b.code || "Tòa nhà",
-        totalRooms: 0,
-        occupiedRooms: 0,
+    buildingHealth.forEach((building: any) => {
+      const key = building.code || building.id || building.name;
+      grouped.set(key, {
+        code: building.code || building.id || "N/A",
+        name: building.name || building.code || "Tòa nhà",
+        totalRooms: Number(building.rooms || 0),
+        occupiedRooms: Number(building.occupied || 0),
         revenue: 0,
         collected: 0,
         debt: 0,
       });
     });
 
-    // Populate rooms
-    rooms.forEach((r: any) => {
-      const bKey = r?.building?.code || r?.building?.name || r?.buildingCode || "Chưa rõ";
+    revenueByBuilding.forEach((row) => {
+      const bKey = row.buildingCode || row.buildingId || row.buildingName || "Chưa rõ";
       if (!grouped.has(bKey)) {
         grouped.set(bKey, {
           code: bKey,
-          name: r?.building?.name || bKey,
+          name: row.buildingName || bKey,
           totalRooms: 0,
           occupiedRooms: 0,
           revenue: 0,
@@ -253,31 +180,9 @@ export default function ReportsPage() {
         });
       }
       const target = grouped.get(bKey)!;
-      target.totalRooms += 1;
-      if (["occupied", "rented", "active", "expiring_soon"].includes(String(r.status || "").toLowerCase())) {
-        target.occupiedRooms += 1;
-      }
-    });
-
-    // Populate revenue
-    rentalInvoices.forEach((invoice) => {
-      const bKey = buildingLabel(invoice);
-      if (!grouped.has(bKey)) {
-        grouped.set(bKey, {
-          code: bKey,
-          name: bKey,
-          totalRooms: 0,
-          occupiedRooms: 0,
-          revenue: 0,
-          collected: 0,
-          debt: 0,
-        });
-      }
-      const target = grouped.get(bKey)!;
-      const financials = getInvoiceFinancials(invoice);
-      target.revenue += financials.total;
-      target.collected += financials.paid;
-      target.debt += financials.remaining;
+      target.revenue += Number(row.totalAmount || 0);
+      target.collected += Number(row.paidAmount || 0);
+      target.debt += Number(row.remainingAmount || 0);
     });
 
     const list = Array.from(grouped.values()).filter(
@@ -285,55 +190,30 @@ export default function ReportsPage() {
     );
 
     return list.sort((a, b) => b.revenue - a.revenue);
-  }, [rawBuildings, rentalInvoices, rooms]);
+  }, [buildingHealth, revenueByBuilding]);
 
-  // Combined Debtors Table
   const debtRows = useMemo(() => {
-    return rentalInvoices
+    return receivableAging
       .map((invoice) => {
-        const financials = getInvoiceFinancials(invoice);
-        const name =
-          invoice.customer?.fullName ||
-          invoice.customer?.name ||
-          invoice.tenant?.name ||
-          invoice.tenantName ||
-          "Khách thuê";
-        const roomCode =
-          invoice.room?.code ||
-          invoice.roomCode ||
-          invoice.contract?.room?.code ||
-          invoice.contract?.room?.name ||
-          invoice.contract?.room?.number ||
-          "--";
-        const building =
-          invoice.room?.building?.code ||
-          invoice.contract?.room?.building?.code ||
-          invoice.contract?.room?.building?.name ||
-          invoice.building?.code ||
-          invoice.buildingCode ||
-          "";
-        const daysOverdue = invoice.dueDate
-          ? Math.max(0, Math.floor((Date.now() - new Date(invoice.dueDate).getTime()) / 86400000))
-          : 0;
-
+        const total = Number(invoice.totalAmount || 0);
+        const debt = Number(invoice.remainingAmount || 0);
         return {
-          id: invoice.id || invoice.code,
-          code: invoice.code || invoice.invoiceNumber || "HD-",
-          name,
-          phone: invoice.customer?.phone || invoice.tenant?.phone || "--",
-          roomCode,
-          building,
-          total: financials.total,
-          paid: financials.paid,
-          debt: financials.remaining,
-          dueDate: invoice.dueDate,
-          daysOverdue,
+          id: invoice.invoiceId || invoice.invoiceCode,
+          code: invoice.invoiceCode,
+          name: invoice.customer || "Khách thuê",
+          phone: invoice.phone || "",
+          roomCode: invoice.roomCode || "--",
+          building: invoice.buildingCode || invoice.buildingName || "",
+          total,
+          settled: Math.max(0, total - debt),
+          debt,
+          daysOverdue: Number(invoice.daysOverdue || 0),
         };
       })
       .filter((row) => row.debt > 0)
       .sort((a, b) => b.debt - a.debt)
       .slice(0, 10);
-  }, [rentalInvoices]);
+  }, [receivableAging]);
 
   return (
     <AppShell>
@@ -352,7 +232,7 @@ export default function ReportsPage() {
               {isLoading ? "..." : formatCompactVnd(summary.totalRevenue)}
             </div>
             <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-muted truncate">
-              <span>{rentalInvoices.length} hóa đơn thuê · loại trừ {summary.bookingHoldInvoiceCount} HĐ cọc</span>
+              <span>{summary.invoiceCount} hóa đơn thuê/phí đã phát sinh</span>
             </div>
           </Card>
 
@@ -430,7 +310,7 @@ export default function ReportsPage() {
               </div>
             </div>
             <div className="mt-2 font-mono font-black text-lg text-teal-600 dark:text-teal-400 tracking-tight leading-tight">
-              {isLoading ? "..." : formatCompactVnd(summary.bookingHoldLiability)}
+              {isLoading ? "..." : formatCompactVnd(summary.depositHeld)}
             </div>
             <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-muted truncate">
               <span>Không ghi nhận vào doanh thu</span>
@@ -440,26 +320,26 @@ export default function ReportsPage() {
 
         {/* 2. MAIN CHARTS SECTION */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-3.5">
-          {/* 6-Month Revenue vs Collection Area Chart (8 Cols) */}
+          {/* 6-Month Revenue vs Profit Area Chart (8 Cols) */}
           <div className="xl:col-span-8 rounded-2xl border border-border/70 bg-card p-4 md:p-5 shadow-2xs flex flex-col justify-between">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
               <div>
                 <h2 className="text-sm md:text-base font-black text-text tracking-tight flex items-center gap-2">
                   <TrendingUp size={16} className="text-primary" />
-                  <span>Xu hướng Phát sinh thuê vs Thực thu (Tổng hợp 6 tháng)</span>
+                  <span>Xu hướng Doanh thu vs Lợi nhuận (Tổng hợp 6 tháng)</span>
                 </h2>
                 <p className="text-xs text-muted font-medium mt-0.5">
-                  Chỉ tính hóa đơn thuê/phí vận hành; hóa đơn cọc giữ phòng được tách sang khoản cọc đang giữ.
+                  Dữ liệu ghi nhận từ sổ cái doanh thu và chi phí theo từng tháng.
                 </p>
               </div>
               <div className="flex items-center gap-3 shrink-0 text-xs font-bold">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
-                  <span className="text-text">Phát sinh</span>
+                  <span className="text-text">Doanh thu</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-text">Thực thu</span>
+                  <span className="text-text">Lợi nhuận</span>
                 </div>
               </div>
             </div>
@@ -494,7 +374,7 @@ export default function ReportsPage() {
                   <Area
                     type="monotone"
                     dataKey="revenue"
-                    name="Phát sinh thuê/phí"
+                    name="Doanh thu"
                     stroke="#6366f1"
                     strokeWidth={2.5}
                     fillOpacity={1}
@@ -502,8 +382,8 @@ export default function ReportsPage() {
                   />
                   <Area
                     type="monotone"
-                    dataKey="collected"
-                    name="Thực nhận"
+                    dataKey="profit"
+                    name="Lợi nhuận"
                     stroke="#10b981"
                     strokeWidth={2.5}
                     fillOpacity={1}
@@ -708,7 +588,7 @@ export default function ReportsPage() {
                   <th className="px-4 py-3">Khách thuê / Phòng</th>
                   <th className="px-4 py-3">Mã Hóa đơn</th>
                   <th className="px-4 py-3 text-right">Tổng tiền HĐ</th>
-                  <th className="px-4 py-3 text-right">Đã thanh toán</th>
+                  <th className="px-4 py-3 text-right">Đã xử lý</th>
                   <th className="px-4 py-3 text-right">Còn nợ lại</th>
                   <th className="px-4 py-3 text-center">Tình trạng quá hạn</th>
                 </tr>
@@ -748,7 +628,7 @@ export default function ReportsPage() {
                       </td>
 
                       <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                        {formatVnd(item.paid)}
+                        {formatVnd(item.settled)}
                       </td>
 
                       <td className="px-4 py-3 text-right font-mono font-black text-rose-600 dark:text-rose-400">
@@ -778,11 +658,11 @@ export default function ReportsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           <Card className="p-4 rounded-xl border border-border/70 bg-card shadow-2xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-muted">Tổng số hợp đồng</span>
+              <span className="text-xs font-bold text-muted">Tổng hóa đơn thuê/phí</span>
               <FileText size={16} className="text-primary" />
             </div>
-            <div className="mt-2 font-mono font-black text-xl text-text">{contracts.length}</div>
-            <div className="mt-1 text-[11px] text-muted">Toàn bộ 4 tòa nhà</div>
+            <div className="mt-2 font-mono font-black text-xl text-text">{summary.invoiceCount}</div>
+            <div className="mt-1 text-[11px] text-muted">Đã loại trừ hóa đơn cọc giữ phòng</div>
           </Card>
 
           <Card className="p-4 rounded-xl border border-border/70 bg-card shadow-2xs">
@@ -809,13 +689,13 @@ export default function ReportsPage() {
 
           <Card className="p-4 rounded-xl border border-border/70 bg-card shadow-2xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-muted">Hết hạn / Đã thanh lý</span>
+              <span className="text-xs font-bold text-muted">Hóa đơn chưa thu</span>
               <Layers size={16} className="text-muted" />
             </div>
             <div className="mt-2 font-mono font-black text-xl text-muted">
-              {contracts.filter((c) => ["TERMINATED", "EXPIRED"].includes(c.status)).length}
+              {summary.debtInvoiceCount}
             </div>
-            <div className="mt-1 text-[11px] text-muted">Đã kết thúc hợp đồng</div>
+            <div className="mt-1 text-[11px] text-muted">Cần theo dõi thanh toán</div>
           </Card>
         </div>
       </div>

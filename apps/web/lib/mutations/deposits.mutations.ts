@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { depositsApi } from '../api/deposits.api';
+import { financeKeys } from '../queries/finance.queries';
 
 export const useCreateDepositMutation = () => {
   const queryClient = useQueryClient();
@@ -8,6 +9,7 @@ export const useCreateDepositMutation = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
     },
   });
 };
@@ -20,6 +22,7 @@ export const useUpdateDepositMutation = () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
     },
   });
 };
@@ -31,6 +34,7 @@ export const useDeleteDepositMutation = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
     },
   });
 };
@@ -44,6 +48,7 @@ export const useCollectDepositMutation = () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
     },
   });
 };
@@ -57,6 +62,7 @@ export const useRefundDepositMutation = () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
     },
   });
 };
@@ -65,17 +71,19 @@ export interface CompletePendingRefundVariables {
   operationId: string;
   depositId?: string;
   note?: string;
+  attachmentUrls?: string[];
   idempotencyKey: string;
 }
 
 export const useCompletePendingDepositRefundMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ operationId, note, idempotencyKey }: CompletePendingRefundVariables) =>
-      depositsApi.completePendingRefund(operationId, note, idempotencyKey),
+    mutationFn: ({ operationId, note, attachmentUrls, idempotencyKey }: CompletePendingRefundVariables) =>
+      depositsApi.completePendingRefund(operationId, note, idempotencyKey, attachmentUrls),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
       if (variables.depositId) {
         queryClient.invalidateQueries({ queryKey: ['deposit', variables.depositId] });
       }
@@ -91,6 +99,7 @@ export interface CancelDepositVariables {
   keepAmount: number;
   deductAmount: number;
   receiptStatus?: 'PENDING' | 'COMPLETED';
+  attachmentUrls?: string[];
   idempotencyKey: string;
 }
 
@@ -103,6 +112,7 @@ export function buildCancelDepositPayload({
   deductAmount,
   reason,
   receiptStatus,
+  attachmentUrls,
 }: Omit<CancelDepositVariables, 'id' | 'idempotencyKey'>) {
   const allocations = [availableBalance, refundAmount, keepAmount, deductAmount];
   if (allocations.some((value) => !Number.isFinite(value) || value < 0)) {
@@ -111,6 +121,9 @@ export function buildCancelDepositPayload({
   if (toMoney(refundAmount + keepAmount + deductAmount) !== toMoney(availableBalance)) {
     throw new Error('DEPOSIT_RESOLUTION_MUST_EQUAL_AVAILABLE_BALANCE');
   }
+  const normalizedAttachmentUrls = Array.isArray(attachmentUrls)
+    ? [...new Set(attachmentUrls.map((url) => url.trim()).filter(Boolean))]
+    : [];
 
   return {
     reason: reason.trim() || 'Hủy phiếu cọc',
@@ -118,6 +131,7 @@ export function buildCancelDepositPayload({
     keepAmount: toMoney(keepAmount),
     deductAmount: toMoney(deductAmount),
     refundStatus: refundAmount > 0 ? receiptStatus : undefined,
+    ...(normalizedAttachmentUrls.length ? { attachmentUrls: normalizedAttachmentUrls } : {}),
   };
 }
 
@@ -132,6 +146,7 @@ export const useCancelDepositMutation = () => {
       keepAmount,
       deductAmount,
       receiptStatus,
+      attachmentUrls,
       idempotencyKey,
     }: CancelDepositVariables) => {
       return depositsApi.cancel(
@@ -143,6 +158,7 @@ export const useCancelDepositMutation = () => {
           keepAmount,
           deductAmount,
           receiptStatus,
+          attachmentUrls,
         }),
         idempotencyKey,
       );
@@ -151,6 +167,7 @@ export const useCancelDepositMutation = () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
     },
   });
 };
@@ -164,6 +181,7 @@ export const useCancelUnpaidDepositMutation = () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
     },
   });
 };
@@ -205,6 +223,7 @@ export const useConvertContractMutation = () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
+      queryClient.invalidateQueries({ queryKey: financeKeys.all });
     },
   });
 };

@@ -125,6 +125,7 @@ export default function OperationsRefundCenter({
 
       <aside
         aria-hidden={collapsed}
+        inert={collapsed}
         ref={panelRef}
         className={`pointer-events-auto relative z-40 flex h-full max-h-none min-w-0 shrink-0 flex-col gap-3 overflow-y-auto rounded-l-[28px] border border-r-0 border-border/80 bg-card p-4 shadow-modal transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
           collapsed

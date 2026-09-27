@@ -7,7 +7,7 @@ const { assertBaselineV2Artifact, assertHistoricalManifest, historicalManifest, 
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
-test('BASELINE-V2 is static, checksum-locked and sourced from all 18 immutable migrations', () => {
+test('BASELINE-V2 is static, checksum-locked and sourced from all 18 immutable historical migrations', () => {
   assert.equal(historicalManifest.migrations.length, 18);
   assert.equal(reviewedMigrations.length, 18);
   assertHistoricalManifest();

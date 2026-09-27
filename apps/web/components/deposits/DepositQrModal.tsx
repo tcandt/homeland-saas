@@ -28,23 +28,6 @@ interface DepositQrModalProps {
 
 const currencyFormatter = new Intl.NumberFormat("vi-VN");
 
-const LANDLORDS: Record<string, any> = {
-  TINH: {
-    hoTenChuNha: "NGUYỄN ĐỨC TÍNH",
-    chuTaiKhoan: "HKD NGUYEN DUC TINH",
-    soTaiKhoan: "8818406081",
-    nganHang: "BIDV",
-    bankCode: "BIDV",
-  },
-  THE: {
-    hoTenChuNha: "PHAN VĂN THẾ",
-    chuTaiKhoan: "HKD PHAN VAN THE",
-    soTaiKhoan: "8827905414",
-    nganHang: "BIDV",
-    bankCode: "BIDV",
-  },
-};
-
 export default function DepositQrModal({
   isOpen,
   onClose,
@@ -56,6 +39,7 @@ export default function DepositQrModal({
   const [zaloSuccess, setZaloSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [requestAttempt, setRequestAttempt] = useState(0);
 
   useEffect(() => {
     if (!isOpen || !deposit) {
@@ -68,40 +52,7 @@ export default function DepositQrModal({
     let isMounted = true;
     setIsLoading(true);
     setErrorMessage(null);
-
-    // Determine landlord config based on room / building
-    const bName = (deposit.buildingName || "").toUpperCase();
-    const landlordKey = bName.includes("THE") ? "THE" : "TINH";
-    const landlord = LANDLORDS[landlordKey] || LANDLORDS["TINH"];
-
-    const cleanRoom = (deposit.roomCode || "PHONG").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-    const cleanCustomer = (deposit.customerName || "KHACH")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/đ/g, "d")
-      .replace(/Đ/g, "D")
-      .replace(/[^a-zA-Z0-9]/g, "")
-      .toUpperCase();
-    const memo = `COC ${cleanRoom} ${cleanCustomer}`.slice(0, 25);
-    const amount = Number(deposit.amount || 0);
-
-    const fallbackQrUrl = `https://img.vietqr.io/image/${landlord.bankCode}-${landlord.soTaiKhoan}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(landlord.chuTaiKhoan)}`;
-
-    const fallbackRequest: PaymentRequestResponse = {
-      id: deposit.id,
-      sourceType: "DEPOSIT",
-      sourceId: deposit.id,
-      amount,
-      paymentCode: memo,
-      status: "PENDING",
-      provider: "MANUAL",
-      qrUrl: fallbackQrUrl,
-      bankName: landlord.nganHang,
-      bankAccountNumber: landlord.soTaiKhoan,
-      bankAccountName: landlord.chuTaiKhoan,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    setPaymentRequest(null);
 
     paymentsApi
       .createDepositRequest(deposit.id)
@@ -111,14 +62,13 @@ export default function DepositQrModal({
         if (data && data.qrUrl) {
           setPaymentRequest(data);
         } else {
-          setPaymentRequest(fallbackRequest);
+          setErrorMessage("Không thể tạo mã thanh toán SePay hợp lệ. Vui lòng thử lại; hệ thống sẽ không hiển thị QR thủ công để tránh giao dịch không đối soát được.");
         }
       })
       .catch((err) => {
         if (!isMounted) return;
-        console.warn("[DepositQrModal] Falling back to default landlord VietQR:", err);
-        // Seamless fallback to configured landlord VietQR so user is never blocked
-        setPaymentRequest(fallbackRequest);
+        console.warn("[DepositQrModal] Failed to create SePay payment request:", err);
+        setErrorMessage("Không thể tạo mã thanh toán SePay. Vui lòng kiểm tra cấu hình tài khoản nhận tiền và thử lại; QR thủ công đã bị chặn để bảo toàn đối soát.");
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -127,7 +77,7 @@ export default function DepositQrModal({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, deposit]);
+  }, [isOpen, deposit, requestAttempt]);
 
   const handleSendZalo = async () => {
     if (!deposit) return;
@@ -287,7 +237,21 @@ export default function DepositQrModal({
               )}
             </Button>
           </div>
-        ) : null}
+        ) : (
+          <div className="py-8 flex flex-col items-center justify-center gap-3 text-center">
+            <AlertCircle size={28} className="text-rose-500" />
+            <p className="text-xs text-muted font-medium max-w-xs">
+              Chưa có mã thanh toán SePay hợp lệ cho phiếu cọc này.
+            </p>
+            <Button
+              type="button"
+              onClick={() => setRequestAttempt((attempt) => attempt + 1)}
+              className="h-9 px-4 text-xs font-bold"
+            >
+              Thử lại tạo mã SePay
+            </Button>
+          </div>
+        )}
       </div>
     </Modal>
   );

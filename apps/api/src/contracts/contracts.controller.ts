@@ -23,8 +23,11 @@ import {
   UpdateContractSchema,
   PaginationSchema,
   ContractSettlementInputSchema,
+  ContractSettlementRefundCompletionSchema,
   MoveOutOccupantInputSchema,
+  AddWholeRoomOccupantSchema,
   RenewContractSchema,
+  ConvertBookingHoldSchema,
   TransferOccupantInputSchema,
 } from "@homeland/shared";
 import { normalizeContractStatus } from "./contracts.adapter";
@@ -74,6 +77,27 @@ export class ContractsController {
   ) {
     return this.contractsService.moveOutOccupant(
       MoveOutOccupantInputSchema.parse(body),
+      userId,
+      tenantId,
+      idempotencyKey,
+    );
+  }
+
+  @Post(":id/whole-room-occupants")
+  @RequirePermissions("contract.update")
+  @ApiOperation({
+    summary: "Add one secondary occupant to an active whole-room contract",
+  })
+  addWholeRoomOccupant(
+    @Param("id") id: string,
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.contractsService.addWholeRoomOccupant(
+      id,
+      AddWholeRoomOccupantSchema.parse(body),
       userId,
       tenantId,
       idempotencyKey,
@@ -164,12 +188,15 @@ export class ContractsController {
     @Body() body: any,
     @CurrentUser("id") userId: string,
     @CurrentUser("tenantId") tenantId: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
   ) {
+    const input = ConvertBookingHoldSchema.parse(body);
     return this.contractsService.createRentalFromBookingHold(
       id,
-      RenewContractSchema.parse(body),
+      input,
       userId,
       tenantId,
+      idempotencyKey || input.idempotencyKey,
     );
   }
 
@@ -271,12 +298,14 @@ export class ContractsController {
     @CurrentUser("tenantId") tenantId: string,
     @Headers("idempotency-key") idempotencyKey?: string,
   ) {
+    const input = ContractSettlementRefundCompletionSchema.parse(body);
     return this.contractsService.completePendingSettlementRefund(
       id,
       userId,
-      body?.note,
+      input.note,
       tenantId,
-      idempotencyKey,
+      idempotencyKey || input.idempotencyKey,
+      input.attachmentUrls,
     );
   }
 

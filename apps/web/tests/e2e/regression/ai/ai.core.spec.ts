@@ -20,6 +20,7 @@ test.describe('AI Core Regression Flow', () => {
     await expect(page.getByTestId('ai-message-input')).toBeVisible();
     await expect(page.getByTestId('ai-send-button')).toBeVisible();
     await expect(page.getByTestId('ai-knowledge-sources')).toBeVisible();
+    await expect(page.getByTestId('ai-knowledge-source-unavailable')).toContainText('Nguồn tri thức của tenant chưa được kết nối');
     await expect(page.getByTestId('ai-token-usage')).toBeVisible();
   });
 
@@ -65,7 +66,9 @@ test.describe('AI Core Regression Flow', () => {
         await expect(draftConfirmation).toContainText('DRAFT');
         await expect(page.getByTestId('ai-draft-approve')).toBeVisible();
         await expect(page.getByTestId('ai-draft-cancel')).toBeVisible();
-        // Do NOT click approve to test that it stays pending
+        await expect(page.getByTestId('ai-draft-approve')).toBeDisabled();
+        await page.getByTestId('ai-draft-cancel').click();
+        await expect(draftConfirmation).toBeHidden();
       }
     }
 

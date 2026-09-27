@@ -3,24 +3,44 @@
 import React from "react";
 import { User, FileText, Receipt, Shield, CheckCircle2, Clock, MapPin, MoreHorizontal, AlertCircle, Wrench, Edit } from "lucide-react";
 
-import { useRoomsQuery } from "@/lib/queries/rooms.queries";
-import { useRoomsStore } from "@/lib/hooks/useRoomsStore";
+import { useRoomsQuery } from "../../lib/queries/rooms.queries";
+import { useRoomsStore } from "../../lib/hooks/useRoomsStore";
 import { Loader2 } from "lucide-react";
-import { getRoomDisplayName } from "@/components/buildings/building-labels";
+import { getRoomDisplayName } from "../buildings/building-labels";
 
 const formatMoney = (amount: number) => {
   return new Intl.NumberFormat("vi-VN").format(amount) + " đ";
 };
 
+export interface RoomQueryFilters {
+  search?: string;
+  buildingId?: string;
+  floorId?: string;
+  status?: string;
+  type?: string;
+}
+
+function supportedFilterValue(value: string | undefined) {
+  const normalized = String(value || "").trim();
+  return normalized && normalized !== "Tất cả" ? normalized : undefined;
+}
+
+export function toRoomQueryParams(filters: RoomQueryFilters) {
+  return {
+    search: supportedFilterValue(filters.search),
+    buildingId: supportedFilterValue(filters.buildingId),
+    floorId: supportedFilterValue(filters.floorId),
+    status: supportedFilterValue(filters.status),
+    type: supportedFilterValue(filters.type),
+  };
+}
+
 export default function RoomGrid() {
   const { search, buildingId, floorId, status, type } = useRoomsStore();
   
-  const { data: rooms = [], isLoading, isError } = useRoomsQuery({
-    search: search || undefined,
-    buildingId: buildingId !== 'Tất cả' && buildingId ? buildingId : undefined,
-    floorId: floorId !== 'Tất cả' && floorId ? floorId : undefined,
-    status: status !== 'Tất cả' && status ? status : undefined,
-  });
+  const { data: rooms = [], isLoading, isError } = useRoomsQuery(
+    toRoomQueryParams({ search, buildingId, floorId, status, type }),
+  );
 
   if (isLoading) {
     return (

@@ -21,7 +21,7 @@ Chỉ database disposable hoàn toàn rỗng (`public_base_tables = 0`) mới đ
 2. tạo pgvector, apply `baseline-v2.sql`;
 3. so sánh **toàn bộ** canonical inventory/fingerprint và ContractStatus audit;
 4. chỉ khi pass mới `migrate resolve --applied` đúng 18 migration;
-5. kiểm tra `migrate status`, `migrate deploy` no-op, `migrate status` lần hai.
+5. kiểm tra `migrate status`, chạy `migrate deploy` đúng một lần để áp các migration forward sau historical 1–18 (nếu có), rồi `migrate status` xác nhận up-to-date; rerun `migrate deploy` mới phải no-op.
 
 Không có bước nào chạy historical SQL lên DB rỗng.
 

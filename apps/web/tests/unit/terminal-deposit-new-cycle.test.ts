@@ -48,6 +48,7 @@ describe('D2-FIX-09: Production Deposit API Commands & Invariants', () => {
         keepAmount: 2000000,
         deductAmount: 0,
         refundStatus: 'PENDING',
+        attachmentUrls: ['https://example.test/refund-proof.pdf'],
       },
       'idemp-cancel-key-456'
     );
@@ -61,6 +62,7 @@ describe('D2-FIX-09: Production Deposit API Commands & Invariants', () => {
         keepAmount: 2000000,
         deductAmount: 0,
         refundStatus: 'PENDING',
+        attachmentUrls: ['https://example.test/refund-proof.pdf'],
         idempotencyKey: 'idemp-cancel-key-456',
       },
       {

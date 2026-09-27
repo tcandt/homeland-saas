@@ -88,6 +88,19 @@ describe('SettingsService', () => {
     expect(prisma.owner.update).not.toHaveBeenCalled();
   });
 
+  it.each(['auth-security', 'system-backup-schedule'])(
+    'blocks generic reads and writes for reserved internal key %s',
+    async (key) => {
+      await expect(
+        service.getSection('tenant-1', 'user-1', key, SettingScope.USER),
+      ).rejects.toThrow('API chuyên dụng');
+      await expect(
+        service.saveSection('tenant-1', 'user-1', key, SettingScope.USER, { enabled: false }, 'user-1'),
+      ).rejects.toThrow('API chuyên dụng');
+      expect(prisma.appSetting.upsert).not.toHaveBeenCalled();
+    },
+  );
+
   it('rejects empty owner names without persisting the transaction', async () => {
     await expect(
       service.saveSection(

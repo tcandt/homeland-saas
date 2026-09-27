@@ -2,21 +2,34 @@
 
 import React from "react";
 import { Calendar, Target, Users, PhoneCall, CheckCircle2, Clock3, BadgeAlert } from "lucide-react";
-import { useSalesLeadsQuery } from "@/lib/queries/sales.queries";
+import { SALES_STAGE_TRANSITIONS, type SalesLeadStatus } from "@/lib/api/sales.api";
+import { useSalesSummaryQuery, useUpdateSalesLeadStageMutation } from "@/lib/queries/sales.queries";
 import { formatSalesDate, getSalesStageLabel } from "./sales.types";
 
 export default function OperationsSalesRightPanel() {
-  const { data } = useSalesLeadsQuery({ limit: 100 });
-  const leads = Array.isArray((data as any)?.data?.data) ? (data as any).data.data : [];
-  const recentLeads = [...leads]
-    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 4);
-  const won = leads.filter((lead: any) => lead.status === "WON").length;
-  const active = leads.filter((lead: any) => ["CONTACTED", "QUALIFIED", "PROPOSAL"].includes(lead.status)).length;
-  const stale = leads.filter((lead: any) => {
-    const created = new Date(lead.createdAt);
-    return !Number.isNaN(created.getTime()) && Date.now() - created.getTime() > 1000 * 60 * 60 * 24 * 7 && lead.status !== "WON" && lead.status !== "LOST";
-  }).length;
+  const { data: summary } = useSalesSummaryQuery();
+  const updateStage = useUpdateSalesLeadStageMutation();
+  const [pendingLeadId, setPendingLeadId] = React.useState<string | null>(null);
+  const [stageError, setStageError] = React.useState<string | null>(null);
+  const recentLeads = summary?.newestLeads ?? [];
+  const won = summary?.stageCounts.WON ?? 0;
+  const active = summary?.activeCount ?? 0;
+  const stale = summary?.staleCount ?? 0;
+  const total = summary?.total ?? 0;
+
+  const handleStageChange = (lead: { id: string }, status: SalesLeadStatus) => {
+    if (pendingLeadId) return;
+
+    setStageError(null);
+    setPendingLeadId(lead.id);
+    updateStage.mutate(
+      { id: lead.id, status, idempotencyKey: crypto.randomUUID() },
+      {
+        onError: () => setStageError('Không thể cập nhật trạng thái lead. Vui lòng thử lại.'),
+        onSettled: () => setPendingLeadId(null),
+      },
+    );
+  };
 
   return (
     <div className="flex flex-col gap-[20px] pb-[100px]">
@@ -30,8 +43,9 @@ export default function OperationsSalesRightPanel() {
         </div>
 
         <div className="flex flex-col gap-[12px]">
-          {recentLeads.map((lead: any) => (
-            <LeadRow key={lead.id} lead={lead} />
+          {stageError ? <p role="alert" className="text-[12px] font-medium text-danger">{stageError}</p> : null}
+          {recentLeads.map((lead) => (
+            <LeadRow key={lead.id} lead={lead} isUpdating={pendingLeadId === lead.id} onStageChange={handleStageChange} />
           ))}
           {recentLeads.length === 0 && (
             <div className="text-center py-[20px] text-muted text-[13px] font-medium border border-dashed border-border rounded-[12px]">
@@ -50,7 +64,7 @@ export default function OperationsSalesRightPanel() {
         </div>
 
         <div className="flex flex-col gap-[12px]">
-          <SourceItem icon={<Users size={14} />} name="Tổng lead" value={String(leads.length)} color="text-blue-500 bg-blue-500/10" />
+          <SourceItem icon={<Users size={14} />} name="Tổng lead" value={String(total)} color="text-blue-500 bg-blue-500/10" />
           <SourceItem icon={<PhoneCall size={14} />} name="Đang xử lý" value={String(active)} color="text-orange-500 bg-orange-500/10" />
           <SourceItem icon={<CheckCircle2 size={14} />} name="Đã chốt" value={String(won)} color="text-indigo-500 bg-indigo-500/10" />
           <SourceItem icon={<BadgeAlert size={14} />} name="Cần kiểm tra" value={String(stale)} color="text-rose-500 bg-rose-500/10" />
@@ -75,12 +89,42 @@ export default function OperationsSalesRightPanel() {
   );
 }
 
-function LeadRow({ lead }: any) {
+function LeadRow({
+  lead,
+  isUpdating,
+  onStageChange,
+}: {
+  lead: { id: string; name: string; phone: string; notes: string | null; status: SalesLeadStatus };
+  isUpdating: boolean;
+  onStageChange: (lead: { id: string }, status: SalesLeadStatus) => void;
+}) {
+  const transitions = SALES_STAGE_TRANSITIONS[lead.status] ?? [];
+
   return (
     <div className="bg-background border border-border rounded-[12px] p-[12px]">
       <div className="font-bold text-[13px] text-text">{lead.name}</div>
       <div className="text-[12px] text-muted mt-1">{lead.phone}</div>
       <div className="text-[11px] text-muted mt-2 line-clamp-2">{lead.notes || "Chưa có ghi chú"}</div>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-bold text-[#6366f1]">{getSalesStageLabel(lead.status)}</span>
+        {transitions.length > 0 ? (
+          <select
+            aria-label={`Cập nhật trạng thái ${lead.name}`}
+            value=""
+            disabled={isUpdating}
+            onChange={(event) => {
+              const status = event.target.value as SalesLeadStatus;
+              if (status) onStageChange(lead, status);
+            }}
+            className="h-8 max-w-[150px] rounded-[6px] border border-border bg-card px-2 text-[11px] font-bold text-text disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <option value="">{isUpdating ? 'Đang cập nhật...' : 'Chuyển trạng thái'}</option>
+            {transitions.map((status) => <option key={status} value={status}>{getSalesStageLabel(status)}</option>)}
+          </select>
+        ) : (
+          <span className="text-[11px] font-medium text-muted">Đã kết thúc</span>
+        )}
+      </div>
     </div>
   );
 }

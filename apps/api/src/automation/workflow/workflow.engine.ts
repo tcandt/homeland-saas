@@ -164,12 +164,14 @@ export class WorkflowEngine {
         }
       }
 
+      const status = stepErrors.length > 0 ? WorkflowStatus.FAILED : WorkflowStatus.SUCCESS;
+      const error = stepErrors.length > 0 ? stepErrors.join('; ') : undefined;
       await this.prisma.workflowExecution.update({
         where: { id: execution.id },
         data: {
-          status: stepErrors.length > 0 ? WorkflowStatus.FAILED : WorkflowStatus.SUCCESS,
+          status,
           completedAt: new Date(),
-          ...(stepErrors.length > 0 ? { error: stepErrors.join('; ') } : {}),
+          ...(error ? { error } : {}),
         },
       });
       if (stepErrors.length > 0) {
@@ -181,17 +183,20 @@ export class WorkflowEngine {
       } else {
         this.logger.log(`Workflow ${workflowName} completed successfully.`);
       }
+      return { id: execution.id, status, ...(error ? { error } : {}) };
     } catch (err: any) {
+      const error = err?.message || String(err || 'Unknown workflow error');
       if (!executionAlreadyMarkedFailed) {
         await this.prisma.workflowExecution.update({
           where: { id: execution.id },
-          data: { status: WorkflowStatus.FAILED, completedAt: new Date(), error: err.message },
+          data: { status: WorkflowStatus.FAILED, completedAt: new Date(), error },
         });
       }
       this.logger.error(`Workflow ${workflowName} failed`, err.stack);
       if (shouldPropagateWorkflowFailure) {
         throw err;
       }
+      return { id: execution.id, status: WorkflowStatus.FAILED, error };
     }
   }
 
@@ -201,17 +206,21 @@ export class WorkflowEngine {
       case 'CREATE_JOURNAL_ENTRY':
         await this.createJournalEntryFromPaymentEvent(payload);
         break;
-      case 'CREATE_IN_APP_NOTIFICATION':
+      case 'CREATE_IN_APP_NOTIFICATION': {
         if (this.shouldSuppressLinkedInvoicePaymentNotification(payload)) {
           break;
         }
+        const templateCode = params?.templateCode || 'SYSTEM_ALERT';
         await this.communicationService.dispatch({
           tenantId: payload.tenantId,
           userId: payload.customerId || payload.userId,
-          templateCode: params?.templateCode || 'SYSTEM_ALERT',
-          context: payload,
+          templateCode,
+          context: templateCode === 'SYSTEM_ALERT'
+            ? this.buildSystemAlertContext(payload, params, eventName)
+            : payload,
         });
         break;
+      }
       case 'CREATE_ADMIN_IN_APP_NOTIFICATION': {
         if (this.shouldSuppressAdminNotification(payload)) {
           break;
@@ -228,6 +237,33 @@ export class WorkflowEngine {
             context: { ...payload, title, message },
           });
         }
+        break;
+      }
+      case 'SEND_CUSTOMER_ZALO': {
+        let customerZalo: { chatId: string; userId: string } = { chatId: '', userId: '' };
+        try {
+          customerZalo = await this.resolveCustomerZaloRecipient(payload);
+        } catch (error: any) {
+          this.logger.error(`Unable to resolve customer Zalo recipient: ${error?.message || error}`);
+        }
+        const recipient = String(customerZalo.chatId || customerZalo.userId || '').trim();
+        if (!recipient) {
+          this.logger.warn('Skipping customer Zalo notification because customer Zalo chat/user id is missing');
+          break;
+        }
+        await this.communicationService.dispatchDirect({
+          tenantId: payload.tenantId,
+          channel: 'ZALO' as any,
+          templateCode: params?.templateCode || 'SYSTEM_ALERT',
+          recipient,
+          userId: payload.customerId || null,
+          context: {
+            ...payload,
+            title: params?.title || 'HomeLand - Cập nhật giữ phòng',
+            message: params?.message || 'Giữ phòng của quý khách đã hết hạn. Vui lòng liên hệ ban quản lý nếu cần hỗ trợ.',
+            ...buildRoomContext(payload.room || payload.contract?.room, payload.contract),
+          },
+        });
         break;
       }
       case 'SEND_PAYMENT_CONFIRMATION_ZALO':
@@ -249,6 +285,8 @@ export class WorkflowEngine {
         const zaloRecipient = String(customerZalo.chatId || customerZalo.userId || '').trim();
         if (zaloRecipient) {
           try {
+            const roomContext = buildRoomContext(payload.room || payload.contract?.room, payload.contract);
+            const collectedAmount = Number(payload.paidAmount ?? payload.amount ?? 0);
             const result = await this.communicationService.dispatchDirect({
               tenantId: payload.tenantId,
               channel: 'ZALO' as any,
@@ -256,12 +294,13 @@ export class WorkflowEngine {
               recipient: zaloRecipient,
               userId: payload.customerId || payload.userId || null,
               context: {
+                ...roomContext,
                 ...payload,
-                ...buildRoomContext(payload.room || payload.contract?.room, payload.contract),
-                paymentCode: payload.metadata?.code,
+                depositCode: payload.depositCode || payload.metadata?.code || payload.paymentCode || null,
+                paymentCode: payload.paymentCode || payload.metadata?.code || null,
                 paymentStatusLabel: this.buildPaymentStatusLabel(payload),
-                paymentAmount: Number(payload.paymentAmount ?? payload.amount ?? 0).toLocaleString('vi-VN'),
-                amount: Number(payload.paidAmount ?? payload.amount ?? 0).toLocaleString('vi-VN'),
+                paymentAmount: Number(payload.paymentAmount ?? payload.amount ?? 0),
+                amount: collectedAmount,
               },
             });
             if (!result) {
@@ -716,6 +755,17 @@ export class WorkflowEngine {
     return 'Đã nhận thanh toán qua VietQR';
   }
 
+  private buildSystemAlertContext(payload: any, params?: any, eventName?: string) {
+    const alertKind = params?.alertKind
+      || String(eventName || 'system.alert').replace(/\./g, '_').toUpperCase();
+    const notificationParams = { ...params, alertKind };
+    return {
+      ...payload,
+      title: params?.title || payload?.title || this.buildAdminZaloTitle(payload, notificationParams, eventName),
+      message: params?.message || payload?.message || this.buildAdminZaloMessage(payload, notificationParams, eventName),
+    };
+  }
+
   private buildAdminPaymentTitle(payload: any) {
     const sourceType = String(payload?.sourceType || '').toUpperCase();
     const eventKind = String(payload?.metadata?.eventKind || '').toUpperCase();
@@ -880,7 +930,9 @@ export class WorkflowEngine {
           ? 'HomeLand - Hóa đơn mới cần theo dõi'
           : kind.includes('CONTRACT_CREATED')
             ? 'HomeLand - Hợp đồng mới cần theo dõi'
-            : 'HomeLand - Thông báo vận hành';
+            : kind.includes('SETTLEMENT')
+              ? 'HomeLand - Quyết toán hợp đồng'
+              : 'HomeLand - Thông báo vận hành';
 
     return [
       header,

@@ -7,6 +7,7 @@ const source = {
   id: "contract-source", tenantId, roomId: "room-source", rentalCycleId: "cycle-source",
   customerId: "primary", coRepresentativeIds: ["member-a", "member-b"],
   status: ContractStatus.ACTIVE, startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"),
+  signedAt: new Date("2025-12-20"),
   monthlyRent: 2_000_000, depositMoney: 2_000_000, firstPaymentDate: null, purpose: null,
   termsSnapshot: { original: true },
 };
@@ -88,11 +89,11 @@ describe("CORE-09.04 shared lifecycle", () => {
         update: vi.fn(), create: vi.fn(), count: vi.fn().mockResolvedValue(1),
       },
       room: {
-        findFirst: vi.fn(async ({ where }: any) => ({ id: where.id, tenantId, code: where.id, name: where.id, rentalType: "SHARED", capacity: 2, status: RoomStatus.OCCUPIED })),
+        findFirst: vi.fn(async ({ where }: any) => ({ id: where.id, tenantId, code: where.id, name: where.id, monthlyPrice: 3_000_000, rentalType: "SHARED", capacity: 2, status: RoomStatus.OCCUPIED })),
         update: vi.fn(),
       },
       roomHold: { count: vi.fn().mockResolvedValue(0) },
-      contractParty: { findFirst: vi.fn().mockResolvedValue({ identitySnapshot: { id: "member-a" } }), create: vi.fn(), updateMany: vi.fn() },
+      contractParty: { findFirst: vi.fn().mockResolvedValue({ identitySnapshot: { id: "member-a" }, signedAt: new Date("2025-12-20") }), create: vi.fn(), updateMany: vi.fn() },
       invoice: { create: vi.fn(), update: vi.fn() }, payment: { create: vi.fn(), update: vi.fn() }, deposit: { create: vi.fn(), update: vi.fn() }, contractSettlement: { create: vi.fn(), update: vi.fn() },
       auditLog: { create: vi.fn() },
     };
@@ -104,6 +105,14 @@ describe("CORE-09.04 shared lifecycle", () => {
     expect(first.id).toBe(retry.id);
     expect(tx.rentalCycle.create).toHaveBeenCalledTimes(1);
     expect(tx.contract.create).toHaveBeenCalledTimes(1);
+    expect(first.monthlyRent).toBe(3_000_000);
+    expect(first.signedAt).toEqual(new Date("2025-12-20"));
+    expect(first.termsSnapshot.transfer).toMatchObject({
+      sourceMonthlyRent: 2_000_000,
+      targetMonthlyRent: 3_000_000,
+      depositPolicy: "NO_MEMBER_DEPOSIT_TRANSFER",
+      policyVersion: "TRANSFER_V2",
+    });
     expect(tx.occupancy.create).toHaveBeenCalledTimes(1);
     expect(current.coRepresentativeIds).toEqual(["member-b"]);
     expect(tx.occupancy.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "occ-source" } }));
@@ -158,7 +167,7 @@ describe("CORE-09.04 shared lifecycle", () => {
       room: {
         findFirst: vi.fn(async ({ where }: any) => ({
           id: where.id, tenantId, code: where.id, name: where.id,
-          rentalType: "SHARED", capacity: 1, status: RoomStatus.OCCUPIED,
+          monthlyPrice: 3_000_000, rentalType: "SHARED", capacity: 1, status: RoomStatus.OCCUPIED,
         })),
         update: vi.fn(),
       },

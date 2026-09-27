@@ -5,23 +5,26 @@ import { PrismaService } from '../../prisma.service';
 import { RuleEngine } from './rule.engine';
 import { buildRoomContext } from '../../shared/context/room-context';
 import { shouldRunGeneralSchedulers } from '../../shared/config/runtime-mode';
-
-type NotificationReminderDays = {
-  invoiceDueSoonDays: number;
-  invoiceOverdueDays: number;
-  contractExpiringDays: number;
-};
+import {
+  DEFAULT_REMINDER_DAYS,
+  normalizeReminderDays,
+  NotificationReminderDays,
+} from './reminder-policy';
 
 type LoadedReminderDays = {
   global: NotificationReminderDays;
   byTenant: Map<string, NotificationReminderDays>;
 };
 
-const DEFAULT_REMINDER_DAYS: NotificationReminderDays = {
-  invoiceDueSoonDays: 3,
-  invoiceOverdueDays: 7,
-  contractExpiringDays: 30,
-};
+const PAYMENT_PROMISE_STATUS = {
+  PENDING: 'PENDING',
+  OVERDUE: 'OVERDUE',
+  FULFILLED: 'FULFILLED',
+} as const;
+
+// Dates entered for invoices, contracts and payment promises are business
+// dates. Keep scheduler windows stable when the worker host runs outside VN.
+const BUSINESS_TIME_ZONE = 'Asia/Ho_Chi_Minh';
 
 @Injectable()
 export class RuleScheduler {
@@ -32,16 +35,14 @@ export class RuleScheduler {
     private readonly ruleEngine: RuleEngine,
   ) {}
 
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: BUSINESS_TIME_ZONE })
   async runInvoiceDueSoon3DaysRule() {
     if (!shouldRunGeneralSchedulers()) return { checked: 0, checkedAt: new Date(), skipped: true };
     const reminderDays = await this.loadReminderDays();
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfThirdDay = new Date(startOfToday);
-    endOfThirdDay.setDate(endOfThirdDay.getDate() + reminderDays.global.invoiceDueSoonDays);
-    endOfThirdDay.setHours(23, 59, 59, 999);
-    const dayKey = now.toISOString().slice(0, 10);
+    const startOfToday = this.businessDayStart(now);
+    const endOfThirdDay = this.businessDayEnd(startOfToday, reminderDays.global.invoiceDueSoonDays);
+    const dayKey = this.businessDayKey(now);
 
     const invoices = await this.prisma.invoice.findMany({
       where: {
@@ -97,6 +98,7 @@ export class RuleScheduler {
           invoiceCode: invoice.code,
           dueDate: invoice.dueDate,
           status: invoice.status,
+          thresholdDays: tenantReminderDays.invoiceDueSoonDays,
           customerId: invoice.customerId,
           customerName: invoice.customer?.fullName,
           customerPhone: invoice.customer?.phone,
@@ -118,15 +120,15 @@ export class RuleScheduler {
     };
   }
 
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: BUSINESS_TIME_ZONE })
   async runInvoiceOverdue7DaysRule() {
     if (!shouldRunGeneralSchedulers()) return { checked: 0, checkedAt: new Date(), skipped: true };
     const reminderDays = await this.loadReminderDays();
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfToday = this.businessDayStart(now);
     const threshold = new Date(now);
     threshold.setDate(threshold.getDate() - reminderDays.global.invoiceOverdueDays);
-    const dayKey = now.toISOString().slice(0, 10);
+    const dayKey = this.businessDayKey(now);
 
     const invoices = await this.prisma.invoice.findMany({
       where: {
@@ -181,6 +183,7 @@ export class RuleScheduler {
           invoiceCode: invoice.code,
           dueDate: invoice.dueDate,
           status: invoice.status,
+          thresholdDays: tenantReminderDays.invoiceOverdueDays,
           customerId: invoice.customerId,
           customerName: invoice.customer?.fullName,
           customerPhone: invoice.customer?.phone,
@@ -202,16 +205,14 @@ export class RuleScheduler {
     };
   }
 
-  @Cron('5 9 * * *')
+  @Cron('5 9 * * *', { timeZone: BUSINESS_TIME_ZONE })
   async runContractExpiring30DaysRule() {
     if (!shouldRunGeneralSchedulers()) return { checked: 0, checkedAt: new Date(), skipped: true };
     const reminderDays = await this.loadReminderDays();
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfWindow = new Date(startOfToday);
-    endOfWindow.setDate(endOfWindow.getDate() + reminderDays.global.contractExpiringDays);
-    endOfWindow.setHours(23, 59, 59, 999);
-    const dayKey = now.toISOString().slice(0, 10);
+    const startOfToday = this.businessDayStart(now);
+    const endOfWindow = this.businessDayEnd(startOfToday, reminderDays.global.contractExpiringDays);
+    const dayKey = this.businessDayKey(now);
 
     const contracts = await this.prisma.contract.findMany({
       where: {
@@ -261,6 +262,7 @@ export class RuleScheduler {
           contractCode: contract.code,
           endDate: contract.endDate,
           status: contract.status,
+          thresholdDays: tenantReminderDays.contractExpiringDays,
           customerId: contract.customerId,
           customerName: contract.customer?.fullName,
           customerPhone: contract.customer?.phone,
@@ -283,10 +285,89 @@ export class RuleScheduler {
     };
   }
 
+  /** A promise is a reminder only. It never settles the invoice automatically. */
+  @Cron('10 9 * * *', { timeZone: BUSINESS_TIME_ZONE })
+  async runPaymentPromiseDueRule() {
+    if (!shouldRunGeneralSchedulers()) return { checked: 0, checkedAt: new Date(), skipped: true };
+    const now = new Date();
+    const startOfToday = this.businessDayStart(now);
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setUTCDate(startOfTomorrow.getUTCDate() + 1);
+    const paymentPromiseModel = (this.prisma as any).paymentPromise;
+    if (!paymentPromiseModel?.findMany) {
+      this.logger.error('PaymentPromise model unavailable; migrate and regenerate Prisma client before enabling P36 scheduler.');
+      return { checked: 0, checkedAt: now, skipped: true, reason: 'PAYMENT_PROMISE_MODEL_UNAVAILABLE' };
+    }
+    const promises = await paymentPromiseModel.findMany({
+      where: {
+        status: PAYMENT_PROMISE_STATUS.PENDING,
+        // A promise is date-based in the UI. Include the whole local due day;
+        // comparing only to 00:00 caused a customer promise for today to be
+        // skipped until the following scheduler run.
+        dueDate: { lt: startOfTomorrow },
+        invoice: {
+          deletedAt: null,
+          status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.OVERDUE] },
+        },
+      },
+      include: {
+        invoice: {
+          include: {
+            customer: { select: { fullName: true, phone: true, zaloChatId: true, zaloUserId: true } },
+            contract: { select: { room: { select: { id: true, code: true, rentalType: true, building: { select: { id: true, name: true } } } } } },
+          },
+        },
+      },
+    });
+    let due = 0;
+    for (const promise of promises) {
+      const claimed = await paymentPromiseModel.updateMany({
+        where: { id: promise.id, tenantId: promise.tenantId, status: PAYMENT_PROMISE_STATUS.PENDING },
+        data: { status: PAYMENT_PROMISE_STATUS.OVERDUE },
+      });
+      if (claimed.count !== 1) continue;
+      const invoice = promise.invoice;
+      const remainingAmount = Math.max(0, Number(invoice.total || 0) - Number(invoice.paidAmount || 0) - Number(invoice.creditAmount || 0));
+      if (remainingAmount <= 0) {
+        await paymentPromiseModel.update({
+          where: { id: promise.id },
+          data: { status: PAYMENT_PROMISE_STATUS.FULFILLED, resolvedAt: now },
+        });
+        continue;
+      }
+      try {
+        await this.ruleEngine.executeRule('invoice.payment_promise_due', {
+          tenantId: promise.tenantId,
+          correlationId: `invoice.payment_promise_due:${promise.id}`,
+          paymentPromiseId: promise.id,
+          promiseDueDate: promise.dueDate,
+          promiseStatus: PAYMENT_PROMISE_STATUS.OVERDUE,
+          invoiceId: invoice.id,
+          invoiceCode: invoice.code,
+          dueDate: invoice.dueDate,
+          status: invoice.status,
+          customerId: invoice.customerId,
+          customerName: invoice.customer?.fullName,
+          customerPhone: invoice.customer?.phone,
+          customerZaloChatId: invoice.customer?.zaloChatId,
+          customerZaloUserId: invoice.customer?.zaloUserId,
+          ...buildRoomContext(invoice.contract?.room, invoice.contract),
+          total: Number(invoice.total || 0),
+          paidAmount: Number(invoice.paidAmount || 0),
+          remainingAmount,
+        });
+        due += 1;
+      } catch (error: any) {
+        this.logger.error(`Failed to execute payment promise reminder for ${promise.id}: ${error?.message}`);
+      }
+    }
+    return { checked: promises.length, due, checkedAt: now };
+  }
+
   private async loadReminderDays(): Promise<LoadedReminderDays> {
     const records = await this.prisma.appSetting.findMany({
       where: {
-        key: 'notifications',
+        key: { in: ['notifications', 'contract-rules'] },
         scope: SettingScope.TENANT,
       },
       select: { tenantId: true, value: true },
@@ -294,36 +375,59 @@ export class RuleScheduler {
     const byTenant = new Map<string, NotificationReminderDays>();
     let global = { ...DEFAULT_REMINDER_DAYS };
     for (const record of records as any[]) {
-      const settings = this.normalizeReminderDays(record?.value?.reminderDays || {});
+      const raw = record?.value || {};
+      const recordOverrides = {
+        ...(raw.reminderDays || {}),
+        ...(record?.key === 'contract-rules' && raw.renewalReminderDays !== undefined
+          ? { contractExpiringDays: raw.renewalReminderDays }
+          : {}),
+      };
+      const recordSettings = normalizeReminderDays(recordOverrides);
+      const settings = record?.tenantId
+        ? normalizeReminderDays({
+            ...(byTenant.get(record.tenantId) || DEFAULT_REMINDER_DAYS),
+            ...recordOverrides,
+          })
+        : recordSettings;
       if (record?.tenantId) byTenant.set(record.tenantId, settings);
       global = {
-        invoiceDueSoonDays: Math.max(global.invoiceDueSoonDays, settings.invoiceDueSoonDays),
-        invoiceOverdueDays: Math.max(global.invoiceOverdueDays, settings.invoiceOverdueDays),
-        contractExpiringDays: Math.max(global.contractExpiringDays, settings.contractExpiringDays),
+        invoiceDueSoonDays: Math.max(global.invoiceDueSoonDays, recordSettings.invoiceDueSoonDays),
+        invoiceOverdueDays: Math.max(global.invoiceOverdueDays, recordSettings.invoiceOverdueDays),
+        contractExpiringDays: Math.max(global.contractExpiringDays, recordSettings.contractExpiringDays),
       };
     }
     return { global, byTenant };
   }
 
-  private normalizeReminderDays(value: any): NotificationReminderDays {
-    return {
-      invoiceDueSoonDays: this.normalizeReminderDay(value.invoiceDueSoonDays, DEFAULT_REMINDER_DAYS.invoiceDueSoonDays, 0, 60),
-      invoiceOverdueDays: this.normalizeReminderDay(value.invoiceOverdueDays, DEFAULT_REMINDER_DAYS.invoiceOverdueDays, 0, 365),
-      contractExpiringDays: this.normalizeReminderDay(value.contractExpiringDays, DEFAULT_REMINDER_DAYS.contractExpiringDays, 0, 365),
-    };
-  }
-
-  private normalizeReminderDay(value: unknown, fallback: number, min: number, max: number) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return fallback;
-    return Math.min(max, Math.max(min, Math.trunc(numeric)));
-  }
-
   private daysUntil(value: Date, startOfToday: Date) {
-    return Math.ceil((new Date(value).getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000));
+    return Math.round((this.businessDayStart(value).getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000));
   }
 
   private daysOverdue(value: Date, startOfToday: Date) {
-    return Math.floor((startOfToday.getTime() - new Date(value).getTime()) / (24 * 60 * 60 * 1000));
+    return Math.round((startOfToday.getTime() - this.businessDayStart(value).getTime()) / (24 * 60 * 60 * 1000));
+  }
+
+  private businessDayStart(value: Date) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: BUSINESS_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(value);
+    const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((item) => item.type === type)?.value);
+    // Vietnam has a fixed UTC+7 offset and no daylight-saving transition.
+    return new Date(Date.UTC(part('year'), part('month') - 1, part('day')) - 7 * 60 * 60 * 1000);
+  }
+
+  private businessDayEnd(startOfDay: Date, daysFromToday: number) {
+    const end = new Date(startOfDay);
+    end.setUTCDate(end.getUTCDate() + daysFromToday + 1);
+    end.setUTCMilliseconds(end.getUTCMilliseconds() - 1);
+    return end;
+  }
+
+  private businessDayKey(value: Date) {
+    const start = this.businessDayStart(value);
+    return new Date(start.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
   }
 }

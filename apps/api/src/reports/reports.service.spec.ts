@@ -76,10 +76,18 @@ describe('ReportsService', () => {
             id: 'invoice-1',
             code: 'INV-001',
             total: 1_000_000,
-            paidAmount: 300_000,
-            creditAmount: 200_000,
-            dueDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-            customer: { fullName: 'Khách A' },
+          paidAmount: 300_000,
+          creditAmount: 200_000,
+          dueDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          customerId: 'customer-1',
+          customer: { fullName: 'Khách A', phone: '0900000001' },
+          contract: {
+            room: {
+              id: 'room-1',
+              code: 'P101',
+              building: { id: 'building-1', code: 'B1', name: 'Tòa 1' },
+            },
+          },
           },
         ]),
       },
@@ -89,13 +97,67 @@ describe('ReportsService', () => {
 
     expect(rows[0]).toMatchObject({
       invoiceCode: 'INV-001',
+      customerId: 'customer-1',
+      phone: '0900000001',
+      roomId: 'room-1',
+      roomCode: 'P101',
+      buildingId: 'building-1',
+      buildingCode: 'B1',
+      buildingName: 'Tòa 1',
       totalAmount: 1_000_000,
       remainingAmount: 500_000,
     });
     expect(prisma.invoice.findMany).toHaveBeenCalledWith({
       where: { tenantId: 'tenant-1', status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] } },
-      include: { customer: true },
+      include: {
+        customer: true,
+        contract: {
+          include: {
+            room: {
+              include: { building: true },
+            },
+          },
+        },
+      },
     });
+  });
+
+  it('keeps room and building metadata attached to each receivable when customer names collide', async () => {
+    const prisma: any = {
+      invoice: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'invoice-1',
+            code: 'INV-001',
+            total: 1_000_000,
+            paidAmount: 0,
+            creditAmount: 0,
+            dueDate: new Date(),
+            customerId: 'customer-1',
+            customer: { fullName: 'Nguyễn Văn A' },
+            contract: { room: { id: 'room-1', code: 'P101', building: { id: 'building-1', code: 'B1', name: 'Tòa 1' } } },
+          },
+          {
+            id: 'invoice-2',
+            code: 'INV-002',
+            total: 2_000_000,
+            paidAmount: 0,
+            creditAmount: 0,
+            dueDate: new Date(),
+            customerId: 'customer-2',
+            customer: { fullName: 'Nguyễn Văn A' },
+            contract: { room: { id: 'room-2', code: 'P201', building: { id: 'building-2', code: 'B2', name: 'Tòa 2' } } },
+          },
+        ]),
+      },
+    };
+
+    const rows = await new ReportsService(prisma).getReceivableAging('tenant-1');
+
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ invoiceId: 'invoice-1', customerId: 'customer-1', roomId: 'room-1', roomCode: 'P101', buildingCode: 'B1' }),
+      expect.objectContaining({ invoiceId: 'invoice-2', customerId: 'customer-2', roomId: 'room-2', roomCode: 'P201', buildingCode: 'B2' }),
+    ]));
   });
 
   it('returns revenue by building and excludes booking-hold deposit invoices', async () => {

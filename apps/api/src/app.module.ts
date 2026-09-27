@@ -44,6 +44,7 @@ import { SettingsModule } from './settings/settings.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HunonicModule } from './hunonic/hunonic.module';
 import { SystemUpdateModule } from './system-update/system-update.module';
+import { TasksModule } from './tasks/tasks.module';
 import { MonthlySettlementModule } from './monthly-settlement/monthly-settlement.module';
 import { schedulesEnabled, validateEnvironment } from './shared/config/environment.validation';
 import { InternalTokenGuard } from './shared/guards/internal-token.guard';
@@ -163,6 +164,7 @@ import { SchemaDiagnosticsService } from './schema-diagnostics.service';
     HunonicModule,
     MonthlySettlementModule,
     SystemUpdateModule,
+    TasksModule,
     IpSecurityModule,
   ],
   controllers: [HealthController],

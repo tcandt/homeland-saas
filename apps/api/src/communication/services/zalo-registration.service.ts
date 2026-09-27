@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DepositStatus, DepositType, RoomHoldStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { ROOM_VISIBLE_CONTRACT_STATUSES } from '../../contracts/contracts.adapter';
 import { ZaloProvider } from '../providers/communication.providers';
@@ -154,6 +155,40 @@ export class ZaloRegistrationService {
   }
 
   private async findRoom(tenantId: string, roomQuery: string) {
+    const now = new Date();
+    const activeReservationDeposits = {
+      tenantId,
+      deletedAt: null,
+      type: { in: [DepositType.BOOKING, DepositType.RESERVATION] },
+      status: { in: [DepositStatus.DRAFT, DepositStatus.PENDING, DepositStatus.PAID] },
+      OR: [
+        { expiredAt: { gt: now } },
+        {
+          roomHolds: {
+            some: {
+              tenantId,
+              status: RoomHoldStatus.ACTIVE,
+              expiresAt: { gt: now },
+            },
+          },
+        },
+      ],
+    };
+    const reservationDepositInclude = {
+      where: activeReservationDeposits,
+      include: {
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            phone: true,
+            zaloChatId: true,
+            zaloUserId: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' as const },
+    };
     let room = await this.prisma.room.findFirst({
       where: {
         tenantId,
@@ -190,6 +225,7 @@ export class ZaloRegistrationService {
           },
           orderBy: { createdAt: 'asc' },
         },
+        deposits: reservationDepositInclude,
       },
     });
 
@@ -229,6 +265,7 @@ export class ZaloRegistrationService {
             },
             orderBy: { createdAt: 'asc' },
           },
+          deposits: reservationDepositInclude,
         },
       });
 
@@ -269,14 +306,15 @@ export class ZaloRegistrationService {
     const roomLabel = formatRoomLabel(room);
 
     const contracts = Array.isArray(room.contracts) ? room.contracts : [];
-    if (contracts.length === 0) {
+    const reservationDeposits = Array.isArray(room.deposits) ? room.deposits : [];
+    if (contracts.length === 0 && reservationDeposits.length === 0) {
       await this.sendCustomerMessage(
         tenantId,
         update.chatId!,
         'HomeLand - Đăng ký không thành công',
         [
           'Đăng ký không thành công.',
-          `${roomLabel} hiện không có hợp đồng đang hoạt động.`,
+          `${roomLabel} hiện không có hợp đồng hoặc phiếu giữ chỗ còn hiệu lực.`,
         ].join('\n'),
       );
       return { ok: false, code: 'NO_ACTIVE_CONTRACT', roomId: room.id };
@@ -290,6 +328,7 @@ export class ZaloRegistrationService {
       zaloChatId: string | null;
       zaloUserId: string | null;
       contractId?: string;
+      depositId?: string;
     }> = [];
 
     for (const contract of contracts) {
@@ -316,6 +355,14 @@ export class ZaloRegistrationService {
             potentialCustomers.push({ ...cr, contractId: contract.id });
           }
         }
+      }
+    }
+    for (const deposit of reservationDeposits) {
+      if (deposit.customer && !potentialCustomers.some((pc) => pc.id === deposit.customer.id)) {
+        potentialCustomers.push({
+          ...deposit.customer,
+          depositId: deposit.id,
+        });
       }
     }
     if (Array.isArray(room.roommates)) {
@@ -405,6 +452,7 @@ export class ZaloRegistrationService {
       customerId: matchedCustomers[0].id,
       roomId: room.id,
       contractId: matchedCustomers[0].contractId || contracts[0]?.id || null,
+      depositId: matchedCustomers[0].depositId || null,
       roomCode: room.code,
     };
   }

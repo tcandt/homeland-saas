@@ -9,6 +9,7 @@ import {
   isPasswordChangePromptDeferred,
   shouldShowPasswordChangePrompt,
 } from "@/lib/auth/password-change-prompt";
+import { authApi } from "@/lib/api/auth.api";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore();
@@ -94,18 +95,31 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     events.forEach((eventName) => window.addEventListener(eventName, resetIdleTimer, { passive: true }));
 
     const handleTimeoutUpdated = () => resetIdleTimer();
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === "homeland_session_idle_timeout_minutes") resetIdleTimer();
+    };
     window.addEventListener("homeland:session-timeout-updated", handleTimeoutUpdated);
-    window.addEventListener("storage", (e) => {
-      if (e.key === "homeland_session_idle_timeout_minutes") resetIdleTimer();
-    });
+    window.addEventListener("storage", handleStorage);
 
     resetIdleTimer();
+    let active = true;
+    void authApi.security()
+      .then((settings) => {
+        if (!active) return;
+        localStorage.setItem("homeland_session_idle_timeout_minutes", String(settings.idleTimeoutMinutes));
+        resetIdleTimer();
+      })
+      .catch(() => {
+        // Keep the last known local value while offline.
+      });
 
     return () => {
+      active = false;
       if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
       events.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer));
       window.removeEventListener("homeland:session-timeout-updated", handleTimeoutUpdated);
+      window.removeEventListener("storage", handleStorage);
     };
   }, [mounted, isAuthenticated, pathname, router]);
 

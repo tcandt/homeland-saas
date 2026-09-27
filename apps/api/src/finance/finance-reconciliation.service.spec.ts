@@ -71,7 +71,7 @@ describe('FinanceReportingService reconciliation', () => {
     const payment = { id: 'payment-1', code: 'PAY-1', invoice: { ...invoice }, rentalCycle: { id: 'cycle-1' } };
     const deposit = { id: 'deposit-1', code: 'DEP-1', customer: { id: 'customer-1' }, rentalCycle: { id: 'cycle-1' }, contract, room };
     const expense = { id: 'expense-1', code: 'EXP-1', ownerId: 'owner-1', buildingId: 'building-1', roomId: 'room-1', owner: { id: 'owner-1' }, costCenter: { id: 'cc-1', code: 'CC-1', ownerId: 'owner-1', buildingId: 'building-1' } };
-    const { service } = serviceWith([
+    const { service, prisma } = serviceWith([
       line('payment-line', { id: 'payment-je', code: 'JE-P', status: 'POSTED', entryDate: new Date('2026-09-01'), sourceType: 'PAYMENT', sourceId: 'payment-1' }, 'DEBIT', 20, asset),
       line('deposit-line', { id: 'deposit-je', code: 'JE-D', status: 'POSTED', entryDate: new Date('2026-09-01'), sourceType: 'DEPOSIT', sourceId: 'deposit-1' }, 'CREDIT', 20, asset),
       line('expense-line', { id: 'expense-je', code: 'JE-E', status: 'POSTED', entryDate: new Date('2026-09-01'), sourceType: 'EXPENSE', sourceId: 'expense-1' }, 'DEBIT', 10, expenseAccount),
@@ -83,6 +83,19 @@ describe('FinanceReportingService reconciliation', () => {
     const result = await service.getReconciliation('tenant-1', { buildingId: 'building-1' });
     expect(result.lines.map((row: any) => row.source.kind)).toEqual(['PAYMENT', 'DEPOSIT', 'EXPENSE']);
     expect(result.totals).toMatchObject({ debit: 30, credit: 20, expense: 10 });
+    const customerReference = { select: { id: true } };
+    expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      include: expect.objectContaining({ customer: customerReference }),
+    }));
+    expect(prisma.payment.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      include: expect.objectContaining({ invoice: { include: expect.objectContaining({ customer: customerReference }) } }),
+    }));
+    expect(prisma.deposit.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      include: expect.objectContaining({
+        customer: customerReference,
+        contract: { include: expect.objectContaining({ customer: customerReference }) },
+      }),
+    }));
   });
 
   it('rejects cross-tenant dimensions and validates dates before reading journal lines', async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { TemplateEngine } from '../../communication/templates/template.engine';
 import { WorkflowEngine } from './workflow.engine';
 
 describe('WorkflowEngine', () => {
@@ -254,6 +255,65 @@ describe('WorkflowEngine', () => {
         channel: 'IN_APP',
       }),
     );
+  });
+
+  it('supplies required SYSTEM_ALERT values for a raw deposit.created outbox payload', async () => {
+    const { engine, communicationService } = createEngine();
+    const templateEngine = new TemplateEngine();
+    communicationService.dispatch.mockImplementation(({ context }: any) => {
+      expect(templateEngine.compile('{{title}}\n{{message}}', context)).toContain('Cọc giữ phòng mới DEP-001');
+    });
+
+    await (engine as any).executeStep('CREATE_IN_APP_NOTIFICATION', {
+      tenantId: 'tenant-1',
+      customerId: 'customer-1',
+      sourceType: 'DEPOSIT',
+      sourceId: 'deposit-1',
+      amount: 2_000_000,
+      metadata: { code: 'DEP-001' },
+    }, { templateCode: 'SYSTEM_ALERT' }, 'deposit.created');
+
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      templateCode: 'SYSTEM_ALERT',
+      context: expect.objectContaining({
+        title: 'Cọc giữ phòng mới DEP-001',
+        message: expect.stringContaining('Cần chuẩn bị phòng'),
+      }),
+    }));
+  });
+
+  it('renders contract settlement alerts with the durable contract and customer context', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
+    const payload = {
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      customerId: 'customer-1',
+      customerName: 'Khách quyết toán',
+      customerPhone: '0909000001',
+      sourceType: 'CONTRACT',
+      sourceId: 'contract-1',
+      roomCode: 'P-101',
+      roomRentalTypeLabel: 'Nguyên căn',
+      buildingName: 'Tòa nhà A',
+      amount: 250000,
+      metadata: { code: 'CT-01', settlementId: 'settlement-1' },
+    };
+    const params = { templateCode: 'SYSTEM_ALERT', alertKind: 'CONTRACT_SETTLEMENT_COMPLETED' };
+
+    await (engine as any).executeStep('CREATE_IN_APP_NOTIFICATION', payload, params, 'contract.settlement.completed');
+    await (engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', payload, params, 'contract.settlement.completed');
+
+    const inAppContext = communicationService.dispatch.mock.calls[0][0].context;
+    const adminContext = communicationService.dispatchDirect.mock.calls[0][0].context;
+    for (const context of [inAppContext, adminContext]) {
+      expect(context.title).toBe('Cập nhật quyết toán hợp đồng CT-01');
+      expect(context.message).toContain('HomeLand - Quyết toán hợp đồng');
+      expect(context.message).toContain('Mã: CT-01');
+      expect(context.message).toContain('Khách: Khách quyết toán');
+      expect(context.message).toContain('Phòng: P-101 (Nguyên căn)');
+      expect(context.message).toContain('Tòa nhà: Tòa nhà A');
+    }
   });
 
   it('continues payment notifications when journal posting fails', async () => {

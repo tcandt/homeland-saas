@@ -94,3 +94,17 @@ test.describe('Customer E2E: Create -> Edit -> Delete Lifecycle', () => {
     await evidence.stopAndVerifyNoErrors();
   });
 });
+
+test.describe('Customer UI: direct profile entry', () => {
+  test('opens and closes the tenant profile form without saving data', async ({ admin }) => {
+    const page = admin.page;
+
+    await page.goto('/tenants');
+    await expect(page.getByTestId('add-tenant-button')).toBeEnabled();
+    await page.getByTestId('add-tenant-button').click();
+    await expect(page.getByTestId('tenant-form')).toBeVisible();
+
+    await page.getByTestId('tenant-form-cancel').click();
+    await expect(page.getByTestId('tenant-form-drawer')).toBeHidden();
+  });
+});

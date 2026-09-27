@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
 import {
   AuditAction,
   JournalSourceType,
@@ -6,11 +6,13 @@ import {
   PaymentRequestStatus,
   PaymentSourceType,
   Prisma,
+  ReceiptStatus,
   SettingScope,
 } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { DepositsService } from '../deposits/deposits.service';
+import { DepositOutboxPublisher } from '../deposits/deposit-outbox.publisher';
 import { CommunicationService } from '../communication/communication.service';
 import { NotificationChannel } from '../automation/automation.constants';
 import { JournalEntryService } from '../finance/journal-entry.service';
@@ -18,6 +20,7 @@ import { AuditService } from '../shared/audit/audit.service';
 import { buildRoomContext } from '../shared/context/room-context';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { ZaloProvider } from '../communication/providers/communication.providers';
+import { classifySePayWebhookBankAccount } from './sepay-bank-account.policy';
 
 type SePayWebhookPayload = {
   id?: number | string;
@@ -156,6 +159,7 @@ export class PaymentsService {
     private readonly zaloProvider: ZaloProvider,
     private readonly journalEntryService: JournalEntryService,
     private readonly auditService: AuditService,
+    @Optional() private readonly depositOutboxPublisher?: DepositOutboxPublisher,
   ) {}
 
   private async notifySePayMismatch(
@@ -283,6 +287,59 @@ export class PaymentsService {
                   : 'No phai tra khach dang nam giu',
             },
           ],
+        },
+      },
+    });
+  }
+
+  private async createOverpaymentRefundJournalEntryInTransaction(
+    tx: any,
+    tenantId: string,
+    logId: string,
+    paymentCode: string,
+    sourceId: string,
+    amount: number,
+    stage: 'PENDING' | 'COMPLETED',
+  ) {
+    const code = stage === 'PENDING'
+      ? `JE-SEPAY-OVERPAY-PENDING-${logId}`
+      : `JE-SEPAY-OVERPAY-REFUND-${logId}`;
+    const existing = await tx.journalEntry.findFirst({
+      where: { tenantId, code },
+      select: { id: true },
+    });
+    if (existing) return existing;
+
+    const [bankAccount, customerCreditLiability] = await Promise.all([
+      tx.chartOfAccount.findFirst({ where: { tenantId, code: '1100' } }),
+      tx.chartOfAccount.findFirst({ where: { tenantId, code: '1300' } }),
+    ]);
+    if (!bankAccount || !customerCreditLiability) {
+      throw new BadRequestException('Khong tim thay tai khoan ke toan de ghi nhan hoan tien thua.');
+    }
+
+    const pending = stage === 'PENDING';
+    return tx.journalEntry.create({
+      data: {
+        code,
+        tenantId,
+        sourceType: pending ? JournalSourceType.ADJUSTMENT : JournalSourceType.REFUND,
+        sourceId,
+        description: pending
+          ? `Ghi nhan tien thua SePay ${paymentCode} cho phieu hoan`
+          : `Hoan tien thua SePay ${paymentCode} cho khach`,
+        entryDate: new Date(),
+        status: 'POSTED',
+        lines: {
+          create: pending
+            ? [
+                { accountId: bankAccount.id, type: 'DEBIT', amount, description: 'Tien thua da vao ngan hang' },
+                { accountId: customerCreditLiability.id, type: 'CREDIT', amount, description: 'No phai hoan cho khach' },
+              ]
+            : [
+                { accountId: customerCreditLiability.id, type: 'DEBIT', amount, description: 'Giam no phai hoan cho khach' },
+                { accountId: bankAccount.id, type: 'CREDIT', amount, description: 'Tien da hoan tu ngan hang' },
+              ],
         },
       },
     });
@@ -844,25 +901,7 @@ export class PaymentsService {
       paymentCode = `COC${cleanRoom}${monthYear}`;
     }
 
-    // Ensure paymentCode is unique for this tenant
-    const existingCode = await this.prisma.paymentRequest.findUnique({
-      where: { tenantId_paymentCode: { tenantId, paymentCode } },
-    });
-    if (existingCode) {
-      let counter = 1;
-      let candidateCode = `${paymentCode}${counter}`;
-      while (
-        await this.prisma.paymentRequest.findUnique({
-          where: {
-            tenantId_paymentCode: { tenantId, paymentCode: candidateCode },
-          },
-        })
-      ) {
-        counter++;
-        candidateCode = `${paymentCode}${counter}`;
-      }
-      paymentCode = candidateCode;
-    }
+    paymentCode = await this.resolveUniquePaymentCode(tenantId, paymentCode);
 
     const memo = paymentCode;
     const qrUrl = this.buildQrUrl({
@@ -948,6 +987,38 @@ export class PaymentsService {
       createdAt: request.createdAt,
       updatedAt: request.updatedAt,
     };
+  }
+
+  private async resolveUniquePaymentCode(tenantId: string, paymentCode: string) {
+    const exists = async (candidate: string) =>
+      this.prisma.paymentRequest.findUnique({
+        where: { tenantId_paymentCode: { tenantId, paymentCode: candidate } },
+      });
+
+    if (!(await exists(paymentCode))) return paymentCode;
+
+    // SePay's fixed-length HD/COC patterns must continue to parse retries and
+    // collision fallbacks. Keep their eight numeric characters intact instead
+    // of appending a ninth digit outside the provider's configured pattern.
+    const structuredCode = paymentCode.match(/^([A-Z]{2,5})(\d{8})$/);
+    if (structuredCode) {
+      const [, prefix, numericSuffix] = structuredCode;
+      const seed = Number.parseInt(numericSuffix, 10);
+      const limit = 100_000_000;
+      for (let offset = 1; offset < limit; offset += 1) {
+        const candidate = `${prefix}${String((seed + offset) % limit).padStart(8, '0')}`;
+        if (!(await exists(candidate))) return candidate;
+      }
+      throw new ConflictException('SEPAY_PAYMENT_CODE_SPACE_EXHAUSTED');
+    }
+
+    let counter = 1;
+    let candidate = `${paymentCode}${counter}`;
+    while (await exists(candidate)) {
+      counter += 1;
+      candidate = `${paymentCode}${counter}`;
+    }
+    return candidate;
   }
 
   async createInvoiceRequest(invoiceId: string, userId: string) {
@@ -1108,6 +1179,11 @@ export class PaymentsService {
       },
     });
     await this.markPaymentRequestZaloSent(request.id, zaloRecipient);
+    // A payment may already have been received while the operator was
+    // preparing this QR. The payment outbox remains blocked until the Zalo
+    // request is actually delivered; release it immediately afterwards so the
+    // customer receives invoice first, then confirmation without a timer gap.
+    await this.flushSePayNotificationsImmediately();
 
     await this.logPaymentAudit(
       invoice.tenantId,
@@ -1183,17 +1259,34 @@ export class PaymentsService {
       throw new BadRequestException('Phiếu cọc đã bị hủy.');
     }
 
+    // A SECURITY deposit can already contain money transferred from a booking
+    // hold.  QR must request only the unfunded balance, never deposit.amount
+    // again; otherwise B<C would invite the customer to pay the transferred
+    // booking balance for a second time.
+    const balanceResult = await this.prisma.depositLedgerEntry.aggregate({
+      where: { tenantId: deposit.tenantId, depositId: deposit.id },
+      _sum: { balanceEffect: true },
+    });
+    const fundedAmount = Math.max(0, Number(balanceResult._sum.balanceEffect || 0));
+    const remainingAmount = Math.max(0, Number(deposit.amount || 0) - fundedAmount);
+    if (remainingAmount <= 0) {
+      throw new BadRequestException('Phiếu cọc này không còn số tiền cần thanh toán.');
+    }
+
     return this.createPaymentRequest(
       deposit.tenantId,
       PaymentSourceType.DEPOSIT,
       deposit.id,
-      Number(deposit.amount),
+      remainingAmount,
       'DEP',
       userId,
       {
         depositCode: deposit.code,
         customerId: deposit.customerId,
         createdBy: userId,
+        depositAmount: Number(deposit.amount || 0),
+        fundedAmount,
+        remainingAmount,
         ...buildRoomContext(deposit.room, deposit.contract),
       },
       {
@@ -1353,10 +1446,11 @@ export class PaymentsService {
 
     let financialSideEffectCompleted = false;
     try {
-    const paymentCode = this.resolveWebhookPaymentCode(rawPayload);
-    if (!paymentCode) {
-      throw new BadRequestException('Giao dịch không có payment code để gán thủ công.');
-    }
+    // A manual assignment exists precisely for transfers made by another
+    // person or with a missing/wrong memo. The operator-selected source is
+    // authoritative for this command; an observed memo is only a guard when
+    // it already belongs to a different source.
+    const observedPaymentCode = this.resolveWebhookPaymentCode(rawPayload);
 
     const transferType = String(rawPayload.transferType || rawPayload.transfer_type || '').toLowerCase();
     if (transferType === 'debit' || transferType === 'out') {
@@ -1374,21 +1468,6 @@ export class PaymentsService {
     }
     if (!accountNumber) {
       throw new BadRequestException('Giao dịch SePay thiếu số tài khoản nhận tiền để xác minh.');
-    }
-
-    const existingRequest = await this.prisma.paymentRequest.findFirst({
-      where: {
-        tenantId,
-        provider: PaymentProvider.SEPAY,
-        paymentCode,
-      },
-    });
-
-    if (
-      existingRequest?.status === PaymentRequestStatus.CONFIRMED &&
-      existingRequest.providerTransactionId !== transactionId
-    ) {
-      throw new BadRequestException('Payment code này đã được xác nhận bởi giao dịch khác.');
     }
 
     let source: {
@@ -1469,6 +1548,42 @@ export class PaymentsService {
       };
     } else {
       throw new BadRequestException('Loại nguồn thanh toán không hỗ trợ.');
+    }
+
+    const requestByObservedCode = observedPaymentCode
+      ? await this.prisma.paymentRequest.findFirst({
+          where: {
+            tenantId,
+            provider: PaymentProvider.SEPAY,
+            paymentCode: observedPaymentCode,
+          },
+        })
+      : null;
+    if (
+      requestByObservedCode &&
+      (requestByObservedCode.sourceType !== source.type || requestByObservedCode.sourceId !== source.id)
+    ) {
+      throw new ConflictException('SEPAY_OBSERVED_PAYMENT_CODE_SOURCE_CONFLICT');
+    }
+    const requestBySelectedSource = await this.prisma.paymentRequest.findFirst({
+      where: {
+        tenantId,
+        provider: PaymentProvider.SEPAY,
+        sourceType: source.type,
+        sourceId: source.id,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const existingRequest = requestByObservedCode || requestBySelectedSource;
+    const paymentCode = String(
+      existingRequest?.paymentCode || observedPaymentCode || `MANUAL-${transactionId}`,
+    ).trim();
+
+    if (
+      existingRequest?.status === PaymentRequestStatus.CONFIRMED &&
+      existingRequest.providerTransactionId !== transactionId
+    ) {
+      throw new ConflictException('SEPAY_SOURCE_ALREADY_CONFIRMED_REVIEW_OVERPAYMENT');
     }
 
     if (
@@ -1579,43 +1694,53 @@ export class PaymentsService {
               `Số tiền giao dịch vượt số dư hóa đơn ${remaining}. Hãy xử lý thừa tiền ở bước riêng.`,
             );
           }
-          await this.invoicesService.pay(source.id, providerAmount, 'SEPAY', transactionId, userId, tenantId);
-          // A holding-deposit invoice is the payment front door for the linked
-          // BOOKING deposit. Confirming it through SePay must also collect the
-          // deposit exactly once so RoomHold/ledger state follows the invoice.
-          if (this.isBookingHoldInvoice(invoice)) {
-            const bookingDeposit = await this.prisma.deposit.findFirst({
-              where: {
-                tenantId,
-                type: { in: ['BOOKING', 'RESERVATION'] as any },
-                status: { in: ['DRAFT', 'PENDING'] as any },
-                deletedAt: null,
-                OR: [
-                  ...(invoice?.contractId ? [{ contractId: invoice.contractId }] : []),
-                  ...(invoice?.rentalCycleId ? [{ rentalCycleId: invoice.rentalCycleId }] : []),
-                  ...(invoice?.contract?.roomId && invoice?.customerId
-                    ? [{ roomId: invoice.contract.roomId, customerId: invoice.customerId }]
-                    : []),
-                ],
-              },
-              orderBy: { createdAt: 'desc' },
-              select: { id: true },
-            });
-            if (bookingDeposit) {
-              await this.depositsService.collect(
-                bookingDeposit.id,
-                `SePay invoice confirmation ${transactionId}`,
-                userId,
-                `sepay:invoice:${source.id}:${transactionId}`,
-              );
-            }
-          }
-          await this.collectLinkedSecurityDepositFromPaidInvoice(
-            tenantId,
+          const paidInvoice = await this.invoicesService.pay(
             source.id,
+            providerAmount,
+            'SEPAY',
             transactionId,
             userId,
+            tenantId,
           );
+          // A holding-deposit invoice is the payment front door for the linked
+          // BOOKING deposit. It is only collected when the invoice is fully
+          // paid; a partial manual assignment remains an invoice payment and
+          // must never turn the whole deposit into cash-in.
+          if (this.isInvoiceSettled(paidInvoice)) {
+            if (this.isBookingHoldInvoice(invoice)) {
+              const bookingDeposit = await this.prisma.deposit.findFirst({
+                where: {
+                  tenantId,
+                  type: { in: ['BOOKING', 'RESERVATION'] as any },
+                  status: { in: ['DRAFT', 'PENDING'] as any },
+                  deletedAt: null,
+                  OR: [
+                    ...(invoice?.contractId ? [{ contractId: invoice.contractId }] : []),
+                    ...(invoice?.rentalCycleId ? [{ rentalCycleId: invoice.rentalCycleId }] : []),
+                    ...(invoice?.contract?.roomId && invoice?.customerId
+                      ? [{ roomId: invoice.contract.roomId, customerId: invoice.customerId }]
+                      : []),
+                  ],
+                },
+                orderBy: { createdAt: 'desc' },
+                select: { id: true },
+              });
+              if (bookingDeposit) {
+                await this.depositsService.collect(
+                  bookingDeposit.id,
+                  `SePay invoice confirmation ${transactionId}`,
+                  userId,
+                  `sepay:invoice:${source.id}:${transactionId}`,
+                );
+              }
+            }
+            await this.collectLinkedSecurityDepositFromPaidInvoice(
+              tenantId,
+              source.id,
+              transactionId,
+              userId,
+            );
+          }
         }
       } else {
       const currentDeposit = await this.prisma.deposit.findFirst({
@@ -1757,10 +1882,9 @@ export class PaymentsService {
 
     const providerAmount = Number(rawPayload.transferAmount ?? rawPayload.amount ?? 0);
     const requestedAmount = Number(initialRequest.amount || 0);
-    const overpaidAmount = providerAmount - requestedAmount;
-    if (overpaidAmount <= 0) {
-      throw new BadRequestException('Giao dịch này không có tiền thừa để xử lý.');
-    }
+    const webhookTransactionId = String(
+      log.providerTransactionId || this.resolveWebhookTransactionId(rawPayload) || '',
+    ).trim();
 
     const resolved = await this.prisma.$transaction(async (tx) => {
       await this.lockSePayOverpayment(tx, tenantId, initialRequest.id);
@@ -1769,40 +1893,116 @@ export class PaymentsService {
         include: { owner: true },
       });
       if (!request) throw new BadRequestException('Không tìm thấy payment request tương ứng.');
-      const existingResolution = (request.metadata as any)?.overpaymentResolution || rawPayload?.overpaymentResolution;
+      const requestMetadata = (request.metadata as any) || {};
+      const eventResolution = requestMetadata.overpaymentResolutions?.[payload.logId] || {};
+      const existingResolution =
+        rawPayload?.overpaymentResolution ||
+        eventResolution.resolution ||
+        (requestMetadata.overpaymentLogId === payload.logId
+          ? requestMetadata.overpaymentResolution
+          : null);
+      const isDistinctTransferAfterConfirmation = Boolean(
+        request.status === PaymentRequestStatus.CONFIRMED &&
+        webhookTransactionId &&
+        request.providerTransactionId &&
+        String(request.providerTransactionId) !== webhookTransactionId,
+      );
+      // When a second bank transaction repeats an already-confirmed memo, none
+      // of that second transfer belongs to the settled request. Its entire
+      // amount must be credited or refunded, rather than treating it as a
+      // zero-overpayment just because it equals the original request amount.
+      const resolvedOverpaymentAmount = isDistinctTransferAfterConfirmation
+        ? providerAmount
+        : providerAmount - Number(request.amount || 0);
+      if (!Number.isFinite(resolvedOverpaymentAmount) || resolvedOverpaymentAmount <= 0) {
+        throw new BadRequestException('Giao dịch này không có tiền thừa để xử lý.');
+      }
       if (existingResolution) {
         if (existingResolution !== payload.resolution) {
           throw new BadRequestException('Tiền thừa của giao dịch này đã được xử lý.');
         }
-        return { replayed: true, request, existingResolution };
+        return {
+          replayed: true,
+          request,
+          existingResolution,
+          overpaymentAmount: Number(
+            rawPayload?.overpaymentAmount ??
+              eventResolution.overpaymentAmount ??
+              resolvedOverpaymentAmount,
+          ),
+        };
       }
-    const metadata = {
-      ...((request.metadata as any) || {}),
-      overpaymentResolution: payload.resolution,
-      overpaymentAmount: overpaidAmount,
-      overpaymentResolvedBy: userId,
-      overpaymentResolvedAt: new Date().toISOString(),
-      overpaymentLogId: payload.logId,
-    };
+      const resolvedAt = new Date().toISOString();
+      const metadata = {
+        ...requestMetadata,
+        // Keep the latest event in the legacy top-level fields for existing
+        // consumers, while the per-log entry preserves all real transfers.
+        overpaymentResolution: payload.resolution,
+        overpaymentAmount: resolvedOverpaymentAmount,
+        overpaymentResolvedBy: userId,
+        overpaymentResolvedAt: resolvedAt,
+        overpaymentLogId: payload.logId,
+        overpaymentResolutions: {
+          ...(requestMetadata.overpaymentResolutions || {}),
+          [payload.logId]: {
+            resolution: payload.resolution,
+            overpaymentAmount: resolvedOverpaymentAmount,
+            resolvedBy: userId,
+            resolvedAt,
+          },
+        },
+      };
 
     let pendingRefundTask: { id: string; title: string } | null = null;
+    let pendingRefundReceipt: { id: string; code: string } | null = null;
+    let pendingRefundJournal: { id: string } | null = null;
     if (payload.resolution === 'REFUND_PENDING') {
       const title =
         request.sourceType === PaymentSourceType.INVOICE
           ? `Hoàn lại tiền thừa SePay cho hóa đơn ${request.sourceId}`
           : `Hoàn lại tiền thừa SePay cho phiếu cọc ${request.sourceId}`;
 
+      pendingRefundReceipt = await tx.receipt.create({
+        data: {
+          tenantId,
+          code: `RCT-SEPAY-OVERPAY-${log.id}`,
+          amount: resolvedOverpaymentAmount,
+          status: ReceiptStatus.PENDING,
+          description: `Chờ hoàn tiền thừa SePay ${paymentCode}; webhook log ${log.id}`,
+          date: new Date(),
+        },
+      });
+      pendingRefundJournal = await this.createOverpaymentRefundJournalEntryInTransaction(
+        tx,
+        tenantId,
+        log.id,
+        paymentCode,
+        request.sourceId,
+        resolvedOverpaymentAmount,
+        'PENDING',
+      );
+
       pendingRefundTask = await tx.task.create({
         data: {
           tenantId,
           title,
-          description: `Payment code ${paymentCode} thừa ${overpaidAmount} đ. Cần xử lý hoàn lại tiền cho khách.`,
+          description: `Payment code ${paymentCode} thừa ${resolvedOverpaymentAmount} đ. Cần xử lý hoàn lại tiền cho khách.`,
           status: 'TODO' as any,
           priority: 'HIGH' as any,
         },
       });
       (metadata as any).overpaymentTaskId = pendingRefundTask.id;
       (metadata as any).overpaymentTaskTitle = pendingRefundTask.title;
+      (metadata as any).overpaymentRefundReceiptId = pendingRefundReceipt.id;
+      (metadata as any).overpaymentRefundPendingJournalId = pendingRefundJournal.id;
+      (metadata as any).overpaymentResolutions[payload.logId] = {
+        ...(metadata as any).overpaymentResolutions[payload.logId],
+        taskId: pendingRefundTask.id,
+        taskTitle: pendingRefundTask.title,
+        refundReceiptId: pendingRefundReceipt.id,
+        refundReceiptCode: pendingRefundReceipt.code,
+        refundPendingJournalId: pendingRefundJournal.id,
+      };
     } else {
       let customerId = '';
       let sourceInvoiceId: string | null = null;
@@ -1840,8 +2040,8 @@ export class PaymentsService {
           tenantId,
           customerId,
           sourceInvoiceId,
-          amount: overpaidAmount,
-          remainingAmount: overpaidAmount,
+          amount: resolvedOverpaymentAmount,
+          remainingAmount: resolvedOverpaymentAmount,
           reason:
             payload.resolution === 'CARRY_FORWARD'
               ? `SePay overpayment ${paymentCode} - carry forward`
@@ -1854,7 +2054,7 @@ export class PaymentsService {
         tenantId,
         creditNote.id,
         paymentCode,
-        overpaidAmount,
+        resolvedOverpaymentAmount,
         payload.resolution,
       );
     }
@@ -1872,16 +2072,23 @@ export class PaymentsService {
         payload: {
           ...rawPayload,
           overpaymentResolution: payload.resolution,
-          overpaymentAmount: overpaidAmount,
+          overpaymentAmount: resolvedOverpaymentAmount,
           overpaymentResolvedBy: userId,
           overpaymentResolvedAt: new Date().toISOString(),
           overpaymentTaskId: pendingRefundTask?.id || null,
           overpaymentTaskTitle: pendingRefundTask?.title || null,
+          overpaymentRefundReceiptId: pendingRefundReceipt?.id || null,
+          overpaymentRefundPendingJournalId: pendingRefundJournal?.id || null,
         } as any,
       },
     });
 
-      return { replayed: false, request, pendingRefundTask };
+      return {
+        replayed: false,
+        request,
+        pendingRefundTask,
+        overpaymentAmount: resolvedOverpaymentAmount,
+      };
     });
 
     if (resolved.replayed) {
@@ -1889,7 +2096,7 @@ export class PaymentsService {
         success: true,
         paymentCode,
         resolution: payload.resolution,
-        overpaidAmount,
+        overpaidAmount: resolved.overpaymentAmount,
         replayed: true,
       };
     }
@@ -1911,7 +2118,7 @@ export class PaymentsService {
         requestId: resolved.request.id,
         paymentCode,
         resolution: payload.resolution,
-        overpaidAmount,
+        overpaidAmount: resolved.overpaymentAmount,
         ownerId: resolved.request.ownerId || null,
       },
     });
@@ -1920,11 +2127,11 @@ export class PaymentsService {
       success: true,
       paymentCode,
       resolution: payload.resolution,
-      overpaidAmount,
+      overpaidAmount: resolved.overpaymentAmount,
     };
   }
 
-  async completeSePayOverpaymentRefund(tenantId: string, userId: string, payload: { logId: string; note?: string }) {
+  async completeSePayOverpaymentRefund(tenantId: string, userId: string, payload: { logId: string; note?: string; attachmentUrls?: string[] }) {
     const log = await this.prisma.paymentWebhookLog.findFirst({
       where: { id: payload.logId, tenantId },
     });
@@ -1950,23 +2157,50 @@ export class PaymentsService {
     }
 
     const requestMetadata = (request.metadata as any) || {};
-    if (requestMetadata.overpaymentResolution !== 'REFUND_PENDING') {
+    const eventResolution = requestMetadata.overpaymentResolutions?.[payload.logId] || {};
+    const isLegacyResolutionForLog =
+      requestMetadata.overpaymentLogId === payload.logId ||
+      (!requestMetadata.overpaymentResolutions &&
+        requestMetadata.overpaymentResolution === rawPayload.overpaymentResolution);
+    const resolution =
+      rawPayload.overpaymentResolution ||
+      eventResolution.resolution ||
+      (isLegacyResolutionForLog
+        ? requestMetadata.overpaymentResolution
+        : null);
+    const refundCompletedAt =
+      rawPayload.overpaymentRefundCompletedAt ||
+      eventResolution.refundCompletedAt ||
+      (isLegacyResolutionForLog
+        ? requestMetadata.overpaymentRefundCompletedAt
+        : null);
+    if (resolution !== 'REFUND_PENDING') {
       throw new BadRequestException('Giao dịch này không ở trạng thái chờ hoàn tiền thừa.');
     }
-    if (requestMetadata.overpaymentRefundCompletedAt) {
+    if (refundCompletedAt) {
       throw new BadRequestException('Khoản hoàn tiền thừa này đã được xác nhận hoàn tất.');
     }
 
     const taskTitle =
-      requestMetadata.overpaymentTaskTitle ||
+      rawPayload.overpaymentTaskTitle ||
+      eventResolution.taskTitle ||
+      (isLegacyResolutionForLog
+        ? requestMetadata.overpaymentTaskTitle
+        : null) ||
       (request.sourceType === PaymentSourceType.INVOICE
         ? `Hoàn lại tiền thừa SePay cho hóa đơn ${request.sourceId}`
         : `Hoàn lại tiền thừa SePay cho phiếu cọc ${request.sourceId}`);
+    const taskId =
+      rawPayload.overpaymentTaskId ||
+      eventResolution.taskId ||
+      (isLegacyResolutionForLog
+        ? requestMetadata.overpaymentTaskId
+        : null);
 
     const task = await this.prisma.task.findFirst({
       where: {
         tenantId,
-        ...(requestMetadata.overpaymentTaskId ? { id: requestMetadata.overpaymentTaskId } : { title: taskTitle }),
+        ...(taskId ? { id: taskId } : { title: taskTitle }),
         deletedAt: null,
       },
       orderBy: { createdAt: 'desc' },
@@ -1976,15 +2210,140 @@ export class PaymentsService {
     }
 
     const completionNote = String(payload.note || '').trim();
+    const attachmentUrls = this.normalizeRefundProofUrls(payload.attachmentUrls);
+    if (attachmentUrls.length === 0) {
+      throw new BadRequestException('SEPAY_OVERPAYMENT_REFUND_PROOF_REQUIRED');
+    }
+    const overpaymentAmount = Number(
+      rawPayload.overpaymentAmount ?? eventResolution.overpaymentAmount ?? 0,
+    );
+    if (!Number.isFinite(overpaymentAmount) || overpaymentAmount <= 0) {
+      throw new BadRequestException('SEPAY_OVERPAYMENT_REFUND_AMOUNT_INVALID');
+    }
+    const refundReceiptId =
+      rawPayload.overpaymentRefundReceiptId ||
+      eventResolution.refundReceiptId ||
+      (isLegacyResolutionForLog
+        ? requestMetadata.overpaymentRefundReceiptId
+        : null);
     const completedAtIso = new Date().toISOString();
-    const nextMetadata = {
-      ...requestMetadata,
-      overpaymentRefundCompletedAt: completedAtIso,
-      overpaymentRefundCompletedBy: userId,
-      overpaymentRefundCompletionNote: completionNote || null,
-    };
 
     const updatedTask = await this.prisma.$transaction(async (tx) => {
+      // Completion is a cash-out. Serialize it against every resolution of
+      // this payment request, then re-read its metadata so a concurrent
+      // operator cannot create a second receipt/journal after the first one
+      // has committed.
+      await this.lockSePayOverpayment(tx, tenantId, request.id);
+      const currentRequest = await tx.paymentRequest.findFirst({
+        where: { id: request.id, tenantId },
+        select: { metadata: true },
+      });
+      if (!currentRequest) {
+        throw new BadRequestException('Không tìm thấy payment request tương ứng.');
+      }
+      const currentMetadata = (currentRequest.metadata as any) || {};
+      const currentEventResolution =
+        currentMetadata.overpaymentResolutions?.[payload.logId] || {};
+      const currentRefundCompletedAt =
+        currentEventResolution.refundCompletedAt ||
+        (isLegacyResolutionForLog
+          ? currentMetadata.overpaymentRefundCompletedAt
+          : null);
+      if (currentRefundCompletedAt) {
+        throw new BadRequestException('Khoản hoàn tiền thừa này đã được xác nhận hoàn tất.');
+      }
+      let refundReceipt = refundReceiptId
+        ? await tx.receipt.findFirst({
+            where: {
+              id: refundReceiptId,
+              tenantId,
+              status: ReceiptStatus.PENDING,
+            },
+          })
+        : null;
+      if (refundReceipt) {
+        const receiptChanged = await tx.receipt.updateMany({
+          where: { id: refundReceipt.id, tenantId, status: ReceiptStatus.PENDING },
+          data: {
+            status: ReceiptStatus.COMPLETED,
+            description: [
+              refundReceipt.description || '',
+              completionNote ? `Hoàn tất: ${completionNote}` : null,
+              `Chứng từ: ${attachmentUrls.join(', ')}`,
+            ].filter(Boolean).join('\n'),
+          },
+        });
+        if (receiptChanged.count !== 1) {
+          throw new ConflictException('SEPAY_OVERPAYMENT_REFUND_RECEIPT_CONCURRENT_UPDATE');
+        }
+      } else {
+        // Historical pending tasks had no receipt. Repair their accounting in
+        // this same completion transaction rather than allowing an unproven
+        // cash-out to remain outside the ledger.
+        refundReceipt = await tx.receipt.create({
+          data: {
+            tenantId,
+            code: `RCT-SEPAY-OVERPAY-${log.id}`,
+            amount: overpaymentAmount,
+            status: ReceiptStatus.COMPLETED,
+            description: [
+              `Hoàn tiền thừa SePay ${paymentCode} (bổ sung chứng từ lịch sử)`,
+              completionNote ? `Hoàn tất: ${completionNote}` : null,
+              `Chứng từ: ${attachmentUrls.join(', ')}`,
+            ].filter(Boolean).join('\n'),
+            date: new Date(),
+          },
+        });
+      }
+      const pendingJournal = await this.createOverpaymentRefundJournalEntryInTransaction(
+        tx,
+        tenantId,
+        log.id,
+        paymentCode,
+        request.sourceId,
+        overpaymentAmount,
+        'PENDING',
+      );
+      const completedJournal = await this.createOverpaymentRefundJournalEntryInTransaction(
+        tx,
+        tenantId,
+        log.id,
+        paymentCode,
+        request.sourceId,
+        overpaymentAmount,
+        'COMPLETED',
+      );
+      const nextMetadata = {
+        ...currentMetadata,
+        overpaymentRefundReceiptId: refundReceipt.id,
+        overpaymentRefundPendingJournalId: pendingJournal.id,
+        overpaymentRefundJournalId: completedJournal.id,
+        overpaymentResolutions: {
+          ...(currentMetadata.overpaymentResolutions || {}),
+          [payload.logId]: {
+            ...currentEventResolution,
+            resolution: 'REFUND_PENDING',
+            overpaymentAmount,
+            taskId: taskId || null,
+            taskTitle,
+            refundReceiptId: refundReceipt.id,
+            refundPendingJournalId: pendingJournal.id,
+            refundJournalId: completedJournal.id,
+            refundCompletedAt: completedAtIso,
+            refundCompletedBy: userId,
+            refundCompletionNote: completionNote || null,
+            refundAttachmentUrls: attachmentUrls,
+          },
+        },
+        ...(isLegacyResolutionForLog
+          ? {
+            overpaymentRefundCompletedAt: completedAtIso,
+            overpaymentRefundCompletedBy: userId,
+            overpaymentRefundCompletionNote: completionNote || null,
+            overpaymentRefundAttachmentUrls: attachmentUrls,
+          }
+          : {}),
+      };
       const claimed = await tx.paymentRequest.updateMany({
         where: {
           id: request.id,
@@ -2019,10 +2378,19 @@ export class PaymentsService {
             overpaymentRefundCompletionNote: completionNote || null,
             overpaymentTaskId: task.id,
             overpaymentTaskTitle: task.title,
+            overpaymentRefundReceiptId: refundReceipt.id,
+            overpaymentRefundPendingJournalId: pendingJournal.id,
+            overpaymentRefundJournalId: completedJournal.id,
+            overpaymentRefundAttachmentUrls: attachmentUrls,
           } as any,
         },
       });
-      return { id: task.id };
+      return {
+        id: task.id,
+        receiptId: refundReceipt.id,
+        pendingJournalId: pendingJournal.id,
+        journalId: completedJournal.id,
+      };
     });
 
     await this.auditService.log({
@@ -2035,15 +2403,17 @@ export class PaymentsService {
       before: {
         requestId: request.id,
         paymentCode,
-        resolution: requestMetadata.overpaymentResolution,
-        refundCompletedAt: requestMetadata.overpaymentRefundCompletedAt || null,
+        resolution,
+        refundCompletedAt: refundCompletedAt || null,
       },
       after: {
         requestId: request.id,
         paymentCode,
-        resolution: requestMetadata.overpaymentResolution,
+        resolution,
         refundCompletedAt: completedAtIso,
         taskId: updatedTask.id,
+        receiptId: updatedTask.receiptId,
+        journalId: updatedTask.journalId,
       },
     });
 
@@ -2051,7 +2421,8 @@ export class PaymentsService {
       success: true,
       paymentCode,
       taskId: updatedTask.id,
-      overpaymentAmount: Number(requestMetadata.overpaymentAmount || 0),
+      receiptId: updatedTask.receiptId,
+      overpaymentAmount,
       completedAt: completedAtIso,
     };
   }
@@ -2128,21 +2499,12 @@ export class PaymentsService {
   }
 
   private webhookBankAccountMatches(request: any, identifiers: string[], payload: SePayWebhookPayload) {
-    if (identifiers.length === 0) return true;
-    const expected = this.normalizeBankAccountNumber(request?.bankAccountNumber);
-    if (!expected) return true;
-    if (identifiers.includes(expected)) return true;
-
-    const requestBank = this.normalizeBankName(request?.bankName);
-    const webhookBank = this.normalizeBankName((payload as any)?.gateway || (payload as any)?.bank || '');
-    const sameBank = Boolean(requestBank && webhookBank && (requestBank.includes(webhookBank) || webhookBank.includes(requestBank)));
-    const expectedLooksLikeVirtualAccount = /^SBSEPAY[A-Z0-9]+$/.test(expected);
-    const webhookHasMainAccountNumber = identifiers.some((identifier) => /^\d{1,16}$/.test(identifier));
-
-    // SePay sandbox may report the receiving main BIDV account (0001/0002)
-    // while the generated VietQR/payment request stores a SePay virtual account.
-    // Keep the guard constrained to exact payment-code lookup + same bank gateway.
-    return expectedLooksLikeVirtualAccount && webhookHasMainAccountNumber && sameBank;
+    return classifySePayWebhookBankAccount({
+      expectedAccountNumber: request?.bankAccountNumber,
+      expectedBankName: request?.bankName,
+      webhookAccountNumbers: identifiers,
+      webhookBankName: (payload as any)?.gateway || (payload as any)?.bank || '',
+    }).matches;
   }
 
   private requireSePayCommandIdempotencyKey(value: string) {
@@ -2321,7 +2683,7 @@ export class PaymentsService {
     return {
       enabled: settings.enabled !== false,
       authMode: this.normalizeSePayAuthMode(settings.authMode),
-      webhookUrl: `${String(process.env.APP_URL || '').replace(/\/+$/, '')}/api/v1/payments/sepay/webhook`,
+      webhookUrl: this.buildSePayWebhookUrl(settings.webhookBaseUrl),
       webhookApiKeyConfigured: Boolean(String(settings.webhookApiKey || '').trim()),
       hmacSecretConfigured: Boolean(String(settings.hmacSecret || '').trim()),
       paymentCodePrefix: String(settings.paymentCodePrefix || '').trim() || 'PAY',
@@ -2336,6 +2698,18 @@ export class PaymentsService {
           (latestWebhook?.payload as any)?.accountNumber || (latestWebhook?.payload as any)?.account_number || '',
         ).trim() || null,
     };
+  }
+
+  private buildSePayWebhookUrl(configuredBaseUrl?: string | null) {
+    const baseUrl = String(configuredBaseUrl || process.env.APP_URL || '')
+      .trim()
+      .replace(/\/+$/, '');
+    const apiBaseUrl = baseUrl.endsWith('/api/v1')
+      ? baseUrl
+      : baseUrl.endsWith('/api')
+        ? `${baseUrl}/v1`
+        : `${baseUrl}/api/v1`;
+    return `${apiBaseUrl}/payments/sepay/webhook`;
   }
 
   async getSePayAdminConfig(tenantId: string): Promise<SePayAdminConfig> {
@@ -2657,10 +3031,53 @@ export class PaymentsService {
     });
 
     if (!log.processedAt && !PaymentsService.processingSePayTransactionIds.has(transactionId)) {
-      this.processSePayWebhookInBackground(payload, transactionId, authenticatedTenantIds);
+      PaymentsService.processingSePayTransactionIds.add(transactionId);
+      try {
+        const result = await this.processSePayWebhookPayload(payload, transactionId, authenticatedTenantIds);
+        const notificationFlush = await this.flushSePayNotificationsImmediately();
+        return {
+          ...result,
+          accepted: true,
+          ...(notificationFlush ? { notificationFlush } : {}),
+        };
+      } catch (error: any) {
+        await this.markSePayWebhookFailed(transactionId, error);
+        throw error;
+      } finally {
+        PaymentsService.processingSePayTransactionIds.delete(transactionId);
+      }
     }
 
     return { success: true, accepted: true };
+  }
+
+  private async flushSePayNotificationsImmediately() {
+    if (!this.depositOutboxPublisher) return null;
+    try {
+      // The first pass can publish invoice.issued and deliberately leave its
+      // payment event unclaimed. A bounded second pass releases that now-ready
+      // confirmation in the same webhook/QR request, without waiting for the
+      // scheduler or allowing it to overtake the invoice notification.
+      let claimed = 0;
+      let published = 0;
+      let failed = 0;
+      for (let pass = 0; pass < 2; pass += 1) {
+        const result = await this.depositOutboxPublisher.drain(50);
+        claimed += result.claimed;
+        published += result.published;
+        failed += result.failed;
+        if (result.claimed === 0 || result.failed > 0) break;
+      }
+      return {
+        status: failed > 0 ? 'PARTIAL' : 'DELIVERED',
+        claimed,
+        published,
+        failed,
+      };
+    } catch (error: any) {
+      this.logger.error(`SePay notification flush failed; outbox retry remains active: ${String(error?.message || error)}`);
+      return { status: 'QUEUED_RETRY', claimed: 0, published: 0, failed: 1 };
+    }
   }
 
   private async authenticateSePayWebhook(
@@ -2885,6 +3302,54 @@ export class PaymentsService {
     }
 
     if (!request || request.status !== PaymentRequestStatus.PENDING) {
+      const priorProviderTransactionId = String(request?.providerTransactionId || '').trim();
+      const isDistinctTransactionWithSameMemo = Boolean(
+        request &&
+        request.status === PaymentRequestStatus.CONFIRMED &&
+        priorProviderTransactionId &&
+        priorProviderTransactionId !== transactionId,
+      );
+      if (isDistinctTransactionWithSameMemo) {
+        // Same payment code/memo is not proof that this is the same bank
+        // transfer. Keep the second transaction unmatched and alert only
+        // reconciliation staff; never send a second customer confirmation.
+        await this.logPaymentAudit(
+          request.tenantId,
+          'SePayDuplicatePaymentContent',
+          log.id,
+          {
+            paymentRequestId: request.id,
+            paymentCode,
+            canonicalProviderTransactionId: priorProviderTransactionId,
+            requestStatus: request.status,
+          },
+          {
+            duplicateKind: 'CONTENT_DUPLICATE',
+            duplicateProviderTransactionId: transactionId,
+            amount: providerAmount,
+            bankAccount: accountNumber || null,
+            resolution: 'NEEDS_REVIEW',
+          },
+          'SEPAY_WEBHOOK',
+        );
+        await this.notifySePayMismatch(request.tenantId, {
+          title: `Cần đối soát giao dịch trùng nội dung ${paymentCode}`,
+          message: [
+            `Mã thanh toán ${paymentCode} đã có giao dịch ${priorProviderTransactionId}.`,
+            `Giao dịch mới ${transactionId} là một bank reference khác nhưng trùng memo; hệ thống không tự gộp và không gửi xác nhận khách lần hai.`,
+            `Số tiền mới: ${providerAmount.toLocaleString('vi-VN')} VND. Vui lòng đối chiếu và chọn overpayment/credit/refund nếu là tiền thật lần hai.`,
+          ].join(' '),
+          paymentCode,
+          transactionId,
+          actualAmount: providerAmount,
+          actualBankAccount: accountNumber || null,
+        });
+        await this.markSePayWebhookLog(log.id, 'NEEDS_REVIEW', {
+          tenantId: request.tenantId,
+          error: `SEPAY_DUPLICATE_CONTENT:${priorProviderTransactionId}`,
+        });
+        return { success: true, status: 'NEEDS_REVIEW', duplicateKind: 'CONTENT_DUPLICATE' };
+      }
       if (request?.status === PaymentRequestStatus.CONFIRMED && request.sourceType === PaymentSourceType.INVOICE) {
         await this.collectLinkedBookingDepositForInvoicePayment(
           request,
@@ -2994,9 +3459,17 @@ export class PaymentsService {
           0,
           Number(invoice?.total || 0) - Number(invoice?.paidAmount || 0) - Number(invoice?.creditAmount || 0),
         );
-        const currentAmount = Math.min(providerAmount, remainingToApply);
+        // A payment request is the maximum amount the webhook may apply
+        // automatically. Any amount above it must remain visible to
+        // reconciliation as an overpayment, even where the invoice itself
+        // still has a larger outstanding balance.
+        const currentAmount = Math.min(
+          providerAmount,
+          remainingToApply,
+          Number(request.amount || 0),
+        );
         if (currentAmount > 0) {
-          await this.invoicesService.pay(
+          const paidInvoice = await this.invoicesService.pay(
             request.sourceId,
             currentAmount,
             'SEPAY',
@@ -3006,20 +3479,41 @@ export class PaymentsService {
           );
           appliedAmount = currentAmount;
           shouldConfirmRequest = true;
-          await this.collectLinkedBookingDepositForInvoicePayment(request, transactionId, invoice);
+          await this.collectLinkedBookingDepositForInvoicePayment(
+            request,
+            transactionId,
+            { ...invoice, ...paidInvoice },
+          );
         }
       } else {
         appliedAmount = Number(existingPayment.amount || 0);
         shouldConfirmRequest = true;
       }
     } else if (request.sourceType === PaymentSourceType.DEPOSIT) {
-      await this.depositsService.collect(
+      const balanceResult = await this.prisma.depositLedgerEntry.aggregate({
+        where: { tenantId: request.tenantId, depositId: request.sourceId },
+        _sum: { balanceEffect: true },
+      });
+      const deposit = await this.prisma.deposit.findFirst({
+        where: { id: request.sourceId, tenantId: request.tenantId, deletedAt: null },
+        select: { amount: true },
+      });
+      const remainingBeforeCollection = Math.max(
+        0,
+        Number(deposit?.amount || 0) - Number(balanceResult._sum.balanceEffect || 0),
+      );
+      await this.depositsService.collectForTenant(
+        request.tenantId,
         request.sourceId,
         `SePay transaction ${transactionId}`,
         'SEPAY_WEBHOOK',
         `sepay:${transactionId}`,
       );
-      appliedAmount = providerAmount;
+      // DepositCore collects the exact remaining ledger balance.  A bank
+      // transfer can be larger than that amount; retain the excess in review
+      // so Finance chooses credit/carry-forward/refund rather than silently
+      // treating all received cash as deposit funding.
+      appliedAmount = Math.min(providerAmount, remainingBeforeCollection);
       shouldConfirmRequest = true;
     }
 
@@ -3084,6 +3578,10 @@ export class PaymentsService {
           },
           select: {
             period: true,
+            total: true,
+            paidAmount: true,
+            creditAmount: true,
+            status: true,
             contractId: true,
             customerId: true,
             rentalCycleId: true,
@@ -3092,6 +3590,7 @@ export class PaymentsService {
         }));
 
       if (!this.isBookingHoldInvoice(invoice)) return;
+      if (!this.isInvoiceSettled(invoice)) return;
       if (!db.deposit?.findFirst) {
         await this.logPaymentAudit(
           request.tenantId,
@@ -3181,6 +3680,10 @@ export class PaymentsService {
         },
         select: {
           id: true,
+          total: true,
+          paidAmount: true,
+          creditAmount: true,
+          status: true,
           contractId: true,
           rentalCycleId: true,
           customerId: true,
@@ -3193,6 +3696,7 @@ export class PaymentsService {
           },
         },
       });
+      if (!this.isInvoiceSettled(invoice)) return;
       const depositItem = (invoice?.items || []).find((item: any) => {
         const description = String(item.description || '').toLowerCase();
         return (
@@ -3256,5 +3760,23 @@ export class PaymentsService {
 
   private isBookingHoldInvoice(invoice: any) {
     return String(invoice?.period || '').trim().toLowerCase() === 'cọc giữ phòng';
+  }
+
+  private isInvoiceSettled(invoice: any) {
+    if (String(invoice?.status || '').toUpperCase() === 'PAID') return true;
+    const total = Number(invoice?.total);
+    const paid = Number(invoice?.paidAmount || 0);
+    const credit = Number(invoice?.creditAmount || 0);
+    return Number.isFinite(total) && total > 0 && paid + credit >= total;
+  }
+
+  private normalizeRefundProofUrls(value?: string[]) {
+    return [
+      ...new Set(
+        (Array.isArray(value) ? value : [])
+          .map((item) => String(item || '').trim())
+          .filter((item) => item.length > 0 && item.length <= 2048),
+      ),
+    ].slice(0, 10);
   }
 }

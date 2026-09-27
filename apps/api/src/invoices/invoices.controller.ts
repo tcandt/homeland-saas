@@ -22,6 +22,7 @@ import {
   PaginationSchema,
   CreateInvoiceSchema,
   CreateInvoiceAdjustmentSchema,
+  CreatePaymentPromiseSchema,
 } from "@homeland/shared";
 
 @ApiTags("Invoices")
@@ -180,6 +181,30 @@ export class InvoicesController {
       userId,
       tenantId,
     );
+  }
+
+  @Get(":id/payment-promises")
+  @RequirePermissions("invoice.read")
+  @ApiOperation({ summary: "List payment promises for an invoice" })
+  listPaymentPromises(
+    @Param("id") id: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    return this.invoicesService.listPaymentPromises(id, tenantId);
+  }
+
+  @Post(":id/payment-promises")
+  @RequirePermissions("invoice.update")
+  @ApiOperation({ summary: "Record a customer promise to pay an open invoice balance" })
+  createPaymentPromise(
+    @Param("id") id: string,
+    @Body() body: any,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    const input = CreatePaymentPromiseSchema.parse(body);
+    return this.invoicesService.createPaymentPromise(id, input, userId, tenantId, idempotencyKey || input.idempotencyKey);
   }
 
   @Post(":id/cancel")

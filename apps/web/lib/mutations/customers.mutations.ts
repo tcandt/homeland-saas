@@ -7,7 +7,8 @@ export const useCreateCustomerMutation = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: any) => customersApi.create(data),
+    mutationFn: ({ data, idempotencyKey }: { data: any; idempotencyKey?: string }) =>
+      customersApi.create(data, idempotencyKey),
     onSuccess: () => {
       toast.success('Thêm khách hàng thành công');
       queryClient.invalidateQueries({ queryKey: customerKeys.lists() });

@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import {
   Contract,
@@ -20,7 +21,9 @@ import {
   Prisma,
 } from "@prisma/client";
 import {
+  AddWholeRoomOccupantInput,
   ContractSettlementInput,
+  ConvertBookingHoldInput,
   MoveOutOccupantInput,
   PaginatedResult,
   RenewContractInput,
@@ -36,6 +39,8 @@ import {
   mapStatusFilter,
 } from "./contracts.adapter";
 import { ContractsRepository } from "./contracts.repository";
+import { DepositCoreService } from "../deposits/deposit-core.service";
+import { PaymentsService } from "../payments/payments.service";
 import { buildRoomContext } from "../shared/context/room-context";
 import { createHash } from "crypto";
 
@@ -79,15 +84,13 @@ export class ContractsService extends BaseCrudService<Contract> {
     private readonly prisma: PrismaService,
     private readonly eventPublisher: DomainEventPublisher,
     private readonly hunonicService: HunonicService,
+    @Optional() private readonly depositCoreService?: DepositCoreService,
+    @Optional() private readonly paymentsService?: PaymentsService,
   ) {
     super(repository, auditService, "Contract");
   }
 
-  async create(
-    data: any,
-    userId?: string,
-    moduleName?: string,
-  ): Promise<Contract> {
+  async create(data: any, userId?: string, moduleName?: string): Promise<any> {
     if (data.status && data.status !== ContractStatus.DRAFT) {
       throw new BadRequestException("CONTRACT_CREATE_REQUIRES_DRAFT");
     }
@@ -157,7 +160,10 @@ export class ContractsService extends BaseCrudService<Contract> {
     if (Number.isNaN(startDate.getTime())) {
       throw new BadRequestException("RENEWAL_START_DATE_INVALID");
     }
-    if (Number.isNaN(endDate.getTime()) || endDate.getTime() <= startDate.getTime()) {
+    if (
+      Number.isNaN(endDate.getTime()) ||
+      endDate.getTime() <= startDate.getTime()
+    ) {
       throw new BadRequestException("RENEWAL_END_DATE_INVALID");
     }
     const firstPaymentDate =
@@ -196,7 +202,8 @@ export class ContractsService extends BaseCrudService<Contract> {
       const source = await tx.contract.findFirst({
         where: { id, tenantId, deletedAt: null },
       });
-      if (!source) throw new NotFoundException(`Contract with ID ${id} not found`);
+      if (!source)
+        throw new NotFoundException(`Contract with ID ${id} not found`);
       if (
         ![
           ContractStatus.ACTIVE,
@@ -211,7 +218,9 @@ export class ContractsService extends BaseCrudService<Contract> {
         Number.isNaN(sourceEndDate.getTime()) ||
         startDate.getTime() <= sourceEndDate.getTime()
       ) {
-        throw new BadRequestException("RENEWAL_START_DATE_NOT_AFTER_SOURCE_END");
+        throw new BadRequestException(
+          "RENEWAL_START_DATE_NOT_AFTER_SOURCE_END",
+        );
       }
 
       const existing = await tx.contract.findFirst({
@@ -251,9 +260,12 @@ export class ContractsService extends BaseCrudService<Contract> {
         depositMoney: input.depositAmount ?? Number(source.depositMoney),
         memberCount: input.memberCount ?? source.memberCount,
         firstPaymentDate:
-          firstPaymentDate === undefined ? source.firstPaymentDate : firstPaymentDate,
+          firstPaymentDate === undefined
+            ? source.firstPaymentDate
+            : firstPaymentDate,
         purpose: input.purpose ?? source.purpose,
-        coRepresentativeIds: input.coRepresentativeIds ?? source.coRepresentativeIds,
+        coRepresentativeIds:
+          input.coRepresentativeIds ?? source.coRepresentativeIds,
         // Signed files belong to the historical version; do not carry them forward.
         attachments: [],
         signedAt: null,
@@ -273,6 +285,20 @@ export class ContractsService extends BaseCrudService<Contract> {
           }),
         },
       });
+      const renewalTask = await tx.task.create({
+        data: {
+          tenantId,
+          contractId: newContract.id,
+          rentalCycleId: cycle.id,
+          customerId: source.customerId,
+          title: `Hoan tat gia han hop dong ${newContract.code}`,
+          description: `Hoan tat ho so gia han va cap nhat tam tru cho hop dong ${newContract.code}.`,
+          status: "TODO",
+          priority: "HIGH",
+          assigneeId: userId || null,
+          dueDate: startDate,
+        },
+      });
       // A draft records its parties only; syncContractHistory never creates
       // occupancy unless the contract is active-like.
       await this.syncContractHistory(newContract, tx);
@@ -288,6 +314,17 @@ export class ContractsService extends BaseCrudService<Contract> {
             after: newContract,
           },
         });
+        await tx.auditLog.create({
+          data: {
+            action: "CREATE",
+            entity: "Task",
+            entityId: renewalTask.id,
+            module: "ContractsRenewal",
+            tenantId,
+            userId,
+            after: renewalTask,
+          },
+        });
       }
       return newContract;
     });
@@ -299,16 +336,26 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   async createRentalFromBookingHold(
     id: string,
-    input: RenewContractInput,
+    input: ConvertBookingHoldInput,
     userId: string,
     tenantId: string,
+    idempotencyKey?: string,
   ): Promise<Contract> {
+    const commandKey = this.requireSettlementIdempotencyKey(
+      idempotencyKey || input.idempotencyKey,
+    );
+    if (!this.depositCoreService) {
+      throw new ConflictException("BOOKING_CONVERT_DEPOSIT_CORE_UNAVAILABLE");
+    }
     const startDate = new Date(input.startDate);
     const endDate = new Date(input.endDate);
     if (Number.isNaN(startDate.getTime())) {
       throw new BadRequestException("BOOKING_CONVERT_START_DATE_INVALID");
     }
-    if (Number.isNaN(endDate.getTime()) || endDate.getTime() <= startDate.getTime()) {
+    if (
+      Number.isNaN(endDate.getTime()) ||
+      endDate.getTime() <= startDate.getTime()
+    ) {
       throw new BadRequestException("BOOKING_CONVERT_END_DATE_INVALID");
     }
     const firstPaymentDate =
@@ -318,97 +365,360 @@ export class ContractsService extends BaseCrudService<Contract> {
           ? null
           : new Date(input.firstPaymentDate);
     if (firstPaymentDate && Number.isNaN(firstPaymentDate.getTime())) {
-      throw new BadRequestException("BOOKING_CONVERT_FIRST_PAYMENT_DATE_INVALID");
+      throw new BadRequestException(
+        "BOOKING_CONVERT_FIRST_PAYMENT_DATE_INVALID",
+      );
     }
 
-    const source = await this.prisma.tx.contract.findFirst({
-      where: { id, tenantId, deletedAt: null },
-    });
-    if (!source) throw new NotFoundException(`Contract with ID ${id} not found`);
-    const sourceText = `${source.code || ""} ${source.purpose || ""}`.toLowerCase();
-    if (
-      !sourceText.includes("hd-coc") &&
-      !sourceText.includes("cọc giữ phòng") &&
-      !sourceText.includes("coc giu phong")
-    ) {
-      throw new BadRequestException("SOURCE_CONTRACT_IS_NOT_BOOKING_HOLD");
-    }
-    if (!source.rentalCycleId) {
-      throw new BadRequestException("BOOKING_CONTRACT_RENTAL_CYCLE_REQUIRED");
-    }
-
-    const existingRental = await this.prisma.tx.contract.findFirst({
-      where: {
-        tenantId,
-        rentalCycleId: source.rentalCycleId,
-        id: { not: source.id },
-        deletedAt: null,
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    if (existingRental) return existingRental;
-
-    const suffix = createHash("sha256")
-      .update(`${tenantId}:${source.id}:${startDate.toISOString()}:${endDate.toISOString()}`)
-      .digest("hex")
-      .slice(0, 8)
-      .toUpperCase();
-    const roomSnapshot = (source.roomSnapshot as any) || {};
-    const roomCode = roomSnapshot?.code || source.roomId.slice(-6).toUpperCase();
-    const rentalCode = `HD-THUE-${roomCode}-${suffix}`;
-    const prepared = await this.withContractSnapshots({
+    const requestHashPayload = {
+      sourceContractId: id,
       tenantId,
-      customerId: source.customerId,
-      roomId: source.roomId,
-      rentalCycleId: source.rentalCycleId,
-      code: rentalCode,
-      status: ContractStatus.DRAFT,
-      startDate,
-      endDate,
-      monthlyRent: input.rentAmount ?? Number(source.monthlyRent),
-      depositMoney: input.depositAmount ?? Number(source.depositMoney),
-      memberCount: input.memberCount ?? source.memberCount,
-      firstPaymentDate,
-      purpose:
-        input.purpose ||
-        `Hợp đồng thuê phòng dài hạn chuyển từ ${source.code || source.id}`,
-      coRepresentativeIds: input.coRepresentativeIds ?? source.coRepresentativeIds,
-      attachments: [],
-      signedAt: null,
-    });
+      commandKey,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      rentAmount: input.rentAmount ?? null,
+      depositAmount: input.depositAmount ?? null,
+      memberCount: input.memberCount ?? null,
+      firstPaymentDate: firstPaymentDate?.toISOString() || null,
+      purpose: input.purpose ?? null,
+      coRepresentativeIds: input.coRepresentativeIds ?? null,
+      securityDepositId: input.securityDepositId ?? null,
+      excessAction: input.excessAction ?? null,
+      refundStatus: input.refundStatus ?? null,
+      // Keep the hash compatible with conversion commands written before
+      // refund proofs became part of the request. A non-empty proof list is
+      // still immutable and prevents an idempotency key from being reused for
+      // a different completed-refund command.
+      ...(input.refundAttachmentUrls?.length
+        ? { refundAttachmentUrls: input.refundAttachmentUrls }
+        : {}),
+    };
+    const requestHash = this.hashSettlementRequest(requestHashPayload);
 
-    const created = await this.prisma.tx.$transaction(async (tx) => {
-      const contract = await tx.contract.create({
+    const created = await this.runRenewalSerializable(async (tx: any) => {
+      await this.lockSettlementContract(tx, tenantId, id);
+      const source = await tx.contract.findFirst({
+        where: { id, tenantId, deletedAt: null },
+      });
+      if (!source)
+        throw new NotFoundException(`Contract with ID ${id} not found`);
+      const sourceText =
+        `${source.code || ""} ${source.purpose || ""}`.toLowerCase();
+      if (
+        !sourceText.includes("hd-coc") &&
+        !sourceText.includes("cọc giữ phòng") &&
+        !sourceText.includes("coc giu phong")
+      ) {
+        throw new BadRequestException("SOURCE_CONTRACT_IS_NOT_BOOKING_HOLD");
+      }
+      if (!source.rentalCycleId)
+        throw new BadRequestException("BOOKING_CONTRACT_RENTAL_CYCLE_REQUIRED");
+
+      const existingRental = await tx.contract.findFirst({
+        where: {
+          tenantId,
+          rentalCycleId: source.rentalCycleId,
+          id: { not: source.id },
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      let contract: any;
+      if (existingRental) {
+        const conversion = (existingRental.termsSnapshot as any)
+          ?.convertedFromBookingHold;
+        if (
+          conversion?.sourceContractId === source.id &&
+          conversion?.idempotencyKey === commandKey &&
+          conversion?.requestHash === requestHash
+        ) {
+          // A legacy caller may have committed the rental draft before it
+          // issued the separate deposit command. Finish the exact command
+          // below instead of leaving either the security deposit or initial
+          // rent document unlinked.
+          contract = existingRental;
+        } else {
+          throw new ConflictException("BOOKING_CONVERT_ALREADY_EXISTS");
+        }
+      }
+      if (!contract) {
+        const suffix = createHash("sha256")
+          .update(`${tenantId}:${source.id}:${commandKey}`)
+          .digest("hex")
+          .slice(0, 8)
+          .toUpperCase();
+        const roomSnapshot = (source.roomSnapshot as any) || {};
+        const roomCode =
+          roomSnapshot?.code || source.roomId.slice(-6).toUpperCase();
+        const rentalCode = `HD-THUE-${roomCode}-${suffix}`;
+        const prepared = await this.withContractSnapshots({
+          tenantId,
+          customerId: source.customerId,
+          roomId: source.roomId,
+          rentalCycleId: source.rentalCycleId,
+          code: rentalCode,
+          status: ContractStatus.DRAFT,
+          startDate,
+          endDate,
+          monthlyRent: input.rentAmount ?? Number(source.monthlyRent),
+          depositMoney: input.depositAmount ?? Number(source.depositMoney),
+          memberCount: input.memberCount ?? source.memberCount,
+          firstPaymentDate,
+          purpose:
+            input.purpose ||
+            `Hợp đồng thuê phòng dài hạn chuyển từ ${source.code || source.id}`,
+          coRepresentativeIds:
+            input.coRepresentativeIds ?? source.coRepresentativeIds,
+          attachments: [],
+          signedAt: null,
+        });
+        contract = await tx.contract.create({
+          data: {
+            ...prepared,
+            termsSnapshot: this.asJson({
+              ...(prepared.termsSnapshot as any),
+              convertedFromBookingHold: {
+                sourceContractId: source.id,
+                sourceRentalCycleId: source.rentalCycleId,
+                policyVersion: "BOOKING_HOLD_TO_RENTAL_V1",
+                idempotencyKey: commandKey,
+                requestHash,
+              },
+            }),
+          },
+        });
+      }
+      const bookingDeposit = await tx.deposit.findFirst({
+        where: {
+          tenantId,
+          customerId: source.customerId,
+          roomId: source.roomId,
+          OR: [
+            { contractId: source.id },
+            { rentalCycleId: source.rentalCycleId },
+          ],
+          type: { in: [DepositType.BOOKING, DepositType.RESERVATION] },
+          // On a command replay the source booking deposit is already marked
+          // CONVERTED_TO_CONTRACT. DepositCore returns the prior operation by
+          // its idempotency key, so the caller must still locate that source
+          // record instead of treating a successful first attempt as missing.
+          status: {
+            in: [DepositStatus.PAID, DepositStatus.CONVERTED_TO_CONTRACT],
+          },
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+      if (!bookingDeposit) {
+        throw new BadRequestException("BOOKING_CONVERT_PAID_DEPOSIT_NOT_FOUND");
+      }
+      const securityRequired = Number(
+        input.depositAmount ?? source.depositMoney,
+      );
+      if (!Number.isFinite(securityRequired) || securityRequired <= 0) {
+        throw new BadRequestException(
+          "BOOKING_CONVERT_SECURITY_REQUIRED_INVALID",
+        );
+      }
+      const depositConversion: any =
+        await this.depositCoreService!.convertToSecurityInTransaction(
+          tx,
+          tenantId,
+          bookingDeposit.id,
+          {
+            idempotencyKey: this.bookingDepositConversionKey(commandKey),
+            securityRequired,
+            contractId: contract.id,
+            securityDepositId: input.securityDepositId ?? null,
+            excessAction: input.excessAction,
+            refundStatus: input.refundStatus,
+            attachmentUrls: input.refundAttachmentUrls,
+          },
+          userId,
+        );
+      const rentalContract = await tx.contract.update({
+        where: { id: contract.id, tenantId },
         data: {
-          ...prepared,
           termsSnapshot: this.asJson({
-            ...(prepared.termsSnapshot as any),
+            ...((contract.termsSnapshot as any) || {}),
             convertedFromBookingHold: {
-              sourceContractId: source.id,
-              sourceRentalCycleId: source.rentalCycleId,
-              policyVersion: "BOOKING_HOLD_TO_RENTAL_V1",
+              ...((contract.termsSnapshot as any)?.convertedFromBookingHold ||
+                {}),
+              bookingDepositConversion: {
+                sourceDepositId: bookingDeposit.id,
+                operationId: depositConversion.operationId,
+                securityDepositId: depositConversion.securityDepositId,
+                securityRequired: depositConversion.securityRequired,
+                transferAmount: depositConversion.transferAmount,
+                additionalCashRequired:
+                  depositConversion.additionalCashRequired,
+                excessAmount: depositConversion.excessAmount,
+                excessAction: depositConversion.excessAction,
+                creditNoteId: depositConversion.creditNoteId,
+                refundReceiptId: depositConversion.refundReceiptId,
+              },
             },
           }),
         },
       });
-      await this.syncContractHistory(contract, tx);
+      const entryInvoice = await this.ensureEntryInvoiceInTransaction(
+        tx,
+        rentalContract,
+        InvoiceStatus.DRAFT,
+      );
+      const contractWithEntryInvoice = await tx.contract.update({
+        where: { id: rentalContract.id, tenantId },
+        data: {
+          termsSnapshot: this.asJson({
+            ...((rentalContract.termsSnapshot as any) || {}),
+            convertedFromBookingHold: {
+              ...((rentalContract.termsSnapshot as any)
+                ?.convertedFromBookingHold || {}),
+              initialEntryInvoice: {
+                invoiceId: entryInvoice.id,
+                invoiceCode: entryInvoice.code,
+                amount: Number(entryInvoice.total),
+                dueDate: entryInvoice.dueDate.toISOString(),
+                status: entryInvoice.status,
+                billingPolicyVersion: "ACTUAL_DAYS_V1",
+              },
+            },
+          }),
+        },
+      });
+      await this.syncContractHistory(contractWithEntryInvoice, tx);
       if (tx.auditLog?.create) {
         await tx.auditLog.create({
           data: {
             action: "CREATE",
             entity: this.entityName,
-            entityId: contract.id,
+            entityId: contractWithEntryInvoice.id,
             module: "ContractsBookingHoldConvert",
             tenantId,
             userId,
-            after: contract,
+            after: {
+              ...contractWithEntryInvoice,
+              initialEntryInvoiceId: entryInvoice.id,
+            },
           },
         });
       }
-      return contract;
+      return contractWithEntryInvoice;
     });
 
+    const conversion = (created.termsSnapshot as any)?.convertedFromBookingHold
+      ?.bookingDepositConversion;
+    if (
+      this.paymentsService &&
+      conversion?.securityDepositId &&
+      Number(conversion.additionalCashRequired || 0) > 0
+    ) {
+      try {
+        const conversionPaymentRequest =
+          await this.paymentsService.createDepositRequest(
+            conversion.securityDepositId,
+            userId,
+          );
+        return { ...created, conversionPaymentRequest };
+      } catch (error: any) {
+        // The legal document and deposit conversion remain committed and
+        // replay-safe. Surface QR provisioning as an explicit recoverable
+        // state; a retry of this command reuses the same pending request.
+        return {
+          ...created,
+          conversionPaymentRequest: null,
+          conversionPaymentRequestError: String(
+            error?.message || error || "PAYMENT_REQUEST_CREATION_FAILED",
+          ),
+        };
+      }
+    }
     return created;
+  }
+
+  /**
+   * The first-rent document belongs to the rental contract, not to the
+   * booking-hold deposit.  Creating it by its stable ENTRY key makes booking
+   * conversion, activation retry, and recovery of older drafts converge on
+   * one invoice instead of emitting duplicate first-month obligations.
+   */
+  private async ensureEntryInvoiceInTransaction(
+    tx: any,
+    contract: any,
+    targetStatus: InvoiceStatus,
+  ) {
+    const firstBilling = calculateFirstBillingPeriod(
+      Number(contract.monthlyRent || 0),
+      contract.startDate,
+    );
+    const baseInvoiceKey = `ENTRY:${contract.id}:${firstBilling.period}`;
+    const existing = tx.invoice.findFirst
+      ? await tx.invoice.findFirst({
+          where: {
+            tenantId: contract.tenantId,
+            baseInvoiceKey,
+            deletedAt: null,
+          },
+        })
+      : null;
+    if (existing) {
+      if (
+        existing.contractId !== contract.id ||
+        existing.customerId !== contract.customerId ||
+        existing.rentalCycleId !== contract.rentalCycleId ||
+        existing.billingKind !== "ENTRY"
+      ) {
+        throw new ConflictException("ENTRY_INVOICE_SCOPE_CONFLICT");
+      }
+      if (
+        targetStatus === InvoiceStatus.ISSUED &&
+        existing.status === InvoiceStatus.DRAFT
+      ) {
+        return tx.invoice.update({
+          where: { id: existing.id, tenantId: contract.tenantId },
+          data: { status: InvoiceStatus.ISSUED },
+        });
+      }
+      return existing;
+    }
+
+    return tx.invoice.create({
+      data: {
+        tenantId: contract.tenantId,
+        code: `INV-ENTRY-${contract.code || contract.id}`,
+        period: firstBilling.period,
+        contractId: contract.id,
+        rentalCycleId: contract.rentalCycleId,
+        customerId: contract.customerId,
+        status: targetStatus,
+        billingKind: "ENTRY",
+        baseInvoiceKey,
+        dueDate:
+          contract.firstPaymentDate ||
+          new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        subtotal: firstBilling.amount,
+        discount: 0,
+        total: firstBilling.amount,
+        paidAmount: 0,
+        creditAmount: 0,
+        items: {
+          create: [
+            {
+              tenantId: contract.tenantId,
+              type: "RENT",
+              description: firstBilling.billableDays
+                ? `Tiền thuê kỳ đầu (${firstBilling.billableDays}/${firstBilling.daysInMonth} ngày, ${firstBilling.policyVersion})`
+                : "Tiền thuê kỳ đầu",
+              servicePeriod: firstBilling.period,
+              quantity: 1,
+              unitPrice: firstBilling.amount,
+              amount: firstBilling.amount,
+            },
+          ],
+        },
+      },
+    });
   }
 
   async update(
@@ -422,6 +732,39 @@ export class ContractsService extends BaseCrudService<Contract> {
       throw new BadRequestException(
         "CONTRACT_STATUS_TRANSITION_REQUIRES_COMMAND",
       );
+    }
+    if (
+      data.coRepresentativeIds !== undefined &&
+      ACTIVE_LIKE_CONTRACT_STATUSES.includes(current.status)
+    ) {
+      const currentMemberIds = Array.from(
+        new Set(
+          Array.isArray(current.coRepresentativeIds)
+            ? current.coRepresentativeIds
+            : [],
+        ),
+      ).sort();
+      const requestedMemberIdsRaw = Array.isArray(data.coRepresentativeIds)
+        ? data.coRepresentativeIds
+        : [];
+      const requestedMemberIds = Array.from(
+        new Set(requestedMemberIdsRaw),
+      ).sort();
+      const membershipChanged =
+        requestedMemberIdsRaw.length !== requestedMemberIds.length ||
+        currentMemberIds.length !== requestedMemberIds.length ||
+        currentMemberIds.some(
+          (customerId, index) => customerId !== requestedMemberIds[index],
+        );
+
+      // A generic PATCH has no effective move-in/out timestamp or idempotency
+      // key. Applying it to an active contract can reopen historical
+      // Occupancy rows and change a closed billing period's headcount.
+      if (membershipChanged) {
+        throw new ConflictException(
+          "ACTIVE_CONTRACT_OCCUPANT_CHANGE_REQUIRES_LIFECYCLE_COMMAND",
+        );
+      }
     }
     const canRefreshLegalSnapshot = [
       ContractStatus.DRAFT,
@@ -604,48 +947,95 @@ export class ContractsService extends BaseCrudService<Contract> {
         updatedAt: true,
       },
     });
-    const invoiceModel = (this.prisma.tx as any).invoice;
-    const paymentRequestModel = (this.prisma.tx as any).paymentRequest;
-    const bookingInvoice = invoiceModel?.findFirst
-      ? await invoiceModel.findFirst({
+    const securityDeposit = await this.prisma.tx.deposit.findFirst({
       where: {
         tenantId: record.tenantId,
         contractId: record.id,
+        type: DepositType.SECURITY,
         deletedAt: null,
-        period: "Cọc giữ phòng",
       },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
         code: true,
+        type: true,
         status: true,
-        total: true,
-        paidAmount: true,
+        amount: true,
+        rentalCycleId: true,
+        contractId: true,
         createdAt: true,
+        updatedAt: true,
       },
-    })
-      : null;
-    const bookingPaymentRequest = bookingInvoice && paymentRequestModel?.findFirst
-      ? await paymentRequestModel.findFirst({
+    });
+    const invoiceModel = (this.prisma.tx as any).invoice;
+    const paymentRequestModel = (this.prisma.tx as any).paymentRequest;
+    const bookingInvoice = invoiceModel?.findFirst
+      ? await invoiceModel.findFirst({
           where: {
             tenantId: record.tenantId,
-            sourceType: "INVOICE",
-            sourceId: bookingInvoice.id,
+            contractId: record.id,
+            deletedAt: null,
+            period: "Cọc giữ phòng",
           },
           orderBy: { createdAt: "desc" },
           select: {
             id: true,
+            code: true,
             status: true,
-            paymentCode: true,
-            amount: true,
-            paidAt: true,
+            total: true,
+            paidAmount: true,
             createdAt: true,
-            metadata: true,
-        },
+          },
         })
       : null;
+    const bookingPaymentRequest =
+      bookingInvoice && paymentRequestModel?.findFirst
+        ? await paymentRequestModel.findFirst({
+            where: {
+              tenantId: record.tenantId,
+              sourceType: "INVOICE",
+              sourceId: bookingInvoice.id,
+            },
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              status: true,
+              paymentCode: true,
+              amount: true,
+              paidAt: true,
+              createdAt: true,
+              metadata: true,
+            },
+          })
+        : null;
+    const securityPaymentRequest =
+      securityDeposit && paymentRequestModel?.findFirst
+        ? await paymentRequestModel.findFirst({
+            where: {
+              tenantId: record.tenantId,
+              sourceType: "DEPOSIT",
+              sourceId: securityDeposit.id,
+            },
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              status: true,
+              paymentCode: true,
+              amount: true,
+              bankName: true,
+              bankAccountNumber: true,
+              qrUrl: true,
+              paidAt: true,
+              createdAt: true,
+              metadata: true,
+            },
+          })
+        : null;
     let hydratedBookingPaymentRequest = bookingPaymentRequest;
-    if (bookingPaymentRequest && String(bookingPaymentRequest.status || "").toUpperCase() === "PENDING") {
+    if (
+      bookingPaymentRequest &&
+      String(bookingPaymentRequest.status || "").toUpperCase() === "PENDING"
+    ) {
       const pendingReviewAmount = await this.getPendingReviewSePayAmount(
         record.tenantId,
         String(bookingPaymentRequest.paymentCode || ""),
@@ -663,16 +1053,22 @@ export class ContractsService extends BaseCrudService<Contract> {
       bookingDeposit: bookingDeposit
         ? {
             ...bookingDeposit,
-            sepayPendingReviewAmount: Number((hydratedBookingPaymentRequest as any)?.pendingReviewAmount || 0),
+            sepayPendingReviewAmount: Number(
+              (hydratedBookingPaymentRequest as any)?.pendingReviewAmount || 0,
+            ),
           }
         : bookingDeposit,
       bookingInvoice: bookingInvoice
         ? {
             ...bookingInvoice,
-            pendingReviewReceivedAmount: Number((hydratedBookingPaymentRequest as any)?.pendingReviewAmount || 0),
+            pendingReviewReceivedAmount: Number(
+              (hydratedBookingPaymentRequest as any)?.pendingReviewAmount || 0,
+            ),
           }
         : bookingInvoice,
       bookingPaymentRequest: hydratedBookingPaymentRequest,
+      securityDeposit,
+      securityPaymentRequest,
     };
     if (record.coRepresentativeIds && record.coRepresentativeIds.length > 0) {
       const coReps = await this.prisma.tx.customer.findMany({
@@ -694,20 +1090,25 @@ export class ContractsService extends BaseCrudService<Contract> {
     return { ...recordWithBookingDeposit, settlementRefund };
   }
 
-  private async getPendingReviewSePayAmount(tenantId: string, paymentCode: string) {
+  private async getPendingReviewSePayAmount(
+    tenantId: string,
+    paymentCode: string,
+  ) {
     const code = String(paymentCode || "").trim();
     if (!code) return 0;
-    const logs = await this.prisma.tx.paymentWebhookLog.findMany({
-      where: {
-        tenantId,
-        provider: "SEPAY",
-        status: "NEEDS_REVIEW" as any,
-        createdAt: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
-      },
-      select: { payload: true, createdAt: true },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    }).catch(() => []);
+    const logs = await this.prisma.tx.paymentWebhookLog
+      .findMany({
+        where: {
+          tenantId,
+          provider: "SEPAY",
+          status: "NEEDS_REVIEW" as any,
+          createdAt: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+        },
+        select: { payload: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      })
+      .catch(() => []);
     for (const log of logs) {
       const payload = (log.payload || {}) as Record<string, any>;
       const haystack = [
@@ -721,7 +1122,9 @@ export class ContractsService extends BaseCrudService<Contract> {
         payload.remark,
         payload.memo,
         payload.reference,
-      ].map((value) => String(value || "")).join(" ");
+      ]
+        .map((value) => String(value || ""))
+        .join(" ");
       if (!haystack.includes(code)) continue;
       const amount = Number(payload.transferAmount ?? payload.amount ?? 0);
       return Number.isFinite(amount) && amount > 0 ? amount : 0;
@@ -836,8 +1239,33 @@ export class ContractsService extends BaseCrudService<Contract> {
         );
       }
 
-      const [openOccupancies, activeContracts, activeHolds] =
-        await Promise.all([
+      const now = new Date();
+      // This is the booking reservation that was re-bound to this rental
+      // contract's SECURITY deposit. It reserves capacity until approval,
+      // but must not block the contract it belongs to.
+      const ownReservationHold =
+        contract.rentalCycleId && typeof tx.roomHold?.findFirst === "function"
+          ? await tx.roomHold.findFirst({
+              where: {
+                tenantId: contract.tenantId,
+                roomId: contract.roomId,
+                rentalCycleId: contract.rentalCycleId,
+                status: "ACTIVE",
+                expiresAt: { gt: now },
+                deposit: {
+                  is: {
+                    tenantId: contract.tenantId,
+                    contractId: contract.id,
+                    type: DepositType.SECURITY,
+                    deletedAt: null,
+                  },
+                },
+              },
+              select: { id: true },
+            })
+          : null;
+      const [openOccupancies, activeContracts, activeHolds] = await Promise.all(
+        [
           typeof tx.occupancy?.count === "function"
             ? tx.occupancy.count({
                 where: {
@@ -863,19 +1291,35 @@ export class ContractsService extends BaseCrudService<Contract> {
                   tenantId: contract.tenantId,
                   roomId: contract.roomId,
                   status: "ACTIVE",
-                  expiresAt: { gt: new Date() },
+                  expiresAt: { gt: now },
                 },
               })
             : 0,
-        ]);
+        ],
+      );
 
+      const foreignActiveHolds = Math.max(
+        0,
+        activeHolds - (ownReservationHold ? 1 : 0),
+      );
+      const roomReservedForThisContract =
+        room.status === RoomStatus.RESERVED && Boolean(ownReservationHold);
+
+      const isSharedRoom = room.rentalType === "SHARED";
+      const requestedOccupants = Math.max(1, Number(contract.memberCount || 1));
+      const sharedCapacityExceeded =
+        isSharedRoom &&
+        openOccupancies + foreignActiveHolds + requestedOccupants >
+          Number(room.capacity || 1);
       const roomHasBlockingState =
-        room.status === RoomStatus.RESERVED ||
+        (room.status === RoomStatus.RESERVED && !roomReservedForThisContract) ||
         room.status === RoomStatus.CLEANING ||
         room.status === RoomStatus.MAINTENANCE ||
-        openOccupancies > 0 ||
-        activeContracts > 0 ||
-        activeHolds > 0;
+        (!isSharedRoom &&
+          (openOccupancies > 0 ||
+            activeContracts > 0 ||
+            foreignActiveHolds > 0)) ||
+        (isSharedRoom && sharedCapacityExceeded);
       if (roomHasBlockingState) {
         throw new ConflictException(
           `Room ${room.code || contract.roomId} is not AVAILABLE.`,
@@ -902,8 +1346,34 @@ export class ContractsService extends BaseCrudService<Contract> {
 
       const updatedRoom = await tx.room.update({
         where: { id: contract.roomId },
-        data: { status: RoomStatus.RESERVED },
+        data: {
+          status:
+            isSharedRoom && openOccupancies > 0
+              ? RoomStatus.OCCUPIED
+              : RoomStatus.RESERVED,
+        },
       });
+
+      if (ownReservationHold && tx.roomHold?.updateMany) {
+        const consumedHold = await tx.roomHold.updateMany({
+          where: {
+            id: ownReservationHold.id,
+            tenantId: contract.tenantId,
+            status: "ACTIVE",
+          },
+          data: {
+            status: "CONVERTED",
+            activeResourceKey: null,
+            releasedAt: now,
+            releaseReason: `CONVERTED_TO_CONTRACT:${updatedContract.id}`,
+          },
+        });
+        if (consumedHold.count !== 1) {
+          throw new ConflictException(
+            "CONTRACT_BOOKING_HOLD_CONCURRENT_UPDATE",
+          );
+        }
+      }
 
       // A contract deposit may already have been created by the payment
       // reconciliation/sync flow before approval. Never create a second
@@ -932,6 +1402,55 @@ export class ContractsService extends BaseCrudService<Contract> {
             note: `Cọc bảo đảm hợp đồng ${contract.code || contract.id}`,
           },
         }));
+
+      // Every approved rental cycle must own a reservation hold until the
+      // activation command consumes it. Booking-hold conversion already has
+      // an ACTIVE hold to consume above; ordinary contracts (including
+      // renewals) do not, so create one here instead of letting activation
+      // fail later with CONTRACT_ACTIVE_HOLD_REQUIRED.
+      if (
+        updatedContract.rentalCycleId &&
+        typeof (tx as any).roomHold?.findFirst === "function" &&
+        typeof (tx as any).roomHold?.create === "function"
+      ) {
+        const ownedHold = await (tx as any).roomHold.findFirst({
+          where: {
+            tenantId: updatedContract.tenantId,
+            rentalCycleId: updatedContract.rentalCycleId,
+            roomId: updatedContract.roomId,
+            depositId: deposit.id,
+            status: { in: ["ACTIVE", "CONVERTED"] },
+          },
+          select: { id: true },
+        });
+        if (!ownedHold) {
+          const holdExpiresAt = new Date(updatedContract.startDate);
+          holdExpiresAt.setUTCDate(holdExpiresAt.getUTCDate() + 1);
+          const expiresAt =
+            Number.isNaN(holdExpiresAt.getTime()) || holdExpiresAt <= now
+              ? new Date(now.getTime() + 24 * 60 * 60 * 1000)
+              : holdExpiresAt;
+          const wholeRoom = room.rentalType === "WHOLE";
+          const resourceKey = wholeRoom
+            ? `${updatedContract.tenantId}:${updatedContract.roomId}:WHOLE`
+            : `${updatedContract.tenantId}:${updatedContract.roomId}:SHARED:${updatedContract.rentalCycleId}`;
+          await (tx as any).roomHold.create({
+            data: {
+              tenantId: updatedContract.tenantId,
+              rentalCycleId: updatedContract.rentalCycleId,
+              depositId: deposit.id,
+              roomId: updatedContract.roomId,
+              kind: wholeRoom ? "WHOLE" : "SHARED_SLOT",
+              resourceKey,
+              activeResourceKey: resourceKey,
+              status: "ACTIVE",
+              expiresAt,
+              idempotencyKey: `CONTRACT_APPROVAL:${updatedContract.id}`,
+              createdBy: userId,
+            },
+          });
+        }
+      }
 
       return { updatedContract, updatedRoom, deposit };
     });
@@ -992,6 +1511,39 @@ export class ContractsService extends BaseCrudService<Contract> {
       throw new BadRequestException(
         `Cannot activate contract in ${contract.status} status. Only APPROVED is allowed.`,
       );
+    }
+
+    const renewalSourceId = String(
+      (contract as any).termsSnapshot?.renewal?.sourceContractId || "",
+    ).trim();
+    if (renewalSourceId) {
+      const renewalSource = await this.prisma.tx.contract.findFirst({
+        where: {
+          id: renewalSourceId,
+          tenantId: contract.tenantId,
+          deletedAt: null,
+        },
+        select: { id: true, status: true },
+      });
+      if (!renewalSource)
+        throw new ConflictException("RENEWAL_SOURCE_CONTRACT_NOT_FOUND");
+      const sourceSettlement =
+        await this.prisma.tx.contractSettlement.findFirst({
+          where: { contractId: renewalSource.id, tenantId: contract.tenantId },
+          select: { id: true },
+        });
+      if (
+        !sourceSettlement ||
+        !(
+          [
+            ContractStatus.TERMINATED,
+            ContractStatus.EXPIRED,
+            ContractStatus.CANCELLED,
+          ] as ContractStatus[]
+        ).includes(renewalSource.status as ContractStatus)
+      ) {
+        throw new ConflictException("RENEWAL_SOURCE_REQUIRES_SETTLEMENT");
+      }
     }
 
     const activationNow = new Date();
@@ -1126,7 +1678,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             rentalCycleId: contract.rentalCycleId,
             roomId: contract.roomId,
             depositId: deposit.id,
-            status: "ACTIVE",
+            status: { in: ["ACTIVE", "CONVERTED"] },
             expiresAt: { gt: new Date() },
           },
         });
@@ -1227,49 +1779,34 @@ export class ContractsService extends BaseCrudService<Contract> {
         },
       });
 
+      // Consume the approval reservation atomically with activation. Keeping
+      // it ACTIVE after move-in would double-count a shared-room slot and
+      // block later capacity checks.
+      if (contract.rentalCycleId && txAny.roomHold?.updateMany) {
+        await txAny.roomHold.updateMany({
+          where: {
+            tenantId: contract.tenantId,
+            rentalCycleId: contract.rentalCycleId,
+            roomId: contract.roomId,
+            depositId: deposit.id,
+            status: "ACTIVE",
+          },
+          data: {
+            status: "CONVERTED",
+            activeResourceKey: null,
+            releasedAt: moveInAt,
+            releaseReason: `CONVERTED_TO_CONTRACT:${updatedContract.id}`,
+          },
+        });
+      }
+
       await this.syncContractHistory(updatedContract, tx);
 
-      const firstBilling = calculateFirstBillingPeriod(
-        Number(contract.monthlyRent || 0),
-        contract.startDate,
+      const invoice = await this.ensureEntryInvoiceInTransaction(
+        tx,
+        updatedContract,
+        InvoiceStatus.ISSUED,
       );
-      const entryBaseInvoiceKey = `ENTRY:${contract.id}:${firstBilling.period}`;
-      const invoice = await tx.invoice.create({
-        data: {
-          tenantId: contract.tenantId,
-          code: `INV-ENTRY-${contract.code || contract.id}`,
-          period: firstBilling.period,
-          contractId: contract.id,
-          rentalCycleId: contract.rentalCycleId,
-          customerId: contract.customerId,
-          status: InvoiceStatus.ISSUED,
-          billingKind: "ENTRY",
-          baseInvoiceKey: entryBaseInvoiceKey,
-          dueDate:
-            contract.firstPaymentDate ||
-            new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-          subtotal: firstBilling.amount,
-          discount: 0,
-          total: firstBilling.amount,
-          paidAmount: 0,
-          creditAmount: 0,
-          items: {
-            create: [
-              {
-                tenantId: contract.tenantId,
-                type: "RENT",
-                description: firstBilling.billableDays
-                  ? `Tiền thuê kỳ đầu (${firstBilling.billableDays}/${firstBilling.daysInMonth} ngày, ${firstBilling.policyVersion})`
-                  : "Tiền thuê kỳ đầu",
-                servicePeriod: firstBilling.period,
-                quantity: 1,
-                unitPrice: firstBilling.amount,
-                amount: firstBilling.amount,
-              },
-            ],
-          },
-        },
-      });
 
       return {
         updatedContract,
@@ -1280,21 +1817,52 @@ export class ContractsService extends BaseCrudService<Contract> {
       };
     });
 
+    let entryInvoice = result.invoice;
     if (result.replayed) {
-      return result.updatedContract;
+      const firstBilling = calculateFirstBillingPeriod(
+        Number(result.updatedContract.monthlyRent || 0),
+        result.updatedContract.startDate,
+      );
+      entryInvoice = await this.prisma.tx.invoice.findFirst({
+        where: {
+          tenantId: result.updatedContract.tenantId,
+          baseInvoiceKey: `ENTRY:${result.updatedContract.id}:${firstBilling.period}`,
+          deletedAt: null,
+        },
+      });
+    } else {
+      await this.auditService.log({
+        action: "UPDATE",
+        entity: this.entityName,
+        entityId: id,
+        module: "Contracts",
+        before: contract,
+        after: result.updatedContract,
+        userId,
+      });
     }
 
-    await this.auditService.log({
-      action: "UPDATE",
-      entity: this.entityName,
-      entityId: id,
-      module: "Contracts",
-      before: contract,
-      after: result.updatedContract,
-      userId,
-    });
-
-    return result.updatedContract;
+    const response: any = {
+      ...result.updatedContract,
+      entryInvoice,
+    };
+    if (this.paymentsService && entryInvoice?.status === InvoiceStatus.ISSUED) {
+      try {
+        response.entryPaymentRequest =
+          await this.paymentsService.createInvoiceRequest(
+            entryInvoice.id,
+            userId,
+          );
+      } catch (error: any) {
+        // Activation itself is already committed. Keep payment-request setup
+        // recoverable and visible to the caller rather than rolling back an
+        // occupied room/contract after a Settings or provider problem.
+        response.entryPaymentRequestError = String(
+          error?.message || error || "ENTRY_PAYMENT_REQUEST_CREATION_FAILED",
+        );
+      }
+    }
+    return response;
   }
 
   async expireContract(
@@ -1308,7 +1876,8 @@ export class ContractsService extends BaseCrudService<Contract> {
     const contract = await this.prisma.tx.contract.findFirst({
       where: { id, tenantId, deletedAt: null },
     });
-    if (!contract) throw new NotFoundException(`Contract with ID ${id} not found`);
+    if (!contract)
+      throw new NotFoundException(`Contract with ID ${id} not found`);
 
     // Expiry is no longer an alternate move-out implementation.  The
     // authoritative settlement command owns every financial and room/occupancy
@@ -1322,11 +1891,13 @@ export class ContractsService extends BaseCrudService<Contract> {
       throw new ConflictException("CONTRACT_EXPIRY_REQUIRES_SETTLEMENT");
     }
     if (
-      !([
-        ContractStatus.TERMINATED,
-        ContractStatus.EXPIRED,
-        ContractStatus.CANCELLED,
-      ] as ContractStatus[]).includes(contract.status)
+      !(
+        [
+          ContractStatus.TERMINATED,
+          ContractStatus.EXPIRED,
+          ContractStatus.CANCELLED,
+        ] as ContractStatus[]
+      ).includes(contract.status)
     ) {
       throw new ConflictException("CONTRACT_EXPIRY_SETTLEMENT_STATE_MISMATCH");
     }
@@ -1345,7 +1916,8 @@ export class ContractsService extends BaseCrudService<Contract> {
       where: { id, tenantId, deletedAt: null },
       include: { customer: true, room: true },
     });
-    if (!contract) throw new NotFoundException(`Contract with ID ${id} not found`);
+    if (!contract)
+      throw new NotFoundException(`Contract with ID ${id} not found`);
     if (!contract.rentalCycleId) {
       throw new BadRequestException("SETTLEMENT_RENTAL_CYCLE_REQUIRED");
     }
@@ -1358,7 +1930,8 @@ export class ContractsService extends BaseCrudService<Contract> {
       },
       select: { id: true },
     });
-    if (!cycle) throw new BadRequestException("SETTLEMENT_RENTAL_CYCLE_SCOPE_MISMATCH");
+    if (!cycle)
+      throw new BadRequestException("SETTLEMENT_RENTAL_CYCLE_SCOPE_MISMATCH");
 
     const preview = await this.composeSettlementPreview(contract, input);
     const context = await this.loadSettlementFinancialContext(
@@ -1397,6 +1970,275 @@ export class ContractsService extends BaseCrudService<Contract> {
     return this.finalizeContract(id, userId, ContractStatus.TERMINATED, input);
   }
 
+  async addWholeRoomOccupant(
+    contractId: string,
+    input: AddWholeRoomOccupantInput,
+    userId: string,
+    tenantId: string,
+    idempotencyKey?: string,
+  ) {
+    const commandKey = this.requireSettlementIdempotencyKey(idempotencyKey);
+    const moveInAt = new Date(input.moveInAt);
+    if (Number.isNaN(moveInAt.getTime())) {
+      throw new BadRequestException("WHOLE_OCCUPANT_MOVE_IN_DATE_INVALID");
+    }
+    if (moveInAt.getTime() > Date.now()) {
+      throw new BadRequestException(
+        "WHOLE_OCCUPANT_FUTURE_MOVE_IN_NOT_ALLOWED",
+      );
+    }
+    const requestHash = this.hashSettlementRequest({
+      tenantId,
+      contractId,
+      customerId: input.customerId,
+      moveInAt: moveInAt.toISOString(),
+      relationship: input.relationship || null,
+      commandKey,
+    });
+    const occupancyId = `occ_${createHash("sha256")
+      .update(`${tenantId}:${contractId}:${input.customerId}:${commandKey}`)
+      .digest("hex")
+      .slice(0, 32)}`;
+
+    const result = await this.runTransferSerializable(async (tx: any) => {
+      await this.lockSettlementContract(tx, tenantId, contractId);
+      const contract = await tx.contract.findFirst({
+        where: {
+          id: contractId,
+          tenantId,
+          deletedAt: null,
+          status: { in: [ContractStatus.ACTIVE, ContractStatus.EXPIRING] },
+        },
+      });
+      if (!contract) {
+        throw new ConflictException("WHOLE_OCCUPANT_ACTIVE_CONTRACT_REQUIRED");
+      }
+      if (!contract.rentalCycleId) {
+        throw new ConflictException("WHOLE_OCCUPANT_RENTAL_CYCLE_REQUIRED");
+      }
+      await this.lockRoomLifecycle(tx, tenantId, contract.roomId);
+      const room = await tx.room.findFirst({
+        where: { id: contract.roomId, tenantId, deletedAt: null },
+      });
+      if (!room || room.rentalType !== "WHOLE") {
+        throw new ConflictException("WHOLE_OCCUPANT_WHOLE_ROOM_REQUIRED");
+      }
+      if (
+        ![
+          RoomStatus.AVAILABLE,
+          RoomStatus.RESERVED,
+          RoomStatus.OCCUPIED,
+        ].includes(room.status)
+      ) {
+        throw new ConflictException("WHOLE_OCCUPANT_ROOM_NOT_OPERATIONAL");
+      }
+      const contractStartAt = new Date(contract.startDate);
+      const contractEndAt = new Date(contract.endDate);
+      if (
+        Number.isNaN(contractStartAt.getTime()) ||
+        Number.isNaN(contractEndAt.getTime()) ||
+        moveInAt < contractStartAt ||
+        moveInAt >= contractEndAt
+      ) {
+        throw new BadRequestException(
+          "WHOLE_OCCUPANT_MOVE_IN_OUTSIDE_CONTRACT",
+        );
+      }
+
+      // A locked utility snapshot is the authoritative evidence for a whole
+      // room's headcount in that usage period. Do not backdate an occupant
+      // into a period whose billing evidence is immutable.
+      const lockedBillingSnapshot = await tx.billingSnapshot?.findFirst?.({
+        where: {
+          tenantId,
+          roomId: contract.roomId,
+          status: "LOCKED",
+          usagePeriod: { gte: this.formatVietnamBillingPeriod(moveInAt) },
+        },
+        select: { id: true, usagePeriod: true },
+        orderBy: { usagePeriod: "asc" },
+      });
+      if (lockedBillingSnapshot) {
+        throw new ConflictException("WHOLE_OCCUPANT_LOCKED_BILLING_PERIOD");
+      }
+
+      const replayOccupancy = await tx.occupancy.findUnique({
+        where: { id: occupancyId },
+      });
+      if (replayOccupancy) {
+        const replayParty = await tx.contractParty.findFirst({
+          where: {
+            tenantId,
+            contractId,
+            customerId: input.customerId,
+            role: "CO_REPRESENTATIVE",
+          },
+        });
+        const command = (replayParty?.identitySnapshot as any)
+          ?.wholeRoomOccupantCommand;
+        if (
+          replayOccupancy.tenantId !== tenantId ||
+          replayOccupancy.contractId !== contractId ||
+          replayOccupancy.customerId !== input.customerId ||
+          replayOccupancy.leftAt !== null ||
+          command?.idempotencyKey !== commandKey ||
+          command?.requestHash !== requestHash
+        ) {
+          throw new ConflictException("WHOLE_OCCUPANT_IDEMPOTENCY_CONFLICT");
+        }
+        return { replayed: true, contract, occupancy: replayOccupancy, room };
+      }
+
+      if (contract.customerId === input.customerId) {
+        throw new ConflictException(
+          "WHOLE_OCCUPANT_PRIMARY_CANNOT_BE_SECONDARY",
+        );
+      }
+      const customer = await tx.customer.findFirst({
+        where: { id: input.customerId, tenantId, deletedAt: null },
+      });
+      if (!customer)
+        throw new NotFoundException("WHOLE_OCCUPANT_CUSTOMER_NOT_FOUND");
+      if (customer.roomId && customer.roomId !== contract.roomId) {
+        throw new ConflictException("WHOLE_OCCUPANT_ALREADY_IN_ANOTHER_ROOM");
+      }
+      const existingOpenOccupancy = await tx.occupancy.findFirst({
+        where: { tenantId, customerId: input.customerId, leftAt: null },
+      });
+      if (existingOpenOccupancy) {
+        throw new ConflictException(
+          "WHOLE_OCCUPANT_ALREADY_HAS_OPEN_OCCUPANCY",
+        );
+      }
+      if (
+        Array.isArray(contract.coRepresentativeIds) &&
+        contract.coRepresentativeIds.includes(input.customerId)
+      ) {
+        throw new ConflictException(
+          "WHOLE_OCCUPANT_ALREADY_LINKED_TO_CONTRACT",
+        );
+      }
+      const existingParty = await tx.contractParty.findFirst({
+        where: {
+          tenantId,
+          contractId,
+          customerId: input.customerId,
+          role: "CO_REPRESENTATIVE",
+        },
+      });
+      if (existingParty) {
+        throw new ConflictException(
+          "WHOLE_OCCUPANT_REJOIN_REQUIRES_SUCCESSOR_CONTRACT",
+        );
+      }
+
+      const [openOccupancies, activeHolds] = await Promise.all([
+        tx.occupancy.count({
+          where: { tenantId, roomId: contract.roomId, leftAt: null },
+        }),
+        tx.roomHold?.count
+          ? tx.roomHold.count({
+              where: {
+                tenantId,
+                roomId: contract.roomId,
+                status: "ACTIVE",
+                expiresAt: { gt: new Date() },
+              },
+            })
+          : 0,
+      ]);
+      const capacity = Math.max(1, Number(room.capacity || room.bedCount || 1));
+      if (openOccupancies + activeHolds + 1 > capacity) {
+        throw new ConflictException("WHOLE_OCCUPANT_CAPACITY_EXCEEDED");
+      }
+
+      const nextCoRepresentativeIds = Array.from(
+        new Set([...(contract.coRepresentativeIds || []), input.customerId]),
+      );
+      const updatedContract = await tx.contract.update({
+        where: { id: contract.id },
+        data: { coRepresentativeIds: nextCoRepresentativeIds },
+      });
+      const identitySnapshot = this.asJson({
+        id: customer.id,
+        fullName: customer.fullName,
+        phone: customer.phone,
+        email: customer.email || null,
+        identityNo: customer.identityNo || null,
+        relationship: input.relationship || null,
+        wholeRoomOccupantCommand: {
+          idempotencyKey: commandKey,
+          requestHash,
+          moveInAt: moveInAt.toISOString(),
+        },
+      });
+      await tx.contractParty.create({
+        data: {
+          tenantId,
+          contractId: contract.id,
+          customerId: customer.id,
+          role: "CO_REPRESENTATIVE",
+          identitySnapshot,
+          signedAt: contract.signedAt || null,
+        },
+      });
+      const occupancy = await tx.occupancy.create({
+        data: {
+          id: occupancyId,
+          tenantId,
+          roomId: contract.roomId,
+          customerId: customer.id,
+          contractId: contract.id,
+          rentalCycleId: contract.rentalCycleId,
+          role: "CO_REPRESENTATIVE",
+          joinedAt: moveInAt,
+        },
+      });
+      await tx.customer.updateMany({
+        where: { id: customer.id, tenantId },
+        data: { roomId: contract.roomId },
+      });
+      const updatedRoom = await this.refreshRoomLifecycleStatus(
+        tx,
+        tenantId,
+        contract.roomId,
+      );
+      if (tx.auditLog?.create) {
+        await tx.auditLog.create({
+          data: {
+            action: "CREATE",
+            entity: "Occupancy",
+            entityId: occupancy.id,
+            module: "ContractsOccupancy",
+            tenantId,
+            userId,
+            after: {
+              contractId: contract.id,
+              customerId: customer.id,
+              requestHash,
+              idempotencyKey: commandKey,
+            },
+          },
+        });
+      }
+      return {
+        replayed: false,
+        contract: updatedContract,
+        occupancy,
+        room: updatedRoom,
+      };
+    });
+
+    return {
+      mode: "WHOLE_ROOM_OCCUPANT_ATTACHED",
+      contractId: result.contract.id,
+      customerId: input.customerId,
+      occupancyId: result.occupancy.id,
+      roomStatus: result.room.status,
+      replayed: result.replayed,
+    };
+  }
+
   async moveOutOccupant(
     input: MoveOutOccupantInput,
     userId: string,
@@ -1407,7 +2249,12 @@ export class ContractsService extends BaseCrudService<Contract> {
     // it is tenant-scoped, locked and replayable.  Keep the legacy branch for
     // pre-existing non-HTTP callers until they are retired.
     if (tenantId) {
-      return this.moveOutOccupantCommand(input, userId, tenantId, idempotencyKey);
+      return this.moveOutOccupantCommand(
+        input,
+        userId,
+        tenantId,
+        idempotencyKey,
+      );
     }
     const customer = tenantId
       ? await this.prisma.tx.customer.findFirst({
@@ -1592,7 +2439,9 @@ export class ContractsService extends BaseCrudService<Contract> {
     idempotencyKey?: string,
   ) {
     const commandKey = this.requireSettlementIdempotencyKey(idempotencyKey);
-    const actualMoveOutAt = this.resolveMoveOutDate(input.actualMoveOutDate || new Date());
+    const actualMoveOutAt = this.resolveMoveOutDate(
+      input.actualMoveOutDate || new Date(),
+    );
     const reason = String(input.reason || input.note || "Trả phòng").trim();
     const contract = input.contractId
       ? await this.prisma.tx.contract.findFirst({
@@ -1615,7 +2464,9 @@ export class ContractsService extends BaseCrudService<Contract> {
         userId,
         {
           actualMoveOutDate: actualMoveOutAt,
-          roomTurnoverStatus: this.resolveRoomTurnoverStatus(input.roomTurnoverStatus),
+          roomTurnoverStatus: this.resolveRoomTurnoverStatus(
+            input.roomTurnoverStatus,
+          ),
           note: input.note || reason,
         } as ContractSettlementInput,
         tenantId,
@@ -1628,8 +2479,13 @@ export class ContractsService extends BaseCrudService<Contract> {
         mode: "CONTRACT_SETTLED",
         contractId: settled.id,
         contractStatus: settled.status,
-        roomStatus: room?.status || this.resolveRoomTurnoverStatus(input.roomTurnoverStatus),
-        removedCustomerIds: [contract.customerId, ...(contract.coRepresentativeIds || [])],
+        roomStatus:
+          room?.status ||
+          this.resolveRoomTurnoverStatus(input.roomTurnoverStatus),
+        removedCustomerIds: [
+          contract.customerId,
+          ...(contract.coRepresentativeIds || []),
+        ],
       };
     }
 
@@ -1652,7 +2508,12 @@ export class ContractsService extends BaseCrudService<Contract> {
 
       const scopedContract = contract
         ? await tx.contract.findFirst({
-            where: { id: contract.id, tenantId, roomId: input.roomId, deletedAt: null },
+            where: {
+              id: contract.id,
+              tenantId,
+              roomId: input.roomId,
+              deletedAt: null,
+            },
           })
         : await tx.contract.findFirst({
             where: {
@@ -1664,7 +2525,8 @@ export class ContractsService extends BaseCrudService<Contract> {
             },
             orderBy: { createdAt: "desc" },
           });
-      if (!scopedContract) throw new ConflictException("OCCUPANT_SHARED_MEMBERSHIP_REQUIRED");
+      if (!scopedContract)
+        throw new ConflictException("OCCUPANT_SHARED_MEMBERSHIP_REQUIRED");
       const occupancyScope = {
         tenantId,
         roomId: input.roomId,
@@ -1678,9 +2540,18 @@ export class ContractsService extends BaseCrudService<Contract> {
         scopedContract.coRepresentativeIds.includes(input.customerId);
       if (!isCurrentMember) {
         const replay = await tx.occupancy.findFirst({
-          where: { ...occupancyScope, leaveReason: marker, leftAt: { not: null } },
+          where: {
+            ...occupancyScope,
+            leaveReason: marker,
+            leftAt: { not: null },
+          },
         });
-        if (replay) return { replayed: true, contract: scopedContract, occupancy: replay };
+        if (replay)
+          return {
+            replayed: true,
+            contract: scopedContract,
+            occupancy: replay,
+          };
         throw new ConflictException("OCCUPANT_SHARED_MEMBERSHIP_REQUIRED");
       }
       const openOccupancy = await tx.occupancy.findFirst({
@@ -1688,9 +2559,18 @@ export class ContractsService extends BaseCrudService<Contract> {
       });
       if (!openOccupancy) {
         const replay = await tx.occupancy.findFirst({
-          where: { ...occupancyScope, leaveReason: marker, leftAt: { not: null } },
+          where: {
+            ...occupancyScope,
+            leaveReason: marker,
+            leftAt: { not: null },
+          },
         });
-        if (replay) return { replayed: true, contract: scopedContract, occupancy: replay };
+        if (replay)
+          return {
+            replayed: true,
+            contract: scopedContract,
+            occupancy: replay,
+          };
         throw new ConflictException("OCCUPANCY_NOT_OPEN_FOR_MEMBER");
       }
 
@@ -1705,7 +2585,8 @@ export class ContractsService extends BaseCrudService<Contract> {
         },
         data: { coRepresentativeIds: nextMembers },
       });
-      if (membershipClaim.count !== 1) throw new ConflictException("OCCUPANT_MEMBERSHIP_CONCURRENT_CONFLICT");
+      if (membershipClaim.count !== 1)
+        throw new ConflictException("OCCUPANT_MEMBERSHIP_CONCURRENT_CONFLICT");
       await tx.occupancy.update({
         where: { id: openOccupancy.id },
         data: { leftAt: actualMoveOutAt, leaveReason: marker },
@@ -1720,20 +2601,47 @@ export class ContractsService extends BaseCrudService<Contract> {
         },
         data: { leftAt: actualMoveOutAt },
       });
-      await this.clearCustomerRoomWhenUnbound(tx, tenantId, input.customerId, input.roomId);
-      const room = await this.refreshRoomLifecycleStatus(tx, tenantId, input.roomId);
-      const updated = await tx.contract.findFirst({ where: { id: scopedContract.id, tenantId } });
+      await this.clearCustomerRoomWhenUnbound(
+        tx,
+        tenantId,
+        input.customerId,
+        input.roomId,
+      );
+      const room = await this.refreshRoomLifecycleStatus(
+        tx,
+        tenantId,
+        input.roomId,
+      );
+      const updated = await tx.contract.findFirst({
+        where: { id: scopedContract.id, tenantId },
+      });
       if (tx.auditLog?.create) {
         await tx.auditLog.create({
           data: {
-            action: "UPDATE", entity: this.entityName, entityId: scopedContract.id,
-            module: "ContractsOccupancy", tenantId, userId,
-            before: { occupancyId: openOccupancy.id, memberIds: scopedContract.coRepresentativeIds },
-            after: { occupancyId: openOccupancy.id, memberIds: nextMembers, requestHash },
+            action: "UPDATE",
+            entity: this.entityName,
+            entityId: scopedContract.id,
+            module: "ContractsOccupancy",
+            tenantId,
+            userId,
+            before: {
+              occupancyId: openOccupancy.id,
+              memberIds: scopedContract.coRepresentativeIds,
+            },
+            after: {
+              occupancyId: openOccupancy.id,
+              memberIds: nextMembers,
+              requestHash,
+            },
           },
         });
       }
-      return { replayed: false, contract: updated || scopedContract, occupancy: openOccupancy, room };
+      return {
+        replayed: false,
+        contract: updated || scopedContract,
+        occupancy: openOccupancy,
+        room,
+      };
     });
     return {
       mode: "CO_REPRESENTATIVE_DETACHED",
@@ -1752,114 +2660,224 @@ export class ContractsService extends BaseCrudService<Contract> {
   ) {
     const commandKey = this.requireSettlementIdempotencyKey(idempotencyKey);
     if (input.sourceRoomId === input.targetRoomId) {
-      throw new BadRequestException("TRANSFER_SOURCE_AND_TARGET_ROOM_MUST_DIFFER");
+      throw new BadRequestException(
+        "TRANSFER_SOURCE_AND_TARGET_ROOM_MUST_DIFFER",
+      );
     }
     const transferAt = new Date(input.transferAt);
-    if (Number.isNaN(transferAt.getTime())) throw new BadRequestException("TRANSFER_DATE_INVALID");
+    if (Number.isNaN(transferAt.getTime()))
+      throw new BadRequestException("TRANSFER_DATE_INVALID");
     const requestHash = this.hashSettlementRequest({
-      tenantId, commandKey, ...input, transferAt: transferAt.toISOString(),
+      tenantId,
+      commandKey,
+      ...input,
+      transferAt: transferAt.toISOString(),
     });
     const transferCode = `TR-${createHash("sha256")
-      .update(`${tenantId}:${input.contractId}:${input.customerId}:${commandKey}`)
-      .digest("hex").slice(0, 24).toUpperCase()}`;
+      .update(
+        `${tenantId}:${input.contractId}:${input.customerId}:${commandKey}`,
+      )
+      .digest("hex")
+      .slice(0, 24)
+      .toUpperCase()}`;
 
     return this.runTransferSerializable(async (tx: any) => {
       await this.lockSettlementContract(tx, tenantId, input.contractId);
-      await this.lockTransferRooms(tx, tenantId, input.sourceRoomId, input.targetRoomId);
+      await this.lockTransferRooms(
+        tx,
+        tenantId,
+        input.sourceRoomId,
+        input.targetRoomId,
+      );
       const source = await tx.contract.findFirst({
         where: {
-          id: input.contractId, tenantId, roomId: input.sourceRoomId,
-          rentalCycleId: input.rentalCycleId, deletedAt: null,
+          id: input.contractId,
+          tenantId,
+          roomId: input.sourceRoomId,
+          rentalCycleId: input.rentalCycleId,
+          deletedAt: null,
           status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
         },
       });
-      if (!source) throw new NotFoundException("TRANSFER_SOURCE_CONTRACT_NOT_FOUND");
+      if (!source)
+        throw new NotFoundException("TRANSFER_SOURCE_CONTRACT_NOT_FOUND");
       // Check the deterministic canonical record before current membership:
       // a successful transfer has intentionally removed this member from the
       // source contract, and the retry must not be mistaken for a new move.
-      const existing = await tx.contract.findFirst({ where: { tenantId, code: transferCode, deletedAt: null } });
+      const existing = await tx.contract.findFirst({
+        where: { tenantId, code: transferCode, deletedAt: null },
+      });
       if (existing) {
         const transfer = (existing.termsSnapshot as any)?.transfer;
-        if (transfer?.requestHash === requestHash && transfer?.idempotencyKey === commandKey) return existing;
+        if (
+          transfer?.requestHash === requestHash &&
+          transfer?.idempotencyKey === commandKey
+        )
+          return existing;
         throw new ConflictException("TRANSFER_IDEMPOTENCY_CONFLICT");
       }
       if (source.customerId === input.customerId) {
         throw new ConflictException("TRANSFER_PRIMARY_REQUIRES_SETTLEMENT");
       }
-      if (!Array.isArray(source.coRepresentativeIds) || !source.coRepresentativeIds.includes(input.customerId)) {
+      if (
+        !Array.isArray(source.coRepresentativeIds) ||
+        !source.coRepresentativeIds.includes(input.customerId)
+      ) {
         throw new ConflictException("TRANSFER_SHARED_MEMBER_NOT_FOUND");
       }
       const start = new Date(source.startDate);
       const end = new Date(source.endDate);
-      if (transferAt.getTime() < start.getTime() || transferAt.getTime() >= end.getTime()) {
+      if (
+        transferAt.getTime() < start.getTime() ||
+        transferAt.getTime() >= end.getTime()
+      ) {
         throw new BadRequestException("TRANSFER_DATE_OUTSIDE_SOURCE_CONTRACT");
       }
-      const customer = await tx.customer.findFirst({ where: { id: input.customerId, tenantId, deletedAt: null } });
+      const customer = await tx.customer.findFirst({
+        where: { id: input.customerId, tenantId, deletedAt: null },
+      });
       if (!customer) throw new NotFoundException("TRANSFER_CUSTOMER_NOT_FOUND");
       const sourceOccupancy = await tx.occupancy.findFirst({
         where: {
-          tenantId, roomId: input.sourceRoomId, customerId: input.customerId,
-          contractId: source.id, rentalCycleId: input.rentalCycleId, leftAt: null,
+          tenantId,
+          roomId: input.sourceRoomId,
+          customerId: input.customerId,
+          contractId: source.id,
+          rentalCycleId: input.rentalCycleId,
+          leftAt: null,
         },
       });
-      if (!sourceOccupancy) throw new ConflictException("TRANSFER_SOURCE_OCCUPANCY_NOT_OPEN");
+      if (!sourceOccupancy)
+        throw new ConflictException("TRANSFER_SOURCE_OCCUPANCY_NOT_OPEN");
       const targetRoom = await tx.room.findFirst({
         where: { id: input.targetRoomId, tenantId, deletedAt: null },
       });
-      if (!targetRoom) throw new NotFoundException("TRANSFER_TARGET_ROOM_NOT_FOUND");
+      if (!targetRoom)
+        throw new NotFoundException("TRANSFER_TARGET_ROOM_NOT_FOUND");
       await this.assertTransferTargetCapacity(tx, tenantId, targetRoom);
+
+      const targetMonthlyRent = Number(targetRoom.monthlyPrice || 0);
+      if (!Number.isFinite(targetMonthlyRent) || targetMonthlyRent < 0) {
+        throw new ConflictException("TRANSFER_TARGET_ROOM_PRICE_INVALID");
+      }
+      const sourceParty = await tx.contractParty.findFirst({
+        where: {
+          tenantId,
+          contractId: source.id,
+          customerId: input.customerId,
+          role: "CO_REPRESENTATIVE",
+          leftAt: null,
+        },
+      });
 
       const targetCycle = await tx.rentalCycle.create({
         data: {
-          tenantId, customerId: input.customerId, roomId: input.targetRoomId,
-          status: RentalCycleStatus.ACTIVE, expectedMoveInAt: transferAt, actualMoveInAt: transferAt,
+          tenantId,
+          customerId: input.customerId,
+          roomId: input.targetRoomId,
+          status: RentalCycleStatus.ACTIVE,
+          expectedMoveInAt: transferAt,
+          actualMoveInAt: transferAt,
         },
       });
       const termsSnapshot = this.asJson({
-        ...(source.termsSnapshot as any || {}),
-        code: transferCode, status: ContractStatus.ACTIVE, startDate: transferAt,
-        endDate: source.endDate, monthlyRent: Number(source.monthlyRent || 0),
+        ...((source.termsSnapshot as any) || {}),
+        code: transferCode,
+        status: ContractStatus.ACTIVE,
+        startDate: transferAt,
+        endDate: source.endDate,
+        monthlyRent: targetMonthlyRent,
         // A co-representative has no independently transferable deposit.  Do
         // not copy a source financial obligation into this operational record.
-        depositMoney: 0, memberCount: 1, coRepresentativeIds: [], attachments: [],
+        depositMoney: 0,
+        memberCount: 1,
+        coRepresentativeIds: [],
+        attachments: [],
         transfer: {
-          sourceContractId: source.id, sourceRentalCycleId: input.rentalCycleId,
-          sourceRoomId: input.sourceRoomId, targetRoomId: input.targetRoomId,
-          transferAt: transferAt.toISOString(), idempotencyKey: commandKey,
-          requestHash, policyVersion: "TRANSFER_V1",
+          sourceContractId: source.id,
+          sourceRentalCycleId: input.rentalCycleId,
+          sourceRoomId: input.sourceRoomId,
+          targetRoomId: input.targetRoomId,
+          transferAt: transferAt.toISOString(),
+          idempotencyKey: commandKey,
+          requestHash,
+          sourceMonthlyRent: Number(source.monthlyRent || 0),
+          targetMonthlyRent,
+          depositPolicy: "NO_MEMBER_DEPOSIT_TRANSFER",
+          policyVersion: "TRANSFER_V2",
         },
       });
       const newContract = await tx.contract.create({
         data: {
-          tenantId, customerId: input.customerId, roomId: input.targetRoomId,
-          rentalCycleId: targetCycle.id, code: transferCode, status: ContractStatus.ACTIVE,
-          startDate: transferAt, endDate: source.endDate, signedAt: null,
-          firstPaymentDate: source.firstPaymentDate, purpose: source.purpose,
-          monthlyRent: source.monthlyRent, depositMoney: 0, memberCount: 1,
-          attachments: [], coRepresentativeIds: [],
-          customerSnapshot: this.asJson({ id: customer.id, fullName: customer.fullName, phone: customer.phone }),
-          roomSnapshot: this.asJson({ id: targetRoom.id, code: targetRoom.code, name: targetRoom.name, rentalType: targetRoom.rentalType }),
+          tenantId,
+          customerId: input.customerId,
+          roomId: input.targetRoomId,
+          rentalCycleId: targetCycle.id,
+          code: transferCode,
+          status: ContractStatus.ACTIVE,
+          startDate: transferAt,
+          endDate: source.endDate,
+          signedAt: sourceParty?.signedAt || source.signedAt || null,
+          firstPaymentDate: source.firstPaymentDate,
+          purpose: source.purpose,
+          monthlyRent: targetMonthlyRent,
+          depositMoney: 0,
+          memberCount: 1,
+          attachments: [],
+          coRepresentativeIds: [],
+          customerSnapshot: this.asJson({
+            id: customer.id,
+            fullName: customer.fullName,
+            phone: customer.phone,
+          }),
+          roomSnapshot: this.asJson({
+            id: targetRoom.id,
+            code: targetRoom.code,
+            name: targetRoom.name,
+            rentalType: targetRoom.rentalType,
+          }),
           termsSnapshot,
           activatedAt: transferAt,
         },
       });
-      const sourceParty = await tx.contractParty.findFirst({
-        where: { tenantId, contractId: source.id, customerId: input.customerId, role: "CO_REPRESENTATIVE", leftAt: null },
-      });
       await tx.contractParty.create({
         data: {
-          tenantId, contractId: newContract.id, customerId: input.customerId, role: "PRIMARY",
-          identitySnapshot: sourceParty?.identitySnapshot || this.asJson({ id: customer.id, fullName: customer.fullName, phone: customer.phone }),
-          signedAt: null,
+          tenantId,
+          contractId: newContract.id,
+          customerId: input.customerId,
+          role: "PRIMARY",
+          identitySnapshot:
+            sourceParty?.identitySnapshot ||
+            this.asJson({
+              id: customer.id,
+              fullName: customer.fullName,
+              phone: customer.phone,
+            }),
+          signedAt: sourceParty?.signedAt || source.signedAt || null,
         },
       });
       const membershipClaim = await tx.contract.updateMany({
-        where: { id: source.id, tenantId, coRepresentativeIds: { has: input.customerId } },
-        data: { coRepresentativeIds: source.coRepresentativeIds.filter((id: string) => id !== input.customerId) },
+        where: {
+          id: source.id,
+          tenantId,
+          coRepresentativeIds: { has: input.customerId },
+        },
+        data: {
+          coRepresentativeIds: source.coRepresentativeIds.filter(
+            (id: string) => id !== input.customerId,
+          ),
+        },
       });
-      if (membershipClaim.count !== 1) throw new ConflictException("TRANSFER_MEMBER_CONCURRENT_CONFLICT");
+      if (membershipClaim.count !== 1)
+        throw new ConflictException("TRANSFER_MEMBER_CONCURRENT_CONFLICT");
       await tx.contractParty.updateMany({
-        where: { tenantId, contractId: source.id, customerId: input.customerId, role: "CO_REPRESENTATIVE", leftAt: null },
+        where: {
+          tenantId,
+          contractId: source.id,
+          customerId: input.customerId,
+          role: "CO_REPRESENTATIVE",
+          leftAt: null,
+        },
         data: { leftAt: transferAt },
       });
       await tx.occupancy.update({
@@ -1869,18 +2887,39 @@ export class ContractsService extends BaseCrudService<Contract> {
       await tx.occupancy.create({
         data: {
           id: `occ_${createHash("sha256").update(`${tenantId}:${transferCode}`).digest("hex").slice(0, 32)}`,
-          tenantId, roomId: input.targetRoomId, customerId: input.customerId,
-          contractId: newContract.id, rentalCycleId: targetCycle.id, role: "PRIMARY", joinedAt: transferAt,
+          tenantId,
+          roomId: input.targetRoomId,
+          customerId: input.customerId,
+          contractId: newContract.id,
+          rentalCycleId: targetCycle.id,
+          role: "PRIMARY",
+          joinedAt: transferAt,
         },
       });
-      await tx.customer.updateMany({ where: { id: input.customerId, tenantId }, data: { roomId: input.targetRoomId } });
+      await tx.customer.updateMany({
+        where: { id: input.customerId, tenantId },
+        data: { roomId: input.targetRoomId },
+      });
       await this.refreshRoomLifecycleStatus(tx, tenantId, input.sourceRoomId);
-      await tx.room.update({ where: { id: input.targetRoomId }, data: { status: RoomStatus.OCCUPIED } });
+      await tx.room.update({
+        where: { id: input.targetRoomId },
+        data: { status: RoomStatus.OCCUPIED },
+      });
       if (tx.auditLog?.create) {
         await tx.auditLog.create({
-          data: { action: "CREATE", entity: this.entityName, entityId: newContract.id,
-            module: "ContractsTransfer", tenantId, userId,
-            after: { sourceContractId: source.id, sourceOccupancyId: sourceOccupancy.id, targetCycleId: targetCycle.id, requestHash },
+          data: {
+            action: "CREATE",
+            entity: this.entityName,
+            entityId: newContract.id,
+            module: "ContractsTransfer",
+            tenantId,
+            userId,
+            after: {
+              sourceContractId: source.id,
+              sourceOccupancyId: sourceOccupancy.id,
+              targetCycleId: targetCycle.id,
+              requestHash,
+            },
           },
         });
       }
@@ -1894,6 +2933,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     note?: string,
     tenantId?: string,
     idempotencyKey?: string,
+    attachmentUrls?: string[],
   ) {
     if (tenantId) {
       return this.completeSettlementRefundCommand(
@@ -1902,6 +2942,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         tenantId,
         note,
         idempotencyKey,
+        attachmentUrls,
       );
     }
     const contract = await this.getDetail(id);
@@ -2579,29 +3620,42 @@ export class ContractsService extends BaseCrudService<Contract> {
     return JSON.parse(JSON.stringify(value));
   }
 
+  /** Preserve the historical paired command key used by the drawer. */
+  private bookingDepositConversionKey(contractCommandKey: string) {
+    return contractCommandKey.endsWith(":contract")
+      ? `${contractCommandKey.slice(0, -":contract".length)}:deposit`
+      : `${contractCommandKey}:deposit`;
+  }
+
   private async completeSettlementRefundCommand(
     id: string,
     userId: string,
     tenantId: string,
     note: string | undefined,
     idempotencyKey?: string,
+    attachmentUrls?: string[],
   ) {
     const completionKey = this.requireSettlementIdempotencyKey(idempotencyKey);
+    const completionAttachmentUrls =
+      this.normalizeSettlementAttachmentUrls(attachmentUrls);
     const completionHash = this.hashSettlementRequest({
       contractId: id,
       tenantId,
       note: String(note || "").trim() || null,
+      attachmentUrls: completionAttachmentUrls,
     });
     return this.runSettlementSerializable(async (tx: any) => {
       await this.lockSettlementContract(tx, tenantId, id);
       const contract = await tx.contract.findFirst({
         where: { id, tenantId, deletedAt: null },
       });
-      if (!contract) throw new NotFoundException(`Contract with ID ${id} not found`);
+      if (!contract)
+        throw new NotFoundException(`Contract with ID ${id} not found`);
       const settlement = await tx.contractSettlement.findFirst({
         where: { contractId: id, tenantId },
       });
-      if (!settlement) throw new BadRequestException("SETTLEMENT_REFUND_OPERATION_NOT_FOUND");
+      if (!settlement)
+        throw new BadRequestException("SETTLEMENT_REFUND_OPERATION_NOT_FOUND");
       const details = (settlement.details || {}) as any;
       const priorCompletion = details.refundCompletion;
       if (priorCompletion) {
@@ -2614,11 +3668,22 @@ export class ContractsService extends BaseCrudService<Contract> {
         throw new ConflictException("SETTLEMENT_REFUND_ALREADY_COMPLETED");
       }
       const receiptId = details.refundReceiptId;
-      if (!receiptId) throw new BadRequestException("SETTLEMENT_REFUND_PENDING_NOT_FOUND");
+      if (!receiptId)
+        throw new BadRequestException("SETTLEMENT_REFUND_PENDING_NOT_FOUND");
       const receipt = await tx.receipt.findFirst({
         where: { id: receiptId, tenantId, status: ReceiptStatus.PENDING },
       });
-      if (!receipt) throw new BadRequestException("SETTLEMENT_REFUND_PENDING_NOT_FOUND");
+      if (!receipt)
+        throw new BadRequestException("SETTLEMENT_REFUND_PENDING_NOT_FOUND");
+      const pendingAttachmentUrls = this.normalizeSettlementAttachmentUrls(
+        details?.settlement?.refund?.attachmentUrls,
+      );
+      const proofUrls = [
+        ...new Set([...pendingAttachmentUrls, ...completionAttachmentUrls]),
+      ];
+      if (proofUrls.length === 0) {
+        throw new BadRequestException("SETTLEMENT_REFUND_PROOF_REQUIRED");
+      }
 
       const operations = await tx.depositOperation.findMany({
         where: {
@@ -2630,7 +3695,11 @@ export class ContractsService extends BaseCrudService<Contract> {
         },
       });
       for (const operation of operations) {
-        await this.lockSettlementDeposit(tx, tenantId, operation.sourceDepositId);
+        await this.lockSettlementDeposit(
+          tx,
+          tenantId,
+          operation.sourceDepositId,
+        );
         const refundAmount = this.roundMoney(
           Number((operation.result as any)?.refundAmount || 0),
         );
@@ -2640,7 +3709,9 @@ export class ContractsService extends BaseCrudService<Contract> {
           _sum: { balanceEffect: true },
         });
         if (refundAmount > Number(balance._sum?.balanceEffect || 0)) {
-          throw new BadRequestException("SETTLEMENT_REFUND_EXCEEDS_DEPOSIT_BALANCE");
+          throw new BadRequestException(
+            "SETTLEMENT_REFUND_EXCEEDS_DEPOSIT_BALANCE",
+          );
         }
         await tx.depositLedgerEntry.create({
           data: {
@@ -2678,9 +3749,13 @@ export class ContractsService extends BaseCrudService<Contract> {
         where: { id: receiptId, tenantId, status: ReceiptStatus.PENDING },
         data: {
           status: ReceiptStatus.COMPLETED,
-          description: note
-            ? `${receipt.description || ""}\nCompleted note: ${note}`.trim()
-            : receipt.description,
+          description: [
+            receipt.description || "",
+            note ? `Completed note: ${note}` : null,
+            `Proof: ${proofUrls.join(", ")}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
         },
       });
       if (receiptChanged.count !== 1) {
@@ -2696,6 +3771,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         receiptId,
         amount: this.roundMoney(Number(receipt.amount || 0)),
         status: ReceiptStatus.COMPLETED,
+        attachmentUrls: proofUrls,
       };
       const nextDetails = this.asJson({
         ...details,
@@ -2733,6 +3809,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             rentalCycleId: contract.rentalCycleId,
             receiptId,
             amount: result.amount,
+            attachmentUrls: proofUrls,
           }),
           idempotencyKey: `${completionKey}:settlement-refunded`,
         },
@@ -2767,7 +3844,8 @@ export class ContractsService extends BaseCrudService<Contract> {
         where: { id, tenantId, deletedAt: null },
         include: { customer: true, room: true },
       });
-      if (!contract) throw new NotFoundException(`Contract with ID ${id} not found`);
+      if (!contract)
+        throw new NotFoundException(`Contract with ID ${id} not found`);
       if (!contract.rentalCycleId) {
         throw new BadRequestException("SETTLEMENT_RENTAL_CYCLE_REQUIRED");
       }
@@ -2784,12 +3862,17 @@ export class ContractsService extends BaseCrudService<Contract> {
           const replay = await tx.contract.findFirst({
             where: { id, tenantId, deletedAt: null },
           });
-          if (!replay) throw new ConflictException("SETTLEMENT_REPLAY_CONTRACT_MISSING");
+          if (!replay)
+            throw new ConflictException("SETTLEMENT_REPLAY_CONTRACT_MISSING");
           return replay;
         }
         throw new ConflictException("SETTLEMENT_ALREADY_COMPLETED");
       }
-      if (![ContractStatus.ACTIVE, ContractStatus.EXPIRING].includes(contract.status)) {
+      if (
+        ![ContractStatus.ACTIVE, ContractStatus.EXPIRING].includes(
+          contract.status,
+        )
+      ) {
         throw new BadRequestException(
           `Cannot finalize contract in ${contract.status} status. Only ACTIVE or EXPIRING is allowed.`,
         );
@@ -2803,12 +3886,16 @@ export class ContractsService extends BaseCrudService<Contract> {
           roomId: contract.roomId,
         },
       });
-      if (!cycle) throw new BadRequestException("SETTLEMENT_RENTAL_CYCLE_SCOPE_MISMATCH");
+      if (!cycle)
+        throw new BadRequestException("SETTLEMENT_RENTAL_CYCLE_SCOPE_MISMATCH");
 
       // The authoritative balance pass augments the preview breakdown with
       // finalChargeCreditAmount; keep the transaction-local value open for
       // that validated augmentation.
-      let settlement: any = await this.composeSettlementPreview(contract, input);
+      let settlement: any = await this.composeSettlementPreview(
+        contract,
+        input,
+      );
       const deposits = await tx.deposit.findMany({
         where: {
           tenantId,
@@ -2839,7 +3926,10 @@ export class ContractsService extends BaseCrudService<Contract> {
         })),
       );
       const availableDepositAmount = this.roundMoney(
-        balances.reduce((sum: number, row: any) => sum + Math.max(row.balance, 0), 0),
+        balances.reduce(
+          (sum: number, row: any) => sum + Math.max(row.balance, 0),
+          0,
+        ),
       );
 
       await this.lockSettlementInvoices(tx, tenantId, contract.id);
@@ -2877,6 +3967,23 @@ export class ContractsService extends BaseCrudService<Contract> {
         availableDepositAmount,
       );
       const finalOutstanding = settlement.totals.netReceivable;
+      const refundAttachmentUrls = this.normalizeSettlementAttachmentUrls(
+        settlement.refund.attachmentUrls,
+      );
+      settlement = {
+        ...settlement,
+        refund: {
+          ...settlement.refund,
+          attachmentUrls: refundAttachmentUrls,
+        },
+      };
+      if (
+        settlement.totals.refundToCustomer > 0 &&
+        settlement.refund.receiptStatus === ReceiptStatus.COMPLETED &&
+        refundAttachmentUrls.length === 0
+      ) {
+        throw new BadRequestException("SETTLEMENT_REFUND_PROOF_REQUIRED");
+      }
 
       // Create the durable claim before the financial documents.  A failure
       // rolls the whole serializable transaction back, so there is no partial
@@ -2979,7 +4086,9 @@ export class ContractsService extends BaseCrudService<Contract> {
           },
         });
         if (credited.count !== 1) {
-          throw new ConflictException("SETTLEMENT_OLD_DEBT_CONCURRENT_CONFLICT");
+          throw new ConflictException(
+            "SETTLEMENT_OLD_DEBT_CONCURRENT_CONFLICT",
+          );
         }
         debtCredits.push({ invoiceId: debt.invoice.id, amount });
         oldDebtDepositCredit = this.roundMoney(oldDebtDepositCredit - amount);
@@ -2997,19 +4106,28 @@ export class ContractsService extends BaseCrudService<Contract> {
                 amount: settlement.totals.refundToCustomer,
                 status: settlement.refund.receiptStatus,
                 description: settlement.refund.reason
-                  ? `Contract settlement refund for ${contract.code} - ${settlement.refund.reason}`
-                  : `Contract settlement refund for ${contract.code}`,
+                  ? `Contract settlement refund for ${contract.code} - ${settlement.refund.reason}${refundAttachmentUrls.length ? `\nProof: ${refundAttachmentUrls.join(", ")}` : ""}`
+                  : `Contract settlement refund for ${contract.code}${refundAttachmentUrls.length ? `\nProof: ${refundAttachmentUrls.join(", ")}` : ""}`,
                 date: settlement.actualMoveOutDate,
               },
             })
           : null;
       const refundTask =
-        refundReceipt && settlement.refund.receiptStatus === ReceiptStatus.PENDING
+        refundReceipt &&
+        settlement.refund.receiptStatus === ReceiptStatus.PENDING
           ? await tx.task.create({
               data: {
                 tenantId,
                 title: `Xu ly hoan tien quyet toan ${contract.code}`,
-                description: settlement.refund.reason || null,
+                description:
+                  [
+                    settlement.refund.reason,
+                    refundAttachmentUrls.length
+                      ? `Chung tu: ${refundAttachmentUrls.join(", ")}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n") || null,
                 status: "TODO" as any,
                 priority: "HIGH" as any,
                 dueDate: settlement.actualMoveOutDate,
@@ -3051,6 +4169,7 @@ export class ContractsService extends BaseCrudService<Contract> {
               deductAmount: row.deductAmount,
               refundAmount: row.refundAmount,
               receiptId: refundReceipt?.id || null,
+              attachmentUrls: refundAttachmentUrls,
             },
             receiptId: refundReceipt?.id || null,
             createdBy: userId,
@@ -3126,7 +4245,8 @@ export class ContractsService extends BaseCrudService<Contract> {
           terminationReason,
         },
       });
-      if (changed.count !== 1) throw new ConflictException("SETTLEMENT_CONCURRENT_CONFLICT");
+      if (changed.count !== 1)
+        throw new ConflictException("SETTLEMENT_CONCURRENT_CONFLICT");
       await tx.rentalCycle.updateMany({
         where: {
           id: contract.rentalCycleId,
@@ -3143,7 +4263,8 @@ export class ContractsService extends BaseCrudService<Contract> {
       const updatedContract = await tx.contract.findFirst({
         where: { id: contract.id, tenantId, deletedAt: null },
       });
-      if (!updatedContract) throw new ConflictException("SETTLEMENT_CONTRACT_MISSING_AFTER_CLAIM");
+      if (!updatedContract)
+        throw new ConflictException("SETTLEMENT_CONTRACT_MISSING_AFTER_CLAIM");
       await this.applyCanonicalMoveOutLifecycle(tx, updatedContract, {
         actualMoveOutAt: settlement.actualMoveOutDate,
         reason: terminationReason,
@@ -3185,12 +4306,30 @@ export class ContractsService extends BaseCrudService<Contract> {
           eventName: "contract.settlement.completed",
           payload: this.asJson({
             tenantId,
+            userId,
             contractId: contract.id,
             customerId: contract.customerId,
+            customerName: contract.customer?.fullName || null,
+            customerPhone: contract.customer?.phone || null,
             rentalCycleId: contract.rentalCycleId,
             invoiceId: invoice?.id || null,
             refundReceiptId: refundReceipt?.id || null,
+            ...buildRoomContext(contract.room, contract),
+            sourceId: contract.id,
+            sourceType: "CONTRACT",
+            amount: finalOutstanding,
+            actualMoveOutAt: settlement.actualMoveOutDate,
+            status: ContractStatus.TERMINATED,
             finalOutstanding,
+            refundAttachmentUrls,
+            metadata: {
+              code: contract.code,
+              settlementId: claim.id,
+              contractId: contract.id,
+              invoiceId: invoice?.id || null,
+              refundReceiptId: refundReceipt?.id || null,
+              refundToCustomer: settlement.totals.refundToCustomer,
+            },
           }),
           idempotencyKey: `${commandKey}:settlement-completed`,
         },
@@ -3214,7 +4353,11 @@ export class ContractsService extends BaseCrudService<Contract> {
         Math.min(this.roundMoney(available - deduct), remainingRefund),
       );
       remainingRefund = this.roundMoney(remainingRefund - refund);
-      return { deposit: row.deposit, deductAmount: deduct, refundAmount: refund };
+      return {
+        deposit: row.deposit,
+        deductAmount: deduct,
+        refundAmount: refund,
+      };
     });
   }
 
@@ -3246,17 +4389,34 @@ export class ContractsService extends BaseCrudService<Contract> {
           (error?.code === "P2010" && error?.meta?.code === "40001") ||
           error?.code === "P2002";
         if (retryable && attempt < 3) continue;
-        if (retryable) throw new ConflictException("TRANSFER_CONCURRENT_CONFLICT");
+        if (retryable)
+          throw new ConflictException("TRANSFER_CONCURRENT_CONFLICT");
         throw error;
       }
     }
     throw new ConflictException("TRANSFER_CONCURRENT_CONFLICT");
   }
 
+  private formatVietnamBillingPeriod(value: Date): string {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      year: "numeric",
+      month: "2-digit",
+    }).formatToParts(value);
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    if (!year || !month) {
+      throw new BadRequestException("WHOLE_OCCUPANT_MOVE_IN_DATE_INVALID");
+    }
+    return `${year}-${month}`;
+  }
+
   private stableSettlementStringify(value: any): string {
-    if (value === null || typeof value !== "object") return JSON.stringify(value);
+    if (value === null || typeof value !== "object")
+      return JSON.stringify(value);
     if (value instanceof Date) return JSON.stringify(value.toISOString());
-    if (Prisma.Decimal.isDecimal(value)) return JSON.stringify(value.toFixed(2));
+    if (Prisma.Decimal.isDecimal(value))
+      return JSON.stringify(value.toFixed(2));
     if (Array.isArray(value)) {
       return `[${value.map((item) => this.stableSettlementStringify(item)).join(",")}]`;
     }
@@ -3305,21 +4465,27 @@ export class ContractsService extends BaseCrudService<Contract> {
           (error?.code === "P2010" && error?.meta?.code === "40001") ||
           error?.code === "P2002";
         if (retryable && attempt < 3) continue;
-        if (retryable) throw new ConflictException("RENEWAL_CONCURRENT_CONFLICT");
+        if (retryable)
+          throw new ConflictException("RENEWAL_CONCURRENT_CONFLICT");
         throw error;
       }
     }
     throw new ConflictException("RENEWAL_CONCURRENT_CONFLICT");
   }
 
-  private async lockSettlementContract(tx: any, tenantId: string, contractId: string) {
+  private async lockSettlementContract(
+    tx: any,
+    tenantId: string,
+    contractId: string,
+  ) {
     if (typeof tx.$queryRaw !== "function") {
       throw new ConflictException("SETTLEMENT_LOCK_UNAVAILABLE");
     }
     const rows = (await tx.$queryRaw(
       Prisma.sql`SELECT "id" FROM "Contract" WHERE "id" = ${contractId} AND "tenantId" = ${tenantId} AND "deletedAt" IS NULL FOR UPDATE`,
     )) as Array<{ id: string }>;
-    if (!rows.length) throw new NotFoundException(`Contract with ID ${contractId} not found`);
+    if (!rows.length)
+      throw new NotFoundException(`Contract with ID ${contractId} not found`);
   }
 
   private async lockTransferRooms(
@@ -3333,20 +4499,39 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
   }
 
-  private async assertTransferTargetCapacity(tx: any, tenantId: string, room: any) {
-    if (![RoomStatus.AVAILABLE, RoomStatus.RESERVED, RoomStatus.OCCUPIED].includes(room.status)) {
+  private async assertTransferTargetCapacity(
+    tx: any,
+    tenantId: string,
+    room: any,
+  ) {
+    if (
+      ![
+        RoomStatus.AVAILABLE,
+        RoomStatus.RESERVED,
+        RoomStatus.OCCUPIED,
+      ].includes(room.status)
+    ) {
       throw new ConflictException("TRANSFER_TARGET_ROOM_NOT_OPERATIONAL");
     }
     const [openOccupancies, activeHolds, activeBindings] = await Promise.all([
-      tx.occupancy.count({ where: { tenantId, roomId: room.id, leftAt: null } }),
+      tx.occupancy.count({
+        where: { tenantId, roomId: room.id, leftAt: null },
+      }),
       tx.roomHold?.count
         ? tx.roomHold.count({
-            where: { tenantId, roomId: room.id, status: "ACTIVE", expiresAt: { gt: new Date() } },
+            where: {
+              tenantId,
+              roomId: room.id,
+              status: "ACTIVE",
+              expiresAt: { gt: new Date() },
+            },
           })
         : 0,
       tx.contract.count({
         where: {
-          tenantId, roomId: room.id, deletedAt: null,
+          tenantId,
+          roomId: room.id,
+          deletedAt: null,
           status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
         },
       }),
@@ -3372,12 +4557,19 @@ export class ContractsService extends BaseCrudService<Contract> {
   ) {
     await tx.customer.updateMany({
       where: {
-        id: customerId, tenantId, roomId,
+        id: customerId,
+        tenantId,
+        roomId,
         occupancies: { none: { tenantId, roomId, leftAt: null } },
         contractParties: {
           none: {
-            tenantId, leftAt: null,
-            contract: { roomId, deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } },
+            tenantId,
+            leftAt: null,
+            contract: {
+              roomId,
+              deletedAt: null,
+              status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+            },
           },
         },
       },
@@ -3386,36 +4578,57 @@ export class ContractsService extends BaseCrudService<Contract> {
   }
 
   /** Recompute status from current resources; callers have already locked room. */
-  private async refreshRoomLifecycleStatus(tx: any, tenantId: string, roomId: string) {
-    const [openOccupancies, activeContracts, activeHolds, room] = await Promise.all([
-      tx.occupancy.count({ where: { tenantId, roomId, leftAt: null } }),
-      tx.contract.count({
-        where: { tenantId, roomId, deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } },
-      }),
-      tx.roomHold?.count
-        ? tx.roomHold.count({
-            where: { tenantId, roomId, status: "ACTIVE", expiresAt: { gt: new Date() } },
-          })
-        : 0,
-      tx.room.findFirst({ where: { id: roomId, tenantId, deletedAt: null } }),
-    ]);
+  private async refreshRoomLifecycleStatus(
+    tx: any,
+    tenantId: string,
+    roomId: string,
+  ) {
+    const [openOccupancies, activeContracts, activeHolds, room] =
+      await Promise.all([
+        tx.occupancy.count({ where: { tenantId, roomId, leftAt: null } }),
+        tx.contract.count({
+          where: {
+            tenantId,
+            roomId,
+            deletedAt: null,
+            status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+          },
+        }),
+        tx.roomHold?.count
+          ? tx.roomHold.count({
+              where: {
+                tenantId,
+                roomId,
+                status: "ACTIVE",
+                expiresAt: { gt: new Date() },
+              },
+            })
+          : 0,
+        tx.room.findFirst({ where: { id: roomId, tenantId, deletedAt: null } }),
+      ]);
     if (!room) throw new NotFoundException("ROOM_LIFECYCLE_ROOM_NOT_FOUND");
     const status =
       openOccupancies > 0 || activeContracts > 0
         ? RoomStatus.OCCUPIED
         : activeHolds > 0
           ? RoomStatus.RESERVED
-          : room.status === RoomStatus.CLEANING || room.status === RoomStatus.MAINTENANCE
+          : room.status === RoomStatus.CLEANING ||
+              room.status === RoomStatus.MAINTENANCE
             ? room.status
             : RoomStatus.AVAILABLE;
     return tx.room.update({ where: { id: roomId }, data: { status } });
   }
 
-  private async lockSettlementDeposit(tx: any, tenantId: string, depositId: string) {
+  private async lockSettlementDeposit(
+    tx: any,
+    tenantId: string,
+    depositId: string,
+  ) {
     const rows = (await tx.$queryRaw(
       Prisma.sql`SELECT "id" FROM "Deposit" WHERE "id" = ${depositId} AND "tenantId" = ${tenantId} AND "deletedAt" IS NULL FOR UPDATE`,
     )) as Array<{ id: string }>;
-    if (!rows.length) throw new ConflictException("SETTLEMENT_DEPOSIT_LOCK_FAILED");
+    if (!rows.length)
+      throw new ConflictException("SETTLEMENT_DEPOSIT_LOCK_FAILED");
   }
 
   private async lockSettlementInvoices(
@@ -3465,7 +4678,8 @@ export class ContractsService extends BaseCrudService<Contract> {
       contractId: contract.id,
       leftAt: null,
     };
-    if (contract.rentalCycleId) occupancyScope.rentalCycleId = contract.rentalCycleId;
+    if (contract.rentalCycleId)
+      occupancyScope.rentalCycleId = contract.rentalCycleId;
 
     // Scope by the target contract (and its cycle when present), never by a
     // "last active contract" room-wide condition.  ContractParty is append
@@ -3531,42 +4745,46 @@ export class ContractsService extends BaseCrudService<Contract> {
       });
     }
 
-    const [remainingOccupancies, remainingActiveContracts, remainingHolds, room] =
-      await Promise.all([
-        tx.occupancy.count({
-          where: {
-            tenantId: contract.tenantId,
-            roomId: contract.roomId,
-            leftAt: null,
-          },
-        }),
-        tx.contract.count({
-          where: {
-            tenantId: contract.tenantId,
-            roomId: contract.roomId,
-            deletedAt: null,
-            status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
-          },
-        }),
-        tx.roomHold?.count
-          ? tx.roomHold.count({
-              where: {
-                tenantId: contract.tenantId,
-                roomId: contract.roomId,
-                status: "ACTIVE",
-                expiresAt: { gt: new Date() },
-              },
-            })
-          : 0,
-        tx.room.findFirst({
-          where: {
-            id: contract.roomId,
-            tenantId: contract.tenantId,
-            deletedAt: null,
-          },
-          select: { status: true },
-        }),
-      ]);
+    const [
+      remainingOccupancies,
+      remainingActiveContracts,
+      remainingHolds,
+      room,
+    ] = await Promise.all([
+      tx.occupancy.count({
+        where: {
+          tenantId: contract.tenantId,
+          roomId: contract.roomId,
+          leftAt: null,
+        },
+      }),
+      tx.contract.count({
+        where: {
+          tenantId: contract.tenantId,
+          roomId: contract.roomId,
+          deletedAt: null,
+          status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+        },
+      }),
+      tx.roomHold?.count
+        ? tx.roomHold.count({
+            where: {
+              tenantId: contract.tenantId,
+              roomId: contract.roomId,
+              status: "ACTIVE",
+              expiresAt: { gt: new Date() },
+            },
+          })
+        : 0,
+      tx.room.findFirst({
+        where: {
+          id: contract.roomId,
+          tenantId: contract.tenantId,
+          deletedAt: null,
+        },
+        select: { status: true },
+      }),
+    ]);
     if (!room) throw new ConflictException("ROOM_LIFECYCLE_ROOM_NOT_FOUND");
 
     const roomStatus =
@@ -3577,7 +4795,8 @@ export class ContractsService extends BaseCrudService<Contract> {
           : input.requestedRoomStatus === RoomStatus.CLEANING ||
               input.requestedRoomStatus === RoomStatus.MAINTENANCE
             ? input.requestedRoomStatus
-            : room.status === RoomStatus.CLEANING || room.status === RoomStatus.MAINTENANCE
+            : room.status === RoomStatus.CLEANING ||
+                room.status === RoomStatus.MAINTENANCE
               ? room.status
               : RoomStatus.AVAILABLE;
 
@@ -3594,7 +4813,8 @@ export class ContractsService extends BaseCrudService<Contract> {
     const rows = (await tx.$queryRaw(
       Prisma.sql`SELECT "id" FROM "Room" WHERE "id" = ${roomId} AND "tenantId" = ${tenantId} AND "deletedAt" IS NULL FOR UPDATE`,
     )) as Array<{ id: string }>;
-    if (!rows.length) throw new NotFoundException(`Room with ID ${roomId} not found`);
+    if (!rows.length)
+      throw new NotFoundException(`Room with ID ${roomId} not found`);
   }
 
   private async finalizeContract(
@@ -3992,7 +5212,10 @@ export class ContractsService extends BaseCrudService<Contract> {
         ),
       ).total,
       availableDepositAmount: this.roundMoney(
-        balances.reduce((sum: number, balance: number) => sum + Math.max(balance, 0), 0),
+        balances.reduce(
+          (sum: number, balance: number) => sum + Math.max(balance, 0),
+          0,
+        ),
       ),
     };
   }
@@ -4003,10 +5226,15 @@ export class ContractsService extends BaseCrudService<Contract> {
       InvoiceStatus.PARTIALLY_PAID,
       InvoiceStatus.OVERDUE,
     ]);
-    const active = invoices.filter((invoice) => debtStatuses.has(invoice.status));
+    const active = invoices.filter((invoice) =>
+      debtStatuses.has(invoice.status),
+    );
     const creditByRoot = new Map<string, number>();
     for (const invoice of active) {
-      if (invoice.billingKind !== "CREDIT_ADJUSTMENT" || !invoice.adjustmentOfInvoiceId) {
+      if (
+        invoice.billingKind !== "CREDIT_ADJUSTMENT" ||
+        !invoice.adjustmentOfInvoiceId
+      ) {
         continue;
       }
       creditByRoot.set(
@@ -4032,9 +5260,16 @@ export class ContractsService extends BaseCrudService<Contract> {
         ),
       }))
       .sort((a, b) => {
-        const aDate = new Date(a.invoice.dueDate || a.invoice.createdAt || 0).getTime();
-        const bDate = new Date(b.invoice.dueDate || b.invoice.createdAt || 0).getTime();
-        return aDate - bDate || String(a.invoice.id).localeCompare(String(b.invoice.id));
+        const aDate = new Date(
+          a.invoice.dueDate || a.invoice.createdAt || 0,
+        ).getTime();
+        const bDate = new Date(
+          b.invoice.dueDate || b.invoice.createdAt || 0,
+        ).getTime();
+        return (
+          aDate - bDate ||
+          String(a.invoice.id).localeCompare(String(b.invoice.id))
+        );
       });
 
     // Issued credit adjustments neutralize the whole invoice family once,
@@ -4099,18 +5334,35 @@ export class ContractsService extends BaseCrudService<Contract> {
     const finalChargeCreditAmount = this.roundMoney(
       Math.min(chargeTotal, operationalCreditTotal + finalChargeDepositCredit),
     );
-    const netReceivable = this.roundMoney(debtBeforeDeposit - depositAppliedAmount);
+    const netReceivable = this.roundMoney(
+      debtBeforeDeposit - depositAppliedAmount,
+    );
     const refundToCustomer = this.roundMoney(
       revenueRefundAmount + depositRefundAmount,
     );
     const credits = settlement.credits
-      .filter((line: any) => line.key !== "depositToDeduct" && line.key !== "depositToRefund")
+      .filter(
+        (line: any) =>
+          line.key !== "depositToDeduct" && line.key !== "depositToRefund",
+      )
       .concat(
         depositAppliedAmount > 0
-          ? [{ key: "depositToDeduct", description: "Khấu trừ cọc vào công nợ", amount: depositAppliedAmount }]
+          ? [
+              {
+                key: "depositToDeduct",
+                description: "Khấu trừ cọc vào công nợ",
+                amount: depositAppliedAmount,
+              },
+            ]
           : [],
         depositRefundAmount > 0
-          ? [{ key: "depositToRefund", description: "Tiền cọc hoàn trả khách", amount: depositRefundAmount }]
+          ? [
+              {
+                key: "depositToRefund",
+                description: "Tiền cọc hoàn trả khách",
+                amount: depositRefundAmount,
+              },
+            ]
           : [],
       );
 
@@ -4385,6 +5637,15 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   private roundMoney(value: number) {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+  }
+
+  private normalizeSettlementAttachmentUrls(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return [
+      ...new Set(
+        value.map((item) => String(item || "").trim()).filter(Boolean),
+      ),
+    ];
   }
 
   private async composeSettlementPreview(

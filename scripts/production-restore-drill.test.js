@@ -9,6 +9,7 @@ const {
   parseDatabaseIdentity,
   normalizePostgresCliUrl,
   isHarmlessTransactionTimeoutCompatibilityWarning,
+  resolvePrismaInvocation,
   runRestoreDrill,
   validateRestoreTarget,
 } = require('./production-restore-drill');
@@ -101,6 +102,18 @@ test('parses and masks restore drill database identity', () => {
   assert.equal(identity.maskedUrl, 'postgresql://***@127.0.0.1:5432/homeland_restore_drill');
 });
 
+test('launches the bundled Prisma entrypoint directly on Windows without a command shell', () => {
+  const invocation = resolvePrismaInvocation('node_modules/.bin/prisma.cmd', ['migrate', 'status'], 'win32');
+  assert.equal(invocation.command, process.execPath);
+  assert.equal(invocation.args.at(-2), 'migrate');
+  assert.equal(invocation.args.at(-1), 'status');
+  assert.match(invocation.args[0], /node_modules[\\/]prisma[\\/]build[\\/]index\.js$/);
+  assert.throws(
+    () => resolvePrismaInvocation('C:/tools/custom-prisma.cmd', ['migrate', 'status'], 'win32'),
+    /batch Prisma launchers are not supported/,
+  );
+});
+
 test('runs restore drill against confirmed isolated database', () => {
   const { manifestPath, backupDir } = writeManifest();
   const calls = [];
@@ -134,4 +147,39 @@ test('runs restore drill against confirmed isolated database', () => {
   assert.equal(calls[0].command, 'pg_restore');
   assert.ok(calls[0].args.includes('--clean'));
   assert.ok(calls[0].args.includes(path.join(backupDir, 'database.dump')));
+});
+
+test('runs Prisma migration status through the Windows Node entrypoint when needed', () => {
+  const { manifestPath, backupDir } = writeManifest();
+  const calls = [];
+  const result = runRestoreDrill({
+    manifest: manifestPath,
+    maxAgeHours: 24,
+    requireOffHost: false,
+    pgRestore: 'pg_restore',
+    prisma: 'node_modules/.bin/prisma.cmd',
+    schema: 'packages/database/prisma/schema.prisma',
+    databaseUrl: 'postgresql://user:pass@127.0.0.1:5432/homeland_restore_drill',
+    confirmTargetDb: 'homeland_restore_drill',
+    skipMigrateStatus: false,
+    json: false,
+  }, {
+    platform: 'win32',
+    runRestoreCheck: () => ({
+      ready: true,
+      backupId: 'backup-drill-1',
+      backupDir,
+      checks: [{ id: 'restore_check', status: 'PASS', message: 'precheck pass' }],
+    }),
+    spawnSync: (command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  });
+
+  assert.equal(result.ready, true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].command, process.execPath);
+  assert.match(calls[1].args[0], /node_modules[\\/]prisma[\\/]build[\\/]index\.js$/);
+  assert.equal(calls[1].options.shell, undefined);
 });

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { PaginatedResult } from '@homeland/shared';
-import { SalesLead } from '@prisma/client';
+import { LeadStatus, SalesLead } from '@prisma/client';
 
 const STATUS_ALIASES: Record<string, string> = {
   NEW: 'NEW',
@@ -17,6 +17,25 @@ const STATUS_ALIASES: Record<string, string> = {
   DEPOSIT: 'WON',
   LOST: 'LOST',
 };
+
+const SALES_SUMMARY_LEAD_SELECT = {
+  id: true,
+  name: true,
+  phone: true,
+  email: true,
+  status: true,
+  notes: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+const ACTIVE_LEAD_STATUSES = [
+  LeadStatus.CONTACTED,
+  LeadStatus.QUALIFIED,
+  LeadStatus.PROPOSAL,
+] as const;
+
+const STALE_LEAD_EXCLUDED_STATUSES: LeadStatus[] = [LeadStatus.WON, LeadStatus.LOST];
 
 @Injectable()
 export class SalesService {
@@ -71,6 +90,51 @@ export class SalesService {
         hasNextPage: safePage * safeLimit < total,
         hasPreviousPage: safePage > 1,
       },
+    };
+  }
+
+  async getSummary(tenantId: string) {
+    const staleBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const [byStatus, staleCount, newestLeads] = await Promise.all([
+      this.prisma.salesLead.groupBy({
+        by: ['status'],
+        where: { tenantId, deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.prisma.salesLead.count({
+        where: {
+          tenantId,
+          deletedAt: null,
+          updatedAt: { lt: staleBefore },
+          status: { notIn: STALE_LEAD_EXCLUDED_STATUSES },
+        },
+      }),
+      this.prisma.salesLead.findMany({
+        where: { tenantId, deletedAt: null },
+        select: SALES_SUMMARY_LEAD_SELECT,
+        orderBy: { createdAt: 'desc' },
+        take: 4,
+      }),
+    ]);
+
+    const stageCounts = Object.values(LeadStatus).reduce(
+      (counts, status) => ({ ...counts, [status]: 0 }),
+      {} as Record<LeadStatus, number>,
+    );
+    for (const row of byStatus) stageCounts[row.status] = row._count._all;
+
+    const total = Object.values(stageCounts).reduce((sum, count) => sum + count, 0);
+    const activeCount = ACTIVE_LEAD_STATUSES.reduce(
+      (sum, status) => sum + stageCounts[status],
+      0,
+    );
+
+    return {
+      total,
+      activeCount,
+      staleCount,
+      stageCounts,
+      newestLeads,
     };
   }
 

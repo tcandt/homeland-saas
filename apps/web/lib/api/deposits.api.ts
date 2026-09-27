@@ -37,6 +37,7 @@ export interface DepositResponse {
     receiptStatus: string | null;
     receiptAmount: number;
     receiptDescription: string | null;
+    attachmentUrls?: string[];
     taskId: string | null;
     taskTitle: string | null;
     taskStatus: string | null;
@@ -56,6 +57,7 @@ export interface ConvertDepositPayload {
   securityDepositId?: string;
   excessAction?: 'CREDIT' | 'REFUND';
   refundStatus?: 'PENDING' | 'COMPLETED';
+  attachmentUrls?: string[];
 }
 
 export interface CoreCancelDepositPayload {
@@ -64,6 +66,7 @@ export interface CoreCancelDepositPayload {
   keepAmount?: number;
   deductAmount?: number;
   refundStatus?: 'PENDING' | 'COMPLETED';
+  attachmentUrls?: string[];
 }
 
 function requireIdempotencyKey(idempotencyKey: string): string {
@@ -127,10 +130,16 @@ export const depositsApi = {
     });
   },
 
-  completePendingRefund: (operationId: string, note: string | undefined, idempotencyKey: string) => {
+  completePendingRefund: (
+    operationId: string,
+    note: string | undefined,
+    idempotencyKey: string,
+    attachmentUrls?: string[],
+  ) => {
     const key = requireIdempotencyKey(idempotencyKey);
     const payload: Record<string, any> = {};
     if (note !== undefined) payload.note = note;
+    if (attachmentUrls?.length) payload.attachmentUrls = attachmentUrls;
     payload.idempotencyKey = key;
     return apiClient.post<any>(`/deposits/operations/${operationId}/refund/complete`, payload, {
       headers: { 'Idempotency-Key': key },

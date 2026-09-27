@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adaptRoom } from "./building.adapter";
+import { adaptRoom, isTempResidenceDeclared } from "./building.adapter";
 
 function apiRoom(overrides: Record<string, unknown> = {}) {
   return {
@@ -81,5 +81,36 @@ describe("adaptRoom optional numeric fields", () => {
     expect(adaptRoom(apiRoom({ rentalType: "SHARED" })).rentalType).toBe("shared");
     expect(adaptRoom(apiRoom({ rentalType: "WHOLE" })).rentalType).toBe("whole");
     expect(adaptRoom(apiRoom({ rentalType: undefined })).rentalType).toBe("whole");
+  });
+
+  it("accepts the persisted temporary-residence declaration marker from the server", () => {
+    expect(isTempResidenceDeclared({ idImages: ["TEMP_RESIDENCE_DECLARED"] })).toBe(true);
+  });
+
+  it("does not treat a localStorage-only marker as a legal declaration", () => {
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        localStorage: {
+          getItem: () => "true",
+        },
+      },
+    });
+
+    try {
+      expect(isTempResidenceDeclared({ id: "customer-1", idImages: [] })).toBe(false);
+    } finally {
+      if (originalWindow) {
+        Object.defineProperty(globalThis, "window", originalWindow);
+      } else {
+        delete (globalThis as { window?: unknown }).window;
+      }
+    }
+  });
+
+  it("does not claim a declaration when the server marker is absent", () => {
+    expect(isTempResidenceDeclared({ id: "customer-1" })).toBe(false);
+    expect(isTempResidenceDeclared(null)).toBe(false);
   });
 });

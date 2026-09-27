@@ -18,6 +18,23 @@ export const RefreshTokenSchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),
 });
 
+export const TwoFactorLoginSchema = z.object({
+  challengeToken: z.string().min(1, 'Challenge token is required'),
+  code: z.string().regex(/^\d{6}$/, 'Verification code must contain 6 digits'),
+});
+
+export const UpdateAuthSecuritySchema = z.object({
+  idleTimeoutMinutes: z.number().int().min(5).max(10080),
+});
+
+export const RequestTwoFactorChangeSchema = z.object({
+  enabled: z.boolean(),
+});
+
+export const ConfirmTwoFactorChangeSchema = RequestTwoFactorChangeSchema.extend({
+  code: z.string().regex(/^\d{6}$/, 'Verification code must contain 6 digits'),
+});
+
 export const RegisterSchema = z.object({
   fullName: z.string().min(1, 'Full name is required'),
   email: z.string().email('Invalid email address'),
@@ -54,6 +71,10 @@ export const UpdateTeamMemberSchema = z.object({
 export type LoginInput = z.infer<typeof LoginSchema>;
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>;
 export type RefreshTokenInput = z.infer<typeof RefreshTokenSchema>;
+export type TwoFactorLoginInput = z.infer<typeof TwoFactorLoginSchema>;
+export type UpdateAuthSecurityInput = z.infer<typeof UpdateAuthSecuritySchema>;
+export type RequestTwoFactorChangeInput = z.infer<typeof RequestTwoFactorChangeSchema>;
+export type ConfirmTwoFactorChangeInput = z.infer<typeof ConfirmTwoFactorChangeSchema>;
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;

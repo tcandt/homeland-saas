@@ -69,6 +69,7 @@ dbDescribe("ContractsService CORE-06 PostgreSQL concurrency", () => {
         tenantId,
         fullName: "Khách CORE06",
         phone: "0900060606",
+        phoneNormalized: "0900060606",
       },
     });
     await prisma.rentalCycle.create({
@@ -252,6 +253,7 @@ dbDescribe("ContractsService CORE-06 PostgreSQL concurrency", () => {
         tenantId,
         fullName: "Khách đang ở CORE06",
         phone: "0900060610",
+        phoneNormalized: "0900060610",
       },
     });
     const residentCycle = await prisma.rentalCycle.create({
@@ -285,6 +287,7 @@ dbDescribe("ContractsService CORE-06 PostgreSQL concurrency", () => {
           tenantId,
           fullName: `Khách tranh chỗ ${suffix}`,
           phone: suffix === "a" ? "0900060611" : "0900060612",
+          phoneNormalized: suffix === "a" ? "0900060611" : "0900060612",
         },
       });
       await prisma.rentalCycle.create({

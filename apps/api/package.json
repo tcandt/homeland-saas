@@ -19,6 +19,8 @@
     "pretypecheck": "node ../../scripts/check-mojibake.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run src",
+    "test:p8": "vitest run src/contracts/contracts-active-occupant-guard.spec.ts src/contracts/contracts-whole-room-occupant.spec.ts src/monthly-settlement/p8-whole-room-payer.integration.spec.ts",
+    "test:p9": "vitest run src/contracts/p9-shared-room-capacity.integration.spec.ts src/deposits/p9-shared-room-hold-race.integration.spec.ts",
     "test:e2e": "vitest run test"
   },
   "dependencies": {

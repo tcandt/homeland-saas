@@ -39,6 +39,7 @@ export default function OperationsSidePanelShell({
     >
       <div
         aria-hidden={!open}
+        inert={!open}
         className={`pointer-events-auto fixed bottom-4 right-0 top-[72px] flex min-w-0 flex-col overflow-y-auto rounded-l-[28px] border border-r-0 border-border/70 bg-card shadow-2xl transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
           open
             ? "w-[min(460px,calc(100vw-56px))] translate-x-0 opacity-100"

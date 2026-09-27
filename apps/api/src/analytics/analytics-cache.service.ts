@@ -44,6 +44,7 @@ export class AnalyticsCacheService {
     try {
       await this.cacheManager.del(`analytics:finance:${tenantId}`);
       await this.cacheManager.del(`analytics:revenue:${tenantId}`);
+      await this.cacheManager.del(`analytics:debt:${tenantId}`);
     } catch (error) {
       this.logger.error(`Failed to invalidate finance cache for ${tenantId}`, error);
     }

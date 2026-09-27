@@ -36,6 +36,46 @@ export class HealthController {
       checks['database'] = { status: 'DOWN', latencyMs: Date.now() - dbStart };
     }
 
+    // A successful `SELECT 1` only proves that PostgreSQL is reachable. Keep
+    // traffic closed when the running application and database schema differ.
+    const schemaStart = Date.now();
+    try {
+      const rows = await this.prisma.$queryRaw<Array<{ compatible: boolean }>>`
+        SELECT (
+          EXISTS (
+            SELECT 1
+            FROM "_prisma_migrations"
+            WHERE migration_name = '20260923140000_add_ai_chat_requests'
+              AND finished_at IS NOT NULL
+              AND rolled_back_at IS NULL
+          )
+          AND to_regclass('public."PaymentPromise"') IS NOT NULL
+          AND to_regclass('public."NotificationTemplateVersion"') IS NOT NULL
+          AND to_regclass('public."AiChatRequest"') IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'Customer'
+              AND column_name = 'phoneNormalized'
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'Customer'
+              AND column_name = 'identityNoNormalized'
+          )
+        ) AS "compatible"
+      `;
+      checks['schema'] = {
+        status: rows[0]?.compatible === true ? 'UP' : 'DOWN',
+        latencyMs: Date.now() - schemaStart,
+      };
+    } catch {
+      checks['schema'] = { status: 'DOWN', latencyMs: Date.now() - schemaStart };
+    }
+
     const allUp = Object.values(checks).every((c) => c.status === 'UP');
     const result = {
       status: allUp ? 'READY' : 'NOT_READY',

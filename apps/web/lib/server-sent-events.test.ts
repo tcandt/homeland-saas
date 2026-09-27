@@ -24,4 +24,11 @@ describe('parseServerSentEvents', () => {
     expect(headerSource).toContain('Authorization: `Bearer ${accessToken}`');
     expect(headerSource).not.toContain('notifications/stream?token=');
   });
+
+  it('feeds the inbox through the shared SSE cache without a duplicate 15 second poller', () => {
+    const inboxSource = readFileSync(join(__dirname, '..', 'app', 'notifications', 'page.tsx'), 'utf8');
+
+    expect(inboxSource).toContain('"notifications-list"');
+    expect(inboxSource).not.toContain('refreshInterval: 15000');
+  });
 });

@@ -79,7 +79,7 @@ export class PaymentsController {
   @RequirePermissions('finance.update')
   @ApiOperation({ summary: 'Complete a pending SePay overpayment refund' })
   completeSePayOverpaymentRefund(
-    @Body() body: { logId: string; note?: string },
+    @Body() body: { logId: string; note?: string; attachmentUrls?: string[] },
     @CurrentUser('tenantId') tenantId: string,
     @CurrentUser('id') userId: string,
   ) {

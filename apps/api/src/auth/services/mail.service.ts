@@ -7,6 +7,7 @@ export abstract class MailProvider {
   abstract sendPasswordResetEmail(email: string, token: string, tenantId: string): Promise<void>;
   abstract sendWelcomeEmail(email: string, tenantId: string): Promise<void>;
   abstract sendEmailVerification(email: string, token: string, tenantId: string): Promise<void>;
+  abstract sendTwoFactorCode(email: string, code: string, tenantId: string, purpose: 'LOGIN' | 'ENABLE' | 'DISABLE'): Promise<void>;
 }
 
 @Injectable()
@@ -78,6 +79,25 @@ export class DbSmtpMailProvider implements MailProvider {
       email,
       'Verify your HomeLand email',
       `Use this token to verify your email:\n\n${token}`,
+    );
+  }
+
+  async sendTwoFactorCode(
+    email: string,
+    code: string,
+    tenantId: string,
+    purpose: 'LOGIN' | 'ENABLE' | 'DISABLE',
+  ): Promise<void> {
+    const purposeLabel = purpose === 'LOGIN'
+      ? 'đăng nhập'
+      : purpose === 'ENABLE'
+        ? 'bật xác thực hai bước'
+        : 'tắt xác thực hai bước';
+    await this.sendMail(
+      tenantId,
+      email,
+      'Mã xác thực HomeLand',
+      `Mã OTP để ${purposeLabel}:\n\n${code}\n\nMã có hiệu lực trong 5 phút. Không cung cấp mã này cho người khác.`,
     );
   }
 }

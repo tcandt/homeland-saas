@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {"title": "Homeland · Vòng đời thuê phòng", "quality_profile": "showcase"},
+  "lanes": [{"id":"main","label":"Vòng đời chính"},{"id":"branches","label":"Quyết định và kết thúc"}],
+  "mainPath": ["customer","room","booking","contract","living","settlement"],
+  "nodes": [
+    {"id":"customer","lane":"main","col":0,"type":"frontend","label":"Khách thuê","sublabel":"Hồ sơ và Zalo"},
+    {"id":"room","lane":"main","col":1,"type":"backend","label":"Chọn hình thức","sublabel":"Ghép / nguyên căn"},
+    {"id":"booking","lane":"main","col":2,"type":"backend","label":"Giữ phòng","sublabel":"Hold và cọc"},
+    {"id":"contract","lane":"main","col":3,"type":"backend","label":"Hợp đồng thuê","sublabel":"Duyệt và kích hoạt"},
+    {"id":"living","lane":"main","col":4,"type":"backend","label":"Đang ở","sublabel":"Hóa đơn và thu tiền"},
+    {"id":"settlement","lane":"main","col":5,"type":"database","label":"Quyết toán","sublabel":"Nợ, cọc, trả phòng"},
+    {"id":"cancel","lane":"branches","col":2,"type":"security","label":"Hủy giữ phòng","sublabel":"Hoàn / giữ / cấn"},
+    {"id":"renew","lane":"branches","col":4,"type":"backend","label":"Gia hạn","sublabel":"HĐ và chu kỳ mới"},
+    {"id":"closed","lane":"branches","col":5,"type":"database","label":"Đóng chu kỳ","sublabel":"Giữ nguyên lịch sử"}
+  ],
+  "edges":[
+    {"from":"customer","to":"room"}, {"from":"room","to":"booking"},
+    {"from":"booking","to":"contract","label":"Tiếp tục thuê"},
+    {"from":"contract","to":"living"}, {"from":"living","to":"settlement","label":"Trả phòng"},
+    {"from":"booking","to":"cancel","label":"Khách hủy","role":"branch"},
+    {"from":"living","to":"renew","label":"Ở tiếp","role":"branch"},
+    {"from":"settlement","to":"closed"}
+  ]
+}

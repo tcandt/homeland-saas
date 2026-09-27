@@ -115,6 +115,87 @@ describe('ZaloRegistrationService', () => {
     );
   });
 
+  it('binds chat id to a customer with a live booking hold before a contract exists', async () => {
+    const { service, prisma, zaloProvider } = createService();
+    prisma.room.findFirst.mockResolvedValueOnce({
+      id: 'room-1',
+      code: '31-04',
+      building: { code: 'LK01-31', name: 'Tòa nhà LK01-31' },
+      contracts: [],
+      roommates: [],
+      deposits: [
+        {
+          id: 'deposit-1',
+          customer: {
+            id: 'customer-1',
+            fullName: 'Khách cọc',
+            phone: '0911505370',
+            zaloChatId: null,
+            zaloUserId: null,
+          },
+        },
+      ],
+    });
+
+    const result = await service.handleIncomingMessage(
+      'tenant-1',
+      {
+        updateId: 'u-booking',
+        chatId: 'chat-booking',
+        chatType: 'private',
+        senderId: 'sender-booking',
+        text: 'DK 0911505370 PN 31-04',
+        eventName: 'message_received',
+        displayName: 'Khách cọc',
+        raw: {},
+      },
+      { adminGroupChatId: 'admin-group-1' },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      customerId: 'customer-1',
+      roomId: 'room-1',
+      contractId: null,
+      depositId: 'deposit-1',
+    });
+    expect(prisma.room.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          deposits: expect.objectContaining({
+            where: expect.objectContaining({
+              type: { in: ['BOOKING', 'RESERVATION'] },
+              status: { in: ['DRAFT', 'PENDING', 'PAID'] },
+              OR: expect.arrayContaining([
+                expect.objectContaining({ expiredAt: expect.any(Object) }),
+                expect.objectContaining({
+                  roomHolds: expect.objectContaining({
+                    some: expect.objectContaining({ status: 'ACTIVE' }),
+                  }),
+                }),
+              ]),
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(prisma.customer.update).toHaveBeenCalledWith({
+      where: { id: 'customer-1' },
+      data: {
+        zaloChatId: 'chat-booking',
+        zaloUserId: 'sender-booking',
+        zaloPhone: '0911505370',
+      },
+    });
+    expect(zaloProvider.send).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        recipient: 'chat-booking',
+        title: 'HomeLand - Đăng ký thành công',
+      }),
+    );
+  });
+
   it('binds chat id to multiple phone numbers for room and notifies customer + admin', async () => {
     const { service, prisma, zaloProvider } = createService();
     prisma.room.findFirst.mockResolvedValueOnce({

@@ -33,12 +33,6 @@ const categoryOptions = [
   { value: "OTHER", label: "Khác" },
 ];
 
-const statusOptions = [
-  { value: "PENDING", label: "Chờ duyệt" },
-  { value: "APPROVED", label: "Đã duyệt" },
-  { value: "PAID", label: "Đã chi" },
-];
-
 export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateModalProps) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -47,7 +41,6 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
 
   const [buildingIds, setBuildingIds] = useState<string[]>([]);
   const [category, setCategory] = useState("SUPPLIES");
-  const [status, setStatus] = useState("PENDING");
   const [amount, setAmount] = useState("");
   const [paidByName, setPaidByName] = useState("");
   const [vendor, setVendor] = useState("");
@@ -79,7 +72,6 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
   const reset = () => {
     setBuildingIds([]);
     setCategory("SUPPLIES");
-    setStatus("PENDING");
     setAmount("");
     setPaidByName("");
     setVendor("");
@@ -162,7 +154,6 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
           return financeApi.createExpense({
             buildingId: targetBuildingId,
             category,
-            status,
             amount: targetAmount,
             paidByName: paidByName.trim() || null,
             vendor: vendor.trim() || null,
@@ -246,7 +237,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         </Field>
 
         <Field label="Trạng thái">
-          <Select value={status} onChange={(event) => setStatus(event.target.value)} options={statusOptions} data-testid="expense-create-status" />
+          <Input value="Chờ duyệt" disabled data-testid="expense-create-status" />
         </Field>
 
         <Field label="Số tiền">

@@ -7,7 +7,6 @@ describe("InvoicesService", () => {
   let service: InvoicesService;
   let repository: any;
   let auditService: any;
-  let eventPublisher: any;
   let prisma: any;
 
   beforeEach(() => {
@@ -19,7 +18,6 @@ describe("InvoicesService", () => {
       softDelete: vi.fn(),
     };
     auditService = { log: vi.fn() };
-    eventPublisher = { publish: vi.fn(), publishAsync: vi.fn() };
     prisma = {
       tx: {
         invoice: {
@@ -41,6 +39,18 @@ describe("InvoicesService", () => {
         customer: { findFirst: vi.fn() },
         room: { findFirst: vi.fn() },
         rentalCycle: { findFirst: vi.fn() },
+        paymentPromise: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          create: vi.fn().mockResolvedValue({
+            id: "promise-1",
+            tenantId: "tenant-1",
+            invoiceId: "invoice-1",
+            amount: 300,
+            dueDate: new Date("2026-10-01T00:00:00.000Z"),
+            status: "PENDING",
+          }),
+        },
         $queryRaw: vi.fn().mockResolvedValue([{ id: "locked" }]),
         $transaction: vi.fn((cb) => cb(prisma.tx)),
       },
@@ -49,9 +59,69 @@ describe("InvoicesService", () => {
     service = new InvoicesService(
       repository,
       auditService,
-      eventPublisher,
       prisma,
     );
+  });
+
+  describe("payment promises", () => {
+    it("records a partial-payment appointment without changing invoice obligation", async () => {
+      prisma.tx.invoice.findFirst.mockResolvedValue({
+        id: "invoice-1",
+        customerId: "customer-1",
+        contractId: "contract-1",
+        rentalCycleId: "cycle-1",
+        total: 1000,
+        paidAmount: 400,
+        creditAmount: 0,
+        status: InvoiceStatus.PARTIALLY_PAID,
+      });
+
+      await expect(service.createPaymentPromise(
+        "invoice-1",
+        {
+          amount: 300,
+          dueDate: "2026-10-01T00:00:00.000Z",
+          note: "Khách hẹn trả phần còn lại",
+        },
+        "user-1",
+        "tenant-1",
+        "promise-command-1",
+      )).resolves.toMatchObject({ id: "promise-1", amount: 300 });
+
+      expect(prisma.tx.invoice.update).not.toHaveBeenCalled();
+      expect(prisma.tx.paymentPromise.updateMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({ invoiceId: "invoice-1" }),
+        data: expect.objectContaining({ status: "CANCELLED" }),
+      });
+      expect(prisma.tx.paymentPromise.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId: "tenant-1",
+          invoiceId: "invoice-1",
+          amount: 300,
+          idempotencyKey: "promise-command-1",
+          createdBy: "user-1",
+        }),
+      });
+    });
+
+    it("rejects an appointment larger than the current remaining balance", async () => {
+      prisma.tx.invoice.findFirst.mockResolvedValue({
+        id: "invoice-1",
+        total: 1000,
+        paidAmount: 900,
+        creditAmount: 0,
+        status: InvoiceStatus.PARTIALLY_PAID,
+      });
+
+      await expect(service.createPaymentPromise(
+        "invoice-1",
+        { amount: 101, dueDate: "2026-10-01T00:00:00.000Z" },
+        "user-1",
+        "tenant-1",
+        "promise-command-2",
+      )).rejects.toThrow("PAYMENT_PROMISE_AMOUNT_EXCEEDS_REMAINING");
+      expect(prisma.tx.paymentPromise.create).not.toHaveBeenCalled();
+    });
   });
 
   describe("listInvoices", () => {
@@ -359,7 +429,6 @@ describe("InvoicesService", () => {
           }),
         }),
       );
-      expect(eventPublisher.publish).not.toHaveBeenCalled();
     });
 
     it("rejects a non-positive total", async () => {
@@ -439,16 +508,8 @@ describe("InvoicesService", () => {
           }),
         }),
       );
-      expect(eventPublisher.publish).toHaveBeenCalledWith(
-        "invoice.payment.recorded",
-        expect.objectContaining({
-          sourceId: "inv-1",
-          outboxEventId: "outbox-1",
-          paymentAmount: 40,
-          paymentProvider: "MANUAL",
-          paymentRef: "manual-partial-1",
-        }),
-      );
+      // Payment events are only delivered by the ordered durable outbox. This
+      // prevents a bank confirmation from arriving before invoice.issued.
     });
 
     it("records a full payment as durable invoice.paid", async () => {
@@ -486,16 +547,6 @@ describe("InvoicesService", () => {
               amount: 100,
             }),
           }),
-        }),
-      );
-      expect(eventPublisher.publish).toHaveBeenCalledWith(
-        "invoice.paid",
-        expect.objectContaining({
-          sourceId: "inv-1",
-          outboxEventId: "outbox-1",
-          paymentAmount: 60,
-          paymentProvider: "MANUAL",
-          paymentRef: "manual-full-1",
         }),
       );
     });

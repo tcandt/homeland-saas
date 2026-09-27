@@ -1,7 +1,20 @@
 import { Controller, Post, Body, ForbiddenException, Get, Patch, Req, UseGuards, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { LoginSchema, ChangePasswordSchema, RefreshTokenSchema, RegisterSchema, ForgotPasswordSchema, ResetPasswordSchema, CreateTeamMemberSchema, UpdateTeamMemberSchema } from '@homeland/shared';
+import {
+  LoginSchema,
+  ChangePasswordSchema,
+  RefreshTokenSchema,
+  RegisterSchema,
+  ForgotPasswordSchema,
+  ResetPasswordSchema,
+  CreateTeamMemberSchema,
+  UpdateTeamMemberSchema,
+  TwoFactorLoginSchema,
+  UpdateAuthSecuritySchema,
+  RequestTwoFactorChangeSchema,
+  ConfirmTwoFactorChangeSchema,
+} from '@homeland/shared';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { Public } from '../shared/decorators/public.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
@@ -30,6 +43,19 @@ export class AuthController {
     const ip = req.ip || req.connection?.remoteAddress;
     const userAgent = req.headers['user-agent'];
     return this.authService.login(input, ip, userAgent);
+  }
+
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @Post('two-factor/login')
+  @ApiOperation({ summary: 'Complete login using an email OTP challenge' })
+  verifyTwoFactorLogin(@Body() body: unknown, @Req() req: Request) {
+    const input = TwoFactorLoginSchema.parse(body);
+    return this.authService.verifyTwoFactorLogin(
+      input,
+      req.ip || req.connection?.remoteAddress,
+      req.headers['user-agent'],
+    );
   }
 
   @Public()
@@ -79,6 +105,52 @@ export class AuthController {
   @ApiOperation({ summary: 'Logout and revoke refresh token' })
   logout(@CurrentUser('id') userId: string) {
     return this.authService.logout(userId);
+  }
+
+  @Post('logout-other-sessions')
+  @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
+  @ApiOperation({ summary: 'Revoke all previous access and refresh sessions while preserving the current device' })
+  logoutOtherSessions(@CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.authService.logoutOtherSessions(
+      userId,
+      req.ip || req.connection?.remoteAddress,
+      req.headers['user-agent'],
+    );
+  }
+
+  @Get('security')
+  @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
+  @ApiOperation({ summary: 'Get current user authentication security settings' })
+  getSecurity(@CurrentUser('id') userId: string) {
+    return this.authService.getSecurity(userId);
+  }
+
+  @Patch('security')
+  @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
+  @ApiOperation({ summary: 'Update current user authentication security settings' })
+  updateSecurity(@CurrentUser('id') userId: string, @Body() body: unknown) {
+    return this.authService.updateSecurity(userId, UpdateAuthSecuritySchema.parse(body));
+  }
+
+  @Post('security/two-factor/request')
+  @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Send an OTP before enabling or disabling email 2FA' })
+  requestTwoFactorChange(@CurrentUser('id') userId: string, @Body() body: unknown) {
+    return this.authService.requestTwoFactorChange(userId, RequestTwoFactorChangeSchema.parse(body));
+  }
+
+  @Post('security/two-factor/confirm')
+  @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Confirm enabling or disabling email 2FA using OTP' })
+  confirmTwoFactorChange(@CurrentUser('id') userId: string, @Body() body: unknown) {
+    return this.authService.confirmTwoFactorChange(userId, ConfirmTwoFactorChangeSchema.parse(body));
   }
 
   @Post('defer-password-change')

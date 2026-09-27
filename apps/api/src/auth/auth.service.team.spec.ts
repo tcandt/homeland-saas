@@ -33,6 +33,8 @@ describe('AuthService team directory', () => {
       password: 'StrongTemp@123',
     });
 
+    expect('user' in result).toBe(true);
+    if (!('user' in result)) throw new Error('Expected a completed login session');
     expect(result.user.mustChangePassword).toBe(true);
     expect(jwtService.sign).toHaveBeenCalledWith(expect.objectContaining({
       sub: 'system-admin',

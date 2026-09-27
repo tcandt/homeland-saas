@@ -11,6 +11,7 @@ import { Public } from '../shared/decorators/public.decorator';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { buildTenantWebhookUrl, extractZaloWebhookChat, isWrappedZaloWebhookPayload, mergeRecentZaloWebhookChat, normalizeZaloUpdate, unwrapZaloWebhookPayload } from './adapters/zalo-normalizer';
 import { ZaloRegistrationService } from './services/zalo-registration.service';
+import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import {
   buildAdminGroupConnectedMessage,
   buildAdminGroupTestMessage,
@@ -415,10 +416,44 @@ export class CommunicationController {
   }
 
   @Get('templates')
+  @RequirePermissions('setting.read')
   async getTemplates(@Req() req) {
-    return this.prisma.notificationTemplate.findMany({
-      where: { tenantId: req.user.tenantId }
-    });
+    return this.communicationService.getTemplateCatalog(req.user.tenantId);
+  }
+
+  @Patch('templates/:code/draft')
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Save a tenant notification template draft' })
+  async saveTemplateDraft(
+    @Req() req,
+    @Param('code') code: string,
+    @Body() body: { name?: string; subject?: string | null; body?: string },
+  ) {
+    return this.communicationService.saveTemplateDraft(req.user.tenantId, code, body || {}, req.user.id);
+  }
+
+  @Post('templates/:code/preview')
+  @RequirePermissions('setting.read')
+  @ApiOperation({ summary: 'Render a safe sample preview of a notification template' })
+  async previewTemplate(
+    @Param('code') code: string,
+    @Body() body: { name?: string; subject?: string | null; body?: string; context?: Record<string, unknown> },
+  ) {
+    return this.communicationService.previewTemplate(code, body || {}, body?.context);
+  }
+
+  @Post('templates/:code/publish')
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Publish the latest tenant notification template draft' })
+  async publishTemplate(@Req() req, @Param('code') code: string) {
+    return this.communicationService.publishTemplate(req.user.tenantId, code, req.user.id);
+  }
+
+  @Post('templates/:code/rollback/:version')
+  @RequirePermissions('setting.update')
+  @ApiOperation({ summary: 'Publish a new version copied from a previous notification template version' })
+  async rollbackTemplate(@Req() req, @Param('code') code: string, @Param('version') version: string) {
+    return this.communicationService.rollbackTemplate(req.user.tenantId, code, Number(version), req.user.id);
   }
 
   @Get('preferences')

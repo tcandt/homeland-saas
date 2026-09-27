@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Headers } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { CustomersService } from './customers.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
@@ -58,7 +58,12 @@ export class CustomersController {
   @Post()
   @RequirePermissions('customer.create')
   @ApiOperation({ summary: 'Create customer' })
-  create(@Body() body: any, @CurrentUser('id') userId: string) {
+  create(
+    @Body() body: any,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('tenantId') tenantId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
     const input = CreateCustomerSchema.parse(body);
     const data = {
       fullName: input.fullName,
@@ -75,6 +80,9 @@ export class CustomersController {
       roomId: input.roomId,
       relationship: input.relationship,
     };
+    if (idempotencyKey) {
+      return this.customersService.createIdempotent(tenantId, userId, data, idempotencyKey);
+    }
     return this.customersService.create(data, userId, 'Customers');
   }
 

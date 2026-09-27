@@ -20,7 +20,10 @@ const source = {
   coRepresentativeIds: [],
   termsSnapshot: { historical: true },
 };
-const terminalCycle = Object.freeze({ id: "cycle-closed", status: RentalCycleStatus.CLOSED });
+const terminalCycle = Object.freeze({
+  id: "cycle-closed",
+  status: RentalCycleStatus.CLOSED,
+});
 
 function setup() {
   let renewed: any = null;
@@ -46,9 +49,18 @@ function setup() {
       }),
     },
     rentalCycle: {
-      create: vi.fn(async ({ data }: any) => ({ id: `cycle-new-${++cycleCount}`, ...data })),
+      create: vi.fn(async ({ data }: any) => ({
+        id: `cycle-new-${++cycleCount}`,
+        ...data,
+      })),
       update: vi.fn(),
       updateMany: vi.fn(),
+    },
+    task: {
+      create: vi.fn(async ({ data }: any) => ({
+        id: "renewal-task-1",
+        ...data,
+      })),
     },
     invoice: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     payment: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
@@ -70,12 +82,14 @@ function setup() {
     { publish: vi.fn() } as any,
     { getRoomElectricityPricing: vi.fn() } as any,
   );
-  vi.spyOn(service as any, "withContractSnapshots").mockImplementation(async (data: any) => ({
-    ...data,
-    customerSnapshot: {},
-    roomSnapshot: {},
-    termsSnapshot: { monthlyRent: data.monthlyRent },
-  }));
+  vi.spyOn(service as any, "withContractSnapshots").mockImplementation(
+    async (data: any) => ({
+      ...data,
+      customerSnapshot: {},
+      roomSnapshot: {},
+      termsSnapshot: { monthlyRent: data.monthlyRent },
+    }),
+  );
   return {
     service,
     tx,
@@ -96,20 +110,55 @@ describe("CORE-09.03 renewal", () => {
     const { service, tx, oldFinancialDocuments } = setup();
     const sourceBefore = structuredClone(source);
 
-    const result = await service.renewContract(source.id, input, "user-a", "tenant-a", key);
+    const result = await service.renewContract(
+      source.id,
+      input,
+      "user-a",
+      "tenant-a",
+      key,
+    );
 
     expect(result.id).toBe("contract-renewed");
     expect(result.rentalCycleId).toBe("cycle-new-1");
     expect(result.status).toBe(ContractStatus.DRAFT);
-    expect(tx.rentalCycle.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: RentalCycleStatus.PLANNED }),
-    }));
+    expect(tx.rentalCycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: RentalCycleStatus.PLANNED }),
+      }),
+    );
     expect(tx.rentalCycle.update).not.toHaveBeenCalled();
     expect(tx.rentalCycle.updateMany).not.toHaveBeenCalled();
-    expect(tx.auditLog.create).toHaveBeenCalledOnce();
-    expect(terminalCycle).toEqual({ id: "cycle-closed", status: RentalCycleStatus.CLOSED });
-    expect(tx.contract.create.mock.calls[0][0].data.termsSnapshot.renewal).toEqual(
-      expect.objectContaining({ sourceContractId: source.id, sourceRentalCycleId: "cycle-closed" }),
+    expect(tx.task.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: source.tenantId,
+        contractId: result.id,
+        rentalCycleId: result.rentalCycleId,
+        customerId: source.customerId,
+        status: "TODO",
+        priority: "HIGH",
+        assigneeId: "user-a",
+        dueDate: input.startDate,
+      }),
+    });
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(2);
+    expect(tx.auditLog.create).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({
+        entity: "Task",
+        entityId: "renewal-task-1",
+        tenantId: source.tenantId,
+      }),
+    });
+    expect(terminalCycle).toEqual({
+      id: "cycle-closed",
+      status: RentalCycleStatus.CLOSED,
+    });
+    expect(
+      tx.contract.create.mock.calls[0][0].data.termsSnapshot.renewal,
+    ).toEqual(
+      expect.objectContaining({
+        sourceContractId: source.id,
+        sourceRentalCycleId: "cycle-closed",
+      }),
     );
     expect(oldFinancialDocuments).toEqual({
       invoices: [{ id: "invoice-old", total: 2_000_000 }],
@@ -118,7 +167,12 @@ describe("CORE-09.03 renewal", () => {
       settlements: [{ id: "settlement-old" }],
     });
     expect(source).toEqual(sourceBefore);
-    for (const model of [tx.invoice, tx.payment, tx.deposit, tx.contractSettlement]) {
+    for (const model of [
+      tx.invoice,
+      tx.payment,
+      tx.deposit,
+      tx.contractSettlement,
+    ]) {
       for (const operation of Object.values(model) as any[]) {
         expect(operation).not.toHaveBeenCalled();
       }
@@ -136,9 +190,16 @@ describe("CORE-09.03 renewal", () => {
     expect(first.id).toBe(second.id);
     expect(persistedRenewalCount()).toBe(1);
     expect(tx.contract.create).toHaveBeenCalledTimes(2); // second insert lost its transaction race
-    expect(tx.auditLog.create).toHaveBeenCalledOnce();
+    expect(tx.task.create).toHaveBeenCalledOnce();
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(2);
     await expect(
-      service.renewContract(source.id, { ...input, endDate: new Date("2027-01-31T00:00:00.000Z") }, "user-a", "tenant-a", key),
+      service.renewContract(
+        source.id,
+        { ...input, endDate: new Date("2027-01-31T00:00:00.000Z") },
+        "user-a",
+        "tenant-a",
+        key,
+      ),
     ).rejects.toThrow("RENEWAL_IDEMPOTENCY_CONFLICT");
     expect(tx.$queryRaw).toHaveBeenCalledTimes(4); // source row lock for both contenders, collision retry, and replay
   });
@@ -150,5 +211,6 @@ describe("CORE-09.03 renewal", () => {
       service.renewContract(source.id, input, "user-b", "tenant-b", key),
     ).rejects.toThrow("Contract with ID contract-old not found");
     expect(tx.rentalCycle.create).not.toHaveBeenCalled();
+    expect(tx.task.create).not.toHaveBeenCalled();
   });
 });

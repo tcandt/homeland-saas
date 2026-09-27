@@ -18,6 +18,16 @@ type ReconciliationRow = {
   overpaymentRefundCompletedAt?: string | null;
   overpaymentAmount?: number | null;
   overpaymentTaskTitle?: string | null;
+  manualAssignmentCandidates?: Array<{
+    sourceType: 'INVOICE' | 'DEPOSIT';
+    sourceCode: string;
+    customerName: string;
+    roomCode: string;
+    buildingName: string;
+    expectedAmount: number;
+    amountDelta: number;
+    matchReasons: string[];
+  }>;
 };
 
 function createBaseRows(): ReconciliationRow[] {
@@ -39,6 +49,18 @@ function createBaseRows(): ReconciliationRow[] {
       overpaymentRefundCompletedAt: null,
       overpaymentAmount: null,
       overpaymentTaskTitle: null,
+      manualAssignmentCandidates: [
+        {
+          sourceType: 'INVOICE',
+          sourceCode: 'INV-31-202608',
+          customerName: 'Nguyen Duc Tinh',
+          roomCode: '31-04',
+          buildingName: 'LK01-31',
+          expectedAmount: 2500000,
+          amountDelta: 0,
+          matchReasons: ['Đúng mã thanh toán', 'Khớp số tiền'],
+        },
+      ],
     },
     {
       id: 'log-over-1',
@@ -268,6 +290,22 @@ async function mockFinanceSePay(page: any) {
     });
   });
 
+  await page.route('**/api/v1/documents/upload', async (route: any) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        data: { url: '/documents/sepay-refund-proof.png' },
+      }),
+    });
+  });
+
   await page.route('**/api/v1/payments/sepay/manual-assign', async (route: any) => {
     manualAssignPayload = route.request().postDataJSON?.() || {};
     rows = rows.map((row) =>
@@ -447,7 +485,7 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
     await expect(admin.page.getByTestId('sepay-refund-complete-open-log-outgoing-1')).toHaveCount(0);
   });
 
-  test('manually assigns an unmatched SePay transaction with the expected payload', async ({ admin }) => {
+  test('selects a suggested obligation before assigning an unmatched SePay transaction', async ({ admin }) => {
     const mock = await mockFinanceSePay(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
@@ -455,8 +493,8 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
     await admin.page.getByTestId('sepay-manual-assign-open-log-unmatched-1').click();
     await expect(admin.page.getByTestId('sepay-manual-assign-modal')).toBeVisible();
 
-    await admin.page.getByTestId('sepay-manual-assign-source-type').selectOption('INVOICE');
-    await admin.page.getByTestId('sepay-manual-assign-source-code').fill('INV-31-202608');
+    await admin.page.getByTestId('sepay-manual-assign-suggestion-select').selectOption('INVOICE:INV-31-202608');
+    await expect(admin.page.getByTestId('sepay-manual-assign-selected')).toContainText('INV-31-202608');
     await admin.page.getByTestId('sepay-manual-assign-submit').click();
 
     await expect
@@ -502,6 +540,12 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
     await expect(admin.page.getByTestId('sepay-refund-complete-modal')).toBeVisible();
 
     await admin.page.getByTestId('sepay-refund-complete-note').fill('Đã hoàn qua MB Bank lúc 10:30');
+    await admin.page.locator('input[type="file"]').first().setInputFiles({
+      name: 'sepay-refund-proof.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('refund-proof'),
+    });
+    await expect(admin.page.getByText('sepay-refund-proof.png')).toBeVisible();
     await admin.page.getByTestId('sepay-refund-complete-submit').click();
 
     await expect
@@ -509,6 +553,7 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
       .toMatchObject({
         logId: 'log-refund-1',
         note: 'Đã hoàn qua MB Bank lúc 10:30',
+        attachmentUrls: ['/documents/sepay-refund-proof.png'],
       });
 
     await expect(admin.page.getByTestId('sepay-refund-complete-modal')).toHaveCount(0);

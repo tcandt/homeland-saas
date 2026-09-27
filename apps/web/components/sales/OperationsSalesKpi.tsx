@@ -1,25 +1,19 @@
 "use client";
 
 import React from "react";
-import { Users, UserCheck, CalendarClock, CreditCard, CheckCircle2, CircleDollarSign, Coins, TrendingUp } from "lucide-react";
-import { useSalesLeadsQuery } from "@/lib/queries/sales.queries";
+import { Users, UserCheck, CalendarClock, CreditCard, CheckCircle2, CircleDollarSign } from "lucide-react";
+import { useSalesSummaryQuery } from "@/lib/queries/sales.queries";
 import { Card } from "../ui/Card";
 import { Skeleton } from "../ui/Skeleton";
 
 export default function OperationsSalesKpi() {
-  const { data, isLoading } = useSalesLeadsQuery({ limit: 100 });
-  const leads = Array.isArray((data as any)?.data?.data) ? (data as any).data.data : [];
-  const total = leads.length;
-  const newLeads = leads.filter((lead: any) => lead.status === "NEW").length;
-  const contacted = leads.filter((lead: any) => lead.status === "CONTACTED").length;
-  const active = leads.filter((lead: any) => ["CONTACTED", "QUALIFIED", "PROPOSAL"].includes(lead.status)).length;
-  const won = leads.filter((lead: any) => lead.status === "WON").length;
-  const notesCount = leads.filter((lead: any) => String(lead.notes || "").trim().length > 0).length;
+  const { data: summary, isLoading } = useSalesSummaryQuery();
+  const total = summary?.total ?? 0;
+  const newLeads = summary?.stageCounts.NEW ?? 0;
+  const contacted = summary?.stageCounts.CONTACTED ?? 0;
+  const active = summary?.activeCount ?? 0;
+  const won = summary?.stageCounts.WON ?? 0;
   const conversion = total > 0 ? Math.round((won / total) * 100) : 0;
-  const recent30Days = leads.filter((lead: any) => {
-    const created = new Date(lead.createdAt);
-    return !Number.isNaN(created.getTime()) && Date.now() - created.getTime() <= 1000 * 60 * 60 * 24 * 30;
-  }).length;
 
   const kpis = [
     { label: "Tổng lead", value: String(total), icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
@@ -28,14 +22,12 @@ export default function OperationsSalesKpi() {
     { label: "Đã liên hệ", value: String(contacted), icon: CreditCard, color: "text-indigo-500", bg: "bg-indigo-500/10" },
     { label: "Đã chốt", value: String(won), icon: CheckCircle2, color: "text-indigo-500", bg: "bg-indigo-500/10" },
     { label: "Tỷ lệ chốt", value: `${conversion}%`, icon: CircleDollarSign, color: "text-indigo-600 dark:text-indigo-500", bg: "bg-indigo-500/10" },
-    { label: "Có ghi chú", value: String(notesCount), icon: Coins, color: "text-yellow-600 dark:text-yellow-500", bg: "bg-yellow-500/10" },
-    { label: "30 ngày", value: String(recent30Days), icon: TrendingUp, color: "text-[#6366f1]", bg: "bg-[#6366f1]/10" },
   ];
 
   if (isLoading) {
     return (
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-[12px]">
-        {Array.from({ length: 8 }).map((_, index) => (
+        {Array.from({ length: 6 }).map((_, index) => (
           <Card key={index} className="p-[16px] flex flex-col justify-between shadow-sm h-[80px] md:h-[90px]">
             <div className="flex items-center justify-between">
               <Skeleton className="h-3 w-20" />

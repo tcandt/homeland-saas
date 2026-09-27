@@ -19,6 +19,9 @@ describe('RuleEngine', () => {
         create: vi.fn().mockResolvedValue({ id: 'rule-exec-1' }),
         update: vi.fn().mockResolvedValue({ id: 'rule-exec-1', status: WorkflowStatus.SUCCESS }),
       },
+      task: {
+        create: vi.fn().mockResolvedValue({ id: 'task-1' }),
+      },
     };
 
     communicationService = {
@@ -128,6 +131,31 @@ describe('RuleEngine', () => {
         title: expect.stringContaining('CTR-001'),
         message: expect.stringContaining('31-04'),
       }),
+    }));
+  });
+
+  it('sends a payment-promise reminder using the remaining balance and creates one ops task', async () => {
+    await engine.executeRule('invoice.payment_promise_due', {
+      tenantId: 'tenant-1',
+      correlationId: 'invoice.payment_promise_due:promise-1',
+      paymentPromiseId: 'promise-1',
+      promiseDueDate: new Date('2026-08-11T00:00:00.000Z'),
+      promiseStatus: 'OVERDUE',
+      status: 'PARTIALLY_PAID',
+      customerId: 'customer-1',
+      invoiceCode: 'INV-003',
+      roomCode: '31-05',
+      remainingAmount: 3000000,
+    });
+
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-1',
+      userId: 'customer-1',
+      templateCode: 'SYSTEM_ALERT',
+      context: expect.objectContaining({ title: expect.stringContaining('INV-003') }),
+    }));
+    expect(prisma.task.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ tenantId: 'tenant-1', priority: 'HIGH' }),
     }));
   });
 });

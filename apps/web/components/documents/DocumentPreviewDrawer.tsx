@@ -10,6 +10,7 @@ import { Badge } from '../ui/Badge';
 import { Card, CardContent } from '../ui/Card';
 import { LoadingState } from '../ui/LoadingState';
 import { EmptyState } from '../ui/EmptyState';
+import { downloadDocument } from '../../lib/documents/download-document';
 
 interface DocumentPreviewDrawerProps {
   open: boolean;
@@ -18,7 +19,13 @@ interface DocumentPreviewDrawerProps {
   onSigned: () => void;
 }
 
-const DocumentVersionList = ({ versions, documentId }: { versions: any[], documentId: string }) => {
+const DocumentVersionList = ({
+  versions,
+  onDownload,
+}: {
+  versions: any[];
+  onDownload: (version: any) => void;
+}) => {
   if (!versions || versions.length === 0) {
     return <EmptyState title="Không có phiên bản" message="Tài liệu này chưa có lịch sử phiên bản nào." icon={<FileText size={48} />} />;
   }
@@ -37,7 +44,7 @@ const DocumentVersionList = ({ versions, documentId }: { versions: any[], docume
               variant="ghost" 
               size="sm" 
               className="text-primary gap-1"
-              onClick={() => window.open(`/api/v1/documents/${documentId}/versions/${v.id}/download`)}
+              onClick={() => onDownload(v)}
             >
               <Download size={14}/> Tải
             </Button>
@@ -134,9 +141,26 @@ export default function DocumentPreviewDrawer({ open, documentId, onClose, onSig
     }
   };
 
-  const handleDownload = () => {
-    if (documentId) {
-      window.open(`/api/v1/documents/${documentId}/download`, '_blank');
+  const handleDownload = async () => {
+    if (!documentId) return;
+
+    try {
+      await downloadDocument(`/api/v1/documents/${documentId}/download`, doc?.title);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Khong the tai tai lieu');
+    }
+  };
+
+  const handleVersionDownload = async (version: any) => {
+    if (!documentId) return;
+
+    try {
+      await downloadDocument(
+        `/api/v1/documents/${documentId}/versions/${version.id}/download`,
+        `${doc?.title || 'document'}-v${version.versionNumber}`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Khong the tai phien ban tai lieu');
     }
   };
 
@@ -189,7 +213,7 @@ export default function DocumentPreviewDrawer({ open, documentId, onClose, onSig
                 <Badge variant={doc.status === 'SIGNED' ? 'success' : 'warning'}>{doc.status}</Badge>
                 <Badge variant="neutral">{doc.type}</Badge>
               </div>
-              <Button data-testid="document-download-button" onClick={handleDownload} variant="primary" className="gap-2">
+              <Button data-testid="document-download-button" onClick={() => void handleDownload()} variant="primary" className="gap-2">
                 <Download size={16}/> Tải PDF
               </Button>
             </div>
@@ -200,7 +224,7 @@ export default function DocumentPreviewDrawer({ open, documentId, onClose, onSig
               <h4 className="font-bold text-lg text-text flex items-center gap-2">
                 <FileText size={20} className="text-primary"/> Lịch sử phiên bản
               </h4>
-              <DocumentVersionList versions={doc.versions} documentId={documentId!} />
+              <DocumentVersionList versions={doc.versions} onDownload={(version) => void handleVersionDownload(version)} />
             </div>
 
             <div className="h-px w-full bg-border" />

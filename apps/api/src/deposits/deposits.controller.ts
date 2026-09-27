@@ -299,6 +299,7 @@ export class DepositsController {
       securityDepositId: input.securityDepositId,
       excessAction: input.excessAction,
       refundStatus: input.refundStatus,
+      attachmentUrls: input.attachmentUrls,
     }, userId);
   }
 
@@ -320,6 +321,7 @@ export class DepositsController {
       keepAmount: input.keepAmount,
       deductAmount: input.deductAmount,
       refundStatus: input.refundStatus,
+      attachmentUrls: input.attachmentUrls,
     }, userId);
   }
 
@@ -339,6 +341,7 @@ export class DepositsController {
       operationId,
       idempotencyHeader || input.idempotencyKey || '',
       userId,
+      { note: input.note, attachmentUrls: input.attachmentUrls },
     );
   }
 }

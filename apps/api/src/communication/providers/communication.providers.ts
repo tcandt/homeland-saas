@@ -55,6 +55,23 @@ function resolveRecipient(payload: ProviderPayload, keys: string[]) {
   return '';
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeTelegramText(value: string, parseMode: string) {
+  const mode = parseMode.trim().toUpperCase();
+  if (mode === 'HTML') return escapeHtml(value);
+  if (mode === 'MARKDOWNV2') return value.replace(/([_\*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+  if (mode === 'MARKDOWN') return value.replace(/([_\*\[\]`])/g, '\\$1');
+  return value;
+}
+
 export function looksLikePhoneNumber(value: string) {
   const normalized = value.replace(/[^\d+]/g, '');
   return /^(\+?84|0)\d{8,11}$/.test(normalized);
@@ -251,7 +268,9 @@ export class ConsoleProvider implements CommunicationProvider {
       to: recipient,
       subject: payload.title || 'HomeLand notification',
       text: payload.message || '',
-      html: settings.sendHtml === false ? undefined : String(payload.message || '').replace(/\n/g, '<br />'),
+      html: settings.sendHtml === false
+        ? undefined
+        : escapeHtml(String(payload.message || '')).replace(/\n/g, '<br />'),
     });
 
     return { success: true, providerMessageId: info.messageId };
@@ -280,13 +299,14 @@ export class ConsoleProvider implements CommunicationProvider {
     const text = message
       ? (title && !message.startsWith(title) ? `${title}\n\n${message}` : message)
       : title;
+    const parseMode = String(settings.parseMode || '').trim();
 
     const { response, body } = await postJsonWithTimeout(
       `https://api.telegram.org/bot${botToken}/sendMessage`,
       {
         chat_id: chatId,
-        text,
-        parse_mode: settings.parseMode || undefined,
+        text: escapeTelegramText(text, parseMode),
+        parse_mode: parseMode || undefined,
         disable_web_page_preview: settings.disableWebPreview ?? true,
       },
       timeoutMs,

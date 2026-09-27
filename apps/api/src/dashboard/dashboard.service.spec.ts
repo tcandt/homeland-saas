@@ -2,7 +2,23 @@ import { describe, expect, it, vi } from 'vitest';
 import { DashboardService } from './dashboard.service';
 
 describe('DashboardService', () => {
-  it('syncs occupancy and revenue from active room contracts when room status is still available', async () => {
+  it('does not present active-contract rent as ledger revenue when history has no journal entries', async () => {
+    const getProfitLossHistory = vi.fn().mockResolvedValue({
+      data: [
+        { month: 'T8', revenue: 0, expense: 0, profit: 0 },
+        { month: 'T9', revenue: 0, expense: 0, profit: 0 },
+      ],
+    });
+
+    const history = await new DashboardService({} as any, { getProfitLossHistory } as any)
+      .getRevenueHistoryByMonths('tenant-1');
+
+    expect(history).toHaveLength(2);
+    expect(history.every((month) => month.revenue === 0 && month.profit === 0)).toBe(true);
+    expect(getProfitLossHistory).toHaveBeenCalledWith('tenant-1', { months: '6' });
+  });
+
+  it('syncs occupancy from active room contracts without presenting contract rent as posted revenue', async () => {
     const prisma: any = {
       room: {
         count: vi.fn()
@@ -89,9 +105,9 @@ describe('DashboardService', () => {
       rate: 50,
     });
     expect(dashboard.kpis).toMatchObject({
-      totalRevenue: 6_000_000,
-      netProfit: 6_000_000,
-      netCashFlow: 6_000_000,
+      totalRevenue: 0,
+      netProfit: 0,
+      netCashFlow: 0,
       totalDebt: 500_000,
       depositHeld: 2_500_000,
     });
@@ -102,6 +118,18 @@ describe('DashboardService', () => {
       vacant: 1,
       fillRate: 50,
     });
-    expect(dashboard.revenueHistory.at(-1)).toMatchObject({ revenue: 6_000_000, profit: 6_000_000 });
+    expect(dashboard.revenueHistory.at(-1)).toMatchObject({ revenue: 0, profit: 0 });
+  });
+
+  it('keeps quick-history profit independent from revenue', () => {
+    const service = new DashboardService({} as any, {} as any);
+
+    const history = (service as any).buildQuickRevenueMonths(
+      new Date('2026-09-26T00:00:00.000Z'),
+      1_000_000,
+      400_000,
+    );
+
+    expect(history.at(-1)).toMatchObject({ revenue: 1_000_000, profit: 400_000 });
   });
 });

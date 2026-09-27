@@ -42,6 +42,23 @@ export type MoveOutOccupantPayload = Partial<ContractSettlementPayload> & {
   reason?: string | null;
 };
 
+export type AddWholeRoomOccupantPayload = {
+  customerId: string;
+  moveInAt: string;
+  relationship?: string | null;
+};
+
+export type RenewContractPayload = {
+  startDate: string;
+  endDate: string;
+  rentAmount?: number;
+  depositAmount?: number;
+  memberCount?: number;
+  firstPaymentDate?: string | null;
+  purpose?: string | null;
+  coRepresentativeIds?: string[];
+};
+
 export type MoveOutOccupantResult = {
   mode:
     | "CONTRACT_SETTLED"
@@ -75,8 +92,15 @@ export const contractsApi = {
     return apiClient.post("/contracts", data);
   },
 
-  convertBookingHold: (id: string, data: any) => {
-    return apiClient.post(`/contracts/${id}/convert-booking-hold`, data);
+  convertBookingHold: (id: string, data: any, idempotencyKey: string) => {
+    const commandKey = requireIdempotencyKey(idempotencyKey);
+    return apiClient.post(
+      `/contracts/${id}/convert-booking-hold`,
+      { ...data, idempotencyKey: commandKey },
+      {
+        headers: { "Idempotency-Key": commandKey },
+      },
+    );
   },
 
   update: (id: string, data: any) => {
@@ -106,28 +130,75 @@ export const contractsApi = {
     );
   },
 
+  renew: (
+    id: string,
+    payload: RenewContractPayload,
+    idempotencyKey: string,
+  ) => {
+    const commandKey = requireIdempotencyKey(idempotencyKey);
+    return apiClient.post(
+      `/contracts/${id}/renew`,
+      { ...payload, idempotencyKey: commandKey },
+      { headers: { "Idempotency-Key": commandKey } },
+    );
+  },
+
   previewSettlement: (id: string, payload: ContractSettlementPayload) => {
     return apiClient.post(`/contracts/${id}/settlement-preview`, payload);
   },
 
-  terminate: (id: string, payload?: Partial<ContractSettlementPayload>) => {
-    return apiClient.post(`/contracts/${id}/terminate`, payload);
+  terminate: (
+    id: string,
+    payload?: Partial<ContractSettlementPayload>,
+    idempotencyKey?: string,
+  ) => {
+    const commandKey = idempotencyKey
+      ? requireIdempotencyKey(idempotencyKey)
+      : undefined;
+    return apiClient.post(
+      `/contracts/${id}/terminate`,
+      commandKey ? { ...payload, idempotencyKey: commandKey } : payload,
+      commandKey ? { headers: { "Idempotency-Key": commandKey } } : undefined,
+    );
   },
 
-  moveOutOccupant: (payload: MoveOutOccupantPayload) => {
+  moveOutOccupant: (
+    payload: MoveOutOccupantPayload,
+    idempotencyKey: string,
+  ) => {
+    const commandKey = requireIdempotencyKey(idempotencyKey);
     return apiClient.post<MoveOutOccupantResult>(
       "/contracts/occupant-move-out",
       payload,
+      { headers: { "Idempotency-Key": commandKey } },
+    );
+  },
+
+  addWholeRoomOccupant: (
+    contractId: string,
+    payload: AddWholeRoomOccupantPayload,
+    idempotencyKey: string,
+  ) => {
+    const commandKey = requireIdempotencyKey(idempotencyKey);
+    return apiClient.post(
+      `/contracts/${contractId}/whole-room-occupants`,
+      payload,
+      { headers: { "Idempotency-Key": commandKey } },
     );
   },
 
   completePendingSettlementRefund: (
     id: string,
-    payload?: { note?: string },
+    payload?: { note?: string; attachmentUrls?: string[] },
+    idempotencyKey?: string,
   ) => {
+    const commandKey = idempotencyKey
+      ? requireIdempotencyKey(idempotencyKey)
+      : undefined;
     return apiClient.post(
       `/contracts/${id}/settlement-refund/complete`,
-      payload || {},
+      commandKey ? { ...payload, idempotencyKey: commandKey } : payload || {},
+      commandKey ? { headers: { "Idempotency-Key": commandKey } } : undefined,
     );
   },
 

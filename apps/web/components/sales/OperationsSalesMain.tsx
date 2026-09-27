@@ -5,12 +5,14 @@ import { useSearchParams } from "next/navigation";
 import OperationsSalesLeadCard from "./OperationsSalesLeadCard";
 import { getSalesStageLabel, normalizeSalesStage, type SalesLeadRecord } from "./sales.types";
 import { useSalesLeadsQuery } from "@/lib/queries/sales.queries";
+import { toSalesLeadListFilters } from "@/lib/sales/lead-list-filters";
 import { LoadingState } from "../ui/LoadingState";
 
 export default function OperationsSalesMain() {
   const searchParams = useSearchParams();
   const activeStageId = searchParams.get("stage");
-  const { data, isLoading, isError } = useSalesLeadsQuery();
+  const filters = React.useMemo(() => toSalesLeadListFilters(searchParams), [searchParams]);
+  const { data, isLoading, isError } = useSalesLeadsQuery({ page: 1, limit: 100, ...filters });
 
   const leads: SalesLeadRecord[] = React.useMemo(() => {
     const payload = (data as any)?.data?.data ?? (data as any)?.data ?? [];
@@ -31,6 +33,7 @@ export default function OperationsSalesMain() {
   const filteredLeads = activeStageId && stageIdToStatusMap[activeStageId]
     ? leads.filter((lead) => normalizeSalesStage(lead.status) === stageIdToStatusMap[activeStageId])
     : leads;
+  const total = Number((data as any)?.data?.meta?.total ?? filteredLeads.length);
 
   if (isLoading) {
     return <LoadingState message="Đang tải dữ liệu sales..." />;
@@ -51,7 +54,7 @@ export default function OperationsSalesMain() {
           <h2 className="font-black text-[18px] text-text">
             {activeStageId && stageIdToStatusMap[activeStageId] ? `Leads: ${getSalesStageLabel(stageIdToStatusMap[activeStageId])}` : "Tất cả Leads"}
           </h2>
-          <span className="bg-border text-muted font-bold text-[12px] px-2 py-0.5 rounded-full">{filteredLeads.length}</span>
+          <span className="bg-border text-muted font-bold text-[12px] px-2 py-0.5 rounded-full">{filteredLeads.length}/{total}</span>
         </div>
       </div>
 

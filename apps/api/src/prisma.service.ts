@@ -10,7 +10,7 @@ export const TENANT_AWARE_MODELS = [
   'Owner', 'BankAccount', 'CashAccount', 'ChartOfAccount',
   'CostCenter', 'Expense', 'Receipt', 'JournalEntry', 'JournalLine',
   'Reconciliation', 'ContractParty', 'Occupancy', 'ContractSettlement', 'RentalCycle',
-  'RoomHold', 'DepositOperation', 'DepositLedgerEntry', 'OutboxEvent'
+  'RoomHold', 'DepositOperation', 'DepositLedgerEntry', 'OutboxEvent', 'AiChatRequest'
 ];
 
 const TENANT_FILTER_OPERATIONS = new Set([
@@ -82,4 +82,5 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       },
     });
   }
+
 }

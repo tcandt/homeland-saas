@@ -10,8 +10,6 @@ import { SearchInput } from "../ui/SearchInput";
 import TenantFormModal from "./TenantFormModal";
 import TenantDeduplicateModal from "./TenantDeduplicateModal";
 
-const isDirectTenantCreationDisabled = true;
-
 export default function TenantFilters() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeduplicateOpen, setIsDeduplicateOpen] = useState(false);
@@ -57,15 +55,11 @@ export default function TenantFilters() {
             </Button>
 
             <Button
-              onClick={() => {
-                if (isDirectTenantCreationDisabled) return;
-                setIsFormOpen(true);
-              }}
-              disabled={isDirectTenantCreationDisabled}
-              title="Tạm khóa: thêm khách thuê từ Tòa nhà → Phòng → tab Khách thuê."
+              onClick={() => setIsFormOpen(true)}
+              title="Tạo hồ sơ khách thuê mới"
               variant="primary"
               data-testid="add-tenant-button"
-              className="h-10 shrink-0 bg-[#6d3df8] px-4 text-white hover:bg-[#5b35f5] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-[#6d3df8]"
+              className="h-10 shrink-0 bg-[#6d3df8] px-4 text-white hover:bg-[#5b35f5]"
             >
               <Plus size={15} className="mr-2" />
               Thêm khách thuê

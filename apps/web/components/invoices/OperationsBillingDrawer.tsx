@@ -38,6 +38,8 @@ import {
   useCancelInvoiceMutation,
   useWriteoffInvoiceMutation,
   useInvoiceDetailQuery,
+  useInvoicePaymentPromisesQuery,
+  useCreateInvoicePaymentPromiseMutation,
 } from "@/lib/queries/invoices.queries";
 import {
   useCreateInvoicePaymentRequestMutation,
@@ -149,6 +151,10 @@ function OperationsBillingDrawerContent({
   const deleteMutation = useDeleteInvoiceMutation();
   const createPaymentRequestMutation = useCreateInvoicePaymentRequestMutation();
   const sendZaloMutation = useSendInvoicePaymentToZaloMutation();
+  const paymentPromisesQuery = useInvoicePaymentPromisesQuery(initialInvoice.id, {
+    refetchInterval: 15000,
+  });
+  const createPaymentPromiseMutation = useCreateInvoicePaymentPromiseMutation();
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isSendingBotReminder, setIsSendingBotReminder] = useState(false);
@@ -156,9 +162,14 @@ function OperationsBillingDrawerContent({
   const [showPayModal, setShowPayModal] = useState(false);
   const [payMethod, setPayMethod] = useState<"CASH" | "BANK_TRANSFER">("BANK_TRANSFER");
   const [customPayAmount, setCustomPayAmount] = useState<string>("");
+  const [showPaymentPromiseModal, setShowPaymentPromiseModal] = useState(false);
+  const [paymentPromiseAmount, setPaymentPromiseAmount] = useState<string>("");
+  const [paymentPromiseDueDate, setPaymentPromiseDueDate] = useState<string>("");
+  const [paymentPromiseNote, setPaymentPromiseNote] = useState("");
   const [paymentRequest, setPaymentRequest] =
     useState<PaymentRequestResponse | null>(null);
   const paymentOperationRef = useRef<{ key: string; providerRef: string } | null>(null);
+  const paymentPromiseOperationRef = useRef<{ key: string; idempotencyKey: string } | null>(null);
 
   const financials = getInvoiceFinancials(invoice);
   const totalAmount = financials.total || Number(invoice.total || invoice.totalAmount || 0);
@@ -266,6 +277,14 @@ function OperationsBillingDrawerContent({
   const isOverdue = currentStatus === "OVERDUE";
   const isDraft = currentStatus === "DRAFT";
   const isIssued = currentStatus === "ISSUED";
+  const paymentPromises = Array.isArray(paymentPromisesQuery.data)
+    ? paymentPromisesQuery.data
+    : [];
+  const activePaymentPromise = paymentPromises.find((promise: any) =>
+    ["PENDING", "OVERDUE"].includes(String(promise?.status || "").toUpperCase()),
+  );
+  const canRecordPaymentPromise =
+    remainingAmount > 0 && (isIssued || isPartiallyPaid || isOverdue);
   const settlementLabel = isPaid
     ? hasSepayPayment
       ? "Đã thu đủ qua VietQR"
@@ -399,6 +418,14 @@ function OperationsBillingDrawerContent({
   };
 
   const handleConfirmPayment = () => {
+    if (payMethod === "BANK_TRANSFER") {
+      // A QR transfer must be confirmed by the SePay webhook.  Do not create
+      // a MANUAL payment merely because an operator opened this dialog.
+      setShowPayModal(false);
+      setActiveTab("QR");
+      toast.success("Đã mở VietQR cho số dư còn lại. Hệ thống chỉ ghi nhận sau khi webhook SePay xác nhận.");
+      return;
+    }
     const payVal = customPayAmount ? Number(customPayAmount) : remainingAmount;
     if (payVal <= 0 || isNaN(payVal)) {
       toast.error("Vui lòng nhập số tiền hợp lệ");
@@ -420,7 +447,7 @@ function OperationsBillingDrawerContent({
         id: invoice.id,
         amount: payVal,
         provider: "MANUAL",
-        providerRef: `${payMethod === "CASH" ? "CASH" : "BANK_TRANSFER"}:${paymentOperationRef.current.providerRef}`,
+        providerRef: `CASH:${paymentOperationRef.current.providerRef}`,
       },
       {
         onSuccess: () => {
@@ -428,10 +455,63 @@ function OperationsBillingDrawerContent({
           setCustomPayAmount("");
           paymentOperationRef.current = null;
           toast.success(
-            `Đã ghi nhận thu ${formatVnd(payVal)} (${payMethod === "CASH" ? "Tiền mặt" : "Chuyển khoản VietQR"}) thành công!`
+            `Đã ghi nhận thu ${formatVnd(payVal)} (Tiền mặt) thành công!`
           );
         },
       }
+    );
+  };
+
+  const openPaymentPromiseModal = () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setPaymentPromiseAmount(String(Math.round(remainingAmount)));
+    setPaymentPromiseDueDate(
+      tomorrow.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }),
+    );
+    setPaymentPromiseNote("");
+    setShowPaymentPromiseModal(true);
+  };
+
+  const handleCreatePaymentPromise = () => {
+    const amount = Number(paymentPromiseAmount || 0);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > remainingAmount) {
+      toast.error(`Số tiền hẹn trả phải lớn hơn 0 và không vượt ${formatVnd(remainingAmount)}.`);
+      return;
+    }
+    if (!paymentPromiseDueDate) {
+      toast.error("Vui lòng chọn ngày hẹn thanh toán.");
+      return;
+    }
+    const operationKey = [
+      invoice.id,
+      amount,
+      paymentPromiseDueDate,
+      paymentPromiseNote.trim(),
+    ].join(":");
+    if (paymentPromiseOperationRef.current?.key !== operationKey) {
+      paymentPromiseOperationRef.current = {
+        key: operationKey,
+        idempotencyKey: `payment-promise-${crypto.randomUUID()}`,
+      };
+    }
+    createPaymentPromiseMutation.mutate(
+      {
+        id: invoice.id,
+        input: {
+          amount,
+          dueDate: paymentPromiseDueDate,
+          note: paymentPromiseNote.trim() || null,
+          idempotencyKey: paymentPromiseOperationRef.current.idempotencyKey,
+        },
+      },
+      {
+        onSuccess: () => {
+          paymentPromiseOperationRef.current = null;
+          setShowPaymentPromiseModal(false);
+          toast.success("Đã lưu hẹn thanh toán. Hệ thống sẽ nhắc khi đến hẹn nếu hóa đơn còn nợ.");
+        },
+      },
     );
   };
 
@@ -556,6 +636,19 @@ function OperationsBillingDrawerContent({
                   disabled={issueMutation.isPending}
                 >
                   <Send size={13} className="mr-1.5" /> Phát hành ngay
+                </Button>
+              )}
+
+              {(isIssued || isPartiallyPaid || isOverdue) && (
+                <Button
+                  data-testid="btn-create-payment-promise"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl h-8.5 text-xs font-bold px-2.5"
+                  onClick={openPaymentPromiseModal}
+                  disabled={!canRecordPaymentPromise || createPaymentPromiseMutation.isPending}
+                >
+                  <Clock3 size={13} className="mr-1" /> {activePaymentPromise ? "Đổi hẹn" : "Hẹn trả"}
                 </Button>
               )}
 
@@ -687,21 +780,21 @@ function OperationsBillingDrawerContent({
               <div
                 className={`flex items-center gap-2 rounded-xl border p-2 ${
                   !isDraft
-                    ? "border-emerald-500/30 bg-emerald-500/5"
+                    ? "border-amber-500/30 bg-amber-500/5"
                     : "border-border/60 bg-card"
                 }`}
               >
                 <div
                   className={`flex h-5 w-5 items-center justify-center rounded-full shrink-0 text-[10px] ${
-                    !isDraft ? "bg-emerald-500 text-white" : "bg-surface text-muted"
+                    !isDraft ? "bg-amber-500 text-white" : "bg-surface text-muted"
                   }`}
                 >
-                  {!isDraft ? <CheckCircle2 size={12} /> : <Bot size={11} />}
+                  {!isDraft ? <Clock3 size={11} /> : <Bot size={11} />}
                 </div>
                 <div className="min-w-0">
                   <div className="text-[11px] font-black text-text leading-tight truncate">2. Bot gửi HĐ</div>
-                  <div className="text-[9px] font-bold truncate text-muted">
-                    {!isDraft ? "Đã gửi Zalo/SMS" : "Chờ phát hành"}
+                  <div className={`text-[9px] font-bold truncate ${!isDraft ? "text-amber-600" : "text-muted"}`}>
+                    {!isDraft ? "Đã phát hành; delivery chưa xác minh" : "Chờ phát hành"}
                   </div>
                 </div>
               </div>
@@ -803,6 +896,21 @@ function OperationsBillingDrawerContent({
                 <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-700">
                   Tiền thừa: {formatVnd(overpaidAmount)}
                 </span>
+              </div>
+            )}
+            {activePaymentPromise && !isPaid && (
+              <div
+                data-testid="invoice-payment-promise"
+                className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/5 px-3 py-2 text-left text-xs"
+              >
+                <div className="flex items-center justify-between gap-2 font-black text-sky-700">
+                  <span className="inline-flex items-center gap-1"><Clock3 size={13} /> Hẹn thanh toán</span>
+                  <span>{String(activePaymentPromise.status).toUpperCase() === "OVERDUE" ? "Đã quá hẹn" : "Đang chờ"}</span>
+                </div>
+                <p className="mt-1 text-muted">
+                  {formatVnd(Number(activePaymentPromise.amount || 0))} · {formatDate(activePaymentPromise.dueDate)}
+                  {activePaymentPromise.note ? ` · ${activePaymentPromise.note}` : ""}
+                </p>
               </div>
             )}
           </div>
@@ -989,7 +1097,7 @@ function OperationsBillingDrawerContent({
                 onClick={handleConfirmPayment}
                 isLoading={payMutation.isPending}
               >
-                Xác nhận đã thu
+                {payMethod === "CASH" ? "Xác nhận đã thu tiền mặt" : "Mở VietQR chờ webhook"}
               </Button>
             </div>
           }
@@ -1024,7 +1132,13 @@ function OperationsBillingDrawerContent({
               </div>
             </div>
 
-            {/* Amount Input */}
+            {/* QR follows the remaining balance and is confirmed only by SePay. */}
+            {payMethod === "BANK_TRANSFER" ? (
+              <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 p-3 text-xs text-muted">
+                VietQR sẽ được tạo theo đúng số dư còn lại <strong>{formatVnd(remainingAmount)}</strong>.
+                Không có khoản thu thủ công nào được tạo ở bước này; SePay webhook mới xác nhận thanh toán.
+              </div>
+            ) : (
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="font-bold text-muted">Số tiền thực thu (VNĐ)</label>
@@ -1045,6 +1159,72 @@ function OperationsBillingDrawerContent({
                 }}
                 placeholder="Nhập số tiền..."
                 className="w-full h-10 px-3 rounded-xl border border-border bg-surface font-mono font-black text-sm text-text outline-none focus:border-primary"
+              />
+            </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {showPaymentPromiseModal && (
+        <Modal
+          isOpen={showPaymentPromiseModal}
+          onClose={() => setShowPaymentPromiseModal(false)}
+          maxWidth="max-w-[420px]"
+          title={activePaymentPromise ? "Cập nhật hẹn thanh toán" : "Ghi nhận hẹn thanh toán"}
+          footer={
+            <div className="flex w-full items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setShowPaymentPromiseModal(false)}>
+                Hủy
+              </Button>
+              <Button
+                data-testid="btn-confirm-payment-promise"
+                variant="primary"
+                size="sm"
+                onClick={handleCreatePaymentPromise}
+                isLoading={createPaymentPromiseMutation.isPending}
+              >
+                Lưu hẹn trả
+              </Button>
+            </div>
+          }
+        >
+          <div className="flex flex-col gap-3 text-xs">
+            <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 p-3 text-muted">
+              Đây chỉ là lịch nhắc việc, không ghi nhận đã thu tiền và không làm thay đổi công nợ hóa đơn.
+              Khi thu đủ, hẹn đang mở sẽ tự hoàn tất.
+            </div>
+            <div>
+              <label className="mb-1 block font-bold text-muted">Số tiền khách hẹn trả</label>
+              <input
+                data-testid="payment-promise-amount"
+                type="text"
+                value={paymentPromiseAmount ? new Intl.NumberFormat("vi-VN").format(Number(paymentPromiseAmount)) : ""}
+                onChange={(event) => setPaymentPromiseAmount(event.target.value.replace(/[^0-9]/g, ""))}
+                className="h-10 w-full rounded-xl border border-border bg-surface px-3 font-mono text-sm font-black text-text outline-none focus:border-primary"
+              />
+              <p className="mt-1 text-[11px] text-muted">Dư nợ hiện tại: {formatVnd(remainingAmount)}</p>
+            </div>
+            <div>
+              <label className="mb-1 block font-bold text-muted">Ngày hẹn thanh toán</label>
+              <input
+                data-testid="payment-promise-due-date"
+                type="date"
+                value={paymentPromiseDueDate}
+                onChange={(event) => setPaymentPromiseDueDate(event.target.value)}
+                className="h-10 w-full rounded-xl border border-border bg-surface px-3 text-sm font-bold text-text outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block font-bold text-muted">Ghi chú trao đổi với khách</label>
+              <textarea
+                data-testid="payment-promise-note"
+                value={paymentPromiseNote}
+                onChange={(event) => setPaymentPromiseNote(event.target.value)}
+                maxLength={1000}
+                rows={3}
+                className="w-full resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-primary"
+                placeholder="Ví dụ: Khách hẹn chuyển khoản sau khi nhận lương"
               />
             </div>
           </div>

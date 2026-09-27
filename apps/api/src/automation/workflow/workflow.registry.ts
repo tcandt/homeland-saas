@@ -249,9 +249,15 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
+        name: 'Notify Customer via Zalo',
+        type: 'SEND_CUSTOMER_ZALO',
+        order: 2,
+        params: { templateCode: 'SYSTEM_ALERT', title: 'HomeLand - Đang xử lý hoàn cọc', message: 'Yêu cầu hoàn cọc của quý khách đã được tiếp nhận và đang chờ hoàn tất.' },
+      },
+      {
         name: 'Notify Admin In-App',
         type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
-        order: 2,
+        order: 3,
         params: {
           templateCode: 'PAYMENT_RECEIVED',
         },
@@ -259,7 +265,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
       {
         name: 'Notify Admin Group via Zalo',
         type: 'SEND_ADMIN_GROUP_ZALO',
-        order: 3,
+        order: 4,
         params: {
           templateCode: 'SYSTEM_ALERT',
           alertKind: 'DEPOSIT_REFUND_REQUESTED',
@@ -269,12 +275,12 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
       {
         name: 'Invalidate Dashboard Cache',
         type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 4,
+        order: 5,
       },
       {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 5,
+        order: 6,
       },
     ],
   },
@@ -290,10 +296,61 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         params: { templateCode: 'SYSTEM_ALERT' },
       },
       {
+        name: 'Notify Customer via Zalo',
+        type: 'SEND_CUSTOMER_ZALO',
+        order: 2,
+        params: { templateCode: 'SYSTEM_ALERT', title: 'HomeLand - Đã hoàn cọc', message: 'Khoản hoàn cọc của quý khách đã được ghi nhận hoàn tất.' },
+      },
+      {
         name: 'Notify Admin In-App',
         type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
-        order: 2,
+        order: 3,
         params: { templateCode: 'PAYMENT_RECEIVED' },
+      },
+      {
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
+        order: 4,
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'DEPOSIT_REFUNDED',
+          continueOnError: true,
+        },
+      },
+      {
+        name: 'Create Journal Entry',
+        type: 'CREATE_JOURNAL_ENTRY',
+        order: 5,
+        params: { continueOnError: true },
+      },
+      {
+        name: 'Invalidate Dashboard Cache',
+        type: 'INVALIDATE_DASHBOARD_CACHE',
+        order: 6,
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 7,
+      },
+    ],
+  },
+  {
+    name: 'deposit.deducted.workflow',
+    description: 'Process a deducted deposit',
+    triggerEvent: 'deposit.deducted',
+    steps: [
+      {
+        name: 'Notify Admin In-App',
+        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        order: 1,
+        params: { templateCode: 'PAYMENT_RECEIVED' },
+      },
+      {
+        name: 'Notify Customer via Zalo',
+        type: 'SEND_CUSTOMER_ZALO',
+        order: 2,
+        params: { templateCode: 'SYSTEM_ALERT', title: 'HomeLand - Đã xử lý khấu trừ cọc', message: 'Phần cọc được giữ hoặc khấu trừ đã được ghi nhận theo biên bản xử lý.' },
       },
       {
         name: 'Notify Admin Group via Zalo',
@@ -301,7 +358,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         order: 3,
         params: {
           templateCode: 'SYSTEM_ALERT',
-          alertKind: 'DEPOSIT_REFUNDED',
+          alertKind: 'DEPOSIT_DEDUCTED',
           continueOnError: true,
         },
       },
@@ -324,9 +381,9 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
     ],
   },
   {
-    name: 'deposit.deducted.workflow',
-    description: 'Process a deducted deposit',
-    triggerEvent: 'deposit.deducted',
+    name: 'deposit.cancelled.workflow',
+    description: 'Process a cancelled deposit without refund',
+    triggerEvent: 'deposit.cancelled',
     steps: [
       {
         name: 'Notify Admin In-App',
@@ -335,20 +392,20 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         params: { templateCode: 'PAYMENT_RECEIVED' },
       },
       {
-        name: 'Notify Admin Group via Zalo',
-        type: 'SEND_ADMIN_GROUP_ZALO',
+        name: 'Notify Customer via Zalo',
+        type: 'SEND_CUSTOMER_ZALO',
         order: 2,
-        params: {
-          templateCode: 'SYSTEM_ALERT',
-          alertKind: 'DEPOSIT_DEDUCTED',
-          continueOnError: true,
-        },
+        params: { templateCode: 'SYSTEM_ALERT', title: 'HomeLand - Đã hủy cọc', message: 'Yêu cầu giữ phòng của quý khách đã được hủy theo trạng thái xử lý hiện tại.' },
       },
       {
-        name: 'Create Journal Entry',
-        type: 'CREATE_JOURNAL_ENTRY',
+        name: 'Notify Admin Group via Zalo',
+        type: 'SEND_ADMIN_GROUP_ZALO',
         order: 3,
-        params: { continueOnError: true },
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          alertKind: 'DEPOSIT_CANCELLED',
+          continueOnError: true,
+        },
       },
       {
         name: 'Invalidate Dashboard Cache',
@@ -363,35 +420,25 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
     ],
   },
   {
-    name: 'deposit.cancelled.workflow',
-    description: 'Process a cancelled deposit without refund',
-    triggerEvent: 'deposit.cancelled',
+    name: 'deposit.hold.expired.workflow',
+    description: 'Notify customer and admin when a room hold expires',
+    triggerEvent: 'deposit.hold.expired',
     steps: [
       {
-        name: 'Notify Admin In-App',
-        type: 'CREATE_ADMIN_IN_APP_NOTIFICATION',
+        name: 'Notify Customer via Zalo',
+        type: 'SEND_CUSTOMER_ZALO',
         order: 1,
-        params: { templateCode: 'PAYMENT_RECEIVED' },
+        params: {
+          templateCode: 'SYSTEM_ALERT',
+          title: 'HomeLand - Giữ phòng hết hạn',
+          message: 'Giữ phòng của quý khách đã hết hạn. Vui lòng liên hệ ban quản lý nếu cần hỗ trợ.',
+        },
       },
       {
         name: 'Notify Admin Group via Zalo',
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 2,
-        params: {
-          templateCode: 'SYSTEM_ALERT',
-          alertKind: 'DEPOSIT_CANCELLED',
-          continueOnError: true,
-        },
-      },
-      {
-        name: 'Invalidate Dashboard Cache',
-        type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 3,
-      },
-      {
-        name: 'Invalidate Finance Cache',
-        type: 'INVALIDATE_FINANCE_CACHE',
-        order: 4,
+        params: { templateCode: 'SYSTEM_ALERT', alertKind: 'ROOM_HOLD_EXPIRED', continueOnError: true },
       },
     ],
   },

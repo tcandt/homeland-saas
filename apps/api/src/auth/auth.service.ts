@@ -5,12 +5,47 @@ import * as bcrypt from 'bcryptjs';
 import { SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../shared/audit/audit.service';
-import { LoginInput, ChangePasswordInput, RegisterInput, ForgotPasswordInput, ResetPasswordInput, CreateTeamMemberInput, UpdateTeamMemberInput } from '@homeland/shared';
+import {
+  LoginInput,
+  ChangePasswordInput,
+  RegisterInput,
+  ForgotPasswordInput,
+  ResetPasswordInput,
+  CreateTeamMemberInput,
+  UpdateTeamMemberInput,
+  TwoFactorLoginInput,
+  UpdateAuthSecurityInput,
+  RequestTwoFactorChangeInput,
+  ConfirmTwoFactorChangeInput,
+} from '@homeland/shared';
 import { ErrorCodes } from '../shared/exceptions/error-codes';
 import * as crypto from 'crypto';
 import { MailProvider } from './services/mail.service';
 import { STORAGE_PROVIDER, StorageProvider } from '../documents/interfaces/storage-provider.interface';
 import { IpSecurityService } from '../shared/security/ip-security.service';
+
+type AuthSecurityState = {
+  sessionVersion: number;
+  twoFactorEnabled: boolean;
+  twoFactorMethod: 'EMAIL';
+  idleTimeoutMinutes: number;
+  pendingTwoFactor?: {
+    action: 'ENABLE' | 'DISABLE';
+    codeHash: string;
+    expiresAt: string;
+    attempts: number;
+  };
+  loginChallenge?: {
+    nonceHash: string;
+    codeHash: string;
+    expiresAt: string;
+    attempts: number;
+  };
+};
+
+const AUTH_SECURITY_KEY = 'auth-security';
+const TWO_FACTOR_TTL_MS = 5 * 60 * 1000;
+const MAX_OTP_ATTEMPTS = 5;
 
 @Injectable()
 export class AuthService {
@@ -85,6 +120,11 @@ export class AuthService {
       this.ipSecurity.resetFailedAttempts(clientIp);
     }
 
+    const security = await this.getAuthSecurity(user.tenantId, user.id);
+    if (security.twoFactorEnabled) {
+      return this.createLoginChallenge(user, security);
+    }
+
     // Extract roles and permissions
     const roles = user.roles.map(ur => ur.role.code);
     const permissions = Array.from(new Set(
@@ -98,6 +138,7 @@ export class AuthService {
       roles,
       permissions,
       mustChangePassword: user.mustChangePassword,
+      sessionVersion: security.sessionVersion,
     };
 
     const accessToken = this.jwtService.sign({ ...payload, tokenType: 'access' }, {
@@ -195,7 +236,15 @@ export class AuthService {
     const roles = user.roles.map(ur => ur.role.code);
     const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
 
-    const payload = { sub: user.id, tenantId: user.tenantId, email: user.email, roles, permissions, mustChangePassword: user.mustChangePassword };
+    const payload = {
+      sub: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      roles,
+      permissions,
+      mustChangePassword: user.mustChangePassword,
+      sessionVersion: 0,
+    };
     const accessToken = this.jwtService.sign({ ...payload, tokenType: 'access' }, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
     const refreshToken = this.jwtService.sign({ ...payload, tokenType: 'refresh' }, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
@@ -251,6 +300,171 @@ export class AuthService {
     return { success: true };
   }
 
+  async getSecurity(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, tenantId: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    const security = await this.getAuthSecurity(user.tenantId, user.id);
+    return {
+      twoFactorEnabled: security.twoFactorEnabled,
+      twoFactorMethod: security.twoFactorMethod,
+      idleTimeoutMinutes: security.idleTimeoutMinutes,
+    };
+  }
+
+  async updateSecurity(userId: string, input: UpdateAuthSecurityInput) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, tenantId: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    const security = await this.getAuthSecurity(user.tenantId, user.id);
+    security.idleTimeoutMinutes = input.idleTimeoutMinutes;
+    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    await this.audit.log({
+      action: 'UPDATE',
+      entity: 'AuthSecurity',
+      entityId: user.id,
+      module: 'Auth',
+      tenantId: user.tenantId,
+      userId: user.id,
+      after: { idleTimeoutMinutes: input.idleTimeoutMinutes },
+    });
+    return this.getSecurity(user.id);
+  }
+
+  async requestTwoFactorChange(userId: string, input: RequestTwoFactorChangeInput) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, tenantId: true, email: true, status: true },
+    });
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('User is inactive');
+    const security = await this.getAuthSecurity(user.tenantId, user.id);
+    if (security.twoFactorEnabled === input.enabled) {
+      throw new BadRequestException(input.enabled ? '2FA is already enabled' : '2FA is already disabled');
+    }
+
+    const code = this.generateOtp();
+    security.pendingTwoFactor = {
+      action: input.enabled ? 'ENABLE' : 'DISABLE',
+      codeHash: this.hashOtp(code),
+      expiresAt: new Date(Date.now() + TWO_FACTOR_TTL_MS).toISOString(),
+      attempts: 0,
+    };
+    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    await this.mailProvider.sendTwoFactorCode(
+      user.email,
+      code,
+      user.tenantId,
+      input.enabled ? 'ENABLE' : 'DISABLE',
+    );
+    return { success: true, expiresAt: security.pendingTwoFactor.expiresAt, method: 'EMAIL' as const };
+  }
+
+  async confirmTwoFactorChange(userId: string, input: ConfirmTwoFactorChangeInput) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, tenantId: true, status: true },
+    });
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('User is inactive');
+    const security = await this.getAuthSecurity(user.tenantId, user.id);
+    const pending = security.pendingTwoFactor;
+    const expectedAction = input.enabled ? 'ENABLE' : 'DISABLE';
+    if (!pending || pending.action !== expectedAction || new Date(pending.expiresAt).getTime() <= Date.now()) {
+      throw new UnauthorizedException({ code: 'AUTH_2FA_CHALLENGE_EXPIRED', message: 'Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới.' });
+    }
+    if (pending.attempts >= MAX_OTP_ATTEMPTS || !this.matchesOtp(input.code, pending.codeHash)) {
+      pending.attempts += 1;
+      await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+      throw new UnauthorizedException({ code: 'AUTH_2FA_CODE_INVALID', message: 'Mã xác thực không đúng.' });
+    }
+
+    security.twoFactorEnabled = input.enabled;
+    delete security.pendingTwoFactor;
+    delete security.loginChallenge;
+    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    await this.audit.log({
+      action: 'UPDATE',
+      entity: 'AuthSecurity',
+      entityId: user.id,
+      module: 'Auth',
+      tenantId: user.tenantId,
+      userId: user.id,
+      after: { twoFactorEnabled: security.twoFactorEnabled, twoFactorMethod: security.twoFactorMethod },
+    });
+    return { success: true, twoFactorEnabled: security.twoFactorEnabled, twoFactorMethod: security.twoFactorMethod };
+  }
+
+  async verifyTwoFactorLogin(input: TwoFactorLoginInput, ip?: string, userAgent?: string) {
+    let decoded: any;
+    try {
+      decoded = this.jwtService.verify(input.challengeToken);
+    } catch {
+      throw new UnauthorizedException({ code: 'AUTH_2FA_CHALLENGE_EXPIRED', message: 'Phiên xác thực đã hết hạn.' });
+    }
+    if (decoded?.tokenType !== '2fa-challenge' || !decoded.sub || !decoded.nonce) {
+      throw new UnauthorizedException({ code: 'AUTH_2FA_CHALLENGE_INVALID', message: 'Phiên xác thực không hợp lệ.' });
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: decoded.sub },
+      include: {
+        tenant: true,
+        roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } },
+      },
+    });
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('User is inactive');
+    const security = await this.getAuthSecurity(user.tenantId, user.id);
+    const challenge = security.loginChallenge;
+    if (
+      !security.twoFactorEnabled
+      || !challenge
+      || challenge.nonceHash !== this.hashOtp(decoded.nonce)
+      || new Date(challenge.expiresAt).getTime() <= Date.now()
+    ) {
+      throw new UnauthorizedException({ code: 'AUTH_2FA_CHALLENGE_EXPIRED', message: 'Phiên xác thực đã hết hạn.' });
+    }
+    if (challenge.attempts >= MAX_OTP_ATTEMPTS || !this.matchesOtp(input.code, challenge.codeHash)) {
+      challenge.attempts += 1;
+      await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+      throw new UnauthorizedException({ code: 'AUTH_2FA_CODE_INVALID', message: 'Mã OTP không đúng.' });
+    }
+
+    delete security.loginChallenge;
+    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    return this.issueSession(user, security.sessionVersion, ip, userAgent);
+  }
+
+  async logoutOtherSessions(userId: string, ip?: string, userAgent?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        tenant: true,
+        roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } },
+      },
+    });
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('User is inactive');
+    const security = await this.getAuthSecurity(user.tenantId, user.id);
+    security.sessionVersion += 1;
+    delete security.loginChallenge;
+    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    const session = await this.issueSession(user, security.sessionVersion, ip, userAgent, false);
+    await this.audit.log({
+      action: 'LOGOUT',
+      entity: 'User',
+      entityId: user.id,
+      module: 'Auth',
+      tenantId: user.tenantId,
+      userId: user.id,
+      ip,
+      userAgent,
+      after: { sessionVersion: security.sessionVersion },
+    });
+    return session;
+  }
+
   async deferPasswordChange(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -270,6 +484,7 @@ export class AuthService {
 
     const roles = user.roles.map(ur => ur.role.code);
     const permissions = Array.from(new Set(user.roles.flatMap(ur => ur.role.permissions.map(rp => rp.permission.key))));
+    const security = await this.getAuthSecurity(user.tenantId, user.id);
     const payload = {
       sub: user.id,
       tenantId: user.tenantId,
@@ -278,6 +493,7 @@ export class AuthService {
       permissions,
       mustChangePassword: false,
       passwordChangeDeferred: true,
+      sessionVersion: security.sessionVersion,
     };
     const accessToken = this.jwtService.sign({ ...payload, tokenType: 'access' }, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
     const refreshToken = this.jwtService.sign({ ...payload, tokenType: 'refresh' }, { expiresIn: this.configService.get('auth.jwtRefreshExpiresIn') });
@@ -325,6 +541,11 @@ export class AuthService {
         throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_INVALID, message: 'Invalid token or user inactive' });
       }
 
+      const security = await this.getAuthSecurity(user.tenantId, user.id);
+      if (Number(decoded.sessionVersion || 0) !== security.sessionVersion) {
+        throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_INVALID, message: 'Refresh token has been revoked' });
+      }
+
       if (!user.refreshTokenHash) {
         throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_INVALID, message: 'Refresh token has been revoked' });
       }
@@ -346,6 +567,7 @@ export class AuthService {
         permissions,
         mustChangePassword: user.mustChangePassword && !passwordChangeDeferred,
         passwordChangeDeferred,
+        sessionVersion: security.sessionVersion,
       };
 
       const newAccessToken = this.jwtService.sign({ ...payload, tokenType: 'access' }, { expiresIn: this.configService.get('auth.jwtExpiresIn') });
@@ -940,6 +1162,176 @@ export class AuthService {
     });
 
     return { success: true };
+  }
+
+  private async createLoginChallenge(user: any, security: AuthSecurityState) {
+    const code = this.generateOtp();
+    const nonce = crypto.randomBytes(24).toString('hex');
+    const expiresAt = new Date(Date.now() + TWO_FACTOR_TTL_MS).toISOString();
+    security.loginChallenge = {
+      nonceHash: this.hashOtp(nonce),
+      codeHash: this.hashOtp(code),
+      expiresAt,
+      attempts: 0,
+    };
+    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    await this.mailProvider.sendTwoFactorCode(user.email, code, user.tenantId, 'LOGIN');
+    const challengeToken = this.jwtService.sign(
+      { sub: user.id, tenantId: user.tenantId, nonce, tokenType: '2fa-challenge' },
+      { expiresIn: '5m' },
+    );
+    await this.audit.log({
+      action: 'LOGIN',
+      entity: 'User',
+      entityId: user.id,
+      module: 'Auth',
+      tenantId: user.tenantId,
+      userId: user.id,
+      after: { twoFactorChallenge: true, method: 'EMAIL', expiresAt },
+    });
+    return {
+      requiresTwoFactor: true as const,
+      challengeToken,
+      method: 'EMAIL' as const,
+      expiresAt,
+    };
+  }
+
+  private async issueSession(
+    user: any,
+    sessionVersion: number,
+    ip?: string,
+    userAgent?: string,
+    logLogin = true,
+  ) {
+    const roles = user.roles.map((ur: any) => ur.role.code);
+    const permissions = Array.from(new Set<string>(
+      user.roles.flatMap((ur: any) => ur.role.permissions.map((rp: any) => rp.permission.key)),
+    ));
+    const payload = {
+      sub: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      roles,
+      permissions,
+      mustChangePassword: user.mustChangePassword,
+      sessionVersion,
+    };
+    const accessToken = this.jwtService.sign({ ...payload, tokenType: 'access' }, {
+      expiresIn: this.configService.get('auth.jwtExpiresIn'),
+    });
+    const refreshToken = this.jwtService.sign({ ...payload, tokenType: 'refresh' }, {
+      expiresIn: this.configService.get('auth.jwtRefreshExpiresIn'),
+    });
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt: new Date(),
+        lastLoginIp: ip,
+        lastUserAgent: userAgent,
+        refreshTokenHash: await bcrypt.hash(refreshToken, 10),
+      },
+    });
+    if (logLogin) {
+      await this.audit.log({
+        action: 'LOGIN_SUCCESS',
+        entity: 'User',
+        entityId: user.id,
+        module: 'Auth',
+        tenantId: user.tenantId,
+        userId: user.id,
+        ip,
+        userAgent,
+      });
+    }
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        tenantId: user.tenantId,
+        roles,
+        permissions,
+        mustChangePassword: user.mustChangePassword,
+      },
+    };
+  }
+
+  private async getAuthSecurity(tenantId: string, userId: string): Promise<AuthSecurityState> {
+    const appSetting = (this.prisma as any).appSetting;
+    const record = appSetting?.findUnique
+      ? await appSetting.findUnique({
+          where: {
+            tenantId_scope_ownerId_key: {
+              tenantId,
+              scope: SettingScope.USER,
+              ownerId: userId,
+              key: AUTH_SECURITY_KEY,
+            },
+          },
+          select: { value: true },
+        })
+      : null;
+    const raw = isRecord(record?.value) ? record.value : {};
+    return {
+      sessionVersion: Number.isSafeInteger(raw.sessionVersion) && raw.sessionVersion >= 0 ? raw.sessionVersion : 0,
+      twoFactorEnabled: raw.twoFactorEnabled === true,
+      twoFactorMethod: 'EMAIL',
+      idleTimeoutMinutes: Number.isSafeInteger(raw.idleTimeoutMinutes)
+        && raw.idleTimeoutMinutes >= 5
+        && raw.idleTimeoutMinutes <= 10080
+        ? raw.idleTimeoutMinutes
+        : 1440,
+      pendingTwoFactor: isRecord(raw.pendingTwoFactor) ? raw.pendingTwoFactor as AuthSecurityState['pendingTwoFactor'] : undefined,
+      loginChallenge: isRecord(raw.loginChallenge) ? raw.loginChallenge as AuthSecurityState['loginChallenge'] : undefined,
+    };
+  }
+
+  private async saveAuthSecurity(
+    tenantId: string,
+    userId: string,
+    value: AuthSecurityState,
+    updatedBy?: string,
+  ) {
+    const appSetting = (this.prisma as any).appSetting;
+    if (!appSetting?.upsert) return;
+    const persistedValue = JSON.parse(JSON.stringify(value));
+    await appSetting.upsert({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.USER,
+          ownerId: userId,
+          key: AUTH_SECURITY_KEY,
+        },
+      },
+      create: {
+        tenantId,
+        scope: SettingScope.USER,
+        ownerId: userId,
+        key: AUTH_SECURITY_KEY,
+        value: persistedValue,
+        updatedBy,
+      },
+      update: { value: persistedValue, updatedBy },
+    });
+  }
+
+  private generateOtp() {
+    return crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+  }
+
+  private hashOtp(value: string) {
+    const secret = this.configService.get<string>('auth.jwtSecret') || 'homeland-auth-security';
+    return crypto.createHmac('sha256', secret).update(value).digest('hex');
+  }
+
+  private matchesOtp(value: string, expectedHash: string) {
+    const actual = Buffer.from(this.hashOtp(value), 'hex');
+    const expected = Buffer.from(expectedHash || '', 'hex');
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
   }
 
   private async resolveTeamAvatarUrl(tenantId: string, userId: string) {

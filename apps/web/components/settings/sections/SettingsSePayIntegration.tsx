@@ -202,7 +202,8 @@ export default function SettingsSePayIntegration() {
   }, [effectiveWebhookBaseUrl]);
 
   const modalWebhookUrl = useMemo(() => {
-    const base = normalizeWebhookBaseUrl(configDraft.webhookBaseUrl) || (typeof window !== "undefined" ? window.location.origin : "");
+    const base = normalizeWebhookBaseUrl(configDraft.webhookBaseUrl)
+      || (typeof window !== "undefined" ? normalizeWebhookBaseUrl(window.location.origin) : "");
     return `${base.replace(/\/$/, "")}/payments/sepay/webhook`;
   }, [configDraft.webhookBaseUrl]);
 

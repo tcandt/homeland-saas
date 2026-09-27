@@ -13,7 +13,8 @@ describe('JwtStrategy transport security', () => {
 
   it('accepts only access-token payloads', async () => {
     const cls: any = { set: vi.fn() };
-    const strategy = new JwtStrategy({ get: () => 'test-secret' } as any, cls);
+    const prisma: any = { appSetting: { findUnique: vi.fn().mockResolvedValue(null) } };
+    const strategy = new JwtStrategy({ get: () => 'test-secret' } as any, cls, prisma);
 
     await expect(strategy.validate({
       sub: 'user-1',

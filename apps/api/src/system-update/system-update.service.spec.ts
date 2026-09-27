@@ -95,6 +95,66 @@ describe('SystemUpdateService', () => {
     mockRemotePackageVersion('1.2.9');
   });
 
+  it('reads and updates the tenant-backed backup schedule', async () => {
+    let scheduleValue: any = { enabled: false };
+    const prisma: any = {
+      appSetting: {
+        findUnique: vi.fn(async () => ({ value: scheduleValue })),
+        upsert: vi.fn(async (args: any) => {
+          scheduleValue = args.update.value;
+          return { value: scheduleValue };
+        }),
+      },
+    };
+    const service = new SystemUpdateService(prisma);
+
+    await expect(service.getBackupStatus('tenant-1')).resolves.toMatchObject({
+      scheduleEnabled: false,
+      scheduleCron: '0 2 * * *',
+    });
+    await expect(service.updateBackupSchedule('tenant-1', 'user-1', true)).resolves.toMatchObject({
+      scheduleEnabled: true,
+    });
+    expect(prisma.appSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        tenantId: 'tenant-1',
+        ownerId: 'tenant-1',
+        value: expect.objectContaining({ enabled: true }),
+      }),
+    }));
+  });
+
+  it('runs a single scheduled snapshot only when at least one tenant enables it', async () => {
+    const prisma: any = {
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([
+          { value: { enabled: false } },
+          { value: { enabled: true } },
+        ]),
+      },
+    };
+    const service = new SystemUpdateService(prisma);
+    const createSnapshot = vi.spyOn(service, 'createBackupSnapshot').mockResolvedValue({} as any);
+
+    await service.runScheduledBackup();
+
+    expect(createSnapshot).toHaveBeenCalledTimes(1);
+    expect(createSnapshot).toHaveBeenCalledWith({
+      note: 'Sao lưu tự động hàng ngày lúc 02:00',
+      type: 'daily_schedule',
+    });
+  });
+
+  it('rejects path-like snapshot identifiers before delete or restore', async () => {
+    const service = new SystemUpdateService({} as any);
+
+    await expect(service.deleteBackupSnapshot('../outside')).rejects.toThrow('không hợp lệ');
+    await expect(service.restoreBackupSnapshot('user-1', 'tenant-1', {
+      snapshotId: '..\\outside',
+      password: 'secret',
+    })).rejects.toThrow('không hợp lệ');
+  });
+
   it('detects a remote version and creates a non-destructive install job by default', async () => {
     const service = new SystemUpdateService();
 

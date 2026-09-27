@@ -35,11 +35,9 @@ dbDescribe("InvoicesService CORE-07.01 PostgreSQL invariants", () => {
   const baseInvoiceId = `invoice-core0701-${suffix}`;
   let baseItemId = "";
 
-  const lifecyclePublisher = { publish: vi.fn(), publishAsync: vi.fn() };
   const service = new InvoicesService(
     {} as any,
     { log: vi.fn() } as any,
-    lifecyclePublisher as any,
     { tx: prisma } as any,
   );
 
@@ -138,12 +136,14 @@ dbDescribe("InvoicesService CORE-07.01 PostgreSQL invariants", () => {
           tenantId,
           fullName: "Khách CORE 07.01",
           phone: `0701${suffix.slice(0, 6)}`,
+          phoneNormalized: `0701${suffix.slice(0, 6)}`,
         },
         {
           id: otherCustomerId,
           tenantId: otherTenantId,
           fullName: "Khách tenant khác",
           phone: `0702${suffix.slice(0, 6)}`,
+          phoneNormalized: `0702${suffix.slice(0, 6)}`,
         },
       ],
     });
@@ -630,8 +630,6 @@ dbDescribe("InvoicesService CORE-07.01 PostgreSQL invariants", () => {
       sourceType: "INVOICE",
       amount: 100,
     });
-    expect(lifecyclePublisher.publish).not.toHaveBeenCalled();
-    expect(lifecyclePublisher.publishAsync).not.toHaveBeenCalled();
   }, 20_000);
 
   it("CORE-08 replays one manual payment operation without duplicate payment, allocation or credit note", async () => {

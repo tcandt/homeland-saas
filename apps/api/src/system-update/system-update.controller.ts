@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
@@ -62,16 +62,36 @@ export class SystemUpdateController {
   @Get('backups')
   @RequirePermissions('system.backup.read')
   @ApiOperation({ summary: 'Get backup agent connection status and snapshot list' })
-  getBackups() {
-    return this.systemUpdateService.getBackupStatus();
+  getBackups(@CurrentUser('tenantId') tenantId: string) {
+    return this.systemUpdateService.getBackupStatus(tenantId);
+  }
+
+  @Post('backups/schedule')
+  @RequirePermissions('system.backup.create')
+  @ApiOperation({ summary: 'Enable or disable the tenant-backed daily backup schedule' })
+  updateBackupSchedule(
+    @CurrentUser('email') email: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('tenantId') tenantId: string,
+    @Body() body: { enabled?: boolean },
+  ) {
+    assertSystemUpdateAdmin(email);
+    if (typeof body?.enabled !== 'boolean') {
+      throw new BadRequestException({ code: 'SYSTEM_BACKUP_SCHEDULE_INVALID', message: 'Trạng thái lịch backup không hợp lệ.' });
+    }
+    return this.systemUpdateService.updateBackupSchedule(tenantId, userId, body.enabled);
   }
 
   @Post('backups/create')
   @RequirePermissions('system.backup.create')
   @ApiOperation({ summary: 'Create manual backup snapshot' })
-  createBackup(@CurrentUser('email') email: string, @Body() body?: { note?: string }) {
+  createBackup(
+    @CurrentUser('email') email: string,
+    @CurrentUser('tenantId') tenantId: string,
+    @Body() body?: { note?: string },
+  ) {
     assertSystemUpdateAdmin(email);
-    return this.systemUpdateService.createBackupSnapshot(body);
+    return this.systemUpdateService.createBackupSnapshot(body, tenantId);
   }
 
   @Post('backups/restore')

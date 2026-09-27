@@ -25,6 +25,19 @@ export interface LoginResponse {
   user: User;
 }
 
+export interface TwoFactorLoginChallenge {
+  requiresTwoFactor: true;
+  challengeToken: string;
+  method: 'EMAIL';
+  expiresAt: string;
+}
+
+export interface AuthSecuritySettings {
+  twoFactorEnabled: boolean;
+  twoFactorMethod: 'EMAIL';
+  idleTimeoutMinutes: number;
+}
+
 export interface DeferredPasswordChangeResponse {
   accessToken: string;
   refreshToken: string;
@@ -47,7 +60,11 @@ export interface TeamAccount {
 
 export const authApi = {
   login: (data: any) => {
-    return apiClient.post<LoginResponse>('/auth/login', data);
+    return apiClient.post<LoginResponse | TwoFactorLoginChallenge>('/auth/login', data);
+  },
+
+  verifyTwoFactorLogin: (data: { challengeToken: string; code: string }) => {
+    return apiClient.post<LoginResponse>('/auth/two-factor/login', data);
   },
   
   // Future refresh token method
@@ -70,6 +87,23 @@ export const authApi = {
   changePassword: (data: { oldPassword: string; newPassword: string; confirmPassword: string }) => {
     return apiClient.post<{ success: boolean }>('/auth/change-password', data);
   },
+
+  security: () => apiClient.get<AuthSecuritySettings>('/auth/security'),
+
+  updateSecurity: (data: { idleTimeoutMinutes: number }) =>
+    apiClient.patch<AuthSecuritySettings>('/auth/security', data),
+
+  requestTwoFactorChange: (data: { enabled: boolean }) =>
+    apiClient.post<{ success: true; expiresAt: string; method: 'EMAIL' }>('/auth/security/two-factor/request', data),
+
+  confirmTwoFactorChange: (data: { enabled: boolean; code: string }) =>
+    apiClient.post<{ success: true; twoFactorEnabled: boolean; twoFactorMethod: 'EMAIL' }>(
+      '/auth/security/two-factor/confirm',
+      data,
+    ),
+
+  logoutOtherSessions: () =>
+    apiClient.post<LoginResponse>('/auth/logout-other-sessions'),
 
   deferPasswordChange: () => {
     return apiClient.post<DeferredPasswordChangeResponse>('/auth/defer-password-change');

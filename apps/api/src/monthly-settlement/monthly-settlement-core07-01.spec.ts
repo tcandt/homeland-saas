@@ -63,6 +63,9 @@ describe("MonthlySettlementService CORE-07.01 canonical base invoice", () => {
         }),
         findUnique: vi.fn().mockImplementation(async () => storedBillingSnapshot),
       },
+      appSetting: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
       $queryRaw: vi.fn().mockResolvedValue([{ lock: "" }]),
       $transaction: vi.fn(async (callback: any) => callback(prisma)),
     };

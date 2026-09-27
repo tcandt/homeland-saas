@@ -20,6 +20,11 @@ describe('RuleScheduler', () => {
       contract: {
         findMany: vi.fn().mockResolvedValue([]),
       },
+      paymentPromise: {
+        findMany: vi.fn().mockResolvedValue([]),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        update: vi.fn(),
+      },
     };
 
     ruleEngine = {
@@ -121,6 +126,39 @@ describe('RuleScheduler', () => {
     );
   });
 
+  it('merges notification and contract rule settings for the same tenant', async () => {
+    const now = new Date();
+    const dueInFourDays = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 4, 8, 0, 0, 0);
+    prisma.appSetting.findMany.mockResolvedValueOnce([
+      { tenantId: 'tenant-1', key: 'notifications', value: { reminderDays: { invoiceDueSoonDays: 5 } } },
+      { tenantId: 'tenant-1', key: 'contract-rules', value: { renewalReminderDays: 14 } },
+    ]);
+    prisma.invoice.findMany.mockResolvedValueOnce([
+      {
+        id: 'invoice-merged',
+        tenantId: 'tenant-1',
+        code: 'INV-MERGED',
+        dueDate: dueInFourDays,
+        status: InvoiceStatus.ISSUED,
+        customerId: 'customer-1',
+        total: 100,
+        paidAmount: 0,
+        creditAmount: 0,
+        customer: {},
+        contract: null,
+      },
+    ]);
+
+    await scheduler.runInvoiceDueSoon3DaysRule();
+
+    // The configured invoice threshold remains 5 days; the contract-rules
+    // record must not reset it back to the default while adding renewal days.
+    expect(ruleEngine.executeRule).toHaveBeenCalledWith(
+      'invoice.due_soon.3_days',
+      expect.objectContaining({ invoiceId: 'invoice-merged', thresholdDays: 5 }),
+    );
+  });
+
   it('schedules overdue reminders for invoices older than 7 days', async () => {
     prisma.invoice.findMany.mockResolvedValueOnce([
       {
@@ -208,5 +246,57 @@ describe('RuleScheduler', () => {
         roomMemberCount: 2,
       }),
     );
+  });
+
+  it('marks a due partial-payment promise overdue and emits one canonical reminder', async () => {
+    prisma.paymentPromise.findMany.mockResolvedValueOnce([
+      {
+        id: 'promise-1',
+        tenantId: 'tenant-1',
+        dueDate: new Date('2026-08-10T08:00:00.000Z'),
+        invoice: {
+          id: 'invoice-1',
+          code: 'INV-001',
+          dueDate: new Date('2026-08-01T08:00:00.000Z'),
+          status: InvoiceStatus.PARTIALLY_PAID,
+          customerId: 'customer-1',
+          total: 5000000,
+          paidAmount: 2000000,
+          creditAmount: 0,
+          customer: { fullName: 'Khach A', phone: '0900000001' },
+          contract: { room: { id: 'room-1', code: '31-01', rentalType: 'SHARED', building: { id: 'building-1', name: 'LK01-31' } } },
+        },
+      },
+    ]);
+
+    const result = await scheduler.runPaymentPromiseDueRule();
+
+    expect(result).toMatchObject({ checked: 1, due: 1 });
+    expect(prisma.paymentPromise.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'promise-1', status: 'PENDING' }),
+      data: { status: 'OVERDUE' },
+    }));
+    expect(ruleEngine.executeRule).toHaveBeenCalledWith('invoice.payment_promise_due', expect.objectContaining({
+      paymentPromiseId: 'promise-1',
+      invoiceId: 'invoice-1',
+      remainingAmount: 3000000,
+    }));
+  });
+
+  it('uses the full Asia/Ho_Chi_Minh promise due date when the worker host is on UTC', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-10T18:30:00.000Z'));
+
+    try {
+      await scheduler.runPaymentPromiseDueRule();
+
+      expect(prisma.paymentPromise.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          dueDate: { lt: new Date('2026-08-11T17:00:00.000Z') },
+        }),
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

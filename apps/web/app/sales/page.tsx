@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import AppShell from "@/components/layout/AppShell";
+import CreateSalesLeadModal from "@/components/sales/CreateSalesLeadModal";
 import SalesMobileFlow from "@/components/sales/SalesMobileFlow";
 import OperationsSalesKpi from "@/components/sales/OperationsSalesKpi";
 import OperationsSalesInsights from "@/components/sales/OperationsSalesInsights";
@@ -12,6 +14,8 @@ import OperationsSalesDrawer from "@/components/sales/OperationsSalesDrawer";
 import { Plus, Download, Upload, Megaphone, Filter } from "lucide-react";
 
 export default function SalesPage() {
+  const [isCreateLeadOpen, setIsCreateLeadOpen] = useState(false);
+
   return (
     <AppShell>
       {/* Mobile View */}
@@ -41,7 +45,7 @@ export default function SalesPage() {
             <button className="h-[36px] px-[16px] rounded-[10px] bg-card border border-border flex items-center gap-[6px] text-[13px] font-bold text-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
               <Upload size={14} className="text-blue-500" /> Import
             </button>
-            <button className="h-[36px] px-[16px] rounded-[10px] bg-[#8b5cf6] hover:bg-[#6366f1] flex items-center gap-[6px] text-[13px] font-bold text-white transition-colors shadow-sm">
+            <button onClick={() => setIsCreateLeadOpen(true)} className="h-[36px] px-[16px] rounded-[10px] bg-[#8b5cf6] hover:bg-[#6366f1] flex items-center gap-[6px] text-[13px] font-bold text-white transition-colors shadow-sm">
               <Plus size={16} /> Thêm Lead
             </button>
           </div>
@@ -72,6 +76,7 @@ export default function SalesPage() {
         {/* Lead Drawer */}
         <OperationsSalesDrawer />
       </div>
+      <CreateSalesLeadModal isOpen={isCreateLeadOpen} onClose={() => setIsCreateLeadOpen(false)} />
     </AppShell>
   );
 }

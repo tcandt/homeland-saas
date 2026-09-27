@@ -136,6 +136,7 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
   const { showToast } = useToast();
   const qrScannerRef = useRef<Html5Qrcode | null>(null);
   const qrFileInputRef = useRef<HTMLInputElement | null>(null);
+  const createIdempotencyKeyRef = useRef<string | null>(null);
   const [scannerFile, setScannerFile] = useState<File | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
 
@@ -291,6 +292,7 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
     }
 
     if (tenant) {
+      createIdempotencyKeyRef.current = null;
       reset({
         fullName: tenant.name || tenant.fullName || "",
         phone: tenant.phone || "",
@@ -317,6 +319,7 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
         setRentalType(String(tenant.rentalType).toUpperCase() === "SHARED" ? "SHARED" : "WHOLE");
       }
     } else {
+      createIdempotencyKeyRef.current = isOpen ? crypto.randomUUID() : null;
       reset(EMPTY_VALUES);
       setRentalType("WHOLE");
     }
@@ -518,7 +521,9 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
       return;
     }
 
-    createMutation.mutate(payload, {
+    const idempotencyKey = createIdempotencyKeyRef.current || crypto.randomUUID();
+    createIdempotencyKeyRef.current = idempotencyKey;
+    createMutation.mutate({ data: payload, idempotencyKey }, {
       onSuccess: () => {
         showToast("Đã thêm khách thuê mới.", "success");
         onClose();

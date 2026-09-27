@@ -34,6 +34,7 @@ export const ConvertDepositToSecuritySchema = z.object({
   securityDepositId: z.string().min(1).optional().nullable(),
   excessAction: z.enum(['CREDIT', 'REFUND']).optional(),
   refundStatus: z.enum(['PENDING', 'COMPLETED']).optional(),
+  attachmentUrls: z.array(z.string().trim().min(1).max(2048)).max(10).optional(),
 });
 
 export const CoreCancelDepositSchema = z.object({
@@ -43,10 +44,13 @@ export const CoreCancelDepositSchema = z.object({
   keepAmount: z.number().min(0).optional(),
   deductAmount: z.number().min(0).optional(),
   refundStatus: z.enum(['PENDING', 'COMPLETED']).optional(),
+  attachmentUrls: z.array(z.string().trim().min(1).max(2048)).max(10).optional(),
 });
 
 export const CompleteCoreRefundSchema = z.object({
   idempotencyKey: z.string().min(8).max(128).optional(),
+  note: z.string().trim().max(2000).optional(),
+  attachmentUrls: z.array(z.string().trim().min(1).max(2048)).max(10).optional(),
 });
 
 export const RenewRoomHoldSchema = z.object({

@@ -24,6 +24,13 @@ export const CreateInvoiceSchema = z.object({
 
 export const UpdateInvoiceSchema = CreateInvoiceSchema.partial();
 
+export const CreatePaymentPromiseSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(128).optional(),
+  amount: z.number().positive(),
+  dueDate: z.string().or(z.date()),
+  note: z.string().trim().max(1000).optional().nullable(),
+});
+
 export const InvoiceAdjustmentTypeEnum = z.enum(["DEBIT", "CREDIT"]);
 
 export const InvoiceAdjustmentItemSchema = z
@@ -70,6 +77,7 @@ export const CreateInvoiceAdjustmentSchema = z
 
 export type CreateInvoiceInput = z.infer<typeof CreateInvoiceSchema>;
 export type UpdateInvoiceInput = z.infer<typeof UpdateInvoiceSchema>;
+export type CreatePaymentPromiseInput = z.infer<typeof CreatePaymentPromiseSchema>;
 export type CreateInvoiceAdjustmentInput = z.infer<
   typeof CreateInvoiceAdjustmentSchema
 >;

@@ -2070,6 +2070,21 @@ export class MonthlySettlementService {
     const settledInvoices = [];
     const skippedInvoices = [];
     const lockRows = [];
+    const invoiceRulesRecord = await this.prisma.appSetting.findUnique({
+      where: {
+        tenantId_scope_ownerId_key: {
+          tenantId,
+          scope: SettingScope.TENANT,
+          ownerId: tenantId,
+          key: "invoice-rules",
+        },
+      },
+      select: { value: true },
+    }).catch(() => null);
+    const configuredDueDays = Number((invoiceRulesRecord?.value as any)?.paymentDueDays);
+    const paymentDueDays = Number.isFinite(configuredDueDays) && configuredDueDays >= 0 && configuredDueDays <= 365
+      ? Math.trunc(configuredDueDays)
+      : 5;
 
     for (const item of targetItems) {
       if (!item.hasContract || !item.representative || item.totalAmount <= 0) {
@@ -2111,7 +2126,7 @@ export class MonthlySettlementService {
         item.invoiceCode ||
         `INV-${period.replace("-", "")}-${item.roomCode}-${contractCodeSuffix}`;
       const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 5); // Hạn thanh toán: 5 ngày kể từ ngày chốt
+      dueDate.setDate(dueDate.getDate() + paymentDueDays);
 
       const roomSnapshotItems = overview.items.filter(
         (candidate) =>

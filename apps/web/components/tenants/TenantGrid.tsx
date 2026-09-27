@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Eye } from "lucide-react";
 import { useTenantsStore } from "@/lib/hooks/useTenantsStore";
-import { useContractsQuery } from "@/lib/queries/contracts.queries";
-import { useCustomersQuery } from "@/lib/queries/customers.queries";
+import { customersApi } from "@/lib/api/customers.api";
+import { customerKeys } from "@/lib/queries/customers.queries";
 import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/EmptyState";
 import { ErrorState } from "../ui/ErrorState";
@@ -61,42 +62,46 @@ export default function TenantGrid() {
   const [selectedTenant, setSelectedTenant] = useState<any | null>(null);
   const [page, setPage] = useState(1);
   const { search, status } = useTenantsStore();
-  const { data: customersData, isLoading: customersLoading, isError: customersError } = useCustomersQuery({
+  const pageSize = 10;
+  const customerParams = {
+    page,
+    limit: pageSize,
     search: search || undefined,
     status: status !== "Tất cả" && status ? status : undefined,
-    limit: 100,
+  };
+  const { data: customersData, isLoading: customersLoading, isError: customersError } = useQuery({
+    queryKey: customerKeys.list(customerParams),
+    queryFn: async () => {
+      const payload: any = await customersApi.list(customerParams);
+      const customers = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.items)
+            ? payload.items
+            : [];
+      const meta = payload?.meta || {};
+
+      return {
+        data: customers,
+        meta: {
+          total: Number(meta.total ?? payload?.total ?? customers.length),
+          page: Number(meta.page ?? payload?.page ?? page),
+          limit: Number(meta.limit ?? payload?.limit ?? pageSize),
+        },
+      };
+    },
   });
-  const { data: contractsData, isLoading: contractsLoading } = useContractsQuery({ limit: 100 });
 
   const customers: any[] = (customersData as any)?.data || [];
-  const contracts: any[] = (contractsData as any)?.data || [];
+  const totalCustomers = Number((customersData as any)?.meta?.total || 0);
 
   const rows: TenantRow[] = useMemo(() => {
     return customers.map((customer: any) => {
-      // Find all contracts belonging to this customer
-      const customerContracts: any[] = contracts.filter(
-        (contract: any) =>
-          contract.customerId === customer.id ||
-          contract.customer?.id === customer.id,
-      );
-
-      // Prioritize active contracts first, then pending/draft
-      const activeContract =
-        customerContracts.find(
-          (c: any) =>
-            c.status === "ACTIVE" ||
-            c.status === "APPROVED" ||
-            c.status === "EXPIRING",
-        ) ||
-        customerContracts.find(
-          (c: any) => c.status === "PENDING_APPROVAL" || c.status === "DRAFT",
-        );
-
-      const latestTerminatedContract = !activeContract
-        ? customerContracts.find(
-            (c: any) => c.status === "TERMINATED" || c.status === "CANCELLED" || c.status === "EXPIRED"
-          )
-        : null;
+      // The paginated customer response owns this bounded relation. Do not
+      // infer it from a separate global contract result set.
+      const customerContracts: any[] = Array.isArray(customer.contracts) ? customer.contracts : [];
+      const activeContract = customerContracts[0] || null;
 
       const debt = Number(customer.kpis?.totalDebt || activeContract?.debt || 0);
       const endDate = activeContract?.endDate;
@@ -148,13 +153,13 @@ export default function TenantGrid() {
         idImages: customer.idImages || [],
       };
     });
-  }, [customers, contracts]);
+  }, [customers]);
 
   React.useEffect(() => {
     setPage(1);
   }, [search, status]);
 
-  if (customersLoading || contractsLoading) {
+  if (customersLoading) {
     return <LoadingState message="Đang tải danh sách khách thuê..." />;
   }
 
@@ -166,9 +171,8 @@ export default function TenantGrid() {
     );
   }
 
-  const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-  const displayedRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalCustomers / pageSize));
+  const displayedRows = rows;
 
   return (
     <div data-testid="tenants-list" className="flex min-h-[520px] flex-1 flex-col overflow-hidden rounded-[16px] border border-border/40 bg-card shadow-[0_1px_2px_rgba(16,24,40,0.03)] xl:min-h-0">
@@ -209,7 +213,7 @@ export default function TenantGrid() {
 
       <div className="mt-auto flex flex-col gap-3 border-t border-border px-4 py-3 text-[12px] font-semibold text-muted sm:flex-row sm:items-center sm:justify-between">
         <span>
-          Hiển thị {rows.length === 0 ? 0 : (page - 1) * pageSize + 1} - {Math.min(page * pageSize, rows.length)} của {rows.length} khách thuê
+          Hiển thị {rows.length === 0 ? 0 : (page - 1) * pageSize + 1} - {rows.length === 0 ? 0 : Math.min((page - 1) * pageSize + rows.length, totalCustomers)} của {totalCustomers} khách thuê
         </span>
         <div className="flex items-center gap-2">
           <button type="button" className="h-8 rounded-xl border border-border bg-card px-3 text-[12px] font-black text-text">10 / trang</button>
@@ -218,6 +222,7 @@ export default function TenantGrid() {
             <button
               key={pageNumber}
               type="button"
+              aria-label={`Trang ${pageNumber}`}
               onClick={() => setPage(pageNumber)}
               className={`flex h-8 w-8 items-center justify-center rounded-xl text-[12px] font-black ${
                 page === pageNumber ? "bg-[#6d3df8] text-white" : "text-text hover:bg-surface"

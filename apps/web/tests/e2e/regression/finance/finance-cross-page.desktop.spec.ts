@@ -308,6 +308,8 @@ test.describe('Finance Cross Page Desktop Regression', () => {
     await expect(admin.page.getByTestId('bank-cashflow-kpis')).toContainText('5.300.000');
 
     await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByRole('tab', { name: 'Ngân hàng / SePay' }).click();
+    await expect(admin.page.getByTestId('bank-transactions-root')).toBeVisible();
     await admin.page.getByTestId('bank-transactions-month').selectOption('8');
     await admin.page.getByTestId('bank-transactions-account').selectOption('bank-1');
 

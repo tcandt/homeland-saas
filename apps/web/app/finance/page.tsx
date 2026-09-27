@@ -1,8 +1,6 @@
 "use client";
 
 import React, { useMemo } from "react";
-import Link from "next/link";
-import { ArrowRight, History, ReceiptText, Wallet } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import BankCashFlowSummary from "@/components/finance/BankCashFlowSummary";
 import BuildingProfitSummary from "@/components/finance/BuildingProfitSummary";
@@ -42,12 +40,6 @@ export default function FinancePage() {
         className="-m-4 min-h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background p-2 md:min-h-[calc(100dvh-80px)] md:p-3"
       >
         <div className="flex w-full flex-col gap-3">
-          <nav aria-label="Lối tắt tài chính" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <FinanceShortcut href="/finance/reconciliation" icon={ReceiptText} label="Đối soát" detail="Xử lý ngoại lệ" primary />
-            <FinanceShortcut href="/finance/transactions" icon={History} label="Giao dịch" detail="Tra cứu dòng tiền" />
-            <FinanceShortcut href="/finance/expenses" icon={Wallet} label="Chi phí" detail="Quản lý khoản chi" />
-          </nav>
-
           <FinancialCommandKpi />
 
           <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.75fr)_minmax(320px,0.75fr)]">
@@ -114,41 +106,6 @@ export default function FinancePage() {
 
       {selectedJournalId && <FinancialCommandDrawer />}
     </AppShell>
-  );
-}
-
-function FinanceShortcut({
-  href,
-  icon: Icon,
-  label,
-  detail,
-  primary = false,
-}: {
-  href: string;
-  icon: React.ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean }>;
-  label: string;
-  detail: string;
-  primary?: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      prefetch={false}
-      className={`group flex min-h-[56px] items-center gap-3 rounded-2xl border px-3.5 py-2.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-        primary
-          ? "border-primary/25 bg-primary text-white shadow-lg shadow-primary/20 hover:brightness-105"
-          : "border-border/70 bg-card/85 text-text shadow-2xs hover:border-primary/35 hover:bg-primary/5"
-      }`}
-    >
-      <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${primary ? "bg-white/15" : "bg-primary/10 text-primary"}`}>
-        <Icon size={17} aria-hidden />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-black">{label}</span>
-        <span className={`mt-0.5 block text-xs ${primary ? "text-white/75" : "text-muted"}`}>{detail}</span>
-      </span>
-      <ArrowRight size={15} className="shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden />
-    </Link>
   );
 }
 

@@ -137,7 +137,7 @@ export default function FinanceExportDrawer() {
         aria-labelledby="finance-export-title"
         aria-hidden={!open}
         inert={!open}
-        className={`fixed bottom-0 right-0 top-0 z-[10020] flex w-full max-w-[420px] flex-col border-l border-border/70 bg-card shadow-2xl transition-transform duration-300 ease-out motion-reduce:transition-none md:top-[72px] ${
+        className={`fixed bottom-0 right-0 top-0 z-[10020] flex w-full max-w-[420px] flex-col overflow-hidden border-l border-border/70 bg-card shadow-2xl transition-transform duration-300 ease-out motion-reduce:transition-none md:top-[72px] md:rounded-l-3xl ${
           open ? "translate-x-0" : "pointer-events-none translate-x-full"
         }`}
       >

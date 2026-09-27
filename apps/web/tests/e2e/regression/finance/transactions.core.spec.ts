@@ -9,6 +9,7 @@ type BankTransactionRow = {
   content: string;
   paymentCode?: string | null;
   providerTransactionId?: string | null;
+  providerAccountNumber?: string | null;
   reference?: string | null;
   owner?: { id: string; name: string | null } | null;
   bankAccount?: {
@@ -44,6 +45,7 @@ const baseRows: BankTransactionRow[] = [
     content: 'Thu coc giu phong LK08-24',
     paymentCode: 'DEP-LK0824-001',
     providerTransactionId: 'MB-0000',
+    providerAccountNumber: '0000000001',
     reference: 'REF-000',
     owner: { id: 'owner-1', name: 'Tính' },
     bankAccount: bankAccounts[0],
@@ -260,6 +262,7 @@ test.describe('Finance Transactions Regression', () => {
 
     await admin.page.getByTestId('bank-transaction-row-txn-0').click();
     await expect(admin.page.getByTestId('bank-transaction-detail-modal')).toBeVisible();
+    await expect(admin.page.getByTestId('bank-transaction-detail-modal')).toContainText('Tài khoản ảo SePay');
   });
 
   test('filters rows by direction on desktop', async ({ admin }) => {

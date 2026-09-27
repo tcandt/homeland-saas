@@ -1299,7 +1299,7 @@ export class FinanceReportingService {
           ? {
               id: resolvedBankAccount.id,
               bankName: resolvedBankAccount.bankName,
-              accountNumber: accountNumber || resolvedBankAccount.accountNumber,
+              accountNumber: resolvedBankAccount.accountNumber,
               accountName: providerAccountName || resolvedBankAccount.accountName,
               isLinked: true,
             }
@@ -1322,6 +1322,7 @@ export class FinanceReportingService {
           amount,
           content,
           reference,
+          providerAccountNumber: accountNumber || null,
           paymentCode,
           transferType: String(payload?.transferType || payload?.transfer_type || '').trim(),
           bankAccount: {
@@ -1367,6 +1368,7 @@ export class FinanceReportingService {
           row.bankAccount.bankName,
           row.bankAccount.accountNumber,
           row.bankAccount.accountName,
+          row.providerAccountNumber,
           row.owner?.name,
           row.owner?.code,
         ].join(' ').toLowerCase();

@@ -506,6 +506,9 @@ export default function BankTransactionHistory() {
                 <BankDetail label="Ngân hàng" value={selectedTransaction.bankAccount?.bankName || "Chưa xác định"} />
                 <BankDetail label="Chủ tài khoản" value={selectedTransaction.bankAccount?.accountName || "Chưa xác định"} />
                 <BankDetail label="Số tài khoản" value={maskAccountNumber(selectedTransaction.bankAccount?.accountNumber)} mono />
+                {selectedTransaction.providerAccountNumber && selectedTransaction.providerAccountNumber !== selectedTransaction.bankAccount?.accountNumber && (
+                  <BankDetail label="Tài khoản ảo SePay" value={maskAccountNumber(selectedTransaction.providerAccountNumber)} mono />
+                )}
                 <BankDetail label="Mã thanh toán" value={selectedTransaction.paymentCode || "Chưa có"} mono />
                 <BankDetail label="Mã giao dịch ngân hàng" value={selectedTransaction.providerTransactionId || selectedTransaction.reference || "Chưa có"} mono />
               </div>

@@ -630,10 +630,11 @@ describe('FinanceReportingService', () => {
       bankAccount: {
         id: 'bank-bidv-1',
         bankName: 'BIDV',
-        accountNumber: '0000000001',
+        accountNumber: 'SBSEPAYMKYNGRD9RLQJ',
         accountName: 'HO KINH DOANH NGUYEN DUC TINH',
         isLinked: true,
       },
+      providerAccountNumber: '0000000001',
       owner: { id: 'owner-1', name: 'Tính' },
       reviewStatus: 'MATCHED',
     });

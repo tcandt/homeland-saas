@@ -1,5 +1,5 @@
 import React from "react";
-import { Building, CheckCircle, DollarSign, Minus, PieChart, TrendingUp, Wallet, type LucideIcon } from "lucide-react";
+import { CircleDollarSign, Landmark, Minus, PieChart, Wallet, type LucideIcon } from "lucide-react";
 import { useDashboardQuery } from "@/lib/queries/dashboard.queries";
 import { Card } from "../ui/Card";
 
@@ -19,16 +19,15 @@ export default function FinancialCommandKpi() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8 shrink-0">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-24 animate-pulse rounded-xl border border-border/60 bg-card/60" />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="h-32 animate-pulse rounded-2xl border border-border/60 bg-card/60" />
         ))}
       </div>
     );
   }
 
   const kpisData = (dashboard as any)?.kpisRaw || {};
-  const occupancy = (dashboard as any)?.occupancy || {};
   const collectionRate =
     Number(kpisData.totalRevenue || 0) + Number(kpisData.totalDebt || 0) > 0
       ? Math.round(
@@ -40,33 +39,43 @@ export default function FinancialCommandKpi() {
 
   const kpis: FinanceKpiCard[] = [
     {
-      label: "Tiền mặt ròng",
-      value: Number(kpisData.netCashFlow || 0).toLocaleString("vi-VN"),
-      unit: "đ",
-      detail: "Dòng tiền thực còn lại sau khi đã trừ chi.",
-      formula: "Thu - Chi",
-      icon: DollarSign,
-      color: "text-indigo-600 dark:text-indigo-400",
-      bg: "bg-indigo-500/10 border border-indigo-500/20",
-    },
-    {
-      label: "Doanh thu P&L",
+      label: "Doanh thu ghi nhận",
       value: Number(kpisData.totalRevenue || 0).toLocaleString("vi-VN"),
       unit: "đ",
-      detail: "Doanh thu ghi nhận trong kỳ.",
-      formula: "Tổng doanh thu",
-      icon: TrendingUp,
-      color: "text-emerald-600 dark:text-emerald-400",
+      detail: "Doanh thu thuê phòng và dịch vụ trong kỳ.",
+      formula: `Tỷ lệ thu ${collectionRate}%`,
+      icon: CircleDollarSign,
+      color: "text-emerald-700 dark:text-emerald-300",
       bg: "bg-emerald-500/10 border border-emerald-500/20",
     },
     {
-      label: "Chi phí P&L",
+      label: "Tiền mặt ròng",
+      value: Number(kpisData.netCashFlow || 0).toLocaleString("vi-VN"),
+      unit: "đ",
+      detail: "Dòng tiền thực còn lại sau khi trừ chi.",
+      formula: "Tiền vào - tiền ra",
+      icon: Landmark,
+      color: "text-sky-700 dark:text-sky-300",
+      bg: "bg-sky-500/10 border border-sky-500/20",
+    },
+    {
+      label: "Phải thu",
+      value: Number(kpisData.totalDebt || 0).toLocaleString("vi-VN"),
+      unit: "đ",
+      detail: "Công nợ còn chờ khách thuê thanh toán.",
+      formula: "Chưa thu",
+      icon: Minus,
+      color: "text-amber-700 dark:text-amber-300",
+      bg: "bg-amber-500/10 border border-amber-500/20",
+    },
+    {
+      label: "Chi phí vận hành",
       value: Number(kpisData.totalExpense || 0).toLocaleString("vi-VN"),
       unit: "đ",
       detail: "Chi phí vận hành & bảo trì.",
       formula: "Tổng chi phí",
       icon: Wallet,
-      color: "text-rose-600 dark:text-rose-400",
+      color: "text-rose-700 dark:text-rose-300",
       bg: "bg-rose-500/10 border border-rose-500/20",
     },
     {
@@ -76,48 +85,8 @@ export default function FinancialCommandKpi() {
       detail: "Kết quả kinh doanh P&L.",
       formula: "Doanh thu - Chi phí",
       icon: PieChart,
-      color: netProfit >= 0 ? "text-indigo-600 dark:text-indigo-400" : "text-rose-600 dark:text-rose-400",
-      bg: netProfit >= 0 ? "bg-indigo-500/10 border border-indigo-500/20" : "bg-rose-500/10 border border-rose-500/20",
-    },
-    {
-      label: "Phải thu",
-      value: Number(kpisData.totalDebt || 0).toLocaleString("vi-VN"),
-      unit: "đ",
-      detail: "Công nợ còn chờ thu.",
-      formula: "Chưa thu",
-      icon: Minus,
-      color: "text-amber-600 dark:text-amber-400",
-      bg: "bg-amber-500/10 border border-amber-500/20",
-    },
-    {
-      label: "Tiền cọc giữ",
-      value: Number(kpisData.depositHeld || 0).toLocaleString("vi-VN"),
-      unit: "đ",
-      detail: "Tiền đặt cọc đang giữ.",
-      formula: "Quỹ cọc",
-      icon: Building,
-      color: "text-sky-600 dark:text-sky-400",
-      bg: "bg-sky-500/10 border border-sky-500/20",
-    },
-    {
-      label: "Tỷ lệ thu",
-      value: `${collectionRate}%`,
-      unit: "",
-      detail: "Tỷ lệ thu tiền so với phát sinh.",
-      formula: "Tỷ lệ thanh toán",
-      icon: CheckCircle,
-      color: "text-indigo-600 dark:text-indigo-400",
-      bg: "bg-indigo-500/10 border border-indigo-500/20",
-    },
-    {
-      label: "Lấp đầy",
-      value: `${Math.round(Number(occupancy.rate || 0))}%`,
-      unit: "",
-      detail: "Tỷ lệ phòng đang có khách.",
-      formula: "Tỷ lệ thuê",
-      icon: TrendingUp,
-      color: "text-purple-600 dark:text-purple-400",
-      bg: "bg-purple-500/10 border border-purple-500/20",
+      color: netProfit >= 0 ? "text-primary" : "text-rose-700 dark:text-rose-300",
+      bg: netProfit >= 0 ? "bg-primary/10 border border-primary/20" : "bg-rose-500/10 border border-rose-500/20",
     },
   ];
 
@@ -130,31 +99,32 @@ export default function FinancialCommandKpi() {
       .replace(/^-+|-+$/g, "");
 
   return (
-    <div data-testid="finance-kpi-grid" className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8 shrink-0">
+    <div data-testid="finance-kpi-grid" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
       {kpis.map((kpi) => (
         <Card
           key={kpi.label}
           data-testid={`finance-kpi-card-${toTestId(kpi.label)}`}
-          className="group relative flex flex-col justify-between rounded-xl border border-border/60 bg-card p-3 shadow-2xs transition-all hover:border-primary/30 min-h-[96px]"
+          className="group relative flex min-h-[128px] flex-col justify-between overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-2xs transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md motion-reduce:hover:translate-y-0"
         >
           <div className="flex items-center justify-between gap-1.5">
-            <span className="truncate text-[10px] font-bold uppercase tracking-wider text-muted group-hover:text-text transition-colors">
+            <span className="text-[11px] font-black uppercase tracking-[0.12em] text-muted transition-colors group-hover:text-text">
               {kpi.label}
             </span>
-            <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${kpi.bg}`}>
-              <kpi.icon size={12} className={kpi.color} />
+            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${kpi.bg}`}>
+              <kpi.icon size={17} className={kpi.color} />
             </div>
           </div>
 
-          <div className="mt-1.5 flex items-baseline gap-1">
-            <span className="truncate font-mono font-black text-base leading-none text-text">
+          <div className="mt-3 flex items-baseline gap-1">
+            <span className="truncate font-mono text-xl font-black leading-none tracking-tight text-text">
               {kpi.value}
             </span>
-            {kpi.unit && <span className={`text-[10px] font-bold ${kpi.color}`}>{kpi.unit}</span>}
+            {kpi.unit && <span className={`text-xs font-black ${kpi.color}`}>{kpi.unit}</span>}
           </div>
 
-          <div className="mt-1 flex items-center justify-between text-[10px] text-muted">
-            <span className="truncate font-medium">{kpi.formula}</span>
+          <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted">
+            <span className="truncate font-semibold">{kpi.formula}</span>
+            <span className="sr-only">{kpi.detail}</span>
           </div>
         </Card>
       ))}

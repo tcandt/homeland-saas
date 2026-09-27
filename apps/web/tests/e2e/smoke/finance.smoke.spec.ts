@@ -87,6 +87,7 @@ test.describe('Finance Smoke Test', () => {
     await expect(adminPage.getByTestId('finance-export-button')).toBeVisible();
     await expect(adminPage.getByTestId('finance-kpi-grid')).toBeVisible();
     await expect(adminPage.getByTestId('finance-chart')).toBeVisible();
+    await adminPage.getByTestId('finance-ledger-disclosure-toggle').click();
 
     const ledger = adminPage.getByTestId('finance-ledger');
     await expect(ledger).toBeVisible();
@@ -147,6 +148,7 @@ test.describe('Finance Smoke Test', () => {
     });
 
     await adminPage.goto('/finance');
+    await adminPage.getByTestId('finance-ledger-disclosure-toggle').click();
     
     const errorState = adminPage.getByTestId('finance-error-state');
     await expect(errorState).toBeVisible({ timeout: 10000 });
@@ -167,6 +169,7 @@ test.describe('Finance Smoke Test', () => {
     });
 
     await adminPage.goto('/finance');
+    await adminPage.getByTestId('finance-ledger-disclosure-toggle').click();
     
     const emptyState = adminPage.getByTestId('empty-finance-state');
     await expect(emptyState).toBeVisible({ timeout: 10000 });

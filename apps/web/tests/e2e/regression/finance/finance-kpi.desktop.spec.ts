@@ -112,12 +112,10 @@ test.describe('Finance KPI Desktop Regression', () => {
 
     await expect(admin.page.getByTestId('finance-kpi-grid')).toBeVisible();
     await expect(admin.page.getByTestId('finance-kpi-card-tien-mat-rong')).toContainText('3.300.000');
-    await expect(admin.page.getByTestId('finance-kpi-card-doanh-thu-p-l')).toContainText('4.300.000');
-    await expect(admin.page.getByTestId('finance-kpi-card-chi-phi-p-l')).toContainText('1.000.000');
+    await expect(admin.page.getByTestId('finance-kpi-card-doanh-thu-ghi-nhan')).toContainText('4.300.000');
+    await expect(admin.page.getByTestId('finance-kpi-card-doanh-thu-ghi-nhan')).toContainText('96%');
+    await expect(admin.page.getByTestId('finance-kpi-card-chi-phi-van-hanh')).toContainText('1.000.000');
     await expect(admin.page.getByTestId('finance-kpi-card-loi-nhuan-rong')).toContainText('3.300.000');
     await expect(admin.page.getByTestId('finance-kpi-card-phai-thu')).toContainText('200.000');
-    await expect(admin.page.getByTestId('finance-kpi-card-tien-coc-giu')).toContainText('5.000.000');
-    await expect(admin.page.getByTestId('finance-kpi-card-ty-le-thu')).toContainText('96%');
-    await expect(admin.page.getByTestId('finance-kpi-card-lap-day')).toContainText('75');
   });
 });

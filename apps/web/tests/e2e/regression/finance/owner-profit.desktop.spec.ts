@@ -289,6 +289,7 @@ test.describe('Finance Owner Profit Desktop Regression', () => {
     await mockFinanceOwnerProfit(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-owner-profit-disclosure-toggle').click();
 
     await expect(admin.page.getByTestId('owner-profit-summary')).toBeVisible();
     await expect(admin.page.getByTestId('owner-profit-card-owner-1')).toBeVisible();
@@ -301,6 +302,7 @@ test.describe('Finance Owner Profit Desktop Regression', () => {
     const mock = await mockFinanceOwnerProfit(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-owner-profit-disclosure-toggle').click();
 
     await admin.page.getByTestId('owner-profit-open-owner-1').click();
 
@@ -335,6 +337,7 @@ test.describe('Finance Owner Profit Desktop Regression', () => {
     await mockFinanceOwnerProfit(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-owner-profit-disclosure-toggle').click();
     await admin.page.getByTestId('owner-profit-open-owner-1').click();
 
     await expect(admin.page.getByTestId('owner-profit-detail-modal')).toBeVisible();
@@ -350,6 +353,7 @@ test.describe('Finance Owner Profit Desktop Regression', () => {
     await mockFinanceOwnerProfit(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-owner-profit-disclosure-toggle').click();
     await admin.page.getByTestId('owner-profit-open-owner-2').click();
 
     const modal = admin.page.getByTestId('owner-profit-detail-modal');

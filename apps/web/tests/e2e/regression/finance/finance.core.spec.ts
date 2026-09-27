@@ -32,13 +32,15 @@ test.describe('Finance Core Regression', () => {
     await expect(finance.page.getByTestId('finance-root')).toBeVisible();
     await expect(finance.page.getByTestId('finance-chart')).toBeVisible();
 
-    // Verify UI placeholders are rendered
-    await expect(finance.page.getByText('Biểu đồ Dòng tiền (Cash Flow)')).toBeVisible();
-    await expect(finance.page.getByText('Hiệu quả tòa nhà (Building P&L)')).toBeVisible();
+    await expect(finance.page.getByRole('heading', { name: 'Doanh thu & Tài chính' })).toBeVisible();
+    await expect(finance.page.getByTestId('finance-attention-card')).toBeVisible();
+    await expect(finance.page.getByTestId('finance-reconciliation-link')).toBeVisible();
     
     // Simulate UI export click to ensure no crash
     const exportBtn = finance.page.getByTestId('finance-export-button');
     await expect(exportBtn).toBeVisible();
+    await exportBtn.click();
+    await expect(finance.page.getByRole('dialog', { name: 'Xuất báo cáo tài chính' })).toBeVisible();
   });
 
 });

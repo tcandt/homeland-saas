@@ -68,6 +68,11 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
     subtitle: "Theo dõi dòng tiền vào, doanh thu và công nợ",
     mobileSubtitle: "Doanh thu, công nợ và dòng tiền vào",
   },
+  "/finance/reconciliation": {
+    title: "Đối soát giao dịch",
+    subtitle: "Xử lý giao dịch chưa khớp, chênh lệch tiền và sai lệch SePay",
+    mobileSubtitle: "Gắn giao dịch và xử lý ngoại lệ thanh toán",
+  },
   "/finance/expenses": {
     title: "Chi phí",
     subtitle: "Quản lý chi phí vận hành, duyệt chi và khấu trừ owner",

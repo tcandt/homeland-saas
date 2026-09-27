@@ -1,48 +1,22 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Download, FileSpreadsheet, FileText, Wallet } from "lucide-react";
-import toast from "react-hot-toast";
+import Link from "next/link";
+import { ArrowRight, BarChart3, History, ReceiptText, Wallet } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import BankCashFlowSummary from "@/components/finance/BankCashFlowSummary";
 import BuildingProfitSummary from "@/components/finance/BuildingProfitSummary";
-import FinanceMobileFlow from "@/components/finance/FinanceMobileFlow";
+import FinanceAttentionCard from "@/components/finance/FinanceAttentionCard";
+import FinanceDisclosureSection from "@/components/finance/FinanceDisclosureSection";
+import FinanceExportDrawer from "@/components/finance/FinanceExportDrawer";
 import FinancialCommandDrawer from "@/components/finance/FinancialCommandDrawer";
 import FinancialCommandKpi from "@/components/finance/FinancialCommandKpi";
 import FinancialCommandLedger from "@/components/finance/FinancialCommandLedger";
 import OperationsFinanceChart from "@/components/finance/OperationsFinanceChart";
 import OwnerProfitSummary from "@/components/finance/OwnerProfitSummary";
-import SePayReconciliationAuditPanel from "@/components/finance/SePayReconciliationAuditPanel";
-import SePayReconciliationSummary from "@/components/finance/SePayReconciliationSummary";
-import { financeApi } from "@/lib/api/finance.api";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { useLedgerQuery } from "@/lib/queries/finance.queries";
 import { useFinanceStore } from "@/lib/stores/finance.store";
-
-async function downloadFinanceFile(
-  request: () => Promise<any>,
-  fallbackName: string,
-  successMessage: string,
-  errorMessage: string,
-) {
-  try {
-    const response: any = await request();
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement("a");
-    const contentDisposition = response.headers["content-disposition"];
-    const filenameMatch = contentDisposition?.match(/filename="?([^\"]+)"?/);
-
-    link.href = url;
-    link.download = filenameMatch?.[1] || fallbackName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-    toast.success(successMessage);
-  } catch {
-    toast.error(errorMessage);
-  }
-}
 
 export default function FinancePage() {
   const permissions = usePermissions();
@@ -59,120 +33,179 @@ export default function FinancePage() {
     };
   }, [ledgerRows]);
 
+  const updatedAtLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }).format(new Date()),
+    [],
+  );
+
   return (
     <AppShell>
-      {/* Mobile Flow */}
-      <div className="block md:hidden">
-        <div className="mb-3">
-          <h1 className="text-lg font-black text-text">Tài chính</h1>
-        </div>
-        <FinanceMobileFlow />
-      </div>
+      {permissions.canExportFinance && <FinanceExportDrawer />}
 
-      {/* Floating Vertical Side Tab - Pinned along the right screen edge */}
-      {permissions.canExportFinance && (
-        <div className="fixed right-0 top-1/2 -translate-y-1/2 z-50">
-          <details className="group relative">
-            <summary data-testid="finance-export-button" className="flex cursor-pointer list-none items-center gap-1.5 rounded-l-xl border-y border-l border-primary/40 bg-card/95 py-3 px-2 text-xs font-black text-primary shadow-xl backdrop-blur-md transition-all hover:bg-primary/10 hover:border-primary hover:pl-3 [writing-mode:vertical-rl] select-none">
-              <Download size={13} className="text-primary rotate-90" />
-              <span>Xuất báo cáo</span>
-            </summary>
-            <div className="absolute right-full mr-2 top-1/2 -translate-y-1/2 z-50 w-52 rounded-xl border border-border/80 bg-card p-1.5 shadow-modal">
-              <div className="px-2.5 py-1 text-[10px] font-black uppercase text-muted border-b border-border/50 mb-1">
-                Tải báo cáo tài chính
-              </div>
-              <button
-                type="button"
-                data-testid="finance-export-excel-button"
-                onClick={() =>
-                  downloadFinanceFile(
-                    () => financeApi.exportExcelReport(),
-                    "finance_report.xlsx",
-                    "Đã xuất báo cáo Excel.",
-                    "Không thể xuất báo cáo Excel.",
-                  )
-                }
-                className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-bold text-text hover:bg-muted/10 transition-colors"
-              >
-                <FileSpreadsheet size={14} className="text-emerald-500" /> Xuất file Excel (.xlsx)
-              </button>
-              <button
-                type="button"
-                data-testid="finance-export-pdf-button"
-                onClick={() =>
-                  downloadFinanceFile(
-                    () => financeApi.exportPdfReport(),
-                    "finance_report.pdf",
-                    "Đã xuất báo cáo PDF.",
-                    "Không thể xuất báo cáo PDF.",
-                  )
-                }
-                className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs font-bold text-text hover:bg-muted/10 transition-colors"
-              >
-                <FileText size={14} className="text-rose-500" /> Xuất file PDF (.pdf)
-              </button>
-            </div>
-          </details>
-        </div>
-      )}
-
-      {/* Desktop Main Flow */}
-      <div
+      <main
         data-testid="finance-root"
-        className="hidden md:flex -m-4 min-h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background md:min-h-[calc(100dvh-80px)] p-2.5 md:p-3 flex-col gap-3"
+        className="-m-4 min-h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background p-3 md:min-h-[calc(100dvh-80px)] md:p-5"
       >
-        {/* 1. 8-CARD COMPACT KPI GRID */}
-        <FinancialCommandKpi />
-
-        {/* 2. REAL CASH FLOW & PROFIT ANALYSIS COMBO CHART */}
-        <OperationsFinanceChart />
-
-        {/* 3. OWNER PROFIT SUMMARY (if permitted) */}
-        {permissions.canReadOwnerProfit && <OwnerProfitSummary />}
-
-        {/* 4. BANK CASH FLOW & SEPAY RECONCILIATION */}
-        <BankCashFlowSummary />
-        <SePayReconciliationSummary />
-        <SePayReconciliationAuditPanel />
-
-        {/* 5. BUILDING PROFIT SUMMARY */}
-        <BuildingProfitSummary />
-
-        {/* 6. GENERAL LEDGER & RECONCILIATION DRAFT STATUS */}
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_320px]">
-          <FinancialCommandLedger />
-
-          <div
-            data-testid="finance-right-panel"
-            className="flex flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xs h-auto lg:h-[600px]"
-          >
-            <div className="border-b border-border/70 p-3.5 bg-muted/5">
-              <h3 className="font-black text-xs uppercase tracking-wider text-muted">Kiểm soát đối soát Ledger</h3>
-              <p className="mt-0.5 text-[11px] text-muted">Tổng hợp theo trạng thái ghi sổ thực tế.</p>
-            </div>
-            <div className="flex flex-col gap-3 p-3.5">
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-                <div className="text-xs font-black text-amber-700 dark:text-amber-400">
-                  {reconciliation.draftCount} bút toán nháp (Draft)
+        <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-4">
+          <header className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xs">
+            <div className="bg-gradient-to-br from-primary/12 via-card to-emerald-500/5 px-4 py-5 md:px-6 md:py-6">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-white shadow-lg shadow-primary/20">
+                    <BarChart3 size={22} aria-hidden />
+                  </span>
+                  <div>
+                    <div className="text-[11px] font-black uppercase tracking-[0.16em] text-primary">Financial overview</div>
+                    <h1 className="mt-1 text-2xl font-black tracking-tight text-text md:text-3xl">Doanh thu & Tài chính</h1>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-muted md:text-base">
+                      Theo dõi tiền thực thu, công nợ, chi phí và lợi nhuận. Các giao dịch bất thường được chuyển sang trung tâm đối soát riêng.
+                    </p>
+                    <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-1.5 text-xs font-semibold text-muted">
+                      Dữ liệu hiển thị lúc {updatedAtLabel}
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-1 text-[11px] text-muted leading-relaxed">
-                  Chưa ghi sổ kế toán chính thức, cần kiểm tra đối chiếu trước khi Post.
-                </div>
-              </div>
-              <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3">
-                <div className="text-xs font-black text-indigo-700 dark:text-indigo-400">
-                  {reconciliation.postedCount} bút toán đã ghi sổ (Posted)
-                </div>
-                <div className="mt-1 text-[11px] text-muted leading-relaxed">
-                  Bao gồm {reconciliation.depositCount} nguồn tiền cọc và {reconciliation.expenseCount} nguồn chi phí vận hành.
-                </div>
+
+                <nav aria-label="Lối tắt tài chính" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <FinanceShortcut href="/finance/reconciliation" icon={ReceiptText} label="Đối soát" detail="Xử lý ngoại lệ" primary />
+                  <FinanceShortcut href="/finance/transactions" icon={History} label="Giao dịch" detail="Tra cứu dòng tiền" />
+                  <FinanceShortcut href="/finance/expenses" icon={Wallet} label="Chi phí" detail="Quản lý khoản chi" />
+                </nav>
               </div>
             </div>
+          </header>
+
+          <FinancialCommandKpi />
+
+          <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(320px,0.75fr)]">
+            <OperationsFinanceChart />
+            <FinanceAttentionCard />
           </div>
+
+          <BankCashFlowSummary />
+
+          {permissions.canReadOwnerProfit && (
+            <FinanceDisclosureSection
+              testId="finance-owner-profit-disclosure"
+              eyebrow="Phân tích chủ sở hữu"
+              title="Quyết toán và lợi nhuận theo chủ sở hữu"
+              description="Mở khi cần kiểm tra tiền thực nhận, hoàn ứng, tiền cọc và chi tiết từng tòa nhà."
+            >
+              <OwnerProfitSummary />
+            </FinanceDisclosureSection>
+          )}
+
+          <FinanceDisclosureSection
+            testId="finance-building-profit-disclosure"
+            eyebrow="Hiệu quả vận hành"
+            title="Doanh thu và lợi nhuận theo tòa nhà"
+            description="So sánh hiệu quả từng tòa, sau đó mở sâu xuống phòng khi cần điều tra chênh lệch."
+          >
+            <BuildingProfitSummary />
+          </FinanceDisclosureSection>
+
+          <FinanceDisclosureSection
+            testId="finance-ledger-disclosure"
+            eyebrow="Sổ kế toán"
+            title="Bút toán và kiểm soát ghi sổ"
+            description="Danh sách chi tiết được đóng gọn để dashboard chính luôn dễ đọc."
+          >
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <FinancialCommandLedger />
+
+              <aside data-testid="finance-right-panel" className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xs">
+                <div className="border-b border-border/70 bg-surface/60 p-4">
+                  <h3 className="text-sm font-black text-text">Trạng thái ghi sổ</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted">Tổng hợp theo dữ liệu ledger hiện tại.</p>
+                </div>
+                <div className="grid gap-3 p-4">
+                  <LedgerStatusCard
+                    tone="warning"
+                    value={reconciliation.draftCount}
+                    title="Bút toán nháp"
+                    detail="Cần kiểm tra trước khi ghi sổ chính thức."
+                  />
+                  <LedgerStatusCard
+                    tone="success"
+                    value={reconciliation.postedCount}
+                    title="Đã ghi sổ"
+                    detail={`${reconciliation.depositCount} nguồn cọc · ${reconciliation.expenseCount} nguồn chi phí`}
+                  />
+                </div>
+              </aside>
+            </div>
+          </FinanceDisclosureSection>
+
         </div>
-      </div>
+      </main>
 
       {selectedJournalId && <FinancialCommandDrawer />}
     </AppShell>
+  );
+}
+
+function FinanceShortcut({
+  href,
+  icon: Icon,
+  label,
+  detail,
+  primary = false,
+}: {
+  href: string;
+  icon: React.ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean }>;
+  label: string;
+  detail: string;
+  primary?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      className={`group flex min-h-[64px] items-center gap-3 rounded-xl border px-3.5 py-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+        primary
+          ? "border-primary/25 bg-primary text-white shadow-lg shadow-primary/20 hover:brightness-105"
+          : "border-border/70 bg-card/85 text-text shadow-2xs hover:border-primary/35 hover:bg-primary/5"
+      }`}
+    >
+      <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${primary ? "bg-white/15" : "bg-primary/10 text-primary"}`}>
+        <Icon size={17} aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-black">{label}</span>
+        <span className={`mt-0.5 block text-xs ${primary ? "text-white/75" : "text-muted"}`}>{detail}</span>
+      </span>
+      <ArrowRight size={15} className="shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden />
+    </Link>
+  );
+}
+
+function LedgerStatusCard({
+  tone,
+  value,
+  title,
+  detail,
+}: {
+  tone: "warning" | "success";
+  value: number;
+  title: string;
+  detail: string;
+}) {
+  const toneClass =
+    tone === "warning"
+      ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+      : "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  return (
+    <div className={`rounded-xl border p-4 ${toneClass}`}>
+      <div className="font-mono text-2xl font-black">{value}</div>
+      <div className="mt-1 text-sm font-black">{title}</div>
+      <div className="mt-1 text-xs leading-5 text-muted">{detail}</div>
+    </div>
   );
 }

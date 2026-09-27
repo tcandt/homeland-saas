@@ -336,6 +336,8 @@ test.describe('Finance Overview Desktop Regression', () => {
     const mock = await mockFinanceOverview(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-owner-profit-disclosure-toggle').click();
+    await admin.page.getByTestId('finance-building-profit-disclosure-toggle').click();
 
     await expect
       .poll(() => ({
@@ -351,10 +353,11 @@ test.describe('Finance Overview Desktop Regression', () => {
 
     await expect(admin.page.getByTestId('owner-profit-summary')).toBeVisible();
     await expect(admin.page.getByTestId('bank-cashflow-summary')).toBeVisible();
-    await expect(admin.page.getByTestId('sepay-reconciliation-summary')).toBeVisible();
+    await expect(admin.page.getByTestId('finance-attention-card')).toBeVisible();
+    await expect(admin.page.getByTestId('finance-reconciliation-link')).toBeVisible();
+    await expect(admin.page.getByTestId('sepay-reconciliation-summary')).toHaveCount(0);
     await expect(admin.page.getByTestId('building-profit-summary')).toBeVisible();
     await expect(admin.page.getByTestId('bank-cashflow-row-bank-1')).toBeVisible();
-    await expect(admin.page.getByTestId('sepay-row-log-unmatched-1')).toBeVisible();
     await expect(admin.page.getByTestId('building-profit-row-building-1')).toBeVisible();
     await expect(admin.page.getByTestId('owner-profit-card-owner-1')).toBeVisible();
   });
@@ -363,27 +366,33 @@ test.describe('Finance Overview Desktop Regression', () => {
     const mock = await mockFinanceOverview(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-building-profit-disclosure-toggle').click();
 
     await admin.page.getByTestId('bank-cashflow-month').selectOption('8');
-    await admin.page.getByTestId('sepay-reconciliation-status').selectOption('OVER_AMOUNT');
     await admin.page.getByTestId('building-profit-month').selectOption('8');
 
     await expect
       .poll(() => ({
         cashflow: mock.getLastCashflowQuery(),
-        sepay: mock.getLastSePayQuery(),
         building: mock.getLastBuildingQuery(),
       }), { timeout: 10000 })
       .toMatchObject({
         cashflow: { year: '2026', month: '8' },
-        sepay: { year: '2026', month: null, status: 'OVER_AMOUNT' },
         building: { year: '2026', month: '8' },
       });
 
     await expect(admin.page.getByTestId('bank-cashflow-kpis')).toContainText('5');
     await expect(admin.page.getByTestId('bank-cashflow-kpis')).toContainText('5.300.000');
+    await expect(admin.page.getByTestId('building-profit-row-building-1')).toBeVisible();
+
+    await admin.page.getByTestId('finance-reconciliation-link').click();
+    await expect(admin.page).toHaveURL(/\/finance\/reconciliation/);
+    await admin.page.getByTestId('sepay-reconciliation-status').selectOption('OVER_AMOUNT');
+
+    await expect
+      .poll(() => mock.getLastSePayQuery(), { timeout: 10000 })
+      .toMatchObject({ year: '2026', month: null, status: 'OVER_AMOUNT' });
     await expect(admin.page.getByTestId('sepay-row-log-over-1')).toBeVisible();
     await expect(admin.page.getByTestId('sepay-row-log-unmatched-1')).toHaveCount(0);
-    await expect(admin.page.getByTestId('building-profit-row-building-1')).toBeVisible();
   });
 });

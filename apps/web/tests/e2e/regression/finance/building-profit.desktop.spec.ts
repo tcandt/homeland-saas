@@ -218,6 +218,7 @@ test.describe('Finance Building Profit Desktop Regression', () => {
     await mockFinanceBuildingProfit(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-building-profit-disclosure-toggle').click();
 
     await expect(admin.page.getByTestId('building-profit-summary')).toBeVisible();
     await expect(admin.page.getByTestId('building-profit-row-building-1')).toBeVisible();
@@ -229,6 +230,7 @@ test.describe('Finance Building Profit Desktop Regression', () => {
     const mock = await mockFinanceBuildingProfit(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-building-profit-disclosure-toggle').click();
 
     await expect
       .poll(() => mock.getLastBuildingQuery(), { timeout: 10000 })

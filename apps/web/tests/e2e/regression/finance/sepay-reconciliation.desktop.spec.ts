@@ -403,7 +403,7 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
   test('renders reconciliation rows and filters by status on desktop', async ({ admin }) => {
     const mock = await mockFinanceSePay(admin.page);
 
-    await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.goto('/finance/reconciliation', { waitUntil: 'domcontentloaded' });
 
     await expect(admin.page.getByTestId('sepay-reconciliation-summary')).toBeVisible();
     await expect
@@ -439,7 +439,7 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
   test('filters short amount, wrong bank, and outgoing transactions with correct action availability', async ({ admin }) => {
     const mock = await mockFinanceSePay(admin.page);
 
-    await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.goto('/finance/reconciliation', { waitUntil: 'domcontentloaded' });
 
     await admin.page.getByTestId('sepay-reconciliation-status').selectOption('SHORT_AMOUNT');
 
@@ -488,7 +488,7 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
   test('selects a suggested obligation before assigning an unmatched SePay transaction', async ({ admin }) => {
     const mock = await mockFinanceSePay(admin.page);
 
-    await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.goto('/finance/reconciliation', { waitUntil: 'domcontentloaded' });
 
     await admin.page.getByTestId('sepay-manual-assign-open-log-unmatched-1').click();
     await expect(admin.page.getByTestId('sepay-manual-assign-modal')).toBeVisible();
@@ -512,7 +512,7 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
   test('resolves SePay overpayment into pending refund with the expected payload', async ({ admin }) => {
     const mock = await mockFinanceSePay(admin.page);
 
-    await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.goto('/finance/reconciliation', { waitUntil: 'domcontentloaded' });
 
     await admin.page.getByTestId('sepay-resolve-open-log-over-1').click();
     await expect(admin.page.getByTestId('sepay-resolve-modal')).toBeVisible();
@@ -534,7 +534,7 @@ test.describe('Finance SePay Reconciliation Desktop Regression', () => {
   test('completes a pending SePay overpayment refund with note payload', async ({ admin }) => {
     const mock = await mockFinanceSePay(admin.page);
 
-    await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.goto('/finance/reconciliation', { waitUntil: 'domcontentloaded' });
 
     await admin.page.getByTestId('sepay-refund-complete-open-log-refund-1').click();
     await expect(admin.page.getByTestId('sepay-refund-complete-modal')).toBeVisible();

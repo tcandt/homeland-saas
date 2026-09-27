@@ -258,20 +258,23 @@ test.describe('Finance Ledger Desktop Regression', () => {
     await mockFinanceLedgerDesktop(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-ledger-disclosure-toggle').click();
 
     await expect(admin.page.getByTestId('finance-ledger')).toBeVisible();
     await expect(admin.page.getByTestId('finance-ledger-row-line-1')).toBeVisible();
     await expect(admin.page.getByTestId('finance-ledger-row-line-3')).toBeVisible();
     await expect(admin.page.getByTestId('finance-right-panel')).toBeVisible();
-    await expect(admin.page.getByTestId('finance-right-panel')).toContainText('2 bút toán nháp');
-    await expect(admin.page.getByTestId('finance-right-panel')).toContainText('2 bút toán đã ghi sổ');
-    await expect(admin.page.getByTestId('finance-right-panel')).toContainText('2 nguồn tiền cọc, 2 nguồn chi phí');
+    await expect(admin.page.getByTestId('finance-right-panel')).toContainText('2');
+    await expect(admin.page.getByTestId('finance-right-panel')).toContainText('Bút toán nháp');
+    await expect(admin.page.getByTestId('finance-right-panel')).toContainText('Đã ghi sổ');
+    await expect(admin.page.getByTestId('finance-right-panel')).toContainText('2 nguồn cọc · 2 nguồn chi phí');
   });
 
   test('opens journal drawer with correct details when selecting a ledger row', async ({ admin }) => {
     await mockFinanceLedgerDesktop(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-ledger-disclosure-toggle').click();
 
     await admin.page.getByTestId('finance-ledger-row-line-1').click();
 
@@ -292,6 +295,7 @@ test.describe('Finance Ledger Desktop Regression', () => {
     await mockFinanceLedgerDesktop(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-ledger-disclosure-toggle').click();
 
     await admin.page.getByTestId('finance-ledger-row-line-3').click();
 
@@ -309,6 +313,7 @@ test.describe('Finance Ledger Desktop Regression', () => {
     await mockFinanceLedgerDesktop(admin.page, settlementLedgerApiRows);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
+    await admin.page.getByTestId('finance-ledger-disclosure-toggle').click();
 
     await admin.page.getByTestId('finance-ledger-row-line-5').click();
     const drawer = admin.page.getByTestId('finance-drawer');

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bookmark,
+  BadgeCheck,
   Building,
   CircleDollarSign,
   ClipboardList,
@@ -77,6 +78,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
 
         <SectionLabel collapsed={collapsed}>TÀI CHÍNH</SectionLabel>
         <NavItem href="/finance" icon={<CircleDollarSign size={20} />} label="Doanh thu" collapsed={collapsed} active={pathname === "/finance"} dataTestId="sidebar-nav-finance" />
+        <NavItem href="/finance/reconciliation" icon={<BadgeCheck size={20} />} label="Đối soát giao dịch" collapsed={collapsed} active={pathname.startsWith("/finance/reconciliation")} dataTestId="sidebar-nav-finance-reconciliation" />
         <NavItem href="/finance/expenses" icon={<Wallet size={20} />} label="Chi phí" collapsed={collapsed} active={pathname === "/finance/expenses"} />
         <NavItem href="/finance/transactions" icon={<History size={20} />} label="Lịch sử giao dịch" collapsed={collapsed} active={pathname === "/finance/transactions"} />
 

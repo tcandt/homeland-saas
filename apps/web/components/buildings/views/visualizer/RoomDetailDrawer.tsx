@@ -6,7 +6,7 @@ import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { toRoomOperationalItem } from "./buildingOperationalAdapter";
 import { PRIMARY_STATUS_CONFIG, WARNING_CONFIG } from "./status-config";
 import { 
-  X, User, Phone, Mail, FileText, Calendar, CreditCard, 
+  X, User, Phone, Mail, FileText, Calendar, CreditCard, Home,
   ShieldAlert, Eye, Plus, Loader2, Trash2 
 } from "lucide-react";
 import { formatRoomCompactName } from "../../building-labels";
@@ -102,9 +102,11 @@ export default function RoomDetailDrawer({ roomId, onClose, onOpenRoomModal, onD
       <div className="fixed inset-y-0 right-0 w-full sm:w-[440px] bg-card border-l border-border/80 shadow-2xl z-[1000] flex flex-col overflow-hidden animate-in slide-in-from-right duration-250 select-none">
         
         {/* Drawer Header */}
-        <div className="flex items-center justify-between p-5 border-b border-border/40 bg-black/[0.01] dark:bg-white/[0.01] shrink-0">
-          <div className="flex items-center gap-2">
-            <h2 className="font-semibold text-[18px] text-text tracking-tight">{formatRoomCompactName(room)}</h2>
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border/40 px-3.5 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Home size={15} /></span>
+            <h2 className="truncate text-sm font-black text-text">Chi tiết phòng</h2>
+            <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-black text-primary">{formatRoomCompactName(room)}</span>
             <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${statusConfig.solidBg}`}>
               {statusConfig.label}
             </span>
@@ -112,8 +114,9 @@ export default function RoomDetailDrawer({ roomId, onClose, onOpenRoomModal, onD
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg border border-border/60 hover:bg-slate-50 dark:hover:bg-white/5 text-muted hover:text-text transition-colors focus:ring-2 focus:ring-primary focus:outline-none"
-            aria-label="Đóng Drawer"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-slate-50 hover:text-text focus:outline-none focus:ring-2 focus:ring-primary dark:hover:bg-white/5"
+            aria-label="Đóng cửa sổ"
+            title="Đóng"
           >
             <X size={16} />
           </button>

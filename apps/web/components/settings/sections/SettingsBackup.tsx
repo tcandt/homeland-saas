@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
+import { ModalHeaderTitle } from "@/components/ui/ModalHeaderTitle";
 import { systemUpdateApi, SystemBackupStatus, BackupManifestInfo } from "@/lib/api/system-update.api";
 import toast from "react-hot-toast";
 
@@ -486,10 +487,11 @@ export default function SettingsBackup() {
           }}
           maxWidth="max-w-md"
           title={
-            <span className="flex items-center gap-2 text-rose-600 dark:text-rose-400 text-base font-black">
-              <Trash2 size={18} className="shrink-0" />
-              Xác nhận xóa bản sao lưu
-            </span>
+            <ModalHeaderTitle
+              icon={<Trash2 size={15} />}
+              title="Xác nhận xóa bản sao lưu"
+              tone="rose"
+            />
           }
         >
           <div className="flex flex-col gap-3 py-1 text-xs">
@@ -531,10 +533,12 @@ export default function SettingsBackup() {
           }}
           maxWidth="max-w-2xl"
           title={
-            <span className="flex items-center gap-2 text-rose-600 dark:text-rose-400 text-lg font-black">
-              <AlertTriangle size={20} className="shrink-0" />
-              Xác nhận Đặt lại & Xóa dữ liệu vận hành
-            </span>
+            <ModalHeaderTitle
+              icon={<AlertTriangle size={15} />}
+              title="Đặt lại & Xóa dữ liệu vận hành"
+              badge="Nguy hiểm"
+              tone="rose"
+            />
           }
         >
           <div className="flex flex-col gap-4 text-xs leading-relaxed">
@@ -693,10 +697,12 @@ export default function SettingsBackup() {
           }}
           maxWidth="max-w-md"
           title={
-            <span className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-base font-black">
-              <RotateCcw size={18} className="shrink-0" />
-              Khôi phục dữ liệu từ Snapshot
-            </span>
+            <ModalHeaderTitle
+              icon={<RotateCcw size={15} />}
+              title="Khôi phục dữ liệu"
+              description="Từ Snapshot"
+              tone="indigo"
+            />
           }
         >
           <div className="flex flex-col gap-3 py-1 text-xs">

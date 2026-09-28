@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 
 interface TenantDeduplicateModalProps {
   isOpen: boolean;
@@ -34,24 +35,13 @@ export const TenantDeduplicateModal: React.FC<TenantDeduplicateModalProps> = ({
       onClose={isLoading ? () => {} : onClose}
       maxWidth="max-w-lg"
       title={
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-600 text-white shadow-md shadow-purple-500/25">
-            <Sparkles className="h-5 w-5 animate-pulse" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-[16px] font-bold text-slate-900 dark:text-white">
-                Dọn dẹp & Gộp trùng lặp
-              </h3>
-              <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-700 dark:bg-purple-950/60 dark:text-purple-300">
-                Tự động
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Quét và tối ưu hóa hồ sơ khách thuê thông minh
-            </p>
-          </div>
-        </div>
+        <ModalHeaderTitle
+          icon={<Sparkles size={15} />}
+          title="Dọn dẹp & Gộp trùng lặp"
+          badge="Tự động"
+          description="Quét hồ sơ trùng SĐT hoặc CCCD"
+          tone="indigo"
+        />
       }
       footer={
         <div className="flex items-center justify-end gap-2.5">

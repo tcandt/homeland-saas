@@ -2,7 +2,6 @@
 
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Eye } from "lucide-react";
 import { useTenantsStore } from "@/lib/hooks/useTenantsStore";
 import { customersApi } from "@/lib/api/customers.api";
 import { customerKeys } from "@/lib/queries/customers.queries";
@@ -183,7 +182,7 @@ export default function TenantGrid() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-x-auto">
-        <div className="grid min-w-[1140px] grid-cols-[minmax(200px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(170px,1fr)_minmax(140px,0.8fr)_100px_110px_60px] gap-3 border-b border-border bg-surface/70 px-4 py-3 text-[11px] font-black uppercase text-muted">
+        <div className="grid min-w-[1060px] grid-cols-[minmax(200px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(170px,1fr)_minmax(140px,0.8fr)_100px_110px] gap-3 border-b border-border bg-surface/70 px-4 py-3 text-[11px] font-black uppercase text-muted">
           <span>Khách thuê</span>
           <span>Phòng / Tòa</span>
           <span>Liên hệ</span>
@@ -191,10 +190,9 @@ export default function TenantGrid() {
           <span>Hợp đồng</span>
           <span>Công nợ</span>
           <span>Trạng thái</span>
-          <span className="text-right">Thao tác</span>
         </div>
 
-        <div className="flex min-w-[1140px] flex-col">
+        <div className="flex min-w-[1060px] flex-col">
           {rows.length === 0 ? (
             <div data-testid="empty-tenants-state" className="p-6">
               <EmptyState title="Không có dữ liệu" message="Không tìm thấy khách hàng nào phù hợp với bộ lọc." />
@@ -251,7 +249,20 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
   const hasTelegram = !!((row.source as any)?.telegramChatId || (row.source as any)?.telegramId || (row.source as any)?.telegramUsername);
 
   return (
-    <div data-testid="tenant-card" onClick={onOpen} className="relative grid min-w-[1140px] cursor-pointer grid-cols-[minmax(200px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(170px,1fr)_minmax(140px,0.8fr)_100px_110px_60px] items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-surface/70">
+    <div
+      data-testid="tenant-card"
+      role="button"
+      tabIndex={0}
+      aria-label={`Mở hồ sơ khách thuê ${row.fullName}`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className="relative grid min-w-[1060px] cursor-pointer grid-cols-[minmax(200px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(170px,1fr)_minmax(140px,0.8fr)_100px_110px] items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-surface/70 focus-visible:bg-primary/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
+    >
       <div className="flex min-w-0 items-center gap-3 self-center">
         <div className="relative shrink-0">
           <img
@@ -314,19 +325,6 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
       <div className={`text-[13px] font-black ${row.debt > 0 ? "text-rose-600" : "text-emerald-600"}`}>{formatMoney(row.debt)}</div>
       <div>
         <Badge variant={row.statusVariant as any}>{row.statusLabel}</Badge>
-      </div>
-      <div className="relative flex justify-end">
-        <button
-          type="button"
-          aria-label="Xem hồ sơ khách thuê"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpen();
-          }}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-muted hover:border-[#6d3df8]/30 hover:bg-[#f6f2ff] hover:text-[#6d3df8]"
-        >
-          <Eye size={16} />
-        </button>
       </div>
     </div>
   );

@@ -121,12 +121,12 @@ export default function PasswordChangePrompt({ isOpen, user, onDeferred }: Passw
       {/* Solid Opaque Premium Modal Card */}
       <div className="relative w-full max-w-[440px] rounded-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl shadow-black/40 flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
         {/* Slim Refined Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/80">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex min-h-11 items-center justify-between border-b border-slate-100 px-3.5 py-2 dark:border-slate-800/80">
+          <div className="flex min-w-0 items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
               <ShieldCheck size={16} />
             </div>
-            <h2 className="text-sm sm:text-[15px] font-black tracking-tight text-slate-900 dark:text-white truncate">
+            <h2 className="truncate text-sm font-black tracking-tight text-slate-900 dark:text-white">
               Bảo vệ tài khoản
             </h2>
           </div>
@@ -135,8 +135,9 @@ export default function PasswordChangePrompt({ isOpen, user, onDeferred }: Passw
             type="button"
             onClick={handleDefer}
             disabled={isBusy}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            aria-label="Đóng"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Đóng cửa sổ"
+            title="Đóng"
           >
             <X size={16} />
           </button>

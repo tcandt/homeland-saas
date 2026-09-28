@@ -39,9 +39,11 @@ export default function FinancialCommandDrawer() {
       <div data-testid="finance-drawer" className="fixed right-0 top-0 bottom-0 w-full md:w-[500px] max-w-[100vw] bg-background shadow-2xl z-[110] flex flex-col animate-in slide-in-from-right duration-300">
         
         {/* Header */}
-        <div className="h-[64px] border-b border-border flex items-center justify-between px-[24px] shrink-0 bg-card">
-          <div className="flex items-center gap-[12px]">
-            <h2 className="font-bold text-[18px] text-text">Bút toán: {headerRow.journalCode}</h2>
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border bg-card px-3.5 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FileText size={15} /></span>
+            <h2 className="shrink-0 text-sm font-black text-text">Chi tiết bút toán</h2>
+            <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-black text-primary">{headerRow.journalCode}</span>
             <Badge data-testid="finance-status-badge" variant={
               headerRow.status === 'POSTED' ? 'success' : 
               headerRow.status === 'DRAFT' ? 'warning' : 'neutral'
@@ -51,11 +53,12 @@ export default function FinancialCommandDrawer() {
           </div>
           <Button 
             data-testid="finance-drawer-close"
-            aria-label="Đóng"
+            aria-label="Đóng cửa sổ"
+            title="Đóng"
             variant="ghost" 
             size="icon"
             onClick={() => setSelectedJournal(null)}
-            className="rounded-full"
+            className="h-8 w-8 rounded-lg"
           >
             <X size={18} />
           </Button>

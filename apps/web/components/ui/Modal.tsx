@@ -1,7 +1,8 @@
 import React, { useEffect, useId } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { FileText, X } from "lucide-react";
 import { Button } from "./Button";
+import { ModalHeaderTitle } from "./ModalHeaderTitle";
 
 // Global overlay stack to handle nested / stacked modals and drawers with ESC (LIFO)
 type OverlayStackEntry = {
@@ -101,17 +102,29 @@ export const Modal: React.FC<ModalProps> = ({
   return createPortal((
     <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: effectiveZIndex }}>
       <div 
-        className="absolute inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+        className="absolute inset-0 bg-black/60 backdrop-blur-md animate-in fade-in duration-200 motion-reduce:animate-none dark:bg-black/80"
         onClick={onClose} 
       />
-      <div data-testid={testId} className={`relative w-full ${maxWidth} bg-card border border-slate-200/80 dark:border-white/[0.08] rounded-2xl shadow-modal dark:shadow-[0_25px_70px_-15px_rgba(0,0,0,0.85)] flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]`}>
+      <div data-testid={testId} className={`relative w-full ${maxWidth} bg-card border border-slate-200/80 dark:border-white/[0.08] rounded-2xl shadow-modal dark:shadow-[0_25px_70px_-15px_rgba(0,0,0,0.85)] flex flex-col animate-in zoom-in-95 duration-200 motion-reduce:animate-none max-h-[90vh]`}>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 sm:px-6 sm:py-3.5 border-b border-slate-200/70 dark:border-white/[0.06]">
-          <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
-            <h2 className="font-extrabold text-[17px] sm:text-lg text-text truncate tracking-tight">{title}</h2>
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-slate-200/70 px-3.5 py-2 dark:border-white/[0.06]">
+          <div className="flex min-w-0 flex-1 items-center gap-2 pr-1">
+            <h2 className="flex min-w-0 flex-1 truncate text-[13px] font-black text-text sm:text-sm">
+              {typeof title === "string" ? (
+                <ModalHeaderTitle icon={<FileText size={15} />} title={title} />
+              ) : title}
+            </h2>
             {headerActions}
           </div>
-          <Button data-testid={closeButtonTestId} variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 rounded-full -mr-1.5 shrink-0 text-muted hover:text-text hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
+          <Button
+            data-testid={closeButtonTestId}
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            aria-label="Đóng cửa sổ"
+            title="Đóng"
+            className="relative h-8 w-8 shrink-0 rounded-lg text-muted transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-slate-100 hover:text-text motion-reduce:transition-none dark:hover:bg-white/10"
+          >
             <X size={18} />
           </Button>
         </div>

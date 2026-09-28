@@ -141,25 +141,19 @@ export default function FinanceExportDrawer() {
           open ? "translate-x-0" : "pointer-events-none translate-x-full"
         }`}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-5">
-          <div>
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-black text-primary">
-              <Download size={14} aria-hidden />
-              Trung tâm xuất dữ liệu
-            </div>
-            <h2 id="finance-export-title" className="text-xl font-black tracking-tight text-text">
-              Xuất báo cáo tài chính
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-muted">
-              Tải bản tổng hợp doanh thu, chi phí, công nợ và sổ cái đang có trong hệ thống.
-            </p>
+        <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/70 px-3.5 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Download size={15} aria-hidden /></span>
+            <h2 id="finance-export-title" className="shrink-0 text-sm font-black text-text">Xuất báo cáo tài chính</h2>
+            <span className="hidden truncate text-xs font-bold text-muted sm:inline">• Trung tâm xuất dữ liệu</span>
           </div>
           <button
             ref={closeRef}
             type="button"
-            aria-label="Đóng"
+            aria-label="Đóng cửa sổ"
+            title="Đóng"
             onClick={() => setOpen(false)}
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted transition hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <X size={18} aria-hidden />
           </button>

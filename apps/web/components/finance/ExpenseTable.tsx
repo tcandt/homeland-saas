@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { ModalHeaderTitle } from "@/components/ui/ModalHeaderTitle";
 import { Select } from "@/components/ui/Select";
 import { financeApi } from "@/lib/api/finance.api";
 import { getAuthorizationHeader } from "@/lib/auth/auth-header";
@@ -697,20 +698,11 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
         isOpen={!!pendingAction}
         onClose={() => (busyId ? undefined : setPendingAction(null))}
         title={
-          <span className="flex items-center gap-3">
-            <span
-              className={`flex h-10 w-10 items-center justify-center rounded-2xl ${
-                pendingAction?.tone === "danger"
-                  ? "bg-rose-50 text-rose-600"
-                  : pendingAction?.tone === "warning"
-                    ? "bg-amber-50 text-amber-600"
-                    : "bg-emerald-50 text-emerald-600"
-              }`}
-            >
-              {pendingAction?.tone === "danger" ? <AlertTriangle size={20} /> : <CheckCircle2 size={20} />}
-            </span>
-            <span>{pendingAction?.title || "Xác nhận"}</span>
-          </span>
+          <ModalHeaderTitle
+            icon={pendingAction?.tone === "danger" ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
+            title={pendingAction?.title || "Xác nhận"}
+            tone={pendingAction?.tone === "danger" ? "rose" : pendingAction?.tone === "warning" ? "amber" : "emerald"}
+          />
         }
         maxWidth="max-w-2xl"
         zIndex={10060}

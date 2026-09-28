@@ -252,14 +252,16 @@ export default function SalesMobileFlow() {
         <div className="fixed inset-0 z-[100] flex justify-end">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedLead(null)} />
           <div className="w-full md:w-[480px] bg-card h-full shadow-2xl relative z-10 animate-in slide-in-from-bottom md:slide-in-from-right duration-300 flex flex-col mt-12 md:mt-0 rounded-t-[24px] md:rounded-none">
-            <div className="p-4 md:p-6 border-b border-border flex items-center justify-between sticky top-0 bg-card z-20">
-              <div className="flex items-center gap-3">
-                <h2 className="font-black text-[18px] md:text-[20px] text-text">Chi tiết Cơ hội</h2>
+            <div className="flex min-h-11 items-center justify-between border-b border-border bg-card px-3.5 py-2 sticky top-0 z-20">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><User size={15} /></span>
+                <h2 className="shrink-0 text-sm font-black text-text">Chi tiết cơ hội</h2>
+                <span className="hidden max-w-[160px] truncate text-xs font-bold text-muted sm:inline">• {selectedLead.name}</span>
                 <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full ${selectedLead.statusColor} text-white uppercase tracking-wider`}>
                   {selectedLead.statusLabel}
                 </span>
               </div>
-              <button onClick={() => setSelectedLead(null)} className="w-[32px] h-[32px] rounded-full bg-black/5 dark:bg-white/5 flex items-center justify-center hover:bg-black/10 transition-colors">
+              <button aria-label="Đóng cửa sổ" title="Đóng" onClick={() => setSelectedLead(null)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-black/10 dark:hover:bg-white/5">
                 <span className="text-[14px] font-black text-muted">✕</span>
               </button>
             </div>

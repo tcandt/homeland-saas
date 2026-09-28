@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { ModalHeaderTitle } from "@/components/ui/ModalHeaderTitle";
 import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
 import { useOwnerProfitDetailQuery, useOwnerProfitSummaryQuery } from "@/lib/queries/finance.queries";
@@ -244,16 +245,11 @@ function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose
       isOpen={!!ownerId}
       onClose={onClose}
       title={
-        <div className="flex items-center gap-2.5">
-          <span className="text-base font-black text-text">
-            {data?.owner?.name ? `Chi tiết ${data.owner.name}` : "Chi tiết phân bổ chủ sở hữu"}
-          </span>
-          {data?.owner?.code && (
-            <span className="rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-mono font-bold text-primary">
-              {data.owner.code}
-            </span>
-          )}
-        </div>
+        <ModalHeaderTitle
+          icon={<Landmark size={15} />}
+          title={data?.owner?.name ? `Chi tiết ${data.owner.name}` : "Chi tiết phân bổ chủ sở hữu"}
+          badge={data?.owner?.code}
+        />
       }
       maxWidth="max-w-5xl"
       testId="owner-profit-detail-modal"

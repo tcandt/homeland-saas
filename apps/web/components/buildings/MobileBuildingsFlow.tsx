@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import type { Building, Floor, Room } from "./building.types";
-import { ArrowDown, ArrowUp, Map, AlertTriangle, Layers, ChevronDown, ChevronRight, X, Edit2, Trash2, MoreVertical, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Map, AlertTriangle, Building2, DoorOpen, Layers, ChevronDown, ChevronRight, X, Edit2, Trash2, MoreVertical, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { useDeleteBuildingMutation, useMoveBuildingMutation } from "@/lib/mutations/buildings.mutations";
@@ -383,27 +383,28 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
             data-testid="delete-building-confirm-modal"
             className="relative w-full max-w-[380px] overflow-hidden rounded-[18px] border border-border bg-card shadow-2xl animate-in zoom-in-95 duration-200"
           >
-            <div className="flex items-start gap-3 border-b border-border/60 p-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-rose-500/10 text-rose-500">
-                <Trash2 size={18} />
+            <div className="flex min-h-11 items-center gap-2 border-b border-border/60 px-3.5 py-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-500">
+                <Trash2 size={15} />
               </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="text-[16px] font-black text-text">Xác nhận xóa tòa nhà</h3>
-                <p className="mt-1 text-[12px] font-medium leading-5 text-muted">
-                  Bạn đang xóa <span className="font-black text-text">{deleteConfirmBuilding.name}</span>. Dữ liệu sẽ được xóa mềm khỏi danh sách vận hành.
-                </p>
-              </div>
+              <h3 className="shrink-0 text-sm font-black text-text">Xác nhận xóa tòa nhà</h3>
+              <span className="min-w-0 truncate text-xs font-bold text-muted">• {deleteConfirmBuilding.name}</span>
               <button
                 type="button"
                 disabled={deleteBuilding.isPending}
                 onClick={() => setDeleteConfirmBuilding(null)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] text-muted hover:bg-black/5 hover:text-text disabled:opacity-50"
+                aria-label="Đóng cửa sổ"
+                title="Đóng"
+                className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-black/5 hover:text-text disabled:opacity-50"
               >
                 <X size={16} />
               </button>
             </div>
 
             <div className="p-4">
+              <p className="mb-3 text-[12px] font-medium leading-5 text-muted">
+                Bạn đang xóa <span className="font-black text-text">{deleteConfirmBuilding.name}</span>. Dữ liệu sẽ được xóa mềm khỏi danh sách vận hành.
+              </p>
               <div className="rounded-[12px] border border-amber-500/20 bg-amber-500/10 p-3 text-[12px] font-semibold leading-5 text-amber-700 dark:text-amber-300">
                 Nếu tòa nhà còn phòng đang có hợp đồng hoạt động, hệ thống sẽ không cho xóa để tránh mất dữ liệu hợp đồng.
               </div>
@@ -442,11 +443,11 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[4px]" onClick={() => { setIsAddModalOpen(false); setEditingBuilding(null); }} />
           <div className="relative bg-card w-full max-w-[400px] rounded-[16px] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-[0.98] duration-200 border border-border/80">
-            <div className="flex items-center justify-between p-4 border-b border-border/50 bg-black/[0.02] dark:bg-white/[0.02]">
-              <h3 className="font-black text-[15px] text-text uppercase tracking-wide">
+            <div className="flex min-h-11 items-center justify-between border-b border-border/50 px-3.5 py-2">
+              <div className="flex min-w-0 items-center gap-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Building2 size={15} /></span><h3 className="truncate text-sm font-black text-text">
                 {editingBuilding ? 'Sửa thông tin tòa nhà' : 'Thêm tòa nhà mới'}
-              </h3>
-              <button onClick={() => { setIsAddModalOpen(false); setEditingBuilding(null); }} className="w-[32px] h-[32px] flex items-center justify-center rounded-[8px] bg-card border border-border/50 text-muted hover:text-text hover:bg-black/5 transition-colors">
+              </h3></div>
+              <button aria-label="Đóng cửa sổ" title="Đóng" onClick={() => { setIsAddModalOpen(false); setEditingBuilding(null); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:text-text hover:bg-black/5 transition-colors">
                 <X size={16} />
               </button>
             </div>
@@ -477,11 +478,11 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[4px]" onClick={() => { setIsAddRoomModalOpen(false); setEditingRoom(null); }} />
           <div className="relative bg-card w-full max-w-[400px] rounded-[16px] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-[0.98] duration-200 border border-border/80">
-            <div className="flex items-center justify-between p-4 border-b border-border/50 bg-black/[0.02] dark:bg-white/[0.02]">
-              <h3 className="font-black text-[15px] text-text uppercase tracking-wide">
+            <div className="flex min-h-11 items-center justify-between border-b border-border/50 px-3.5 py-2">
+              <div className="flex min-w-0 items-center gap-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><DoorOpen size={15} /></span><h3 className="truncate text-sm font-black text-text">
                 {editingRoom ? 'Sửa thông tin phòng' : 'Thêm phòng mới'}
-              </h3>
-              <button onClick={() => { setIsAddRoomModalOpen(false); setEditingRoom(null); }} className="w-[32px] h-[32px] flex items-center justify-center rounded-[8px] bg-card border border-border/50 text-muted hover:text-text hover:bg-black/5 transition-colors">
+              </h3></div>
+              <button aria-label="Đóng cửa sổ" title="Đóng" onClick={() => { setIsAddRoomModalOpen(false); setEditingRoom(null); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:text-text hover:bg-black/5 transition-colors">
                 <X size={16} />
               </button>
             </div>
@@ -531,11 +532,11 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[4px]" onClick={() => { setIsAddFloorModalOpen(false); setEditingFloor(null); }} />
           <div className="relative bg-card w-full max-w-[400px] rounded-[16px] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-[0.98] duration-200 border border-border/80">
-            <div className="flex items-center justify-between p-4 border-b border-border/50 bg-black/[0.02] dark:bg-white/[0.02]">
-              <h3 className="font-black text-[15px] text-text uppercase tracking-wide">
+            <div className="flex min-h-11 items-center justify-between border-b border-border/50 px-3.5 py-2">
+              <div className="flex min-w-0 items-center gap-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Layers size={15} /></span><h3 className="truncate text-sm font-black text-text">
                 {editingFloor ? 'Sửa thông tin tầng' : 'Thêm tầng mới'}
-              </h3>
-              <button onClick={() => { setIsAddFloorModalOpen(false); setEditingFloor(null); }} className="w-[32px] h-[32px] flex items-center justify-center rounded-[8px] bg-card border border-border/50 text-muted hover:text-text hover:bg-black/5 transition-colors">
+              </h3></div>
+              <button aria-label="Đóng cửa sổ" title="Đóng" onClick={() => { setIsAddFloorModalOpen(false); setEditingFloor(null); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:text-text hover:bg-black/5 transition-colors">
                 <X size={16} />
               </button>
             </div>

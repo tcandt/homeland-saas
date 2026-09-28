@@ -32,6 +32,7 @@ import AppShell from "@/components/layout/AppShell";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { ModalHeaderTitle } from "@/components/ui/ModalHeaderTitle";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { auditApi, AuditLogItem } from "@/lib/api/audit.api";
 
@@ -441,12 +442,11 @@ export default function ActivitiesPage() {
           onClose={() => setSelectedLog(null)}
           maxWidth="max-w-3xl"
           title={
-            <div className="flex items-center gap-2.5">
-              <span className="text-base font-black text-text">Chi tiết nhật ký thao tác</span>
-              <div className="px-2 py-0.5 bg-primary/10 border border-primary/20 rounded-md">
-                <span className="font-mono font-bold text-[11px] text-primary">{selectedLog.id.slice(0, 8)}...</span>
-              </div>
-            </div>
+            <ModalHeaderTitle
+              icon={<Activity size={15} />}
+              title="Chi tiết nhật ký thao tác"
+              badge={`${selectedLog.id.slice(0, 8)}...`}
+            />
           }
           footer={
             <div className="flex items-center justify-end w-full">

@@ -30,6 +30,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { Modal } from "../ui/Modal";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import {
@@ -529,18 +530,14 @@ function OperationsBillingDrawerContent({
         onClose={onClose}
         maxWidth="max-w-[580px]"
         title={
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Receipt size={17} />
-            </div>
-            <div>
-              <h2 className="text-base font-black text-text leading-tight">Hóa đơn thu tiền</h2>
-              <span className="font-mono text-xs font-bold text-muted">{invoiceCode}</span>
-            </div>
-          </div>
+          <ModalHeaderTitle
+            icon={<Receipt size={15} />}
+            title="Hóa đơn"
+            badge={invoiceCode}
+          />
         }
         headerActions={
-          <div className="flex items-center gap-1.5 ml-auto mr-2">
+          <div className="ml-auto mr-1 hidden shrink-0 items-center gap-1.5 sm:flex">
             <span className={`inline-flex items-center gap-1 text-[11px] font-black rounded-lg border px-2 py-0.5 ${categoryInfo.color}`}>
               <categoryInfo.icon size={12} />
               {categoryInfo.label}
@@ -725,7 +722,7 @@ function OperationsBillingDrawerContent({
           <div className="rounded-xl border border-border/70 bg-surface/30 p-2.5">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-black uppercase tracking-wider text-muted flex items-center gap-1.5">
-                <Bot size={13} className="text-primary" /> Tiến trình Bot tự động hóa
+                <Bot size={13} className="text-primary" /> Tiến trình thông báo tự động
               </span>
 
               {/* MANUAL BOT REMINDER BUTTON */}
@@ -736,8 +733,8 @@ function OperationsBillingDrawerContent({
                   onClick={handleSendBotReminder}
                   title={
                     hasZaloRecipient
-                      ? "Gửi nhắc nợ qua Bot Zalo"
-                      : "Khách chưa liên kết chat_id/user_id với Bot Zalo"
+                      ? "Gửi nhắc nợ qua Zalo"
+                      : "Khách chưa liên kết tài khoản nhận tin Zalo"
                   }
                   className={`inline-flex items-center gap-1.5 text-[11px] font-black rounded-lg px-2.5 py-0.5 transition-all shadow-2xs ${
                     hasZaloRecipient
@@ -753,18 +750,18 @@ function OperationsBillingDrawerContent({
                   {isSendingBotReminder
                     ? "Đang gửi..."
                     : hasZaloRecipient
-                      ? "Bot nhắc nợ ngay"
+                      ? "Gửi nhắc nợ ngay"
                       : "Chưa liên kết Zalo"}
                 </button>
               )}
             </div>
             {!hasZaloRecipient && (isIssued || isOverdue || isPartiallyPaid) && (
               <p className="mt-1 text-[11px] font-semibold text-amber-600">
-                Chưa thể gửi nhắc nợ: khách chưa có Zalo chat ID/user ID. Yêu cầu khách đăng ký Bot trước.
+                Chưa thể gửi nhắc nợ: khách chưa liên kết tài khoản nhận tin Zalo.
               </p>
             )}
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {/* Step 1: Tạo HĐ tự động */}
               <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-2">
                 <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shrink-0 text-[10px]">
@@ -779,22 +776,28 @@ function OperationsBillingDrawerContent({
               {/* Step 2: Bot gửi HĐ */}
               <div
                 className={`flex items-center gap-2 rounded-xl border p-2 ${
-                  !isDraft
+                  isPaid
+                    ? "border-emerald-500/30 bg-emerald-500/5"
+                    : !isDraft
                     ? "border-amber-500/30 bg-amber-500/5"
                     : "border-border/60 bg-card"
                 }`}
               >
                 <div
                   className={`flex h-5 w-5 items-center justify-center rounded-full shrink-0 text-[10px] ${
-                    !isDraft ? "bg-amber-500 text-white" : "bg-surface text-muted"
+                    isPaid
+                      ? "bg-emerald-500 text-white"
+                      : !isDraft
+                        ? "bg-amber-500 text-white"
+                        : "bg-surface text-muted"
                   }`}
                 >
-                  {!isDraft ? <Clock3 size={11} /> : <Bot size={11} />}
+                  {isPaid ? <CheckCircle2 size={12} /> : !isDraft ? <Clock3 size={11} /> : <Bot size={11} />}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[11px] font-black text-text leading-tight truncate">2. Bot gửi HĐ</div>
-                  <div className={`text-[9px] font-bold truncate ${!isDraft ? "text-amber-600" : "text-muted"}`}>
-                    {!isDraft ? "Đã phát hành; delivery chưa xác minh" : "Chờ phát hành"}
+                  <div className="truncate text-[11px] font-black leading-tight text-text">2. Gửi hóa đơn</div>
+                  <div className={`truncate text-[9px] font-bold ${isPaid ? "text-emerald-600" : !isDraft ? "text-amber-600" : "text-muted"}`}>
+                    {isPaid ? "Đã gửi hóa đơn" : !isDraft ? "Chưa xác minh trạng thái gửi" : "Chờ phát hành"}
                   </div>
                 </div>
               </div>
@@ -834,7 +837,7 @@ function OperationsBillingDrawerContent({
                 </div>
                 <div className="min-w-0">
                   <div className="text-[11px] font-black text-text leading-tight truncate">
-                    3. {isPaid ? "Đã nhận đủ" : hasPartialReceived || isPartiallyPaid ? "Nhận 1 phần" : isOverdue ? "Bot nhắc hẹn" : "Chờ thu"}
+                    3. {isPaid ? "Đã nhận đủ" : hasPartialReceived || isPartiallyPaid ? "Nhận một phần" : isOverdue ? "Đang nhắc hẹn" : "Chờ thu"}
                   </div>
                   <div
                     className={`text-[9px] font-bold truncate ${
@@ -945,7 +948,7 @@ function OperationsBillingDrawerContent({
           {activeTab === "ITEMS" && (
             <div className="rounded-xl border border-border/70 bg-card overflow-hidden">
               <div className="flex items-center justify-between px-3.5 py-2 border-b border-border/60 bg-surface/50 text-[11px] font-black uppercase tracking-wider text-muted select-none">
-                <span>Chi tiết phí (Breakdown)</span>
+                <span>Chi tiết khoản thu</span>
                 <span>Thành tiền</span>
               </div>
 
@@ -980,7 +983,7 @@ function OperationsBillingDrawerContent({
               </div>
               {pendingReviewReceivedAmount > 0 && paidAmount <= 0 && (
                 <div className="flex items-center justify-between px-3.5 py-2 border-t border-amber-500/20 bg-amber-500/5 text-xs">
-                  <span className="font-black uppercase text-amber-700">Bank báo về · chờ xử lý</span>
+                  <span className="font-black uppercase text-amber-700">Ngân hàng đã báo · chờ xử lý</span>
                   <span className="font-mono font-black text-amber-700">{formatVnd(pendingReviewReceivedAmount)}</span>
                 </div>
               )}
@@ -992,7 +995,7 @@ function OperationsBillingDrawerContent({
                   </div>
                   {pendingReviewReceivedAmount > 0 && (
                     <div className="flex items-center justify-between px-3.5 py-2 border-t border-amber-500/20 bg-amber-500/5 text-xs">
-                      <span className="font-black uppercase text-amber-700">Bank báo về · chờ xử lý</span>
+                      <span className="font-black uppercase text-amber-700">Ngân hàng đã báo · chờ xử lý</span>
                       <span className="font-mono font-black text-amber-700">{formatVnd(pendingReviewReceivedAmount)}</span>
                     </div>
                   )}

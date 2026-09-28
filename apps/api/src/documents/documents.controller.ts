@@ -172,7 +172,11 @@ export class DocumentsController {
     if (byteLength > DOCUMENT_UPLOAD_LIMIT_BYTES) {
       throw new BadRequestException(`File exceeds the ${Math.floor(DOCUMENT_UPLOAD_LIMIT_BYTES / (1024 * 1024))} MB upload limit`);
     }
-    const mimeType = typeof file.mimetype === 'string' ? file.mimetype.toLowerCase().trim() : '';
+    const reportedMimeType = typeof file.mimetype === 'string' ? file.mimetype.toLowerCase().trim() : '';
+    const inferredMimeType = inferMimeTypeFromPath(file.originalname || '');
+    const mimeType = ALLOWED_UPLOAD_MIME_TYPES.has(reportedMimeType)
+      ? reportedMimeType
+      : inferredMimeType;
     if (!ALLOWED_UPLOAD_MIME_TYPES.has(mimeType)) {
       throw new BadRequestException('Only PDF or image files are supported');
     }

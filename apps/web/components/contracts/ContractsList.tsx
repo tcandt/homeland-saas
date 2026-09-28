@@ -9,6 +9,7 @@ import OperationsContractDrawer from "./OperationsContractDrawer";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
 import { useContractsStore } from "@/lib/hooks/useContractsStore";
 import { getContractStatusConfig } from "@/lib/contracts/contract-status";
+import { getContractDisplayStatus } from "@/lib/contracts/booking-conversion";
 
 function normalizeContracts(responseData: any) {
   if (Array.isArray(responseData)) return responseData;
@@ -79,7 +80,7 @@ export default function ContractsList() {
     {
       header: "Trạng thái",
       accessor: (row: any) => {
-        const config = getContractStatusConfig(row.status);
+        const config = getContractDisplayStatus(row);
         return <Badge variant={config.color}>{config.label}</Badge>;
       },
       className: "text-right w-[120px]",

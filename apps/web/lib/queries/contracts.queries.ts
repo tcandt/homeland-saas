@@ -57,6 +57,7 @@ export const useContractDetailQuery = (id: string) => {
       return { data: response };
     },
     enabled: !!id,
+    refetchInterval: (query) => (query.state.data as any)?.data?.bookingConversion ? 15000 : false,
   });
 };
 

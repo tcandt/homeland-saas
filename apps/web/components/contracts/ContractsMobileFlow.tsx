@@ -12,6 +12,7 @@ import OperationsContractDrawer from "./OperationsContractDrawer";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
 import { useContractsStore } from "@/lib/hooks/useContractsStore";
 import { getContractStatusConfig } from "@/lib/contracts/contract-status";
+import { getContractDisplayStatus, getLinkedRental } from "@/lib/contracts/booking-conversion";
 
 function normalizeContracts(responseData: any) {
   if (Array.isArray(responseData)) return responseData;
@@ -21,6 +22,7 @@ function normalizeContracts(responseData: any) {
 }
 
 function getStatusGroup(contract: any) {
+  if (getLinkedRental(contract)) return "CONVERTED";
   const status = String(contract?.status || "").toUpperCase();
   if (status === "ACTIVE") return "ACTIVE";
   if (status === "EXPIRING") return "EXPIRING";
@@ -114,7 +116,7 @@ export default function ContractsMobileFlow() {
             </div>
           ) : (
             contracts.map((item: any, i: number) => {
-              const statusConfig = getContractStatusConfig(item.status);
+              const statusConfig = getContractDisplayStatus(item);
               const startLabel = item.startDate ? new Date(item.startDate).toLocaleDateString("vi-VN") : "N/A";
               const endLabel = item.endDate ? new Date(item.endDate).toLocaleDateString("vi-VN") : "N/A";
               return (

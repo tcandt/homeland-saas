@@ -16,6 +16,7 @@ import {
   Building
 } from "lucide-react";
 import { Modal } from "../ui/Modal";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 import { Button } from "../ui/Button";
 import { paymentsApi, PaymentRequestResponse } from "../../lib/api/payments.api";
 import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
@@ -106,17 +107,7 @@ export default function DepositQrModal({
       isOpen={isOpen}
       onClose={onClose}
       title={
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
-            <QrCode size={16} />
-          </div>
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm sm:text-base font-black text-text whitespace-nowrap">Mã VietQR Đặt cọc</span>
-            <span className="font-mono font-bold text-xs text-primary px-2 py-0.5 rounded-md bg-primary/10 border border-primary/20 shrink-0">
-              {deposit.code}
-            </span>
-          </div>
-        </div>
+        <ModalHeaderTitle icon={<QrCode size={15} />} title="Mã VietQR đặt cọc" badge={deposit.code} />
       }
       maxWidth="max-w-md"
     >

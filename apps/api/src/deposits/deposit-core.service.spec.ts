@@ -94,7 +94,7 @@ describe('DepositCoreService', () => {
       contracts: [{ id: 'contract-1', code: 'HD-1', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'customer-1', rentalCycleId: 'cycle-1', status: 'ACTIVE', monthlyRent: 1_000_000, depositMoney: 1_000_000 }],
       deposits: [{ id: 'deposit-1', code: 'DC-1', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'customer-1', rentalCycleId: 'cycle-1', type: 'SECURITY', status: 'PAID', amount: 1_000_000, contractId: 'contract-1' }],
       invoices: [{ id: 'invoice-1', code: 'HD-INV-1', tenantId: 'tenant-1', customerId: 'customer-1', contractId: 'contract-1', rentalCycleId: 'cycle-1', status: 'ISSUED', total: 500_000, paidAmount: 0, creditAmount: 0, adjustmentOfInvoiceId: null, billingKind: 'ENTRY', allocations: [] }],
-      payments: [{ id: 'payment-1', tenantId: 'tenant-1', rentalCycleId: 'cycle-1', invoiceId: 'invoice-1', status: 'CONFIRMED', amount: 100_000, provider: 'MANUAL', paidAt: new Date() }],
+      payments: [{ id: 'payment-1', tenantId: 'tenant-1', rentalCycleId: 'cycle-1', invoiceId: 'invoice-1', status: 'CONFIRMED', amount: 100_000, provider: 'SEPAY', providerRef: 'SEPAY-TXN-0001', paidAt: new Date() }],
       depositLedgerEntries: [{ id: 'ledger-1', tenantId: 'tenant-1', rentalCycleId: 'cycle-1', depositId: 'deposit-1', contractId: 'contract-1', operationId: 'operation-1', type: 'CASH_IN', amount: 1_000_000, balanceEffect: 1_000_000, sourceType: 'DEPOSIT_COLLECTION', sourceId: 'deposit-1', createdAt: new Date() }],
       depositOperations: [{ id: 'operation-1', tenantId: 'tenant-1', rentalCycleId: 'cycle-1', sourceDepositId: 'deposit-1', targetDepositId: null, contractId: 'contract-1', type: 'COLLECT', receiptId: null, result: null, createdAt: new Date() }],
       ...overrides,
@@ -133,7 +133,11 @@ describe('DepositCoreService', () => {
       source: { entity: 'DepositLedgerEntry', id: 'ledger-1', code: null },
       operationSource: { entity: 'DepositOperation', id: 'operation-1', code: null },
     });
-    expect(summary.payments.items[0].source).toEqual({ entity: 'Payment', id: 'payment-1', code: null });
+    expect(summary.payments.items[0]).toMatchObject({
+      providerRef: 'SEPAY-TXN-0001',
+      source: { entity: 'Payment', id: 'payment-1', code: 'SEPAY-TXN-0001' },
+      invoiceSource: { entity: 'Invoice', id: 'invoice-1', code: 'HD-INV-1' },
+    });
     expect(summary.pendingOperations[0].source).toEqual({ entity: 'DepositOperation', id: 'operation-1', code: null });
   });
 
@@ -745,4 +749,3 @@ describe('DepositCoreService', () => {
     });
   });
 });
-

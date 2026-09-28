@@ -3,6 +3,7 @@
 import React from "react";
 import { CheckCircle2, Clock3, Building2, DoorClosed } from "lucide-react";
 import { getContractStatusConfig } from "../../lib/contracts/contract-status";
+import { getContractDisplayStatus, getLinkedRental, isBookingContract } from "@/lib/contracts/booking-conversion";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
@@ -60,7 +61,8 @@ export default function OperationsContractRow({
   rowNumber: number;
   onClick: () => void;
 }) {
-  const statusConfig = getContractStatusConfig(contract.status);
+  const statusConfig = getContractDisplayStatus(contract);
+  const linkedRental = getLinkedRental(contract);
   const startDate = contract.startDate ? new Date(contract.startDate) : null;
   const endDate = contract.endDate ? new Date(contract.endDate) : null;
   const today = new Date();
@@ -93,7 +95,7 @@ export default function OperationsContractRow({
   const isSigned = !["DRAFT", "PENDING_APPROVAL"].includes(contract.status);
   const isExpiringSoon = daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 30;
   const isExpired = daysRemaining !== null && daysRemaining < 0;
-  const isBookingHold = isBookingHoldContract(contract);
+  const isBookingHold = isBookingContract(contract);
 
   return (
     <div
@@ -173,7 +175,7 @@ export default function OperationsContractRow({
               Cọc giữ phòng
             </span>
             <span className="text-[10px] font-semibold leading-tight text-muted">
-              Chưa tính thời hạn ở · không có tiến độ
+              {linkedRental ? `Hợp đồng thuê: ${linkedRental.code || linkedRental.id}` : "Chưa tính thời hạn ở · Chờ chuyển sang thuê"}
             </span>
           </div>
         ) : (

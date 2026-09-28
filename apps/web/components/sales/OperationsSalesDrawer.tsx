@@ -23,21 +23,17 @@ export default function OperationsSalesDrawer() {
     <>
       <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[9998] animate-in fade-in duration-200" onClick={() => setSelectedLead(null)} />
       <div className="fixed top-0 right-0 bottom-0 w-full max-w-[860px] bg-card shadow-2xl z-[9999] animate-in slide-in-from-right duration-300 flex flex-col border-l border-border">
-        <div className="h-[70px] border-b border-border flex items-center justify-between px-[24px] shrink-0 bg-card z-10">
-          <div className="flex items-center gap-[16px] min-w-0">
-            <div className="w-[40px] h-[40px] rounded-full bg-[#6366f1]/10 flex items-center justify-center border border-[#6366f1]/20 shrink-0">
-              <span className="font-black text-[14px] text-[#6366f1]">{(selectedLead.name || "L").slice(0, 1).toUpperCase()}</span>
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border bg-card px-3.5 py-2 z-10">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <span className="text-xs font-black">{(selectedLead.name || "L").slice(0, 1).toUpperCase()}</span>
             </div>
-            <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-[8px] min-w-0">
-                <h2 className="font-black text-[18px] text-text truncate">{selectedLead.name}</h2>
+            <div className="flex min-w-0 items-center gap-2">
+                <h2 className="shrink-0 text-sm font-black text-text">Chi tiết cơ hội</h2>
+                <span className="hidden max-w-[180px] truncate text-xs font-bold text-muted sm:inline">• {selectedLead.name}</span>
                 <span className="text-[11px] font-bold px-[6px] py-[2px] rounded-[4px] text-[#f97316] bg-[#f97316]/10 border border-[#f97316]/20 uppercase">
                   {getSalesStageLabel(selectedLead.status)}
                 </span>
-              </div>
-              <span className="text-[13px] font-medium text-muted truncate">
-                {selectedLead.phone || "Chưa có số điện thoại"} • {selectedLead.email || "Chưa có email"}
-              </span>
             </div>
           </div>
           <div className="flex items-center gap-[12px]">
@@ -48,7 +44,7 @@ export default function OperationsSalesDrawer() {
               <MoreVertical size={16} />
             </button>
             <div className="w-[1px] h-[20px] bg-border mx-[4px]" />
-            <button onClick={() => setSelectedLead(null)} className="w-[36px] h-[36px] flex items-center justify-center rounded-[10px] bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-colors" type="button">
+            <button aria-label="Đóng cửa sổ" title="Đóng" onClick={() => setSelectedLead(null)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-black/5 hover:text-text dark:hover:bg-white/5" type="button">
               <X size={18} />
             </button>
           </div>

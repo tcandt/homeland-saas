@@ -184,11 +184,11 @@ async function mockUnifiedTransactions(page: any) {
               sourceType: 'PAYMENT',
               debit: 2500000,
               credit: 0,
-              account: { code: '1100', name: 'Tiền gửi ngân hàng', type: 'ASSET' },
+              account: { code: '1100', name: 'Bank', type: 'ASSET' },
               source: { kind: 'INVOICE', code: 'INV-3101-09', path: 'Hóa đơn INV-3101-09 · Phòng 31-01' },
             },
             {
-              journalLineId: 'line-receivable',
+              journalLineId: 'line-rental-revenue',
               journalEntryId: 'entry-payment-1',
               journalEntryCode: 'JE-2026-0001',
               journalEntryStatus: 'POSTED',
@@ -196,7 +196,7 @@ async function mockUnifiedTransactions(page: any) {
               sourceType: 'PAYMENT',
               debit: 0,
               credit: 2500000,
-              account: { code: '1310', name: 'Phải thu khách thuê', type: 'ASSET' },
+              account: { code: '4000', name: 'Rental Revenue', type: 'REVENUE' },
               source: { kind: 'INVOICE', code: 'INV-3101-09', path: 'Hóa đơn INV-3101-09 · Phòng 31-01' },
             },
           ],
@@ -225,7 +225,22 @@ test.describe('Finance Transactions Regression', () => {
     await admin.page.getByTestId('unified-transaction-entry-payment-1').click();
     await expect(admin.page.getByTestId('unified-transaction-detail-modal')).toBeVisible();
     await expect(admin.page.getByTestId('unified-transaction-detail-modal')).toContainText('JE-2026-0001');
-    await expect(admin.page.getByTestId('unified-transaction-detail-modal')).toContainText('Tiền gửi ngân hàng');
+    await expect(admin.page.getByTestId('cashflow-plain-summary')).toContainText('Tiền đã vào đâu?');
+    await expect(admin.page.getByTestId('cashflow-plain-summary')).toContainText('Tài khoản ngân hàng');
+    await expect(admin.page.getByTestId('cashflow-plain-summary')).toContainText('Tiền này từ đâu?');
+    await expect(admin.page.getByTestId('cashflow-plain-summary')).toContainText('Tiền thuê phòng');
+
+    await admin.page.getByTestId('plain-money-destination-help').hover();
+    await expect(admin.page.getByTestId('plain-money-destination-help-content')).toBeVisible();
+    await expect(admin.page.getByTestId('plain-money-destination-help-content')).toContainText('số tiền thực tế đang nằm ở đâu');
+
+    await expect(admin.page.getByTestId('accounting-details')).not.toHaveAttribute('open', '');
+    await admin.page.getByTestId('accounting-details-toggle').click();
+    await expect(admin.page.getByTestId('accounting-details')).toHaveAttribute('open', '');
+    await expect(admin.page.getByTestId('accounting-details')).toContainText('Tiền gửi ngân hàng');
+    await expect(admin.page.getByTestId('accounting-details')).toContainText('Doanh thu tiền thuê');
+    await expect(admin.page.getByTestId('accounting-details')).toContainText('Tài sản');
+    await expect(admin.page.getByTestId('accounting-details')).toContainText('Doanh thu');
   });
 
   test('renders populated desktop bank transaction history', async ({ admin }) => {
@@ -262,7 +277,8 @@ test.describe('Finance Transactions Regression', () => {
 
     await admin.page.getByTestId('bank-transaction-row-txn-0').click();
     await expect(admin.page.getByTestId('bank-transaction-detail-modal')).toBeVisible();
-    await expect(admin.page.getByTestId('bank-transaction-detail-modal')).toContainText('Tài khoản ảo SePay');
+    await expect(admin.page.getByTestId('bank-transaction-detail-modal')).not.toContainText('Tài khoản ảo SePay');
+    await expect(admin.page.getByTestId('bank-transaction-detail-modal')).not.toContainText('0001');
   });
 
   test('filters rows by direction on desktop', async ({ admin }) => {

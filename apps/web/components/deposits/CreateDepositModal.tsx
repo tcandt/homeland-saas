@@ -15,6 +15,7 @@ import {
   Check
 } from "lucide-react";
 import { Modal } from "../ui/Modal";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 import { Button } from "../ui/Button";
 import { useBuildingsQuery } from "../../lib/queries/buildings.queries";
 import { useRoomsQuery } from "../../lib/queries/rooms.queries";
@@ -295,12 +296,7 @@ export default function CreateDepositModal({
       isOpen={isOpen}
       onClose={requestClose}
       title={
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-[#6366f1]/10 text-[#6366f1] flex items-center justify-center font-bold">
-            <Coins size={18} />
-          </div>
-          <span>Tạo phiếu đặt cọc mới</span>
-        </div>
+        <ModalHeaderTitle icon={<Coins size={15} />} title="Tạo phiếu đặt cọc mới" badge="Phiếu cọc" />
       }
       maxWidth="max-w-xl"
     >

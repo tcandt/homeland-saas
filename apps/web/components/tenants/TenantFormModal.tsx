@@ -14,9 +14,10 @@ import { Modal } from "../ui/Modal";
 import { Input } from "../ui/Input";
 import { useToast } from "@/components/ui/ToastContext";
 import { CccdUploadScannerModal } from "../common/CccdUploadScannerModal";
-import { AlertTriangle, Camera, Check, ChevronDown, DoorOpen, QrCode, Upload, X } from "lucide-react";
+import { AlertTriangle, Camera, Check, ChevronDown, DoorOpen, PencilLine, QrCode, Upload, UserPlus, X } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { useRoomsQuery } from "@/lib/queries/rooms.queries";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 
 type FormData = z.infer<typeof CreateCustomerSchema>;
 type QrMode = "camera" | "upload" | null;
@@ -539,22 +540,29 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={isEdit ? "Cập nhật khách thuê" : "Thêm khách thuê mới"}
+      title={
+        <ModalHeaderTitle
+          icon={isEdit ? <PencilLine size={17} /> : <UserPlus size={18} />}
+          title={isEdit ? "Cập nhật khách thuê" : "Thêm khách thuê mới"}
+          badge={isEdit ? "Chỉnh sửa" : "Hồ sơ mới"}
+          tone={isEdit ? "amber" : "primary"}
+        />
+      }
       maxWidth="max-w-xl"
       headerActions={
-        <div className="ml-auto relative flex items-center pr-1">
+        <div className="relative ml-auto flex shrink-0 items-center pr-1">
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-8 rounded-lg border border-indigo-200/80 dark:border-indigo-800/80 bg-indigo-50/70 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 px-2.5 text-xs font-bold shadow-xs transition-all flex items-center gap-1.5"
+            className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-indigo-200/80 bg-indigo-50/70 px-2.5 text-xs font-bold text-indigo-700 shadow-xs transition-all hover:bg-indigo-100 dark:border-indigo-800/80 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60"
             onClick={() => setIsQrMenuOpen((value) => !value)}
             data-testid="tenant-qr-button"
             title="Quét mã QR CCCD để tự động điền"
           >
             <QrCode size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
-            <span className="font-bold text-[12px]">Quét QR</span>
-            <ChevronDown size={12} className={`text-indigo-500/70 dark:text-indigo-400/70 transition-transform duration-200 ${isQrMenuOpen ? "rotate-180" : ""}`} />
+            <span className="hidden text-[12px] font-bold sm:inline">Quét QR</span>
+            <ChevronDown size={12} className={`hidden text-indigo-500/70 transition-transform duration-200 dark:text-indigo-400/70 sm:block ${isQrMenuOpen ? "rotate-180" : ""}`} />
           </Button>
 
           {isQrMenuOpen && (

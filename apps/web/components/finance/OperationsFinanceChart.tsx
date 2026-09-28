@@ -1,14 +1,30 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { BarChart3, TrendingUp, TrendingDown, DollarSign, Wallet, Minus, Calendar } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Area,
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  BarChart3,
+  Calendar,
+  CircleDollarSign,
+  TrendingUp,
+} from "lucide-react";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { useLedgerQuery, useBankTransactionsQuery } from "@/lib/queries/finance.queries";
 import { useDashboardQuery } from "@/lib/queries/dashboard.queries";
 import { Card } from "@/components/ui/Card";
 import { getInvoiceFinancials, isBookingHoldInvoice } from "@/lib/invoices/invoice-financials";
 
-const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
+const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} ₫`;
 
 function formatMillions(val: number) {
   const abs = Math.abs(val);
@@ -24,31 +40,41 @@ function formatMillions(val: number) {
   return String(val);
 }
 
-export default function OperationsFinanceChart() {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+type ChartViewMode = "all" | "profit" | "compare";
 
-  const { data: invoicesData, isLoading: isInvoicesLoading } = useInvoicesQuery({ limit: 500 });
+export default function OperationsFinanceChart() {
+  const [mounted, setMounted] = useState(false);
+  const [periodMonths, setPeriodMonths] = useState<6 | 12>(6);
+  const [viewMode, setViewMode] = useState<ChartViewMode>("all");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const { data: invoicesData, isLoading: isInvoicesLoading } = useInvoicesQuery({ limit: 1000 });
   const { data: ledgerData, isLoading: isLedgerLoading } = useLedgerQuery();
-  const { data: bankData, isLoading: isBankLoading } = useBankTransactionsQuery({ limit: 500 });
-  const { data: dashboard } = useDashboardQuery();
+  const { data: bankData, isLoading: isBankLoading } = useBankTransactionsQuery({ limit: 1000 });
+  const { data: dashboard, isLoading: isDashboardLoading } = useDashboardQuery();
 
   const invoices = Array.isArray(invoicesData?.data) ? invoicesData.data : [];
   const ledgerRows = Array.isArray(ledgerData) ? ledgerData : [];
   const bankRows = Array.isArray(bankData?.rows) ? bankData.rows : [];
 
-  // Generate 6 recent months strictly computed from REAL invoices & ledger entries
+  // Generate recent months strictly computed from REAL invoices & ledger entries
   const chartData = useMemo(() => {
     const now = new Date();
+    const count = periodMonths;
 
-    return Array.from({ length: 6 }, (_, idx) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (5 - idx), 1);
+    return Array.from({ length: count }, (_, idx) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (count - 1 - idx), 1);
       const targetMonth = d.getMonth();
       const targetYear = d.getFullYear();
-      const monthLabel = `T${targetMonth + 1}/${String(targetYear).slice(2)}`;
-      const isCurrent = idx === 5;
+      const isCurrent = idx === count - 1;
+      const monthLabel = isCurrent
+        ? `T${targetMonth + 1}/${String(targetYear).slice(2)} (Nay)`
+        : `T${targetMonth + 1}/${String(targetYear).slice(2)}`;
 
-      // 1. Calculate Real invoice collection and debt for this month.
-      // Booking-hold deposits are liabilities, so keep them out of revenue/profit.
+      // 1. Real invoice collection and debt for this month.
       let monthRevenue = 0;
       let monthDebt = 0;
 
@@ -64,14 +90,14 @@ export default function OperationsFinanceChart() {
         }
       }
 
-      // If current month and dashboard has revenue, use current revenue if greater
+      // Fallback if current month has dashboard revenue
       const kpisRaw = (dashboard as any)?.kpisRaw || {};
       if (isCurrent && monthRevenue === 0 && Number(kpisRaw.totalRevenue || 0) > 0) {
         monthRevenue = Number(kpisRaw.totalRevenue || 0);
         monthDebt = Number(kpisRaw.totalDebt || 0);
       }
 
-      // 2. Calculate Real Expenses from Ledger & Bank Outflow for this month
+      // 2. Real Expenses from Ledger & Bank Outflow
       let monthExpense = 0;
 
       for (const leg of ledgerRows) {
@@ -85,7 +111,7 @@ export default function OperationsFinanceChart() {
         }
       }
 
-      // Also incorporate bank outflow if ledger is empty
+      // Fallback to bank outflow if ledger is empty for this month
       if (monthExpense === 0) {
         for (const bank of bankRows) {
           const bankDate = new Date(bank.createdAt);
@@ -104,6 +130,7 @@ export default function OperationsFinanceChart() {
       }
 
       const monthProfit = monthRevenue - monthExpense;
+      const profitMargin = monthRevenue > 0 ? Math.round((monthProfit / monthRevenue) * 100) : 0;
 
       return {
         month: monthLabel,
@@ -112,187 +139,345 @@ export default function OperationsFinanceChart() {
         expense: monthExpense,
         profit: monthProfit,
         debt: monthDebt,
+        profitMargin,
         isCurrent,
       };
     });
-  }, [invoices, ledgerRows, bankRows, dashboard]);
+  }, [invoices, ledgerRows, bankRows, dashboard, periodMonths]);
 
-  // Compute max value for scaling based on actual numbers
-  const maxVal = useMemo(() => {
-    const max = Math.max(
-      ...chartData.map((d) => Math.max(d.revenue, d.expense, Math.abs(d.profit), d.debt)),
-      100_000,
-    );
-    return Math.ceil(max * 1.25);
+  // Aggregate current period summary
+  const summary = useMemo(() => {
+    const totalRevenue = chartData.reduce((acc, curr) => acc + curr.revenue, 0);
+    const totalExpense = chartData.reduce((acc, curr) => acc + curr.expense, 0);
+    const totalProfit = totalRevenue - totalExpense;
+    const margin = totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
+    return { totalRevenue, totalExpense, totalProfit, margin };
   }, [chartData]);
 
-  // 4 Y-axis ticks
-  const yTicks = [maxVal, Math.round(maxVal * 0.66), Math.round(maxVal * 0.33), 0];
+  const isLoading = isInvoicesLoading || isLedgerLoading || isBankLoading || isDashboardLoading;
 
   return (
-    <Card data-testid="finance-chart" className="rounded-xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col gap-4">
-      {/* Header & Legend */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/50 pb-3">
+    <Card
+      data-testid="finance-chart"
+      className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-border/70 bg-card p-5 shadow-2xs transition-all duration-200 hover:border-border hover:shadow-card md:p-6"
+    >
+      {/* Top Header: Title & Segmented Controls */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between border-b border-border/50 pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary border border-primary/20">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <BarChart3 size={15} />
             </div>
-            <h3 className="text-sm md:text-base font-black text-text tracking-tight">
-              Thực thu thuê/phí & Lợi nhuận vận hành
+            <h3 className="text-base font-black tracking-tight text-text md:text-lg">
+              Biến động Thu chi & Lợi nhuận
             </h3>
           </div>
-          <p className="text-[11px] font-semibold text-muted mt-0.5">
-            Chỉ tính hóa đơn thuê/phí vận hành; tiền cọc giữ phòng được tách khỏi doanh thu và lợi nhuận.
+          <p className="mt-0.5 text-xs text-muted">
+            Doanh thu thực nhận, chi phí vận hành và lợi nhuận ròng qua các kỳ (loại trừ tiền cọc giữ phòng).
           </p>
-        </div>
 
-        {/* Legend Pills */}
-        <div className="flex items-center gap-2.5 flex-wrap text-xs">
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-300 font-bold text-[11px]">
-            <div className="w-2.5 h-2.5 rounded-sm bg-indigo-600" />
-            Thực thu thuê/phí
-          </div>
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 font-bold text-[11px]">
-            <div className="w-2.5 h-2.5 rounded-sm bg-rose-500" />
-            Tổng chi
-          </div>
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold text-[11px]">
-            <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
-            Lợi nhuận ròng
-          </div>
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
-            <div className="w-2.5 h-1 rounded-full bg-amber-500" />
-            Công nợ
-          </div>
-        </div>
-      </div>
-
-      {/* Main Interactive Combo Chart */}
-      <div className="relative w-full h-[260px] md:h-[290px] pt-4 pb-8 select-none">
-        {/* Y-axis Grid Lines & Labels */}
-        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-8">
-          {yTicks.map((val, idx) => (
-            <div key={idx} className="w-full border-t border-border/40 border-dashed flex items-center justify-between">
-              <span className="text-[10px] font-mono font-bold text-muted/80 bg-card pr-2">
-                {formatMillions(val)}
+          {/* Stripe-style Main Metric Headline */}
+          <div className="mt-3 flex flex-wrap items-baseline gap-2.5">
+            <span className="font-mono text-2xl font-black text-text md:text-3xl">
+              {formatVnd(summary.totalRevenue)}
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-black text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <TrendingUp size={13} />
+                Lợi nhuận ròng: {formatVnd(summary.totalProfit)}
+              </span>
+              <span className="text-xs font-semibold text-muted">
+                (Biên LN {summary.margin}%)
               </span>
             </div>
-          ))}
+          </div>
         </div>
 
-        {/* 6 Monthly Columns Container */}
-        <div className="relative z-10 w-full h-full flex items-end justify-around pl-10 pr-2">
-          {chartData.map((item, idx) => {
-            const hasData = item.revenue > 0 || item.expense > 0 || item.debt > 0;
-            const revHeight = item.revenue > 0 ? Math.max((item.revenue / maxVal) * 100, 3) : 0;
-            const expHeight = item.expense > 0 ? Math.max((item.expense / maxVal) * 100, 3) : 0;
-            const profitHeight = item.profit > 0 ? Math.max((item.profit / maxVal) * 100, 3) : 0;
-            const debtDotBottom = item.debt > 0 ? Math.min(Math.max((item.debt / maxVal) * 100, 5), 95) : 0;
-            const isHovered = hoveredIndex === idx;
+        {/* View Mode & Period Segmented Tabs */}
+        <div className="flex flex-wrap items-center gap-2 self-start">
+          {/* Timeframe selector */}
+          <div className="inline-flex rounded-xl border border-border/70 bg-surface/70 p-0.5 shadow-2xs text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setPeriodMonths(6)}
+              className={`rounded-lg px-2.5 py-1 transition ${
+                periodMonths === 6
+                  ? "bg-card text-text shadow-xs font-black"
+                  : "text-muted hover:text-text"
+              }`}
+            >
+              6T
+            </button>
+            <button
+              type="button"
+              onClick={() => setPeriodMonths(12)}
+              className={`rounded-lg px-2.5 py-1 transition ${
+                periodMonths === 12
+                  ? "bg-card text-text shadow-xs font-black"
+                  : "text-muted hover:text-text"
+              }`}
+            >
+              12T
+            </button>
+          </div>
 
-            return (
-              <div
-                key={idx}
-                onMouseEnter={() => setHoveredIndex(idx)}
-                onMouseLeave={() => setHoveredIndex(null)}
-                className="relative flex flex-col items-center justify-end h-full flex-1 max-w-[120px] cursor-pointer group px-1"
-              >
-                {/* TOOLTIP POPUP ON HOVER */}
-                {isHovered && (
-                  <div className="absolute -top-14 z-30 flex flex-col gap-1 rounded-xl border border-border/80 bg-card p-2.5 shadow-modal min-w-[175px] pointer-events-none animate-in fade-in zoom-in-95 duration-150">
-                    <div className="text-[11px] font-black text-text border-b border-border/50 pb-1 flex items-center justify-between">
-                      <span>{item.fullMonth}</span>
-                      {item.isCurrent && (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-bold">Tháng này</span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-muted font-bold">Thực thu thuê/phí:</span>
-                      <span className="font-mono font-black text-indigo-600 dark:text-indigo-400">{formatVnd(item.revenue)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-muted font-bold">Tổng chi:</span>
-                      <span className="font-mono font-black text-rose-500">{formatVnd(item.expense)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-muted font-bold">Lợi nhuận:</span>
-                      <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">{formatVnd(item.profit)}</span>
-                    </div>
-                    {item.debt > 0 && (
-                      <div className="flex items-center justify-between text-[10px]">
-                        <span className="text-muted font-bold">Công nợ:</span>
-                        <span className="font-mono font-black text-amber-500">{formatVnd(item.debt)}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* BARS (Revenue, Expense, Profit) */}
-                <div className="flex items-end justify-center gap-1 sm:gap-1.5 w-full h-full pb-1 relative">
-                  {hasData ? (
-                    <>
-                      {/* Revenue Bar */}
-                      {revHeight > 0 ? (
-                        <div
-                          style={{ height: `${revHeight}%` }}
-                          className="w-3.5 sm:w-5 rounded-t-md bg-gradient-to-t from-indigo-700 to-indigo-500 transition-all duration-300 group-hover:brightness-110 shadow-2xs"
-                        />
-                      ) : (
-                        <div className="w-3.5 sm:w-5 h-1 rounded-t-sm bg-indigo-500/20" />
-                      )}
-
-                      {/* Expense Bar */}
-                      {expHeight > 0 ? (
-                        <div
-                          style={{ height: `${expHeight}%` }}
-                          className="w-3.5 sm:w-5 rounded-t-md bg-gradient-to-t from-rose-700 to-rose-500 transition-all duration-300 group-hover:brightness-110 shadow-2xs"
-                        />
-                      ) : (
-                        <div className="w-3.5 sm:w-5 h-1 rounded-t-sm bg-rose-500/20" />
-                      )}
-
-                      {/* Profit Bar */}
-                      {profitHeight > 0 ? (
-                        <div
-                          style={{ height: `${profitHeight}%` }}
-                          className="w-3.5 sm:w-5 rounded-t-md bg-gradient-to-t from-emerald-700 to-emerald-500 transition-all duration-300 group-hover:brightness-110 shadow-2xs"
-                        />
-                      ) : (
-                        <div className="w-3.5 sm:w-5 h-1 rounded-t-sm bg-emerald-500/20" />
-                      )}
-
-                      {/* Debt Dot (Combo indicator) */}
-                      {debtDotBottom > 0 && (
-                        <div
-                          style={{ bottom: `${debtDotBottom}%` }}
-                          className="absolute left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-card bg-amber-500 shadow-xs z-20 pointer-events-none group-hover:scale-125 transition-transform"
-                        />
-                      )}
-                    </>
-                  ) : (
-                    /* Clean zero baseline bar */
-                    <div className="h-1 w-8 rounded-full bg-border/60 group-hover:bg-primary/40 transition-colors" />
-                  )}
-                </div>
-
-                {/* X-Axis Month Label */}
-                <div className="absolute -bottom-6 flex flex-col items-center">
-                  <span
-                    className={`text-[11px] font-bold tracking-tight transition-colors ${
-                      item.isCurrent
-                        ? "text-primary font-black underline underline-offset-2"
-                        : "text-muted group-hover:text-text"
-                    }`}
-                  >
-                    {item.month}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+          {/* Mode selector */}
+          <div className="inline-flex rounded-xl border border-border/70 bg-surface/70 p-0.5 shadow-2xs text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setViewMode("all")}
+              className={`rounded-lg px-3 py-1 transition ${
+                viewMode === "all"
+                  ? "bg-card text-text shadow-xs font-black"
+                  : "text-muted hover:text-text"
+              }`}
+            >
+              Tất cả
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("profit")}
+              className={`rounded-lg px-3 py-1 transition ${
+                viewMode === "profit"
+                  ? "bg-card text-text shadow-xs font-black"
+                  : "text-muted hover:text-text"
+              }`}
+            >
+              Lợi nhuận
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("compare")}
+              className={`rounded-lg px-3 py-1 transition ${
+                viewMode === "compare"
+                  ? "bg-card text-text shadow-xs font-black"
+                  : "text-muted hover:text-text"
+              }`}
+            >
+              Thu vs Chi
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Main Recharts Graph */}
+      <div className="relative min-h-[300px] w-full pt-4 select-none md:min-h-[320px]">
+        {(!mounted || isLoading) && (
+          <div className="flex h-[300px] w-full items-center justify-center rounded-xl bg-surface/30">
+            <div className="flex flex-col items-center gap-2">
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <span className="text-xs font-semibold text-muted">Đang tải dữ liệu tài chính...</span>
+            </div>
+          </div>
+        )}
+
+        {mounted && !isLoading && (
+          <ResponsiveContainer width="100%" height={300}>
+            {viewMode === "profit" ? (
+              <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="profitAreaOnly" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.35} />
+                <XAxis
+                  dataKey="month"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted)", fontSize: 11, fontWeight: 600 }}
+                  dy={8}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted)", fontSize: 10, fontWeight: 600 }}
+                  tickFormatter={formatMillions}
+                />
+                <Tooltip content={<CustomFinanceTooltip />} />
+                <Area
+                  type="monotone"
+                  dataKey="profit"
+                  name="Lợi nhuận ròng"
+                  stroke="#10b981"
+                  strokeWidth={2.5}
+                  fillOpacity={1}
+                  fill="url(#profitAreaOnly)"
+                  dot={false}
+                  activeDot={{ r: 5, fill: "#10b981", stroke: "#ffffff", strokeWidth: 2 }}
+                />
+              </ComposedChart>
+            ) : (
+              <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="revenueBarGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.9} />
+                  </linearGradient>
+                  <linearGradient id="expenseBarGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f43f5e" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#e11d48" stopOpacity={0.9} />
+                  </linearGradient>
+                  <linearGradient id="profitAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.35} />
+                <XAxis
+                  dataKey="month"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted)", fontSize: 11, fontWeight: 600 }}
+                  dy={8}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted)", fontSize: 10, fontWeight: 600 }}
+                  tickFormatter={formatMillions}
+                />
+                <Tooltip content={<CustomFinanceTooltip />} />
+
+                <Bar
+                  dataKey="revenue"
+                  name="Thực thu"
+                  fill="url(#revenueBarGrad)"
+                  radius={[5, 5, 0, 0]}
+                  maxBarSize={32}
+                />
+
+                <Bar
+                  dataKey="expense"
+                  name="Tổng chi"
+                  fill="url(#expenseBarGrad)"
+                  radius={[5, 5, 0, 0]}
+                  maxBarSize={32}
+                />
+
+                {viewMode === "all" && (
+                  <Area
+                    type="monotone"
+                    dataKey="profit"
+                    name="Lợi nhuận ròng"
+                    stroke="#10b981"
+                    strokeWidth={2.5}
+                    fill="url(#profitAreaGrad)"
+                    dot={false}
+                    activeDot={{ r: 5, fill: "#10b981", stroke: "#ffffff", strokeWidth: 2 }}
+                  />
+                )}
+
+                {viewMode === "all" && (
+                  <Line
+                    type="monotone"
+                    dataKey="debt"
+                    name="Công nợ"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                    dot={false}
+                    activeDot={{ r: 5, fill: "#f59e0b", stroke: "#ffffff", strokeWidth: 2 }}
+                  />
+                )}
+              </ComposedChart>
+            )}
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Clean Minimalist Legend at Bottom */}
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-4 border-t border-border/40 pt-3 text-xs text-muted">
+        <div className="flex items-center gap-1.5">
+          <div className="h-2.5 w-2.5 rounded-xs bg-indigo-500" />
+          <span className="font-semibold text-text">Thực thu thuê/phí</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-2.5 w-2.5 rounded-xs bg-rose-500" />
+          <span className="font-semibold text-text">Tổng chi phí</span>
+        </div>
+        {viewMode !== "compare" && (
+          <div className="flex items-center gap-1.5">
+            <div className="h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
+            <span className="font-semibold text-text">Lợi nhuận ròng</span>
+          </div>
+        )}
+        {viewMode === "all" && (
+          <div className="flex items-center gap-1.5">
+            <div className="h-1 w-2.5 rounded-full bg-amber-500" />
+            <span className="font-semibold text-text">Công nợ tồn</span>
+          </div>
+        )}
+      </div>
     </Card>
+  );
+}
+
+function CustomFinanceTooltip({ active, payload }: any) {
+  if (!active || !payload || !payload.length) return null;
+
+  const data = payload[0].payload;
+  const isPositive = data.profit >= 0;
+
+  return (
+    <div className="z-50 min-w-[200px] rounded-xl border border-border/80 bg-card/95 p-3 shadow-xl backdrop-blur-md">
+      <div className="flex items-center justify-between border-b border-border/60 pb-1.5">
+        <span className="text-xs font-black text-text">{data.fullMonth}</span>
+        {data.isCurrent && (
+          <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[9px] font-black text-primary">
+            Hiện tại
+          </span>
+        )}
+      </div>
+
+      <div className="mt-2 flex flex-col gap-1.5 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 text-muted">
+            <div className="h-2 w-2 rounded-xs bg-indigo-500" />
+            <span>Thực thu:</span>
+          </div>
+          <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+            {formatVnd(data.revenue)}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 text-muted">
+            <div className="h-2 w-2 rounded-xs bg-rose-500" />
+            <span>Tổng chi:</span>
+          </div>
+          <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+            {formatVnd(data.expense)}
+          </span>
+        </div>
+
+        <div className="border-t border-border/50 pt-1 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 text-muted">
+            <div className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span>Lợi nhuận ròng:</span>
+          </div>
+          <span
+            className={`font-mono font-black ${
+              isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+            }`}
+          >
+            {formatVnd(data.profit)}
+          </span>
+        </div>
+
+        {data.debt > 0 && (
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 text-muted">
+              <div className="h-1 w-2 rounded-full bg-amber-500" />
+              <span>Công nợ:</span>
+            </div>
+            <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+              {formatVnd(data.debt)}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

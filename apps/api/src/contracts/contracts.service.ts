@@ -402,13 +402,7 @@ export class ContractsService extends BaseCrudService<Contract> {
       });
       if (!source)
         throw new NotFoundException(`Contract with ID ${id} not found`);
-      const sourceText =
-        `${source.code || ""} ${source.purpose || ""}`.toLowerCase();
-      if (
-        !sourceText.includes("hd-coc") &&
-        !sourceText.includes("cọc giữ phòng") &&
-        !sourceText.includes("coc giu phong")
-      ) {
+      if (!this.isBookingHoldContract(source)) {
         throw new BadRequestException("SOURCE_CONTRACT_IS_NOT_BOOKING_HOLD");
       }
       if (!source.rentalCycleId)
@@ -442,6 +436,9 @@ export class ContractsService extends BaseCrudService<Contract> {
         }
       }
       if (!contract) {
+        if ([ContractStatus.CANCELLED, ContractStatus.TERMINATED, ContractStatus.EXPIRED, ContractStatus.ACTIVE, ContractStatus.EXPIRING].includes(source.status)) {
+          throw new BadRequestException("BOOKING_CONVERT_SOURCE_NOT_ELIGIBLE");
+        }
         const suffix = createHash("sha256")
           .update(`${tenantId}:${source.id}:${commandKey}`)
           .digest("hex")
@@ -587,8 +584,39 @@ export class ContractsService extends BaseCrudService<Contract> {
           }),
         },
       });
+      // Keep the booking-hold document as the source of truth for traceability
+      // without changing its legal ContractStatus.  The source link is
+      // written in the same transaction as the rental/deposit/invoice work so
+      // a successful conversion can always be found from either document.
+      const linkedSource = await tx.contract.update({
+        where: { id: source.id, tenantId },
+        data: {
+          termsSnapshot: this.asJson({
+            ...((source.termsSnapshot as any) || {}),
+            bookingConversion: {
+              status: "RENTAL_CONTRACT_CREATED",
+              sourceContractId: source.id,
+              sourceContractCode: source.code,
+              rentalContractId: contractWithEntryInvoice.id,
+              rentalContractCode: contractWithEntryInvoice.code,
+              conversionAt:
+                ((source.termsSnapshot as any)?.bookingConversion
+                  ?.conversionAt as string) || new Date().toISOString(),
+              policyVersion: "BOOKING_HOLD_TO_RENTAL_V1",
+              initialEntryInvoiceId: entryInvoice.id,
+            },
+          }),
+        },
+      });
       await this.syncContractHistory(contractWithEntryInvoice, tx);
       if (tx.auditLog?.create) {
+        await tx.auditLog.create({
+          data: {
+            action: "UPDATE", entity: this.entityName, entityId: source.id,
+            module: "ContractsBookingHoldConvert", tenantId, userId,
+            before: source, after: linkedSource,
+          },
+        });
         await tx.auditLog.create({
           data: {
             action: "CREATE",
@@ -784,10 +812,39 @@ export class ContractsService extends BaseCrudService<Contract> {
         ...data,
         customerSnapshot: refreshedSnapshots.customerSnapshot,
         roomSnapshot: refreshedSnapshots.roomSnapshot,
-        termsSnapshot: refreshedSnapshots.termsSnapshot,
+        termsSnapshot: this.asJson({
+          ...((refreshedSnapshots.termsSnapshot as any) || {}),
+          // Workflow metadata is operational history, not a recalculated
+          // legal snapshot; preserve it across ordinary draft edits.
+          ...((current.termsSnapshot as any)?.convertedFromBookingHold
+            ? {
+                convertedFromBookingHold: (current.termsSnapshot as any)
+                  .convertedFromBookingHold,
+              }
+            : {}),
+          ...((current.termsSnapshot as any)?.bookingConversion
+            ? {
+                bookingConversion: (current.termsSnapshot as any)
+                  .bookingConversion,
+              }
+            : {}),
+        }),
       };
     }
-    const updated = await super.update(id, preparedData, userId, moduleName);
+    let updated: Contract;
+    try {
+      updated = await this.prisma.tx.contract.update({
+        where: { id, tenantId: current.tenantId, updatedAt: current.updatedAt },
+        data: preparedData,
+      });
+    } catch (error: any) {
+      if (error?.code === "P2025") throw new ConflictException("CONTRACT_CONCURRENT_UPDATE_RELOAD_REQUIRED");
+      throw error;
+    }
+    await this.auditService.log({
+      action: "UPDATE", entity: this.entityName, entityId: id,
+      module: moduleName || this.entityName, before: current, after: updated, userId,
+    });
     if (updated.rentalCycleId && this.prisma.tx.rentalCycle?.updateMany) {
       await this.prisma.tx.rentalCycle.updateMany({
         where: { id: updated.rentalCycleId, tenantId: updated.tenantId },
@@ -911,6 +968,220 @@ export class ContractsService extends BaseCrudService<Contract> {
     } catch (e) {
       // Don't fail contract operation if deposit sync fails
     }
+  }
+
+  private isBookingHoldContract(contract: any): boolean {
+    if (contract?.termsSnapshot?.convertedFromBookingHold?.sourceContractId || String(contract?.code || "").startsWith("HD-THUE-")) return false;
+    const sourceText = `${contract?.code || ""} ${contract?.purpose || ""}`
+      .toLowerCase();
+    return (
+      sourceText.includes("hd-coc") ||
+      sourceText.includes("cọc giữ phòng") ||
+      sourceText.includes("coc giu phong")
+    );
+  }
+
+  /**
+   * Live, tenant-scoped conversion status used by both source and rental
+   * contract screens.  The persisted source link is only an index; payment
+   * readiness is deliberately read from the current deposit/invoice rows.
+   */
+  private async getBookingConversionView(record: any): Promise<any | null> {
+    const contractModel = this.prisma.tx.contract as any;
+    const invoiceModel = (this.prisma.tx as any).invoice;
+    const depositModel = (this.prisma.tx as any).deposit;
+    const paymentRequestModel = (this.prisma.tx as any).paymentRequest;
+    if (!contractModel?.findFirst || !invoiceModel?.findFirst) return null;
+
+    const terms = (record.termsSnapshot as any) || {};
+    const sourceLink = terms.bookingConversion;
+    const targetLink = terms.convertedFromBookingHold;
+    if (!targetLink && !sourceLink && !this.isBookingHoldContract(record)) return null;
+    let rental: any = null;
+    let source: any = null;
+
+    if (targetLink?.sourceContractId) {
+      source = await contractModel.findFirst({
+        where: {
+          id: targetLink.sourceContractId,
+          tenantId: record.tenantId,
+          deletedAt: null,
+        },
+        select: { id: true, code: true, status: true },
+      });
+      rental = record;
+    } else if (sourceLink?.rentalContractId) {
+      rental = await contractModel.findFirst({
+        where: {
+          id: sourceLink.rentalContractId,
+          tenantId: record.tenantId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          code: true,
+          status: true,
+          signedAt: true,
+          activatedAt: true,
+          tenantId: true,
+          customerId: true,
+          roomId: true,
+          rentalCycleId: true,
+          monthlyRent: true,
+          depositMoney: true,
+          startDate: true,
+        },
+      });
+      source = record;
+    } else if (record.rentalCycleId && contractModel.findMany) {
+      // Backwards compatibility for conversions written before the source
+      // bookingConversion index existed.
+      const candidates = await contractModel.findMany({
+        where: {
+          tenantId: record.tenantId,
+          rentalCycleId: record.rentalCycleId,
+          id: { not: record.id },
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          code: true,
+          status: true,
+          signedAt: true,
+          activatedAt: true,
+          termsSnapshot: true,
+          tenantId: true,
+          customerId: true,
+          roomId: true,
+          rentalCycleId: true,
+          monthlyRent: true,
+          depositMoney: true,
+          startDate: true,
+        },
+      });
+      rental = candidates.find(
+        (candidate: any) =>
+          (candidate.termsSnapshot as any)?.convertedFromBookingHold
+            ?.sourceContractId === record.id,
+      );
+      if (rental) source = record;
+    }
+    if (!rental) return null;
+
+    const securityDeposit = depositModel?.findFirst
+      ? await depositModel.findFirst({
+          where: {
+            tenantId: record.tenantId,
+            contractId: rental.id,
+            type: DepositType.SECURITY,
+            deletedAt: null,
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, status: true, amount: true },
+        })
+      : null;
+    const securityBalance =
+      securityDeposit && (this.prisma.tx as any).depositLedgerEntry?.aggregate
+        ? await (this.prisma.tx as any).depositLedgerEntry
+            .aggregate({
+              where: {
+                tenantId: record.tenantId,
+                depositId: securityDeposit.id,
+              },
+              _sum: { balanceEffect: true },
+            })
+            .then((result: any) => Number(result?._sum?.balanceEffect || 0))
+        : 0;
+    const entryInvoice = await invoiceModel.findFirst({
+      where: {
+        tenantId: record.tenantId,
+        contractId: rental.id,
+        billingKind: "ENTRY",
+        deletedAt: null,
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        total: true,
+        paidAmount: true,
+        creditAmount: true,
+        dueDate: true,
+      },
+    });
+    const entryPaymentRequest =
+      entryInvoice && paymentRequestModel?.findFirst
+        ? await paymentRequestModel.findFirst({
+            where: {
+              tenantId: record.tenantId,
+              sourceType: "INVOICE",
+              sourceId: entryInvoice.id,
+            },
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              status: true,
+              paymentCode: true,
+              amount: true,
+              bankName: true,
+              bankAccountNumber: true,
+              qrUrl: true,
+              paidAt: true,
+              createdAt: true,
+              metadata: true,
+            },
+          })
+        : null;
+    const depositRequired = Number(rental.depositMoney || 0);
+    const depositPaid =
+      securityBalance >= depositRequired && depositRequired > 0 &&
+      [DepositStatus.PAID, DepositStatus.CONVERTED_TO_CONTRACT].includes(securityDeposit?.status);
+    const entryInvoicePaid =
+      entryInvoice?.status === InvoiceStatus.PAID &&
+      Number(entryInvoice?.paidAmount || 0) + Number(entryInvoice?.creditAmount || 0) >= Number(entryInvoice?.total || 0);
+    const blockingReasons: string[] = [];
+    if (!depositPaid) blockingReasons.push("SECURITY_DEPOSIT_UNPAID");
+    if (!entryInvoicePaid) blockingReasons.push("ENTRY_INVOICE_UNPAID");
+    const signedTime = rental.signedAt ? new Date(rental.signedAt).getTime() : NaN;
+    if (!Number.isFinite(signedTime) || signedTime > Date.now()) blockingReasons.push("CONTRACT_SIGNATURE_REQUIRED");
+    if (rental.status !== ContractStatus.APPROVED) blockingReasons.push("CONTRACT_APPROVAL_REQUIRED");
+    const startTime = new Date(rental.startDate).getTime();
+    if (!Number.isFinite(startTime) || Math.floor(startTime / 86400000) > Math.floor(Date.now() / 86400000)) blockingReasons.push("CONTRACT_START_DATE_IN_FUTURE");
+
+    const view = {
+      status: "RENTAL_CONTRACT_CREATED",
+      rentalContract: {
+        id: rental.id,
+        code: rental.code,
+        status: rental.status,
+        signedAt: rental.signedAt || null,
+        activatedAt: rental.activatedAt || null,
+      },
+      securityDeposit: securityDeposit
+        ? {
+            id: securityDeposit.id,
+            status: securityDeposit.status,
+            amount: securityDeposit.amount,
+            balance: securityBalance,
+          }
+        : null,
+      entryInvoice,
+      entryPaymentRequest,
+      rentalReadiness: {
+        depositPaid,
+        entryInvoicePaid,
+        canActivate: blockingReasons.length === 0,
+        blockingReasons,
+      },
+    };
+    if (source?.id === record.id) return { ...view };
+    return {
+      ...view,
+      sourceBookingContract: source
+        ? { id: source.id, code: source.code, status: source.status }
+        : null,
+    };
   }
 
   async getDetail(id: string, include?: any): Promise<any> {
@@ -1070,6 +1341,10 @@ export class ContractsService extends BaseCrudService<Contract> {
       securityDeposit,
       securityPaymentRequest,
     };
+    const bookingConversion = await this.getBookingConversionView(record);
+    const enrichedRecord = bookingConversion
+      ? { ...recordWithBookingDeposit, bookingConversion }
+      : recordWithBookingDeposit;
     if (record.coRepresentativeIds && record.coRepresentativeIds.length > 0) {
       const coReps = await this.prisma.tx.customer.findMany({
         where: { id: { in: record.coRepresentativeIds } },
@@ -1082,12 +1357,12 @@ export class ContractsService extends BaseCrudService<Contract> {
         },
       });
       return {
-        ...recordWithBookingDeposit,
+        ...enrichedRecord,
         coRepresentatives: coReps,
         settlementRefund,
       };
     }
-    return { ...recordWithBookingDeposit, settlementRefund };
+    return { ...enrichedRecord, settlementRefund };
   }
 
   private async getPendingReviewSePayAmount(
@@ -1163,9 +1438,16 @@ export class ContractsService extends BaseCrudService<Contract> {
 
     const orderBy = { [sort || "createdAt"]: order || "desc" };
 
-    return this.repository.paginate(where, page, limit, orderBy, {
+    const result = await this.repository.paginate(where, page, limit, orderBy, {
       customer: {
-        select: { id: true, fullName: true, phone: true, gender: true },
+        select: {
+          id: true,
+          fullName: true,
+          phone: true,
+          gender: true,
+          identityNo: true,
+          address: true,
+        },
       },
       room: {
         select: {
@@ -1175,6 +1457,13 @@ export class ContractsService extends BaseCrudService<Contract> {
         },
       },
     });
+    const data = await Promise.all(
+      result.data.map(async (contract: any) => {
+        const bookingConversion = await this.getBookingConversionView(contract);
+        return bookingConversion ? { ...contract, bookingConversion } : contract;
+      }),
+    );
+    return { ...result, data };
   }
 
   async submitContract(id: string, userId: string): Promise<Contract> {
@@ -1481,6 +1770,9 @@ export class ContractsService extends BaseCrudService<Contract> {
     if (tenantId && contract.tenantId !== tenantId) {
       throw new NotFoundException(`Contract with ID ${id} not found`);
     }
+    if (this.isBookingHoldContract(contract)) {
+      throw new BadRequestException("BOOKING_HOLD_REQUIRES_RENTAL_CONVERSION");
+    }
     const normalizedIdempotencyKey = String(idempotencyKey || "").trim();
     if (
       normalizedIdempotencyKey.length < 8 ||
@@ -1654,6 +1946,40 @@ export class ContractsService extends BaseCrudService<Contract> {
         : lockedRoom?.status === RoomStatus.RESERVED;
       if (!lockedRoom || !lockedRoomStatusAllowed) {
         throw new ConflictException("CONTRACT_ROOM_STATE_CHANGED");
+      }
+
+      // Converted bookings require the first-rent obligation to be fully
+      // settled before move-in.  Keep this check inside the same transaction
+      // as the activation claim so a concurrent payment/activation cannot
+      // bypass the approved flow.
+      const convertedFromBookingHold = (contract.termsSnapshot as any)
+        ?.convertedFromBookingHold;
+      if (convertedFromBookingHold?.sourceContractId) {
+        const firstBilling = calculateFirstBillingPeriod(
+          Number(contract.monthlyRent || 0),
+          contract.startDate,
+        );
+        const entryInvoice = txAny.invoice?.findFirst
+          ? await txAny.invoice.findFirst({
+              where: {
+                tenantId: contract.tenantId,
+                contractId: contract.id,
+                billingKind: "ENTRY",
+                baseInvoiceKey: `ENTRY:${contract.id}:${firstBilling.period}`,
+                deletedAt: null,
+              },
+              select: { id: true, status: true, total: true, paidAmount: true, creditAmount: true },
+            })
+          : null;
+        if (!entryInvoice) {
+          throw new BadRequestException("CONTRACT_ENTRY_INVOICE_REQUIRED");
+        }
+        if (
+          entryInvoice.status !== InvoiceStatus.PAID ||
+          Number(entryInvoice.paidAmount || 0) + Number(entryInvoice.creditAmount || 0) < Number(entryInvoice.total || 0)
+        ) {
+          throw new BadRequestException("CONTRACT_ENTRY_INVOICE_UNPAID");
+        }
       }
 
       if (txAny.depositLedgerEntry?.aggregate) {

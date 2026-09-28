@@ -15,6 +15,7 @@ import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 
 type OccupantOption = {
   id?: string;
@@ -298,7 +299,14 @@ export default function MoveOutOccupantModal({
     <Modal
       isOpen={isOpen}
       onClose={() => { if (!isSubmitting) onClose(); }}
-      title="Trả phòng có bảo toàn"
+      title={
+        <ModalHeaderTitle
+          icon={<UserRoundMinus size={18} />}
+          title="Trả phòng có bảo toàn"
+          badge={needsSettlement ? "Quyết toán" : "Trả phòng"}
+          tone={needsSettlement ? "amber" : "primary"}
+        />
+      }
       maxWidth={needsSettlement ? "max-w-4xl" : "max-w-xl"}
       footer={footer}
     >

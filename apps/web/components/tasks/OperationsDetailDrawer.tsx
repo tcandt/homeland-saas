@@ -3,6 +3,7 @@
 import React, { useEffect } from "react";
 import { CalendarClock, CheckCircle2, ClipboardList, RefreshCcw, UserRound } from "lucide-react";
 import { Drawer } from "@/components/ui/Drawer";
+import { ModalHeaderTitle } from "@/components/ui/ModalHeaderTitle";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import type { TaskStatus } from "@/lib/api/tasks.api";
@@ -70,7 +71,13 @@ export default function OperationsDetailDrawer({
     <Drawer
       isOpen={Boolean(ticket)}
       onClose={onClose}
-      title={<span className="font-black text-[20px] text-text">Chi tiết công việc</span>}
+      title={
+        <ModalHeaderTitle
+          icon={<ClipboardList size={15} />}
+          title="Chi tiết công việc"
+          badge={`#${ticket.id.slice(-8)}`}
+        />
+      }
       size="lg"
       className="p-6 flex flex-col gap-6"
       footer={

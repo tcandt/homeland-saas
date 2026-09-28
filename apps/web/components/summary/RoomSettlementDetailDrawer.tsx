@@ -11,6 +11,7 @@ import {
   DoorClosed,
   Droplets,
   FileSpreadsheet,
+  Home,
   Layers,
   MessageSquare,
   Phone,
@@ -151,24 +152,19 @@ export default function RoomSettlementDetailDrawer({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Modal */}
-        <div className="p-4 sm:p-5 border-b border-border flex items-center justify-between bg-muted/30">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <h2 className="text-base sm:text-lg font-black text-text truncate">
-                Phòng {item.roomCode}
-              </h2>
-              <span className="text-xs font-bold text-muted">• {item.buildingName}</span>
-              {getStatusBadge(item.notificationStatus, item.hasContract)}
-            </div>
-            <p className="text-xs text-muted font-medium mt-0.5">
-              Kỳ chốt: <strong className="text-text font-mono">{item.period}</strong> • Tầng {item.floorLevel} ({item.floorName})
-            </p>
+        <div className="flex min-h-11 items-center justify-between border-b border-border bg-card px-3.5 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Home size={15} /></span>
+            <h2 className="shrink-0 text-sm font-black text-text">Chi tiết chốt tháng</h2>
+            <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-black text-primary">{item.roomCode}</span>
+            <span className="hidden truncate text-xs font-bold text-muted sm:inline">• {item.buildingName} · {item.period}</span>
+            <span className="hidden md:inline-flex">{getStatusBadge(item.notificationStatus, item.hasContract)}</span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="h-8 w-8 rounded-full border border-border/80 bg-background flex items-center justify-center text-muted hover:text-text hover:bg-muted/40 transition-colors shrink-0"
-            title="Đóng (ESC)"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-muted/40 hover:text-text"
+            title="Đóng"
             aria-label="Đóng chi tiết chốt tháng"
             data-testid="settlement-detail-close"
           >

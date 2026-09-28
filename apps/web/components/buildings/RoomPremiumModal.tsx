@@ -99,6 +99,8 @@ import {
   useRoomFinanceSummaryQuery,
 } from "@/lib/queries/deposits.queries";
 import { useContractsQuery } from "@/lib/queries/contracts.queries";
+import OperationsContractDrawer from "../contracts/OperationsContractDrawer";
+import { getLinkedRental, isBookingContract as isBookingHoldDocument, BOOKING_CONVERTED_LABEL } from "@/lib/contracts/booking-conversion";
 import { deduplicateContracts } from "@/lib/adapters/contract-dedupe.adapter";
 import {
   getRoomUiStatus,
@@ -807,7 +809,8 @@ export default function RoomPremiumModal({
   const expireContractMutation = useExpireContractMutation();
   const deleteRoomMutation = useDeleteRoomMutation();
 
-  const { data: roomContractsData } = useContractsQuery({ roomId });
+  const [selectedFlowContract, setSelectedFlowContract] = useState<{ id: string } | null>(null);
+  const { data: roomContractsData } = useContractsQuery({ roomId, limit: 100 });
   const roomContractsList = useMemo(() => {
     const items = (roomContractsData as any)?.data || [];
     return Array.isArray(items) ? items : [];
@@ -3088,19 +3091,43 @@ export default function RoomPremiumModal({
     }
   };
 
-  const formatCompactMoney = (amount: number) => {
-    if (amount === 0) return "0";
-    if (amount >= 1000000) {
-      return (
-        (amount / 1000000).toLocaleString("en-US", {
-          maximumFractionDigits: 2,
-        }) + "M"
-      );
+  const formatCompactMoney = (
+    amount: number | string | null | undefined,
+  ) => `${Number(amount || 0).toLocaleString("vi-VN")} đ`;
+
+  const getPaymentStatusLabel = (status?: string | null) => {
+    const normalizedStatus = String(status || "").toUpperCase();
+    return {
+      CONFIRMED: "Đã xác nhận",
+      PENDING: "Chờ xác nhận",
+      NEEDS_REVIEW: "Cần đối soát",
+      FAILED: "Thất bại",
+      CANCELLED: "Đã hủy",
+      REFUNDED: "Đã hoàn tiền",
+    }[normalizedStatus] || "Chưa xác định";
+  };
+
+  const getPaymentStatusClassName = (status?: string | null) => {
+    const normalizedStatus = String(status || "").toUpperCase();
+    if (normalizedStatus === "CONFIRMED") {
+      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
     }
-    return new Intl.NumberFormat("vi-VN", {
-      style: "currency",
-      currency: "VND",
-    }).format(amount);
+    if (["FAILED", "CANCELLED"].includes(normalizedStatus)) {
+      return "border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-300";
+    }
+    return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  };
+
+  const getPaymentMethodLabel = (payment: any) => {
+    const provider = String(payment?.provider || "").toUpperCase();
+    const providerRef = String(payment?.providerRef || payment?.source?.code || "").toUpperCase();
+    if (provider === "SEPAY") return "Chuyển khoản qua SePay";
+    if (provider === "CASH" || providerRef.startsWith("CASH:")) return "Tiền mặt";
+    if (providerRef.startsWith("BANK_TRANSFER:") || provider === "BANK_TRANSFER") {
+      return "Chuyển khoản thủ công";
+    }
+    if (provider === "MANUAL") return "Ghi nhận thủ công";
+    return "Chưa xác định";
   };
 
   const financeRoomIdentity = financeCandidates.find((candidate) =>
@@ -3404,15 +3431,14 @@ export default function RoomPremiumModal({
         />
         <div className="relative z-10 w-full max-w-[1360px] h-[92dvh] md:h-[88vh] max-h-[880px] bg-card border border-border/70 shadow-[0_24px_70px_rgba(0,0,0,0.22)] rounded-[24px] flex flex-col overflow-hidden animate-in zoom-in-[0.98] duration-200 box-border">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 md:px-7 py-3 border-b border-border/60 bg-card shrink-0 w-full gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20">
-                <LayoutDashboard size={18} />
+          <div className="flex min-h-11 w-full shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-card px-3.5 py-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <LayoutDashboard size={15} />
               </div>
-              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <h2 className="font-bold text-base md:text-[17px] tracking-tight text-text leading-none">
-                  {getRoomDisplayName(roomData)}
-                </h2>
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="shrink-0 text-sm font-black text-text">Chi tiết phòng</h2>
+                <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-black text-primary">{getRoomDisplayName(roomData)}</span>
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-surface border border-border/60 text-muted uppercase">
                   {roomRentalTypeLabel}
                 </span>
@@ -4021,8 +4047,8 @@ export default function RoomPremiumModal({
                                   )
                                 </span>
                                 <div className="mt-1 flex items-baseline gap-2">
-                                  <span className="text-[20px] font-black text-primary">
-                                    {(
+                                  <span className="text-[20px] font-black tabular-nums text-primary">
+                                    {Number(
                                       financeSummary.depositLedger?.balance ?? 0
                                     ).toLocaleString("vi-VN")}{" "}
                                     đ
@@ -4051,7 +4077,7 @@ export default function RoomPremiumModal({
                                     ?.TRANSFER_OUT || 0,
                                 ) > 0 && (
                                   <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold">
-                                    Chuyển lên HĐ:{" "}
+                                    Chuyển sang hợp đồng:{" "}
                                     {formatCompactMoney(
                                       financeSummary.depositLedger.totalsByType
                                         .TRANSFER_OUT,
@@ -4111,7 +4137,7 @@ export default function RoomPremiumModal({
                                     ?.CREDIT || 0,
                                 ) > 0 && (
                                   <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold">
-                                    Credit:{" "}
+                                    Bù trừ:{" "}
                                     {formatCompactMoney(
                                       financeSummary.depositLedger.totalsByType
                                         .CREDIT,
@@ -4134,8 +4160,8 @@ export default function RoomPremiumModal({
                                 Giá thuê kỳ này
                               </span>
                               <div className="mt-1 flex items-baseline gap-2">
-                                <span className="text-[20px] font-black text-text">
-                                  {(
+                                <span className="text-[20px] font-black tabular-nums text-text">
+                                  {Number(
                                     financeSummary.contracts?.[0]
                                       ?.monthlyRent ||
                                     roomData.monthlyPrice ||
@@ -4205,11 +4231,11 @@ export default function RoomPremiumModal({
                               </span>
                             </div>
 
-                            <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
-                              <table className="w-full text-left border-collapse text-sm">
+                            <div className="overflow-x-auto rounded-2xl border border-border/60 bg-card shadow-sm">
+                              <table className="min-w-[720px] w-full border-collapse text-left text-sm">
                                 <thead>
                                   <tr className="bg-surface/50 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
-                                    <th className="px-4 py-3">Mã HĐ</th>
+                                    <th className="px-4 py-3">Mã hóa đơn</th>
                                     <th className="px-4 py-3">Khách thuê</th>
                                     <th className="px-4 py-3">Số tiền</th>
                                     <th className="px-4 py-3">
@@ -4253,16 +4279,18 @@ export default function RoomPremiumModal({
                                         })}
                                         className="cursor-pointer hover:bg-surface/40 transition-colors"
                                       >
-                                        <td className="px-4 py-3 font-bold text-text">
-                                          {inv.code}
+                                        <td className="max-w-[180px] px-4 py-3 font-bold text-text">
+                                          <span className="block truncate font-mono text-xs tabular-nums" title={inv.code || "Chưa có mã hóa đơn"}>
+                                            {inv.code || "Chưa có mã"}
+                                          </span>
                                         </td>
                                         <td className="px-4 py-3 text-xs font-semibold text-text">
                                           {inv.customer?.fullName ||
                                             financeSummary.customer?.fullName ||
                                             "Khách thuê"}
                                         </td>
-                                        <td className="px-4 py-3 font-black text-text">
-                                          {(
+                                        <td className="whitespace-nowrap px-4 py-3 font-black tabular-nums text-text">
+                                          {Number(
                                             inv.total ||
                                             inv.amount ||
                                             0
@@ -4310,11 +4338,11 @@ export default function RoomPremiumModal({
                             <h4 className="font-black text-[14px] uppercase text-text tracking-wide flex items-center gap-2">
                               Lịch sử thanh toán kỳ thuê
                             </h4>
-                            <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
-                              <table className="w-full text-left border-collapse text-sm">
+                            <div className="overflow-x-auto rounded-2xl border border-border/60 bg-card shadow-sm">
+                              <table className="min-w-[780px] w-full border-collapse text-left text-sm">
                                 <thead>
                                   <tr className="bg-surface/50 text-[11px] font-black uppercase text-muted tracking-wider border-b border-border/40">
-                                    <th className="px-4 py-3">Mã GD</th>
+                                    <th className="px-4 py-3">Mã giao dịch</th>
                                     <th className="px-4 py-3">Số tiền</th>
                                     <th className="px-4 py-3">
                                       Ngày thanh toán
@@ -4351,11 +4379,16 @@ export default function RoomPremiumModal({
                                           }}
                                           className="cursor-pointer hover:bg-surface/40 transition-colors"
                                         >
-                                          <td className="px-4 py-3 font-bold text-text">
-                                            {pay.id}
+                                          <td className="max-w-[210px] px-4 py-3 font-bold text-text">
+                                            <span
+                                              className={`block truncate text-xs tabular-nums ${pay.providerRef || pay.source?.code ? "font-mono" : "font-semibold text-amber-700 dark:text-amber-300"}`}
+                                              title={pay.providerRef || pay.source?.code || "Bản ghi cũ chưa có mã giao dịch từ ngân hàng"}
+                                            >
+                                              {pay.providerRef || pay.source?.code || "Chưa đồng bộ mã giao dịch"}
+                                            </span>
                                           </td>
-                                          <td className="px-4 py-3 font-black text-emerald-600 dark:text-emerald-400">
-                                            {(pay.amount || 0).toLocaleString(
+                                          <td className="whitespace-nowrap px-4 py-3 font-black tabular-nums text-emerald-600 dark:text-emerald-400">
+                                            {Number(pay.amount || 0).toLocaleString(
                                               "vi-VN",
                                             )}{" "}
                                             đ
@@ -4367,11 +4400,13 @@ export default function RoomPremiumModal({
                                                 ).toLocaleDateString("vi-VN")
                                               : "-"}
                                           </td>
-                                          <td className="px-4 py-3 text-muted text-xs">
-                                            {pay.status || "CONFIRMED"}
+                                          <td className="whitespace-nowrap px-4 py-3 text-xs">
+                                            <span className={`inline-flex rounded-full border px-2.5 py-1 font-bold ${getPaymentStatusClassName(pay.status)}`}>
+                                              {getPaymentStatusLabel(pay.status)}
+                                            </span>
                                           </td>
-                                          <td className="px-4 py-3 text-right text-muted text-xs font-semibold">
-                                            {pay.provider || "TIỀN MẶT"}
+                                          <td className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold text-muted">
+                                            {getPaymentMethodLabel(pay)}
                                           </td>
                                         </tr>
                                       ),
@@ -4464,6 +4499,40 @@ export default function RoomPremiumModal({
                         }));
                       });
                     const rawReps = [
+                      ...roomContractsList.map((contract: any) => {
+                        const snapshot = contract.customerSnapshot || {};
+                        const customer = contract.customer || {};
+                        const identityNo =
+                          snapshot.identityNo ||
+                          customer.identityNo ||
+                          customer.citizenId ||
+                          customer.cccd ||
+                          "";
+                        const address =
+                          snapshot.address ||
+                          customer.address ||
+                          customer.permanentAddress ||
+                          customer.hometown ||
+                          "";
+                        return {
+                          ...customer,
+                          ...snapshot,
+                          identityNo,
+                          cccd: identityNo,
+                          citizenId: identityNo,
+                          address,
+                          name:
+                            snapshot.fullName ||
+                            customer.fullName ||
+                            customer.name,
+                          isBookingHold: isBookingHoldDocument(contract),
+                          contract: {
+                            ...contract,
+                            deposit: contract.depositMoney,
+                            rentPrice: contract.monthlyRent,
+                          },
+                        };
+                      }),
                       ...financeBookingReps,
                       ...(roomData.tenant && roomData.contract
                         ? [{ ...roomData.tenant, contract: roomData.contract }]
@@ -4547,19 +4616,19 @@ export default function RoomPremiumModal({
                     }
 
                     return (
-                      <div className="border border-border/60 rounded-2xl bg-card shadow-sm overflow-visible">
-                        <div className="overflow-visible min-h-[140px]">
-                          <table className="w-full text-left text-sm whitespace-nowrap">
+                      <div className="max-w-full overflow-visible rounded-2xl border border-border/60 bg-card shadow-sm">
+                        <div className="max-w-full overflow-visible">
+                          <table className="w-full min-w-0 table-fixed text-center text-sm">
                             <thead className="bg-surface/50 uppercase text-[11px] font-black text-muted tracking-wider border-b border-border/40">
                               <tr>
-                                <th className="px-4 py-3 w-[50px]">STT</th>
-                                <th className="px-4 py-3">Đại diện HĐ</th>
-                                <th className="px-4 py-3">Mã Hợp Đồng</th>
-                                <th className="px-4 py-3">Tiền phòng</th>
-                                <th className="px-4 py-3">Tiền cọc</th>
-                                <th className="px-4 py-3">Ngày bắt đầu</th>
-                                <th className="px-4 py-3">Ngày kết thúc</th>
-                                <th className="px-4 py-3 text-right w-[100px]">
+                                <th className="w-[46px] whitespace-nowrap px-2 py-3 text-center">STT</th>
+                                <th className="w-[185px] whitespace-nowrap px-2 py-3 text-center">Đại diện HĐ</th>
+                                <th className="w-[165px] whitespace-nowrap px-2 py-3 text-center">Mã Hợp Đồng</th>
+                                <th className="w-[105px] whitespace-nowrap px-2 py-3 text-center">Tiền phòng</th>
+                                <th className="w-[110px] whitespace-nowrap px-2 py-3 text-center">Tiền cọc</th>
+                                <th className="w-[112px] whitespace-nowrap px-2 py-3 text-center">Ngày bắt đầu</th>
+                                <th className="w-[112px] whitespace-nowrap px-2 py-3 text-center">Ngày kết thúc</th>
+                                <th className="w-[60px] whitespace-nowrap px-2 py-3 text-center">
                                   Thao tác
                                 </th>
                               </tr>
@@ -4585,10 +4654,7 @@ export default function RoomPremiumModal({
                                 const buildContractPayload = (rep: any) => {
                                   const c = rep.contract || ({} as any);
                                   const isBookingContract =
-                                    rep.isBookingHold ||
-                                    String(c.purpose || "").toLowerCase().includes("cọc giữ phòng") ||
-                                    (Number(c.rentPrice || c.monthlyRent || 0) === 0 &&
-                                      Number(c.deposit || c.depositMoney || 0) > 0);
+                                    isBookingHoldDocument(c);
                                   const bookingContractDeposit = isBookingContract
                                     ? readMoneyFromText(c.purpose, "Tiền cọc hợp đồng")
                                     : 0;
@@ -4798,10 +4864,7 @@ export default function RoomPremiumModal({
                                 return reps.map((rep: any, index: number) => {
                                   const c = rep.contract || ({} as any);
                                   const isBookingContract =
-                                    rep.isBookingHold ||
-                                    String(c.purpose || "").toLowerCase().includes("cọc giữ phòng") ||
-                                    (Number(c.rentPrice || c.monthlyRent || 0) === 0 &&
-                                      Number(c.deposit || c.depositMoney || 0) > 0);
+                                    isBookingHoldDocument(c);
                                   const tName = rep.name || rep.fullName || "";
                                   const cleanName = tName
                                     .normalize("NFD")
@@ -4823,20 +4886,21 @@ export default function RoomPremiumModal({
                                       key={rowKey}
                                       className="hover:bg-surface/40 transition-colors"
                                     >
-                                      <td className="px-4 py-3 font-semibold text-muted text-xs">
+                                      <td className="px-2 py-3 text-center font-semibold text-muted text-xs">
                                         {index + 1}
                                       </td>
-                                      <td className="px-4 py-3 font-bold text-text">
-                                        <div className="flex flex-col gap-1">
-                                          <span>{tName || "Chưa có"}</span>
+                                      <td className="px-2 py-3 text-center font-bold text-text">
+                                        <div className="flex flex-col items-center gap-1">
+                                          <span className="max-w-[165px] truncate text-center">{tName || "Chưa có"}</span>
                                           {isBookingContract && (
                                             <span className="w-fit rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-black text-amber-700">
                                               Hợp đồng cọc giữ phòng
                                             </span>
                                           )}
+                                          {getLinkedRental(c) && <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{BOOKING_CONVERTED_LABEL}<br />{getLinkedRental(c)?.code}</span>}
                                         </div>
                                       </td>
-                                      <td className="px-4 py-3">
+                                      <td className="px-2 py-3 text-center">
                                         <button
                                           type="button"
                                           onClick={() => {
@@ -4845,78 +4909,45 @@ export default function RoomPremiumModal({
                                             setPreviewContractData(payload);
                                             setIsPreviewContractModalOpen(true);
                                           }}
-                                          className="font-bold text-primary hover:underline font-mono text-xs cursor-pointer inline-flex items-center gap-1.5 group text-left"
+                                          className="mx-auto inline-flex max-w-full cursor-pointer items-center justify-center gap-1.5 text-center font-mono text-xs font-bold text-primary hover:underline"
                                           title="Nhấn để xem trực tiếp PDF hợp đồng"
                                         >
-                                          <span>{contractCode}</span>
+                                          <span className="max-w-[145px] truncate text-center">{contractCode}</span>
                                           <Eye
                                             size={13}
                                             className="text-primary/70 group-hover:text-primary transition-colors"
                                           />
                                         </button>
                                       </td>
-                                      <td className="px-4 py-3 font-black text-text">
+                                      <td className="px-2 py-3 text-center font-black text-text whitespace-nowrap">
                                         {isBookingContract
                                           ? "—"
-                                          : `${(
+                                          : `${Number(
                                               c.rentPrice ||
-                                              c.monthlyRent ||
-                                              roomData.monthlyPrice ||
-                                              0
-                                            ).toLocaleString()} đ`}
+                                                c.monthlyRent ||
+                                                roomData.monthlyPrice ||
+                                                0,
+                                            ).toLocaleString("vi-VN")} đ`}
                                       </td>
-                                      <td className="px-4 py-3 font-bold text-text">
-                                        {(c.deposit || c.depositMoney || 0).toLocaleString()} đ
+                                      <td className="px-2 py-3 text-center font-bold text-text whitespace-nowrap">
+                                        {Number(c.deposit || c.depositMoney || 0).toLocaleString("vi-VN")} đ
                                       </td>
-                                      <td className="px-4 py-3 text-muted text-xs">
+                                      <td className="px-2 py-3 text-center text-muted text-xs whitespace-nowrap">
                                         {c.startDate
                                           ? new Date(
                                               c.startDate,
                                             ).toLocaleDateString("vi-VN")
                                           : "-"}
                                       </td>
-                                      <td className="px-4 py-3 text-muted text-xs">
+                                      <td className="px-2 py-3 text-center text-muted text-xs whitespace-nowrap">
                                         {c.endDate
                                           ? new Date(
                                               c.endDate,
                                             ).toLocaleDateString("vi-VN")
                                           : "-"}
                                       </td>
-                                      <td className="px-4 py-3 text-right">
-                                        <div className="relative inline-flex items-center justify-end gap-1.5">
-                                          <button
-                                            type="button"
-                                            disabled={
-                                              isDownloadingPdf === rowKey
-                                            }
-                                            onClick={() =>
-                                              handleDownloadContractPdf(rep)
-                                            }
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-primary/20 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-all cursor-pointer disabled:opacity-60 shadow-2xs"
-                                            title="Tải xuống PDF hợp đồng"
-                                          >
-                                            {isDownloadingPdf === rowKey ? (
-                                              <>
-                                                <Loader2
-                                                  size={13}
-                                                  className="animate-spin text-primary shrink-0"
-                                                />
-                                                <span>
-                                                  Đang chuẩn bị file...
-                                                </span>
-                                              </>
-                                            ) : (
-                                              <>
-                                                <Download
-                                                  size={13}
-                                                  className="shrink-0"
-                                                />
-                                                <span className="hidden sm:inline">
-                                                  Tải PDF
-                                                </span>
-                                              </>
-                                            )}
-                                          </button>
+                                      <td className="px-2 py-3 text-center">
+                                        <div className="relative flex items-center justify-center">
                                           <button
                                             type="button"
                                             onClick={(e) => {
@@ -4925,7 +4956,7 @@ export default function RoomPremiumModal({
                                                 prev === rowKey ? null : rowKey,
                                               );
                                             }}
-                                            className={`p-1.5 rounded-xl transition-colors cursor-pointer outline-none ${
+                                              className={`shrink-0 rounded-xl p-1.5 transition-colors cursor-pointer outline-none ${
                                               openContractMenuId === rowKey
                                                 ? "bg-surface text-primary shadow-sm"
                                                 : "hover:bg-surface text-muted hover:text-text"
@@ -4962,6 +4993,26 @@ export default function RoomPremiumModal({
                                                 />{" "}
                                                 Xem PDF trực tiếp
                                               </button>
+                                              {c.id && (
+                                                <button
+                                                  type="button"
+                                                  className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                                                  onClick={() => {
+                                                    setOpenContractMenuId(null);
+                                                    setSelectedFlowContract({ id: c.id });
+                                                  }}
+                                                >
+                                                  <FileText
+                                                    size={14}
+                                                    className="mr-2 text-primary"
+                                                  />{" "}
+                                                  {getLinkedRental(c)
+                                                    ? "Xem tiến độ thuê"
+                                                    : isBookingContract
+                                                      ? "Chuyển HĐ thuê dài hạn"
+                                                      : "Mở hồ sơ thuê"}
+                                                </button>
+                                              )}
                                               <button
                                                 type="button"
                                                 className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-text hover:bg-surface transition-colors cursor-pointer"
@@ -4978,45 +5029,49 @@ export default function RoomPremiumModal({
                                                 />{" "}
                                                 Tải xuống PDF
                                               </button>
-                                              <button
-                                                type="button"
-                                                className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
-                                                onClick={() => {
-                                                  setOpenContractMenuId(null);
-                                                  if (c.id)
-                                                    expireContractMutation.mutate(
-                                                      c.id,
-                                                    );
-                                                }}
-                                              >
-                                                <FileText
-                                                  size={14}
-                                                  className="mr-2"
-                                                />{" "}
-                                                Gia hạn hợp đồng
-                                              </button>
-                                              <button
-                                                type="button"
-                                                className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                                                onClick={() => {
-                                                  setOpenContractMenuId(null);
-                                                  setOccupantToDelete({
-                                                    ...rep,
-                                                    isRep: true,
-                                                    contractId: c.id,
-                                                    contractStatus: c.status,
-                                                  });
-                                                  setIsRemoveTenantConfirmOpen(
-                                                    true,
-                                                  );
-                                                }}
-                                              >
-                                                <DoorOpen
-                                                  size={14}
-                                                  className="mr-2"
-                                                />{" "}
-                                                Trả phòng & quyết toán
-                                              </button>
+                                              {!isBookingContract && (
+                                                <>
+                                                  <button
+                                                    type="button"
+                                                    className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                                                    onClick={() => {
+                                                      setOpenContractMenuId(null);
+                                                      if (c.id)
+                                                        expireContractMutation.mutate(
+                                                          c.id,
+                                                        );
+                                                    }}
+                                                  >
+                                                    <FileText
+                                                      size={14}
+                                                      className="mr-2"
+                                                    />{" "}
+                                                    Gia hạn hợp đồng
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                                    onClick={() => {
+                                                      setOpenContractMenuId(null);
+                                                      setOccupantToDelete({
+                                                        ...rep,
+                                                        isRep: true,
+                                                        contractId: c.id,
+                                                        contractStatus: c.status,
+                                                      });
+                                                      setIsRemoveTenantConfirmOpen(
+                                                        true,
+                                                      );
+                                                    }}
+                                                  >
+                                                    <DoorOpen
+                                                      size={14}
+                                                      className="mr-2"
+                                                    />{" "}
+                                                    Trả phòng & quyết toán
+                                                  </button>
+                                                </>
+                                              )}
                                             </div>
                                           )}
                                         </div>
@@ -5582,10 +5637,10 @@ export default function RoomPremiumModal({
               className="inline-flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-black text-primary transition-all hover:bg-primary/20 hover:border-primary/40 shadow-xs cursor-pointer"
             >
               <QrCode size={14} className="shrink-0 text-primary" />
-              <span>Quét QR</span>
+              <span className="hidden sm:inline">Quét QR</span>
               <ChevronDown
                 size={13}
-                className="shrink-0 text-primary opacity-80"
+                className="hidden shrink-0 text-primary opacity-80 sm:block"
               />
             </button>
             {isQrMenuOpen && (
@@ -7213,6 +7268,7 @@ export default function RoomPremiumModal({
         </Modal>
       )}
 
+      <OperationsContractDrawer contract={selectedFlowContract} onClose={() => setSelectedFlowContract(null)} onOpenContract={setSelectedFlowContract} />
       <OperationsBillingDrawer
         invoice={selectedSourceInvoice}
         onClose={() => {
@@ -7222,6 +7278,7 @@ export default function RoomPremiumModal({
       />
       <OperationsDepositDrawer
         deposit={selectedSourceDeposit}
+        onOpenContract={setSelectedFlowContract}
         onClose={() => setSelectedSourceDeposit(null)}
       />
 

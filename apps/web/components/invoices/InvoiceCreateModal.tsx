@@ -38,6 +38,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Modal } from "../ui/Modal";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { useRoomsQuery } from "@/lib/queries/rooms.queries";
@@ -991,15 +992,7 @@ export default function InvoiceCreateModal({
       onClose={onClose}
       maxWidth="max-w-[720px]"
       title={
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-xs">
-            <Receipt size={18} />
-          </div>
-          <div>
-            <h2 className="text-[15px] font-black text-text leading-tight">Lập hóa đơn & Phiếu thu/chi</h2>
-            <span className="text-[11px] text-muted font-medium">Quản lý tiền phòng, cọc giữ chỗ, cọc hợp đồng & hoàn cọc</span>
-          </div>
-        </div>
+        <ModalHeaderTitle icon={<Receipt size={15} />} title="Lập hóa đơn & Phiếu thu/chi" badge="Tạo mới" />
       }
       footer={
         <div className="flex w-full items-center justify-between gap-2">

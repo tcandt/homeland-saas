@@ -16,6 +16,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { evaluateExistingCustomerSelection } from '../../lib/adapters/customer-selection';
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 
 export type ExistingCustomerOption = {
   id: string;
@@ -124,13 +125,20 @@ export default function TenantSourcePickerModal({
     <Modal
       isOpen={isOpen}
       onClose={() => { if (!selectionInFlight.current) onClose(); }}
-      title={view === "choose" ? "Thêm khách thuê" : "Chọn khách thuê có sẵn"}
+      title={
+        <ModalHeaderTitle
+          icon={view === "choose" ? <UserPlus size={18} /> : <Users size={18} />}
+          title={view === "choose" ? "Thêm khách thuê" : "Chọn khách thuê có sẵn"}
+          badge={view === "choose" ? "Bước 1" : "Bước 2"}
+          tone={view === "choose" ? "primary" : "indigo"}
+        />
+      }
       maxWidth={view === "choose" ? "max-w-2xl" : "max-w-xl"}
       testId="tenant-source-picker-modal"
       headerActions={
         flowIntentLabel ? (
           <div
-            className="flex min-w-0 items-center gap-1 rounded-full bg-slate-100/80 px-1.5 py-1 text-[11px] font-black text-muted dark:bg-white/[0.06]"
+            className="hidden min-w-0 items-center gap-1 rounded-full bg-slate-100/80 px-1.5 py-1 text-[11px] font-black text-muted dark:bg-white/[0.06] md:flex"
             aria-label="Luồng thêm khách thuê"
           >
             <button

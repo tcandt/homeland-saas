@@ -53,6 +53,9 @@ describe("ContractsService", () => {
           findFirst: vi.fn().mockResolvedValue(null),
           findMany: vi.fn().mockResolvedValue([]),
         },
+        paymentRequest: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
         contract: {
           create: vi.fn(),
           update: vi.fn(),
@@ -196,6 +199,41 @@ describe("ContractsService", () => {
   });
 
   describe("booking-hold conversion", () => {
+    it("reads live ledger and allocated credit for the linked rental in the source tenant", async () => {
+      const source = { id: "source", tenantId: "tenant-1", code: "HD-COC-01", termsSnapshot: { bookingConversion: { rentalContractId: "rental" } } };
+      prismaService.tx.contract.findFirst.mockResolvedValue({ id: "rental", tenantId: "tenant-1", status: "APPROVED", depositMoney: 5000, signedAt: new Date("2026-01-01"), startDate: new Date("2026-01-01") });
+      prismaService.tx.deposit.findFirst.mockResolvedValue({ id: "security", status: "PAID", amount: 5000 });
+      prismaService.tx.depositLedgerEntry.aggregate.mockResolvedValue({ _sum: { balanceEffect: 2000 } });
+      prismaService.tx.invoice.findFirst.mockResolvedValue({ id: "entry", status: "PAID", total: 3000, paidAmount: 2000, creditAmount: 1000 });
+      prismaService.tx.paymentRequest.findFirst.mockResolvedValue({ id: "payment-request-1", status: "CONFIRMED", metadata: { zaloSentAt: "2026-09-01T00:00:00.000Z" } });
+      const first = await (service as any).getBookingConversionView(source);
+      expect(first.rentalReadiness).toMatchObject({ depositPaid: false, entryInvoicePaid: true, canActivate: false });
+      expect(first.entryPaymentRequest).toMatchObject({ id: "payment-request-1", metadata: { zaloSentAt: "2026-09-01T00:00:00.000Z" } });
+      expect(prismaService.tx.paymentRequest.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-1", sourceType: "INVOICE", sourceId: "entry" } }));
+      expect(prismaService.tx.contract.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "rental", tenantId: "tenant-1", deletedAt: null } }));
+      expect(prismaService.tx.depositLedgerEntry.aggregate).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-1", depositId: "security" } }));
+      prismaService.tx.depositLedgerEntry.aggregate.mockResolvedValue({ _sum: { balanceEffect: 5000 } });
+      expect((await (service as any).getBookingConversionView(source)).rentalReadiness.canActivate).toBe(true);
+    });
+
+    it("recovers an older source link only from a target in the same rental cycle and tenant", async () => {
+      const source = { id: "source", tenantId: "tenant-1", rentalCycleId: "cycle-1", code: "HD-COC-01" };
+      prismaService.tx.contract.findMany = vi.fn().mockResolvedValue([{ id: "rental", termsSnapshot: { convertedFromBookingHold: { sourceContractId: "source" } } }]);
+      const result = await (service as any).getBookingConversionView(source);
+      expect(result.rentalContract.id).toBe("rental");
+      expect(prismaService.tx.contract.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-1", rentalCycleId: "cycle-1", id: { not: "source" }, deletedAt: null } }));
+    });
+
+    it("rejects a stale generic edit before it can overwrite a newly committed source link", async () => {
+      const version = new Date("2026-09-01T12:00:00Z");
+      vi.spyOn(service, "getDetail").mockResolvedValue({ id: "source", tenantId: "tenant-1", status: "DRAFT", updatedAt: version, termsSnapshot: { bookingConversion: { rentalContractId: "rental" } } } as any);
+      (service as any).withContractSnapshots = vi.fn().mockResolvedValue({ termsSnapshot: { monthlyRent: 1000 } });
+      prismaService.tx.contract.update.mockRejectedValue({ code: "P2025" });
+      await expect(service.update("source", { signedAt: new Date() }, "user-1")).rejects.toThrow("CONTRACT_CONCURRENT_UPDATE_RELOAD_REQUIRED");
+      expect(prismaService.tx.contract.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "source", tenantId: "tenant-1", updatedAt: version }, data: expect.objectContaining({ termsSnapshot: expect.objectContaining({ bookingConversion: { rentalContractId: "rental" } }) }) }));
+      expect(auditService.log).not.toHaveBeenCalled();
+    });
+
     it("creates the rental draft and deposit conversion in one transaction", async () => {
       const source = {
         id: "booking-contract-1",
@@ -291,6 +329,19 @@ describe("ContractsService", () => {
       );
       expect(prismaService.tx.contract.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: "rental-contract-1", tenantId: "tenant-1" } }),
+      );
+      expect(prismaService.tx.contract.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: source.id, tenantId: "tenant-1" },
+          data: expect.objectContaining({
+            termsSnapshot: expect.objectContaining({
+              bookingConversion: expect.objectContaining({
+                status: "RENTAL_CONTRACT_CREATED",
+                rentalContractId: "rental-contract-1",
+              }),
+            }),
+          }),
+        }),
       );
       expect((service as any).syncContractHistory).toHaveBeenCalledWith(converted, prismaService.tx);
       expect(prismaService.tx.invoice.create).toHaveBeenCalledWith(
@@ -941,7 +992,74 @@ describe("ContractsService", () => {
       endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
 
-    it("should activate an APPROVED contract with a PAID deposit and create invoice", async () => {
+    it("blocks activation of a booking-hold source even when it is approved", async () => {
+      vi.spyOn(service, "getDetail").mockResolvedValue({
+        id: "booking-source-1",
+        tenantId: "t1",
+        status: ContractStatus.APPROVED,
+        code: "HD-COC-001",
+        purpose: "Cọc giữ phòng",
+      } as any);
+
+      await expect(
+        service.activateContract(
+          "booking-source-1",
+          "user1",
+          "t1",
+          "activate-booking-source",
+        ),
+      ).rejects.toThrow("BOOKING_HOLD_REQUIRES_RENTAL_CONVERSION");
+      expect(prismaService.tx.contract.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("blocks converted-rental activation while the entry invoice is unpaid", async () => {
+      const mockContract = {
+        ...activationReadyFields(),
+        id: "rental-1",
+        tenantId: "t1",
+        status: ContractStatus.APPROVED,
+        code: "HD-THUE-P101-1",
+        purpose: "Hợp đồng thuê từ HD-COC-001",
+        roomId: "r1",
+        customerId: "cu1",
+        depositMoney: 1000,
+        monthlyRent: 5000,
+        termsSnapshot: {
+          convertedFromBookingHold: { sourceContractId: "booking-source-1" },
+        },
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(mockContract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue({
+        id: "r1",
+        status: RoomStatus.RESERVED,
+      });
+      prismaService.tx.room.findFirst.mockResolvedValue({
+        id: "r1",
+        status: RoomStatus.RESERVED,
+      });
+      prismaService.tx.deposit.findFirst.mockResolvedValue({
+        id: "security-1",
+        status: DepositStatus.PAID,
+      });
+      prismaService.tx.depositLedgerEntry.aggregate.mockResolvedValue({
+        _sum: { balanceEffect: 1000 },
+      });
+      prismaService.tx.invoice.findFirst.mockResolvedValue({
+        id: "entry-1",
+        status: "ISSUED",
+        total: 5000,
+        paidAmount: 0,
+        creditAmount: 0,
+      });
+
+      await expect(
+        service.activateContract("rental-1", "user1", "t1", "activate-unpaid-entry"),
+      ).rejects.toThrow("CONTRACT_ENTRY_INVOICE_UNPAID");
+      expect(prismaService.tx.contract.updateMany).not.toHaveBeenCalled();
+      expect(prismaService.tx.room.update).not.toHaveBeenCalled();
+    });
+
+    it("activates a converted rental paid with cash and credit without duplicating its entry invoice", async () => {
       const mockContract = {
         ...activationReadyFields(),
         id: "c1",
@@ -951,6 +1069,9 @@ describe("ContractsService", () => {
         tenantId: "t1",
         customerId: "cu1",
         monthlyRent: 5000,
+        termsSnapshot: {
+          convertedFromBookingHold: { sourceContractId: "booking-source-1" },
+        },
       };
       const updatedContract = {
         ...mockContract,
@@ -977,9 +1098,29 @@ describe("ContractsService", () => {
       prismaService.tx.deposit.update = vi
         .fn()
         .mockResolvedValue({ ...mockDeposit, status: "CONVERTED_TO_CONTRACT" });
-      prismaService.tx.invoice = {
-        create: vi.fn().mockResolvedValue({ id: "inv1" }),
-      };
+      prismaService.tx.invoice.findFirst
+        .mockResolvedValueOnce({
+          id: "inv1",
+          contractId: "c1",
+          customerId: "cu1",
+          rentalCycleId: undefined,
+          billingKind: "ENTRY",
+          status: "PAID",
+          total: 5000,
+          paidAmount: 3000,
+          creditAmount: 2000,
+        })
+        .mockResolvedValueOnce({
+          id: "inv1",
+          contractId: "c1",
+          customerId: "cu1",
+          rentalCycleId: undefined,
+          billingKind: "ENTRY",
+          status: "PAID",
+          total: 5000,
+          paidAmount: 3000,
+          creditAmount: 2000,
+        });
 
       const result = await service.activateContract(
         "c1",
@@ -1024,13 +1165,7 @@ describe("ContractsService", () => {
         where: { id: "d1" },
         data: expect.objectContaining({ status: "CONVERTED_TO_CONTRACT" }),
       });
-      expect(prismaService.tx.invoice.create).toHaveBeenCalled();
-      expect(prismaService.tx.invoice.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          billingKind: "ENTRY",
-          baseInvoiceKey: `ENTRY:c1:${calculateFirstBillingPeriod(5000, mockContract.startDate).period}`,
-        }),
-      });
+      expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
 
       expect(auditService.log).toHaveBeenCalledWith(
         expect.objectContaining({

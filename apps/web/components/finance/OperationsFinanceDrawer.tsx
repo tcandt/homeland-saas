@@ -38,24 +38,24 @@ export default function OperationsFinanceDrawer({ txn, onClose }: { txn: TxnData
         className={`relative w-full max-w-[840px] bg-background h-full shadow-2xl flex flex-col transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isOpen ? "translate-x-0" : "translate-x-full"}`}
       >
         {/* Header */}
-        <div className="h-[64px] border-b border-border flex items-center justify-between px-[24px] bg-card shrink-0 sticky top-0 z-10">
-          <div className="flex items-center gap-[12px]">
-            <div className="w-[32px] h-[32px] rounded-full bg-black/5 dark:bg-white/5 flex items-center justify-center">
-              <FileText size={16} className="text-text" />
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border bg-card px-3.5 py-2 sticky top-0 z-10">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <FileText size={15} />
             </div>
-            <div className="flex flex-col">
-              <div className="flex items-center gap-[8px]">
-                <h3 className="font-black text-[16px] text-text">Chi tiết Giao dịch</h3>
-                <span className={`text-[10px] font-black uppercase px-[8px] py-[2px] rounded-[6px] border ${txn.type === 'Income' ? 'text-[#8b5cf6] border-[#8b5cf6]/20 bg-[#8b5cf6]/10' : txn.type === 'Expense' ? 'text-rose-500 border-rose-500/20 bg-rose-500/10' : 'text-[#f97316] border-[#f97316]/20 bg-[#f97316]/10'}`}>
-                  {txn.type === 'Income' ? 'Phiếu thu' : txn.type === 'Expense' ? 'Phiếu chi' : 'Điều chỉnh'}
-                </span>
-                <span className="font-bold text-[13px] text-muted">· {txn.id}</span>
-              </div>
-            </div>
+            <h3 className="shrink-0 whitespace-nowrap text-sm font-black text-text">Chi tiết giao dịch</h3>
+            <span className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[11px] font-black ${txn.type === 'Income' ? 'text-[#8b5cf6] bg-[#8b5cf6]/10' : txn.type === 'Expense' ? 'text-rose-500 bg-rose-500/10' : 'text-[#f97316] bg-[#f97316]/10'}`}>
+              {txn.id}
+            </span>
+            <span className={`hidden rounded-md border px-2 py-0.5 text-[10px] font-black uppercase sm:inline-flex ${txn.type === 'Income' ? 'text-[#8b5cf6] border-[#8b5cf6]/20 bg-[#8b5cf6]/10' : txn.type === 'Expense' ? 'text-rose-500 border-rose-500/20 bg-rose-500/10' : 'text-[#f97316] border-[#f97316]/20 bg-[#f97316]/10'}`}>
+              {txn.type === 'Income' ? 'Phiếu thu' : txn.type === 'Expense' ? 'Phiếu chi' : 'Điều chỉnh'}
+            </span>
           </div>
           <button 
             onClick={onClose}
-            className="w-[32px] h-[32px] rounded-full hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-center transition-colors"
+            aria-label="Đóng cửa sổ"
+            title="Đóng"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-black/5 hover:text-text dark:hover:bg-white/5"
           >
             <X size={18} className="text-muted" />
           </button>

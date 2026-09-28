@@ -1380,7 +1380,17 @@ export class DepositCoreService {
       },
       payments: {
         where: { tenantId, deletedAt: null },
-        select: { id: true, tenantId: true, rentalCycleId: true, invoiceId: true, status: true, amount: true, provider: true, paidAt: true },
+        select: {
+          id: true,
+          tenantId: true,
+          rentalCycleId: true,
+          invoiceId: true,
+          status: true,
+          amount: true,
+          provider: true,
+          providerRef: true,
+          paidAt: true,
+        },
       },
       depositLedgerEntries: {
         where: { tenantId },
@@ -1403,6 +1413,9 @@ export class DepositCoreService {
       invoices: cycle.invoices,
       depositLedgerEntries: cycle.depositLedgerEntries,
     });
+    const invoiceCodeById = new Map<string, string | null>(
+      cycle.invoices.map((invoice: any) => [invoice.id, invoice.code || null]),
+    );
     return {
       rentalCycleId: cycle.id,
       status: cycle.status,
@@ -1474,10 +1487,15 @@ export class DepositCoreService {
           invoiceId: payment.invoiceId,
           status: payment.status,
           provider: payment.provider,
+          providerRef: payment.providerRef,
           paidAt: payment.paidAt,
           amount: this.toMoney(payment.amount),
-          source: { entity: 'Payment', id: payment.id, code: null },
-          invoiceSource: { entity: 'Invoice', id: payment.invoiceId, code: null },
+          source: { entity: 'Payment', id: payment.id, code: payment.providerRef || null },
+          invoiceSource: {
+            entity: 'Invoice',
+            id: payment.invoiceId,
+            code: payment.invoiceId ? invoiceCodeById.get(payment.invoiceId) || null : null,
+          },
         })),
       },
       pendingOperations: cycle.depositOperations.map((operation: any) => ({

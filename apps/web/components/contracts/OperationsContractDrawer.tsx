@@ -35,6 +35,11 @@ const DocumentScannerModal = dynamic(
   { ssr: false, loading: () => null },
 );
 import { Modal } from "../ui/Modal";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
+import BookingConversionProgress from "./BookingConversionProgress";
+import OperationsBillingDrawer from "../invoices/OperationsBillingDrawer";
+import OperationsDepositDrawer from "../deposits/OperationsDepositDrawer";
+import { getLinkedRental, isBookingContract } from "@/lib/contracts/booking-conversion";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
@@ -76,6 +81,25 @@ function formatDate(value?: string | null) {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+const CONTRACT_UPLOAD_ACCEPT = ".pdf,image/*";
+const CONTRACT_UPLOAD_ALLOWED_EXTENSIONS = new Set([
+  "pdf",
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "heic",
+  "heif",
+]);
+
+function isSupportedContractUpload(file: File) {
+  if (file.type === "application/pdf" || file.type.startsWith("image/")) {
+    return true;
+  }
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  return CONTRACT_UPLOAD_ALLOWED_EXTENSIONS.has(extension);
 }
 
 function formatCurrency(value?: number | null) {
@@ -262,11 +286,17 @@ function StyledDateInput({
 
 function getFileNameFromUrl(url: string) {
   try {
-    const parts = url.split("/");
-    return parts[parts.length - 1];
+    const cleanUrl = url.split(/[?#]/)[0] || url;
+    const parts = cleanUrl.split("/");
+    return decodeURIComponent(parts[parts.length - 1] || "");
   } catch {
     return "Tài liệu đính kèm";
   }
+}
+
+function getFileExtensionFromUrl(url: string) {
+  const fileName = getFileNameFromUrl(url).toLowerCase();
+  return fileName.split(".").pop() || "";
 }
 
 function getFileUrl(url: string) {
@@ -318,6 +348,24 @@ function readAccessToken() {
   } catch {
     return "";
   }
+}
+
+async function downloadProtectedFile(url: string, fallbackFileName: string) {
+  const accessToken = readAccessToken();
+  const authHeaders: HeadersInit = accessToken
+    ? { Authorization: `Bearer ${accessToken}` }
+    : {};
+  const response = await fetch(url, { headers: authHeaders });
+  if (!response.ok) return;
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fallbackFileName || "tai-lieu-hop-dong";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 function ProtectedDocumentImage({
@@ -407,24 +455,32 @@ function ProtectedDocumentImage({
   return <img src={objectUrl} alt={alt} className={className} />;
 }
 
-function DocxViewer({ url }: { url: string }) {
+function DocxViewer({ url, fileName }: { url: string; fileName: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [documentBlob, setDocumentBlob] = useState<Blob | null>(null);
 
   useEffect(() => {
     let mounted = true;
     setLoading(true);
     setError(false);
+    setDocumentBlob(null);
+
+    const accessToken = readAccessToken();
+    const authHeaders: HeadersInit = accessToken
+      ? { Authorization: `Bearer ${accessToken}` }
+      : {};
 
     import("docx-preview")
       .then(({ renderAsync }) => {
-        return fetch(url)
+        return fetch(url, { headers: authHeaders })
           .then((res) => {
-            if (!res.ok) throw new Error("Network response was not ok");
+            if (!res.ok) throw new Error(`DOCX_LOAD_FAILED_${res.status}`);
             return res.blob();
           })
           .then((blob) => {
+            if (mounted) setDocumentBlob(blob);
             if (mounted && containerRef.current) {
               return renderAsync(blob, containerRef.current, undefined, {
                 className: "docx-viewer",
@@ -437,8 +493,7 @@ function DocxViewer({ url }: { url: string }) {
             }
           });
       })
-      .catch((err) => {
-        console.error(err);
+      .catch(() => {
         if (mounted) {
           setLoading(false);
           setError(true);
@@ -449,6 +504,22 @@ function DocxViewer({ url }: { url: string }) {
       mounted = false;
     };
   }, [url]);
+
+  const handleDownload = async () => {
+    let blob = documentBlob;
+    if (!blob) {
+      await downloadProtectedFile(url, fileName);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = fileName || "tai-lieu-hop-dong.docx";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  };
 
   return (
     <div className="w-full h-[75vh] relative overflow-hidden bg-white/5 rounded-lg border border-border">
@@ -462,10 +533,15 @@ function DocxViewer({ url }: { url: string }) {
       )}
       {error && (
         <div className="absolute inset-0 flex flex-col gap-4 items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-          <p className="text-rose-500 font-medium">
-            Lỗi khi đọc file Word trực tiếp.
-          </p>
-          <Button onClick={() => window.open(url, "_blank")}>
+          <div className="text-center">
+            <p className="font-bold text-text">
+              Không xem trước được file Word này.
+            </p>
+            <p className="mt-1 text-xs font-medium text-muted">
+              Bạn vẫn có thể tải xuống để mở bằng Microsoft Word.
+            </p>
+          </div>
+          <Button onClick={handleDownload}>
             Tải xuống tài liệu
           </Button>
         </div>
@@ -492,6 +568,12 @@ export default function OperationsContractDrawer({
   const { hasPermission } = usePermissions();
 
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
+  const [flowInvoice, setFlowInvoice] = useState<any>(null);
+  const [flowDepositId, setFlowDepositId] = useState<string | null>(null);
+  const [signatureDate, setSignatureDate] = useState("");
+  const [savingSignature, setSavingSignature] = useState(false);
+  const [confirmMoveIn, setConfirmMoveIn] = useState(false);
+  const activationCommandRef = useRef<{ id: string; key: string } | null>(null);
   const [isRefundCompletionModalOpen, setIsRefundCompletionModalOpen] =
     useState(false);
   const [isBookingConvertModalOpen, setIsBookingConvertModalOpen] =
@@ -543,7 +625,7 @@ export default function OperationsContractDrawer({
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<
-    "image" | "pdf" | "doc" | null
+    "image" | "pdf" | "doc" | "docx" | null
   >(null);
 
   const [isUploadingContract, setIsUploadingContract] = useState(false);
@@ -600,6 +682,7 @@ export default function OperationsContractDrawer({
     startDate: toDateInputValue(),
     endDate: addYearsToYmd(toDateInputValue(), 1),
     securityRequired: "",
+    rentAmount: "",
     excessAction: "CREDIT" as "CREDIT" | "REFUND",
     refundStatus: "PENDING" as "PENDING" | "COMPLETED",
   });
@@ -628,6 +711,10 @@ export default function OperationsContractDrawer({
   const [isApproveSubmitting, setIsApproveSubmitting] = useState(false);
 
   useEffect(() => {
+    setSignatureDate("");
+    setConfirmMoveIn(false);
+    setFlowInvoice(null);
+    setFlowDepositId(null);
     setBookingConversionResult(null);
     setBookingConvertAttachmentUrls([]);
     setIsBookingConvertProofUploading(false);
@@ -643,7 +730,8 @@ export default function OperationsContractDrawer({
   const deleteMutation = useDeleteContractMutation();
   const updateRoomMutation = useUpdateRoomMutation();
   const settlementRefund = detailContract?.settlementRefund;
-  const isBookingHold = isBookingHoldContract(detailContract);
+  const isBookingHold = isBookingContract(detailContract);
+  const linkedRental = getLinkedRental(detailContract);
   const contractTypeLabel = getContractTypeLabel(detailContract);
   const bookingDeposit =
     detailContract?.bookingDeposit ||
@@ -683,7 +771,8 @@ export default function OperationsContractDrawer({
     !["PAID", "CONVERTED_TO_CONTRACT"].includes(bookingDepositStatus) &&
     receivedBookingDeposit > 0;
   const canOperateBookingDeposit =
-    isBookingHold && !!bookingDeposit?.id && bookingDepositStatus === "PAID";
+    isBookingHold && !linkedRental && !detailQuery.isError && !detailQuery.isPending && !!bookingDeposit?.id && bookingDepositStatus === "PAID" &&
+    !["CANCELLED", "TERMINATED", "EXPIRED"].includes(detailContract?.status);
   const hasPendingSettlementRefund =
     !!settlementRefund?.pending &&
     (detailContract?.status === "TERMINATED" ||
@@ -758,12 +847,24 @@ export default function OperationsContractDrawer({
         queryKey: ["contractDetail", detailContract.id],
       });
     }
-    onClose();
+    for (const key of ["rooms", "room-finance-summary", "rental-cycle-finance-summary", "customers", "invoices", "deposits"]) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
+    if (!detailContract?.bookingConversion) onClose();
   };
 
   const handleError = (error: any) => {
+    const message = error?.response?.data?.message || error?.message || "Có lỗi xảy ra";
+    const messages: Record<string, string> = {
+      CONTRACT_CONCURRENT_UPDATE_RELOAD_REQUIRED: "Hồ sơ vừa được thay đổi. Hãy mở lại để lấy dữ liệu mới nhất.",
+      CONTRACT_ENTRY_INVOICE_UNPAID: "Cần thanh toán hoặc cấn trừ đủ hóa đơn kỳ đầu trước khi nhận phòng.",
+      CONTRACT_ENTRY_INVOICE_REQUIRED: "Chưa tìm thấy hóa đơn kỳ đầu. Hãy kiểm tra hồ sơ chuyển cọc.",
+      CONTRACT_SIGNATURE_REQUIRED: "Cần ghi nhận ngày ký hợp lệ của hợp đồng thuê.",
+      CONTRACT_START_DATE_IN_FUTURE: "Chưa đến ngày bắt đầu hợp đồng thuê.",
+      CONTRACT_ACTIVE_HOLD_REQUIRED: "Chỗ giữ đã hết hiệu lực. Cần kiểm tra lại phòng và gia hạn giữ chỗ.",
+    };
     showToast(
-      error?.response?.data?.message || error?.message || "Có lỗi xảy ra",
+      messages[String(message)] || message,
       "error",
     );
   };
@@ -936,6 +1037,7 @@ export default function OperationsContractDrawer({
       securityRequired: detailContract.depositMoney
         ? String(Number(detailContract.depositMoney))
         : "",
+      rentAmount: String(Number(detailContract.monthlyRent || 0)),
       excessAction: "CREDIT",
       refundStatus: "PENDING",
     });
@@ -1251,6 +1353,8 @@ export default function OperationsContractDrawer({
     queryClient.invalidateQueries({ queryKey: ["deposits"] });
     queryClient.invalidateQueries({ queryKey: ["rooms"] });
     queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    queryClient.invalidateQueries({ queryKey: ["room-finance-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["rental-cycle-finance-summary"] });
   };
 
   const parseMoneyInput = (value: string) => {
@@ -1298,6 +1402,7 @@ export default function OperationsContractDrawer({
         startDate: bookingConvertForm.startDate,
         endDate: bookingConvertForm.endDate,
         securityRequired,
+        rentAmount: parseMoneyInput(bookingConvertForm.rentAmount),
         excessAction: bookingConvertForm.excessAction,
         refundStatus: bookingConvertForm.refundStatus,
         refundAttachmentUrls: bookingConvertAttachmentUrls,
@@ -1316,7 +1421,7 @@ export default function OperationsContractDrawer({
           startDate: bookingConvertForm.startDate,
           endDate: bookingConvertForm.endDate,
           firstPaymentDate: bookingConvertForm.startDate,
-          rentAmount: Number(detailContract.monthlyRent || 0),
+          rentAmount: parseMoneyInput(bookingConvertForm.rentAmount),
           depositAmount: securityRequired,
           memberCount: Number(detailContract.memberCount || 1),
           purpose: `Hợp đồng thuê phòng dài hạn chuyển từ ${detailContract.code || detailContract.id}`,
@@ -1341,39 +1446,20 @@ export default function OperationsContractDrawer({
         conversion?.additionalCashRequired || 0,
       );
       const conversionPaymentRequest = rentalContract?.conversionPaymentRequest;
-      const entryInvoice =
-        rentalContract?.termsSnapshot?.convertedFromBookingHold
-          ?.initialEntryInvoice;
       bookingConvertCommandRef.current = null;
       setIsBookingConvertModalOpen(false);
-      setBookingConversionResult({
-        rentalContractId: rentalContract.id,
-        rentalContractCode: rentalContract.code || rentalContract.id,
-        rentalContractStatus: rentalContract.status || "DRAFT",
-        securityDepositId: conversion?.securityDepositId || null,
-        securityRequired: Number(
-          conversion?.securityRequired || securityRequired,
-        ),
-        transferredAmount: Number(conversion?.transferAmount || 0),
-        additionalCashRequired,
-        excessAmount: Number(conversion?.excessAmount || 0),
-        entryInvoice: entryInvoice?.invoiceId
-          ? {
-              id: entryInvoice.invoiceId,
-              code: entryInvoice.invoiceCode || entryInvoice.invoiceId,
-              amount: Number(entryInvoice.amount || 0),
-              status: entryInvoice.status || "DRAFT",
-            }
-          : null,
-        paymentRequest: conversionPaymentRequest || null,
-      });
       refreshBookingFlow(
         additionalCashRequired > 0
           ? conversionPaymentRequest?.paymentCode
             ? `Đã tạo HĐ thuê. Cần thu thêm ${formatCurrency(additionalCashRequired)} tiền cọc; QR ${conversionPaymentRequest.paymentCode} đã sẵn sàng để gửi khách.`
             : `Đã tạo HĐ thuê và chuyển cọc. Còn cần thu ${formatCurrency(additionalCashRequired)}; QR chưa tạo được, hãy mở phiếu cọc hợp đồng để tạo lại.`
-          : "Đã tạo hợp đồng thuê, chuyển đủ tiền cọc và tạo sẵn hóa đơn tiền thuê kỳ đầu ở trạng thái nháp.",
+          : "Đã tạo hợp đồng thuê riêng và chuyển đủ tiền cọc. Tiếp tục theo quy trình bên dưới.",
       );
+      try {
+        await detailQuery.refetch();
+      } catch {
+        // Conversion is already committed; background invalidation will retry the view refresh.
+      }
     } catch (error: any) {
       handleError(error);
     } finally {
@@ -1550,7 +1636,11 @@ export default function OperationsContractDrawer({
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
     } catch (err) {
       console.error(err);
-      showToast("Tải lên thất bại", "error");
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "Tải lên thất bại";
+      showToast(message, "error");
     } finally {
       setIsUploadingContract(false);
     }
@@ -1560,7 +1650,13 @@ export default function OperationsContractDrawer({
     e: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file || !detailContract) return;
+
+    if (!isSupportedContractUpload(file)) {
+      showToast("Chỉ hỗ trợ tải lên hợp đồng dạng PDF hoặc ảnh.", "error");
+      return;
+    }
 
     if (file.type.startsWith("image/")) {
       setScannerFile(file);
@@ -1696,15 +1792,17 @@ export default function OperationsContractDrawer({
   };
 
   const handlePreview = (url: string) => {
-    const extension = url.split(".").pop()?.toLowerCase();
+    const extension = getFileExtensionFromUrl(url);
     // Keep the storage reference untouched for protected image loading.
     // Non-image viewers resolve it to an API URL at render time.
     setPreviewUrl(url);
     setPreviewType(
       extension === "pdf"
         ? "pdf"
-        : extension === "doc" || extension === "docx"
-          ? "doc"
+        : extension === "docx"
+          ? "docx"
+          : extension === "doc"
+            ? "doc"
           : "image",
     );
   };
@@ -1741,8 +1839,7 @@ export default function OperationsContractDrawer({
   const hasUploadedCCCD =
     detailContract.customer?.idImages &&
     detailContract.customer.idImages.length > 0;
-  const signStatus =
-    hasUploadedContract && hasUploadedCCCD ? "Đã ký" : "Chưa ký";
+  const signStatus = detailContract.signedAt ? "Đã ký" : "Chưa ký";
   const bookingPaymentRequest = detailContract?.bookingPaymentRequest;
   const bookingInvoice = detailContract?.bookingInvoice;
   const bookingPaymentRequestStatus = String(
@@ -1798,15 +1895,18 @@ export default function OperationsContractDrawer({
         {
           title: "Cọc giữ phòng có hiệu lực",
           note: bookingDeposit?.status
-            ? `Deposit ${bookingDeposit.code || ""} · ${bookingDeposit.status}`
+            ? bookingHoldEffective
+              ? `Cọc ${bookingDeposit.code || ""} đã được xác nhận`
+              : `Cọc ${bookingDeposit.code || ""} đang chờ thu hoặc đối soát`
             : "Chờ deposit BOOKING/RESERVATION liên kết",
           done: bookingHoldEffective,
+          active: !bookingHoldEffective && !bookingHoldTerminal,
         },
         {
-          title: "Chuyển HĐ thuê dài hạn hoặc hủy cọc",
-          note: "Chuyển sẽ tạo HĐ thuê DRAFT riêng rồi cấn cọc; hủy hỗ trợ hoàn đủ, hoàn một phần/cấn trừ, hoặc không hoàn",
+          title: linkedRental ? "Đã chuyển sang hợp đồng thuê dài hạn" : "Chuyển HĐ thuê dài hạn hoặc hủy cọc",
+          note: linkedRental ? `Liên kết ${linkedRental.code || linkedRental.id} · Xem tiến độ hợp đồng thuê phía trên` : "Chuyển sẽ tạo hợp đồng thuê nháp riêng rồi chuyển cọc",
           done: bookingHoldTerminal,
-          active: false,
+          active: bookingHoldEffective && !bookingHoldTerminal,
         },
       ]
     : [
@@ -1857,48 +1957,52 @@ export default function OperationsContractDrawer({
         onClose={onClose}
         maxWidth="max-w-[1100px]"
         title={
-          <div className="flex items-center gap-3">
-            <span className="font-black text-[20px] text-text">
-              Chi tiết {contractTypeLabel.toLowerCase()}
-            </span>
-            <Badge variant={isBookingHold ? "warning" : "neutral"}>
-              {contractTypeLabel}
-            </Badge>
-            <Badge variant="primary">
-              {detailContract.code || detailContract.id.slice(0, 8)}
-            </Badge>
-          </div>
+          <ModalHeaderTitle
+            icon={<FileText size={15} />}
+            title={`Chi tiết ${contractTypeLabel.toLowerCase()}`}
+            badge={detailContract.code || detailContract.id.slice(0, 8)}
+            description={contractTypeLabel}
+            tone={isBookingHold ? "amber" : "primary"}
+          />
         }
         footer={
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {isBookingHold && (
+              {isBookingHold && !linkedRental && (
                 <>
-                  <Button
-                    data-testid="btn-open-booking-convert"
-                    onClick={() => setIsBookingConvertModalOpen(true)}
-                    disabled={!canOperateBookingDeposit}
-                    title={
-                      canOperateBookingDeposit
-                        ? "Chuyển cọc giữ phòng sang tiền cọc hợp đồng"
-                        : "Chỉ thao tác được sau khi cọc giữ phòng đã thanh toán"
-                    }
-                  >
-                    Chuyển HĐ thuê dài hạn
-                  </Button>
-                  <Button
-                    data-testid="btn-open-booking-cancel"
-                    variant="outline"
-                    onClick={() => setIsBookingCancelModalOpen(true)}
-                    disabled={!canOperateBookingDeposit}
-                    title={
-                      canOperateBookingDeposit
-                        ? "Hủy cọc giữ phòng và phân bổ hoàn/giữ/cấn trừ"
-                        : "Chỉ thao tác được sau khi cọc giữ phòng đã thanh toán"
-                    }
-                  >
-                    Hủy cọc giữ phòng
-                  </Button>
+                  {canOperateBookingDeposit ? (
+                    <>
+                      <Button
+                        data-testid="btn-open-booking-convert"
+                        onClick={() => setIsBookingConvertModalOpen(true)}
+                        disabled={!hasPermission("contract.create")}
+                        title="Chuyển cọc giữ phòng sang tiền cọc hợp đồng"
+                      >
+                        Chuyển HĐ thuê dài hạn
+                      </Button>
+                      <Button
+                        data-testid="btn-open-booking-cancel"
+                        variant="outline"
+                        onClick={() => setIsBookingCancelModalOpen(true)}
+                        disabled={!hasPermission("deposit.cancel")}
+                        title="Hủy cọc giữ phòng và phân bổ hoàn/giữ/cấn trừ"
+                      >
+                        Hủy cọc giữ phòng
+                      </Button>
+                    </>
+                  ) : bookingDeposit?.id && !bookingHoldTerminal ? (
+                    <Button
+                      data-testid="btn-open-booking-deposit"
+                      onClick={() => setFlowDepositId(bookingDeposit.id)}
+                      disabled={!hasPermission("deposit.read")}
+                      title="Mở hồ sơ cọc để xác nhận thu tiền hoặc kiểm tra đối soát"
+                    >
+                      <Coins size={15} className="mr-2" />
+                      {hasPendingReviewBookingDeposit
+                        ? "Đối soát tiền cọc để tiếp tục"
+                        : "Hoàn tất thu cọc để tiếp tục"}
+                    </Button>
+                  ) : null}
                 </>
               )}
               {!isBookingHold &&
@@ -1934,22 +2038,10 @@ export default function OperationsContractDrawer({
                 hasPermission("contract.activate") && (
                   <Button
                     data-testid="btn-activate-contract"
-                    onClick={() =>
-                      activateMutation.mutate(
-                        {
-                          id: detailContract.id,
-                          idempotencyKey: `contract-activate-${crypto.randomUUID()}`,
-                        },
-                        {
-                          onSuccess: () =>
-                            handleSuccess("Đã kích hoạt hợp đồng"),
-                          onError: handleError,
-                        },
-                      )
-                    }
+                    onClick={() => setConfirmMoveIn(true)}
                     isLoading={activateMutation.isPending}
                   >
-                    Kích hoạt
+                    Xác nhận nhận phòng
                   </Button>
                 )}
               {!isBookingHold &&
@@ -2109,6 +2201,15 @@ export default function OperationsContractDrawer({
         }
       >
         <div className="flex flex-col gap-4">
+          <BookingConversionProgress
+            view={detailContract.bookingConversion}
+            isSource={isBookingHold}
+            onOpenContract={onOpenContract}
+            onOpenInvoice={setFlowInvoice}
+            onOpenDeposit={setFlowDepositId}
+            onRefresh={() => detailQuery.refetch()}
+          />
+          {detailQuery.isError && <p role="alert" className="text-sm text-danger">Không tải được trạng thái mới nhất. Vui lòng mở lại hồ sơ trước khi thao tác.</p>}
           <Card className="p-4 flex flex-col gap-3">
             <div className="flex items-start justify-between gap-[16px]">
               <div className="flex flex-col gap-[8px]">
@@ -2138,7 +2239,7 @@ export default function OperationsContractDrawer({
                           : "warning"
                       }
                     >
-                      Cọc: {bookingDeposit.status}
+                      {linkedRental ? "Đã chuyển sang hợp đồng thuê dài hạn" : `Cọc: ${bookingDeposit.status}`}
                     </Badge>
                   ) : null}
                   {!isBookingHold && (
@@ -2387,6 +2488,21 @@ export default function OperationsContractDrawer({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* File hợp đồng */}
                   <div className="flex flex-col gap-[12px]">
+                    {!isBookingHold && !detailContract.signedAt && ["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(detailContract.status) && hasPermission("contract.update") && (
+                      <div className="rounded-xl border border-border p-3 flex flex-col gap-2">
+                        <label htmlFor="rental-signature-date" className="text-sm font-bold">Ngày ký thực tế của hợp đồng thuê</label>
+                        <input id="rental-signature-date" type="date" value={signatureDate} max={toDateInputValue()} onChange={(event) => setSignatureDate(event.target.value)} className="rounded-lg border border-border bg-card p-2 text-text" />
+                        <p className="text-xs text-muted">Tải bản đã ký của hợp đồng thuê này, rồi xác nhận ngày ký. Không dùng chữ ký của hợp đồng cọc.</p>
+                        <Button variant="outline" disabled={!signatureDate || !hasUploadedContract || signatureDate > toDateInputValue()} isLoading={savingSignature} onClick={async () => {
+                          setSavingSignature(true);
+                          try {
+                            await contractsApi.update(detailContract.id, { signedAt: new Date(`${signatureDate}T00:00:00+07:00`).toISOString() });
+                            queryClient.invalidateQueries({ queryKey: ["contracts"] });
+                            showToast("Đã ghi nhận ngày ký hợp đồng thuê", "success");
+                          } catch (error) { handleError(error); } finally { setSavingSignature(false); }
+                        }}>Xác nhận đã ký hợp đồng thuê</Button>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[13px] font-bold text-text flex items-center gap-2">
                         <FileText size={14} className="text-[#6366f1]" /> File
@@ -2405,7 +2521,7 @@ export default function OperationsContractDrawer({
                         ref={contractFileInputRef}
                         onChange={handleUploadContractFile}
                         className="hidden"
-                        accept=".pdf,.doc,.docx"
+                        accept={CONTRACT_UPLOAD_ACCEPT}
                       />
                     </div>
 
@@ -2475,7 +2591,7 @@ export default function OperationsContractDrawer({
                           Chưa có hợp đồng
                         </span>
                         <span className="text-xs text-muted">
-                          Vui lòng tải lên file hợp đồng đã ký
+                          Vui lòng tải lên file PDF hoặc ảnh hợp đồng đã ký
                         </span>
                       </div>
                     )}
@@ -2565,8 +2681,7 @@ export default function OperationsContractDrawer({
             <div className="w-full lg:w-[280px] flex flex-col gap-4 shrink-0">
               <Card className="p-4 flex flex-col gap-4 flex-1">
                 <h4 className="font-black text-[14px] text-text flex items-center gap-2 border-b border-slate-200/60 dark:border-white/[0.06] pb-2">
-                  <History size={16} className="text-[#f97316]" /> Lifecycle
-                  Timeline
+                  <History size={16} className="text-[#f97316]" /> Tiến độ hồ sơ
                 </h4>
 
                 <div className="flex flex-col gap-[12px] border-b border-slate-200/60 dark:border-white/[0.06] pb-3">
@@ -2666,8 +2781,34 @@ export default function OperationsContractDrawer({
               />
             )}
             {previewType === "doc" && (
+              <div className="flex min-h-[420px] w-full flex-col items-center justify-center gap-4 rounded-2xl border border-border bg-surface/60 p-6 text-center">
+                <FileText size={32} className="text-primary" />
+                <div>
+                  <div className="text-sm font-black text-text">
+                    Không hỗ trợ xem trước file Word .doc
+                  </div>
+                  <div className="mt-1 text-xs font-medium text-muted">
+                    Vui lòng tải xuống tài liệu để xem bằng Microsoft Word.
+                  </div>
+                </div>
+                <Button
+                  onClick={() =>
+                    void downloadProtectedFile(
+                      getFileUrl(previewUrl!),
+                      getFileNameFromUrl(previewUrl!) || "tai-lieu-hop-dong.doc",
+                    )
+                  }
+                >
+                  Tải xuống tài liệu
+                </Button>
+              </div>
+            )}
+            {previewType === "docx" && (
               <div className="w-full h-full">
-                <DocxViewer url={getFileUrl(previewUrl!)} />
+                <DocxViewer
+                  url={getFileUrl(previewUrl!)}
+                  fileName={getFileNameFromUrl(previewUrl!) || "tai-lieu-hop-dong.docx"}
+                />
               </div>
             )}
           </div>
@@ -2755,12 +2896,11 @@ export default function OperationsContractDrawer({
                 </div>
               </div>
               <div className="rounded-xl border border-border/70 bg-card p-3 text-xs text-muted">
-                HĐ thuê mới sẽ ở trạng thái DRAFT, cùng khách/phòng/kỳ thuê với
-                HĐ cọc. Giá thuê:{" "}
-                <span className="font-black text-text">
-                  {formatCurrency(Number(detailContract.monthlyRent || 0))}
-                </span>
-                .
+                Hợp đồng thuê mới ở trạng thái nháp, cùng khách/phòng/kỳ thuê với hồ sơ cọc. Cần ký và duyệt riêng trước nhận phòng.
+              </div>
+              <div>
+                <label htmlFor="booking-rental-price" className="text-xs font-bold text-muted">Giá thuê mỗi tháng</label>
+                <Input id="booking-rental-price" value={formatVndInput(bookingConvertForm.rentAmount)} onChange={(event) => setBookingConvertForm((prev) => ({ ...prev, rentAmount: event.target.value.replace(/[^0-9]/g, "") }))} />
               </div>
               <div>
                 <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
@@ -4214,6 +4354,35 @@ export default function OperationsContractDrawer({
           </div>
         </Modal>
 
+        <OperationsBillingDrawer invoice={flowInvoice} onClose={() => {
+          setFlowInvoice(null);
+          queryClient.invalidateQueries({ queryKey: ["contracts"] });
+        }} />
+        <OperationsDepositDrawer
+          deposit={flowDepositId ? { id: flowDepositId } as any : null}
+          onOpenContract={onOpenContract}
+          onClose={() => {
+            setFlowDepositId(null);
+            queryClient.invalidateQueries({ queryKey: ["contracts"] });
+            void detailQuery.refetch();
+          }}
+        />
+        <Modal isOpen={confirmMoveIn} onClose={() => setConfirmMoveIn(false)} title="Xác nhận nhận phòng" testId="contract-move-in-confirm">
+          <div className="p-4 flex flex-col gap-3">
+            <p className="text-sm text-text">Xác nhận bàn giao phòng cho {customerName} theo hợp đồng {detailContract.code}. Hệ thống kiểm tra ngày hiệu lực, chữ ký, phê duyệt, cọc và chỗ trống trước khi ghi nhận khách đang ở.</p>
+            {detailContract.bookingConversion && <p className="text-sm text-muted">Hợp đồng chuyển từ cọc giữ phòng phải thanh toán đủ hóa đơn kỳ đầu. Chỉ số đầu vào được lưu theo dữ liệu đồng hồ hiện có khi nhận phòng.</p>}
+            {detailContract.bookingConversion?.rentalReadiness?.canActivate === false && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">Chưa đủ điều kiện: kiểm tra các bước ký, duyệt, cọc và thanh toán phía trên.</p>}
+            <Button isLoading={activateMutation.isPending} disabled={detailQuery.isError || detailContract.bookingConversion?.rentalReadiness?.canActivate === false} onClick={() => {
+              const command = activationCommandRef.current?.id === detailContract.id && activationCommandRef.current
+                ? activationCommandRef.current : { id: detailContract.id, key: `contract-activate-${crypto.randomUUID()}` };
+              activationCommandRef.current = command;
+              activateMutation.mutate({ id: detailContract.id, idempotencyKey: command.key }, {
+                onSuccess: () => { setConfirmMoveIn(false); handleSuccess("Đã xác nhận nhận phòng"); },
+                onError: handleError,
+              });
+            }}>Xác nhận đã bàn giao và nhận phòng</Button>
+          </div>
+        </Modal>
         <DocumentScannerModal
           isOpen={isScannerOpen}
           onClose={() => {

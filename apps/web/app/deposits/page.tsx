@@ -9,11 +9,13 @@ import OperationsDepositList from "@/components/deposits/OperationsDepositList";
 import OperationsRefundCenter from "@/components/deposits/OperationsRefundCenter";
 import DepositsMobileFlow from "@/components/deposits/DepositsMobileFlow";
 import OperationsDepositDrawer from "@/components/deposits/OperationsDepositDrawer";
+import OperationsContractDrawer from "@/components/contracts/OperationsContractDrawer";
 import { useDepositStore } from "@/lib/stores/deposit.store";
 
 export default function DepositsPage() {
   const { selectedDeposit, setSelectedDeposit } = useDepositStore();
   const [refundCenterCollapsed, setRefundCenterCollapsed] = useState(true);
+  const [selectedFlowContract, setSelectedFlowContract] = useState<{ id: string } | null>(null);
 
   return (
     <AppShell>
@@ -56,6 +58,12 @@ export default function DepositsPage() {
       <OperationsDepositDrawer
         deposit={selectedDeposit}
         onClose={() => setSelectedDeposit(null)}
+        onOpenContract={setSelectedFlowContract}
+      />
+      <OperationsContractDrawer
+        contract={selectedFlowContract}
+        onClose={() => setSelectedFlowContract(null)}
+        onOpenContract={setSelectedFlowContract}
       />
     </AppShell>
   );

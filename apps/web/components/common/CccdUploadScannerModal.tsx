@@ -270,26 +270,27 @@ export const CccdUploadScannerModal: React.FC<CccdUploadScannerModalProps> = ({
         onLoad={() => setIsIframeLoaded(true)}
       />
 
-      <div className="flex w-full max-w-[600px] items-center justify-between border-b border-white/10 pb-3">
-        <div className="flex items-center gap-3">
-          <QrCode className="text-indigo-400" size={22} />
-          <div>
-            <h3 className="text-lg font-black tracking-wide text-emerald-100 uppercase flex items-center gap-2">
+      <div className="flex min-h-11 w-full max-w-[600px] items-center justify-between border-b border-white/10 px-1 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300"><QrCode size={15} /></span>
+            <h3 className="flex shrink-0 items-center gap-2 text-sm font-black text-white">
               Quét QR CCCD
               {step === "crop" && (
-                <span className="text-[9px] normal-case bg-indigo-500/10 border border-indigo-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                <span className="flex items-center gap-1 rounded-md bg-indigo-500/15 px-2 py-0.5 text-[10px] font-bold normal-case text-indigo-200">
                   <Sparkles size={8} /> Auto Detect
                 </span>
               )}
             </h3>
-            <p className="text-[11px] text-white/50">
+            <p className="hidden truncate text-xs font-bold text-white/50 sm:block">
+              <span className="mr-1.5">•</span>
               {step === "crop" ? "Căn chỉnh 4 góc thẻ CCCD để quét QR chính xác" : statusMessage}
             </p>
-          </div>
         </div>
         <button
           onClick={onClose}
-          className="rounded-full bg-white/5 p-2 hover:bg-white/10"
+          aria-label="Đóng cửa sổ"
+          title="Đóng"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white"
           disabled={isProcessing}
         >
           <X size={18} />

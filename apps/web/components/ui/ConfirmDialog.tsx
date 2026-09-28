@@ -79,12 +79,12 @@ export default function ConfirmDialog({
       {/* Modern Slim Card */}
       <div className="relative w-full max-w-[440px] rounded-2xl sm:rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl shadow-black/30 overflow-hidden animate-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50">
-          <div className="flex items-center gap-3">
-            <div className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 ${variantStyles.iconBg}`}>
-              {icon || (variant === "danger" ? <Trash2 size={18} /> : <AlertTriangle size={18} />)}
+        <div className="flex min-h-11 items-center justify-between border-b border-slate-100 px-3.5 py-2 dark:border-slate-800/80">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className={`flex h-7 w-7 items-center justify-center rounded-lg shrink-0 ${variantStyles.iconBg}`}>
+              {icon || (variant === "danger" ? <Trash2 size={15} /> : <AlertTriangle size={15} />)}
             </div>
-            <h3 className="text-[15px] font-bold tracking-tight text-slate-900 dark:text-white">
+            <h3 className="truncate text-sm font-black tracking-tight text-slate-900 dark:text-white">
               {title}
             </h3>
           </div>
@@ -92,7 +92,9 @@ export default function ConfirmDialog({
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+            aria-label="Đóng cửa sổ"
+            title="Đóng"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 cursor-pointer disabled:opacity-50"
           >
             <X size={16} />
           </button>

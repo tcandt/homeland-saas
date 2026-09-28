@@ -90,6 +90,7 @@ export interface RentalCyclePaymentItem {
   status: string;
   amount: number;
   provider: string;
+  providerRef?: string | null;
   paidAt: string | null;
   invoiceId?: string | null;
   source?: FinanceSource;

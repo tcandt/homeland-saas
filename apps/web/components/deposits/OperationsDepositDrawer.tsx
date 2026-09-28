@@ -41,6 +41,7 @@ import {
 import { useDepositDetailQuery } from "../../lib/queries/deposits.queries";
 import { useToast } from "../ui/ToastContext";
 import { Modal } from "../ui/Modal";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
@@ -51,9 +52,9 @@ import { RefundProofUploader } from "../common/RefundProofUploader";
 
 const currencyFormatter = new Intl.NumberFormat("vi-VN");
 const timelineStepTitleClass =
-  "min-w-0 flex-1 truncate text-xs font-black text-text";
+  "min-w-0 flex-1 text-xs font-black leading-snug text-text";
 const timelineStepTitleMutedClass =
-  "min-w-0 flex-1 truncate text-xs font-semibold text-slate-400 dark:text-slate-500";
+  "min-w-0 flex-1 text-xs font-semibold leading-snug text-slate-400 dark:text-slate-500";
 const timelineStatusBadgeClass =
   "shrink-0 whitespace-nowrap rounded-md border px-1.5 py-1 text-[9px] uppercase leading-none tracking-tight";
 
@@ -86,9 +87,11 @@ function formatCurrency(value?: number | null) {
 export default function OperationsDepositDrawer({
   deposit,
   onClose,
+  onOpenContract,
 }: {
   deposit: UI_Deposit | null;
   onClose: () => void;
+  onOpenContract?: (contract: { id: string }) => void;
 }) {
   const { showToast } = useToast();
   const detailQuery = useDepositDetailQuery(deposit?.id ?? null);
@@ -518,6 +521,13 @@ export default function OperationsDepositDrawer({
     );
   };
 
+  const continueWithBookingContract = () => {
+    if (!detailDeposit.contractId || !onOpenContract) return;
+    const contractId = detailDeposit.contractId;
+    onClose();
+    onOpenContract({ id: contractId });
+  };
+
   const openCompletePendingModal = () => {
     if (!detailDeposit.pendingOperationId) {
       showToast("Không tìm thấy mã tác vụ hoàn tiền đang chờ từ CORE.", "error");
@@ -574,52 +584,32 @@ export default function OperationsDepositDrawer({
         onClose={onClose}
         maxWidth="max-w-4xl"
         title={
-          <div className="flex items-center gap-3 min-w-0 pr-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={avatarUrl}
-              alt={detailDeposit.customerName}
-              className="h-11 w-11 rounded-2xl object-cover border-2 border-primary/20 shadow-xs shrink-0"
-            />
-            <div className="min-w-0 flex flex-col">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-base sm:text-lg font-black text-text truncate">
-                  {detailDeposit.customerName || "Khách đặt cọc"}
-                </span>
-                <span className="font-mono font-bold text-xs text-primary px-2.5 py-0.5 rounded-lg bg-primary/10 border border-primary/20 shrink-0">
-                  {detailDeposit.code || detailDeposit.id}
-                </span>
-                <span
-                  data-testid="deposit-status-badge"
-                  className={`text-[10px] font-black px-2 py-0.5 rounded-md border tracking-wide ${statusConfig.bg}`}
-                >
-                  {statusConfig.label}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted font-medium mt-0.5 flex-wrap">
-                <span className="inline-flex items-center gap-1 font-bold text-text">
-                  <Home size={12} className="text-primary" />
-                  {detailDeposit.roomCode || "Chưa xếp phòng"} ·{" "}
-                  {detailDeposit.buildingName || "Tòa nhà"}
-                </span>
-                <span>•</span>
-                <span
-                  className={`inline-flex items-center gap-1 text-[11px] font-bold ${typeConfig.color}`}
-                >
-                  <typeConfig.icon size={11} />
-                  {typeConfig.label}
-                </span>
-                {detailDeposit.customerPhone && (
-                  <>
-                    <span>•</span>
-                    <span className="font-mono text-muted text-[11px] flex items-center gap-1">
-                      <Phone size={10} />
-                      {detailDeposit.customerPhone}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
+          <ModalHeaderTitle
+            icon={
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={avatarUrl}
+                alt=""
+                className="h-7 w-7 rounded-lg object-cover"
+              />
+            }
+            title={detailDeposit.customerName || "Khách đặt cọc"}
+            badge={detailDeposit.code || detailDeposit.id}
+            description={`${detailDeposit.roomCode || "Chưa xếp phòng"} · ${detailDeposit.buildingName || "Tòa nhà"}`}
+          />
+        }
+        headerActions={
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <span
+              data-testid="deposit-status-badge"
+              className={`hidden rounded-md border px-2 py-0.5 text-[10px] font-black tracking-wide sm:inline-flex ${statusConfig.bg}`}
+            >
+              {statusConfig.label}
+            </span>
+            <span className={`hidden items-center gap-1 text-[11px] font-bold md:inline-flex ${typeConfig.color}`}>
+              <typeConfig.icon size={11} />
+              {typeConfig.label}
+            </span>
           </div>
         }
         footer={
@@ -671,6 +661,18 @@ export default function OperationsDepositDrawer({
                   className="h-9 rounded-xl text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 font-bold text-xs cursor-pointer"
                 >
                   <ShieldMinus size={14} className="mr-1.5" /> Hủy & xử lý cọc
+                </Button>
+              )}
+
+              {isPaid && isBookingDeposit && detailDeposit.contractId && onOpenContract && (
+                <Button
+                  data-testid="deposit-action-open-booking-contract"
+                  onClick={continueWithBookingContract}
+                  variant="primary"
+                  size="sm"
+                  className="h-9 rounded-xl font-bold text-xs shadow-sm cursor-pointer"
+                >
+                  <PenTool size={14} className="mr-1.5" /> Tiếp tục lên HĐ thuê
                 </Button>
               )}
 
@@ -954,7 +956,7 @@ export default function OperationsDepositDrawer({
                 </h4>
                 <span className="shrink-0 whitespace-nowrap rounded-md border border-border/60 bg-surface px-1.5 py-1 text-[9px] font-black uppercase leading-none tracking-tight text-muted">
                   {isBookingDeposit
-                    ? "6 Bước cọc giữ phòng"
+                    ? "6 bước cọc và chuyển HĐ"
                     : "5 Bước cọc hợp đồng"}
                 </span>
               </div>
@@ -1307,7 +1309,7 @@ export default function OperationsDepositDrawer({
                                       ? "6. Đã hủy phiếu cọc"
                                       : isConverted
                                         ? "6. Đã chuyển sang hợp đồng thuê"
-                                        : "6. Theo dõi hạn giữ chỗ"}
+                                        : "6. Chuyển sang hợp đồng thuê dài hạn"}
                                 </span>
                                 <span
                                   className={`${timelineStatusBadgeClass} ${
@@ -1329,7 +1331,7 @@ export default function OperationsDepositDrawer({
                                       : isConverted
                                         ? "Đã chuyển đổi"
                                         : wasEverCollected
-                                          ? "Đang hiệu lực"
+                                          ? "Cần tiếp tục"
                                           : "Chờ thu cọc"}
                                 </span>
                               </div>
@@ -1343,9 +1345,19 @@ export default function OperationsDepositDrawer({
                                     : isConverted
                                       ? `Đã chuyển phiếu cọc sang hợp đồng thuê: ${detailDeposit.contractCode || "Liên kết"}`
                                       : wasEverCollected
-                                        ? `Tự động thông báo cho Admin khi cọc giữ phòng sắp tới hạn (${formatDate(detailDeposit.expiredAt)}) để bố trí sắp xếp`
+                                        ? "Mở hợp đồng giữ chỗ liên kết để tạo một hợp đồng thuê dài hạn riêng biệt"
                                         : "Chỉ theo dõi sau khi nhận đủ tiền cọc giữ phòng"}
                               </p>
+                              {wasEverCollected && !isCompleted && detailDeposit.contractId && onOpenContract ? (
+                                <Button
+                                  data-testid="deposit-flow-open-booking-contract"
+                                  size="sm"
+                                  className="mt-2 w-full"
+                                  onClick={continueWithBookingContract}
+                                >
+                                  <PenTool size={14} className="mr-1.5" /> Tiếp tục chuyển hợp đồng
+                                </Button>
+                              ) : null}
                               {(isRefunded || isCancelled) && (
                                 <div className="flex items-center gap-1 text-[10px] font-bold text-muted mt-1.5 pt-1.5 border-t border-border/30 font-mono">
                                   <Clock3

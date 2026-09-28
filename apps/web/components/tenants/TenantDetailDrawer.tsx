@@ -40,6 +40,7 @@ import TenantFormModal from "./TenantFormModal";
 import { useDeleteCustomerMutation } from "@/lib/mutations/customers.mutations";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { auditApi, AuditLogItem } from "@/lib/api/audit.api";
+import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 
 export function getTenantAvatar(avatarUrl?: string, fullName?: string, gender?: string) {
   if (avatarUrl && avatarUrl.trim() !== "" && !avatarUrl.includes("ui-avatars.com/api/?name=undefined") && !avatarUrl.includes("Kh%C3%A1ch")) {
@@ -348,41 +349,46 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
         onClose={onClose}
         maxWidth="max-w-4xl"
         title={
-          <div className="flex items-center gap-3">
-            <span className="text-[18px] font-black text-text">Hồ sơ khách thuê</span>
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-primary/10 border border-primary/20 rounded-lg">
-              <span className="font-mono font-bold text-[11px] text-primary">Mã: {code}</span>
-            </div>
+          <ModalHeaderTitle
+            icon={<User size={15} />}
+            title="Hồ sơ khách thuê"
+            badge={code}
+            description={fullName}
+          />
+        }
+        headerActions={
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditFormOpen(true)}
+              data-testid="edit-tenant-button"
+              aria-label="Sửa hồ sơ khách thuê"
+              className="h-8 rounded-lg border-border/60 px-2.5 text-xs font-bold text-text shadow-xs hover:bg-surface"
+            >
+              <Edit size={13} className="text-primary sm:mr-1.5" />
+              <span className="hidden sm:inline">Sửa hồ sơ</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDelete}
+              data-testid="delete-tenant-button"
+              aria-label="Xóa hồ sơ khách thuê"
+              disabled={deleteMutation.isPending}
+              className="h-8 rounded-lg px-2.5 text-xs font-bold text-rose-500 hover:bg-rose-500/10 hover:text-rose-600"
+            >
+              <Trash2 size={13} className="sm:mr-1.5" />
+              <span className="hidden sm:inline">
+                {deleteMutation.isPending ? "Đang xóa..." : "Xóa"}
+              </span>
+            </Button>
           </div>
         }
       >
         <div className="flex flex-col gap-6">
           {/* PROFILE HERO CARD */}
           <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-card via-card to-primary/5 p-5 md:p-6 shadow-sm">
-            <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsEditFormOpen(true)}
-                data-testid="edit-tenant-button"
-                className="h-8 rounded-xl bg-card border-border hover:bg-muted/10 text-xs font-bold text-text shadow-sm"
-              >
-                <Edit size={13} className="mr-1.5 text-primary" />
-                Sửa hồ sơ
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleDelete}
-                className="h-8 rounded-xl text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 text-xs font-bold"
-                data-testid="delete-tenant-button"
-                disabled={deleteMutation.isPending}
-              >
-                <Trash2 size={13} className="mr-1.5" />
-                {deleteMutation.isPending ? "Đang xóa..." : "Xóa"}
-              </Button>
-            </div>
-
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
               {/* Avatar with Gender Styling & Corner Badge */}
               <div className="relative shrink-0">
@@ -755,7 +761,14 @@ export default function TenantDetailDrawer({ tenant, onClose }: { tenant: any | 
           setIsDeleteModalOpen(false);
           setDeleteError(null);
         }}
-        title="Xác nhận xóa khách thuê"
+        title={
+          <ModalHeaderTitle
+            icon={<Trash2 size={17} />}
+            title="Xác nhận xóa khách thuê"
+            badge="Cảnh báo"
+            tone="rose"
+          />
+        }
         footer={
           <div className="flex justify-end gap-3 w-full">
             <Button

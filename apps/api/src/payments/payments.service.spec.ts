@@ -109,6 +109,9 @@ describe('PaymentsService', () => {
     if (!prisma.$transaction) {
       prisma.$transaction = vi.fn().mockImplementation(async (callback: any) => callback(prisma));
     }
+    if (prismaOverrides.$transaction) {
+      prisma.$transaction = prismaOverrides.$transaction;
+    }
     if (!prisma.$queryRaw) {
       prisma.$queryRaw = vi.fn().mockResolvedValue([{ lock: 'locked' }]);
     }
@@ -655,6 +658,108 @@ describe('PaymentsService', () => {
     });
   });
 
+  it('serializes concurrent clients so one source has one pending request', async () => {
+    const records: any[] = [];
+    let lockTail = Promise.resolve();
+    const makeClient = (id: string) => {
+      const findFirst = vi.fn(async ({ where }: any) =>
+        records.find((record) =>
+          record.tenantId === where.tenantId &&
+          record.sourceType === where.sourceType &&
+          record.sourceId === where.sourceId &&
+          record.status === where.status,
+        ) || null,
+      );
+      const findUnique = vi.fn(async ({ where }: any) =>
+        records.find((record) =>
+          record.tenantId === where.tenantId_paymentCode.tenantId &&
+          record.paymentCode === where.tenantId_paymentCode.paymentCode,
+        ) || null,
+      );
+      const update = vi.fn(async ({ where, data }: any) => {
+        const record = records.find((candidate) => candidate.id === where.id);
+        Object.assign(record, data, { updatedAt: new Date() });
+        return record;
+      });
+      const create = vi.fn(async ({ data }: any) => {
+        const request = {
+          id,
+          ...data,
+          status: PaymentRequestStatus.PENDING,
+          provider: PaymentProvider.SEPAY,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        records.push(request);
+        return request;
+      });
+      let releaseLock: (() => void) | undefined;
+      const tx = {
+        paymentRequest: { findFirst, findUnique, update, create },
+        $queryRaw: vi.fn(async () => {
+          const previous = lockTail;
+          let release!: () => void;
+          lockTail = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          await previous;
+          releaseLock = release;
+          return [];
+        }),
+      };
+      const { service } = createService({
+        appSetting: {
+          findMany: vi.fn().mockResolvedValue([]),
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
+        bankAccount: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'bank-1',
+            ownerId: null,
+            bankName: 'ACB',
+            accountNumber: '123456789',
+            accountName: 'Homeland',
+            isActive: true,
+          }),
+        },
+        $transaction: vi.fn(async (callback: any) => {
+          try {
+            return await callback(tx);
+          } finally {
+            releaseLock?.();
+            releaseLock = undefined;
+          }
+        }),
+      });
+      return { service, tx, create };
+    };
+
+    const clientA = makeClient('request-a');
+    const clientB = makeClient('request-b');
+    const command = (service: PaymentsService) =>
+      (service as any).createPaymentRequest(
+        'tenant-1',
+        PaymentSourceType.INVOICE,
+        'invoice-concurrent',
+        500000,
+        'INV',
+        'user-1',
+        { roomCode: '31.01' },
+      );
+
+    const [first, second] = await Promise.all([
+      command(clientA.service),
+      command(clientB.service),
+    ]);
+
+    expect(records).toHaveLength(1);
+    expect(first.id).toBe(records[0].id);
+    expect(second.id).toBe(records[0].id);
+    expect(clientA.tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(clientB.tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(clientA.create.mock.calls.length + clientB.create.mock.calls.length).toBe(1);
+  });
+
   it('keeps colliding HD and COC payment codes within SePay eight-digit patterns', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-26T00:00:00.000Z'));
@@ -812,6 +917,28 @@ describe('PaymentsService', () => {
       }),
     });
     expect(request.amount).toBe(3000000);
+  });
+
+  it('blocks a standalone QR for security already covered by the combined ENTRY invoice', async () => {
+    const { service, prisma, depositsService } = createService();
+    depositsService.getDetail.mockResolvedValue({
+      id: 'security-combined-1', tenantId: 'tenant-1', status: 'PENDING', amount: 8_000_000,
+      contract: {
+        id: 'rental-1', tenantId: 'tenant-1', customerId: 'customer-1', rentalCycleId: 'cycle-1',
+        termsSnapshot: {
+          convertedFromBookingHold: {
+            initialEntryInvoice: {
+              invoiceId: 'entry-combined-1', paymentPolicyVersion: 'BOOKING_ENTRY_COMBINED_V1',
+              securityDepositId: 'security-combined-1',
+            },
+          },
+        },
+      },
+    });
+
+    await expect(service.createDepositRequest('security-combined-1', 'user-1'))
+      .rejects.toThrow('Khoản cọc đã nằm trong hóa đơn nhận phòng');
+    expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
   });
 
   it('resolves test QR by room routing before owner fallback', async () => {
@@ -1332,10 +1459,17 @@ describe('PaymentsService', () => {
       'sepay:invoice:invoice-booking-1:txn-booking-1',
       null,
       expect.objectContaining({
+        suppressCustomerZaloConfirmation: true,
         linkedInvoicePayment: true,
         sourceInvoiceId: 'invoice-booking-1',
+        paymentRequestId: 'request-booking-1',
+        skipHoldCreation: true,
+        skipRoomReservation: true,
       }),
     );
+    expect(depositsService.collect).toHaveBeenCalledTimes(1);
+    expect(prisma.paymentRequest.update.mock.invocationCallOrder[0])
+      .toBeLessThan(depositsService.collect.mock.invocationCallOrder[0]);
   });
 
   it('ignores SePay webhooks with no payment code content', async () => {

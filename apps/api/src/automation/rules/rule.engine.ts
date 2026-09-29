@@ -68,64 +68,52 @@ export class RuleEngine {
         
         // Execute dynamic action
         if (ruleName === 'invoice.due_soon.3_days') {
-          const roomLabel = context.roomCode
-            ? `phòng ${context.roomCode}${context.roomRentalTypeLabel ? ` (${context.roomRentalTypeLabel})` : ''}`
-            : 'phòng thuê';
           await this.communicationService.dispatch({
              tenantId,
              userId: context.customerId,
-             templateCode: 'SYSTEM_ALERT',
-             context: {
-               title: `Hoa don ${context.invoiceCode || ''} sap den han`.trim(),
-               message: `Hoa don ${context.invoiceCode || ''} cua ${roomLabel} se den han vao ${context.dueDate ? new Date(context.dueDate).toLocaleDateString('vi-VN') : 'thoi gian sap toi'}. So tien con lai: ${Number(context.remainingAmount || 0).toLocaleString('vi-VN')} VND.`,
-             }
+             templateCode: 'CLIENT_INVOICE_DUE_SOON',
+             context: this.buildClientRuleTemplateContext('CLIENT_INVOICE_DUE_SOON', context),
           });
           await this.sendAdminGroupZaloAlert(tenantId, {
+            templateCode: 'ADMIN_INVOICE_DUE_SOON',
             title: `Sắp đến hạn thanh toán ${context.invoiceCode || ''}`.trim(),
-            message: this.buildAdminReminderMessage('HomeLand - Hóa đơn sắp đến hạn', context),
+            context,
           });
         } else if (ruleName === 'invoice.overdue.7_days') {
           await this.communicationService.dispatch({
              tenantId,
              userId: context.customerId,
              templateCode: 'INVOICE_OVERDUE',
-             context
+             context: this.buildClientRuleTemplateContext('INVOICE_OVERDUE', context),
           });
           await this.sendAdminGroupZaloAlert(tenantId, {
+            templateCode: 'ADMIN_INVOICE_OVERDUE',
             title: `Khách trễ thanh toán ${context.invoiceCode || ''}`.trim(),
-            message: this.buildAdminReminderMessage('HomeLand - Cảnh báo khách trễ thanh toán', context),
+            context,
           });
         } else if (ruleName === 'contract.expiring.30_days') {
-          const roomLabel = context.roomCode
-            ? `phòng ${context.roomCode}${context.roomRentalTypeLabel ? ` (${context.roomRentalTypeLabel})` : ''}`
-            : 'phong thue';
           await this.communicationService.dispatch({
              tenantId,
              userId: context.customerId,
-             templateCode: 'SYSTEM_ALERT',
-             context: {
-               title: `Hop dong ${context.contractCode || ''} sap het han`.trim(),
-               message: `Hop dong ${context.contractCode || ''} cua ${roomLabel} se het han vao ${context.endDate ? new Date(context.endDate).toLocaleDateString('vi-VN') : 'thoi gian sap toi'}.`,
-             }
+             templateCode: 'CLIENT_CONTRACT_EXPIRING',
+             context: this.buildClientRuleTemplateContext('CLIENT_CONTRACT_EXPIRING', context),
           });
           await this.sendAdminGroupZaloAlert(tenantId, {
+            templateCode: 'ADMIN_CONTRACT_EXPIRING',
             title: `Hợp đồng sắp đến hạn ${context.contractCode || ''}`.trim(),
-            message: this.buildAdminReminderMessage('HomeLand - Hợp đồng sắp đến hạn', context),
+            context,
           });
         } else if (ruleName === 'invoice.payment_promise_due') {
-          const roomLabel = context.roomCode ? `phòng ${context.roomCode}` : 'phòng thuê';
           await this.communicationService.dispatch({
             tenantId,
             userId: context.customerId,
-            templateCode: 'SYSTEM_ALERT',
-            context: {
-              title: `Đến hẹn thanh toán ${context.invoiceCode || ''}`.trim(),
-              message: `Khoản thanh toán đã hẹn cho hóa đơn ${context.invoiceCode || ''} của ${roomLabel} đã đến hạn. Số tiền còn lại: ${Number(context.remainingAmount || 0).toLocaleString('vi-VN')} VND.`,
-            },
+            templateCode: 'CLIENT_PAYMENT_PROMISE_DUE',
+            context: this.buildClientRuleTemplateContext('CLIENT_PAYMENT_PROMISE_DUE', context),
           });
           await this.sendAdminGroupZaloAlert(tenantId, {
+            templateCode: 'ADMIN_PAYMENT_PROMISE_DUE',
             title: `Khách đến hẹn thanh toán ${context.invoiceCode || ''}`.trim(),
-            message: this.buildAdminReminderMessage('HomeLand - Khách đến hẹn thanh toán', context),
+            context,
           });
           await this.prisma.task.create({
             data: {
@@ -160,21 +148,93 @@ export class RuleEngine {
     }
   }
 
-  private async sendAdminGroupZaloAlert(tenantId: string, input: { title: string; message: string }) {
+  private async sendAdminGroupZaloAlert(tenantId: string, input: { title: string; templateCode: string; context: any }) {
     const recipient = await this.resolveAdminGroupChatId(tenantId);
     if (!recipient) return;
     try {
       await this.communicationService.dispatchDirect({
         tenantId,
         channel: 'ZALO' as any,
-        templateCode: 'SYSTEM_ALERT',
+        templateCode: input.templateCode,
         recipient,
         userId: null,
-        context: input,
+        context: this.buildRuleTemplateContext(input),
       });
     } catch (error: any) {
       this.logger.error(`Admin group Zalo rule alert failed: ${error?.message || error}`);
     }
+  }
+
+  private buildRuleTemplateContext(input: { title: string; templateCode: string; context: any }) {
+    const context = input.context || {};
+    const amount = Math.max(0, Number(context.remainingAmount ?? context.total ?? 0));
+    const dateValue = context.dueDate || context.endDate || context.startDate;
+    const date = dateValue ? new Date(dateValue) : null;
+    const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString('vi-VN', { timeZone: 'Asia/Bangkok' }) : '';
+    const roomAndBuilding = context.roomAndBuilding || [context.roomCode, context.buildingName].filter(Boolean).join(' - ') || 'Phòng chưa xác định';
+    const formatMoney = (value: number) => `${value.toLocaleString('vi-VN')} đ`;
+    const overdueDays = context.dueDate
+      ? Math.max(0, Math.floor((Date.now() - new Date(context.dueDate).getTime()) / 86_400_000))
+      : 0;
+    const isContract = input.templateCode === 'ADMIN_CONTRACT_EXPIRING';
+    const isDueSoon = input.templateCode === 'ADMIN_INVOICE_DUE_SOON';
+    const isPaymentPromise = input.templateCode === 'ADMIN_PAYMENT_PROMISE_DUE';
+    return {
+      ...context,
+      roomAndBuilding,
+      customerName: context.customerName || 'Khách hàng',
+      headline: isContract ? '⏳ SẮP HẾT HỢP ĐỒNG' : isPaymentPromise ? '🔴 ĐẾN HẸN THANH TOÁN' : isDueSoon ? '⏰ SẮP ĐẾN HẠN' : '🔴 QUÁ HẠN',
+      primaryValue: isContract ? `Hết hạn: ${dateLabel}` : `Còn ${formatMoney(amount)}`,
+      secondaryValue: isContract ? '' : isPaymentPromise ? 'Khách đã đến hẹn thanh toán.' : isDueSoon ? `Hạn: ${dateLabel}` : overdueDays > 0 ? `Quá hạn: ${overdueDays} ngày` : 'Đã đến hạn thanh toán.',
+      action: isContract ? 'Xác nhận gia hạn hoặc trả phòng.' : isDueSoon ? '' : 'Cần liên hệ khách.',
+      title: input.title,
+      message: this.buildAdminReminderMessage(input.title, context),
+    };
+  }
+
+  private buildClientRuleTemplateContext(templateCode: string, context: any) {
+    const amount = Math.max(0, Number(context?.remainingAmount ?? context?.total ?? 0));
+    const dateValue = templateCode === 'CLIENT_CONTRACT_EXPIRING'
+      ? context?.endDate
+      : (context?.promiseDueDate || context?.dueDate);
+    const date = dateValue ? new Date(dateValue) : null;
+    const dateLabel = date && !Number.isNaN(date.getTime())
+      ? date.toLocaleDateString('vi-VN', { timeZone: 'Asia/Bangkok' })
+      : '';
+    const roomAndBuilding = context?.roomAndBuilding
+      || [context?.roomCode, context?.buildingName].filter(Boolean).join(' - ')
+      || 'Phòng chưa xác định';
+    const amountLabel = `${amount.toLocaleString('vi-VN')} đ`;
+    const isContract = templateCode === 'CLIENT_CONTRACT_EXPIRING';
+    const isPromise = templateCode === 'CLIENT_PAYMENT_PROMISE_DUE';
+    const isOverdue = templateCode === 'INVOICE_OVERDUE';
+    const overdueDays = context?.dueDate
+      ? Math.max(0, Math.floor((Date.now() - new Date(context.dueDate).getTime()) / 86_400_000))
+      : 0;
+
+    return {
+      ...context,
+      roomAndBuilding,
+      customerName: context?.customerName || 'Khách hàng',
+      headline: isContract
+        ? '⏳ HỢP ĐỒNG SẮP HẾT HẠN'
+        : isOverdue ? '🔴 THANH TOÁN QUÁ HẠN'
+          : isPromise ? '⏰ ĐẾN HẸN THANH TOÁN' : '⏰ NHẮC THANH TOÁN',
+      primaryValue: isContract ? `Hết hạn: ${dateLabel}` : `Còn phải thanh toán: ${amountLabel}`,
+      secondaryValue: isPromise
+        ? 'Khoản thanh toán đã hẹn hôm nay đến hạn.'
+        : isOverdue ? (overdueDays > 0 ? `Đã quá hạn ${overdueDays} ngày.` : 'Đã đến hạn thanh toán.')
+          : isContract ? '' : `Hạn thanh toán: ${dateLabel}`,
+      action: isContract
+        ? 'Anh/Chị vui lòng xác nhận gia hạn hoặc trả phòng.'
+        : isOverdue
+          ? 'Anh/Chị vui lòng thanh toán sớm hoặc liên hệ HomeLand nếu cần hỗ trợ.'
+        : isPromise
+          ? 'Anh/Chị vui lòng thanh toán hoặc liên hệ HomeLand nếu cần hỗ trợ.'
+          : 'Anh/Chị vui lòng thanh toán đúng hạn.',
+      remainingAmountDisplay: amountLabel,
+      overdueLabel: overdueDays > 0 ? `Đã quá hạn ${overdueDays} ngày.` : 'Đã đến hạn thanh toán.',
+    };
   }
 
   private async resolveAdminGroupChatId(tenantId: string) {

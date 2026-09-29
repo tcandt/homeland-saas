@@ -32,6 +32,15 @@ export function getContractStatusConfig(status: string | undefined): ContractSta
   };
 }
 
+export type RentalTermPhase = 'pending' | 'running' | 'expired' | 'ended';
+
+export function getRentalTermPhase(status: string | undefined): RentalTermPhase {
+  if (status === 'ACTIVE' || status === 'EXPIRING') return 'running';
+  if (status === 'EXPIRED') return 'expired';
+  if (status === 'TERMINATED' || status === 'CANCELLED') return 'ended';
+  return 'pending';
+}
+
 export const ACTIVE_FILTERS = Object.values(CONTRACT_STATUS_MAP)
   .filter(c => !c.isTerminal)
   .sort((a, b) => a.order - b.order);

@@ -2280,6 +2280,32 @@ export class MonthlySettlementService {
               Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${evidenceLockKey}))::text AS "lock"`,
             );
           }
+          const contracts = (await tx.$queryRaw(
+            Prisma.sql`SELECT "id" FROM "Contract" WHERE "tenantId" = ${tenantId} AND "id" = ${item.contractId} AND "deletedAt" IS NULL FOR UPDATE`,
+          )) as Array<{ id: string }>;
+          if (!contracts.length) {
+            throw new ConflictException("MONTHLY_INVOICE_CONTRACT_SCOPE_MISMATCH");
+          }
+          // The projection that produced `item` is outside this transaction.
+          // Re-read the locked contract before any invoice/snapshot write so a
+          // concurrent lifecycle update cannot attach a monthly document to
+          // an old room or rental cycle.
+          const lockedContract = await tx.contract.findFirst({
+            where: {
+              id: item.contractId,
+              tenantId,
+              deletedAt: null,
+            },
+            select: { id: true, roomId: true, rentalCycleId: true },
+          });
+          if (
+            !lockedContract ||
+            lockedContract.roomId !== item.roomId ||
+            (lockedContract.rentalCycleId || null) !==
+              (item.rentalCycleId || null)
+          ) {
+            throw new ConflictException("MONTHLY_INVOICE_CONTRACT_SCOPE_MISMATCH");
+          }
           const exactInvoice = await tx.invoice.findFirst({
             where: {
               tenantId,

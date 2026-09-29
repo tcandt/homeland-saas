@@ -1107,6 +1107,7 @@ export class CommunicationController {
       data: {
         value: {
           ...value,
+          webhookUrl,
           lastWebhookConnectedAt: new Date().toISOString(),
           lastWebhookStatus: 'CONNECTED',
         },

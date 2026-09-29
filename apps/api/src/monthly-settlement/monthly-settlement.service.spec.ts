@@ -60,6 +60,14 @@ describe("MonthlySettlementService", () => {
     storedBillingSnapshot = null;
     prisma = {
       $transaction: vi.fn(async (callback: any) => callback(prisma)),
+      $queryRaw: vi.fn().mockResolvedValue([{
+        id: "contract-1", customerId: "cust-1", roomId: "room-1", rentalCycleId: null,
+      }]),
+      contract: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "contract-1", roomId: "room-1", rentalCycleId: null,
+        }),
+      },
       appSetting: {
         findUnique: vi.fn().mockResolvedValue(null),
         upsert: vi.fn(),
@@ -899,6 +907,21 @@ describe("MonthlySettlementService", () => {
           },
         ],
       });
+    });
+
+    it("does not create a monthly invoice when the locked contract scope changed", async () => {
+      prisma.contract.findFirst.mockResolvedValue({
+        id: "contract-1", roomId: "room-other", rentalCycleId: null,
+      });
+
+      await expect(
+        service.closeMonth("tenant-1", "user-1", {
+          period: "2026-09",
+          autoSend: false,
+        }),
+      ).rejects.toThrow("MONTHLY_INVOICE_CONTRACT_SCOPE_MISMATCH");
+
+      expect(prisma.invoice.create).not.toHaveBeenCalled();
     });
 
     it("stores monthly aggregates with null register endpoints and canonical provenance", async () => {

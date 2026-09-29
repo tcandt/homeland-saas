@@ -7,6 +7,7 @@ import dayjs from "dayjs";
 import { Download, Printer, X, FileText } from "lucide-react";
 import { numberToWordsVietnamese } from "../../lib/utils/number-to-words";
 import { getAuthorizationHeader } from "../../lib/auth/auth-header";
+import { resolveRoomType } from "@/lib/rooms/room-type-resolver";
 
 export function PreviewContractModal({
   isOpen,
@@ -203,9 +204,16 @@ export function PreviewContractModal({
                 )
               : ""),
           maPhong: contract.maPhong || contract.room?.code || contract.room?.name || contract.roomCode || "..........................",
-          soPhongNgu: contract.soPhongNgu || (contract.room as any)?.roomType || "1 phòng ngủ",
+          soPhongNgu: contract.soPhongNgu || resolveRoomType({
+            roomType: (contract.room as any)?.roomType,
+            type: (contract.room as any)?.type,
+            code: contract.maPhong || contract.room?.code || contract.roomCode,
+            buildingCode: contract.buildingCode || contract.room?.building?.code,
+            buildingName: contract.toaNha || contract.buildingName || contract.room?.building?.name,
+          }),
           thoiHanThue: contract.thoiHanThue || "1 năm",
           toaNha: contract.toaNha || contract.buildingName || "..........................",
+          buildingCode: contract.buildingCode || contract.room?.building?.code || contract.room?.building?.name || contract.buildingName || "",
           diachiToanha: contract.diachiToanha || contract.buildingAddress || "..........................",
           quanLyToaNha: contract.quanLyToaNha || "0373.129.295 Nhân",
           chuNha: contract.chuNha || "TINH",

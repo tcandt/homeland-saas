@@ -21,10 +21,10 @@ type Stage = {
 const formatMoney = (amount: number) =>
   new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(amount);
 
-export default function OperationsBillingPipeline() {
+export default function OperationsBillingPipeline({ documents }: { documents?: any[] } = {}) {
   const [activeStage, setActiveStage] = useState<number | null>(null);
-  const { data, isLoading } = useInvoicesQuery({ limit: 100 });
-  const invoices = (data as any)?.data || [];
+  const { data, isLoading } = useInvoicesQuery({ limit: 100 }, { enabled: !documents });
+  const invoices = documents || (data as any)?.data || [];
 
   const totalAmount = invoices.reduce((sum: number, invoice: any) => sum + (Number(invoice.totalAmount ?? invoice.total ?? 0) || 0), 0);
 
@@ -61,7 +61,7 @@ export default function OperationsBillingPipeline() {
         id: 4,
         label: "Đã thu",
         icon: CheckCircle2,
-        statuses: ["PAID"],
+        statuses: ["PAID", "CONVERTED_TO_CONTRACT"],
         color: "text-[#8b5cf6]",
         bg: "bg-[#8b5cf6]/10",
         border: "border-[#8b5cf6]",
@@ -162,7 +162,7 @@ export default function OperationsBillingPipeline() {
             <div className="flex items-end justify-between">
               <div className="flex items-end gap-[4px]">
                 <span className="font-black text-[22px] leading-none text-text">{stage.count}</span>
-                <span className="text-[11px] font-bold text-muted mb-[2px]">hóa đơn</span>
+                <span className="text-[11px] font-bold text-muted mb-[2px]">{documents ? "phiếu" : "hóa đơn"}</span>
               </div>
               <span className={`font-black text-[14px] ${activeStage === stage.id ? stage.color : "text-text"}`}>
                 {formatMoney(stage.amount)}đ

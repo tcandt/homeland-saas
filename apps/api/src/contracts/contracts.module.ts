@@ -5,9 +5,10 @@ import { ContractsRepository } from './contracts.repository';
 import { HunonicModule } from '../hunonic/hunonic.module';
 import { DepositsModule } from '../deposits/deposits.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { InvoicesModule } from '../invoices/invoices.module';
 
 @Module({
-  imports: [HunonicModule, DepositsModule, PaymentsModule],
+  imports: [HunonicModule, DepositsModule, PaymentsModule, InvoicesModule],
   controllers: [ContractsController],
   providers: [ContractsService, ContractsRepository],
 })

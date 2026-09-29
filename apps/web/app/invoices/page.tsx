@@ -27,20 +27,25 @@ import {
   Trash2,
   Eye,
   Printer,
+  Link2,
 } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import AppShell from "@/components/layout/AppShell";
 import OperationsBillingDrawer from "@/components/invoices/OperationsBillingDrawer";
+import OperationsDepositDrawer from "@/components/deposits/OperationsDepositDrawer";
+import { depositAdapter } from "@/lib/adapters/deposit.adapter";
+import { useAuthStore } from "@/lib/auth/auth-store";
 import InvoiceCreateModal, { InvoiceModalTab } from "@/components/invoices/InvoiceCreateModal";
 import OperationsBillingPipeline from "@/components/invoices/OperationsBillingPipeline";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
-import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
-import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
+import { getBillingDocumentCashflow, getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
+import { useDepositBillingDocumentsQuery, useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { invoicesApi } from "@/lib/api/invoices.api";
 import toast from "react-hot-toast";
 import { Card } from "@/components/ui/Card";
 import { getTenantAvatar } from "@/components/tenants/TenantDetailDrawer";
 import OperationsSidePanelShell from "@/components/layout/OperationsSidePanelShell";
+import { groupBillingDocuments } from "@/lib/invoices/group-billing-documents";
 
 const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
 const isDirectInvoiceCreationDisabled = true;
@@ -67,6 +72,9 @@ const statusMeta: Record<string, { label: string; tone: string; dot: string }> =
   OVERDUE: { label: "Quá hạn", tone: "bg-rose-500/10 text-rose-600 border border-rose-500/20", dot: "bg-rose-500" },
   PAID: { label: "Đã thu đủ", tone: "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20", dot: "bg-emerald-500" },
   CANCELLED: { label: "Đã hủy", tone: "bg-slate-100 text-slate-500 dark:bg-slate-800", dot: "bg-slate-400" },
+  REFUNDED: { label: "Đã hoàn cọc", tone: "bg-slate-100 text-slate-500 dark:bg-slate-800", dot: "bg-slate-400" },
+  RECONCILIATION_PENDING: { label: "Cần đối soát", tone: "bg-amber-500/10 text-amber-700 dark:text-amber-300", dot: "bg-amber-500" },
+  CONVERTED_TO_CONTRACT: { label: "Đã chuyển sang HĐ thuê", tone: "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20", dot: "bg-emerald-500" },
 };
 
 export function getInvoiceTypeAndDirection(invoice: any): {
@@ -75,6 +83,17 @@ export function getInvoiceTypeAndDirection(invoice: any): {
   label: string;
   badgeTone: string;
 } {
+  if (invoice.presentationCategory === "RENT") {
+    return { direction: "INCOME", category: "RENT", label: "Tiền kỳ đầu", badgeTone: "bg-emerald-500/10 text-emerald-600 border border-emerald-500/30" };
+  }
+  if (invoice.presentationCategory === "CONTRACT_DEPOSIT") {
+    return { direction: "INCOME", category: "CONTRACT_DEPOSIT", label: "Cọc hợp đồng", badgeTone: "bg-indigo-500/10 text-indigo-600 border border-indigo-500/30" };
+  }
+  if (invoice.documentType === "DEPOSIT") {
+    return invoice.category === "CONTRACT_DEPOSIT"
+      ? { direction: "INCOME", category: "CONTRACT_DEPOSIT", label: "Cọc hợp đồng", badgeTone: "bg-indigo-500/10 text-indigo-600 border border-indigo-500/30" }
+      : { direction: "INCOME", category: "HOLDING_DEPOSIT", label: "Cọc giữ chỗ", badgeTone: "bg-amber-500/10 text-amber-600 border border-amber-500/30" };
+  }
   const notes = (invoice.notes || "").toLowerCase();
   const period = (invoice.period || "").toLowerCase();
   const rawTotal = Number(invoice.total || invoice.totalAmount || 0);
@@ -143,14 +162,17 @@ export function getInvoiceTypeAndDirection(invoice: any): {
 }
 
 function invoiceAmount(invoice: any) {
+  if (invoice.displayTotal !== undefined) return Number(invoice.displayTotal || 0);
   return getInvoiceFinancials(invoice).total;
 }
 
 function invoicePaid(invoice: any) {
+  if (invoice.displayPaidAmount !== undefined) return Number(invoice.displayPaidAmount || 0);
   return getInvoiceFinancials(invoice).paid;
 }
 
 function invoiceRemaining(invoice: any) {
+  if (invoice.displayRemaining !== undefined) return Number(invoice.displayRemaining || 0);
   return getInvoiceFinancials(invoice).remaining;
 }
 
@@ -177,6 +199,7 @@ export default function InvoicesPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
   const [page, setPage] = useState(1);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [selectedDeposit, setSelectedDeposit] = useState<any | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [billingPanelOpen, setBillingPanelOpen] = useState(false);
   const [createModalTab, setCreateModalTab] = useState<InvoiceModalTab>("RENT");
@@ -195,11 +218,25 @@ export default function InvoicesPage() {
   const [invoiceToDelete, setInvoiceToDelete] = useState<any | null>(null);
   const [isDeletingInvoice, setIsDeletingInvoice] = useState(false);
 
-  const { data, isLoading, isError, refetch } = useInvoicesQuery(
+  const { data, isLoading: invoicesLoading, isError: invoicesError, refetch } = useInvoicesQuery(
     { limit: 100 },
-    { refetchInterval: 3000, refetchOnWindowFocus: true },
+    { refetchInterval: 3000, refetchOnWindowFocus: true, fetchAllPages: true },
   );
-  const invoices = (data as any)?.data || [];
+  const user = useAuthStore((state) => state.user);
+  const canReadDeposits = Boolean(user?.roles?.includes("ADMIN") || user?.permissions?.includes("deposit.read"));
+  const depositDocuments = useDepositBillingDocumentsQuery(canReadDeposits);
+  const isLoading = invoicesLoading || (canReadDeposits && depositDocuments.isPending);
+  const isError = invoicesError || (canReadDeposits && depositDocuments.isError);
+  const billingGroups = useMemo(() => groupBillingDocuments([...((data as any)?.data || []), ...(canReadDeposits ? depositDocuments.data || [] : [])]
+    .filter((document) => document.documentType !== "DEPOSIT" || document.linkedInvoiceId || document.category === "CONTRACT_DEPOSIT"
+      || document.total > 0 || document.paidAmount > 0 || document.refundedAmount > 0 || document.invoiceCoveredAmount <= 0)
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())),
+    [data, depositDocuments.data, canReadDeposits]);
+  const invoices = useMemo(() => billingGroups.flatMap((group) => group.rows), [billingGroups]);
+  const openDocument = (document: any) => {
+    if (document.documentType === "DEPOSIT") setSelectedDeposit(depositAdapter.toUI(document.deposit));
+    else setSelectedInvoice(document);
+  };
 
   React.useEffect(() => {
     if (!selectedInvoice?.id) return;
@@ -210,7 +247,7 @@ export default function InvoicesPage() {
   }, [invoices, selectedInvoice?.id]);
 
   const handleConfirmDeleteInvoice = async () => {
-    if (!invoiceToDelete) return;
+    if (!invoiceToDelete || invoiceToDelete.documentType === "DEPOSIT") return;
     setIsDeletingInvoice(true);
     try {
       await invoicesApi.delete(invoiceToDelete.id);
@@ -226,12 +263,13 @@ export default function InvoicesPage() {
 
   const handleDeleteInvoice = (inv: any) => {
     setContextMenu(null);
+    if (inv.documentType === "DEPOSIT") return;
     setInvoiceToDelete(inv);
   };
 
   const summary = useMemo(() => {
     const totalInvoices = invoices.length;
-    const pending = invoices.filter((invoice: any) => ["DRAFT", "ISSUED", "PARTIALLY_PAID"].includes(invoice.status));
+    const pending = invoices.filter((invoice: any) => ["DRAFT", "ISSUED", "PARTIALLY_PAID", "RECONCILIATION_PENDING"].includes(invoice.status));
     const overdue = invoices.filter((invoice: any) => invoice.status === "OVERDUE");
     const paid = invoices.filter((invoice: any) => invoice.status === "PAID");
 
@@ -242,15 +280,11 @@ export default function InvoicesPage() {
 
     invoices.forEach((inv: any) => {
       const { direction } = getInvoiceTypeAndDirection(inv);
-      const amt = invoiceAmount(inv);
-      const pAmt = invoicePaid(inv);
-      if (direction === "EXPENSE") {
-        totalExpense += amt;
-        paidExpense += pAmt;
-      } else {
-        totalIncome += amt;
-        paidIncome += pAmt;
-      }
+      const cashflow = getBillingDocumentCashflow(inv, direction);
+      totalIncome += cashflow.totalIncome;
+      paidIncome += cashflow.paidIncome;
+      totalExpense += cashflow.totalExpense;
+      paidExpense += cashflow.paidExpense;
     });
 
     const netCashflow = paidIncome - paidExpense;
@@ -274,9 +308,9 @@ export default function InvoicesPage() {
     };
   }, [invoices]);
 
-  const visibleInvoices = useMemo(() => {
+  const visibleGroups = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return invoices.filter((invoice: any) => {
+    return billingGroups.map((group) => ({ ...group, rows: group.rows.filter((invoice: any) => {
       const typeInfo = getInvoiceTypeAndDirection(invoice);
 
       if (directionFilter !== "ALL" && typeInfo.direction !== directionFilter) {
@@ -286,7 +320,7 @@ export default function InvoicesPage() {
         return false;
       }
       if (status) {
-        if (status === "ISSUED" && !["DRAFT", "ISSUED", "PARTIALLY_PAID"].includes(invoice.status)) return false;
+        if (status === "ISSUED" && !["DRAFT", "ISSUED", "PARTIALLY_PAID", "RECONCILIATION_PENDING"].includes(invoice.status)) return false;
         else if (status !== "ISSUED" && invoice.status !== status) return false;
       }
       if (!needle) return true;
@@ -297,8 +331,9 @@ export default function InvoicesPage() {
         .join(" ")
         .toLowerCase()
         .includes(needle);
-    });
-  }, [invoices, search, status, directionFilter, categoryFilter]);
+    }) })).filter((group) => group.rows.length > 0);
+  }, [billingGroups, search, status, directionFilter, categoryFilter]);
+  const visibleInvoices = useMemo(() => visibleGroups.flatMap((group) => group.rows), [visibleGroups]);
 
   const tabs = [
     { value: "", label: "Tất cả", count: invoices.length, icon: Receipt },
@@ -316,8 +351,8 @@ export default function InvoicesPage() {
 
   const chartData = recoveryData.length ? recoveryData : [{ label: "Chưa có dữ liệu", amount: 1, color: "#e2e8f0" }];
   const pageSize = 8;
-  const totalPages = Math.max(1, Math.ceil(visibleInvoices.length / pageSize));
-  const displayedInvoices = visibleInvoices.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(visibleGroups.length / pageSize));
+  const displayedGroups = visibleGroups.slice((page - 1) * pageSize, page * pageSize);
 
   const soonDueCount = invoices.filter((invoice: any) => {
     if (!["DRAFT", "ISSUED", "PARTIALLY_PAID"].includes(invoice.status) || !invoice.dueDate) return false;
@@ -375,7 +410,7 @@ export default function InvoicesPage() {
             </div>
 
             {/* BILLING PIPELINE */}
-            <OperationsBillingPipeline />
+            <OperationsBillingPipeline documents={invoices} />
 
             {/* FILTER BAR WITH 2-WAY TOGGLE & STATUS TABS */}
             <Card data-testid="invoices-filter-bar" className="flex flex-col gap-2.5 rounded-2xl border-border/60 p-3 shadow-xs shrink-0">
@@ -505,9 +540,10 @@ export default function InvoicesPage() {
             {/* TABLE CONTAINER CARD */}
             <section data-testid="invoices-list" className="flex min-h-[480px] flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm xl:h-full xl:min-h-0">
               <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
-                <table className="w-full min-w-[1240px] border-collapse text-left">
+                <table className="w-full min-w-[1280px] border-collapse text-left">
                   <thead className="sticky top-0 z-10 bg-surface/90 backdrop-blur-sm text-[11px] uppercase tracking-wider text-muted shadow-[0_1px_0_var(--border)] select-none">
                     <tr>
+                      <th className="w-[56px] px-2 py-3 text-center font-black whitespace-nowrap">STT</th>
                       <th className="w-[145px] px-4 py-3 font-black whitespace-nowrap">Mã hóa đơn</th>
                       <th className="w-[150px] px-4 py-3 text-center font-black whitespace-nowrap">Chiều / Loại</th>
                       <th className="w-[240px] px-4 py-3 font-black whitespace-nowrap">Khách thuê / Phòng</th>
@@ -522,21 +558,21 @@ export default function InvoicesPage() {
                   <tbody className="divide-y divide-border/40">
                     {isLoading && (
                       <tr>
-                        <td colSpan={9} className="px-4 py-12 text-center text-[13px] font-bold text-muted">
+                        <td colSpan={10} className="px-4 py-12 text-center text-[13px] font-bold text-muted">
                           Đang tải danh sách hóa đơn...
                         </td>
                       </tr>
                     )}
                     {isError && (
                       <tr>
-                        <td data-testid="invoices-error-state" colSpan={9} className="px-4 py-12 text-center text-[13px] font-bold text-rose-500">
+                        <td data-testid="invoices-error-state" colSpan={10} className="px-4 py-12 text-center text-[13px] font-bold text-rose-500">
                           Không tải được danh sách hóa đơn.
                         </td>
                       </tr>
                     )}
                     {!isLoading && !isError && visibleInvoices.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="px-4 py-12 text-center">
+                        <td colSpan={10} className="px-4 py-12 text-center">
                           <div data-testid="empty-invoices-state" className="mx-auto flex max-w-sm flex-col items-center gap-2 rounded-2xl border border-dashed border-border bg-surface/40 px-6 py-8">
                             <Receipt size={32} className="text-muted/60" />
                             <div className="text-[14px] font-black text-text">Chưa có hóa đơn hoặc phiếu cọc phù hợp</div>
@@ -545,11 +581,15 @@ export default function InvoicesPage() {
                         </td>
                       </tr>
                     )}
-                    {!isLoading && !isError && displayedInvoices.map((invoice: any) => (
+                    {!isLoading && !isError && displayedGroups.flatMap((group, groupIndex) => group.rows.map((invoice: any, rowIndex: number) => (
                       <InvoiceRow
                         key={invoice.id}
                         invoice={invoice}
-                        onOpen={() => setSelectedInvoice(invoice)}
+                        sequence={(page - 1) * pageSize + groupIndex + 1}
+                        sequenceRowSpan={group.rows.length}
+                        showSequence={rowIndex === 0}
+                        linkedGroup={group.linked && group.rows.length > 1}
+                        onOpen={() => openDocument(invoice)}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setContextMenu({
@@ -559,7 +599,7 @@ export default function InvoicesPage() {
                           });
                         }}
                       />
-                    ))}
+                    )))}
                   </tbody>
                 </table>
               </div>
@@ -567,8 +607,8 @@ export default function InvoicesPage() {
               {/* PAGINATION FOOTER */}
               <div className="mt-auto flex flex-col gap-3 border-t border-border/60 bg-surface/30 px-4 py-2.5 text-[12px] font-semibold text-muted shrink-0 sm:flex-row sm:items-center sm:justify-between">
                 <span>
-                  Hiển thị {visibleInvoices.length === 0 ? 0 : (page - 1) * pageSize + 1} -{" "}
-                  {Math.min(page * pageSize, visibleInvoices.length)} trên {visibleInvoices.length} hóa đơn & phiếu cọc
+                  Hiển thị {visibleGroups.length === 0 ? 0 : (page - 1) * pageSize + 1} -{" "}
+                  {Math.min(page * pageSize, visibleGroups.length)} trên {visibleGroups.length} STT · {visibleInvoices.length} hóa đơn & phiếu cọc
                 </span>
                 <div className="flex items-center gap-1.5">
                   <span className="rounded-xl border border-border bg-card px-2.5 py-1 text-[11px] font-bold text-text">
@@ -707,6 +747,7 @@ export default function InvoicesPage() {
           invoice={selectedInvoice}
           onClose={() => setSelectedInvoice(null)}
         />
+        <OperationsDepositDrawer deposit={selectedDeposit} onClose={() => setSelectedDeposit(null)} />
 
         {/* Floating Context Menu on Right Click */}
         {contextMenu && (
@@ -727,14 +768,14 @@ export default function InvoicesPage() {
                 onClick={() => {
                   const inv = contextMenu.invoice;
                   setContextMenu(null);
-                  setSelectedInvoice(inv);
+                  openDocument(inv);
                 }}
                 className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-bold text-text hover:bg-primary/10 hover:text-primary transition-colors text-left"
               >
                 <Eye size={14} />
-                <span>Xem chi tiết hóa đơn</span>
+                <span>{contextMenu.invoice.documentType === "DEPOSIT" ? "Xem chi tiết phiếu cọc" : "Xem chi tiết hóa đơn"}</span>
               </button>
-              <button
+              {contextMenu.invoice.documentType !== "DEPOSIT" && <button
                 type="button"
                 onClick={() => {
                   const inv = contextMenu.invoice;
@@ -745,8 +786,8 @@ export default function InvoicesPage() {
               >
                 <Printer size={14} />
                 <span>In hóa đơn</span>
-              </button>
-              <div className="my-1 border-t border-border/40" />
+              </button>}
+              {contextMenu.invoice.documentType !== "DEPOSIT" && <><div className="my-1 border-t border-border/40" />
               <button
                 type="button"
                 onClick={() => handleDeleteInvoice(contextMenu.invoice)}
@@ -754,7 +795,7 @@ export default function InvoicesPage() {
               >
                 <Trash2 size={14} />
                 <span>Xóa hóa đơn này</span>
-              </button>
+              </button></>}
             </div>
           </div>
         )}
@@ -827,10 +868,18 @@ function KpiCard({
 
 function InvoiceRow({
   invoice,
+  sequence,
+  sequenceRowSpan,
+  showSequence,
+  linkedGroup,
   onOpen,
   onContextMenu,
 }: {
   invoice: any;
+  sequence: number;
+  sequenceRowSpan: number;
+  showSequence: boolean;
+  linkedGroup: boolean;
   onOpen: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
 }) {
@@ -858,10 +907,27 @@ function InvoiceRow({
       onClick={onOpen}
       onContextMenu={onContextMenu}
     >
+      {showSequence && (
+        <td rowSpan={sequenceRowSpan} className="border-r border-border/40 px-2 py-3 text-center align-middle">
+          <span className="font-mono text-[12px] font-black text-muted">{sequence}</span>
+          {linkedGroup && <Link2 size={12} className="mx-auto mt-1 text-indigo-500" aria-label="Hai hóa đơn dùng chung một lần thanh toán" />}
+        </td>
+      )}
       {/* 1. MÃ HÓA ĐƠN */}
       <td className="px-4 py-3 align-middle">
         <div className="font-mono text-[13px] font-black text-primary group-hover:underline whitespace-nowrap">{code}</div>
-        <div className="text-[11px] font-medium text-muted whitespace-nowrap">{invoice.title || "Hóa đơn dịch vụ"}</div>
+        <div className="text-[11px] font-medium text-muted whitespace-nowrap">{invoice.presentationTitle || invoice.title || "Hóa đơn dịch vụ"}</div>
+        {linkedGroup && (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+            <Link2 size={10} /> Thanh toán chung {formatVnd(invoice.combinedPaymentTotal)}
+          </div>
+        )}
+        {invoice.documentType === "DEPOSIT" && invoice.transferredAmount > 0 && (
+          <div className="text-[11px] font-medium text-muted">Cọc chuyển sang: {formatVnd(invoice.transferredAmount)}</div>
+        )}
+        {invoice.documentType === "DEPOSIT" && invoice.invoiceCoveredAmount > 0 && (
+          <div className="text-[11px] font-medium text-muted">Thu qua hóa đơn: {formatVnd(invoice.invoiceCoveredAmount)}</div>
+        )}
       </td>
 
       {/* 2. CHIỀU & LOẠI KHOẢN MỤC */}
@@ -926,7 +992,7 @@ function InvoiceRow({
       {/* 4. KỲ HÓA ĐƠN */}
       <td className="px-4 py-3 text-center align-middle whitespace-nowrap">
         <div className="text-[13px] font-black font-mono text-text">{invoicePeriod(invoice)}</div>
-        <div className="text-[11px] font-semibold text-muted">{invoice.month || "Tháng này"}</div>
+        <div className="text-[11px] font-semibold text-muted">{invoice.documentType === "DEPOSIT" ? invoice.contract?.code || "" : invoice.month || "Tháng này"}</div>
       </td>
 
       {/* 5. HẠN THANH TOÁN */}
@@ -951,6 +1017,9 @@ function InvoiceRow({
         <span className={typeInfo.direction === "EXPENSE" ? "text-rose-600" : "text-emerald-600 dark:text-emerald-400"}>
           {formatVnd(paid)}
         </span>
+        {financials.refunded > 0 && (
+          <div className="mt-0.5 text-[10px] font-semibold text-rose-600">Đã hoàn: {formatVnd(financials.refunded)}</div>
+        )}
         {financials.pendingReviewReceived > 0 && (
           <div className="mt-0.5 text-[9px] font-black uppercase tracking-tight text-amber-600">
             Chờ xử lý

@@ -37,9 +37,24 @@ const DocumentScannerModal = dynamic(
 import { Modal } from "../ui/Modal";
 import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 import BookingConversionProgress from "./BookingConversionProgress";
+import {
+  BookingConversionForm,
+  BookingConversionResult,
+  BookingHoldConversionModal,
+  BookingHoldConversionResultModal,
+} from "./BookingHoldConversionModal";
 import OperationsBillingDrawer from "../invoices/OperationsBillingDrawer";
 import OperationsDepositDrawer from "../deposits/OperationsDepositDrawer";
-import { getLinkedRental, isBookingContract } from "@/lib/contracts/booking-conversion";
+import {
+  getBookingRentalDefaults,
+  getBookingHoldState,
+  getBookingRecoveryErrorMessage,
+  getLinkedRental,
+  getRentalActivationBlockingMessages,
+  isBookingContract,
+  isContractSigned,
+  getContractDocumentStatus,
+} from "@/lib/contracts/booking-conversion";
 import { Badge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
@@ -47,7 +62,7 @@ import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { Textarea } from "../ui/Textarea";
 import { RefundProofUploader } from "../common/RefundProofUploader";
-import { getContractStatusConfig } from "../../lib/contracts/contract-status";
+import { getContractStatusConfig, getRentalTermPhase } from "../../lib/contracts/contract-status";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../ui/ToastContext";
 import { usePermissions } from "../../hooks/usePermissions";
@@ -581,24 +596,10 @@ export default function OperationsContractDrawer({
   const [isBookingCancelModalOpen, setIsBookingCancelModalOpen] =
     useState(false);
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
-  const [bookingConversionResult, setBookingConversionResult] = useState<{
-    rentalContractId: string;
-    rentalContractCode: string;
-    rentalContractStatus: string;
-    securityDepositId: string | null;
-    securityRequired: number;
-    transferredAmount: number;
-    additionalCashRequired: number;
-    excessAmount: number;
-    entryInvoice: {
-      id: string | null;
-      code: string;
-      amount: number;
-      status: string;
-    } | null;
-    paymentRequest: any | null;
-  } | null>(null);
+  const [bookingConversionResult, setBookingConversionResult] =
+    useState<BookingConversionResult | null>(null);
   const [isBookingFlowSaving, setIsBookingFlowSaving] = useState(false);
+  const bookingConversionIntentRef = useRef<string | null>(null);
   const [isBookingConvertProofUploading, setIsBookingConvertProofUploading] =
     useState(false);
   const [bookingConvertAttachmentUrls, setBookingConvertAttachmentUrls] =
@@ -678,14 +679,15 @@ export default function OperationsContractDrawer({
   const [settlementPreview, setSettlementPreview] = useState<any | null>(null);
   const [isSettlementPreviewPending, setIsSettlementPreviewPending] =
     useState(false);
-  const [bookingConvertForm, setBookingConvertForm] = useState({
-    startDate: toDateInputValue(),
-    endDate: addYearsToYmd(toDateInputValue(), 1),
-    securityRequired: "",
-    rentAmount: "",
-    excessAction: "CREDIT" as "CREDIT" | "REFUND",
-    refundStatus: "PENDING" as "PENDING" | "COMPLETED",
-  });
+  const [bookingConvertForm, setBookingConvertForm] =
+    useState<BookingConversionForm>({
+      startDate: toDateInputValue(),
+      endDate: addYearsToYmd(toDateInputValue(), 1),
+      securityRequired: "",
+      rentAmount: "",
+      excessAction: "CREDIT",
+      refundStatus: "PENDING",
+    });
   const [bookingCancelForm, setBookingCancelForm] = useState({
     reason: "Khách hủy cọc giữ phòng",
     refundMode: "FULL" as "FULL" | "PARTIAL" | "NONE",
@@ -708,6 +710,7 @@ export default function OperationsContractDrawer({
     fingerprint: string;
     key: string;
   } | null>(null);
+  const bookingConvertInFlightRef = useRef(false);
   const [isApproveSubmitting, setIsApproveSubmitting] = useState(false);
 
   useEffect(() => {
@@ -743,11 +746,16 @@ export default function OperationsContractDrawer({
         )
       : null);
   const bookingDepositBalance = Number(
-    bookingDeposit?.availableBalance ?? bookingDeposit?.amount ?? 0,
+    bookingDeposit?.availableBalance ??
+      (["PAID", "CONVERTED_TO_CONTRACT"].includes(String(bookingDeposit?.status || "").toUpperCase()) ? bookingDeposit?.amount ?? 0 : 0),
   );
   const bookingDepositStatus = String(
     bookingDeposit?.status || "",
   ).toUpperCase();
+  const bookingHold = getBookingHoldState(detailContract);
+  const confirmedBookingPayment = detailContract?.bookingPaymentRequest?.status === "CONFIRMED";
+  const bookingReconciliationError = detailContract?.reconciliationError || bookingDeposit?.reconciliationError;
+  const agreedRentalDefaults = getBookingRentalDefaults(detailContract, toDateInputValue());
   const pendingReviewBookingDeposit = Math.max(
     0,
     Number(
@@ -764,7 +772,9 @@ export default function OperationsContractDrawer({
       ? Number(bookingDeposit?.amount ?? bookingDepositBalance ?? 0)
       : Math.min(
           Number(bookingDeposit?.amount ?? detailContract?.depositMoney ?? 0),
-          pendingReviewBookingDeposit,
+          confirmedBookingPayment
+            ? Number(detailContract?.bookingPaymentRequest?.amount || 0)
+            : pendingReviewBookingDeposit,
         );
   const hasPendingReviewBookingDeposit =
     isBookingHold &&
@@ -864,7 +874,9 @@ export default function OperationsContractDrawer({
       CONTRACT_ACTIVE_HOLD_REQUIRED: "Chỗ giữ đã hết hiệu lực. Cần kiểm tra lại phòng và gia hạn giữ chỗ.",
     };
     showToast(
-      messages[String(message)] || message,
+      messages[String(message)] || (/^(BOOKING_CONVERT_HOLD_|DEPOSIT_RECONCILIATION_|ROOM_HOLD_EXPIRY_INVALID|ROOM_HOLD_CONFLICT|ROOM_NOT_AVAILABLE|ROOM_CAPACITY_EXCEEDED)/.test(String(message))
+        ? getBookingRecoveryErrorMessage(message)
+        : message),
       "error",
     );
   };
@@ -1030,14 +1042,8 @@ export default function OperationsContractDrawer({
 
   useEffect(() => {
     if (!detailContract?.id) return;
-    const rentalStartDate = toDateInputValue(detailContract.startDate);
     setBookingConvertForm({
-      startDate: rentalStartDate,
-      endDate: addYearsToYmd(rentalStartDate, 1),
-      securityRequired: detailContract.depositMoney
-        ? String(Number(detailContract.depositMoney))
-        : "",
-      rentAmount: String(Number(detailContract.monthlyRent || 0)),
+      ...getBookingRentalDefaults(detailContract, toDateInputValue()),
       excessAction: "CREDIT",
       refundStatus: "PENDING",
     });
@@ -1053,7 +1059,19 @@ export default function OperationsContractDrawer({
     setIsBookingCancelProofUploading(false);
     setIsBookingConvertModalOpen(false);
     setIsBookingCancelModalOpen(false);
-  }, [detailContract?.id, detailContract?.depositMoney, bookingDepositBalance]);
+  }, [detailContract?.id, agreedRentalDefaults.startDate, agreedRentalDefaults.rentAmount, agreedRentalDefaults.securityRequired]);
+
+  useEffect(() => {
+    if (!contract?.id) {
+      bookingConversionIntentRef.current = null;
+      return;
+    }
+    if (detailQuery.isPending || detailQuery.isFetching || detailQuery.isError || !detailQuery.data?.data) return;
+    if (contract.initialAction !== "convert-booking" || !isBookingHold || linkedRental) return;
+    if (bookingConversionIntentRef.current === contract.id) return;
+    bookingConversionIntentRef.current = contract.id;
+    setIsBookingConvertModalOpen(true);
+  }, [contract?.id, contract?.initialAction, detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data, isBookingHold, linkedRental]);
 
   useEffect(() => {
     const requestId = ++settlementPreviewRequestRef.current;
@@ -1352,6 +1370,7 @@ export default function OperationsContractDrawer({
     }
     queryClient.invalidateQueries({ queryKey: ["deposits"] });
     queryClient.invalidateQueries({ queryKey: ["rooms"] });
+    queryClient.invalidateQueries({ queryKey: ["buildings"] });
     queryClient.invalidateQueries({ queryKey: ["invoices"] });
     queryClient.invalidateQueries({ queryKey: ["room-finance-summary"] });
     queryClient.invalidateQueries({ queryKey: ["rental-cycle-finance-summary"] });
@@ -1363,6 +1382,11 @@ export default function OperationsContractDrawer({
   };
 
   const handleConvertBookingHold = async () => {
+    if (bookingConvertInFlightRef.current) return;
+    if (!canOperateBookingDeposit || !hasPermission("contract.create")) {
+      showToast("Hồ sơ cọc chưa đủ điều kiện chuyển sang hợp đồng thuê", "error");
+      return;
+    }
     if (!bookingDeposit?.id || !detailContract?.id) {
       showToast("Chưa tìm thấy tiền cọc giữ phòng liên kết hợp đồng", "error");
       return;
@@ -1370,12 +1394,25 @@ export default function OperationsContractDrawer({
     const securityRequired = parseMoneyInput(
       bookingConvertForm.securityRequired,
     );
-    if (securityRequired <= 0) {
+    if (!Number.isSafeInteger(securityRequired) || securityRequired <= 0) {
       showToast("Vui lòng nhập tiền cọc hợp đồng lớn hơn 0", "error");
       return;
     }
-    if (!bookingConvertForm.startDate || !bookingConvertForm.endDate) {
-      showToast("Vui lòng chọn ngày bắt đầu và kết thúc HĐ thuê", "error");
+    if (
+      !bookingConvertForm.rentAmount.trim() ||
+      !Number.isSafeInteger(parseMoneyInput(bookingConvertForm.rentAmount))
+    ) {
+      showToast("Vui lòng nhập giá thuê hợp lệ", "error");
+      return;
+    }
+    if (
+      !bookingConvertForm.startDate ||
+      !bookingConvertForm.endDate ||
+      !Number.isFinite(new Date(bookingConvertForm.startDate).getTime()) ||
+      !Number.isFinite(new Date(bookingConvertForm.endDate).getTime()) ||
+      bookingConvertForm.endDate <= bookingConvertForm.startDate
+    ) {
+      showToast("Ngày kết thúc HĐ thuê phải sau ngày bắt đầu", "error");
       return;
     }
     const expectedExcess = Math.max(
@@ -1394,6 +1431,7 @@ export default function OperationsContractDrawer({
       );
       return;
     }
+    bookingConvertInFlightRef.current = true;
     setIsBookingFlowSaving(true);
     try {
       const conversionFingerprint = JSON.stringify({
@@ -1446,14 +1484,51 @@ export default function OperationsContractDrawer({
         conversion?.additionalCashRequired || 0,
       );
       const conversionPaymentRequest = rentalContract?.conversionPaymentRequest;
+      const entryInvoice =
+        rentalContract?.termsSnapshot?.convertedFromBookingHold
+          ?.initialEntryInvoice;
+      const combined = entryInvoice?.paymentPolicyVersion === "BOOKING_ENTRY_COMBINED_V1";
+      const firstRentAmount = Number(entryInvoice?.rentAmount ?? entryInvoice?.amount ?? 0);
+      const totalAdditionalRequired = combined ? Number(entryInvoice.amount) : additionalCashRequired + firstRentAmount;
+      setBookingConversionResult({
+        sourceContract: detailContract,
+        rentalContract,
+        securityDepositId: conversion?.securityDepositId || null,
+        securityRequired: Number(
+          conversion?.securityRequired || securityRequired,
+        ),
+        transferredAmount: Number(conversion?.transferAmount || 0),
+        additionalCashRequired,
+        excessAmount: Number(conversion?.excessAmount || 0),
+        excessAction: conversion?.excessAction || null,
+        refundStatus: bookingConvertForm.refundStatus,
+        entryInvoice: entryInvoice?.invoiceId
+          ? {
+              id: entryInvoice.invoiceId,
+              code: entryInvoice.invoiceCode,
+              amount: Number(entryInvoice.amount || 0),
+              rentAmount: firstRentAmount,
+              combined,
+              status: entryInvoice.status,
+            }
+          : null,
+        paymentRequest: conversionPaymentRequest || null,
+        sourceLinked:
+          rentalContract?.termsSnapshot?.convertedFromBookingHold
+            ?.sourceContractId === detailContract.id,
+      });
       bookingConvertCommandRef.current = null;
       setIsBookingConvertModalOpen(false);
+      const paymentMessage = entryInvoice?.invoiceId
+        ? `Đã tạo HĐ thuê. Tổng cần thanh toán thêm ${formatCurrency(totalAdditionalRequired)}: tiền phòng kỳ đầu ${formatCurrency(firstRentAmount)} và cọc còn thiếu ${formatCurrency(additionalCashRequired)}.`
+        : "Đã tạo hợp đồng thuê và chuyển cọc. Cần kiểm tra hóa đơn tiền phòng kỳ đầu để xác định tổng phải thu.";
+      const depositQrMessage = totalAdditionalRequired > 0
+        ? conversionPaymentRequest?.paymentCode
+          ? ` Thanh toán một lần qua QR ${conversionPaymentRequest.paymentCode} của hóa đơn nhận phòng.`
+          : " Mở hóa đơn nhận phòng để tạo lại QR thanh toán."
+        : "";
       refreshBookingFlow(
-        additionalCashRequired > 0
-          ? conversionPaymentRequest?.paymentCode
-            ? `Đã tạo HĐ thuê. Cần thu thêm ${formatCurrency(additionalCashRequired)} tiền cọc; QR ${conversionPaymentRequest.paymentCode} đã sẵn sàng để gửi khách.`
-            : `Đã tạo HĐ thuê và chuyển cọc. Còn cần thu ${formatCurrency(additionalCashRequired)}; QR chưa tạo được, hãy mở phiếu cọc hợp đồng để tạo lại.`
-          : "Đã tạo hợp đồng thuê riêng và chuyển đủ tiền cọc. Tiếp tục theo quy trình bên dưới.",
+        paymentMessage + depositQrMessage,
       );
       try {
         await detailQuery.refetch();
@@ -1463,7 +1538,33 @@ export default function OperationsContractDrawer({
     } catch (error: any) {
       handleError(error);
     } finally {
+      bookingConvertInFlightRef.current = false;
       setIsBookingFlowSaving(false);
+    }
+  };
+
+  const handleSubmitConvertedRental = async () => {
+    const rental = bookingConversionResult?.rentalContract;
+    if (
+      !rental?.id ||
+      rental.status !== "DRAFT" ||
+      submitMutation.isPending ||
+      !hasPermission("contract.submit")
+    ) return;
+    try {
+      const response: any = await submitMutation.mutateAsync(rental.id);
+      const updated = response?.data || response;
+      setBookingConversionResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              rentalContract: { ...prev.rentalContract, ...updated },
+            }
+          : null,
+      );
+      refreshBookingFlow("Đã trình duyệt hợp đồng thuê dài hạn");
+    } catch (error) {
+      handleError(error);
     }
   };
 
@@ -1626,14 +1727,21 @@ export default function OperationsContractDrawer({
       const newAttachments = [...(detailContract?.attachments || []), res.url];
       await contractsApi.update(detailContract.id, {
         attachments: newAttachments,
+        ...(isBookingHold && !detailContract.signedAt &&
+        (file.type === "application/pdf" || /\.pdf$/i.test(file.name))
+          ? { signedAt: new Date().toISOString() }
+          : {}),
       });
 
-      showToast("Đã tải lên hồ sơ hợp đồng", "success");
+      showToast(isBookingHold && (file.type === "application/pdf" || /\.pdf$/i.test(file.name))
+        ? "Đã tải PDF và ghi nhận hợp đồng cọc đã ký"
+        : "Đã tải lên hồ sơ hợp đồng", "success");
       await checkAndUpdateContractStatus(
         true,
         detailContract.customer?.idImages?.length || 0,
       );
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["deposits"] });
     } catch (err) {
       console.error(err);
       const message =
@@ -1706,6 +1814,7 @@ export default function OperationsContractDrawer({
       }
       await queryClient.invalidateQueries({ queryKey: ["contracts"] });
       await queryClient.invalidateQueries({ queryKey: ["customers"] });
+      await queryClient.invalidateQueries({ queryKey: ["deposits"] });
 
       // Submitting a complete draft is a follow-up workflow; it must not turn a
       // successful image upload into an error toast if the submission is rejected.
@@ -1765,6 +1874,7 @@ export default function OperationsContractDrawer({
       });
       showToast("Đã xóa file hợp đồng", "success");
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["deposits"] });
       await detailQuery.refetch();
     } catch (err) {
       console.error(err);
@@ -1784,6 +1894,7 @@ export default function OperationsContractDrawer({
       showToast("Đã xóa ảnh CCCD", "success");
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["deposits"] });
       await detailQuery.refetch();
     } catch (err) {
       console.error(err);
@@ -1823,23 +1934,21 @@ export default function OperationsContractDrawer({
 
   const { roomCode, buildingName } = getRoomLabel(detailContract);
   const memberCount = Number(detailContract.memberCount || 0);
-  const remainingDays = Math.max(
-    0,
-    Math.ceil(
-      (new Date(detailContract.endDate).getTime() - new Date().getTime()) /
-        (1000 * 60 * 60 * 24),
-    ),
-  );
+  const termPhase = getRentalTermPhase(detailContract.status);
+  const contractEndTime = new Date(detailContract.endDate).getTime();
+  const remainingDays = Number.isFinite(contractEndTime)
+    ? Math.max(0, Math.ceil((contractEndTime - Date.now()) / 86400000))
+    : null;
 
   const contractPdfUrl =
     detailContract.contractPdfUrl || detailContract.pdfUrl || null;
-  const hasUploadedContract =
-    !!contractPdfUrl ||
-    (detailContract.attachments && detailContract.attachments.length > 0);
-  const hasUploadedCCCD =
-    detailContract.customer?.idImages &&
-    detailContract.customer.idImages.length > 0;
-  const signStatus = detailContract.signedAt ? "Đã ký" : "Chưa ký";
+  const { hasUploadedContract, hasUploadedCCCD, isComplete: hasCompleteSignedDocuments } =
+    getContractDocumentStatus(detailContract);
+  const signStatus = isContractSigned(detailContract) ? "Đã ký" : "Chưa ký";
+  const moveInBlockers = getRentalActivationBlockingMessages(
+    detailContract.bookingConversion?.rentalReadiness,
+    detailContract.startDate,
+  );
   const bookingPaymentRequest = detailContract?.bookingPaymentRequest;
   const bookingInvoice = detailContract?.bookingInvoice;
   const bookingPaymentRequestStatus = String(
@@ -1853,16 +1962,15 @@ export default function OperationsContractDrawer({
     bookingPaymentRequestStatus === "CONFIRMED" ||
     bookingDepositStatus === "PAID" ||
     bookingDepositStatus === "CONVERTED_TO_CONTRACT";
-  const bookingHoldEffective =
-    bookingDepositStatus === "PAID" ||
-    bookingDepositStatus === "CONVERTED_TO_CONTRACT";
+  const bookingDepositRecorded = ["PAID", "CONVERTED_TO_CONTRACT"].includes(bookingDepositStatus);
+  const bookingHoldEffective = bookingDepositRecorded && bookingHold.isActive;
   const bookingHoldTerminal = [
     "CONVERTED_TO_CONTRACT",
     "CANCELLED",
     "REFUNDED",
   ].includes(bookingDepositStatus);
   const bookingPaidBySePay = bookingPaymentRequestStatus === "CONFIRMED";
-  const bookingPaidByCash = bookingHoldEffective && !bookingPaidBySePay;
+  const bookingPaidByCash = bookingDepositRecorded && !bookingPaidBySePay;
   const bookingQrFlowDone = bookingQrSent || bookingPaidBySePay;
   const timelineSteps = isBookingHold
     ? [
@@ -1893,20 +2001,26 @@ export default function OperationsContractDrawer({
           done: bookingPaymentConfirmed,
         },
         {
-          title: "Cọc giữ phòng có hiệu lực",
+          title: linkedRental ? "Giữ phòng đã chuyển sang hợp đồng thuê" : bookingHoldEffective ? "Giữ phòng còn hiệu lực" : "Kiểm tra thời hạn giữ phòng",
           note: bookingDeposit?.status
-            ? bookingHoldEffective
-              ? `Cọc ${bookingDeposit.code || ""} đã được xác nhận`
-              : `Cọc ${bookingDeposit.code || ""} đang chờ thu hoặc đối soát`
+            ? linkedRental
+              ? "Cọc nguồn đã được chuyển và lưu liên kết tra soát."
+              : bookingHoldEffective
+                ? `Đã ghi nhận cọc; giữ phòng đến ${formatDateTime(bookingHold.expiresAt)}`
+                : bookingDepositRecorded
+                  ? "Cọc đã ghi nhận. Hệ thống kiểm tra chỗ còn khả dụng khi chuyển sang HĐ thuê."
+                  : bookingPaymentConfirmed
+                    ? "Đã xác nhận thanh toán, chờ đồng bộ vào cọc. Không thu lại tiền."
+                    : `Cọc ${bookingDeposit.code || ""} đang chờ thu hoặc đối soát`
             : "Chờ deposit BOOKING/RESERVATION liên kết",
-          done: bookingHoldEffective,
+          done: bookingHoldEffective || Boolean(linkedRental),
           active: !bookingHoldEffective && !bookingHoldTerminal,
         },
         {
           title: linkedRental ? "Đã chuyển sang hợp đồng thuê dài hạn" : "Chuyển HĐ thuê dài hạn hoặc hủy cọc",
           note: linkedRental ? `Liên kết ${linkedRental.code || linkedRental.id} · Xem tiến độ hợp đồng thuê phía trên` : "Chuyển sẽ tạo hợp đồng thuê nháp riêng rồi chuyển cọc",
           done: bookingHoldTerminal,
-          active: bookingHoldEffective && !bookingHoldTerminal,
+          active: bookingDepositRecorded && !bookingHoldTerminal,
         },
       ]
     : [
@@ -1915,15 +2029,13 @@ export default function OperationsContractDrawer({
           note: formatDateTime(detailContract.createdAt),
           done: true,
         },
-        ...(signStatus === "Đã ký"
-          ? [
-              {
-                title: "Đã ký & Upload hồ sơ",
-                note: "File hợp đồng/CCCD đã có trong hồ sơ",
-                done: true,
-              },
-            ]
-          : []),
+        {
+          title: hasCompleteSignedDocuments ? "Đã ký & Upload hồ sơ" : "Hồ sơ ký chưa đầy đủ",
+          note: hasCompleteSignedDocuments
+            ? "Đã có ngày ký, file hợp đồng và hai ảnh CCCD"
+            : `${signStatus} · ${hasUploadedContract ? "Có file hợp đồng" : "Thiếu file hợp đồng"} · ${hasUploadedCCCD ? "Đủ ảnh CCCD" : "Thiếu ảnh CCCD"}`,
+          done: hasCompleteSignedDocuments,
+        },
         ...(detailContract.status === "ACTIVE"
           ? [
               {
@@ -1970,7 +2082,7 @@ export default function OperationsContractDrawer({
             <div className="flex items-center gap-3">
               {isBookingHold && !linkedRental && (
                 <>
-                  {canOperateBookingDeposit ? (
+                  {canOperateBookingDeposit || confirmedBookingPayment ? (
                     <>
                       <Button
                         data-testid="btn-open-booking-convert"
@@ -1980,7 +2092,7 @@ export default function OperationsContractDrawer({
                       >
                         Chuyển HĐ thuê dài hạn
                       </Button>
-                      <Button
+                      {canOperateBookingDeposit && <Button
                         data-testid="btn-open-booking-cancel"
                         variant="outline"
                         onClick={() => setIsBookingCancelModalOpen(true)}
@@ -1988,7 +2100,7 @@ export default function OperationsContractDrawer({
                         title="Hủy cọc giữ phòng và phân bổ hoàn/giữ/cấn trừ"
                       >
                         Hủy cọc giữ phòng
-                      </Button>
+                      </Button>}
                     </>
                   ) : bookingDeposit?.id && !bookingHoldTerminal ? (
                     <Button
@@ -2038,7 +2150,10 @@ export default function OperationsContractDrawer({
                 hasPermission("contract.activate") && (
                   <Button
                     data-testid="btn-activate-contract"
-                    onClick={() => setConfirmMoveIn(true)}
+                    onClick={() => {
+                      setConfirmMoveIn(true);
+                      void detailQuery.refetch();
+                    }}
                     isLoading={activateMutation.isPending}
                   >
                     Xác nhận nhận phòng
@@ -2190,7 +2305,8 @@ export default function OperationsContractDrawer({
                 lưu trú)
               </Button>
               {!isBookingHold &&
-                !statusConfig?.isTerminal &&
+                termPhase === "running" &&
+                remainingDays !== null &&
                 remainingDays <= 30 && (
                   <Button className="bg-amber-500 hover:bg-amber-600 text-white shadow-lg animate-pulse border-none">
                     <CalendarClock size={16} className="mr-2" /> Gia hạn
@@ -2239,16 +2355,12 @@ export default function OperationsContractDrawer({
                           : "warning"
                       }
                     >
-                      {linkedRental ? "Đã chuyển sang hợp đồng thuê dài hạn" : `Cọc: ${bookingDeposit.status}`}
+                      {linkedRental ? "Đã chuyển sang hợp đồng thuê dài hạn" : confirmedBookingPayment && !bookingDepositRecorded ? "Đang tự động đồng bộ cọc" : bookingDepositRecorded ? "Cọc đã ghi nhận" : "Cọc chưa thanh toán"}
                     </Badge>
                   ) : null}
-                  {!isBookingHold && (
-                    <Badge
-                      variant={signStatus === "Đã ký" ? "success" : "warning"}
-                    >
-                      {signStatus}
-                    </Badge>
-                  )}
+                  <Badge variant={signStatus === "Đã ký" ? "success" : "warning"}>
+                    {signStatus}
+                  </Badge>
                 </div>
               </div>
               <div className="text-right flex flex-col items-end gap-[4px]">
@@ -2264,31 +2376,39 @@ export default function OperationsContractDrawer({
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-4 pt-3 border-t border-slate-200/60 dark:border-white/[0.06]">
+            <div className="grid grid-cols-2 gap-4 pt-3 border-t border-slate-200/60 dark:border-white/[0.06] lg:grid-cols-4">
               <div className="flex flex-col gap-[4px]">
                 <span className="text-[11px] font-bold text-muted uppercase">
-                  {isBookingHold ? "Ngày lập cọc" : "Ngày bắt đầu"}
+                  {isBookingHold ? "Ngày lập cọc" : termPhase === "pending" ? "Ngày bắt đầu dự kiến" : "Ngày bắt đầu"}
                 </span>
                 <span className="text-[14px] font-bold text-text">
-                  {formatDate(detailContract.startDate)}
+                  {formatDate(isBookingHold ? detailContract.createdAt : detailContract.startDate)}
                 </span>
               </div>
               <div className="flex flex-col gap-[4px]">
                 <span className="text-[11px] font-bold text-muted uppercase">
-                  {isBookingHold ? "Ngày hẹn vào ở" : "Ngày kết thúc"}
+                  {isBookingHold ? "Ngày hẹn vào ở" : termPhase === "pending" ? "Ngày kết thúc dự kiến" : "Ngày kết thúc"}
                 </span>
                 <span className="text-[14px] font-bold text-text">
-                  {formatDate(detailContract.endDate)}
+                  {formatDate(isBookingHold ? detailContract.startDate : detailContract.endDate)}
                 </span>
               </div>
               <div className="flex flex-col gap-[4px]">
                 <span className="text-[11px] font-bold text-muted uppercase">
-                  {isBookingHold ? "Thời hạn ở" : "Thời gian còn lại"}
+                  {isBookingHold ? "Thời hạn ở" : termPhase === "running" ? "Thời gian còn lại" : "Hiệu lực thuê"}
                 </span>
                 <span
-                  className={`text-[14px] font-black flex items-center gap-1 ${isBookingHold ? "text-muted" : "text-[#f97316]"}`}
+                  className={`text-[14px] font-black flex items-center gap-1 ${termPhase === "running" && !isBookingHold ? "text-amber-600 dark:text-amber-300" : "text-muted"}`}
                 >
-                  {isBookingHold ? "Không áp dụng" : `${remainingDays} ngày`}
+                  {isBookingHold
+                    ? "Không áp dụng"
+                    : termPhase === "running"
+                      ? remainingDays === null ? "Chưa xác định" : `${remainingDays} ngày`
+                      : termPhase === "expired"
+                        ? "Đã hết hạn"
+                        : termPhase === "ended"
+                          ? detailContract.status === "CANCELLED" ? "Đã hủy" : "Đã chấm dứt"
+                          : "Chưa có hiệu lực"}
                 </span>
               </div>
               <div className="flex flex-col gap-[4px]">
@@ -2320,7 +2440,7 @@ export default function OperationsContractDrawer({
                         : "Giá thuê / tháng"}
                     </span>
                     <span className="text-[14px] font-black text-text">
-                      {Number(detailContract.monthlyRent || 0).toLocaleString(
+                      {Number(isBookingHold ? agreedRentalDefaults.rentAmount : detailContract.monthlyRent || 0).toLocaleString(
                         "vi-VN",
                       )}
                       đ
@@ -2331,10 +2451,9 @@ export default function OperationsContractDrawer({
                       {isBookingHold ? "Tiền cọc HĐ dự kiến" : "Tiền cọc"}
                     </span>
                     <span className="text-[14px] font-black text-text">
-                      {Number(detailContract.depositMoney || 0).toLocaleString(
-                        "vi-VN",
-                      )}
-                      đ
+                      {isBookingHold && !agreedRentalDefaults.securityRequired
+                        ? "Chưa thỏa thuận"
+                        : formatCurrency(Number(isBookingHold ? agreedRentalDefaults.securityRequired : detailContract.depositMoney || 0))}
                     </span>
                   </div>
                   {isBookingHold && (
@@ -2851,303 +2970,33 @@ export default function OperationsContractDrawer({
           </div>
         </Modal>
 
-        <Modal
+        <BookingHoldConversionModal
           isOpen={isBookingConvertModalOpen}
-          onClose={() => setIsBookingConvertModalOpen(false)}
-          title="Chuyển cọc giữ phòng sang hợp đồng thuê dài hạn"
-          maxWidth="max-w-[560px]"
-          testId="booking-hold-convert-modal"
-        >
-          <div className="p-4 flex flex-col gap-4">
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-muted">
-              Hệ thống sẽ chuyển số dư cọc giữ phòng sang tiền cọc hợp đồng. Nếu
-              tiền cọc giữ phòng lớn hơn tiền cọc hợp đồng, phần dư có thể ghi
-              nhận công nợ có lợi cho khách hoặc tạo phiếu hoàn.
-            </div>
-            <div className="grid grid-cols-1 gap-3">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div>
-                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
-                    Ngày bắt đầu HĐ thuê
-                  </label>
-                  <StyledDateInput
-                    value={bookingConvertForm.startDate}
-                    onChange={(val) =>
-                      setBookingConvertForm((prev) => ({
-                        ...prev,
-                        startDate: val,
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
-                    Ngày kết thúc HĐ thuê
-                  </label>
-                  <StyledDateInput
-                    value={bookingConvertForm.endDate}
-                    onChange={(val) =>
-                      setBookingConvertForm((prev) => ({
-                        ...prev,
-                        endDate: val,
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-              <div className="rounded-xl border border-border/70 bg-card p-3 text-xs text-muted">
-                Hợp đồng thuê mới ở trạng thái nháp, cùng khách/phòng/kỳ thuê với hồ sơ cọc. Cần ký và duyệt riêng trước nhận phòng.
-              </div>
-              <div>
-                <label htmlFor="booking-rental-price" className="text-xs font-bold text-muted">Giá thuê mỗi tháng</label>
-                <Input id="booking-rental-price" value={formatVndInput(bookingConvertForm.rentAmount)} onChange={(event) => setBookingConvertForm((prev) => ({ ...prev, rentAmount: event.target.value.replace(/[^0-9]/g, "") }))} />
-              </div>
-              <div>
-                <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
-                  Tiền cọc hợp đồng cần giữ
-                </label>
-                <Input
-                  value={formatVndInput(bookingConvertForm.securityRequired)}
-                  onChange={(event) =>
-                    setBookingConvertForm((prev) => ({
-                      ...prev,
-                      securityRequired: event.target.value.replace(
-                        /[^0-9]/g,
-                        "",
-                      ),
-                    }))
-                  }
-                  placeholder="Nhập số tiền"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
-                  Nếu có phần dư
-                </label>
-                <Select
-                  value={bookingConvertForm.excessAction}
-                  onChange={(event) =>
-                    setBookingConvertForm((prev) => ({
-                      ...prev,
-                      excessAction: event.target.value as "CREDIT" | "REFUND",
-                    }))
-                  }
-                  options={[
-                    {
-                      label: "Ghi nhận công nợ có lợi cho khách",
-                      value: "CREDIT",
-                    },
-                    { label: "Tạo phiếu hoàn phần dư", value: "REFUND" },
-                  ]}
-                />
-              </div>
-              {bookingConvertForm.excessAction === "REFUND" ? (
-                <>
-                  <div>
-                    <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
-                      Trạng thái hoàn phần dư
-                    </label>
-                    <Select
-                      value={bookingConvertForm.refundStatus}
-                      onChange={(event) =>
-                        setBookingConvertForm((prev) => ({
-                          ...prev,
-                          refundStatus: event.target.value as
-                            "PENDING" | "COMPLETED",
-                        }))
-                      }
-                      options={[
-                        { label: "Chờ hoàn tiền", value: "PENDING" },
-                        { label: "Đã hoàn tiền", value: "COMPLETED" },
-                      ]}
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <RefundProofUploader
-                      value={bookingConvertAttachmentUrls}
-                      onChange={setBookingConvertAttachmentUrls}
-                      onUploadingChange={setIsBookingConvertProofUploading}
-                      disabled={isBookingFlowSaving}
-                      required={
-                        bookingConvertForm.refundStatus === "COMPLETED" &&
-                        bookingDepositBalance >
-                          parseMoneyInput(bookingConvertForm.securityRequired)
-                      }
-                      folder="booking-deposit-conversion-refunds"
-                    />
-                  </div>
-                </>
-              ) : null}
-            </div>
-            <div className="flex items-center justify-end gap-3">
-              <Button
-                variant="ghost"
-                onClick={() => setIsBookingConvertModalOpen(false)}
-              >
-                Đóng
-              </Button>
-              <Button
-                data-testid="booking-hold-convert-submit"
-                onClick={handleConvertBookingHold}
-                isLoading={isBookingFlowSaving}
-                disabled={isBookingFlowSaving || isBookingConvertProofUploading}
-              >
-                Xác nhận chuyển
-              </Button>
-            </div>
-          </div>
-        </Modal>
-
-        <Modal
-          isOpen={Boolean(bookingConversionResult)}
-          onClose={() => setBookingConversionResult(null)}
-          title="Đã tạo hợp đồng thuê từ cọc giữ phòng"
-          maxWidth="max-w-[640px]"
-          testId="booking-hold-conversion-result-modal"
-          footer={
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button
-                variant="outline"
-                onClick={() => setBookingConversionResult(null)}
-              >
-                Đóng
-              </Button>
-              {onOpenContract && bookingConversionResult?.rentalContractId ? (
-                <Button
-                  data-testid="booking-hold-open-rental-contract"
-                  onClick={() => {
-                    const id = bookingConversionResult.rentalContractId;
-                    setBookingConversionResult(null);
-                    onOpenContract({ id });
-                  }}
-                >
-                  Mở hợp đồng thuê mới
-                </Button>
-              ) : null}
-            </div>
+          source={{ ...detailContract, reconciliationError: bookingReconciliationError }}
+          balance={bookingDepositBalance}
+          canConvert={
+            canOperateBookingDeposit && hasPermission("contract.create")
           }
-        >
-          {bookingConversionResult ? (
-            <div className="flex flex-col gap-4 text-sm">
-              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3 text-emerald-800 dark:text-emerald-300">
-                Cọc giữ phòng đã được cấn sang cọc hợp đồng. Hợp đồng thuê mới
-                vẫn ở trạng thái nháp và cần được duyệt/kích hoạt theo quy
-                trình.
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-border/70 bg-card p-3">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                    Hợp đồng thuê mới
-                  </p>
-                  <p className="mt-1 font-black text-text">
-                    {bookingConversionResult.rentalContractCode}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    Trạng thái: {bookingConversionResult.rentalContractStatus}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-card p-3">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                    Cọc hợp đồng
-                  </p>
-                  <p className="mt-1 font-black text-text">
-                    {formatCurrency(bookingConversionResult.securityRequired)}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    Đã cấn:{" "}
-                    {formatCurrency(bookingConversionResult.transferredAmount)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-card p-3">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                    Hóa đơn kỳ đầu
-                  </p>
-                  <p className="mt-1 font-black text-text">
-                    {bookingConversionResult.entryInvoice?.code ||
-                      "Đã tạo bản nháp"}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    {bookingConversionResult.entryInvoice
-                      ? `${formatCurrency(bookingConversionResult.entryInvoice.amount)} · ${bookingConversionResult.entryInvoice.status}`
-                      : "Hóa đơn ENTRY nằm trong snapshot hợp đồng mới"}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-card p-3">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                    Phần dư cọc giữ phòng
-                  </p>
-                  <p className="mt-1 font-black text-text">
-                    {formatCurrency(bookingConversionResult.excessAmount)}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    {bookingConversionResult.excessAmount > 0
-                      ? "Đã xử lý theo lựa chọn credit/hoàn tiền."
-                      : "Không có phần dư cần xử lý."}
-                  </p>
-                </div>
-              </div>
-
-              {bookingConversionResult.additionalCashRequired > 0 ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-                  <div className="flex flex-col gap-1">
-                    <p className="font-black text-text">
-                      Cần thu thêm{" "}
-                      {formatCurrency(
-                        bookingConversionResult.additionalCashRequired,
-                      )}{" "}
-                      tiền cọc
-                    </p>
-                    <p className="text-xs text-muted">
-                      Chỉ webhook ngân hàng/SePay xác nhận QR này mới ghi nhận
-                      khoản tiền còn thiếu.
-                    </p>
-                  </div>
-                  {bookingConversionResult.paymentRequest?.qrUrl ? (
-                    <div className="mt-3 flex flex-col items-center gap-3 sm:flex-row sm:items-start">
-                      <img
-                        src={bookingConversionResult.paymentRequest.qrUrl}
-                        alt="VietQR cọc hợp đồng còn thiếu"
-                        className="h-40 w-40 rounded-lg border border-border bg-white p-1 object-contain"
-                      />
-                      <div className="min-w-0 text-xs text-muted">
-                        <p>
-                          <strong className="text-text">Mã thanh toán:</strong>{" "}
-                          {bookingConversionResult.paymentRequest.paymentCode ||
-                            "Chưa có"}
-                        </p>
-                        <p className="mt-1">
-                          <strong className="text-text">Số tiền:</strong>{" "}
-                          {formatCurrency(
-                            Number(
-                              bookingConversionResult.paymentRequest.amount ||
-                                bookingConversionResult.additionalCashRequired,
-                            ),
-                          )}
-                        </p>
-                        <p className="mt-1">
-                          <strong className="text-text">Ngân hàng:</strong>{" "}
-                          {bookingConversionResult.paymentRequest.bankName ||
-                            "Theo Settings"}
-                        </p>
-                        <p className="mt-1 break-all">
-                          <strong className="text-text">Tài khoản:</strong>{" "}
-                          {bookingConversionResult.paymentRequest
-                            .bankAccountNumber || "Chưa có"}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-xs text-amber-800 dark:text-amber-300">
-                      Chưa tạo được QR theo Settings. Mở hợp đồng thuê mới và
-                      tạo lại phiếu cọc hợp đồng trước khi gửi khách.
-                    </p>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </Modal>
+          form={bookingConvertForm}
+          onChange={setBookingConvertForm}
+          onClose={() => setIsBookingConvertModalOpen(false)}
+          onConfirm={handleConvertBookingHold}
+          saving={isBookingFlowSaving}
+          proofUrls={bookingConvertAttachmentUrls}
+          onProofChange={setBookingConvertAttachmentUrls}
+          proofUploading={isBookingConvertProofUploading}
+          onProofUploadingChange={setIsBookingConvertProofUploading}
+        />
+        <BookingHoldConversionResultModal
+          result={bookingConversionResult}
+          onClose={() => setBookingConversionResult(null)}
+          onOpenContract={onOpenContract}
+          onOpenInvoice={setFlowInvoice}
+          onOpenDeposit={setFlowDepositId}
+          onSubmit={handleSubmitConvertedRental}
+          submitting={submitMutation.isPending}
+          canSubmit={hasPermission("contract.submit")}
+        />
 
         <Modal
           isOpen={isBookingCancelModalOpen}
@@ -4369,10 +4218,17 @@ export default function OperationsContractDrawer({
         />
         <Modal isOpen={confirmMoveIn} onClose={() => setConfirmMoveIn(false)} title="Xác nhận nhận phòng" testId="contract-move-in-confirm">
           <div className="p-4 flex flex-col gap-3">
-            <p className="text-sm text-text">Xác nhận bàn giao phòng cho {customerName} theo hợp đồng {detailContract.code}. Hệ thống kiểm tra ngày hiệu lực, chữ ký, phê duyệt, cọc và chỗ trống trước khi ghi nhận khách đang ở.</p>
-            {detailContract.bookingConversion && <p className="text-sm text-muted">Hợp đồng chuyển từ cọc giữ phòng phải thanh toán đủ hóa đơn kỳ đầu. Chỉ số đầu vào được lưu theo dữ liệu đồng hồ hiện có khi nhận phòng.</p>}
-            {detailContract.bookingConversion?.rentalReadiness?.canActivate === false && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">Chưa đủ điều kiện: kiểm tra các bước ký, duyệt, cọc và thanh toán phía trên.</p>}
-            <Button isLoading={activateMutation.isPending} disabled={detailQuery.isError || detailContract.bookingConversion?.rentalReadiness?.canActivate === false} onClick={() => {
+            <p className="text-sm text-text">Bàn giao phòng cho {customerName} theo hợp đồng {detailContract.code}.</p>
+            {detailContract.bookingConversion && <p className="text-sm text-muted">Chỉ số điện nước đầu vào sẽ lấy từ đồng hồ hiện tại.</p>}
+            {moveInBlockers.length > 0 && (
+              <div role="alert" className="border-l-[3px] border-amber-500 bg-amber-500/5 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+                <p className="font-bold">Chưa thể nhận phòng</p>
+                <ul className="mt-1 list-disc space-y-1 pl-5">
+                  {moveInBlockers.map((message, index) => <li key={`${index}-${message}`}>{message}</li>)}
+                </ul>
+              </div>
+            )}
+            <Button isLoading={activateMutation.isPending || detailQuery.isFetching} disabled={detailQuery.isError || detailQuery.isFetching || moveInBlockers.length > 0} onClick={() => {
               const command = activationCommandRef.current?.id === detailContract.id && activationCommandRef.current
                 ? activationCommandRef.current : { id: detailContract.id, key: `contract-activate-${crypto.randomUUID()}` };
               activationCommandRef.current = command;

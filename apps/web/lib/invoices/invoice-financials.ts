@@ -10,6 +10,9 @@ export function getInvoiceFinancials(invoice: any) {
   const settled = Math.min(total, paid + credit);
   const reportedOverpaid = Math.max(0, Number(invoice?.overpaymentAmount ?? invoice?.overpaidAmount ?? 0) || 0);
   const overpaid = Math.max(reportedOverpaid, paid + credit - total);
+  const depositDocument = invoice?.documentType === "DEPOSIT";
+  const refunded = depositDocument ? Math.max(0, Number(invoice.refundedAmount) || 0) : 0;
+  const closedDeposit = depositDocument && ["CANCELLED", "REFUNDED", "CONVERTED_TO_CONTRACT"].includes(invoice.status);
 
   return {
     total,
@@ -19,9 +22,17 @@ export function getInvoiceFinancials(invoice: any) {
     credit,
     settled,
     overpaid,
-    remaining: Math.max(0, total - settled),
+    refunded,
+    remaining: closedDeposit ? 0 : Math.max(0, total - settled),
     settledPercent: total > 0 ? Math.min(100, Math.round((settled / total) * 100)) : 0,
   };
+}
+
+export function getBillingDocumentCashflow(invoice: any, direction: "INCOME" | "EXPENSE") {
+  const { total, paid, refunded } = getInvoiceFinancials(invoice);
+  return direction === "EXPENSE"
+    ? { totalIncome: 0, paidIncome: 0, totalExpense: total, paidExpense: paid }
+    : { totalIncome: total, paidIncome: paid, totalExpense: refunded, paidExpense: refunded };
 }
 
 export function isBookingHoldInvoice(invoice: any) {

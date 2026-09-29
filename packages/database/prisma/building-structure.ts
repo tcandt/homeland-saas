@@ -9,7 +9,7 @@ const MANAGED_BUILDING_DISPLAY_ORDER = new Map<string, number>(
   MANAGED_BUILDINGS.map((code, index) => [code, index * 1000]),
 );
 export const LK01_ROOM_TOPOLOGY = [
-  { level: 1, suffix: '01', bedCount: 1, capacity: 2, area: 25, monthlyPrice: 0 },
+  { level: 1, suffix: '01', bedCount: 1, capacity: 2, area: 18, monthlyPrice: 0 },
   { level: 2, suffix: '02', bedCount: 2, capacity: 4, area: 50, monthlyPrice: 0 },
   { level: 2, suffix: '03', bedCount: 1, capacity: 2, area: 18, monthlyPrice: 0 },
   { level: 3, suffix: '04', bedCount: 2, capacity: 4, area: 50, monthlyPrice: 0 },
@@ -17,6 +17,12 @@ export const LK01_ROOM_TOPOLOGY = [
   { level: 4, suffix: '06', bedCount: 2, capacity: 4, area: 50, monthlyPrice: 0 },
   { level: 4, suffix: '07', bedCount: 1, capacity: 2, area: 18, monthlyPrice: 0 },
 ] as const;
+
+// LK01.32 mirrors LK01.31 except that 32-06 is a large one-bedroom room.
+// Keep this override explicit so capacity/bed metadata does not infer it as 2PN.
+export const LK0132_ROOM_OVERRIDES = {
+  '06': { bedCount: 1, capacity: 2, area: 50 },
+} as const;
 
 const LK08_ROOM_TOPOLOGY = {
   'LK08.24': [
@@ -149,13 +155,24 @@ export async function ensureManagedBuildingStructure(prisma: DatabaseClient, ten
       if (!sourceLevel) throw new Error(`Không xác định được tầng nguồn của ${sourceRoom.code}`);
       const floor = targetFloorByLevel.get(sourceLevel)!;
       const code = sourceRoom.code.replace(/PN\s*31-/i, 'PN 32-');
+      const suffix = code.match(/PN\s*32-(\d{2})$/i)?.[1];
+      const override = suffix ? LK0132_ROOM_OVERRIDES[suffix as keyof typeof LK0132_ROOM_OVERRIDES] : undefined;
       await tx.room.upsert({
         where: { tenantId_buildingId_code: { tenantId, buildingId: target.id, code } },
-        update: { floorId: floor.id, deletedAt: null },
+        update: {
+          floorId: floor.id,
+          deletedAt: null,
+          bedCount: override?.bedCount ?? sourceRoom.bedCount,
+          capacity: override?.capacity ?? sourceRoom.capacity,
+          area: override?.area ?? sourceRoom.area,
+          monthlyPrice: sourceRoom.monthlyPrice,
+        },
         create: {
           tenantId, buildingId: target.id, floorId: floor.id, code, name: code,
-          bedCount: sourceRoom.bedCount, capacity: sourceRoom.capacity,
-          area: sourceRoom.area, monthlyPrice: sourceRoom.monthlyPrice,
+          bedCount: override?.bedCount ?? sourceRoom.bedCount,
+          capacity: override?.capacity ?? sourceRoom.capacity,
+          area: override?.area ?? sourceRoom.area,
+          monthlyPrice: sourceRoom.monthlyPrice,
         },
       });
     }

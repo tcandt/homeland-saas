@@ -24,6 +24,7 @@ import {
   DepositExcessAction,
 } from './deposit-core.policy';
 import { summarizeAuthoritativeFinance } from './finance-summary.policy';
+import { assertCombinedEntryInvoice, getCombinedEntryInvoice } from '../invoices/combined-entry-invoice';
 
 type TransactionClient = any;
 
@@ -37,6 +38,10 @@ export interface CollectDepositCommand {
     sourceInvoiceId?: string | null;
     paymentProvider?: string | null;
     paymentRef?: string | null;
+    /** Internal reconciliation marker; never accepted from public DTOs. */
+    paymentRequestId?: string | null;
+    skipHoldCreation?: boolean;
+    skipRoomReservation?: boolean;
   };
 }
 
@@ -147,6 +152,7 @@ export class DepositCoreService {
       let rentalCycleId = command.input.rentalCycleId || null;
       let contractId = command.input.contractId || null;
       if (contractId) {
+        await this.lockContract(tx, tenantId, contractId);
         const contract = await tx.contract.findFirst({
           where: {
             id: contractId,
@@ -307,8 +313,11 @@ export class DepositCoreService {
   }
 
   async collect(tenantId: string, depositId: string, input: CollectDepositCommand, userId: string) {
+    return this.runSerializable((tx) => this.collectInTransaction(tx, tenantId, depositId, input, userId));
+  }
+
+  async collectInTransaction(tx: TransactionClient, tenantId: string, depositId: string, input: CollectDepositCommand, userId: string) {
     const command = this.normalizeCommand(input);
-    const result = await this.runSerializable(async (tx: TransactionClient) => {
       await this.lockCommand(tx, tenantId, command.idempotencyKey);
       const replay = await this.getReplay(tx, tenantId, command.idempotencyKey, command.requestHash);
       if (replay) return replay;
@@ -320,7 +329,7 @@ export class DepositCoreService {
           room: { include: { building: true, floor: true } },
           rentalCycle: true,
           customer: { select: { fullName: true, phone: true, zaloChatId: true, zaloUserId: true } },
-          contract: { select: { id: true, code: true, roomId: true, startDate: true, endDate: true, firstPaymentDate: true } },
+          contract: { select: { id: true, tenantId: true, customerId: true, rentalCycleId: true, termsSnapshot: true, code: true, roomId: true, startDate: true, endDate: true, firstPaymentDate: true } },
         },
       });
       if (!deposit) throw new BadRequestException('DEPOSIT_NOT_FOUND');
@@ -372,6 +381,25 @@ export class DepositCoreService {
       const collectionAmount = this.toMoney(this.toMoney(deposit.amount) - currentBalance);
       if (collectionAmount <= 0) throw new ConflictException('DEPOSIT_ALREADY_FUNDED');
 
+      const entry = getCombinedEntryInvoice(deposit.contract);
+      if (entry?.securityDepositId === deposit.id) {
+        const context = command.input.notificationContext;
+        if (!context?.linkedInvoicePayment || context.sourceInvoiceId !== entry.invoiceId) {
+          throw new ConflictException('SECURITY_DEPOSIT_PAY_THROUGH_ENTRY_INVOICE');
+        }
+        const invoice = await tx.invoice.findFirst({
+          where: { id: entry.invoiceId, tenantId, deletedAt: null }, include: { items: true },
+        });
+        assertCombinedEntryInvoice(invoice || {}, deposit.contract, entry);
+        if (deposit.type !== DepositType.SECURITY || deposit.customerId !== deposit.contract.customerId ||
+          deposit.rentalCycleId !== deposit.contract.rentalCycleId || deposit.roomId !== deposit.contract.roomId ||
+          this.toMoney(deposit.amount) !== entry.securityRequired || currentBalance !== entry.transferredAmount ||
+          collectionAmount !== entry.additionalCashRequired || invoice.status !== 'PAID' ||
+          Number(invoice.paidAmount) < entry.amount || Number(invoice.creditAmount || 0) !== 0) {
+          throw new ConflictException('COMBINED_ENTRY_DEPOSIT_FUNDING_CONFLICT');
+        }
+      }
+
       const operation = await tx.depositOperation.create({
         data: {
           tenantId,
@@ -386,7 +414,24 @@ export class DepositCoreService {
         },
       });
 
-      const hold = [DepositType.BOOKING, DepositType.RESERVATION].includes(deposit.type)
+      const isBookingDeposit = [DepositType.BOOKING, DepositType.RESERVATION].includes(deposit.type);
+      const bypassesBookingHold = Boolean(
+        command.input.notificationContext?.skipHoldCreation ||
+        command.input.notificationContext?.skipRoomReservation,
+      );
+      if (bypassesBookingHold) {
+        if (!isBookingDeposit || !command.input.notificationContext?.linkedInvoicePayment) {
+          throw new ConflictException('DEPOSIT_RECONCILIATION_BYPASS_FORBIDDEN');
+        }
+        await this.assertAuthoritativeLinkedInvoicePayment(
+          tx,
+          tenantId,
+          deposit,
+          collectionAmount,
+          command.input.notificationContext,
+        );
+      }
+      const hold = isBookingDeposit && !command.input.notificationContext?.skipHoldCreation
         ? await this.ensureActiveHold(tx, tenantId, deposit, command.input.holdExpiresAt, userId, command.idempotencyKey)
         : null;
 
@@ -414,10 +459,12 @@ export class DepositCoreService {
       });
       if (changed.count !== 1) throw new ConflictException('DEPOSIT_CONCURRENT_UPDATE');
 
-      await tx.rentalCycle.updateMany({
-        where: { id: deposit.rentalCycleId, tenantId, status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED] } },
-        data: { status: RentalCycleStatus.RESERVED },
-      });
+      if (!command.input.notificationContext?.skipRoomReservation) {
+        await tx.rentalCycle.updateMany({
+          where: { id: deposit.rentalCycleId, tenantId, status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED] } },
+          data: { status: RentalCycleStatus.RESERVED },
+        });
+      }
 
       const response = {
         operationId: operation.id,
@@ -475,15 +522,176 @@ export class DepositCoreService {
       await this.completeOperation(tx, tenantId, operation.id, response);
       await this.writeAudit(tx, tenantId, userId, 'COLLECT', deposit.id, deposit, response);
       return response;
-    });
-
-    return result;
   }
 
   async convertToSecurity(tenantId: string, bookingDepositId: string, input: ConvertDepositCommand, userId: string) {
     return this.runSerializable(async (tx: TransactionClient) => {
       return this.convertToSecurityInTransaction(tx, tenantId, bookingDepositId, input, userId);
     });
+  }
+
+  /**
+   * Conversion-only hold recovery. Existing active holds are reused; an
+   * expired/missing hold can be recreated only with an explicit future date.
+   */
+  async ensureActiveHoldForConversionInTransaction(
+    tx: TransactionClient,
+    tenantId: string,
+    bookingDepositId: string,
+    holdExpiresAt: string | Date | null | undefined,
+    userId: string,
+    idempotencyKey: string,
+  ) {
+    await this.lockDeposit(tx, tenantId, bookingDepositId);
+    const deposit = await tx.deposit.findFirst({
+      where: { id: bookingDepositId, tenantId, deletedAt: null },
+      include: { room: { include: { building: true, floor: true } }, rentalCycle: true },
+    });
+    if (!deposit) throw new BadRequestException('DEPOSIT_NOT_FOUND');
+    if (![DepositType.BOOKING, DepositType.RESERVATION].includes(deposit.type)) {
+      throw new BadRequestException('DEPOSIT_SOURCE_MUST_BE_BOOKING');
+    }
+    const now = new Date();
+    await this.lockRoom(tx, tenantId, deposit.roomId);
+    const room = await tx.room.findFirst({
+      where: { id: deposit.roomId, tenantId, deletedAt: null },
+    });
+    if (!room) throw new BadRequestException('ROOM_NOT_FOUND');
+    if ([RoomStatus.CLEANING, RoomStatus.MAINTENANCE].includes(room.status)) {
+      throw new ConflictException('BOOKING_CONVERT_HOLD_ROOM_UNAVAILABLE');
+    }
+    await this.expireRoomHolds(tx, tenantId, deposit.roomId, now);
+    if (room.rentalType === RoomRentalType.WHOLE) {
+      // A pre-existing own hold is not renewed here, but it must not mask a
+      // concurrently created exclusive tenancy on the same locked room.
+      await this.assertNoForeignConversionReservation(tx, tenantId, deposit);
+    }
+    await this.assertConversionRecoveryCapacity(tx, tenantId, room, deposit.id, now);
+    const active = await tx.roomHold.findFirst({
+      where: { tenantId, depositId: deposit.id, status: RoomHoldStatus.ACTIVE, expiresAt: { gt: now } },
+    });
+    if (active) return active;
+    if (!holdExpiresAt) throw new ConflictException('BOOKING_CONVERT_HOLD_RECOVERY_REQUIRES_EXPIRY');
+    const expiresAt = new Date(holdExpiresAt);
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt <= now) {
+      throw new BadRequestException('BOOKING_CONVERT_HOLD_EXPIRY_INVALID');
+    }
+    return this.ensureActiveHold(tx, tenantId, deposit, expiresAt, userId, idempotencyKey);
+  }
+
+  /**
+   * Capacity is evaluated against other occupancy/resources. The source
+   * booking's active hold is already its own allocated slot and must not make
+   * an otherwise valid conversion self-conflict.
+   */
+  private async assertConversionRecoveryCapacity(
+    tx: TransactionClient,
+    tenantId: string,
+    room: any,
+    ownDepositId: string,
+    now: Date,
+  ) {
+    const [occupancyCount, foreignHoldCount] = await Promise.all([
+      tx.occupancy.count({ where: { tenantId, roomId: room.id, leftAt: null } }),
+      tx.roomHold.count({
+        where: {
+          tenantId,
+          roomId: room.id,
+          status: RoomHoldStatus.ACTIVE,
+          expiresAt: { gt: now },
+          OR: [{ depositId: { not: ownDepositId } }, { depositId: null }],
+        },
+      }),
+    ]);
+    const usedByOthers = occupancyCount + foreignHoldCount;
+    if (room.rentalType === RoomRentalType.WHOLE && usedByOthers > 0) {
+      throw new ConflictException('ROOM_HOLD_CONFLICT');
+    }
+    if (room.rentalType !== RoomRentalType.WHOLE && usedByOthers >= Math.max(Number(room.capacity || 1), 1)) {
+      throw new ConflictException('ROOM_CAPACITY_EXCEEDED');
+    }
+  }
+
+  private async assertNoForeignConversionReservation(
+    tx: TransactionClient,
+    tenantId: string,
+    deposit: any,
+  ) {
+    const foreignContract = await tx.contract.findFirst({
+      where: {
+        tenantId,
+        roomId: deposit.roomId,
+        deletedAt: null,
+        status: {
+          in: [
+            ContractStatus.DRAFT,
+            ContractStatus.PENDING_APPROVAL,
+            ContractStatus.APPROVED,
+            ContractStatus.ACTIVE,
+            ContractStatus.EXPIRING,
+          ],
+        },
+        OR: [
+          { rentalCycleId: { not: deposit.rentalCycleId } },
+          { rentalCycleId: null },
+        ],
+      },
+      select: { id: true },
+    });
+    if (foreignContract) throw new ConflictException('BOOKING_CONVERT_HOLD_FOREIGN_CONTRACT');
+    const foreignCycle = await tx.rentalCycle.findFirst({
+      where: {
+        tenantId,
+        roomId: deposit.roomId,
+        id: { not: deposit.rentalCycleId },
+        status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED, RentalCycleStatus.ACTIVE] },
+      },
+      select: { id: true },
+    });
+    if (foreignCycle) throw new ConflictException('BOOKING_CONVERT_HOLD_FOREIGN_CYCLE');
+  }
+
+  private async assertAuthoritativeLinkedInvoicePayment(
+    tx: TransactionClient,
+    tenantId: string,
+    deposit: any,
+    collectionAmount: number,
+    context: CollectDepositCommand['notificationContext'],
+  ) {
+    const requestId = String(context?.paymentRequestId || '').trim();
+    const invoiceId = String(context?.sourceInvoiceId || '').trim();
+    if (!requestId || !invoiceId) throw new ConflictException('DEPOSIT_RECONCILIATION_PROOF_REQUIRED');
+    const request = await tx.paymentRequest.findFirst({
+      where: { id: requestId, tenantId, sourceType: 'INVOICE', sourceId: invoiceId, status: 'CONFIRMED' },
+      select: { id: true, amount: true, providerTransactionId: true, paidAt: true },
+    });
+    if (!request || !request.providerTransactionId || !request.paidAt || Number(request.amount || 0) <= 0) {
+      throw new ConflictException('DEPOSIT_RECONCILIATION_PROOF_INVALID');
+    }
+    const invoice = await tx.invoice.findFirst({
+      where: { id: invoiceId, tenantId, deletedAt: null },
+      select: { id: true, period: true, total: true, paidAmount: true, creditAmount: true, status: true, contractId: true, rentalCycleId: true, customerId: true, contract: { select: { roomId: true } } },
+    });
+    if (String(invoice?.period || '').trim().toLowerCase() !== 'cọc giữ phòng') {
+      throw new ConflictException('DEPOSIT_RECONCILIATION_INVOICE_INVALID');
+    }
+    const paidCash = Number(invoice?.paidAmount || 0);
+    const isPaid = String(invoice?.status || '').toUpperCase() === 'PAID' || paidCash >= Number(invoice?.total || 0);
+    const contractMismatch = Boolean(deposit.contractId && invoice?.contractId && deposit.contractId !== invoice.contractId);
+    const cycleMismatch = Boolean(deposit.rentalCycleId && invoice?.rentalCycleId && deposit.rentalCycleId !== invoice.rentalCycleId);
+    const customerMismatch = Boolean(invoice?.customerId && invoice.customerId !== deposit.customerId);
+    const roomMismatch = Boolean(invoice?.contract?.roomId && invoice.contract.roomId !== deposit.roomId);
+    const hasScopeAnchor = Boolean(
+      (invoice?.contractId && invoice.contractId === deposit.contractId) ||
+      (invoice?.rentalCycleId && invoice.rentalCycleId === deposit.rentalCycleId) ||
+      (invoice?.customerId === deposit.customerId && invoice?.contract?.roomId === deposit.roomId),
+    );
+    if (
+      !isPaid || !hasScopeAnchor || contractMismatch || cycleMismatch || customerMismatch || roomMismatch ||
+      Number(request.amount || 0) < collectionAmount || paidCash < collectionAmount
+    ) {
+      throw new ConflictException('DEPOSIT_RECONCILIATION_SCOPE_INVALID');
+    }
   }
 
   /**
@@ -1783,6 +1991,13 @@ export class DepositCoreService {
       Prisma.sql`SELECT "id" FROM "Room" WHERE "tenantId" = ${tenantId} AND "id" = ${roomId} AND "deletedAt" IS NULL FOR UPDATE`,
     ) as Array<{ id: string }>;
     if (!rows.length) throw new BadRequestException('ROOM_NOT_FOUND');
+  }
+
+  private async lockContract(tx: TransactionClient, tenantId: string, contractId: string) {
+    const rows = await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "Contract" WHERE "tenantId" = ${tenantId} AND "id" = ${contractId} AND "deletedAt" IS NULL FOR UPDATE`,
+    ) as Array<{ id: string }>;
+    if (!rows.length) throw new BadRequestException('DEPOSIT_CONTRACT_SCOPE_MISMATCH');
   }
 
   private async lockRooms(tx: TransactionClient, tenantId: string, roomIds: string[]) {

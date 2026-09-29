@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { getBookingDepositRefreshInterval } from "../contracts/booking-conversion";
 import {
   ContractSettlementPayload,
   contractsApi,
@@ -57,7 +58,11 @@ export const useContractDetailQuery = (id: string) => {
       return { data: response };
     },
     enabled: !!id,
-    refetchInterval: (query) => (query.state.data as any)?.data?.bookingConversion ? 15000 : false,
+    refetchInterval: (query) => {
+      const contract = (query.state.data as any)?.data;
+      return getBookingDepositRefreshInterval(contract?.bookingDeposit, contract?.bookingPaymentRequest) ||
+        (contract?.bookingConversion ? 15000 : false);
+    },
   });
 };
 

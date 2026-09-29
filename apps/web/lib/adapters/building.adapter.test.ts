@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adaptRoom, isTempResidenceDeclared } from "./building.adapter";
+import { adaptBuilding, adaptRoom, isTempResidenceDeclared } from "./building.adapter";
 
 function apiRoom(overrides: Record<string, unknown> = {}) {
   return {
@@ -81,6 +81,22 @@ describe("adaptRoom optional numeric fields", () => {
     expect(adaptRoom(apiRoom({ rentalType: "SHARED" })).rentalType).toBe("shared");
     expect(adaptRoom(apiRoom({ rentalType: "WHOLE" })).rentalType).toBe("whole");
     expect(adaptRoom(apiRoom({ rentalType: undefined })).rentalType).toBe("whole");
+  });
+
+  it("uses the parent building identity for flattened room type mapping", () => {
+    const building = adaptBuilding({
+      id: "building-31",
+      code: "LK01.31",
+      name: "LK01.31",
+      floors: [{ id: "floor-3", level: 3 }],
+      rooms: [apiRoom({ id: "room-31-02", code: "31-02", floorId: "floor-3" })],
+    });
+
+    expect(building.floors[0].rooms[0]).toMatchObject({
+      type: "2PN",
+      roomType: "2 phòng ngủ",
+      buildingName: "LK01.31",
+    });
   });
 
   it("accepts the persisted temporary-residence declaration marker from the server", () => {

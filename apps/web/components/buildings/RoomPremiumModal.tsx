@@ -107,6 +107,7 @@ import {
   isNonTerminalContract,
 } from "@/lib/adapters/room-status.adapter";
 import { maskPhone, maskCccd } from "@/lib/adapters/tenant-masking.adapter";
+import { getRoomTypeResolution, normalizeRoomTypeSetting } from "@/lib/rooms/room-type-resolver";
 import { evaluateExistingCustomerSelection } from '@/lib/adapters/customer-selection';
 import {
   advanceTenantSelectionContext,
@@ -287,12 +288,22 @@ const getRoomRentalTypeSettingLabel = (rentalType?: Room["rentalType"]) =>
   ROOM_RENTAL_TYPE_OPTIONS.find((option) => option.value === rentalType)
     ?.label || ROOM_RENTAL_TYPE_OPTIONS[0].label;
 
-export const getStoredRoomType = (rId: string, fallback?: string) => {
+export const getStoredRoomType = (
+  rId: string,
+  fallback?: string,
+  options?: { authoritative?: boolean },
+) => {
+  const canonicalFallback = normalizeRoomTypeSetting(fallback) || "1 phòng ngủ";
   if (typeof window !== "undefined") {
+    const explicitOverride = normalizeRoomTypeSetting(
+      localStorage.getItem(`homeland_room_type_override_${rId}`),
+    );
+    if (explicitOverride) return explicitOverride;
     const stored = localStorage.getItem(`homeland_room_type_${rId}`);
-    if (stored) return stored;
+    const legacyValue = normalizeRoomTypeSetting(stored);
+    if (legacyValue && !options?.authoritative) return legacyValue;
   }
-  return fallback || "1 phòng ngủ";
+  return canonicalFallback;
 };
 
 const EMPTY_TENANT_DRAFT: TenantDraft = {
@@ -528,6 +539,16 @@ export default function RoomPremiumModal({
     }
     if (currentRoom) break;
   }
+  const currentRoomTypeResolution = getRoomTypeResolution({
+    roomType: (currentRoom as any)?.roomType,
+    type: currentRoom?.type,
+    code: currentRoom?.code || currentRoom?.name,
+    buildingCode: currentBuilding?.code || (currentRoom as any)?.building?.code,
+    buildingName: currentBuilding?.name || currentRoom?.buildingName || (currentRoom as any)?.building?.name,
+  });
+  const currentRoomType = getStoredRoomType(roomId, currentRoomTypeResolution.value, {
+    authoritative: currentRoomTypeResolution.source !== "default",
+  });
 
   const currentBuildingId: string = String(
     currentBuilding?.id || (currentRoom as any)?.buildingId || "",
@@ -665,10 +686,7 @@ export default function RoomPremiumModal({
     ngayKetThuc: getLocalYMD(
       new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
     ),
-    soPhongNgu: getStoredRoomType(
-      roomId,
-      (currentRoom as any)?.roomType || (currentRoom as any)?.type,
-    ),
+    soPhongNgu: currentRoomType,
     thoiHanThue: "1 năm",
     chuNha: resolveBuildingLandlord(currentBuilding, currentRoom),
     ngayKyhopdong: getLocalYMD(),
@@ -809,7 +827,7 @@ export default function RoomPremiumModal({
   const expireContractMutation = useExpireContractMutation();
   const deleteRoomMutation = useDeleteRoomMutation();
 
-  const [selectedFlowContract, setSelectedFlowContract] = useState<{ id: string } | null>(null);
+  const [selectedFlowContract, setSelectedFlowContract] = useState<{ id: string; initialAction?: "convert-booking" } | null>(null);
   const { data: roomContractsData } = useContractsQuery({ roomId, limit: 100 });
   const roomContractsList = useMemo(() => {
     const items = (roomContractsData as any)?.data || [];
@@ -1385,10 +1403,7 @@ export default function RoomPremiumModal({
       ? ({
           ...currentRoom,
           rentalType: currentRoom.rentalType || "whole",
-          roomType: getStoredRoomType(
-            roomId,
-            (currentRoom as any)?.roomType || (currentRoom as any)?.type,
-          ),
+          roomType: currentRoomType,
         } as any)
       : currentRoom,
   );
@@ -1400,10 +1415,7 @@ export default function RoomPremiumModal({
         ? ({
             ...currentRoom,
             rentalType: currentRoom.rentalType || "whole",
-            roomType: getStoredRoomType(
-              roomId,
-              (currentRoom as any)?.roomType || (currentRoom as any)?.type,
-            ),
+            roomType: currentRoomType,
           } as any)
         : currentRoom,
     );
@@ -1827,6 +1839,7 @@ export default function RoomPremiumModal({
     if (field === "roomType") {
       if (typeof window !== "undefined") {
         localStorage.setItem(`homeland_room_type_${roomId}`, value);
+        localStorage.setItem(`homeland_room_type_override_${roomId}`, value);
       }
       setContractDraft((prev) => ({ ...prev, soPhongNgu: value }));
     }
@@ -2511,10 +2524,6 @@ export default function RoomPremiumModal({
                 : new Date(new Date().setFullYear(new Date().getFullYear() + 1))
                     .toISOString()
                     .slice(0, 10),
-            signedAt:
-              isCustomContract && contractDraft.ngayKyhopdong
-                ? new Date(contractDraft.ngayKyhopdong).toISOString()
-                : new Date().toISOString(),
             firstPaymentDate:
               isCustomContract && contractDraft.ngayThanhToanDauTien
                 ? new Date(contractDraft.ngayThanhToanDauTien).toISOString()
@@ -2604,12 +2613,6 @@ export default function RoomPremiumModal({
         }
       }
 
-      if (onUpdateRoom) {
-        await onUpdateRoom(roomId, {
-          status: "occupied",
-        } as any);
-      }
-
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["rooms"] }),
           queryClient.invalidateQueries({ queryKey: ["buildings"] }),
@@ -2628,7 +2631,7 @@ export default function RoomPremiumModal({
         ) {
           return {
             ...prev,
-            status: shouldCreateContract ? "occupied" : prev.status,
+            status: shouldCreateContract && prev.status !== "occupied" ? "deposited" : prev.status,
             tenant: {
               ...prev.tenant,
               ...savedTenantInfo,
@@ -2790,7 +2793,7 @@ export default function RoomPremiumModal({
           return {
             ...prev,
             tenant: isSharedRoom ? null : prev.tenant,
-            status: shouldCreateContract ? "occupied" : prev.status,
+            status: shouldCreateContract && prev.status !== "occupied" ? "deposited" : prev.status,
             contract:
               shouldCreateContract && createdContract
                 ? {
@@ -3312,7 +3315,6 @@ export default function RoomPremiumModal({
     const expectedMoveInDate = normalizeStrictYmdDate(contractDraft.ngayBatDau) || getLocalYMD();
     const startDate = expectedMoveInDate;
     const endDate = normalizeStrictYmdDate(contractDraft.ngayKetThuc) || expectedMoveInDate;
-    const signedAt = normalizeStrictYmdDate(contractDraft.ngayKyhopdong);
     const firstPaymentDate = normalizeStrictYmdDate(contractDraft.ngayThanhToanDauTien);
     const expectedMoveInDateText = formatYmdForVietnamDisplay(expectedMoveInDate);
     const contractResponse: any = await contractsApi.create({
@@ -3321,9 +3323,6 @@ export default function RoomPremiumModal({
       contractCode: `HD-COC-${roomData?.code || roomData?.name || roomId}-${Date.now().toString().slice(-4)}`,
       startDate,
       endDate,
-      signedAt: signedAt
-        ? vietnamDateToIso(signedAt)
-        : new Date().toISOString(),
       firstPaymentDate: firstPaymentDate
         ? vietnamDateToIso(firstPaymentDate)
         : new Date().toISOString(),
@@ -3388,32 +3387,12 @@ export default function RoomPremiumModal({
     const contract = contractResponse?.data || contractResponse;
     const invoiceCustomerId = customerIdOverride || rentalIntentContext?.customerId;
     if (!contract?.id || !invoiceCustomerId) return;
-    const amount = Number(contract.depositMoney || roomData?.monthlyPrice || 0) +
-      Number(contract.monthlyRent || roomData?.monthlyPrice || 0);
-    if (amount <= 0) return;
-    const invoiceResponse: any = await invoicesApi.create({
-      roomId,
-      contractId: contract.id,
-      customerId: invoiceCustomerId,
-      rentalCycleId: contract.rentalCycleId,
-      period: "Kỳ đầu vào ở",
-      dueDate: new Date().toISOString(),
-      totalAmount: amount,
-      paidAmount: 0,
-      notes: "Hóa đơn đầu kỳ: tiền cọc hợp đồng + tiền thuê kỳ đầu.",
-      items: [
-        ...(Number(contract.depositMoney || 0) > 0
-          ? [{ name: "Tiền cọc hợp đồng", type: "RENT", amount: Number(contract.depositMoney), quantity: 1 }]
-          : []),
-        ...(Number(contract.monthlyRent || roomData?.monthlyPrice || 0) > 0
-          ? [{ name: "Tiền thuê kỳ đầu", type: "RENT", amount: Number(contract.monthlyRent || roomData?.monthlyPrice || 0), quantity: 1 }]
-          : []),
-      ],
-    });
-    const invoice = invoiceResponse?.data || invoiceResponse;
+    const billingResponse: any = await contractsApi.prepareEntryBilling(contract.id);
+    const billing = billingResponse?.data || billingResponse;
+    const invoice = billing?.entryInvoice || billing?.invoice || billing;
     if (!invoice?.id) return;
-    await invoicesApi.issue(invoice.id);
-    const request = await paymentsApi.createInvoiceRequest(invoice.id);
+    const request = billing?.entryPaymentRequest ||
+      (billing?.paymentRequestId ? { id: billing.paymentRequestId } : null);
     try {
       await paymentsApi.sendInvoiceToZalo(invoice.id);
     } catch {
@@ -4753,6 +4732,10 @@ export default function RoomPremiumModal({
                                     toaNha:
                                       currentBuilding?.name ||
                                       "..........................",
+                                    buildingCode:
+                                      currentBuilding?.code ||
+                                      currentBuilding?.name ||
+                                      "",
                                     diachiToanha:
                                       currentBuilding?.address ||
                                       "..........................",
@@ -4999,7 +4982,12 @@ export default function RoomPremiumModal({
                                                   className="flex w-full items-center px-3 py-2 rounded-xl text-left text-[12px] font-bold text-primary hover:bg-primary/10 transition-colors cursor-pointer"
                                                   onClick={() => {
                                                     setOpenContractMenuId(null);
-                                                    setSelectedFlowContract({ id: c.id });
+                                                    setSelectedFlowContract({
+                                                      id: c.id,
+                                                      ...(isBookingContract && !getLinkedRental(c)
+                                                        ? { initialAction: "convert-booking" as const }
+                                                        : {}),
+                                                    });
                                                   }}
                                                 >
                                                   <FileText

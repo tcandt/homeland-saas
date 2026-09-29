@@ -59,3 +59,28 @@ test('queries only read models and supports tenant scoping', async () => {
   assert.equal(calls.length, 7);
   for (const [, args] of calls) assert.equal(args.where.tenantId, 'tenant-1');
 });
+
+test('treats a converted booking contract as history and uses ledger deposit balances', () => {
+  const source = {
+    id: 'booking-contract', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'customer-1',
+    rentalCycleId: 'cycle-1', rentalCycle: { tenantId: 'tenant-1', customerId: 'customer-1', roomId: 'room-1' },
+    status: 'PENDING_APPROVAL', startDate: new Date('2026-01-01'), endDate: new Date('2026-12-31'), termsSnapshot: {},
+  };
+  const rental = {
+    id: 'rental-contract', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'customer-1',
+    rentalCycleId: 'cycle-1', rentalCycle: { tenantId: 'tenant-1', customerId: 'customer-1', roomId: 'room-1' },
+    status: 'ACTIVE', startDate: new Date('2026-01-01'), endDate: new Date('2026-12-31'),
+    termsSnapshot: { convertedFromBookingHold: { sourceContractId: 'booking-contract' } },
+  };
+  const contract = { ...rental, depositMoney: 8000000 };
+  const report = analyzeLifecycleData({
+    rooms: [], occupancies: [], customers: [], contracts: [source, rental], invoices: [], payments: [],
+    deposits: [
+      { id: 'booking-deposit', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'customer-1', contractId: 'rental-contract', rentalCycleId: 'cycle-1', amount: 1000000, status: 'CONVERTED_TO_CONTRACT', ledgerEntries: [{ balanceEffect: 1000000 }, { balanceEffect: -1000000 }], contract },
+      { id: 'security-deposit', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'customer-1', contractId: 'rental-contract', rentalCycleId: 'cycle-1', amount: 8000000, status: 'CONVERTED_TO_CONTRACT', ledgerEntries: [{ balanceEffect: 1000000 }, { balanceEffect: 7000000 }], contract },
+    ],
+  });
+
+  assert.equal(report.countsByCode.OVERLAPPING_ROOM_CONTRACTS, undefined);
+  assert.equal(report.countsByCode.CONTRACT_DEPOSIT_BALANCE_MISMATCH, undefined);
+});

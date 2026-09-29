@@ -139,6 +139,7 @@ export default function SettingsNotificationAutomation() {
   };
   const [speechVoices, setSpeechVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedTemplateCode, setSelectedTemplateCode] = useState("INVOICE_ZALO_PAYMENT_REQUEST");
+  const [templateAudience, setTemplateAudience] = useState<"ALL" | "ADMIN" | "CLIENT" | "SYSTEM">("ALL");
   const [templateEditor, setTemplateEditor] = useState<NotificationTemplateContent>({
     name: "",
     subject: "",
@@ -152,6 +153,10 @@ export default function SettingsNotificationAutomation() {
     mutate: mutateTemplateCatalog,
   } = useSWR("notification-template-catalog", notificationTemplatesApi.list, { revalidateOnFocus: false });
   const notificationTemplates = templateCatalog?.templates || [];
+  const visibleTemplates = useMemo(
+    () => templateAudience === "ALL" ? notificationTemplates : notificationTemplates.filter((template) => template.audience === templateAudience),
+    [notificationTemplates, templateAudience],
+  );
   const selectedTemplate = useMemo<NotificationTemplateCatalogItem | null>(
     () => notificationTemplates.find((template) => template.code === selectedTemplateCode) || notificationTemplates[0] || null,
     [notificationTemplates, selectedTemplateCode],
@@ -289,6 +294,16 @@ export default function SettingsNotificationAutomation() {
     }
   };
 
+  const useDefaultTemplate = () => {
+    if (!selectedTemplate) return;
+    setTemplateEditor({
+      name: selectedTemplate.default.name,
+      subject: selectedTemplate.default.subject || "",
+      body: selectedTemplate.default.body,
+    });
+    setTemplatePreview(null);
+  };
+
   const previewSound = async (soundId: NotificationSoundId) => {
     const unlocked = await unlockNotificationAudio();
     if (!unlocked) {
@@ -423,20 +438,42 @@ export default function SettingsNotificationAutomation() {
         ) : (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
             <div className="space-y-3">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-black uppercase tracking-wider text-muted">Sự kiện</span>
-                <select
-                  aria-label="Chọn sự kiện mẫu tin"
-                  value={selectedTemplate.code}
-                  onChange={(event) => setSelectedTemplateCode(event.target.value)}
-                  className="h-10 rounded-lg border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary"
-                  data-testid="settings-notification-template-code"
-                >
-                  {notificationTemplates.map((template) => (
-                    <option key={template.code} value={template.code}>{template.default.name}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-muted">Đối tượng</span>
+                  <select
+                    aria-label="Lọc đối tượng mẫu tin"
+                    value={templateAudience}
+                    onChange={(event) => {
+                      const audience = event.target.value as typeof templateAudience;
+                      setTemplateAudience(audience);
+                      const first = audience === "ALL" ? notificationTemplates[0] : notificationTemplates.find((template) => template.audience === audience);
+                      if (first) setSelectedTemplateCode(first.code);
+                    }}
+                    className="h-10 rounded-lg border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary"
+                    data-testid="settings-notification-template-audience"
+                  >
+                    <option value="ALL">Tất cả đối tượng</option>
+                    <option value="ADMIN">Admin / vận hành</option>
+                    <option value="CLIENT">Khách thuê</option>
+                    <option value="SYSTEM">Hệ thống</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-muted">Sự kiện</span>
+                  <select
+                    aria-label="Chọn sự kiện mẫu tin"
+                    value={selectedTemplate.code}
+                    onChange={(event) => setSelectedTemplateCode(event.target.value)}
+                    className="h-10 rounded-lg border border-border bg-background px-3 text-xs font-bold text-text outline-none focus:border-primary"
+                    data-testid="settings-notification-template-code"
+                  >
+                    {visibleTemplates.map((template) => (
+                      <option key={template.code} value={template.code}>{template.default.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1.5">
@@ -483,6 +520,9 @@ export default function SettingsNotificationAutomation() {
                 </Button>
                 <Button type="button" variant="outline" size="sm" onClick={() => void saveTemplateDraft()} isLoading={isTemplateSaving} className="h-8 gap-1.5 px-3 text-[11px]" data-testid="settings-notification-template-save-draft">
                   <Save size={12} /> Lưu nháp
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={useDefaultTemplate} disabled={isTemplateSaving} className="h-8 gap-1.5 px-3 text-[11px]" data-testid="settings-notification-template-use-default">
+                  <RotateCcw size={12} /> Dùng mặc định
                 </Button>
                 <Button type="button" variant="primary" size="sm" onClick={() => void publishTemplate()} isLoading={isTemplateSaving} className="h-8 gap-1.5 px-3 text-[11px]" data-testid="settings-notification-template-publish">
                   <Send size={12} /> Xuất bản

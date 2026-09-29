@@ -11,6 +11,7 @@ describe('getInvoiceFinancials', () => {
       credit: 200_000,
       settled: 500_000,
       overpaid: 0,
+      refunded: 0,
       remaining: 500_000,
       settledPercent: 50,
     });

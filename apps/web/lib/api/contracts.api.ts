@@ -119,6 +119,10 @@ export const contractsApi = {
     return apiClient.post(`/contracts/${id}/approve`);
   },
 
+  prepareEntryBilling: (id: string) => {
+    return apiClient.post(`/contracts/${id}/prepare-entry-billing`, {});
+  },
+
   activate: (id: string, idempotencyKey: string) => {
     const commandKey = requireIdempotencyKey(idempotencyKey);
     return apiClient.post(

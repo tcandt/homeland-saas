@@ -4,6 +4,8 @@ import React, { useMemo, useState } from "react";
 import { Building2, ChevronDown, Coins, ShieldCheck, UserPlus, Clock } from "lucide-react";
 import { useDepositsQuery } from "../../lib/queries/deposits.queries";
 import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
+import { getDepositStatusLabel } from "../../lib/deposits/deposit-status";
+import { DepositDocumentsStatus } from "./DepositDocumentsStatus";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { ErrorState } from "../ui/ErrorState";
@@ -134,12 +136,13 @@ export default function DepositsMobileFlow() {
                       </div>
                     </div>
 
-                    {isPaid && <span data-testid="deposit-status-badge" className="px-2 py-0.5 bg-[#3b82f6]/10 text-[#3b82f6] text-[9px] font-bold rounded-[4px]">Đã thu</span>}
+                    {isPaid && <span data-testid="deposit-status-badge" className="px-2 py-0.5 bg-[#3b82f6]/10 text-[#3b82f6] text-[10px] font-bold rounded-[4px] shrink-0">{getDepositStatusLabel(item)}</span>}
                     {isRefunded && <span data-testid="deposit-status-badge" className="px-2 py-0.5 bg-[#22c55e]/10 text-[#22c55e] text-[9px] font-bold rounded-[4px]">Đã hoàn</span>}
                     {isCancelled && <span data-testid="deposit-status-badge" className="px-2 py-0.5 bg-black/5 text-muted text-[9px] font-bold rounded-[4px]">Đã hủy</span>}
                     {!isPaid && !isRefunded && !isCancelled && <span data-testid="deposit-status-badge" className="px-2 py-0.5 bg-black/5 text-muted text-[9px] font-bold rounded-[4px]">{item.status}</span>}
                   </div>
 
+                  <div className="pl-2 mt-2"><DepositDocumentsStatus documents={item.documents} /></div>
                   <div className="flex items-center justify-between pl-2 mt-2 pt-2 border-t border-border/50">
                     <div className="flex flex-col">
                       <span className="text-[9px] font-bold text-muted uppercase">Loại cọc • Ngày lập</span>

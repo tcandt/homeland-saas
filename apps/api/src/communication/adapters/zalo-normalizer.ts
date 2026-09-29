@@ -284,13 +284,14 @@ export function mergeRecentZaloWebhookChat(value: any, capturedChat: ZaloWebhook
 }
 
 export function buildTenantWebhookUrl(value: any) {
-  const rawBaseUrl = String(
-    value?.webhookBaseUrl
-    || value?.baseUrl
-    || process.env.APP_URL
-    || process.env.NEXT_PUBLIC_SITE_URL
-    || '',
-  ).trim();
+  const rawBaseUrl = [
+    value?.baseUrl,
+    value?.webhookBaseUrl,
+    process.env.APP_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+  ]
+    .map((candidate) => candidate === null || candidate === undefined ? '' : String(candidate).trim())
+    .find(Boolean) || '';
   if (!rawBaseUrl) return '';
   const normalized = rawBaseUrl.replace(/\/+$/, '');
   const apiMarker = normalized.indexOf('/api/v1/');

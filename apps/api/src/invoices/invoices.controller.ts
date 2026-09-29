@@ -66,6 +66,17 @@ export class InvoicesController {
     );
   }
 
+  @Get("deposit-documents")
+  @RequirePermissions("invoice.read", "deposit.read")
+  @ApiOperation({ summary: "List deposit collection documents without creating invoices" })
+  listDepositDocuments(@Query() query: any, @CurrentUser("tenantId") tenantId: string) {
+    const { page, limit } = PaginationSchema.parse(query);
+    const { roomId, customerId, contractId, rentalCycleId } = query;
+    return this.invoicesService.listDepositBillingDocuments(
+      tenantId, page, limit, { roomId, customerId, contractId, rentalCycleId },
+    );
+  }
+
   @Get(":id")
   @RequirePermissions("invoice.read")
   @ApiOperation({ summary: "Get invoice details" })

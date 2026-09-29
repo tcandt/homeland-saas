@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Test, TestingModule } from "@nestjs/testing";
 import {
   calculateFirstBillingPeriod,
@@ -12,11 +12,15 @@ import {
   ContractStatus,
   DepositStatus,
   DepositType,
+  InvoiceStatus,
   RoomStatus,
 } from "@prisma/client";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import { HunonicService } from "../hunonic/hunonic.service";
 import { DepositCoreService } from "../deposits/deposit-core.service";
+import { DepositsService } from "../deposits/deposits.service";
+import { InvoicesService } from "../invoices/invoices.service";
+import { COMBINED_ENTRY_POLICY } from "../invoices/combined-entry-invoice";
 
 describe("ContractsService", () => {
   let service: ContractsService;
@@ -25,6 +29,7 @@ describe("ContractsService", () => {
   let eventPublisher: any;
   let hunonicService: any;
   let depositCoreService: any;
+  let depositsService: any;
 
   beforeEach(async () => {
     prismaService = {
@@ -131,7 +136,9 @@ describe("ContractsService", () => {
     };
     depositCoreService = {
       convertToSecurityInTransaction: vi.fn(),
+      ensureActiveHoldForConversionInTransaction: vi.fn().mockResolvedValue({ id: "hold-1" }),
     };
+    depositsService = { getDetail: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -140,6 +147,7 @@ describe("ContractsService", () => {
           provide: ContractsRepository,
           useValue: {
             findById: vi.fn(),
+            paginate: vi.fn(),
             softDelete: vi.fn(),
           },
         },
@@ -163,11 +171,23 @@ describe("ContractsService", () => {
           provide: DepositCoreService,
           useValue: depositCoreService,
         },
+        {
+          provide: DepositsService,
+          useValue: depositsService,
+        },
+        {
+          provide: InvoicesService,
+          useValue: { issueInTransaction: vi.fn().mockResolvedValue({ status: "ISSUED" }) },
+        },
       ],
     }).compile();
 
     service = module.get<ContractsService>(ContractsService);
   });
+
+  const mockLockedContract = (contract: any) => {
+    prismaService.tx.contract.findFirst.mockImplementationOnce(async () => contract);
+  };
 
   describe("deposit synchronization", () => {
     it("preserves the actual paid booking amount when linking it to a contract", async () => {
@@ -199,6 +219,7 @@ describe("ContractsService", () => {
   });
 
   describe("booking-hold conversion", () => {
+    afterEach(() => vi.useRealTimers());
     it("reads live ledger and allocated credit for the linked rental in the source tenant", async () => {
       const source = { id: "source", tenantId: "tenant-1", code: "HD-COC-01", termsSnapshot: { bookingConversion: { rentalContractId: "rental" } } };
       prismaService.tx.contract.findFirst.mockResolvedValue({ id: "rental", tenantId: "tenant-1", status: "APPROVED", depositMoney: 5000, signedAt: new Date("2026-01-01"), startDate: new Date("2026-01-01") });
@@ -216,6 +237,38 @@ describe("ContractsService", () => {
       expect((await (service as any).getBookingConversionView(source)).rentalReadiness.canActivate).toBe(true);
     });
 
+    it("treats a zero-security rental as deposit-ready", async () => {
+      const source = {
+        id: "source-zero",
+        tenantId: "tenant-1",
+        code: "HD-COC-00",
+        termsSnapshot: { bookingConversion: { rentalContractId: "rental-zero" } },
+      };
+      prismaService.tx.contract.findFirst.mockResolvedValue({
+        id: "rental-zero",
+        tenantId: "tenant-1",
+        status: ContractStatus.APPROVED,
+        depositMoney: 0,
+        signedAt: new Date("2026-01-01"),
+        startDate: new Date("2026-01-01"),
+      });
+      prismaService.tx.deposit.findFirst.mockResolvedValue(null);
+      prismaService.tx.invoice.findFirst.mockResolvedValue({
+        id: "entry-zero",
+        status: InvoiceStatus.PAID,
+        total: 3000,
+        paidAmount: 3000,
+        creditAmount: 0,
+      });
+
+      const view = await (service as any).getBookingConversionView(source);
+
+      expect(view.rentalReadiness.depositPaid).toBe(true);
+      expect(view.rentalReadiness.blockingReasons).not.toContain(
+        "SECURITY_DEPOSIT_UNPAID",
+      );
+    });
+
     it("recovers an older source link only from a target in the same rental cycle and tenant", async () => {
       const source = { id: "source", tenantId: "tenant-1", rentalCycleId: "cycle-1", code: "HD-COC-01" };
       prismaService.tx.contract.findMany = vi.fn().mockResolvedValue([{ id: "rental", termsSnapshot: { convertedFromBookingHold: { sourceContractId: "source" } } }]);
@@ -227,6 +280,7 @@ describe("ContractsService", () => {
     it("rejects a stale generic edit before it can overwrite a newly committed source link", async () => {
       const version = new Date("2026-09-01T12:00:00Z");
       vi.spyOn(service, "getDetail").mockResolvedValue({ id: "source", tenantId: "tenant-1", status: "DRAFT", updatedAt: version, termsSnapshot: { bookingConversion: { rentalContractId: "rental" } } } as any);
+      prismaService.tx.contract.findFirst.mockResolvedValue({ id: "source", tenantId: "tenant-1", status: "DRAFT", updatedAt: version, termsSnapshot: { bookingConversion: { rentalContractId: "rental" } } });
       (service as any).withContractSnapshots = vi.fn().mockResolvedValue({ termsSnapshot: { monthlyRent: 1000 } });
       prismaService.tx.contract.update.mockRejectedValue({ code: "P2025" });
       await expect(service.update("source", { signedAt: new Date() }, "user-1")).rejects.toThrow("CONTRACT_CONCURRENT_UPDATE_RELOAD_REQUIRED");
@@ -234,7 +288,13 @@ describe("ContractsService", () => {
       expect(auditService.log).not.toHaveBeenCalled();
     });
 
-    it("creates the rental draft and deposit conversion in one transaction", async () => {
+    it.each([
+      { startDate: "2026-10-01T00:00:00.000Z", holdExpiresAt: undefined, expectedExpiry: "2026-10-02T00:00:00.000Z" },
+      { startDate: "2026-09-22T00:00:00.000Z", holdExpiresAt: undefined, expectedExpiry: "2026-09-29T08:00:00.000Z" },
+      { startDate: "2026-10-01T00:00:00.000Z", holdExpiresAt: "2026-10-03T00:00:00.000Z", expectedExpiry: "2026-10-03T00:00:00.000Z" },
+    ])("creates the rental and reserves its slot automatically for $startDate ($expectedExpiry)", async ({ startDate, holdExpiresAt, expectedExpiry }) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-09-28T08:00:00.000Z"));
       const source = {
         id: "booking-contract-1",
         tenantId: "tenant-1",
@@ -289,7 +349,7 @@ describe("ContractsService", () => {
         rentalCycleId: "cycle-1",
         code: created.code,
         status: ContractStatus.DRAFT,
-        startDate: new Date("2026-10-01T00:00:00.000Z"),
+        startDate: new Date(startDate),
         endDate: new Date("2027-09-30T00:00:00.000Z"),
         monthlyRent: 3000000,
         depositMoney: 5000000,
@@ -305,7 +365,8 @@ describe("ContractsService", () => {
         service.createRentalFromBookingHold(
           source.id,
           {
-            startDate: "2026-10-01T00:00:00.000Z",
+            startDate,
+            ...(holdExpiresAt ? { holdExpiresAt } : {}),
             endDate: "2027-09-30T00:00:00.000Z",
             depositAmount: 5000000,
             purpose: "Hợp đồng thuê dài hạn",
@@ -316,6 +377,14 @@ describe("ContractsService", () => {
         ),
       ).resolves.toEqual(converted);
 
+      expect(depositCoreService.ensureActiveHoldForConversionInTransaction).toHaveBeenCalledWith(
+        prismaService.tx,
+        "tenant-1",
+        "booking-deposit-1",
+        new Date(expectedExpiry),
+        "user-1",
+        "booking-convert-command-1:deposit:conversion-hold",
+      );
       expect(depositCoreService.convertToSecurityInTransaction).toHaveBeenCalledWith(
         prismaService.tx,
         "tenant-1",
@@ -446,6 +515,7 @@ describe("ContractsService", () => {
       )).resolves.toEqual(completed);
 
       expect(prismaService.tx.contract.create).not.toHaveBeenCalled();
+      expect(depositCoreService.ensureActiveHoldForConversionInTransaction).not.toHaveBeenCalled();
       expect(depositCoreService.convertToSecurityInTransaction).toHaveBeenCalledWith(
         prismaService.tx,
         "tenant-1",
@@ -539,6 +609,7 @@ describe("ContractsService", () => {
       )).resolves.toEqual(replayedRental);
 
       expect(prismaService.tx.contract.create).not.toHaveBeenCalled();
+      expect(depositCoreService.ensureActiveHoldForConversionInTransaction).not.toHaveBeenCalled();
       expect(depositCoreService.convertToSecurityInTransaction).toHaveBeenCalledWith(
         prismaService.tx,
         "tenant-1",
@@ -620,8 +691,237 @@ describe("ContractsService", () => {
         where: { id: "c-new" },
         data: { rentalCycleId: "cycle-1" },
       });
+      expect(prismaService.tx.deposit.create).not.toHaveBeenCalled();
       expect(created.rentalCycleId).toBe("cycle-1");
     });
+
+    it("creates the pending security deposit with the rental draft", async () => {
+      const draft = {
+        id: "c-entry",
+        code: "HD-PN-ENTRY",
+        tenantId: "tenant-1",
+        customerId: "customer-1",
+        roomId: "room-1",
+        status: ContractStatus.DRAFT,
+        startDate: new Date("2026-09-29"),
+        endDate: new Date("2027-09-28"),
+        monthlyRent: 3000000,
+        depositMoney: 3000000,
+        coRepresentativeIds: [],
+      };
+      prismaService.tx.contract.create.mockResolvedValue(draft);
+      prismaService.tx.rentalCycle.create.mockResolvedValue({ id: "cycle-entry" });
+      prismaService.tx.contract.update.mockResolvedValue({
+        ...draft,
+        rentalCycleId: "cycle-entry",
+      });
+      prismaService.tx.deposit.create.mockResolvedValue({ id: "deposit-entry" });
+
+      await service.create(draft as any, "user-1", "Contracts");
+
+      expect(prismaService.tx.deposit.findFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: "tenant-1",
+          contractId: "c-entry",
+          type: DepositType.SECURITY,
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(prismaService.tx.deposit.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId: "tenant-1",
+          contractId: "c-entry",
+          rentalCycleId: "cycle-entry",
+          customerId: "customer-1",
+          roomId: "room-1",
+          type: DepositType.SECURITY,
+          status: DepositStatus.PENDING,
+          amount: 3000000,
+        }),
+      });
+    });
+
+    it("does not create a security deposit for a booking-hold draft", async () => {
+      const bookingDraft = {
+        id: "c-booking",
+        code: "HD-COC-P101",
+        tenantId: "tenant-1",
+        customerId: "customer-1",
+        roomId: "room-1",
+        status: ContractStatus.DRAFT,
+        startDate: new Date("2026-09-29"),
+        endDate: new Date("2026-10-29"),
+        monthlyRent: 0,
+        depositMoney: 1000000,
+        purpose: "Cọc giữ phòng",
+        coRepresentativeIds: [],
+      };
+      prismaService.tx.contract.create.mockResolvedValue(bookingDraft);
+      prismaService.tx.rentalCycle.create.mockResolvedValue({ id: "cycle-booking" });
+      prismaService.tx.contract.update.mockResolvedValue({
+        ...bookingDraft,
+        rentalCycleId: "cycle-booking",
+      });
+
+      await service.create(bookingDraft as any, "user-1", "Contracts");
+
+      expect(prismaService.tx.deposit.create).not.toHaveBeenCalled();
+    });
+
+    it.each([InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED])(
+      "blocks billing-term changes once a nondeleted %s invoice exists",
+      async (invoiceStatus) => {
+      const current = {
+        id: "c-issued",
+        tenantId: "tenant-1",
+        status: ContractStatus.DRAFT,
+        monthlyRent: 3000000,
+        depositMoney: 3000000,
+        roomId: "room-1",
+        customerId: "customer-1",
+        rentalCycleId: "cycle-1",
+        startDate: new Date("2026-09-29"),
+        firstPaymentDate: new Date("2026-09-29"),
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(current as any);
+      prismaService.tx.contract.findFirst.mockResolvedValue(current);
+      prismaService.tx.invoice.findFirst.mockResolvedValue({ id: "entry-document", status: invoiceStatus });
+
+      await expect(
+        service.update(current.id, { monthlyRent: 3100000 }, "user-1"),
+      ).rejects.toThrow("CONTRACT_ENTRY_BILLING_ALREADY_ISSUED");
+      expect(prismaService.tx.contract.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([DepositStatus.DRAFT, DepositStatus.PENDING, DepositStatus.CANCELLED])(
+      "blocks billing-term changes once a nondeleted %s linked deposit exists",
+      async (depositStatus) => {
+      const current = {
+        id: "c-funded",
+        tenantId: "tenant-1",
+        status: ContractStatus.DRAFT,
+        monthlyRent: 3000000,
+        depositMoney: 3000000,
+        roomId: "room-1",
+        customerId: "customer-1",
+        rentalCycleId: "cycle-1",
+        startDate: new Date("2026-09-29"),
+        firstPaymentDate: new Date("2026-09-29"),
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(current as any);
+      prismaService.tx.contract.findFirst.mockResolvedValue(current);
+      prismaService.tx.invoice.findFirst.mockResolvedValue(null);
+      prismaService.tx.deposit.findFirst.mockResolvedValue({ id: "deposit-document", status: depositStatus });
+
+      await expect(
+        service.update(current.id, { firstPaymentDate: new Date("2026-10-01") }, "user-1"),
+      ).rejects.toThrow("CONTRACT_ENTRY_BILLING_ALREADY_ISSUED");
+      expect(prismaService.tx.contract.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it("keeps a combined entry snapshot immutable after its invoice is cancelled", async () => {
+      const current = {
+        id: "c-combined",
+        tenantId: "tenant-1",
+        status: ContractStatus.DRAFT,
+        monthlyRent: 3000000,
+        depositMoney: 0,
+        roomId: "room-1",
+        customerId: "customer-1",
+        rentalCycleId: "cycle-1",
+        startDate: new Date("2026-09-29"),
+        firstPaymentDate: new Date("2026-09-29"),
+        termsSnapshot: {
+          convertedFromBookingHold: {
+            initialEntryInvoice: { paymentPolicyVersion: COMBINED_ENTRY_POLICY },
+          },
+        },
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(current as any);
+      prismaService.tx.contract.findFirst.mockResolvedValue(current);
+
+      await expect(
+        service.update(current.id, { depositMoney: 1 }, "user-1"),
+      ).rejects.toThrow("CONTRACT_ENTRY_BILLING_ALREADY_ISSUED");
+      expect(prismaService.tx.invoice.findFirst).not.toHaveBeenCalled();
+      expect(prismaService.tx.contract.update).not.toHaveBeenCalled();
+    });
+
+    it("allows unchanged billing terms and signed documents after invoice issuance", async () => {
+      const updatedAt = new Date("2026-09-29T00:00:00.000Z");
+      const current = {
+        id: "c-issued-documents",
+        tenantId: "tenant-1",
+        status: ContractStatus.DRAFT,
+        monthlyRent: 3000000,
+        depositMoney: 3000000,
+        roomId: "room-1",
+        customerId: "customer-1",
+        rentalCycleId: "cycle-1",
+        startDate: new Date("2026-09-29"),
+        firstPaymentDate: new Date("2026-09-29"),
+        updatedAt,
+        termsSnapshot: {
+          initialEntryInvoice: {
+            invoiceId: "entry-immediate-combined",
+            paymentPolicyVersion: COMBINED_ENTRY_POLICY,
+          },
+          convertedFromBookingHold: {
+            initialEntryInvoice: { paymentPolicyVersion: COMBINED_ENTRY_POLICY },
+          },
+        },
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(current as any);
+      prismaService.tx.contract.findFirst.mockResolvedValue(current);
+      (service as any).withContractSnapshots = vi.fn().mockResolvedValue({
+        customerSnapshot: {}, roomSnapshot: {}, termsSnapshot: {},
+      });
+      prismaService.tx.contract.update.mockResolvedValue({
+        ...current,
+        attachments: ["signed.pdf"],
+      });
+
+      await expect(
+        service.update(current.id, {
+          monthlyRent: 3000000,
+          attachments: ["signed.pdf"],
+          signedAt: new Date("2026-09-29T01:00:00.000Z"),
+        }, "user-1"),
+      ).resolves.toMatchObject({ attachments: ["signed.pdf"] });
+      expect(prismaService.tx.invoice.findFirst).not.toHaveBeenCalled();
+      expect(prismaService.tx.contract.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: current.id, tenantId: "tenant-1", updatedAt },
+        data: expect.objectContaining({
+          termsSnapshot: expect.objectContaining({
+            initialEntryInvoice: current.termsSnapshot.initialEntryInvoice,
+          }),
+        }),
+      }));
+    });
+
+    it.each([InvoiceStatus.DRAFT, InvoiceStatus.PAID])(
+      "does not create an ENTRY invoice beside a legacy generic first-entry document in %s",
+      async (status) => {
+        const contract = {
+          id: "legacy-contract", tenantId: "tenant-1", code: "HD-LEGACY",
+          customerId: "customer-1", rentalCycleId: "cycle-1", monthlyRent: 3_000_000,
+          startDate: new Date("2026-09-01T00:00:00.000Z"), firstPaymentDate: null,
+        };
+        prismaService.tx.invoice.findFirst
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ id: "legacy-entry", status });
+
+        await expect(
+          (service as any).ensureEntryInvoiceInTransaction(
+            prismaService.tx, contract, InvoiceStatus.DRAFT,
+          ),
+        ).rejects.toThrow("LEGACY_GENERIC_ENTRY_INVOICE_CONFLICT");
+        expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
+      },
+    );
 
     it("rejects creating a contract directly as ACTIVE", async () => {
       await expect(
@@ -633,7 +933,13 @@ describe("ContractsService", () => {
       vi.spyOn(service, "getDetail").mockResolvedValue({
         id: "c1",
         status: ContractStatus.DRAFT,
+        tenantId: "tenant-1",
       } as any);
+      prismaService.tx.contract.findFirst.mockResolvedValue({
+        id: "c1",
+        status: ContractStatus.DRAFT,
+        tenantId: "tenant-1",
+      });
 
       await expect(
         service.update("c1", { status: ContractStatus.ACTIVE }, "user1"),
@@ -682,6 +988,206 @@ describe("ContractsService", () => {
   });
 
   describe("getDetail", () => {
+    const debtInvoice = (data: any) => ({
+      tenantId: "tenant-1",
+      contractId: "contract-1",
+      deletedAt: null,
+      status: InvoiceStatus.ISSUED,
+      billingKind: "ENTRY",
+      adjustmentOfInvoiceId: null,
+      paidAmount: 0,
+      creditAmount: 0,
+      dueDate: new Date("2026-09-29"),
+      createdAt: new Date("2026-09-29"),
+      ...data,
+    });
+
+    it("hydrates authoritative debt from scoped issued, partial, and credit invoice families", async () => {
+      const record = {
+        id: "contract-1",
+        code: "HD-PN-01",
+        tenantId: "tenant-1",
+        coRepresentativeIds: [],
+      };
+      (service as any).repository.findById.mockResolvedValue(record);
+      prismaService.tx.invoice.findMany.mockResolvedValue([
+        debtInvoice({ id: "entry-6m", total: 6000000 }),
+        debtInvoice({
+          id: "partial", total: 4000000, paidAmount: 1000000,
+          creditAmount: 500000, status: InvoiceStatus.PARTIALLY_PAID,
+        }),
+        debtInvoice({ id: "family-root", total: 2000000 }),
+        debtInvoice({
+          id: "family-credit", total: 1000000,
+          billingKind: "CREDIT_ADJUSTMENT", adjustmentOfInvoiceId: "family-root",
+        }),
+        debtInvoice({ id: "paid", total: 9000000, status: InvoiceStatus.PAID }),
+        debtInvoice({ id: "cancelled", total: 9000000, status: InvoiceStatus.CANCELLED }),
+        debtInvoice({ id: "deleted", total: 9000000, deletedAt: new Date() }),
+        debtInvoice({ id: "foreign-tenant", total: 9000000, tenantId: "tenant-other" }),
+        debtInvoice({ id: "foreign-contract", total: 9000000, contractId: "contract-other" }),
+      ]);
+
+      await expect(service.getDetail(record.id)).resolves.toMatchObject({ debt: 9500000 });
+      expect(prismaService.tx.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { tenantId: "tenant-1", contractId: "contract-1", deletedAt: null },
+      }));
+    });
+
+    it("returns the same debt in list and detail without per-contract invoice queries", async () => {
+      const record = {
+        id: "contract-1",
+        code: "HD-PN-01",
+        tenantId: "tenant-1",
+        coRepresentativeIds: [],
+      };
+      const secondRecord = {
+        id: "contract-2",
+        code: "HD-PN-02",
+        tenantId: "tenant-1",
+        coRepresentativeIds: [],
+      };
+      const invoices = [
+        debtInvoice({ id: "entry-6m", total: 6000000 }),
+        debtInvoice({
+          id: "partial", total: 4000000, paidAmount: 1000000,
+          creditAmount: 500000, status: InvoiceStatus.PARTIALLY_PAID,
+        }),
+        debtInvoice({ id: "second-entry", contractId: "contract-2", total: 1000000 }),
+      ];
+      (service as any).repository.paginate.mockResolvedValue({
+        data: [record, secondRecord], total: 2, page: 1, limit: 20,
+      });
+      (service as any).repository.findById.mockResolvedValue(record);
+      prismaService.tx.invoice.findMany.mockResolvedValue(invoices);
+
+      const listed = await service.listContracts(1, 20, undefined, undefined, undefined, undefined, undefined, undefined, "tenant-1");
+      const detailed = await service.getDetail(record.id);
+
+      expect(listed.data[0]).toMatchObject({ id: record.id, debt: 8500000 });
+      expect(listed.data[1]).toMatchObject({ id: secondRecord.id, debt: 1000000 });
+      expect(detailed).toMatchObject({ id: record.id, debt: 8500000 });
+      expect(prismaService.tx.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: "tenant-1",
+          contractId: { in: [record.id, secondRecord.id] },
+          deletedAt: null,
+        }),
+      }));
+    });
+
+    function mockPendingBooking(status: DepositStatus = DepositStatus.PENDING) {
+      const deposit = {
+        id: "booking-deposit", tenantId: "tenant-1", type: DepositType.BOOKING,
+        status, amount: 1000000, contractId: "booking-contract",
+      };
+      (service as any).repository.findById.mockResolvedValue({
+        id: "booking-contract", code: "HD-COC-TEST", tenantId: "tenant-1",
+        customerId: "customer-1", roomId: "room-1", status: ContractStatus.APPROVED,
+      });
+      prismaService.tx.deposit.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(where.type === DepositType.SECURITY ? null : { ...deposit }),
+      );
+      prismaService.tx.invoice.findFirst.mockResolvedValue({
+        id: "invoice-1", period: "Cọc giữ phòng", status: "PAID", total: 1000000,
+      });
+      prismaService.tx.paymentRequest.findFirst.mockResolvedValue({
+        id: "request-1", status: "CONFIRMED", amount: 1000000,
+      });
+      return deposit;
+    }
+
+    it.each([DepositStatus.DRAFT, DepositStatus.PENDING])("automatically reconciles %s booking cash on contract detail and does not repeat after success", async (status) => {
+      const deposit = mockPendingBooking(status);
+      depositsService.getDetail.mockImplementation(async () => {
+        deposit.status = DepositStatus.PAID;
+        return { ...deposit, availableBalance: 1000000, reconciliationError: null };
+      });
+      await expect(service.getDetail("booking-contract")).resolves.toMatchObject({
+        bookingDeposit: { status: "PAID", availableBalance: 1000000, reconciliationError: null },
+      });
+      await service.getDetail("booking-contract");
+      expect(depositsService.getDetail).toHaveBeenCalledExactlyOnceWith("booking-deposit");
+    });
+
+    it("keeps failed payment proof blocked while exposing the automatic reconciliation error", async () => {
+      const deposit = mockPendingBooking();
+      depositsService.getDetail.mockResolvedValue({
+        ...deposit, availableBalance: 0, reconciliationError: "DEPOSIT_RECONCILIATION_PROOF_INVALID",
+      });
+      await expect(service.getDetail("booking-contract")).resolves.toMatchObject({
+        bookingDeposit: { status: "PENDING", availableBalance: 0, reconciliationError: "DEPOSIT_RECONCILIATION_PROOF_INVALID" },
+      });
+    });
+
+    it("keeps transient automatic reconciliation failures readable and pending", async () => {
+      mockPendingBooking();
+      depositsService.getDetail.mockRejectedValue(new Error("temporary database failure"));
+      await expect(service.getDetail("booking-contract")).resolves.toMatchObject({
+        bookingDeposit: { status: "PENDING", reconciliationError: "DEPOSIT_RECONCILIATION_UNAVAILABLE" },
+      });
+    });
+
+    it("never accepts a reconciliation result belonging to another tenant", async () => {
+      const deposit = mockPendingBooking();
+      depositsService.getDetail.mockResolvedValue({ ...deposit, tenantId: "tenant-other", status: "PAID" });
+      await expect(service.getDetail("booking-contract")).resolves.toMatchObject({
+        bookingDeposit: { status: "PENDING", reconciliationError: "DEPOSIT_RECONCILIATION_UNAVAILABLE" },
+      });
+    });
+
+    it("does not trigger booking reconciliation for an ordinary rental detail", async () => {
+      mockPendingBooking();
+      (service as any).repository.findById.mockResolvedValue({
+        id: "rental-contract", code: "HD-THUE-TEST", tenantId: "tenant-1",
+      });
+      await service.getDetail("rental-contract");
+      expect(depositsService.getDetail).not.toHaveBeenCalled();
+    });
+
+    it("prefers the current contract deposit over a newer booking for the same customer and room", async () => {
+      const deposit = mockPendingBooking();
+      const newer = { ...deposit, id: "newer-deposit", contractId: "newer-contract", rentalCycleId: "newer-cycle" };
+      prismaService.tx.deposit.findFirst.mockImplementation(({ where }: any) => Promise.resolve(
+        where.type === DepositType.SECURITY ? null : where.contractId === deposit.contractId ? deposit : newer,
+      ));
+      depositsService.getDetail.mockResolvedValue({ ...deposit, status: DepositStatus.PAID, availableBalance: 1000000 });
+      await expect(service.getDetail("booking-contract")).resolves.toMatchObject({ bookingDeposit: { id: deposit.id } });
+      expect(depositsService.getDetail).toHaveBeenCalledExactlyOnceWith(deposit.id);
+      expect(prismaService.tx.deposit.findMany).not.toHaveBeenCalled();
+    });
+
+    it("uses the owned cycle without collecting another contract's deposit in the same room", async () => {
+      const deposit = { ...mockPendingBooking(), contractId: null, rentalCycleId: "old-cycle" };
+      (service as any).repository.findById.mockResolvedValue({
+        id: "booking-contract", code: "HD-COC-TEST", tenantId: "tenant-1",
+        rentalCycleId: "old-cycle", roomId: "room-1", customerId: "customer-1",
+      });
+      prismaService.tx.deposit.findFirst.mockImplementation(({ where }: any) => Promise.resolve(
+        where.type !== DepositType.SECURITY && where.rentalCycleId === "old-cycle" ? deposit : null,
+      ));
+      depositsService.getDetail.mockResolvedValue({ ...deposit, status: DepositStatus.PAID, availableBalance: 1000000 });
+      await service.getDetail("booking-contract");
+      expect(depositsService.getDetail).toHaveBeenCalledExactlyOnceWith(deposit.id);
+      expect(prismaService.tx.deposit.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ tenantId: "tenant-1", rentalCycleId: "old-cycle", OR: [{ contractId: null }, { status: "CONVERTED_TO_CONTRACT" }] }),
+      }));
+    });
+
+    it("never guesses between ambiguous unlinked legacy booking deposits", async () => {
+      const deposit = mockPendingBooking();
+      prismaService.tx.deposit.findFirst.mockResolvedValue(null);
+      prismaService.tx.deposit.findMany.mockResolvedValue([
+        { ...deposit, contractId: null, rentalCycleId: null },
+        { ...deposit, id: "legacy-second", contractId: null, rentalCycleId: null },
+      ]);
+      await expect(service.getDetail("booking-contract")).resolves.toMatchObject({ bookingDeposit: null });
+      expect(depositsService.getDetail).not.toHaveBeenCalled();
+      expect(prismaService.tx.deposit.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ tenantId: "tenant-1", contractId: null, rentalCycleId: null, roomId: "room-1", customerId: "customer-1" }), take: 2,
+      }));
+    });
+
     it("should enrich detail with settlement refund summary", async () => {
       const repository = (service as any).repository;
       repository.findById.mockResolvedValue({
@@ -747,6 +1253,7 @@ describe("ContractsService", () => {
         id: "d1",
         amount: 1000,
       });
+      mockLockedContract(mockContract);
 
       const result = await service.approveContract("c1", "user1");
 
@@ -754,6 +1261,12 @@ describe("ContractsService", () => {
         where: { id: "r1" },
       });
       expect(prismaService.tx.$transaction).toHaveBeenCalled();
+      expect(prismaService.tx.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(
+        prismaService.tx.$queryRaw.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        prismaService.tx.contract.findFirst.mock.invocationCallOrder[0],
+      );
       expect(prismaService.tx.contract.update).toHaveBeenCalledWith({
         where: { id: "c1" },
         data: { status: ContractStatus.APPROVED },
@@ -784,7 +1297,7 @@ describe("ContractsService", () => {
       expect(result).toEqual(updatedContract);
     });
 
-    it("should reuse an existing contract deposit instead of creating another one", async () => {
+    it("reuses the pending security deposit created with the draft", async () => {
       const mockContract = {
         id: "c1",
         code: "HD-PN-001",
@@ -801,9 +1314,13 @@ describe("ContractsService", () => {
       const mockRoom = { id: "r1", status: RoomStatus.AVAILABLE };
       const existingDeposit = {
         id: "deposit-existing",
+        tenantId: "t1",
         contractId: "c1",
         type: DepositType.SECURITY,
-        status: DepositStatus.PAID,
+        roomId: "r1",
+        customerId: "cu1",
+        rentalCycleId: null,
+        status: DepositStatus.PENDING,
         amount: 1000,
       };
 
@@ -815,11 +1332,114 @@ describe("ContractsService", () => {
         status: RoomStatus.RESERVED,
       });
       prismaService.tx.deposit.findFirst.mockResolvedValue(existingDeposit);
+      mockLockedContract(mockContract);
 
       const result = await service.approveContract("c1", "user1");
 
       expect(result).toEqual(updatedContract);
       expect(prismaService.tx.deposit.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects approval if the locked contract is no longer pending", async () => {
+      const snapshot = {
+        id: "c-stale",
+        tenantId: "t1",
+        roomId: "r1",
+        status: ContractStatus.PENDING_APPROVAL,
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(snapshot as any);
+      mockLockedContract({ ...snapshot, status: ContractStatus.APPROVED });
+
+      await expect(service.approveContract(snapshot.id, "user-1")).rejects.toThrow(
+        "CONTRACT_APPROVAL_STATE_CHANGED",
+      );
+      expect(prismaService.tx.room.update).not.toHaveBeenCalled();
+      expect(prismaService.tx.deposit.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects approval when the contract changed rooms after the original room lock", async () => {
+      const snapshot = {
+        id: "c-room-race",
+        tenantId: "t1",
+        roomId: "r1",
+        status: ContractStatus.PENDING_APPROVAL,
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(snapshot as any);
+      mockLockedContract({ ...snapshot, roomId: "r2" });
+
+      await expect(service.approveContract(snapshot.id, "user-1")).rejects.toThrow(
+        "CONTRACT_APPROVAL_ROOM_CHANGED",
+      );
+      expect(prismaService.tx.room.findUnique).not.toHaveBeenCalled();
+      expect(prismaService.tx.room.update).not.toHaveBeenCalled();
+      expect(prismaService.tx.deposit.create).not.toHaveBeenCalled();
+      expect(prismaService.tx.$queryRaw).toHaveBeenCalledTimes(2);
+    });
+
+    it("rejects approval when the existing security deposit scope or amount differs", async () => {
+      const contract = {
+        id: "c1",
+        code: "HD-PN-001",
+        status: ContractStatus.PENDING_APPROVAL,
+        tenantId: "t1",
+        roomId: "r1",
+        customerId: "cu1",
+        rentalCycleId: "cycle-1",
+        depositMoney: 1000,
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(contract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue({ id: "r1", status: RoomStatus.AVAILABLE });
+      prismaService.tx.contract.update.mockResolvedValue({ ...contract, status: ContractStatus.APPROVED });
+      prismaService.tx.room.update.mockResolvedValue({ id: "r1", status: RoomStatus.RESERVED });
+      prismaService.tx.deposit.findFirst.mockResolvedValue({
+        id: "security-mismatch",
+        tenantId: "t1",
+        contractId: "c1",
+        type: DepositType.SECURITY,
+        roomId: "r1",
+        customerId: "cu1",
+        rentalCycleId: "cycle-1",
+        amount: 999,
+      });
+      mockLockedContract(contract);
+
+      await expect(service.approveContract("c1", "user-1")).rejects.toThrow(
+        "CONTRACT_SECURITY_DEPOSIT_SCOPE_MISMATCH",
+      );
+      expect(prismaService.tx.deposit.create).not.toHaveBeenCalled();
+    });
+
+    it("approves a zero-security rental with an unlinked lifecycle hold", async () => {
+      const contract = {
+        id: "c-zero-security",
+        status: ContractStatus.PENDING_APPROVAL,
+        tenantId: "t1",
+        roomId: "r1",
+        customerId: "cu1",
+        rentalCycleId: "cycle-zero",
+        depositMoney: 0,
+        startDate: new Date("2026-10-01"),
+      };
+      const approved = { ...contract, status: ContractStatus.APPROVED };
+      vi.spyOn(service, "getDetail").mockResolvedValue(contract as any);
+      prismaService.tx.room.findUnique.mockResolvedValue({
+        id: "r1", status: RoomStatus.AVAILABLE, rentalType: "WHOLE",
+      });
+      prismaService.tx.contract.update.mockResolvedValue(approved);
+      prismaService.tx.room.update.mockResolvedValue({ id: "r1", status: RoomStatus.RESERVED });
+      prismaService.tx.roomHold = {
+        findFirst: vi.fn().mockResolvedValue(null),
+        count: vi.fn().mockResolvedValue(0),
+        create: vi.fn().mockResolvedValue({ id: "zero-hold" }),
+      };
+      mockLockedContract(contract);
+
+      await expect(service.approveContract(contract.id, "user-1")).resolves.toEqual(approved);
+
+      expect(prismaService.tx.deposit.create).not.toHaveBeenCalled();
+      expect(prismaService.tx.roomHold.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ depositId: null }),
+      }));
     });
 
     it("approves a rental that owns the active booking hold and consumes that hold", async () => {
@@ -845,7 +1465,12 @@ describe("ContractsService", () => {
       prismaService.tx.contract.update.mockResolvedValue(approved);
       prismaService.tx.deposit.findFirst.mockResolvedValue({
         id: "security-deposit-1",
+        tenantId: "tenant-1",
         contractId: contract.id,
+        roomId: contract.roomId,
+        customerId: contract.customerId,
+        rentalCycleId: contract.rentalCycleId,
+        amount: contract.depositMoney,
         status: DepositStatus.PAID,
       });
       prismaService.tx.roomHold = {
@@ -853,6 +1478,7 @@ describe("ContractsService", () => {
         count: vi.fn().mockResolvedValue(1),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       };
+      mockLockedContract(contract);
 
       await expect(service.approveContract(contract.id, "user-1")).resolves.toEqual(approved);
 
@@ -903,6 +1529,7 @@ describe("ContractsService", () => {
         count: vi.fn().mockResolvedValue(0),
         create: vi.fn().mockResolvedValue({ id: "renewal-hold-1" }),
       };
+      mockLockedContract(contract);
 
       await expect(service.approveContract(contract.id, "user-1")).resolves.toEqual(approved);
 
@@ -942,6 +1569,7 @@ describe("ContractsService", () => {
       prismaService.tx.room.findUnique.mockResolvedValue(mockRoom);
 
       prismaService.tx.occupancy.count.mockResolvedValue(1);
+      mockLockedContract(mockContract);
 
       await expect(service.approveContract("c1", "user1")).rejects.toThrow(
         ConflictException,
@@ -974,6 +1602,7 @@ describe("ContractsService", () => {
         id: "d1",
         amount: 1000,
       });
+      mockLockedContract(mockContract);
 
       const result = await service.approveContract("c1", "user1");
 
@@ -1051,6 +1680,7 @@ describe("ContractsService", () => {
         paidAmount: 0,
         creditAmount: 0,
       });
+      mockLockedContract(mockContract);
 
       await expect(
         service.activateContract("rental-1", "user1", "t1", "activate-unpaid-entry"),
@@ -1120,7 +1750,19 @@ describe("ContractsService", () => {
           total: 5000,
           paidAmount: 3000,
           creditAmount: 2000,
+        })
+        .mockResolvedValueOnce({
+          id: "inv1",
+          contractId: "c1",
+          customerId: "cu1",
+          rentalCycleId: undefined,
+          billingKind: "ENTRY",
+          status: "PAID",
+          total: 5000,
+          paidAmount: 3000,
+          creditAmount: 2000,
         });
+      mockLockedContract(mockContract);
 
       const result = await service.activateContract(
         "c1",
@@ -1143,7 +1785,12 @@ describe("ContractsService", () => {
         orderBy: { createdAt: "desc" },
       });
       expect(prismaService.tx.$transaction).toHaveBeenCalled();
-      expect(prismaService.tx.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(prismaService.tx.$queryRaw).toHaveBeenCalledTimes(3);
+      expect(
+        prismaService.tx.deposit.findFirst.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        prismaService.tx.room.findFirst.mock.invocationCallOrder[0],
+      );
 
       expect(prismaService.tx.contract.updateMany).toHaveBeenCalledWith({
         where: { id: "c1", tenantId: "t1", status: ContractStatus.APPROVED },
@@ -1178,6 +1825,68 @@ describe("ContractsService", () => {
       expect(result).toMatchObject({ ...updatedContract, entryInvoice: { id: "inv1" } });
     });
 
+    it("activates a zero-security rental without creating or converting a deposit", async () => {
+      const contract = {
+        ...activationReadyFields(),
+        id: "c-zero-security",
+        tenantId: "t1",
+        status: ContractStatus.APPROVED,
+        roomId: "r1",
+        customerId: "cu1",
+        rentalCycleId: "cycle-zero",
+        monthlyRent: 5000,
+        depositMoney: 0,
+      };
+      const active = { ...contract, status: ContractStatus.ACTIVE };
+      vi.spyOn(service, "getDetail").mockResolvedValue(contract as any);
+      prismaService.tx.contract.findUnique.mockResolvedValue(null);
+      prismaService.tx.room.findUnique.mockResolvedValue({
+        id: "r1",
+        code: "101",
+        status: RoomStatus.RESERVED,
+      });
+      prismaService.tx.room.findFirst.mockResolvedValue({
+        id: "r1",
+        code: "101",
+        status: RoomStatus.RESERVED,
+      });
+      prismaService.tx.contract.updateMany.mockResolvedValue({ count: 1 });
+      prismaService.tx.contract.findFirst.mockResolvedValue(active);
+      prismaService.tx.room.update.mockResolvedValue({ id: "r1", status: RoomStatus.OCCUPIED });
+      prismaService.tx.roomHold = {
+        findFirst: vi.fn().mockResolvedValue({ id: "zero-hold" }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      };
+      prismaService.tx.invoice.findFirst.mockResolvedValue({
+        id: "entry-zero",
+        contractId: contract.id,
+        customerId: contract.customerId,
+        rentalCycleId: contract.rentalCycleId,
+        billingKind: "ENTRY",
+        status: InvoiceStatus.PAID,
+        total: 5000,
+        paidAmount: 5000,
+        creditAmount: 0,
+        items: [],
+      });
+      mockLockedContract(contract);
+
+      await expect(
+        service.activateContract(contract.id, "user-1", "t1", "activate-zero-security"),
+      ).resolves.toMatchObject({ id: contract.id, status: ContractStatus.ACTIVE });
+
+      expect(prismaService.tx.deposit.findFirst).not.toHaveBeenCalled();
+      expect(prismaService.tx.depositLedgerEntry.aggregate).not.toHaveBeenCalled();
+      expect(prismaService.tx.deposit.update).not.toHaveBeenCalled();
+      expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
+      expect(prismaService.tx.roomHold.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ depositId: null }),
+      }));
+      expect(prismaService.tx.roomHold.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ depositId: null }),
+      }));
+    });
+
     it("should throw BadRequestException if contract is not APPROVED", async () => {
       vi.spyOn(service, "getDetail").mockResolvedValue({
         id: "c1",
@@ -1191,6 +1900,41 @@ describe("ContractsService", () => {
           "activate-invalid-status",
         ),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it("rejects an immediate rental when its canonical ENTRY invoice is unpaid", async () => {
+      const contract = {
+        ...activationReadyFields(),
+        id: "c-immediate-unpaid",
+        tenantId: "t1",
+        customerId: "cu1",
+        roomId: "r1",
+        status: ContractStatus.APPROVED,
+        monthlyRent: 5000,
+        depositMoney: 0,
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(contract as any);
+      prismaService.tx.contract.findUnique.mockResolvedValue(null);
+      prismaService.tx.room.findUnique.mockResolvedValue({
+        id: "r1", status: RoomStatus.RESERVED,
+      });
+      prismaService.tx.room.findFirst.mockResolvedValue({
+        id: "r1", status: RoomStatus.RESERVED,
+      });
+      prismaService.tx.invoice.findFirst.mockResolvedValue({
+        id: "entry-unpaid",
+        status: InvoiceStatus.ISSUED,
+        total: 5000,
+        paidAmount: 0,
+        creditAmount: 0,
+      });
+      mockLockedContract(contract);
+
+      await expect(
+        service.activateContract(contract.id, "user-1", "t1", "activate-immediate-unpaid"),
+      ).rejects.toThrow("CONTRACT_ENTRY_INVOICE_UNPAID");
+      expect(prismaService.tx.contract.updateMany).not.toHaveBeenCalled();
+      expect(prismaService.tx.room.update).not.toHaveBeenCalled();
     });
 
     it("hides a contract that does not belong to the authenticated tenant", async () => {
@@ -1217,6 +1961,7 @@ describe("ContractsService", () => {
         id: "c1",
         status: ContractStatus.APPROVED,
         roomId: "r1",
+        depositMoney: 1000,
       };
       const mockRoom = { id: "r1", status: RoomStatus.AVAILABLE };
 
@@ -1239,6 +1984,7 @@ describe("ContractsService", () => {
         id: "c1",
         status: ContractStatus.APPROVED,
         roomId: "r1",
+        depositMoney: 1000,
       };
       const mockRoom = { id: "r1", status: RoomStatus.RESERVED };
 
@@ -1262,6 +2008,7 @@ describe("ContractsService", () => {
         id: "c1",
         status: ContractStatus.APPROVED,
         roomId: "r1",
+        depositMoney: 1000,
       };
       const mockRoom = { id: "r1", status: RoomStatus.RESERVED };
       const mockDeposit = { id: "d1", status: "PENDING" };
@@ -1311,6 +2058,7 @@ describe("ContractsService", () => {
       prismaService.tx.depositLedgerEntry = {
         aggregate: vi.fn().mockResolvedValue({ _sum: { balanceEffect: 999 } }),
       };
+      mockLockedContract(mockContract);
 
       await expect(
         service.activateContract(
@@ -1355,6 +2103,7 @@ describe("ContractsService", () => {
       prismaService.tx.roomHold = {
         findFirst: vi.fn().mockResolvedValue(null),
       };
+      mockLockedContract(mockContract);
 
       await expect(
         service.activateContract("c1", "user1", "t1", "activate-hold-missing"),
@@ -1400,6 +2149,7 @@ describe("ContractsService", () => {
         findFirst: vi.fn().mockResolvedValue({ id: "hold-1" }),
       };
       prismaService.tx.occupancy.count = vi.fn().mockResolvedValue(2);
+      mockLockedContract(mockContract);
 
       await expect(
         service.activateContract(
@@ -1447,6 +2197,30 @@ describe("ContractsService", () => {
       expect(prismaService.tx.room.findUnique).not.toHaveBeenCalled();
     });
 
+    it("rejects activation if the locked contract left APPROVED before the claim", async () => {
+      const snapshot = {
+        ...activationReadyFields(),
+        id: "c-stale",
+        tenantId: "t1",
+        roomId: "r1",
+        customerId: "cu1",
+        status: ContractStatus.APPROVED,
+        depositMoney: 0,
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(snapshot as any);
+      prismaService.tx.room.findUnique.mockResolvedValue({
+        id: "r1",
+        status: RoomStatus.RESERVED,
+      });
+      mockLockedContract({ ...snapshot, status: ContractStatus.CANCELLED });
+
+      await expect(
+        service.activateContract(snapshot.id, "user-1", "t1", "activate-stale-state"),
+      ).rejects.toThrow("CONTRACT_ACTIVATION_STATE_CHANGED");
+      expect(prismaService.tx.room.update).not.toHaveBeenCalled();
+      expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
+    });
+
     it("allows only one activation claim when another request changed the state first", async () => {
       const mockContract = {
         ...activationReadyFields(),
@@ -1454,6 +2228,7 @@ describe("ContractsService", () => {
         tenantId: "t1",
         roomId: "r1",
         customerId: "cu1",
+        rentalCycleId: undefined,
         status: ContractStatus.APPROVED,
         depositMoney: 1000,
         monthlyRent: 5000,
@@ -1476,12 +2251,25 @@ describe("ContractsService", () => {
       prismaService.tx.depositLedgerEntry = {
         aggregate: vi.fn().mockResolvedValue({ _sum: { balanceEffect: 1000 } }),
       };
+      prismaService.tx.invoice.findFirst.mockResolvedValue({
+        id: "entry-competing",
+        contractId: mockContract.id,
+        customerId: mockContract.customerId,
+        rentalCycleId: mockContract.rentalCycleId,
+        billingKind: "ENTRY",
+        status: InvoiceStatus.PAID,
+        total: 5000,
+        paidAmount: 5000,
+        creditAmount: 0,
+        items: [],
+      });
       prismaService.tx.contract.updateMany.mockResolvedValue({ count: 0 });
       prismaService.tx.contract.findFirst.mockResolvedValue({
         ...mockContract,
         status: ContractStatus.ACTIVE,
         activationIdempotencyKey: "another-request-key",
       });
+      mockLockedContract(mockContract);
 
       await expect(
         service.activateContract("c1", "user1", "t1", "activate-c1-competing"),
@@ -1521,18 +2309,7 @@ describe("ContractsService", () => {
   });
 
   describe("first billing period", () => {
-    it("charges a full month for move-in on day 1", () => {
-      expect(
-        calculateFirstBillingPeriod(3100000, "2026-01-01T00:00:00.000Z"),
-      ).toMatchObject({
-        amount: 3100000,
-        billableDays: 31,
-        daysInMonth: 31,
-        period: "2026-01",
-      });
-    });
-
-    it("prorates by actual calendar days for mid-month and leap-year move-in", () => {
+    it("prorates the remaining calendar days for a mid-month or leap-year move-in", () => {
       expect(
         calculateFirstBillingPeriod(2900000, "2028-02-15T00:00:00.000Z"),
       ).toMatchObject({
@@ -1542,6 +2319,243 @@ describe("ContractsService", () => {
         period: "2028-02",
         policyVersion: "ACTUAL_DAYS_V1",
       });
+    });
+  });
+
+  describe("prepareImmediateEntryBilling", () => {
+    const approvedContract = {
+      id: "immediate-1",
+      tenantId: "tenant-1",
+      customerId: "customer-1",
+      roomId: "room-1",
+      rentalCycleId: "cycle-1",
+      code: "HD-THUE-IMMEDIATE",
+      status: ContractStatus.APPROVED,
+      monthlyRent: 4_000_000,
+      startDate: new Date("2026-09-29T00:00:00.000Z"),
+      firstPaymentDate: new Date("2026-09-29T00:00:00.000Z"),
+      termsSnapshot: {},
+    };
+
+    it("issues one prorated canonical ENTRY invoice and provisions its payment request", async () => {
+      prismaService.tx.contract.findFirst.mockResolvedValue(approvedContract);
+      prismaService.tx.invoice.findFirst.mockResolvedValue(null);
+      const invoice = {
+        id: "entry-immediate-1",
+        contractId: approvedContract.id,
+        customerId: approvedContract.customerId,
+        rentalCycleId: approvedContract.rentalCycleId,
+        billingKind: "ENTRY",
+        status: InvoiceStatus.ISSUED,
+        total: 266667,
+        paidAmount: 0,
+        creditAmount: 0,
+      };
+      prismaService.tx.invoice.create.mockResolvedValue(invoice);
+      const createInvoiceRequest = vi.fn().mockResolvedValue({
+        id: "payment-request-1",
+        sourceId: invoice.id,
+      });
+      (service as any).paymentsService = { createInvoiceRequest };
+
+      const result = await service.prepareImmediateEntryBilling(
+        approvedContract.id,
+        "user-1",
+        approvedContract.tenantId,
+      );
+
+      expect(prismaService.tx.invoice.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          status: InvoiceStatus.ISSUED,
+          billingKind: "ENTRY",
+          baseInvoiceKey: "ENTRY:immediate-1:2026-09",
+          total: 266667,
+          items: {
+            create: [
+              expect.objectContaining({
+                type: "RENT",
+                amount: 266667,
+                unitPrice: 266667,
+                servicePeriod: "2026-09",
+              }),
+            ],
+          },
+        }),
+      });
+      expect(createInvoiceRequest).toHaveBeenCalledWith(invoice.id, "user-1");
+      expect(result).toMatchObject({
+        entryInvoice: invoice,
+        entryPaymentRequest: { id: "payment-request-1" },
+      });
+    });
+
+    it("combines first rent and security into one immediate-entry payment", async () => {
+      const contract = {
+        ...approvedContract,
+        id: "immediate-combined",
+        code: "HD-THUE-IMMEDIATE-COMBINED",
+        depositMoney: 8_000_000,
+      };
+      const securityDeposit = {
+        id: "security-immediate",
+        tenantId: contract.tenantId,
+        contractId: contract.id,
+        customerId: contract.customerId,
+        roomId: contract.roomId,
+        rentalCycleId: contract.rentalCycleId,
+        type: DepositType.SECURITY,
+        amount: 8_000_000,
+        status: DepositStatus.PENDING,
+      };
+      prismaService.tx.contract.findFirst.mockResolvedValue(contract);
+      prismaService.tx.deposit.findFirst.mockResolvedValue(securityDeposit);
+      prismaService.tx.invoice.findFirst.mockResolvedValue(null);
+      const invoice = {
+        id: "entry-immediate-combined",
+        code: "INV-ENTRY-HD-THUE-IMMEDIATE-COMBINED",
+        contractId: contract.id,
+        customerId: contract.customerId,
+        rentalCycleId: contract.rentalCycleId,
+        billingKind: "ENTRY",
+        status: InvoiceStatus.ISSUED,
+        dueDate: contract.firstPaymentDate,
+        total: 8_266_667,
+        paidAmount: 0,
+        creditAmount: 0,
+      };
+      prismaService.tx.invoice.create.mockResolvedValue(invoice);
+      const createInvoiceRequest = vi.fn().mockResolvedValue({ id: "payment-request-combined" });
+      (service as any).paymentsService = { createInvoiceRequest };
+
+      const result = await service.prepareImmediateEntryBilling(contract.id, "user-1", contract.tenantId);
+
+      expect(prismaService.tx.invoice.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          total: 8_266_667,
+          subtotal: 8_266_667,
+          items: {
+            create: [
+              expect.objectContaining({ type: "RENT", amount: 266_667 }),
+              expect.objectContaining({
+                type: "OTHER",
+                amount: 8_000_000,
+                servicePeriod: "ENTRY_SECURITY:security-immediate",
+              }),
+            ],
+          },
+        }),
+      });
+      expect(prismaService.tx.contract.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: contract.id, tenantId: contract.tenantId },
+        data: {
+          termsSnapshot: expect.objectContaining({
+            initialEntryInvoice: expect.objectContaining({
+              invoiceId: invoice.id,
+              amount: 8_266_667,
+              rentAmount: 266_667,
+              securityRequired: 8_000_000,
+              additionalCashRequired: 8_000_000,
+              paymentPolicyVersion: COMBINED_ENTRY_POLICY,
+            }),
+          }),
+        },
+      }));
+      expect(createInvoiceRequest).toHaveBeenCalledWith(invoice.id, "user-1");
+      expect(result).toMatchObject({ paymentRequestId: "payment-request-combined" });
+    });
+
+    it("does not issue a combined entry that would collect an already-funded security deposit twice", async () => {
+      const contract = {
+        ...approvedContract,
+        id: "immediate-funded-security",
+        depositMoney: 8_000_000,
+      };
+      prismaService.tx.contract.findFirst.mockResolvedValue(contract);
+      prismaService.tx.deposit.findFirst.mockResolvedValue({
+        id: "security-funded",
+        tenantId: contract.tenantId,
+        contractId: contract.id,
+        customerId: contract.customerId,
+        roomId: contract.roomId,
+        rentalCycleId: contract.rentalCycleId,
+        type: DepositType.SECURITY,
+        amount: 8_000_000,
+      });
+      prismaService.tx.depositLedgerEntry.aggregate.mockResolvedValue({ _sum: { balanceEffect: 8_000_000 } });
+
+      await expect(service.prepareImmediateEntryBilling(contract.id, "user-1", contract.tenantId))
+        .rejects.toThrow("IMMEDIATE_ENTRY_SECURITY_ALREADY_FUNDED");
+      expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
+    });
+
+    it("allows a DRAFT immediate rental to create once and reuse the same ENTRY on retry", async () => {
+      const draft = { ...approvedContract, status: ContractStatus.DRAFT };
+      const invoice = {
+        id: "entry-immediate-draft",
+        contractId: draft.id,
+        customerId: draft.customerId,
+        rentalCycleId: draft.rentalCycleId,
+        billingKind: "ENTRY",
+        baseInvoiceKey: "ENTRY:immediate-1:2026-09",
+        status: InvoiceStatus.ISSUED,
+        total: 4_000_000,
+        paidAmount: 0,
+        creditAmount: 0,
+        items: [],
+      };
+      prismaService.tx.contract.findFirst.mockResolvedValue(draft);
+      prismaService.tx.invoice.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(invoice);
+      prismaService.tx.invoice.create.mockResolvedValue(invoice);
+      const createInvoiceRequest = vi.fn().mockResolvedValue({
+        id: "payment-request-draft",
+      });
+      (service as any).paymentsService = { createInvoiceRequest };
+
+      await service.prepareImmediateEntryBilling(draft.id, "user-1", draft.tenantId);
+      await service.prepareImmediateEntryBilling(draft.id, "user-1", draft.tenantId);
+
+      expect(prismaService.tx.invoice.create).toHaveBeenCalledTimes(1);
+      expect(createInvoiceRequest).toHaveBeenCalledTimes(2);
+      expect(prismaService.tx.invoice.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          status: InvoiceStatus.ISSUED,
+          baseInvoiceKey: "ENTRY:immediate-1:2026-09",
+        }),
+      });
+    });
+
+    it("reuses the existing canonical ENTRY invoice on a retry", async () => {
+      const invoice = {
+        id: "entry-immediate-1",
+        contractId: approvedContract.id,
+        customerId: approvedContract.customerId,
+        rentalCycleId: approvedContract.rentalCycleId,
+        billingKind: "ENTRY",
+        baseInvoiceKey: "ENTRY:immediate-1:2026-09",
+        status: InvoiceStatus.ISSUED,
+        total: 4_000_000,
+        paidAmount: 0,
+        creditAmount: 0,
+        items: [],
+      };
+      prismaService.tx.contract.findFirst.mockResolvedValue(approvedContract);
+      prismaService.tx.invoice.findFirst.mockResolvedValue(invoice);
+      const createInvoiceRequest = vi.fn().mockResolvedValue({ id: "payment-request-1" });
+      (service as any).paymentsService = { createInvoiceRequest };
+
+      await expect(
+        service.prepareImmediateEntryBilling(
+          approvedContract.id,
+          "user-1",
+          approvedContract.tenantId,
+        ),
+      ).resolves.toMatchObject({ entryInvoice: { id: invoice.id } });
+
+      expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
+      expect(createInvoiceRequest).toHaveBeenCalledWith(invoice.id, "user-1");
     });
   });
 

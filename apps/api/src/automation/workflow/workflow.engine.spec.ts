@@ -134,6 +134,29 @@ describe('WorkflowEngine', () => {
     expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Tòa nhà: LK01');
   });
 
+  it('uses the deposit-collected template for a booking-hold invoice payment', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
+
+    await (engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', {
+      tenantId: 'tenant-1',
+      sourceType: 'INVOICE',
+      sourceId: 'invoice-hold-1',
+      customerName: 'Khách A',
+      amount: 2_000_000,
+      paymentProvider: 'SEPAY',
+      metadata: { code: 'HD-COC-001', bookingHoldDepositInvoice: true },
+    }, { templateCode: 'ADMIN_INVOICE_PAID' }, 'invoice.paid');
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(expect.objectContaining({
+      templateCode: 'ADMIN_DEPOSIT_COLLECTED',
+      context: expect.objectContaining({
+        headline: '✅ ĐÃ NHẬN CỌC',
+        secondaryValue: 'Đã thu: 2.000.000 đ',
+      }),
+    }));
+  });
+
   it('still sends admin payment Zalo when customer SePay Zalo result is disabled', async () => {
     const { engine, prisma, communicationService } = createEngine();
     prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
@@ -207,6 +230,30 @@ describe('WorkflowEngine', () => {
     expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
   });
 
+  it('sends a cash payment confirmation to the customer even when SePay result notifications are disabled', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { sendPaymentResultToZalo: false } });
+    prisma.customer.findUnique.mockResolvedValueOnce({ zaloChatId: 'cash-client-1', zaloUserId: null });
+    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
+
+    await (engine as any).executeStep('SEND_PAYMENT_CONFIRMATION_ZALO', {
+      tenantId: 'tenant-1',
+      customerId: 'customer-1',
+      paymentProvider: 'MANUAL',
+      paymentAmount: 4000000,
+      amount: 4000000,
+      metadata: { code: 'INV-CASH-001', paymentStatus: 'PAID' },
+    }, { templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION' });
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(expect.objectContaining({
+      recipient: 'cash-client-1',
+      context: expect.objectContaining({
+        paymentStatusLabel: 'Đã thu đủ bằng tiền mặt',
+        paymentReceiptMessage: 'Đã nhận được thanh toán bằng tiền mặt với số tiền: 4.000.000 VND',
+      }),
+    }));
+  });
+
   it('resolves the current customer Zalo chat after an outbox payload was created', async () => {
     const { engine, prisma, communicationService } = createEngine();
     prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } });
@@ -229,6 +276,52 @@ describe('WorkflowEngine', () => {
     expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
       expect.objectContaining({ recipient: 'current-chat-1' }),
     );
+  });
+
+  it('uses the partial-payment template with the balance remaining after this payment', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } });
+    prisma.customer.findUnique.mockResolvedValueOnce({ zaloChatId: 'current-chat-1', zaloUserId: null });
+    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
+
+    await (engine as any).executeStep('SEND_PAYMENT_CONFIRMATION_ZALO', {
+      tenantId: 'tenant-1',
+      customerId: 'customer-1',
+      paymentProvider: 'SEPAY',
+      paymentAmount: 3000000,
+      paidAmount: 3000000,
+      metadata: { code: 'INV-002', grossTotal: 6850000, creditAmount: 0, paymentStatus: 'PARTIALLY_PAID' },
+    }, { templateCode: 'INVOICE_ZALO_PARTIAL_PAYMENT_CONFIRMATION' });
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(expect.objectContaining({
+      templateCode: 'INVOICE_ZALO_PARTIAL_PAYMENT_CONFIRMATION',
+      recipient: 'current-chat-1',
+      context: expect.objectContaining({ paymentAmount: 3000000, remainingAmount: 3850000 }),
+    }));
+  });
+
+  it('uses the invoice gross total when rendering the admin remaining balance', () => {
+    const { engine } = createEngine();
+
+    const context = (engine as any).buildZaloEventTemplateContext({
+      paymentAmount: 3000000,
+      paidAmount: 3000000,
+      metadata: { grossTotal: 6850000, creditAmount: 0 },
+    }, { templateCode: 'ADMIN_INVOICE_PARTIAL' }, 'invoice.payment.recorded');
+
+    expect(context.secondaryValue).toBe('Còn thiếu: 3.850.000 đ');
+  });
+
+  it('renders a settlement refund without assuming its payment status', () => {
+    const { engine } = createEngine();
+
+    const context = (engine as any).buildZaloEventTemplateContext({
+      metadata: { refundToCustomer: 5650000 },
+    }, { templateCode: 'ADMIN_CONTRACT_SETTLEMENT_COMPLETED' }, 'contract.settlement.completed');
+
+    expect(context.primaryValue).toBe('Cọc hoàn lại: 5.650.000 đ');
+    expect(context.secondaryValue).toBe('');
+    expect(context.action).toBe('Kiểm tra trạng thái hoàn cọc.');
   });
 
   it('creates an admin in-app notification for every active tenant user', async () => {

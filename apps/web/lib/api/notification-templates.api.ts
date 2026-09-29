@@ -22,6 +22,8 @@ export type NotificationTemplateVersion = NotificationTemplateContent & {
 
 export type NotificationTemplateCatalogItem = {
   code: string;
+  audience: 'ADMIN' | 'CLIENT' | 'SYSTEM';
+  category: 'PAYMENT' | 'DEPOSIT' | 'REMINDER' | 'CONTRACT' | 'SYSTEM';
   variables: NotificationTemplateVariable[];
   default: NotificationTemplateContent;
   effective: NotificationTemplateContent & {

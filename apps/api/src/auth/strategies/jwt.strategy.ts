@@ -26,22 +26,32 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     const record = await this.prisma.appSetting.findUnique({
-      where: {
-        tenantId_scope_ownerId_key: {
-          tenantId: payload.tenantId,
-          scope: SettingScope.USER,
-          ownerId: payload.sub,
-          key: 'auth-security',
-        },
-      },
+      where: { tenantId_scope_ownerId_key: {
+        tenantId: payload.tenantId, scope: SettingScope.USER, ownerId: payload.sub, key: 'auth-security',
+      } },
       select: { value: true },
     });
     const value = record?.value && typeof record.value === 'object' && !Array.isArray(record.value)
-      ? record.value as Record<string, unknown>
-      : {};
+      ? record.value as Record<string, unknown> : {};
     const currentVersion = Number.isSafeInteger(value.sessionVersion) ? Number(value.sessionVersion) : 0;
+    const idleTimeoutMinutes = Number.isSafeInteger(value.idleTimeoutMinutes)
+      && Number(value.idleTimeoutMinutes) >= 5 && Number(value.idleTimeoutMinutes) <= 10080
+      ? Number(value.idleTimeoutMinutes) : 1440;
+    const lastActivityAt = typeof value.lastActivityAt === 'string' ? Date.parse(value.lastActivityAt) : NaN;
+    if (Number.isFinite(lastActivityAt) && Date.now() - lastActivityAt >= idleTimeoutMinutes * 60 * 1000) {
+      throw new UnauthorizedException('Session expired due to inactivity');
+    }
     if (Number(payload.sessionVersion || 0) !== currentVersion) {
       throw new UnauthorizedException('This session has been revoked');
+    }
+    if ((this.prisma.appSetting as any).upsert) {
+      await (this.prisma.appSetting as any).upsert({
+        where: { tenantId_scope_ownerId_key: {
+          tenantId: payload.tenantId, scope: SettingScope.USER, ownerId: payload.sub, key: 'auth-security',
+        } },
+        create: { tenantId: payload.tenantId, scope: SettingScope.USER, ownerId: payload.sub, key: 'auth-security', value: { ...value, lastActivityAt: new Date().toISOString() } },
+        update: { value: { ...value, lastActivityAt: new Date().toISOString() } },
+      });
     }
 
     this.cls.set('tenantId', payload.tenantId);

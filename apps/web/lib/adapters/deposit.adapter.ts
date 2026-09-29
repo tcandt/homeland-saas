@@ -8,6 +8,7 @@ export interface UI_Deposit {
   amount: number;
   availableBalance?: number;
   sepayPendingReviewAmount?: number;
+  reconciliationError?: string | null;
   pendingOperationId?: string | null;
   expiredAt: string | null;
   note: string | null;
@@ -24,6 +25,11 @@ export interface UI_Deposit {
   buildingName: string;
   contractId?: string | null;
   contractCode?: string | null;
+  contractStatus?: string | null;
+  documents?: {
+    hasContractFile: boolean | null;
+    identityImageCount: number | null;
+  };
   refundSummary?: DepositResponse["refundSummary"];
   paymentRequest?: {
     id: string;
@@ -54,6 +60,7 @@ export const depositAdapter = {
       amount: Number(apiDeposit.amount) || 0,
       availableBalance: Number.isFinite(availableBalance) ? availableBalance : undefined,
       sepayPendingReviewAmount: Number(apiDeposit.sepayPendingReviewAmount || 0),
+      reconciliationError: apiDeposit.reconciliationError || null,
       pendingOperationId: apiDeposit.pendingOperationId ?? apiDeposit.refundSummary?.operationId ?? null,
       expiredAt: apiDeposit.expiredAt,
       note: apiDeposit.note,
@@ -69,6 +76,17 @@ export const depositAdapter = {
       buildingName: apiDeposit.buildingName || apiDeposit.room?.building?.name || '-',
       contractId: apiDeposit.contractId || apiDeposit.contract?.id || null,
       contractCode: apiDeposit.contract?.code || null,
+      contractStatus: apiDeposit.contract?.status || null,
+      documents: {
+        hasContractFile: apiDeposit.contract
+          ? Array.isArray(apiDeposit.contract.attachments)
+            ? apiDeposit.contract.attachments.some((url: unknown) => typeof url === 'string' && url.trim().length > 0)
+            : null
+          : false,
+        identityImageCount: Array.isArray(apiDeposit.customer?.idImages)
+          ? apiDeposit.customer.idImages.filter((url: unknown) => typeof url === 'string' && url.trim().length > 0).length
+          : null,
+      },
       refundSummary: apiDeposit.refundSummary || null,
       paymentRequest: apiDeposit.paymentRequest || null,
     };

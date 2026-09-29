@@ -26,6 +26,7 @@ describe('RuleEngine', () => {
 
     communicationService = {
       dispatch: vi.fn().mockResolvedValue(undefined),
+      dispatchDirect: vi.fn().mockResolvedValue(undefined),
     };
 
     engine = new RuleEngine(prisma as PrismaService, communicationService as CommunicationService);
@@ -105,10 +106,34 @@ describe('RuleEngine', () => {
     expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'tenant-1',
       userId: 'customer-1',
-      templateCode: 'SYSTEM_ALERT',
+      templateCode: 'CLIENT_INVOICE_DUE_SOON',
       context: expect.objectContaining({
-        title: expect.stringContaining('INV-002'),
+        headline: '⏰ NHẮC THANH TOÁN',
+        remainingAmountDisplay: '2.500.000 đ',
       }),
+    }));
+  });
+
+  it('uses a separate admin template when a payment promise reaches its due date', async () => {
+    prisma.appSetting = { findUnique: vi.fn().mockResolvedValue({ value: { adminGroupChatId: 'admin-group-1' } }) };
+
+    await engine.executeRule('invoice.payment_promise_due', {
+      tenantId: 'tenant-1',
+      correlationId: 'invoice.payment_promise_due:promise-2',
+      paymentPromiseId: 'promise-2',
+      promiseDueDate: new Date('2026-08-11T00:00:00.000Z'),
+      promiseStatus: 'OVERDUE',
+      status: 'PARTIALLY_PAID',
+      customerId: 'customer-1',
+      customerName: 'Khách A',
+      invoiceCode: 'INV-004',
+      roomCode: '31-06',
+      remainingAmount: 3_000_000,
+    });
+
+    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(expect.objectContaining({
+      templateCode: 'ADMIN_PAYMENT_PROMISE_DUE',
+      context: expect.objectContaining({ headline: '🔴 ĐẾN HẸN THANH TOÁN' }),
     }));
   });
 
@@ -126,10 +151,10 @@ describe('RuleEngine', () => {
     expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'tenant-1',
       userId: 'customer-1',
-      templateCode: 'SYSTEM_ALERT',
+      templateCode: 'CLIENT_CONTRACT_EXPIRING',
       context: expect.objectContaining({
-        title: expect.stringContaining('CTR-001'),
-        message: expect.stringContaining('31-04'),
+        headline: '⏳ HỢP ĐỒNG SẮP HẾT HẠN',
+        roomAndBuilding: '31-04',
       }),
     }));
   });
@@ -151,8 +176,11 @@ describe('RuleEngine', () => {
     expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'tenant-1',
       userId: 'customer-1',
-      templateCode: 'SYSTEM_ALERT',
-      context: expect.objectContaining({ title: expect.stringContaining('INV-003') }),
+      templateCode: 'CLIENT_PAYMENT_PROMISE_DUE',
+      context: expect.objectContaining({
+        headline: '⏰ ĐẾN HẸN THANH TOÁN',
+        remainingAmountDisplay: '3.000.000 đ',
+      }),
     }));
     expect(prisma.task.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ tenantId: 'tenant-1', priority: 'HIGH' }),

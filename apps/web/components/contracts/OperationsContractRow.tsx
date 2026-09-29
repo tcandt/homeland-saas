@@ -2,10 +2,9 @@
 
 import React from "react";
 import { CheckCircle2, Clock3, Building2, DoorClosed } from "lucide-react";
-import { getContractStatusConfig } from "../../lib/contracts/contract-status";
-import { getContractDisplayStatus, getLinkedRental, isBookingContract } from "@/lib/contracts/booking-conversion";
+import { getRentalTermPhase } from "../../lib/contracts/contract-status";
+import { getContractDisplayStatus, getLinkedRental, isBookingContract, isContractSigned } from "../../lib/contracts/booking-conversion";
 import { Badge } from "../ui/Badge";
-import { Card } from "../ui/Card";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 
 function formatDate(value?: string | Date) {
@@ -54,11 +53,9 @@ function getContractTypeLabel(contract: any) {
 
 export default function OperationsContractRow({
   contract,
-  rowNumber,
   onClick,
 }: {
   contract: any;
-  rowNumber: number;
   onClick: () => void;
 }) {
   const statusConfig = getContractDisplayStatus(contract);
@@ -92,25 +89,29 @@ export default function OperationsContractRow({
     customerGender === "gái";
   const avatarUrl = getTenantAvatar(contract.customer?.avatar, customerName, customerGender);
 
-  const isSigned = !["DRAFT", "PENDING_APPROVAL"].includes(contract.status);
+  const isSigned = isContractSigned(contract);
   const isExpiringSoon = daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 30;
   const isExpired = daysRemaining !== null && daysRemaining < 0;
   const isBookingHold = isBookingContract(contract);
+  const termPhase = getRentalTermPhase(contract.status);
+  const showRentalProgress = termPhase === "running" || termPhase === "expired";
 
   return (
     <div
       data-testid="contract-card"
       onClick={onClick}
-      className="group relative grid min-w-[1080px] cursor-pointer grid-cols-[48px_minmax(160px,0.9fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(320px,1.65fr)_140px] items-center gap-3 border-b border-border/60 bg-card px-4 py-3.5 transition-all hover:bg-surface/80"
+      role="button"
+      tabIndex={0}
+      aria-label={`Mở ${getContractTypeLabel(contract)} ${contract.code || contract.id}`}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      className="group relative grid min-h-[108px] min-w-0 cursor-pointer grid-cols-[minmax(180px,0.9fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(320px,1.65fr)_140px] items-center gap-3 bg-card px-3 py-3.5 transition-colors hover:bg-surface/80 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
     >
-      {/* 1. STT */}
-      <div className="flex items-center justify-center">
-        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-surface font-mono text-[11px] font-bold text-muted group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-          {rowNumber}
-        </span>
-      </div>
-
-      {/* 2. MÃ HỢP ĐỒNG */}
+      {/* MÃ HỢP ĐỒNG */}
       <div className="min-w-0 flex flex-col gap-0.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono font-black text-[13px] text-primary group-hover:underline truncate">
@@ -178,46 +179,61 @@ export default function OperationsContractRow({
               {linkedRental ? `Hợp đồng thuê: ${linkedRental.code || linkedRental.id}` : "Chưa tính thời hạn ở · Chờ chuyển sang thuê"}
             </span>
           </div>
+        ) : !showRentalProgress ? (
+          <div className={`border-l-[3px] py-1 pl-3 pr-1 ${termPhase === "ended" ? "border-muted/50" : "border-amber-500"}`}>
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted">
+                <Clock3 size={13} aria-hidden="true" />
+                {termPhase === "ended" ? "Thời hạn hợp đồng" : "Thời hạn dự kiến"}
+              </span>
+              <span className={`shrink-0 text-[11px] font-bold ${termPhase === "ended" ? "text-muted" : "text-amber-700 dark:text-amber-300"}`}>
+                {termPhase === "ended"
+                  ? contract.status === "CANCELLED" ? "Đã hủy" : "Đã chấm dứt"
+                  : "Chưa có hiệu lực"}
+              </span>
+            </div>
+            <div className="mt-2 flex items-center gap-2 whitespace-nowrap font-mono text-xs font-bold text-text">
+              <span>{formatDate(contract.startDate)}</span>
+              <span className="text-muted" aria-hidden="true">→</span>
+              <span>{formatDate(contract.endDate)}</span>
+            </div>
+          </div>
         ) : (
-          <div className="rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.04] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <div className="min-w-0 flex items-center gap-1.5 text-[11px] font-bold font-mono text-text">
+          <div className="border-l-[3px] border-emerald-500 py-1 pl-3 pr-1">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex items-center gap-1.5 whitespace-nowrap text-xs font-bold font-mono text-text">
                 <span className="truncate">{formatDate(contract.startDate)}</span>
                 <span className="text-emerald-500">→</span>
                 <span className="truncate">{formatDate(contract.endDate)}</span>
               </div>
-              <span className="shrink-0 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black font-mono text-emerald-600">
+              <span className="shrink-0 text-[11px] font-bold font-mono text-emerald-700 dark:text-emerald-300">
                 {Math.round(progressPercent)}%
               </span>
             </div>
 
-            <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-950/60">
+            <div role="progressbar" aria-label="Tiến độ thời hạn hợp đồng" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progressPercent)} className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-950/60">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-emerald-500 to-green-600 shadow-[0_0_12px_rgba(16,185,129,0.35)] transition-all"
+                className="h-full rounded-full bg-emerald-500 transition-all"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
 
-            <div className="mt-1.5 flex w-full items-center justify-between gap-2 text-[10px] font-bold">
-              <span className="text-muted">0%</span>
+            <div className="mt-1.5 flex justify-end text-[11px] font-semibold">
               <span
-                className={`truncate rounded-full px-2 py-0.5 text-center ${
+                className={
                   isExpired
-                    ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                    ? "text-rose-600 dark:text-rose-400"
                   : isExpiringSoon
-                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                    : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                }`}
+                    ? "text-amber-700 dark:text-amber-300"
+                    : "text-emerald-700 dark:text-emerald-300"
+                }
               >
                 {daysRemaining === null
                   ? "Chưa xác định"
                   : isExpired
                   ? `Hết hạn ${Math.abs(daysRemaining)} ngày trước`
-                  : isExpiringSoon
-                  ? `Còn ${daysRemaining} ngày`
                   : `Còn ${daysRemaining} ngày`}
               </span>
-              <span className="text-muted">100%</span>
             </div>
           </div>
         )}
@@ -231,11 +247,11 @@ export default function OperationsContractRow({
         <div className="flex items-center gap-1 text-[10px] font-semibold text-muted">
           {isSigned ? (
             <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 size={11} /> Đã duyệt hồ sơ
+              <CheckCircle2 size={11} /> Đã ký
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-              <Clock3 size={11} /> Chờ duyệt ký
+              <Clock3 size={11} /> Chưa ký
             </span>
           )}
         </div>

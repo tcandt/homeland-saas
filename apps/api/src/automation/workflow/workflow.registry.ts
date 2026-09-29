@@ -19,7 +19,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 2,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_DEPOSIT_CREATED',
           alertKind: 'DEPOSIT_CREATED',
         },
       },
@@ -62,7 +62,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 4,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_DEPOSIT_COLLECTED',
           continueOnError: true,
         },
       },
@@ -105,15 +105,6 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         },
       },
       {
-        name: 'Notify Admin Group via Zalo',
-        type: 'SEND_ADMIN_GROUP_ZALO',
-        order: 2,
-        params: {
-          templateCode: 'SYSTEM_ALERT',
-          alertKind: 'INVOICE_ISSUED',
-        },
-      },
-      {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
         order: 3,
@@ -130,7 +121,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 1,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_INVOICE_OVERDUE',
           alertKind: 'INVOICE_OVERDUE',
         },
       },
@@ -181,7 +172,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 4,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_INVOICE_PAID',
           continueOnError: true,
         },
       },
@@ -202,7 +193,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_PAYMENT_CONFIRMATION_ZALO',
         order: 1,
         params: {
-          templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
+          templateCode: 'INVOICE_ZALO_PARTIAL_PAYMENT_CONFIRMATION',
         },
       },
       {
@@ -224,7 +215,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 4,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_INVOICE_PARTIAL',
           continueOnError: true,
         },
       },
@@ -252,7 +243,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         name: 'Notify Customer via Zalo',
         type: 'SEND_CUSTOMER_ZALO',
         order: 2,
-        params: { templateCode: 'SYSTEM_ALERT', title: 'HomeLand - Đang xử lý hoàn cọc', message: 'Yêu cầu hoàn cọc của quý khách đã được tiếp nhận và đang chờ hoàn tất.' },
+        params: { templateCode: 'CLIENT_DEPOSIT_REFUND_PENDING' },
       },
       {
         name: 'Notify Admin In-App',
@@ -267,7 +258,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 4,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_DEPOSIT_REFUND_PENDING',
           alertKind: 'DEPOSIT_REFUND_REQUESTED',
           continueOnError: true,
         },
@@ -299,7 +290,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         name: 'Notify Customer via Zalo',
         type: 'SEND_CUSTOMER_ZALO',
         order: 2,
-        params: { templateCode: 'SYSTEM_ALERT', title: 'HomeLand - Đã hoàn cọc', message: 'Khoản hoàn cọc của quý khách đã được ghi nhận hoàn tất.' },
+        params: { templateCode: 'CLIENT_DEPOSIT_REFUNDED' },
       },
       {
         name: 'Notify Admin In-App',
@@ -312,7 +303,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 4,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_DEPOSIT_REFUNDED',
           alertKind: 'DEPOSIT_REFUNDED',
           continueOnError: true,
         },
@@ -350,14 +341,14 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         name: 'Notify Customer via Zalo',
         type: 'SEND_CUSTOMER_ZALO',
         order: 2,
-        params: { templateCode: 'SYSTEM_ALERT', title: 'HomeLand - Đã xử lý khấu trừ cọc', message: 'Phần cọc được giữ hoặc khấu trừ đã được ghi nhận theo biên bản xử lý.' },
+        params: { templateCode: 'CLIENT_DEPOSIT_DEDUCTED' },
       },
       {
         name: 'Notify Admin Group via Zalo',
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 3,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_DEPOSIT_DEDUCTED',
           alertKind: 'DEPOSIT_DEDUCTED',
           continueOnError: true,
         },
@@ -395,14 +386,14 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         name: 'Notify Customer via Zalo',
         type: 'SEND_CUSTOMER_ZALO',
         order: 2,
-        params: { templateCode: 'SYSTEM_ALERT', title: 'HomeLand - Đã hủy cọc', message: 'Yêu cầu giữ phòng của quý khách đã được hủy theo trạng thái xử lý hiện tại.' },
+        params: { templateCode: 'CLIENT_DEPOSIT_CANCELLED' },
       },
       {
         name: 'Notify Admin Group via Zalo',
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 3,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_DEPOSIT_CANCELLED',
           alertKind: 'DEPOSIT_CANCELLED',
           continueOnError: true,
         },
@@ -438,7 +429,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         name: 'Notify Admin Group via Zalo',
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 2,
-        params: { templateCode: 'SYSTEM_ALERT', alertKind: 'ROOM_HOLD_EXPIRED', continueOnError: true },
+        params: { templateCode: 'ADMIN_DEPOSIT_CANCELLED', alertKind: 'ROOM_HOLD_EXPIRED', continueOnError: true },
       },
     ],
   },
@@ -454,11 +445,17 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         params: { templateCode: 'PAYMENT_RECEIVED' },
       },
       {
+        name: 'Notify Customer via Zalo',
+        type: 'SEND_CUSTOMER_ZALO',
+        order: 2,
+        params: { templateCode: 'CLIENT_DEPOSIT_CONVERTED' },
+      },
+      {
         name: 'Notify Admin Group via Zalo',
         type: 'SEND_ADMIN_GROUP_ZALO',
-        order: 2,
+        order: 3,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_DEPOSIT_CONVERTED',
           alertKind: 'DEPOSIT_CONVERTED',
           continueOnError: true,
         },
@@ -466,12 +463,12 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
       {
         name: 'Invalidate Dashboard Cache',
         type: 'INVALIDATE_DASHBOARD_CACHE',
-        order: 3,
+        order: 4,
       },
       {
         name: 'Invalidate Finance Cache',
         type: 'INVALIDATE_FINANCE_CACHE',
-        order: 4,
+        order: 5,
       },
     ],
   },
@@ -493,7 +490,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 2,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_CONTRACT_SETTLEMENT_COMPLETED',
           alertKind: 'CONTRACT_SETTLEMENT_COMPLETED',
         },
       },
@@ -519,7 +516,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         type: 'SEND_ADMIN_GROUP_ZALO',
         order: 1,
         params: {
-          templateCode: 'SYSTEM_ALERT',
+          templateCode: 'ADMIN_CONTRACT_CREATED',
           alertKind: 'CONTRACT_CREATED',
         },
       },

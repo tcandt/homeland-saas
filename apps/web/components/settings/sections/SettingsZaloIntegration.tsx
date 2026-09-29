@@ -417,6 +417,9 @@ export default function SettingsZaloIntegration() {
             <p className="text-xs text-muted">
               Gửi thông báo hợp đồng, hóa đơn, biến động số dư và tiếp nhận đăng ký phòng qua Zalo Bot.
             </p>
+            <a href="/settings?section=notifications" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline">
+              <Settings2 size={12} /> Mở mẫu tin Zalo cho Admin và khách
+            </a>
           </div>
           <div className="flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 shadow-sm">
             <Switch

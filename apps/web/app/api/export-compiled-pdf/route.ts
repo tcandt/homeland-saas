@@ -50,6 +50,49 @@ function resolveTaiLieuPath(filename: string): string {
   return candidates[0];
 }
 
+function normalizeLookup(value: unknown): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toUpperCase();
+}
+
+function isLk0131OrLk0132(value: unknown): boolean {
+  const source = normalizeLookup(value).replace(/[^A-Z0-9]/g, '');
+  return source.includes('LK0131') || source.includes('LK0132');
+}
+
+function isTwoBedroomIdentifier(value: unknown): boolean {
+  const source = normalizeLookup(value).replace(/\s+/g, '');
+  return source.includes('2PN') || source.includes('2PHONGNGU');
+}
+
+function resolveContractRoomType(contract: any): string {
+  return (
+    contract?.soPhongNgu ||
+    contract?.roomType ||
+    contract?.room?.roomType ||
+    contract?.room?.type ||
+    ''
+  );
+}
+
+function shouldUseTwoBedroomTemplate(contract: any): boolean {
+  if (!isTwoBedroomIdentifier(resolveContractRoomType(contract))) return false;
+
+  return (
+    isLk0131OrLk0132(contract?.toaNha) ||
+    isLk0131OrLk0132(contract?.buildingName) ||
+    isLk0131OrLk0132(contract?.buildingCode) ||
+    isLk0131OrLk0132(contract?.room?.building?.code) ||
+    isLk0131OrLk0132(contract?.room?.building?.name) ||
+    isLk0131OrLk0132(contract?.room?.code) ||
+    isLk0131OrLk0132(contract?.room?.name)
+  );
+}
+
 function convertDocxToPdf(inputPath: string, outputPath: string) {
   const resolvedInput = path.resolve(inputPath);
   const resolvedOutput = path.resolve(outputPath);
@@ -353,9 +396,12 @@ export async function POST(request: Request) {
     }
 
     if (!hasContractPdf) {
-      const contractTemplatePath = resolveTaiLieuPath('HOP_DONG_1PN.docx');
+      const contractTemplateFilename = shouldUseTwoBedroomTemplate(contract)
+        ? 'HOP_DONG_2PN.docx'
+        : 'HOP_DONG_1PN.docx';
+      const contractTemplatePath = resolveTaiLieuPath(contractTemplateFilename);
       if (!fs.existsSync(contractTemplatePath)) {
-        return NextResponse.json({ error: 'Không tìm thấy file mẫu hợp đồng HOP_DONG_1PN.docx' }, { status: 404 });
+        return NextResponse.json({ error: `Không tìm thấy file mẫu hợp đồng ${contractTemplateFilename}` }, { status: 404 });
       }
 
       const landlordInfo = LANDLORDS[contract.chuNha || 'TINH'] || LANDLORDS['TINH'];
@@ -384,12 +430,13 @@ export async function POST(request: Request) {
         ngayKetThuc: contract.endDate ? dayjs(contract.endDate).format('DD/MM/YYYY') : '..........................',
         ngayKetthuc: contract.endDate ? dayjs(contract.endDate).format('DD/MM/YYYY') : '..........................',
         maPhong: contract.room?.code || contract.room?.name || '..........................',
-        soPhongNgu: '1',
+        soPhongNgu: resolveContractRoomType(contract) || '1 phòng ngủ',
         thoiHanThue: calculateRentalDuration(contract.startDate, contract.endDate),
         Hanthue: calculateRentalDuration(contract.startDate, contract.endDate),
         chuNha: contract.chuNha || 'TINH',
         toaNha: contract.room?.building?.name || '..........................',
         diachiToanha: contract.room?.building?.address || '..........................',
+        quanLyToaNha: contract.quanLyToaNha || contract.dienThoaiQuanLy || '0373.129.295 Nhân',
         ...landlordInfo,
       };
 

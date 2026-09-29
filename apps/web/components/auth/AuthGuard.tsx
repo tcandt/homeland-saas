@@ -64,20 +64,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     const publicPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
     if (publicPaths.includes(pathname)) return;
 
+    let timeoutMs = 24 * 60 * 60 * 1000;
     const getTimeoutMs = () => {
-      try {
-        const stored = localStorage.getItem("homeland_session_idle_timeout_minutes");
-        if (stored) {
-          const parsed = parseInt(stored, 10);
-          if (!isNaN(parsed) && parsed > 0) {
-            return parsed * 60 * 1000;
-          }
-        }
-      } catch {
-        // Fallback to default
-      }
-      // Mặc định: 1440 phút = 24 giờ giữ phiên đăng nhập
-      return 24 * 60 * 60 * 1000;
+      // The backend security endpoint is authoritative. Do not start a
+      // logout countdown from a stale value left in localStorage.
+      return timeoutMs;
     };
 
     const logoutForIdle = () => {
@@ -94,9 +85,17 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     const events: Array<keyof WindowEventMap> = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "focus"];
     events.forEach((eventName) => window.addEventListener(eventName, resetIdleTimer, { passive: true }));
 
-    const handleTimeoutUpdated = () => resetIdleTimer();
+    const handleTimeoutUpdated = () => {
+      const stored = Number(localStorage.getItem("homeland_session_idle_timeout_minutes"));
+      if (Number.isFinite(stored) && stored > 0) timeoutMs = stored * 60 * 1000;
+      resetIdleTimer();
+    };
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === "homeland_session_idle_timeout_minutes") resetIdleTimer();
+      if (event.key === "homeland_session_idle_timeout_minutes") {
+        const stored = Number(event.newValue);
+        if (Number.isFinite(stored) && stored > 0) timeoutMs = stored * 60 * 1000;
+        resetIdleTimer();
+      }
     };
     window.addEventListener("homeland:session-timeout-updated", handleTimeoutUpdated);
     window.addEventListener("storage", handleStorage);
@@ -106,6 +105,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     void authApi.security()
       .then((settings) => {
         if (!active) return;
+        timeoutMs = settings.idleTimeoutMinutes * 60 * 1000;
         localStorage.setItem("homeland_session_idle_timeout_minutes", String(settings.idleTimeoutMinutes));
         resetIdleTimer();
       })

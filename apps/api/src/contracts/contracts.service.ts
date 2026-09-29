@@ -40,7 +40,10 @@ import {
 } from "./contracts.adapter";
 import { ContractsRepository } from "./contracts.repository";
 import { DepositCoreService } from "../deposits/deposit-core.service";
+import { DepositsService } from "../deposits/deposits.service";
 import { PaymentsService } from "../payments/payments.service";
+import { InvoicesService } from "../invoices/invoices.service";
+import { COMBINED_ENTRY_POLICY, ENTRY_SECURITY_PERIOD, ENTRY_TRANSFER_PERIOD, getCombinedEntryInvoice, assertCombinedEntryInvoice } from "../invoices/combined-entry-invoice";
 import { buildRoomContext } from "../shared/context/room-context";
 import { createHash } from "crypto";
 
@@ -48,7 +51,7 @@ export function calculateFirstBillingPeriod(
   monthlyRent: number,
   startDate?: Date | string | null,
 ) {
-  const rent = Number(monthlyRent || 0);
+  const rent = Math.round(Number(monthlyRent || 0));
   if (!startDate) {
     return {
       amount: rent,
@@ -66,9 +69,8 @@ export function calculateFirstBillingPeriod(
   const month = start.getUTCMonth();
   const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const billableDays = daysInMonth - start.getUTCDate() + 1;
-  const amount = Math.round(((rent * billableDays) / daysInMonth) * 100) / 100;
   return {
-    amount,
+    amount: Math.round((rent * billableDays) / daysInMonth),
     billableDays,
     daysInMonth,
     period: `${year}-${String(month + 1).padStart(2, "0")}`,
@@ -86,6 +88,8 @@ export class ContractsService extends BaseCrudService<Contract> {
     private readonly hunonicService: HunonicService,
     @Optional() private readonly depositCoreService?: DepositCoreService,
     @Optional() private readonly paymentsService?: PaymentsService,
+    @Optional() private readonly depositsService?: DepositsService,
+    @Optional() private readonly invoicesService?: InvoicesService,
   ) {
     super(repository, auditService, "Contract");
   }
@@ -123,10 +127,17 @@ export class ContractsService extends BaseCrudService<Contract> {
             expectedMoveInAt: contract.startDate,
           },
         }));
-      return tx.contract.update({
+      const created = await tx.contract.update({
         where: { id: contract.id },
         data: { rentalCycleId: cycle.id },
       });
+      if (
+        Number(created.depositMoney || 0) > 0 &&
+        !this.isBookingHoldContract(created)
+      ) {
+        await this.ensureSecurityDepositInTransaction(tx, created);
+      }
+      return created;
     });
     await this.auditService.log({
       action: "CREATE",
@@ -392,6 +403,7 @@ export class ContractsService extends BaseCrudService<Contract> {
       ...(input.refundAttachmentUrls?.length
         ? { refundAttachmentUrls: input.refundAttachmentUrls }
         : {}),
+      ...(input.holdExpiresAt ? { holdExpiresAt: String(input.holdExpiresAt) } : {}),
     };
     const requestHash = this.hashSettlementRequest(requestHashPayload);
 
@@ -418,6 +430,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         orderBy: { createdAt: "desc" },
       });
       let contract: any;
+      let isNewConversion = false;
       if (existingRental) {
         const conversion = (existingRental.termsSnapshot as any)
           ?.convertedFromBookingHold;
@@ -484,6 +497,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             }),
           },
         });
+        isNewConversion = true;
       }
       const bookingDeposit = await tx.deposit.findFirst({
         where: {
@@ -509,6 +523,32 @@ export class ContractsService extends BaseCrudService<Contract> {
       });
       if (!bookingDeposit) {
         throw new BadRequestException("BOOKING_CONVERT_PAID_DEPOSIT_NOT_FOUND");
+      }
+      // Conversion reserves the rental slot without a second booking
+      // confirmation. Use the same automatic window as contract approval;
+      // exact replays never recreate or extend a prior hold.
+      if (isNewConversion) {
+        const now = new Date();
+        const recoveryExpiry = input.holdExpiresAt
+          ? new Date(input.holdExpiresAt)
+          : new Date(startDate);
+        if (!input.holdExpiresAt) {
+          recoveryExpiry.setUTCDate(recoveryExpiry.getUTCDate() + 1);
+          if (recoveryExpiry <= now) {
+            recoveryExpiry.setTime(now.getTime() + 24 * 60 * 60 * 1000);
+          }
+        }
+        if (Number.isNaN(recoveryExpiry.getTime()) || recoveryExpiry <= now) {
+          throw new BadRequestException("BOOKING_CONVERT_HOLD_EXPIRY_INVALID");
+        }
+        await this.depositCoreService!.ensureActiveHoldForConversionInTransaction(
+          tx,
+          tenantId,
+          bookingDeposit.id,
+          recoveryExpiry,
+          userId,
+          `${this.bookingDepositConversionKey(commandKey)}:conversion-hold`,
+        );
       }
       const securityRequired = Number(
         input.depositAmount ?? source.depositMoney,
@@ -563,6 +603,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         tx,
         rentalContract,
         InvoiceStatus.DRAFT,
+        { ...depositConversion, sourceDepositId: bookingDeposit.id },
       );
       const contractWithEntryInvoice = await tx.contract.update({
         where: { id: rentalContract.id, tenantId },
@@ -578,12 +619,20 @@ export class ContractsService extends BaseCrudService<Contract> {
                 amount: Number(entryInvoice.total),
                 dueDate: entryInvoice.dueDate.toISOString(),
                 status: entryInvoice.status,
-                billingPolicyVersion: "ACTUAL_DAYS_V1",
+                billingPolicyVersion: calculateFirstBillingPeriod(
+                  Number(contract.monthlyRent || 0),
+                  contract.startDate,
+                ).policyVersion,
+                ...(entryInvoice.combinedEntryBreakdown || {}),
               },
             },
           }),
         },
       });
+      if (entryInvoice.combinedEntryBreakdown && entryInvoice.status === InvoiceStatus.DRAFT) {
+        if (!this.invoicesService) throw new ConflictException("INVOICES_CORE_UNAVAILABLE");
+        await this.invoicesService.issueInTransaction(tx, entryInvoice.id, userId, tenantId);
+      }
       // Keep the booking-hold document as the source of truth for traceability
       // without changing its legal ContractStatus.  The source link is
       // written in the same transaction as the rental/deposit/invoice work so
@@ -635,17 +684,17 @@ export class ContractsService extends BaseCrudService<Contract> {
       return contractWithEntryInvoice;
     });
 
-    const conversion = (created.termsSnapshot as any)?.convertedFromBookingHold
-      ?.bookingDepositConversion;
+    const initialEntry = (created.termsSnapshot as any)?.convertedFromBookingHold?.initialEntryInvoice;
     if (
       this.paymentsService &&
-      conversion?.securityDepositId &&
-      Number(conversion.additionalCashRequired || 0) > 0
+      initialEntry?.invoiceId &&
+      initialEntry.paymentPolicyVersion === COMBINED_ENTRY_POLICY &&
+      Number(initialEntry.amount || 0) > 0
     ) {
       try {
         const conversionPaymentRequest =
-          await this.paymentsService.createDepositRequest(
-            conversion.securityDepositId,
+          await this.paymentsService.createInvoiceRequest(
+            initialEntry.invoiceId,
             userId,
           );
         return { ...created, conversionPaymentRequest };
@@ -666,8 +715,7 @@ export class ContractsService extends BaseCrudService<Contract> {
   }
 
   /**
-   * The first-rent document belongs to the rental contract, not to the
-   * booking-hold deposit.  Creating it by its stable ENTRY key makes booking
+   * The entry document belongs to the rental contract. Its stable ENTRY key makes booking
    * conversion, activation retry, and recovery of older drafts converge on
    * one invoice instead of emitting duplicate first-month obligations.
    */
@@ -675,6 +723,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     tx: any,
     contract: any,
     targetStatus: InvoiceStatus,
+    conversion?: any,
   ) {
     const firstBilling = calculateFirstBillingPeriod(
       Number(contract.monthlyRent || 0),
@@ -688,6 +737,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             baseInvoiceKey,
             deletedAt: null,
           },
+          include: { items: true },
         })
       : null;
     if (existing) {
@@ -698,6 +748,21 @@ export class ContractsService extends BaseCrudService<Contract> {
         existing.billingKind !== "ENTRY"
       ) {
         throw new ConflictException("ENTRY_INVOICE_SCOPE_CONFLICT");
+      }
+      const combinedEntry = getCombinedEntryInvoice(contract) || (conversion ? {
+        invoiceId: existing.id,
+        paymentPolicyVersion: COMBINED_ENTRY_POLICY,
+        rentAmount: firstBilling.amount,
+        securityRequired: Number(conversion.securityRequired),
+        transferredAmount: Number(conversion.transferAmount),
+        additionalCashRequired: Number(conversion.additionalCashRequired),
+        securityDepositId: conversion.securityDepositId,
+        sourceDepositId: conversion.sourceDepositId || null,
+        amount: firstBilling.amount + Number(conversion.additionalCashRequired),
+      } : null);
+      if (combinedEntry?.invoiceId === existing.id) {
+        assertCombinedEntryInvoice(existing, contract, combinedEntry);
+        return { ...existing, combinedEntryBreakdown: { ...combinedEntry, status: existing.status } };
       }
       if (
         targetStatus === InvoiceStatus.ISSUED &&
@@ -711,7 +776,29 @@ export class ContractsService extends BaseCrudService<Contract> {
       return existing;
     }
 
-    return tx.invoice.create({
+    // Older installations may have an unkeyed first-entry document. Creating
+    // a canonical ENTRY beside it would duplicate the obligation, so require
+    // an explicit recovery command instead of guessing its semantics.
+    const legacyGenericEntry = tx.invoice.findFirst
+      ? await tx.invoice.findFirst({
+          where: {
+            tenantId: contract.tenantId,
+            contractId: contract.id,
+            period: "Kỳ đầu vào ở",
+            billingKind: null,
+            deletedAt: null,
+          },
+          select: { id: true },
+        })
+      : null;
+    if (legacyGenericEntry) {
+      throw new ConflictException("LEGACY_GENERIC_ENTRY_INVOICE_CONFLICT");
+    }
+
+    const securityRequired = conversion ? Number(conversion.securityRequired) : 0;
+    const transferredAmount = conversion ? Number(conversion.transferAmount) : 0;
+    const total = firstBilling.amount + securityRequired - transferredAmount;
+    const invoice = await tx.invoice.create({
       data: {
         tenantId: contract.tenantId,
         code: `INV-ENTRY-${contract.code || contract.id}`,
@@ -725,9 +812,9 @@ export class ContractsService extends BaseCrudService<Contract> {
         dueDate:
           contract.firstPaymentDate ||
           new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        subtotal: firstBilling.amount,
+        subtotal: total,
         discount: 0,
-        total: firstBilling.amount,
+        total,
         paidAmount: 0,
         creditAmount: 0,
         items: {
@@ -735,18 +822,223 @@ export class ContractsService extends BaseCrudService<Contract> {
             {
               tenantId: contract.tenantId,
               type: "RENT",
-              description: firstBilling.billableDays
-                ? `Tiền thuê kỳ đầu (${firstBilling.billableDays}/${firstBilling.daysInMonth} ngày, ${firstBilling.policyVersion})`
-                : "Tiền thuê kỳ đầu",
+              description: `Tiền thuê tháng đầu (${firstBilling.policyVersion})`,
               servicePeriod: firstBilling.period,
               quantity: 1,
               unitPrice: firstBilling.amount,
               amount: firstBilling.amount,
             },
+            ...(conversion ? [
+              {
+                tenantId: contract.tenantId, type: "OTHER",
+                description: "Tiền cọc hợp đồng",
+                servicePeriod: `${ENTRY_SECURITY_PERIOD}${conversion.securityDepositId}`,
+                quantity: 1, unitPrice: securityRequired, amount: securityRequired,
+              },
+              ...(transferredAmount > 0 ? [{
+                tenantId: contract.tenantId, type: "DISCOUNT",
+                description: "Trừ cọc giữ phòng đã thanh toán",
+                servicePeriod: `${ENTRY_TRANSFER_PERIOD}${conversion.sourceDepositId}`,
+                quantity: 1, unitPrice: -transferredAmount, amount: -transferredAmount,
+              }] : []),
+            ] : []),
           ],
         },
       },
     });
+    return conversion ? { ...invoice, combinedEntryBreakdown: {
+      paymentPolicyVersion: COMBINED_ENTRY_POLICY,
+      rentAmount: firstBilling.amount, securityRequired, transferredAmount,
+      additionalCashRequired: Number(conversion.additionalCashRequired),
+      securityDepositId: conversion.securityDepositId,
+      sourceDepositId: conversion.sourceDepositId,
+      // Issuance and its durable evidence are committed in the conversion transaction.
+      status: InvoiceStatus.ISSUED,
+    } } : invoice;
+  }
+
+  /**
+   * Explicit pre-move-in billing command for an immediate rental.  The ENTRY
+   * base key is the durable idempotency identity: retries and concurrent
+   * requests converge on the same invoice before QR provisioning is attempted.
+   */
+  async prepareImmediateEntryBilling(
+    id: string,
+    userId: string,
+    tenantId: string,
+  ): Promise<any> {
+    if (!tenantId) {
+      throw new BadRequestException("CONTRACT_ENTRY_BILLING_REQUIRES_TENANT");
+    }
+
+    const invoice = await this.runActivationSerializable(async (tx: any) => {
+      await this.lockContractLifecycle(tx, tenantId, id);
+      const contract = await tx.contract.findFirst({
+        where: { id, tenantId, deletedAt: null },
+      });
+      if (!contract) {
+        throw new NotFoundException(`Contract with ID ${id} not found`);
+      }
+      if (this.isBookingHoldContract(contract)) {
+        throw new BadRequestException("BOOKING_HOLD_REQUIRES_RENTAL_CONVERSION");
+      }
+      if (
+        ![
+          ContractStatus.DRAFT,
+          ContractStatus.PENDING_APPROVAL,
+          ContractStatus.APPROVED,
+          ContractStatus.ACTIVE,
+        ].includes(contract.status)
+      ) {
+        throw new BadRequestException("CONTRACT_ENTRY_BILLING_STATE_INVALID");
+      }
+
+      // Active contracts may only recover the existing canonical document;
+      // a new financial obligation must never be emitted after move-in.
+      if (contract.status === ContractStatus.ACTIVE) {
+        const firstBilling = calculateFirstBillingPeriod(
+          Number(contract.monthlyRent || 0),
+          contract.startDate,
+        );
+        const existing = await tx.invoice.findFirst({
+          where: {
+            tenantId,
+            contractId: contract.id,
+            billingKind: "ENTRY",
+            baseInvoiceKey: `ENTRY:${contract.id}:${firstBilling.period}`,
+            deletedAt: null,
+          },
+          include: { items: true },
+        });
+        if (!existing) {
+          throw new ConflictException("CONTRACT_ENTRY_INVOICE_REQUIRED");
+        }
+        return existing;
+      }
+
+      const converted = (contract.termsSnapshot as any)?.convertedFromBookingHold;
+      const bookingConversion = converted?.bookingDepositConversion;
+      if (converted?.sourceContractId && !bookingConversion) {
+        // A booking conversion owns a combined obligation.  Do not silently
+        // replace it with a rent-only ENTRY document during recovery.  An
+        // already-created canonical row remains safe to reuse.
+        const firstBilling = calculateFirstBillingPeriod(
+          Number(contract.monthlyRent || 0),
+          contract.startDate,
+        );
+        const existing = await tx.invoice.findFirst({
+          where: {
+            tenantId,
+            contractId: contract.id,
+            billingKind: "ENTRY",
+            baseInvoiceKey: `ENTRY:${contract.id}:${firstBilling.period}`,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (!existing) {
+          throw new ConflictException("BOOKING_CONVERT_ENTRY_RECOVERY_REQUIRED");
+        }
+        return this.ensureEntryInvoiceInTransaction(
+          tx,
+          contract,
+          InvoiceStatus.ISSUED,
+        );
+      }
+      const securityRequired = Number(contract.depositMoney || 0);
+      const securityDeposit = !bookingConversion && securityRequired > 0
+        ? await this.ensureSecurityDepositInTransaction(tx, contract)
+        : null;
+      if (securityDeposit && !getCombinedEntryInvoice(contract) && tx.depositLedgerEntry?.aggregate) {
+        const funded = await tx.depositLedgerEntry.aggregate({
+          where: { tenantId, depositId: securityDeposit.id },
+          _sum: { balanceEffect: true },
+        });
+        if (Number(funded?._sum?.balanceEffect || 0) > 0) {
+          throw new ConflictException("IMMEDIATE_ENTRY_SECURITY_ALREADY_FUNDED");
+        }
+      }
+      const immediateEntryPlan = securityDeposit ? {
+        securityRequired,
+        transferAmount: 0,
+        additionalCashRequired: securityRequired,
+        securityDepositId: securityDeposit.id,
+        sourceDepositId: null,
+      } : undefined;
+      const entryInvoice = await this.ensureEntryInvoiceInTransaction(
+        tx,
+        contract,
+        InvoiceStatus.ISSUED,
+        bookingConversion
+          ? { ...bookingConversion, sourceDepositId: bookingConversion.sourceDepositId }
+          : immediateEntryPlan,
+      );
+      if (immediateEntryPlan) {
+        await tx.contract.update({
+          where: { id: contract.id, tenantId },
+          data: {
+            termsSnapshot: this.asJson({
+              ...((contract.termsSnapshot as any) || {}),
+              initialEntryInvoice: {
+                invoiceId: entryInvoice.id,
+                invoiceCode: entryInvoice.code,
+                amount: Number(entryInvoice.total),
+                dueDate: new Date(
+                  entryInvoice.dueDate || contract.firstPaymentDate || contract.startDate,
+                ).toISOString(),
+                status: entryInvoice.status,
+                billingPolicyVersion: calculateFirstBillingPeriod(
+                  Number(contract.monthlyRent || 0),
+                  contract.startDate,
+                ).policyVersion,
+                ...(entryInvoice.combinedEntryBreakdown || {}),
+              },
+            }),
+          },
+        });
+      }
+      return entryInvoice;
+    });
+
+    const outstanding = Math.max(
+      0,
+      Number(invoice.total || 0) -
+        Number(invoice.paidAmount || 0) -
+        Number(invoice.creditAmount || 0),
+    );
+    if (!this.paymentsService || invoice.status !== InvoiceStatus.ISSUED || outstanding <= 0) {
+      return {
+        invoiceId: invoice.id,
+        entryInvoice: invoice,
+        paymentRequestId: null,
+        entryPaymentRequest: null,
+      };
+    }
+
+    try {
+      const entryPaymentRequest = await this.paymentsService.createInvoiceRequest(
+        invoice.id,
+        userId,
+      );
+      return {
+        invoiceId: invoice.id,
+        entryInvoice: invoice,
+        paymentRequestId: entryPaymentRequest.id,
+        entryPaymentRequest,
+      };
+    } catch (error: any) {
+      // Invoice issuance is durable and retry-safe; QR provisioning may be
+      // retried without creating another ENTRY obligation.
+      return {
+        invoiceId: invoice.id,
+        entryInvoice: invoice,
+        paymentRequestId: null,
+        entryPaymentRequest: null,
+        entryPaymentRequestError: String(
+          error?.message || error || "ENTRY_PAYMENT_REQUEST_CREATION_FAILED",
+        ),
+      };
+    }
   }
 
   async update(
@@ -755,52 +1047,32 @@ export class ContractsService extends BaseCrudService<Contract> {
     userId?: string,
     moduleName?: string,
   ): Promise<Contract> {
-    const current = await this.getDetail(id);
-    if (data.status !== undefined && data.status !== current.status) {
-      throw new BadRequestException(
-        "CONTRACT_STATUS_TRANSITION_REQUIRES_COMMAND",
-      );
-    }
-    if (
-      data.coRepresentativeIds !== undefined &&
-      ACTIVE_LIKE_CONTRACT_STATUSES.includes(current.status)
-    ) {
-      const currentMemberIds = Array.from(
-        new Set(
-          Array.isArray(current.coRepresentativeIds)
-            ? current.coRepresentativeIds
-            : [],
-        ),
-      ).sort();
-      const requestedMemberIdsRaw = Array.isArray(data.coRepresentativeIds)
-        ? data.coRepresentativeIds
-        : [];
-      const requestedMemberIds = Array.from(
-        new Set(requestedMemberIdsRaw),
-      ).sort();
-      const membershipChanged =
-        requestedMemberIdsRaw.length !== requestedMemberIds.length ||
-        currentMemberIds.length !== requestedMemberIds.length ||
-        currentMemberIds.some(
-          (customerId, index) => customerId !== requestedMemberIds[index],
-        );
-
-      // A generic PATCH has no effective move-in/out timestamp or idempotency
-      // key. Applying it to an active contract can reopen historical
-      // Occupancy rows and change a closed billing period's headcount.
-      if (membershipChanged) {
-        throw new ConflictException(
-          "ACTIVE_CONTRACT_OCCUPANT_CHANGE_REQUIRES_LIFECYCLE_COMMAND",
+    const initial = await this.getDetail(id);
+    // Reject the known-invalid active-membership edit before acquiring the
+    // financial write transaction. The same check is repeated after the lock
+    // below because `initial` is only a preflight snapshot.
+    this.assertGenericUpdateMembershipAllowed(initial, data);
+    const result = await this.runSettlementSerializable(async (tx: any) => {
+      await this.lockSettlementContract(tx, initial.tenantId, id);
+      const current = await tx.contract.findFirst({
+        where: { id, tenantId: initial.tenantId, deletedAt: null },
+      });
+      if (!current) throw new NotFoundException(`Contract with ID ${id} not found`);
+      const billingTermsChanged = this.hasBillingTermsChange(current, data);
+      if (billingTermsChanged) await this.assertBillingTermsMutable(current, tx);
+      if (data.status !== undefined && data.status !== current.status) {
+        throw new BadRequestException(
+          "CONTRACT_STATUS_TRANSITION_REQUIRES_COMMAND",
         );
       }
-    }
-    const canRefreshLegalSnapshot = [
+      this.assertGenericUpdateMembershipAllowed(current, data);
+      const canRefreshLegalSnapshot = [
       ContractStatus.DRAFT,
       ContractStatus.PENDING_APPROVAL,
       ContractStatus.APPROVED,
-    ].includes(current.status);
-    let preparedData = data;
-    if (canRefreshLegalSnapshot) {
+      ].includes(current.status);
+      let preparedData = data;
+      if (canRefreshLegalSnapshot) {
       const refreshedSnapshots = await this.withContractSnapshots({
         ...current,
         ...data,
@@ -828,33 +1100,62 @@ export class ContractsService extends BaseCrudService<Contract> {
                   .bookingConversion,
               }
             : {}),
+          ...((current.termsSnapshot as any)?.initialEntryInvoice
+            ? {
+                initialEntryInvoice: (current.termsSnapshot as any)
+                  .initialEntryInvoice,
+              }
+            : {}),
         }),
       };
-    }
-    let updated: Contract;
-    try {
-      updated = await this.prisma.tx.contract.update({
-        where: { id, tenantId: current.tenantId, updatedAt: current.updatedAt },
+      }
+      let updated: Contract;
+      try {
+        updated = await tx.contract.update({
+        where: {
+          id,
+          tenantId: current.tenantId,
+          updatedAt: current.updatedAt,
+          ...(billingTermsChanged
+            ? {
+                invoices: {
+                  none: {
+                    tenantId: current.tenantId,
+                    deletedAt: null,
+                  },
+                },
+                deposits: {
+                  none: {
+                    tenantId: current.tenantId,
+                    deletedAt: null,
+                  },
+                },
+              }
+            : {}),
+        },
         data: preparedData,
       });
-    } catch (error: any) {
-      if (error?.code === "P2025") throw new ConflictException("CONTRACT_CONCURRENT_UPDATE_RELOAD_REQUIRED");
-      throw error;
-    }
+      } catch (error: any) {
+        if (error?.code === "P2025") throw new ConflictException("CONTRACT_CONCURRENT_UPDATE_RELOAD_REQUIRED");
+        throw error;
+      }
+      if (updated.rentalCycleId && tx.rentalCycle?.updateMany) {
+        await tx.rentalCycle.updateMany({
+          where: { id: updated.rentalCycleId, tenantId: updated.tenantId },
+          data: {
+            customerId: updated.customerId,
+            roomId: updated.roomId,
+            expectedMoveInAt: updated.startDate,
+          },
+        });
+      }
+      return { current, updated };
+    });
+    const { current, updated } = result;
     await this.auditService.log({
       action: "UPDATE", entity: this.entityName, entityId: id,
       module: moduleName || this.entityName, before: current, after: updated, userId,
     });
-    if (updated.rentalCycleId && this.prisma.tx.rentalCycle?.updateMany) {
-      await this.prisma.tx.rentalCycle.updateMany({
-        where: { id: updated.rentalCycleId, tenantId: updated.tenantId },
-        data: {
-          customerId: updated.customerId,
-          roomId: updated.roomId,
-          expectedMoveInAt: updated.startDate,
-        },
-      });
-    }
     await this.syncContractHistory(updated);
     if (data.depositMoney !== undefined || data.status !== undefined) {
       await this.syncContractDeposit(updated);
@@ -970,6 +1271,128 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
   }
 
+  private async ensureSecurityDepositInTransaction(tx: any, contract: any) {
+    const existing = await tx.deposit.findFirst({
+      where: {
+        tenantId: contract.tenantId,
+        contractId: contract.id,
+        type: DepositType.SECURITY,
+        deletedAt: null,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existing) {
+      const scopeMatches =
+        existing.tenantId === contract.tenantId &&
+        existing.roomId === contract.roomId &&
+        existing.customerId === contract.customerId &&
+        (existing.rentalCycleId || null) === (contract.rentalCycleId || null) &&
+        Number(existing.amount || 0) === Number(contract.depositMoney || 0);
+      if (!scopeMatches) {
+        throw new ConflictException("CONTRACT_SECURITY_DEPOSIT_SCOPE_MISMATCH");
+      }
+      return existing;
+    }
+
+    return tx.deposit.create({
+      data: {
+        tenantId: contract.tenantId,
+        code: `DC-${contract.code || contract.id}`,
+        type: DepositType.SECURITY,
+        roomId: contract.roomId,
+        customerId: contract.customerId,
+        contractId: contract.id,
+        rentalCycleId: contract.rentalCycleId,
+        amount: contract.depositMoney,
+        status: DepositStatus.PENDING,
+        note: `Cọc bảo đảm hợp đồng ${contract.code || contract.id}`,
+      },
+    });
+  }
+
+  private hasBillingTermsChange(current: any, data: any) {
+    const changedMoney = ["monthlyRent", "depositMoney"].some(
+      (field) =>
+        data[field] !== undefined &&
+        Number(data[field]) !== Number(current[field]),
+    );
+    const changedScope = ["roomId", "customerId", "rentalCycleId"].some(
+      (field) => data[field] !== undefined && data[field] !== current[field],
+    );
+    const changedDates = ["startDate", "firstPaymentDate"].some(
+      (field) =>
+        data[field] !== undefined &&
+        new Date(data[field]).getTime() !== new Date(current[field]).getTime(),
+    );
+    return changedMoney || changedScope || changedDates;
+  }
+
+  private assertGenericUpdateMembershipAllowed(current: any, data: any) {
+    if (
+      data.coRepresentativeIds === undefined ||
+      !ACTIVE_LIKE_CONTRACT_STATUSES.includes(current.status)
+    ) {
+      return;
+    }
+    const currentMemberIds = Array.from(
+      new Set(
+        Array.isArray(current.coRepresentativeIds)
+          ? current.coRepresentativeIds
+          : [],
+      ),
+    ).sort();
+    const requestedMemberIdsRaw = Array.isArray(data.coRepresentativeIds)
+      ? data.coRepresentativeIds
+      : [];
+    const requestedMemberIds = Array.from(
+      new Set(requestedMemberIdsRaw),
+    ).sort();
+    const membershipChanged =
+      requestedMemberIdsRaw.length !== requestedMemberIds.length ||
+      currentMemberIds.length !== requestedMemberIds.length ||
+      currentMemberIds.some(
+        (customerId, index) => customerId !== requestedMemberIds[index],
+      );
+
+    // A generic PATCH has no effective move-in/out timestamp or idempotency
+    // key. Applying it to an active contract can reopen historical Occupancy
+    // rows and change a closed billing period's headcount.
+    if (membershipChanged) {
+      throw new ConflictException(
+        "ACTIVE_CONTRACT_OCCUPANT_CHANGE_REQUIRES_LIFECYCLE_COMMAND",
+      );
+    }
+  }
+
+  private async assertBillingTermsMutable(contract: any, tx: any = this.prisma.tx) {
+    if (getCombinedEntryInvoice(contract)) {
+      throw new ConflictException("CONTRACT_ENTRY_BILLING_ALREADY_ISSUED");
+    }
+    const issuedInvoice = await tx.invoice.findFirst({
+      where: {
+        tenantId: contract.tenantId,
+        contractId: contract.id,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (issuedInvoice) {
+      throw new ConflictException("CONTRACT_ENTRY_BILLING_ALREADY_ISSUED");
+    }
+
+    const fundedDeposit = await tx.deposit.findFirst({
+      where: {
+        tenantId: contract.tenantId,
+        contractId: contract.id,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (fundedDeposit) {
+      throw new ConflictException("CONTRACT_ENTRY_BILLING_ALREADY_ISSUED");
+    }
+  }
+
   private isBookingHoldContract(contract: any): boolean {
     if (contract?.termsSnapshot?.convertedFromBookingHold?.sourceContractId || String(contract?.code || "").startsWith("HD-THUE-")) return false;
     const sourceText = `${contract?.code || ""} ${contract?.purpose || ""}`
@@ -1030,6 +1453,7 @@ export class ContractsService extends BaseCrudService<Contract> {
           monthlyRent: true,
           depositMoney: true,
           startDate: true,
+          termsSnapshot: true,
         },
       });
       source = record;
@@ -1135,8 +1559,11 @@ export class ContractsService extends BaseCrudService<Contract> {
         : null;
     const depositRequired = Number(rental.depositMoney || 0);
     const depositPaid =
-      securityBalance >= depositRequired && depositRequired > 0 &&
-      [DepositStatus.PAID, DepositStatus.CONVERTED_TO_CONTRACT].includes(securityDeposit?.status);
+      depositRequired === 0 ||
+      (securityBalance >= depositRequired &&
+        [DepositStatus.PAID, DepositStatus.CONVERTED_TO_CONTRACT].includes(
+          securityDeposit?.status,
+        ));
     const entryInvoicePaid =
       entryInvoice?.status === InvoiceStatus.PAID &&
       Number(entryInvoice?.paidAmount || 0) + Number(entryInvoice?.creditAmount || 0) >= Number(entryInvoice?.total || 0);
@@ -1156,6 +1583,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         code: rental.code,
         status: rental.status,
         signedAt: rental.signedAt || null,
+        startDate: rental.startDate,
         activatedAt: rental.activatedAt || null,
       },
       securityDeposit: securityDeposit
@@ -1187,24 +1615,13 @@ export class ContractsService extends BaseCrudService<Contract> {
   async getDetail(id: string, include?: any): Promise<any> {
     const record = await super.getDetail(id, include);
     const settlementRefund = await this.getSettlementRefundSummary(record);
-    const bookingDeposit = await this.prisma.tx.deposit.findFirst({
+    const bookingDepositQuery = {
       where: {
         tenantId: record.tenantId,
         deletedAt: null,
-        OR: [
-          { contractId: record.id },
-          ...(record.rentalCycleId
-            ? [{ rentalCycleId: record.rentalCycleId }]
-            : []),
-          {
-            roomId: record.roomId,
-            customerId: record.customerId,
-            type: { in: [DepositType.BOOKING, DepositType.RESERVATION] },
-          },
-        ],
         type: { in: [DepositType.BOOKING, DepositType.RESERVATION] },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: "desc" as const },
       select: {
         id: true,
         code: true,
@@ -1216,8 +1633,65 @@ export class ContractsService extends BaseCrudService<Contract> {
         contractId: true,
         createdAt: true,
         updatedAt: true,
-      },
+      } as const,
+    };
+    let bookingDeposit: any = await this.prisma.tx.deposit.findFirst({
+      ...bookingDepositQuery,
+      where: { ...bookingDepositQuery.where, contractId: record.id },
     });
+    if (!bookingDeposit && record.rentalCycleId) {
+      bookingDeposit = await this.prisma.tx.deposit.findFirst({
+        ...bookingDepositQuery,
+        where: {
+          ...bookingDepositQuery.where,
+          rentalCycleId: record.rentalCycleId,
+          OR: [
+            { contractId: null },
+            { status: DepositStatus.CONVERTED_TO_CONTRACT },
+          ],
+        },
+      });
+    }
+    if (!bookingDeposit && record.roomId && record.customerId) {
+      const legacyDeposits = await this.prisma.tx.deposit.findMany({
+        ...bookingDepositQuery,
+        where: {
+          ...bookingDepositQuery.where,
+          roomId: record.roomId,
+          customerId: record.customerId,
+          contractId: null,
+          rentalCycleId: null,
+        },
+        take: 2,
+      });
+      if (legacyDeposits.length === 1) bookingDeposit = legacyDeposits[0];
+    }
+    if (
+      this.depositsService &&
+      this.isBookingHoldContract(record) &&
+      bookingDeposit &&
+      [DepositStatus.DRAFT, DepositStatus.PENDING].includes(bookingDeposit.status)
+    ) {
+      // Reuse the canonical, proof-checked collector on detail reads so a
+      // deferred payment never requires an operator to reload the deposit.
+      try {
+        const reconciled = await this.depositsService.getDetail(bookingDeposit.id);
+        if (reconciled?.id === bookingDeposit.id && reconciled.tenantId === record.tenantId) {
+          bookingDeposit = {
+            ...bookingDeposit,
+            status: reconciled.status,
+            availableBalance: reconciled.availableBalance,
+            reconciliationError: reconciled.reconciliationError,
+            rentalCycleId: reconciled.rentalCycleId,
+            updatedAt: reconciled.updatedAt,
+          };
+        } else {
+          bookingDeposit.reconciliationError = "DEPOSIT_RECONCILIATION_UNAVAILABLE";
+        }
+      } catch {
+        bookingDeposit.reconciliationError = "DEPOSIT_RECONCILIATION_UNAVAILABLE";
+      }
+    }
     const securityDeposit = await this.prisma.tx.deposit.findFirst({
       where: {
         tenantId: record.tenantId,
@@ -1239,6 +1713,24 @@ export class ContractsService extends BaseCrudService<Contract> {
       },
     });
     const invoiceModel = (this.prisma.tx as any).invoice;
+    const debtInvoices = invoiceModel?.findMany
+      ? await invoiceModel.findMany({
+          where: {
+            tenantId: record.tenantId,
+            contractId: record.id,
+            deletedAt: null,
+          },
+          select: this.outstandingInvoiceDebtSelect(),
+        })
+      : [];
+    const debt = this.buildOutstandingInvoiceDebt(
+      debtInvoices.filter(
+        (invoice: any) =>
+          invoice.tenantId === record.tenantId &&
+          invoice.contractId === record.id &&
+          invoice.deletedAt == null,
+      ),
+    ).total;
     const paymentRequestModel = (this.prisma.tx as any).paymentRequest;
     const bookingInvoice = invoiceModel?.findFirst
       ? await invoiceModel.findFirst({
@@ -1319,11 +1811,41 @@ export class ContractsService extends BaseCrudService<Contract> {
         };
       }
     }
+    let bookingReconciliationError: string | null = bookingDeposit?.reconciliationError || null;
+    if (
+      !bookingReconciliationError &&
+      bookingDeposit &&
+      [DepositStatus.DRAFT, DepositStatus.PENDING].includes(bookingDeposit.status) &&
+      String(hydratedBookingPaymentRequest?.status || "").toUpperCase() === "CONFIRMED"
+    ) {
+      const balance = (this.prisma.tx as any).depositLedgerEntry?.aggregate
+        ? await (this.prisma.tx as any).depositLedgerEntry.aggregate({
+            where: { tenantId: record.tenantId, depositId: bookingDeposit.id },
+            _sum: { balanceEffect: true },
+          }).then((result: any) => Number(result?._sum?.balanceEffect || 0))
+        : 0;
+      if (balance < Number(bookingDeposit.amount || 0)) {
+        bookingReconciliationError = "BOOKING_PAYMENT_CONFIRMED_RECONCILIATION_PENDING";
+      }
+    }
+    const roomHoldModel = (this.prisma.tx as any).roomHold;
+    const bookingRoomHold = bookingDeposit && roomHoldModel?.findFirst
+      ? await roomHoldModel.findFirst({
+          where: { tenantId: record.tenantId, depositId: bookingDeposit.id },
+          orderBy: { createdAt: "desc" },
+          select: { status: true, expiresAt: true },
+        }).catch(() => null)
+      : null;
+    const bookingHoldExpiresAt = bookingRoomHold?.expiresAt || null;
+    const bookingHoldIsActive = String(bookingRoomHold?.status || "").toUpperCase() === "ACTIVE"
+      && bookingHoldExpiresAt != null
+      && new Date(bookingHoldExpiresAt).getTime() > Date.now();
     const recordWithBookingDeposit = {
       ...record,
       bookingDeposit: bookingDeposit
         ? {
             ...bookingDeposit,
+            reconciliationError: bookingReconciliationError,
             sepayPendingReviewAmount: Number(
               (hydratedBookingPaymentRequest as any)?.pendingReviewAmount || 0,
             ),
@@ -1338,8 +1860,17 @@ export class ContractsService extends BaseCrudService<Contract> {
           }
         : bookingInvoice,
       bookingPaymentRequest: hydratedBookingPaymentRequest,
+      bookingHold: bookingDeposit
+        ? {
+            status: bookingRoomHold?.status || "NONE",
+            expiresAt: bookingHoldExpiresAt,
+            isActive: bookingHoldIsActive,
+            requiresRecovery: !bookingHoldIsActive && [DepositStatus.PAID, DepositStatus.CONVERTED_TO_CONTRACT].includes(bookingDeposit.status),
+          }
+        : null,
       securityDeposit,
       securityPaymentRequest,
+      debt,
     };
     const bookingConversion = await this.getBookingConversionView(record);
     const enrichedRecord = bookingConversion
@@ -1457,10 +1988,41 @@ export class ContractsService extends BaseCrudService<Contract> {
         },
       },
     });
+    const contractIds = new Set(
+      result.data.map((contract: any) => String(contract.id)).filter(Boolean),
+    );
+    const invoices = contractIds.size
+      ? await this.prisma.tx.invoice.findMany({
+          where: {
+            tenantId,
+            contractId: { in: [...contractIds] },
+            deletedAt: null,
+          },
+          select: this.outstandingInvoiceDebtSelect(),
+        })
+      : [];
+    const invoicesByContract = new Map<string, any[]>();
+    for (const invoice of invoices) {
+      if (
+        invoice.tenantId !== tenantId ||
+        !contractIds.has(String(invoice.contractId)) ||
+        invoice.deletedAt != null
+      ) {
+        continue;
+      }
+      const group = invoicesByContract.get(invoice.contractId) || [];
+      group.push(invoice);
+      invoicesByContract.set(invoice.contractId, group);
+    }
     const data = await Promise.all(
       result.data.map(async (contract: any) => {
         const bookingConversion = await this.getBookingConversionView(contract);
-        return bookingConversion ? { ...contract, bookingConversion } : contract;
+        const debt = this.buildOutstandingInvoiceDebt(
+          invoicesByContract.get(contract.id) || [],
+        ).total;
+        return bookingConversion
+          ? { ...contract, bookingConversion, debt }
+          : { ...contract, debt };
       }),
     );
     return { ...result, data };
@@ -1512,15 +2074,34 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
 
     const result = await this.prisma.tx.$transaction(async (tx) => {
+      // Deposit creation acquires the room lifecycle before contract state.
+      // Follow that order here. If a concurrent contract edit moved the room
+      // before the contract lock was acquired, abort rather than reserving a
+      // different room from the one we just locked.
+      await this.lockRoomLifecycle(tx, contract.tenantId, contract.roomId);
+      await this.lockContractLifecycle(tx, contract.tenantId, id);
+      const lockedContract = await tx.contract.findFirst({
+        where: {
+          id,
+          tenantId: contract.tenantId,
+          deletedAt: null,
+        },
+      });
+      if (!lockedContract) {
+        throw new NotFoundException(`Contract with ID ${id} not found`);
+      }
+      if (lockedContract.status !== ContractStatus.PENDING_APPROVAL) {
+        throw new ConflictException("CONTRACT_APPROVAL_STATE_CHANGED");
+      }
+      if (lockedContract.roomId !== contract.roomId) {
+        throw new ConflictException("CONTRACT_APPROVAL_ROOM_CHANGED");
+      }
+
       // Lock the room before checking availability. A stale OCCUPIED flag must
       // not block approval when there is no actual active occupancy, contract,
       // or hold; RESERVED/CLEANING/MAINTENANCE remain blocking states.
-      if (contract.tenantId && typeof tx.$queryRaw === "function") {
-        await this.lockRoomLifecycle(tx, contract.tenantId, contract.roomId);
-      }
-
       const room = await tx.room.findUnique({
-        where: { id: contract.roomId },
+        where: { id: lockedContract.roomId },
       });
       if (!room) {
         throw new ConflictException(
@@ -1533,18 +2114,18 @@ export class ContractsService extends BaseCrudService<Contract> {
       // contract's SECURITY deposit. It reserves capacity until approval,
       // but must not block the contract it belongs to.
       const ownReservationHold =
-        contract.rentalCycleId && typeof tx.roomHold?.findFirst === "function"
+        lockedContract.rentalCycleId && typeof tx.roomHold?.findFirst === "function"
           ? await tx.roomHold.findFirst({
               where: {
-                tenantId: contract.tenantId,
-                roomId: contract.roomId,
-                rentalCycleId: contract.rentalCycleId,
+                tenantId: lockedContract.tenantId,
+                roomId: lockedContract.roomId,
+                rentalCycleId: lockedContract.rentalCycleId,
                 status: "ACTIVE",
                 expiresAt: { gt: now },
                 deposit: {
                   is: {
-                    tenantId: contract.tenantId,
-                    contractId: contract.id,
+                    tenantId: lockedContract.tenantId,
+                    contractId: lockedContract.id,
                     type: DepositType.SECURITY,
                     deletedAt: null,
                   },
@@ -1558,8 +2139,8 @@ export class ContractsService extends BaseCrudService<Contract> {
           typeof tx.occupancy?.count === "function"
             ? tx.occupancy.count({
                 where: {
-                  tenantId: contract.tenantId,
-                  roomId: contract.roomId,
+                  tenantId: lockedContract.tenantId,
+                  roomId: lockedContract.roomId,
                   leftAt: null,
                 },
               })
@@ -1567,8 +2148,8 @@ export class ContractsService extends BaseCrudService<Contract> {
           typeof tx.contract?.count === "function"
             ? tx.contract.count({
                 where: {
-                  tenantId: contract.tenantId,
-                  roomId: contract.roomId,
+                  tenantId: lockedContract.tenantId,
+                  roomId: lockedContract.roomId,
                   deletedAt: null,
                   status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
                 },
@@ -1577,8 +2158,8 @@ export class ContractsService extends BaseCrudService<Contract> {
           typeof tx.roomHold?.count === "function"
             ? tx.roomHold.count({
                 where: {
-                  tenantId: contract.tenantId,
-                  roomId: contract.roomId,
+                  tenantId: lockedContract.tenantId,
+                  roomId: lockedContract.roomId,
                   status: "ACTIVE",
                   expiresAt: { gt: now },
                 },
@@ -1595,7 +2176,10 @@ export class ContractsService extends BaseCrudService<Contract> {
         room.status === RoomStatus.RESERVED && Boolean(ownReservationHold);
 
       const isSharedRoom = room.rentalType === "SHARED";
-      const requestedOccupants = Math.max(1, Number(contract.memberCount || 1));
+      const requestedOccupants = Math.max(
+        1,
+        Number(lockedContract.memberCount || 1),
+      );
       const sharedCapacityExceeded =
         isSharedRoom &&
         openOccupancies + foreignActiveHolds + requestedOccupants >
@@ -1611,7 +2195,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         (isSharedRoom && sharedCapacityExceeded);
       if (roomHasBlockingState) {
         throw new ConflictException(
-          `Room ${room.code || contract.roomId} is not AVAILABLE.`,
+          `Room ${room.code || lockedContract.roomId} is not AVAILABLE.`,
         );
       }
 
@@ -1634,7 +2218,7 @@ export class ContractsService extends BaseCrudService<Contract> {
       }
 
       const updatedRoom = await tx.room.update({
-        where: { id: contract.roomId },
+        where: { id: updatedContract.roomId },
         data: {
           status:
             isSharedRoom && openOccupancies > 0
@@ -1647,7 +2231,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         const consumedHold = await tx.roomHold.updateMany({
           where: {
             id: ownReservationHold.id,
-            tenantId: contract.tenantId,
+            tenantId: lockedContract.tenantId,
             status: "ACTIVE",
           },
           data: {
@@ -1664,33 +2248,13 @@ export class ContractsService extends BaseCrudService<Contract> {
         }
       }
 
-      // A contract deposit may already have been created by the payment
-      // reconciliation/sync flow before approval. Never create a second
-      // deposit just because the contract moved to APPROVED.
-      const existingContractDeposit = await tx.deposit.findFirst({
-        where: {
-          tenantId: contract.tenantId,
-          contractId: contract.id,
-          deletedAt: null,
-        },
-        orderBy: { createdAt: "desc" },
-      });
+      // A rental draft creates its security deposit before any entry payment
+      // can be issued. Approval reuses that same contract-scoped record.
+      const requiredSecurityDeposit = Number(updatedContract.depositMoney || 0);
       const deposit =
-        existingContractDeposit ||
-        (await tx.deposit.create({
-          data: {
-            tenantId: contract.tenantId,
-            code: `DC-${contract.code || contract.id}`,
-            type: DepositType.SECURITY,
-            roomId: contract.roomId,
-            customerId: contract.customerId,
-            contractId: contract.id,
-            rentalCycleId: contract.rentalCycleId,
-            amount: contract.depositMoney,
-            status: DepositStatus.PENDING,
-            note: `Cọc bảo đảm hợp đồng ${contract.code || contract.id}`,
-          },
-        }));
+        requiredSecurityDeposit > 0
+          ? await this.ensureSecurityDepositInTransaction(tx, updatedContract)
+          : null;
 
       // Every approved rental cycle must own a reservation hold until the
       // activation command consumes it. Booking-hold conversion already has
@@ -1707,7 +2271,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             tenantId: updatedContract.tenantId,
             rentalCycleId: updatedContract.rentalCycleId,
             roomId: updatedContract.roomId,
-            depositId: deposit.id,
+            depositId: deposit?.id || null,
             status: { in: ["ACTIVE", "CONVERTED"] },
           },
           select: { id: true },
@@ -1727,7 +2291,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             data: {
               tenantId: updatedContract.tenantId,
               rentalCycleId: updatedContract.rentalCycleId,
-              depositId: deposit.id,
+              depositId: deposit?.id || null,
               roomId: updatedContract.roomId,
               kind: wholeRoom ? "WHOLE" : "SHARED_SLOT",
               resourceKey,
@@ -1765,12 +2329,12 @@ export class ContractsService extends BaseCrudService<Contract> {
     tenantId?: string,
     idempotencyKey?: string,
   ): Promise<Contract> {
-    const contract = await this.getDetail(id);
+    const initialContract = await this.getDetail(id);
 
-    if (tenantId && contract.tenantId !== tenantId) {
+    if (tenantId && initialContract.tenantId !== tenantId) {
       throw new NotFoundException(`Contract with ID ${id} not found`);
     }
-    if (this.isBookingHoldContract(contract)) {
+    if (this.isBookingHoldContract(initialContract)) {
       throw new BadRequestException("BOOKING_HOLD_REQUIRES_RENTAL_CONVERSION");
     }
     const normalizedIdempotencyKey = String(idempotencyKey || "").trim();
@@ -1783,36 +2347,36 @@ export class ContractsService extends BaseCrudService<Contract> {
     const commandOwner = await this.prisma.tx.contract.findUnique({
       where: {
         tenantId_activationIdempotencyKey: {
-          tenantId: contract.tenantId,
+          tenantId: initialContract.tenantId,
           activationIdempotencyKey: normalizedIdempotencyKey,
         },
       },
       select: { id: true },
     });
-    if (commandOwner && commandOwner.id !== contract.id) {
+    if (commandOwner && commandOwner.id !== initialContract.id) {
       throw new ConflictException("CONTRACT_ACTIVATION_IDEMPOTENCY_KEY_REUSED");
     }
     if (
-      contract.status === ContractStatus.ACTIVE &&
-      (contract as any).activationIdempotencyKey === normalizedIdempotencyKey
+      initialContract.status === ContractStatus.ACTIVE &&
+      (initialContract as any).activationIdempotencyKey === normalizedIdempotencyKey
     ) {
-      return contract;
+      return initialContract;
     }
 
-    if (contract.status !== ContractStatus.APPROVED) {
+    if (initialContract.status !== ContractStatus.APPROVED) {
       throw new BadRequestException(
-        `Cannot activate contract in ${contract.status} status. Only APPROVED is allowed.`,
+        `Cannot activate contract in ${initialContract.status} status. Only APPROVED is allowed.`,
       );
     }
 
     const renewalSourceId = String(
-      (contract as any).termsSnapshot?.renewal?.sourceContractId || "",
+      (initialContract as any).termsSnapshot?.renewal?.sourceContractId || "",
     ).trim();
     if (renewalSourceId) {
       const renewalSource = await this.prisma.tx.contract.findFirst({
         where: {
           id: renewalSourceId,
-          tenantId: contract.tenantId,
+          tenantId: initialContract.tenantId,
           deletedAt: null,
         },
         select: { id: true, status: true },
@@ -1821,7 +2385,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         throw new ConflictException("RENEWAL_SOURCE_CONTRACT_NOT_FOUND");
       const sourceSettlement =
         await this.prisma.tx.contractSettlement.findFirst({
-          where: { contractId: renewalSource.id, tenantId: contract.tenantId },
+          where: { contractId: renewalSource.id, tenantId: initialContract.tenantId },
           select: { id: true },
         });
       if (
@@ -1839,7 +2403,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
 
     const activationNow = new Date();
-    const signedAt = contract.signedAt ? new Date(contract.signedAt) : null;
+    const signedAt = initialContract.signedAt ? new Date(initialContract.signedAt) : null;
     if (
       !signedAt ||
       Number.isNaN(signedAt.getTime()) ||
@@ -1848,11 +2412,11 @@ export class ContractsService extends BaseCrudService<Contract> {
       throw new BadRequestException("CONTRACT_SIGNATURE_REQUIRED");
     }
 
-    const contractStartDate = contract.startDate
-      ? new Date(contract.startDate)
+    const contractStartDate = initialContract.startDate
+      ? new Date(initialContract.startDate)
       : null;
-    const contractEndDate = contract.endDate
-      ? new Date(contract.endDate)
+    const contractEndDate = initialContract.endDate
+      ? new Date(initialContract.endDate)
       : null;
     if (!contractStartDate || Number.isNaN(contractStartDate.getTime())) {
       throw new BadRequestException("CONTRACT_START_DATE_INVALID");
@@ -1879,7 +2443,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     }
 
     const room = await this.prisma.tx.room.findUnique({
-      where: { id: contract.roomId },
+      where: { id: initialContract.roomId },
     });
     const isSharedRoom = room?.rentalType === "SHARED";
     const roomStatusAllowed = isSharedRoom
@@ -1888,29 +2452,34 @@ export class ContractsService extends BaseCrudService<Contract> {
     if (!room || !roomStatusAllowed) {
       throw new ConflictException(
         isSharedRoom
-          ? `Phòng ghép ${room?.code || contract.roomId} không ở trạng thái RESERVED/OCCUPIED.`
-          : `Phòng ${room?.code || contract.roomId} không ở trạng thái RESERVED.`,
+          ? `Phòng ghép ${room?.code || initialContract.roomId} không ở trạng thái RESERVED/OCCUPIED.`
+          : `Phòng ${room?.code || initialContract.roomId} không ở trạng thái RESERVED.`,
       );
     }
 
-    const deposit = await this.prisma.tx.deposit.findFirst({
-      where: {
-        tenantId: contract.tenantId,
-        contractId: contract.id,
-        roomId: contract.roomId,
-        customerId: contract.customerId,
-        deletedAt: null,
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const requiresSecurityDeposit = Number(initialContract.depositMoney || 0) > 0;
+    const deposit = requiresSecurityDeposit
+      ? await this.prisma.tx.deposit.findFirst({
+          where: {
+            tenantId: initialContract.tenantId,
+            contractId: initialContract.id,
+            roomId: initialContract.roomId,
+            customerId: initialContract.customerId,
+            deletedAt: null,
+          },
+          orderBy: { createdAt: "desc" },
+        })
+      : null;
 
-    if (!deposit) {
+    if (requiresSecurityDeposit && !deposit) {
       throw new BadRequestException(
         "Cannot activate contract: Deposit is missing.",
       );
     }
 
     if (
+      requiresSecurityDeposit &&
+      deposit &&
       deposit.status !== DepositStatus.PAID &&
       deposit.status !== DepositStatus.CONVERTED_TO_CONTRACT
     ) {
@@ -1919,17 +2488,159 @@ export class ContractsService extends BaseCrudService<Contract> {
       );
     }
 
-    const result = await this.prisma.tx.$transaction(async (tx) => {
+    const result = await this.runActivationSerializable(async (tx) => {
       const txAny = tx as any;
-      if (typeof txAny.$queryRaw === "function") {
-        await txAny.$queryRaw`
-          SELECT "id"
-          FROM "Room"
-          WHERE "id" = ${contract.roomId}
-            AND "tenantId" = ${contract.tenantId}
-          FOR UPDATE
-        `;
+      await this.lockContractLifecycle(tx, initialContract.tenantId, id);
+      const lockedContract = await tx.contract.findFirst({
+        where: {
+          id,
+          tenantId: initialContract.tenantId,
+          deletedAt: null,
+        },
+      });
+      if (!lockedContract) {
+        throw new NotFoundException(`Contract with ID ${id} not found`);
       }
+      if (tenantId && lockedContract.tenantId !== tenantId) {
+        throw new NotFoundException(`Contract with ID ${id} not found`);
+      }
+      const lockedCommandOwner = await tx.contract.findUnique({
+        where: {
+          tenantId_activationIdempotencyKey: {
+            tenantId: lockedContract.tenantId,
+            activationIdempotencyKey: normalizedIdempotencyKey,
+          },
+        },
+        select: { id: true },
+      });
+      if (lockedCommandOwner && lockedCommandOwner.id !== lockedContract.id) {
+        throw new ConflictException("CONTRACT_ACTIVATION_IDEMPOTENCY_KEY_REUSED");
+      }
+      if (this.isBookingHoldContract(lockedContract)) {
+        throw new BadRequestException("BOOKING_HOLD_REQUIRES_RENTAL_CONVERSION");
+      }
+      if (
+        lockedContract.status === ContractStatus.ACTIVE &&
+        (lockedContract as any).activationIdempotencyKey === normalizedIdempotencyKey
+      ) {
+        return { updatedContract: lockedContract, replayed: true };
+      }
+      if (lockedContract.status !== ContractStatus.APPROVED) {
+        throw new ConflictException("CONTRACT_ACTIVATION_STATE_CHANGED");
+      }
+      const contract = lockedContract;
+      const renewalSourceId = String(
+        (contract as any).termsSnapshot?.renewal?.sourceContractId || "",
+      ).trim();
+      if (renewalSourceId) {
+        const renewalSource = await tx.contract.findFirst({
+          where: {
+            id: renewalSourceId,
+            tenantId: contract.tenantId,
+            deletedAt: null,
+          },
+          select: { id: true, status: true },
+        });
+        if (!renewalSource) {
+          throw new ConflictException("RENEWAL_SOURCE_CONTRACT_NOT_FOUND");
+        }
+        const sourceSettlement = await tx.contractSettlement.findFirst({
+          where: { contractId: renewalSource.id, tenantId: contract.tenantId },
+          select: { id: true },
+        });
+        if (
+          !sourceSettlement ||
+          !(
+            [
+              ContractStatus.TERMINATED,
+              ContractStatus.EXPIRED,
+              ContractStatus.CANCELLED,
+            ] as ContractStatus[]
+          ).includes(renewalSource.status as ContractStatus)
+        ) {
+          throw new ConflictException("RENEWAL_SOURCE_REQUIRES_SETTLEMENT");
+        }
+      }
+      const activationNow = new Date();
+      const signedAt = contract.signedAt ? new Date(contract.signedAt) : null;
+      if (
+        !signedAt ||
+        Number.isNaN(signedAt.getTime()) ||
+        signedAt.getTime() > activationNow.getTime()
+      ) {
+        throw new BadRequestException("CONTRACT_SIGNATURE_REQUIRED");
+      }
+      const contractStartDate = contract.startDate
+        ? new Date(contract.startDate)
+        : null;
+      const contractEndDate = contract.endDate ? new Date(contract.endDate) : null;
+      if (!contractStartDate || Number.isNaN(contractStartDate.getTime())) {
+        throw new BadRequestException("CONTRACT_START_DATE_INVALID");
+      }
+      if (
+        contractEndDate &&
+        (Number.isNaN(contractEndDate.getTime()) ||
+          contractEndDate.getTime() <= contractStartDate.getTime())
+      ) {
+        throw new BadRequestException("CONTRACT_END_DATE_INVALID");
+      }
+      const activationUtcDay = Date.UTC(
+        activationNow.getUTCFullYear(),
+        activationNow.getUTCMonth(),
+        activationNow.getUTCDate(),
+      );
+      const startUtcDay = Date.UTC(
+        contractStartDate.getUTCFullYear(),
+        contractStartDate.getUTCMonth(),
+        contractStartDate.getUTCDate(),
+      );
+      if (startUtcDay > activationUtcDay) {
+        throw new BadRequestException("CONTRACT_START_DATE_IN_FUTURE");
+      }
+      const requiresSecurityDeposit = Number(contract.depositMoney || 0) > 0;
+      const depositCandidate = requiresSecurityDeposit
+        ? await tx.deposit.findFirst({
+            where: {
+              tenantId: contract.tenantId,
+              contractId: contract.id,
+              roomId: contract.roomId,
+              customerId: contract.customerId,
+              deletedAt: null,
+            },
+            orderBy: { createdAt: "desc" },
+          })
+        : null;
+      if (requiresSecurityDeposit && !depositCandidate) {
+        throw new BadRequestException("Cannot activate contract: Deposit is missing.");
+      }
+      if (depositCandidate) {
+        await this.lockContractDeposit(tx, contract.tenantId, depositCandidate.id);
+      }
+      const deposit = depositCandidate
+        ? await tx.deposit.findFirst({
+            where: {
+              id: depositCandidate.id,
+              tenantId: contract.tenantId,
+              contractId: contract.id,
+              roomId: contract.roomId,
+              customerId: contract.customerId,
+              deletedAt: null,
+            },
+          })
+        : null;
+      if (requiresSecurityDeposit && !deposit) {
+        throw new ConflictException("CONTRACT_SECURITY_DEPOSIT_SCOPE_CHANGED");
+      }
+      if (
+        deposit &&
+        deposit.status !== DepositStatus.PAID &&
+        deposit.status !== DepositStatus.CONVERTED_TO_CONTRACT
+      ) {
+        throw new BadRequestException(
+          `Cannot activate contract: Deposit is in ${deposit.status} status. Must be PAID.`,
+        );
+      }
+      await this.lockRoomLifecycle(tx, contract.tenantId, contract.roomId);
       const lockedRoom = txAny.room?.findFirst
         ? await txAny.room.findFirst({
             where: {
@@ -1938,7 +2649,7 @@ export class ContractsService extends BaseCrudService<Contract> {
               deletedAt: null,
             },
           })
-        : room;
+        : null;
       const lockedRoomIsShared = lockedRoom?.rentalType === "SHARED";
       const lockedRoomStatusAllowed = lockedRoomIsShared
         ? lockedRoom &&
@@ -1982,9 +2693,9 @@ export class ContractsService extends BaseCrudService<Contract> {
         }
       }
 
-      if (txAny.depositLedgerEntry?.aggregate) {
+      if (requiresSecurityDeposit && txAny.depositLedgerEntry?.aggregate) {
         const balance = await txAny.depositLedgerEntry.aggregate({
-          where: { tenantId: contract.tenantId, depositId: deposit.id },
+          where: { tenantId: contract.tenantId, depositId: deposit!.id },
           _sum: { balanceEffect: true },
         });
         if (
@@ -2003,7 +2714,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             tenantId: contract.tenantId,
             rentalCycleId: contract.rentalCycleId,
             roomId: contract.roomId,
-            depositId: deposit.id,
+            depositId: requiresSecurityDeposit ? deposit!.id : null,
             status: { in: ["ACTIVE", "CONVERTED"] },
             expiresAt: { gt: new Date() },
           },
@@ -2027,6 +2738,43 @@ export class ContractsService extends BaseCrudService<Contract> {
         ) {
           throw new ConflictException("ROOM_SHARED_CAPACITY_EXCEEDED");
         }
+      }
+
+      // An immediate rental collects via the explicit ENTRY command while
+      // still DRAFT.  At move-in the immutable canonical document must be
+      // fully settled for every rental path, not only booking conversions.
+      const firstBilling = calculateFirstBillingPeriod(
+        Number(contract.monthlyRent || 0),
+        contract.startDate,
+      );
+      const entryInvoice = txAny.invoice?.findFirst
+        ? await txAny.invoice.findFirst({
+            where: {
+              tenantId: contract.tenantId,
+              contractId: contract.id,
+              billingKind: "ENTRY",
+              baseInvoiceKey: `ENTRY:${contract.id}:${firstBilling.period}`,
+              deletedAt: null,
+            },
+            select: {
+              id: true,
+              status: true,
+              total: true,
+              paidAmount: true,
+              creditAmount: true,
+            },
+          })
+        : null;
+      if (!entryInvoice) {
+        throw new BadRequestException("CONTRACT_ENTRY_INVOICE_REQUIRED");
+      }
+      if (
+        entryInvoice.status !== InvoiceStatus.PAID ||
+        Number(entryInvoice.paidAmount || 0) +
+          Number(entryInvoice.creditAmount || 0) <
+          Number(entryInvoice.total || 0)
+      ) {
+        throw new BadRequestException("CONTRACT_ENTRY_INVOICE_UNPAID");
       }
 
       const moveInAt = new Date();
@@ -2097,13 +2845,15 @@ export class ContractsService extends BaseCrudService<Contract> {
         data: { status: RoomStatus.OCCUPIED },
       });
 
-      const updatedDeposit = await tx.deposit.update({
-        where: { id: deposit.id },
-        data: {
-          status: DepositStatus.CONVERTED_TO_CONTRACT,
-          rentalCycleId: contract.rentalCycleId,
-        },
-      });
+      const updatedDeposit = requiresSecurityDeposit
+        ? await tx.deposit.update({
+            where: { id: deposit!.id },
+            data: {
+              status: DepositStatus.CONVERTED_TO_CONTRACT,
+              rentalCycleId: contract.rentalCycleId,
+            },
+          })
+        : null;
 
       // Consume the approval reservation atomically with activation. Keeping
       // it ACTIVE after move-in would double-count a shared-room slot and
@@ -2114,7 +2864,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             tenantId: contract.tenantId,
             rentalCycleId: contract.rentalCycleId,
             roomId: contract.roomId,
-            depositId: deposit.id,
+            depositId: requiresSecurityDeposit ? deposit!.id : null,
             status: "ACTIVE",
           },
           data: {
@@ -2128,6 +2878,9 @@ export class ContractsService extends BaseCrudService<Contract> {
 
       await this.syncContractHistory(updatedContract, tx);
 
+      // Reuses the pre-issued canonical ENTRY from the explicit immediate
+      // command when present; legacy activation recovery remains guarded by
+      // the same canonical/legacy-document checks in this helper.
       const invoice = await this.ensureEntryInvoiceInTransaction(
         tx,
         updatedContract,
@@ -2162,7 +2915,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         entity: this.entityName,
         entityId: id,
         module: "Contracts",
-        before: contract,
+        before: initialContract,
         after: result.updatedContract,
         userId,
       });
@@ -4799,6 +5552,30 @@ export class ContractsService extends BaseCrudService<Contract> {
     throw new ConflictException("RENEWAL_CONCURRENT_CONFLICT");
   }
 
+  private async runActivationSerializable<T>(
+    callback: (tx: any) => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await this.prisma.tx.$transaction(callback, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error: any) {
+        const retryable =
+          error?.code === "P2034" ||
+          error?.code === "P2002" ||
+          (error?.code === "P2010" &&
+            ["40001", "40P01"].includes(String(error?.meta?.code || "")));
+        if (retryable && attempt < 3) continue;
+        if (retryable) {
+          throw new ConflictException("CONTRACT_ACTIVATION_CONCURRENT_CONFLICT");
+        }
+        throw error;
+      }
+    }
+    throw new ConflictException("CONTRACT_ACTIVATION_CONCURRENT_CONFLICT");
+  }
+
   private async lockSettlementContract(
     tx: any,
     tenantId: string,
@@ -4955,6 +5732,22 @@ export class ContractsService extends BaseCrudService<Contract> {
     )) as Array<{ id: string }>;
     if (!rows.length)
       throw new ConflictException("SETTLEMENT_DEPOSIT_LOCK_FAILED");
+  }
+
+  private async lockContractDeposit(
+    tx: any,
+    tenantId: string,
+    depositId: string,
+  ) {
+    if (typeof tx.$queryRaw !== "function") {
+      throw new ConflictException("CONTRACT_ACTIVATION_LOCK_UNAVAILABLE");
+    }
+    const rows = (await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "Deposit" WHERE "id" = ${depositId} AND "tenantId" = ${tenantId} AND "deletedAt" IS NULL FOR UPDATE`,
+    )) as Array<{ id: string }>;
+    if (!rows.length) {
+      throw new ConflictException("CONTRACT_SECURITY_DEPOSIT_LOCK_FAILED");
+    }
   }
 
   private async lockSettlementInvoices(
@@ -5141,6 +5934,18 @@ export class ContractsService extends BaseCrudService<Contract> {
     )) as Array<{ id: string }>;
     if (!rows.length)
       throw new NotFoundException(`Room with ID ${roomId} not found`);
+  }
+
+  private async lockContractLifecycle(tx: any, tenantId: string, contractId: string) {
+    if (typeof tx.$queryRaw !== "function") {
+      throw new ConflictException("CONTRACT_LIFECYCLE_LOCK_UNAVAILABLE");
+    }
+    const rows = (await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "Contract" WHERE "id" = ${contractId} AND "tenantId" = ${tenantId} AND "deletedAt" IS NULL FOR UPDATE`,
+    )) as Array<{ id: string }>;
+    if (!rows.length) {
+      throw new NotFoundException(`Contract with ID ${contractId} not found`);
+    }
   }
 
   private async finalizeContract(
@@ -5622,6 +6427,23 @@ export class ContractsService extends BaseCrudService<Contract> {
         payableRows.reduce((sum, row) => sum + row.outstanding, 0),
       ),
     };
+  }
+
+  private outstandingInvoiceDebtSelect() {
+    return {
+      id: true,
+      tenantId: true,
+      contractId: true,
+      deletedAt: true,
+      status: true,
+      billingKind: true,
+      adjustmentOfInvoiceId: true,
+      total: true,
+      paidAmount: true,
+      creditAmount: true,
+      dueDate: true,
+      createdAt: true,
+    } as const;
   }
 
   private applyAuthoritativeSettlementBalance(

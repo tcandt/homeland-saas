@@ -28,6 +28,7 @@ import {
   AddWholeRoomOccupantSchema,
   RenewContractSchema,
   ConvertBookingHoldSchema,
+  PrepareImmediateEntryBillingSchema,
   TransferOccupantInputSchema,
 } from "@homeland/shared";
 import { normalizeContractStatus } from "./contracts.adapter";
@@ -197,6 +198,25 @@ export class ContractsController {
       userId,
       tenantId,
       idempotencyKey || input.idempotencyKey,
+    );
+  }
+
+  @Post(":id/prepare-entry-billing")
+  @RequirePermissions("contract.approve")
+  @ApiOperation({
+    summary: "Issue or reuse the canonical first-month invoice before move-in",
+  })
+  prepareImmediateEntryBilling(
+    @Param("id") id: string,
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    PrepareImmediateEntryBillingSchema.parse(body || {});
+    return this.contractsService.prepareImmediateEntryBilling(
+      id,
+      userId,
+      tenantId,
     );
   }
 

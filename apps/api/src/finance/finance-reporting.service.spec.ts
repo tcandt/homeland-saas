@@ -64,6 +64,7 @@ describe('FinanceReportingService', () => {
       deposit: {
         findMany: vi.fn().mockResolvedValue([]),
       },
+      depositLedgerEntry: { findMany: vi.fn().mockResolvedValue([]) },
       room: {
         findMany: vi.fn().mockResolvedValue([]),
       },
@@ -1971,5 +1972,71 @@ describe('FinanceReportingService', () => {
         other: 0,
       },
     });
+  });
+
+  it('reports the manual combined ENTRY security collection without a PaymentRequest', async () => {
+    const { service, prisma } = createService({
+      paymentRequest: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
+      depositLedgerEntry: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'ledger-security-entry-1',
+            depositId: 'security-1',
+            contractId: 'contract-1',
+            rentalCycleId: 'cycle-1',
+            balanceEffect: 7_000_000,
+            operation: { idempotencyKey: 'entry-invoice:entry-1:security-funding' },
+            deposit: {
+              customerId: 'customer-1',
+              roomId: 'room-1',
+              contractId: 'contract-1',
+              rentalCycleId: 'cycle-1',
+            },
+            contract: {
+              id: 'contract-1',
+              customerId: 'customer-1',
+              roomId: 'room-1',
+              rentalCycleId: 'cycle-1',
+              termsSnapshot: {
+                convertedFromBookingHold: {
+                  initialEntryInvoice: {
+                    paymentPolicyVersion: 'BOOKING_ENTRY_COMBINED_V1',
+                    invoiceId: 'entry-1',
+                    sourceDepositId: 'booking-1',
+                    securityDepositId: 'security-1',
+                    rentAmount: 4_000_000,
+                    securityRequired: 8_000_000,
+                    transferredAmount: 1_000_000,
+                    additionalCashRequired: 7_000_000,
+                    amount: 11_000_000,
+                  },
+                },
+              },
+              room: { buildingId: 'building-1' },
+            },
+          },
+        ]),
+      },
+    });
+
+    const cash = await (service as any).getOwnerConfirmedDepositCash(
+      'tenant-1',
+      'owner-1',
+      { gte: new Date('2026-09-01T00:00:00.000Z'), lte: new Date('2026-09-30T23:59:59.999Z') },
+    );
+
+    expect(cash).toEqual({ total: 7_000_000, byBuilding: { 'building-1': 7_000_000 }, byRoom: { 'room-1': 7_000_000 } });
+    expect(prisma.paymentRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: 'tenant-1', status: 'CONFIRMED' }),
+    }));
+    expect(prisma.depositLedgerEntry.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        type: 'CASH_IN',
+        sourceType: 'DEPOSIT_COLLECTION',
+        createdAt: { gte: expect.any(Date), lte: expect.any(Date) },
+        contract: expect.objectContaining({ room: { tenantId: 'tenant-1', building: { tenantId: 'tenant-1', ownerId: 'owner-1' } } }),
+      }),
+    }));
   });
 });

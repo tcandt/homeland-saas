@@ -83,6 +83,7 @@ export interface Room {
   code: string;
   number: string;
   type: RoomType;
+  roomType?: "1 phòng ngủ" | "2 phòng ngủ" | "Văn phòng" | "Khác";
   rentalType: "whole" | "shared";
   price: number;
   status: RoomStatus;

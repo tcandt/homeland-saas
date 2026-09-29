@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CommunicationService, CommunicationProvider } from './communication.service';
 import { NotificationChannel } from '../automation/automation.constants';
+import { NOTIFICATION_TEMPLATE_CATALOG } from './templates/notification-template-catalog';
 
 describe('CommunicationService', () => {
   function createPrismaMock() {
@@ -167,8 +168,49 @@ describe('CommunicationService', () => {
 
     expect(prisma.notification.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        title: 'HomeLand - Đã nhận thanh toán INV-001',
+        title: expect.stringContaining('✅ ĐÃ NHẬN THANH TOÁN'),
         message: expect.stringContaining('Đã thu đủ qua VietQR'),
+      }),
+    });
+  });
+
+  it('previews every catalog default with only its declared sample context', async () => {
+    const prisma = createPrismaMock();
+    const service = new CommunicationService(prisma as any);
+
+    for (const definition of NOTIFICATION_TEMPLATE_CATALOG) {
+      const preview = await service.previewTemplate(definition.code, {});
+
+      expect(preview.title, definition.code).not.toContain('{{');
+      expect(preview.message, definition.code).not.toContain('{{');
+      expect(preview.variables).toEqual(definition.variables);
+    }
+  });
+
+  it('renders the deposit total from the cumulative paid amount', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationTemplate.findUnique.mockResolvedValueOnce(null);
+    const service = new CommunicationService(prisma as any);
+
+    await service.dispatchDirect({
+      tenantId: 'tenant-1',
+      userId: 'customer-1',
+      channel: NotificationChannel.ZALO,
+      recipient: 'zalo-user-1',
+      templateCode: 'DEPOSIT_COLLECTED',
+      context: {
+        customerName: 'Khách A',
+        roomAndBuilding: 'P.101 - Tòa A',
+        metadata: { code: 'DEP-001' },
+        paymentAmount: 500000,
+        amount: 500000,
+        paidAmount: 2500000,
+      },
+    });
+
+    expect(prisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        message: expect.stringContaining('Tổng đã thu: 2.500.000 đ'),
       }),
     });
   });
@@ -190,7 +232,7 @@ describe('CommunicationService', () => {
 
     expect(prisma.notification.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        title: 'HomeLand - Hóa đơn INV-OVERDUE-01 đã quá hạn',
+        title: expect.stringContaining('🔴 THANH TOÁN QUÁ HẠN'),
         message: expect.stringContaining('1.250.000 đ'),
       }),
     });
@@ -237,6 +279,45 @@ describe('CommunicationService', () => {
         }),
       }),
     });
+  });
+
+  it('renders a published tenant override for a new system event template', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationTemplate.findUnique.mockResolvedValueOnce({
+      id: 'template-system-3',
+      publishedVersion: 3,
+      name: 'Cập nhật riêng',
+      subject: 'Thông báo: {{headline}}',
+      body: '{{primaryValue}} | {{action}}',
+    });
+    const service = new CommunicationService(prisma as any);
+
+    await service.dispatch({
+      tenantId: 'tenant-system-1',
+      templateCode: 'ADMIN_SYSTEM_UPDATE_SUCCESS',
+      context: {
+        headline: 'ĐÃ CẬP NHẬT',
+        primaryValue: 'v2.8.1 -> v2.8.2',
+        action: 'Kiểm tra hệ thống.',
+      },
+    });
+
+    expect(prisma.notificationTemplate.findUnique).toHaveBeenCalledWith({
+      where: { tenantId_code: { tenantId: 'tenant-system-1', code: 'ADMIN_SYSTEM_UPDATE_SUCCESS' } },
+    });
+    expect(prisma.notification.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        title: 'Thông báo: ĐÃ CẬP NHẬT',
+        message: 'v2.8.1 -> v2.8.2 | Kiểm tra hệ thống.',
+        metadata: expect.objectContaining({
+          templateSnapshot: expect.objectContaining({
+            code: 'ADMIN_SYSTEM_UPDATE_SUCCESS',
+            source: 'TENANT',
+            version: 3,
+          }),
+        }),
+      }),
+    }));
   });
 
   it('rejects an unsupported variable before a tenant draft is saved', async () => {

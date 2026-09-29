@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DepositsService } from './deposits.service';
 
 describe('DepositsService', () => {
-  function createService(depositCoreService?: { getBalance: ReturnType<typeof vi.fn> }) {
+  function createService(depositCoreService?: any) {
     const repository = {
       findById: vi.fn(),
       create: vi.fn(),
@@ -38,6 +38,8 @@ describe('DepositsService', () => {
           findFirst: vi.fn(),
         },
         $transaction: vi.fn((callback) => callback(prisma.tx)),
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'rental' }]),
+        contract: { findFirst: vi.fn() },
       },
     };
     const auditService = { log: vi.fn().mockResolvedValue(true) };
@@ -56,6 +58,111 @@ describe('DepositsService', () => {
       ),
     };
   }
+
+  it('blocks a separate cash collection when security is covered by the combined entry invoice', async () => {
+    const depositCoreService = { collect: vi.fn() };
+    const { service } = createService(depositCoreService);
+    vi.spyOn(service, 'getDetail').mockResolvedValue({
+      id: 'security-1',
+      type: 'SECURITY',
+      status: DepositStatus.PENDING,
+      contract: {
+        termsSnapshot: {
+          initialEntryInvoice: {
+            invoiceId: 'entry-1',
+            paymentPolicyVersion: 'BOOKING_ENTRY_COMBINED_V1',
+            securityDepositId: 'security-1',
+          },
+        },
+      },
+    } as any);
+
+    await expect(service.collect('security-1', null, 'user-1', 'cash-security-1'))
+      .rejects.toThrow('Thu tiền một lần trên hóa đơn liên kết');
+    expect(depositCoreService.collect).not.toHaveBeenCalled();
+  });
+
+  describe('booking conversion deposit list', () => {
+    it('does not generate security deposits for booking-hold or deleted contracts', async () => {
+      const { service, prisma } = createService();
+      prisma.contract = {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'booking', tenantId: 'tenant-1', code: 'HD-COC-PN-1', depositMoney: 1_000_000 },
+          { id: 'booking-purpose', tenantId: 'tenant-1', code: 'OTHER', purpose: 'Cọc giữ phòng', depositMoney: 1_000_000 },
+          { id: 'converted', tenantId: 'tenant-1', code: 'OLD', depositMoney: 1_000_000, termsSnapshot: { bookingConversion: { rentalContractId: 'rental' } } },
+          { id: 'rental', tenantId: 'tenant-1', code: 'HD-THUE-1', depositMoney: 8_000_000, status: 'DRAFT', termsSnapshot: { convertedFromBookingHold: { sourceContractId: 'booking' } } },
+        ]),
+      };
+      prisma.tx.contract.findFirst.mockResolvedValue({
+        id: 'rental', tenantId: 'tenant-1', code: 'HD-THUE-1', roomId: 'room-1', customerId: 'customer-1',
+        rentalCycleId: null, depositMoney: 8_000_000, status: 'DRAFT', termsSnapshot: { convertedFromBookingHold: { sourceContractId: 'booking' } },
+      });
+      prisma.tx.deposit.create = vi.fn().mockResolvedValue({});
+
+      await service.syncMissingContractDeposits('tenant-1');
+
+      expect(prisma.contract.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ tenantId: 'tenant-1', deletedAt: null }),
+      }));
+      expect(prisma.tx.deposit.create).toHaveBeenCalledTimes(1);
+      expect(prisma.tx.deposit.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ contractId: 'rental', amount: 8_000_000, type: 'SECURITY' }),
+      }));
+    });
+
+    it('excludes only unreferenced generated booking duplicates before pagination', async () => {
+      const { service, prisma, repository } = createService();
+      prisma.contract = { findMany: vi.fn().mockResolvedValue([]) };
+      const source = { code: 'HD-COC-1', termsSnapshot: { bookingConversion: { status: 'RENTAL_CONTRACT_CREATED', rentalContractId: 'rental' } } };
+      prisma.deposit.findMany.mockResolvedValue([
+        { id: 'generated', code: 'DC-HD-COC-1', contract: source },
+        { id: 'referenced', code: 'DC-HD-COC-1', contract: source },
+        { id: 'manual', code: 'MANUAL-SECURITY', contract: source },
+        { id: 'unlinked', code: 'DC-HD-COC-1', contract: { ...source, termsSnapshot: { bookingConversion: { status: 'RENTAL_CONTRACT_CREATED' } } } },
+      ]);
+      prisma.paymentRequest = { findMany: vi.fn().mockResolvedValue([{ sourceId: 'referenced' }]) };
+      repository.paginate.mockResolvedValue({ data: [{ id: 'security' }, { id: 'booking' }], meta: { total: 12 } });
+
+      const result = await service.listDeposits(2, 10, 'Hanh', undefined, undefined, undefined, undefined, 'building-1', 'tenant-1');
+
+      expect(result).toEqual({ items: [{ id: 'security' }, { id: 'booking' }], total: 12 });
+      expect(prisma.deposit.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant-1', deletedAt: null, type: 'SECURITY',
+          status: { in: ['DRAFT', 'PENDING'] },
+          ledgerEntries: { none: {} }, sourceOperations: { none: {} }, targetOperations: { none: {} }, roomHolds: { none: {} },
+          contract: { is: expect.objectContaining({ tenantId: 'tenant-1', deletedAt: null }) },
+        }),
+      }));
+      expect(prisma.paymentRequest.findMany).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: { in: ['generated', 'referenced'] } },
+        select: { sourceId: true },
+      });
+      expect(repository.paginate).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'tenant-1', id: { notIn: ['generated'] }, room: { buildingId: 'building-1' }, OR: expect.any(Array) }),
+        2, 10, { createdAt: 'desc' },
+        expect.objectContaining({
+          customer: { select: expect.objectContaining({ idImages: true }) },
+          contract: { select: expect.objectContaining({ status: true, attachments: true }) },
+        }),
+      );
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('applies the same duplicate exclusion to pipeline counts', async () => {
+      const { service, prisma } = createService();
+      prisma.deposit.findMany.mockResolvedValueOnce([
+        { id: 'generated', code: 'DC-HD-COC-1', contract: { code: 'HD-COC-1', termsSnapshot: { bookingConversion: { rentalContractId: 'rental' } } } },
+      ]).mockResolvedValueOnce([]);
+      prisma.paymentRequest = { findMany: vi.fn().mockResolvedValue([]) };
+
+      await service.getDepositStats('tenant-1');
+
+      expect(prisma.deposit.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+        where: { tenantId: 'tenant-1', deletedAt: null, id: { notIn: ['generated'] } },
+      }));
+    });
+  });
 
   it('returns authoritative ledger balance and pending refund operation in deposit detail', async () => {
     const depositCoreService = { getBalance: vi.fn().mockResolvedValue(2_500_000) };

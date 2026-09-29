@@ -5,6 +5,7 @@ import { CommunicationService } from '../communication/communication.service';
 import { buildRoomContext } from '../shared/context/room-context';
 import { authoritativeJournalLineWhere, cashAccountWhere } from './journal-effect.policy';
 import { classifySePayWebhookBankAccount } from '../payments/sepay-bank-account.policy';
+import { COMBINED_ENTRY_POLICY, getCombinedEntryInvoice } from '../invoices/combined-entry-invoice';
 
 type SePayAuditSeverity = 'CRITICAL' | 'WARNING' | 'INFO';
 
@@ -72,7 +73,9 @@ export class FinanceReportingService {
       .toLowerCase();
   }
 
-  private isDepositInvoiceItem(item: { type?: unknown; description?: unknown; amount?: unknown } | null | undefined): boolean {
+  private isDepositInvoiceItem(item: { type?: unknown; description?: unknown; amount?: unknown; servicePeriod?: unknown } | null | undefined): boolean {
+    if (item?.type === 'DISCOUNT' && Number(item.amount) < 0 &&
+      String(item.servicePeriod || '').startsWith('ENTRY_BOOKING_TRANSFER:')) return true;
     if (!item || Number(item.amount || 0) <= 0) return false;
     const haystack = this.normalizeVietnamese(`${item.type || ''} ${item.description || ''}`);
     const mentionsDeposit =
@@ -91,7 +94,7 @@ export class FinanceReportingService {
     return mentionsDeposit && !isPenaltyOrRefund;
   }
 
-  private sumDepositInvoiceItems(items: Array<{ type?: unknown; description?: unknown; amount?: unknown }> = []): number {
+  private sumDepositInvoiceItems(items: Array<{ type?: unknown; description?: unknown; amount?: unknown; servicePeriod?: unknown }> = []): number {
     return items
       .filter((item) => this.isDepositInvoiceItem(item))
       .reduce((total, item) => total + Number(item.amount || 0), 0);
@@ -573,6 +576,7 @@ export class FinanceReportingService {
           select: {
             type: true,
             description: true,
+            servicePeriod: true,
             amount: true,
             invoice: {
               select: {
@@ -2637,6 +2641,8 @@ export class FinanceReportingService {
         sourceType: true,
         sourceId: true,
         paidAt: true,
+        providerTransactionId: true,
+        metadata: true,
         bankAccount: {
           select: {
             id: true,
@@ -2650,8 +2656,24 @@ export class FinanceReportingService {
       orderBy: { paidAt: 'desc' },
     });
 
+    // A QR's amount is an instruction, not cash evidence for partial assignments.
+    const combinedRequests = requests.filter((request) => (request.metadata as any)?.paymentPolicyVersion === COMBINED_ENTRY_POLICY);
+    const combinedPayments = combinedRequests.length ? await this.prisma.payment.findMany({
+      where: { tenantId, provider: 'SEPAY', status: 'CONFIRMED', deletedAt: null,
+        OR: combinedRequests.map((request) => ({ invoiceId: request.sourceId, providerRef: request.providerTransactionId || '' })) },
+      select: { invoiceId: true, providerRef: true, amount: true },
+    }) : [];
+    const seen = new Set<string>();
+    const receivedRequests = requests.map((request) => {
+      if ((request.metadata as any)?.paymentPolicyVersion !== COMBINED_ENTRY_POLICY) return request;
+      const key = `${request.sourceId}:${request.providerTransactionId}`;
+      const payment = combinedPayments.find((row) => row.invoiceId === request.sourceId && row.providerRef === request.providerTransactionId);
+      const amount = seen.has(key) ? 0 : Number(payment?.amount || 0);
+      seen.add(key);
+      return { ...request, amount };
+    }).filter((request) => Number(request.amount) > 0);
     const accountMap = new Map<string, any>();
-    for (const request of requests) {
+    for (const request of receivedRequests) {
       const bank = request.bankAccount;
       const key = bank?.id || `owner:${ownerId}`;
       const current = accountMap.get(key) || {
@@ -2670,8 +2692,8 @@ export class FinanceReportingService {
     }
 
     return {
-      confirmedAmount: requests.reduce((total, request) => total + Number(request.amount || 0), 0),
-      confirmedCount: requests.length,
+      confirmedAmount: receivedRequests.reduce((total, request) => total + Number(request.amount || 0), 0),
+      confirmedCount: receivedRequests.length,
       accounts: Array.from(accountMap.values()).sort((left, right) => right.confirmedAmount - left.confirmedAmount),
     };
   }
@@ -2724,8 +2746,8 @@ export class FinanceReportingService {
               period: true,
               billingKind: true,
               total: true,
-              items: { select: { type: true, description: true, amount: true } },
-              contract: { select: { roomId: true, room: { select: { buildingId: true } } } },
+              items: { select: { type: true, description: true, amount: true, servicePeriod: true } },
+              contract: { select: { id: true, tenantId: true, customerId: true, rentalCycleId: true, termsSnapshot: true, roomId: true, room: { select: { buildingId: true } } } },
             },
           })
         : Promise.resolve([]),
@@ -2749,6 +2771,7 @@ export class FinanceReportingService {
       (
         depositInvoices
           .map((invoice: any) => {
+            const combinedEntry = getCombinedEntryInvoice(invoice.contract);
             const depositItemAmount = this.sumDepositInvoiceItems(invoice.items || []);
             const amount = depositItemAmount > 0
               ? depositItemAmount
@@ -2762,10 +2785,12 @@ export class FinanceReportingService {
                 roomId: invoice.contract?.roomId || null,
                 buildingId: invoice.contract?.room?.buildingId || null,
                 amount,
+                combinedEntry: combinedEntry?.invoiceId === invoice.id ? combinedEntry : null,
+                contract: invoice.contract,
               },
             ] as const;
           })
-          .filter(Boolean) as Array<readonly [string, { roomId: string | null; buildingId: string | null; amount: number }]>
+          .filter(Boolean) as Array<readonly [string, { roomId: string | null; buildingId: string | null; amount: number; combinedEntry: any; contract: any }]>
       ),
     );
     const depositContext = new Map(
@@ -2788,6 +2813,7 @@ export class FinanceReportingService {
             ? depositContext.get(request.sourceId)
             : null;
       if (!context) continue;
+      if (sourceType === 'INVOICE' && context.combinedEntry) continue;
       const amount =
         sourceType === 'INVOICE' && context.amount != null
           ? Math.min(Number(context.amount || 0), Number(request.amount || 0))
@@ -2798,6 +2824,45 @@ export class FinanceReportingService {
       const roomId = request.roomId || context.roomId;
       if (buildingId) byBuilding[buildingId] = (byBuilding[buildingId] || 0) + amount;
       if (roomId) byRoom[roomId] = (byRoom[roomId] || 0) + amount;
+    }
+
+    // Manual invoice payments need no QR/request. Read their deposit cash from
+    // the same authoritative ledger as SePay, using the collection month.
+    const entries = await this.prisma.depositLedgerEntry.findMany({
+      where: {
+        tenantId, type: 'CASH_IN', sourceType: 'DEPOSIT_COLLECTION',
+        reversals: { none: { tenantId } },
+        operation: { tenantId, type: 'COLLECT', status: 'COMPLETED',
+          idempotencyKey: { startsWith: 'entry-invoice:', endsWith: ':security-funding' } },
+        deposit: { tenantId, type: 'SECURITY' },
+        contract: { tenantId,
+          termsSnapshot: { path: ['convertedFromBookingHold', 'initialEntryInvoice', 'paymentPolicyVersion'], equals: COMBINED_ENTRY_POLICY },
+          room: { tenantId, building: { tenantId, ownerId } } },
+        ...(period ? { createdAt: period } : {}),
+      },
+      select: {
+        id: true, depositId: true, contractId: true, rentalCycleId: true, balanceEffect: true,
+        operation: { select: { idempotencyKey: true } },
+        deposit: { select: { customerId: true, roomId: true, contractId: true, rentalCycleId: true } },
+        contract: { select: { id: true, customerId: true, roomId: true, rentalCycleId: true, termsSnapshot: true,
+          room: { select: { buildingId: true } } } },
+      },
+    });
+    const seenFunding = new Set<string>();
+    for (const row of entries) {
+      const entry = getCombinedEntryInvoice(row.contract);
+      if (!entry || !row.contract || entry.securityDepositId !== row.depositId ||
+        row.contract.id !== row.deposit.contractId || row.contract.customerId !== row.deposit.customerId ||
+        row.contract.roomId !== row.deposit.roomId || row.rentalCycleId !== row.contract.rentalCycleId ||
+        row.rentalCycleId !== row.deposit.rentalCycleId ||
+        row.operation.idempotencyKey !== `entry-invoice:${entry.invoiceId}:security-funding` ||
+        Number(row.balanceEffect) !== entry.additionalCashRequired || seenFunding.has(entry.invoiceId)) continue;
+      seenFunding.add(entry.invoiceId);
+      const amount = Number(row.balanceEffect);
+      const buildingId = row.contract.room?.buildingId;
+      total += amount;
+      if (buildingId) byBuilding[buildingId] = (byBuilding[buildingId] || 0) + amount;
+      byRoom[row.contract.roomId] = (byRoom[row.contract.roomId] || 0) + amount;
     }
 
     return { total, byBuilding, byRoom };
@@ -2985,7 +3050,7 @@ export class FinanceReportingService {
         period: true,
         billingKind: true,
         total: true,
-        items: { select: { type: true, description: true, amount: true } },
+        items: { select: { type: true, description: true, amount: true, servicePeriod: true } },
       },
     });
     const invoiceMap = new Map(invoices.map((invoice: any) => [invoice.id, invoice]));

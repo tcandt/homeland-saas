@@ -419,6 +419,56 @@ describe('CommunicationController Zalo webhook', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('forwards the current tenant base URL when connecting the Zalo webhook', async () => {
+    const { controller, prisma, zaloProvider } = createController();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({
+      id: 'setting-1',
+      value: {
+        baseUrl: ' https://live.example/ ',
+        webhookBaseUrl: 'https://stale.example',
+        webhookSecret: 'expected-secret',
+      },
+    });
+
+    const result = await controller.connectZaloWebhook({ user: { tenantId: 'tenant-1' } });
+
+    expect(result.webhookUrl).toBe('https://live.example/api/v1/notifications/zalo/webhook');
+    expect(zaloProvider.setWebhook).toHaveBeenCalledWith('tenant-1', {
+      url: 'https://live.example/api/v1/notifications/zalo/webhook',
+      secretToken: 'expected-secret',
+    });
+    expect(prisma.appSetting.update).toHaveBeenCalledWith({
+      where: { id: 'setting-1' },
+      data: {
+        value: expect.objectContaining({
+          baseUrl: ' https://live.example/ ',
+          webhookBaseUrl: 'https://stale.example',
+          webhookSecret: 'expected-secret',
+          webhookUrl: 'https://live.example/api/v1/notifications/zalo/webhook',
+          lastWebhookStatus: 'CONNECTED',
+        }),
+      },
+    });
+  });
+
+  it('does not persist a connected status when the Zalo webhook call fails', async () => {
+    const { controller, prisma, zaloProvider } = createController();
+    prisma.appSetting.findUnique.mockResolvedValueOnce({
+      id: 'setting-1',
+      value: {
+        baseUrl: 'https://live.example',
+        webhookSecret: 'expected-secret',
+      },
+    });
+    zaloProvider.setWebhook.mockRejectedValueOnce(new Error('provider unavailable'));
+
+    await expect(
+      controller.connectZaloWebhook({ user: { tenantId: 'tenant-1' } }),
+    ).rejects.toThrow('provider unavailable');
+
+    expect(prisma.appSetting.update).not.toHaveBeenCalled();
+  });
+
   it('auto-detects admin group chat id from the latest group webhook chat', async () => {
     const { controller, prisma } = createController();
     prisma.appSetting.findUnique.mockResolvedValueOnce({

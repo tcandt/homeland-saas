@@ -4,16 +4,17 @@ import {
   Deposit,
   DepositOperationStatus,
   DepositStatus,
+  Prisma,
   ReceiptStatus,
   RentalCycleStatus,
 } from '@prisma/client';
 import { DepositsRepository } from './deposits.repository';
 import { AuditService } from '../shared/audit/audit.service';
-import { PaginatedResult } from '@homeland/shared';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 import { PrismaService } from '../prisma.service';
 import { buildRoomContext } from '../shared/context/room-context';
 import { DepositCoreService } from './deposit-core.service';
+import { getCombinedEntryInvoice } from '../invoices/combined-entry-invoice';
 
 @Injectable()
 export class DepositsService extends BaseCrudService<Deposit> {
@@ -105,6 +106,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
       const unsyncedContracts = await this.prisma.contract.findMany({
         where: {
           tenantId,
+          deletedAt: null,
           depositMoney: { gt: 0 },
           deposits: { none: {} },
         },
@@ -117,35 +119,113 @@ export class DepositsService extends BaseCrudService<Deposit> {
           rentalCycleId: true,
           depositMoney: true,
           status: true,
+          purpose: true,
+          termsSnapshot: true,
         },
       });
 
       if (unsyncedContracts.length > 0) {
         for (const c of unsyncedContracts) {
+          // A booking document is not a second security-deposit obligation.
+          if (this.isBookingHoldDocument(c)) continue;
           const depositStatus =
             c.status === 'TERMINATED' || c.status === 'EXPIRED'
               ? DepositStatus.REFUNDED
               : DepositStatus.PENDING;
 
-          await this.prisma.deposit.create({
-            data: {
-              tenantId: c.tenantId,
-              code: `DC-${c.code}`,
-              type: 'SECURITY',
-              roomId: c.roomId,
-              customerId: c.customerId,
-              contractId: c.id,
-              rentalCycleId: c.rentalCycleId || null,
-              amount: c.depositMoney,
-              status: depositStatus,
-              note: `Cọc bảo đảm hợp đồng ${c.code}`,
-            },
+          await this.prisma.tx.$transaction(async (tx) => {
+            const rows = await tx.$queryRaw(
+              Prisma.sql`SELECT "id" FROM "Contract" WHERE "tenantId" = ${c.tenantId} AND "id" = ${c.id} AND "deletedAt" IS NULL FOR UPDATE`,
+            ) as Array<{ id: string }>;
+            if (!rows.length) return;
+            const current = await tx.contract.findFirst({
+              where: {
+                id: c.id,
+                tenantId: c.tenantId,
+                deletedAt: null,
+                depositMoney: { gt: 0 },
+                deposits: { none: {} },
+              },
+              select: {
+                id: true,
+                code: true,
+                tenantId: true,
+                roomId: true,
+                customerId: true,
+                rentalCycleId: true,
+                depositMoney: true,
+                status: true,
+                purpose: true,
+                termsSnapshot: true,
+              },
+            });
+            if (!current || this.isBookingHoldDocument(current)) return;
+            await tx.deposit.create({
+              data: {
+                tenantId: current.tenantId,
+                code: `DC-${current.code}`,
+                type: 'SECURITY',
+                roomId: current.roomId,
+                customerId: current.customerId,
+                contractId: current.id,
+                rentalCycleId: current.rentalCycleId || null,
+                amount: current.depositMoney,
+                status: current.status === 'TERMINATED' || current.status === 'EXPIRED'
+                  ? DepositStatus.REFUNDED
+                  : DepositStatus.PENDING,
+                note: `Cọc bảo đảm hợp đồng ${current.code}`,
+              },
+            });
           }).catch(() => null);
         }
       }
     } catch (e) {
       // Avoid blocking on background sync failure
     }
+  }
+
+  private isBookingHoldDocument(contract: any): boolean {
+    const terms = contract.termsSnapshot as any;
+    if (terms?.convertedFromBookingHold?.sourceContractId) return false;
+    if (terms?.bookingConversion?.rentalContractId) return true;
+    const text = `${contract.code || ''} ${contract.purpose || ''}`.toLowerCase();
+    return text.includes('hd-coc') || text.includes('cọc giữ phòng') || text.includes('coc giu phong');
+  }
+
+  private async getSupersededBookingDepositIds(tenantId: string): Promise<string[]> {
+    const candidates = await this.prisma.deposit.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        type: 'SECURITY',
+        status: { in: [DepositStatus.DRAFT, DepositStatus.PENDING] },
+        ledgerEntries: { none: {} },
+        sourceOperations: { none: {} },
+        targetOperations: { none: {} },
+        roomHolds: { none: {} },
+        contract: {
+          is: {
+            tenantId,
+            deletedAt: null,
+            termsSnapshot: { path: ['bookingConversion', 'status'], equals: 'RENTAL_CONTRACT_CREATED' },
+          },
+        },
+      },
+      select: { id: true, code: true, contract: { select: { code: true, termsSnapshot: true } } },
+    });
+    const ids = candidates.filter((deposit) =>
+      deposit.contract &&
+      deposit.code === `DC-${deposit.contract.code}` &&
+      (deposit.contract.termsSnapshot as any)?.bookingConversion?.rentalContractId,
+    ).map((deposit) => deposit.id);
+    if (ids.length === 0) return [];
+    // Keep any document referenced by a payment request visible for reconciliation.
+    const requests = await this.prisma.paymentRequest.findMany({
+      where: { tenantId, sourceType: 'DEPOSIT', sourceId: { in: ids } },
+      select: { sourceId: true },
+    });
+    const referencedIds = new Set(requests.map((request) => request.sourceId));
+    return ids.filter((id) => !referencedIds.has(id));
   }
 
   async cleanupOrphanDeposits(tenantId: string, userId?: string) {
@@ -228,6 +308,8 @@ export class DepositsService extends BaseCrudService<Deposit> {
 
   async getDepositStats(tenantId: string, buildingId?: string) {
     const where: any = { tenantId, deletedAt: null };
+    const supersededIds = await this.getSupersededBookingDepositIds(tenantId);
+    if (supersededIds.length > 0) where.id = { notIn: supersededIds };
     if (buildingId && buildingId !== 'ALL') {
       where.room = { buildingId };
     }
@@ -367,12 +449,16 @@ export class DepositsService extends BaseCrudService<Deposit> {
     order?: string,
     buildingId?: string,
     tenantId?: string,
-  ): Promise<PaginatedResult<Deposit>> {
+  ): Promise<{ items: Deposit[]; total: number }> {
     if (tenantId) {
       await this.syncMissingContractDeposits(tenantId);
     }
     const where: any = {};
-    if (tenantId) where.tenantId = tenantId;
+    if (tenantId) {
+      where.tenantId = tenantId;
+      const supersededIds = await this.getSupersededBookingDepositIds(tenantId);
+      if (supersededIds.length > 0) where.id = { notIn: supersededIds };
+    }
     if (search) {
       where.OR = [
         { code: { contains: search, mode: 'insensitive' } },
@@ -389,13 +475,14 @@ export class DepositsService extends BaseCrudService<Deposit> {
 
     const orderBy = { [sort || 'createdAt']: order || 'desc' };
 
-    return this.repository.paginate(where, page, limit, orderBy, {
-      customer: { select: { id: true, fullName: true, phone: true, gender: true, zaloChatId: true, zaloUserId: true } },
+    const result = await this.repository.paginate(where, page, limit, orderBy, {
+      customer: { select: { id: true, fullName: true, phone: true, gender: true, zaloChatId: true, zaloUserId: true, idImages: true } },
       room: { 
         select: { id: true, code: true, name: true, buildingId: true, building: { select: { id: true, name: true } } } 
       },
-      contract: { select: { id: true, code: true, status: true } },
+      contract: { select: { id: true, code: true, status: true, attachments: true } },
     });
+    return { items: result.data, total: result.meta.total };
   }
 
   async getDetail(id: string, include?: any, options?: { skipPaymentReconcile?: boolean }): Promise<any> {
@@ -414,8 +501,8 @@ export class DepositsService extends BaseCrudService<Deposit> {
       this.depositCoreService &&
       ['DRAFT', 'PENDING'].includes(String(deposit.status).toUpperCase())
     ) {
-      const reconciled = await this.reconcileConfirmedPayment(deposit);
-      if (reconciled) {
+      const reconciliation = await this.reconcileConfirmedPayment(deposit);
+      if (reconciliation.reconciled) {
         deposit = await this.repository.findById(id, {
           customer: true,
           room: { include: { building: true, floor: true } },
@@ -423,6 +510,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
           ...include,
         });
       }
+      if (reconciliation.error) (deposit as any).reconciliationError = reconciliation.error;
     }
     if (!deposit) return null;
 
@@ -469,7 +557,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
       },
       }).catch(() => null)
       : Promise.resolve(null));
-    if (!paymentRequest && ['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase())) {
+    if (['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase())) {
       const invoiceModel = (this.prisma as any).invoice;
       const bookingInvoice = await (invoiceModel?.findFirst
         ? invoiceModel.findFirst({
@@ -487,7 +575,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
         }).catch(() => null)
         : Promise.resolve(null));
       if (bookingInvoice && paymentRequestModel?.findFirst) {
-        paymentRequest = await paymentRequestModel.findFirst({
+        const invoicePaymentRequest = await paymentRequestModel.findFirst({
           where: {
             tenantId: deposit.tenantId,
             sourceType: 'INVOICE',
@@ -505,6 +593,12 @@ export class DepositsService extends BaseCrudService<Deposit> {
             metadata: true,
           },
         }).catch(() => null);
+        if (
+          invoicePaymentRequest &&
+          (String(invoicePaymentRequest.status || '').toUpperCase() === 'CONFIRMED' || !paymentRequest)
+        ) {
+          paymentRequest = invoicePaymentRequest;
+        }
       }
     }
     if (paymentRequest && String(paymentRequest.status || '').toUpperCase() === 'PENDING') {
@@ -520,11 +614,32 @@ export class DepositsService extends BaseCrudService<Deposit> {
         };
       }
     }
+    const roomHoldModel = (this.prisma as any).roomHold;
+    const roomHold = ['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase()) && roomHoldModel?.findFirst
+      ? await roomHoldModel.findFirst({
+          where: { tenantId: deposit.tenantId, depositId: deposit.id },
+          orderBy: { createdAt: 'desc' },
+          select: { status: true, expiresAt: true },
+        }).catch(() => null)
+      : null;
+    const holdExpiresAt = roomHold?.expiresAt || null;
+    const isActiveHold = String(roomHold?.status || '').toUpperCase() === 'ACTIVE'
+      && holdExpiresAt != null
+      && new Date(holdExpiresAt).getTime() > Date.now();
 
     return {
       ...deposit,
       sepayPendingReviewAmount: Number((paymentRequest as any)?.pendingReviewAmount || 0),
       ...(availableBalance === undefined ? {} : { availableBalance }),
+      reconciliationError: (deposit as any).reconciliationError || null,
+      bookingHold: ['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase())
+        ? {
+            status: roomHold?.status || 'NONE',
+            expiresAt: holdExpiresAt,
+            isActive: isActiveHold,
+            requiresRecovery: !isActiveHold && ['PAID', 'CONVERTED_TO_CONTRACT'].includes(String(deposit.status).toUpperCase()),
+          }
+        : null,
       paymentRequest: paymentRequest || null,
       pendingOperationId: refundSummary?.pending ? refundSummary.operationId : null,
       refundSummary,
@@ -578,20 +693,35 @@ export class DepositsService extends BaseCrudService<Deposit> {
       sourceInvoiceId?: string | null;
       paymentProvider?: string | null;
       paymentRef?: string | null;
+      paymentRequestId?: string | null;
+      skipHoldCreation?: boolean;
+      skipRoomReservation?: boolean;
     },
   ) {
     const deposit = await this.getDetail(id, undefined, { skipPaymentReconcile: true });
     if (!deposit) throw new BadRequestException('Deposit not found');
+    const combinedEntry = getCombinedEntryInvoice(deposit.contract);
+    if (
+      String(deposit.type).toUpperCase() === 'SECURITY' &&
+      combinedEntry?.securityDepositId === deposit.id &&
+      notificationContext?.linkedInvoicePayment !== true
+    ) {
+      throw new BadRequestException('Khoản cọc nằm trong hóa đơn nhận phòng. Thu tiền một lần trên hóa đơn liên kết.');
+    }
     if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING) {
       throw new BadRequestException('Can only collect DRAFT or PENDING deposits');
     }
 
     if (this.depositCoreService) {
+      const collectionKey = idempotencyKey || `collect:${id}`;
       const result = await this.depositCoreService.collect(deposit.tenantId, id, {
-        idempotencyKey: idempotencyKey || `collect:${id}`,
+        idempotencyKey: collectionKey,
         note,
         holdExpiresAt: holdExpiresAt || deposit.expiredAt || null,
-        notificationContext,
+        notificationContext: notificationContext || {
+          paymentProvider: 'MANUAL',
+          paymentRef: `CASH:${collectionKey}`,
+        },
       }, userId);
       return result as any;
     }
@@ -649,14 +779,31 @@ export class DepositsService extends BaseCrudService<Deposit> {
       sourceInvoiceId?: string | null;
       paymentProvider?: string | null;
       paymentRef?: string | null;
+      paymentRequestId?: string | null;
+      skipHoldCreation?: boolean;
+      skipRoomReservation?: boolean;
     },
   ) {
     if (!tenantId) throw new BadRequestException('Tenant context is required');
     const deposit = await this.prisma.deposit.findFirst({
       where: { id, tenantId, deletedAt: null },
-      select: { id: true, status: true, expiredAt: true },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        expiredAt: true,
+        contract: { select: { termsSnapshot: true } },
+      },
     });
     if (!deposit) throw new BadRequestException('Deposit not found');
+    const combinedEntry = getCombinedEntryInvoice(deposit.contract);
+    if (
+      String(deposit.type).toUpperCase() === 'SECURITY' &&
+      combinedEntry?.securityDepositId === deposit.id &&
+      notificationContext?.linkedInvoicePayment !== true
+    ) {
+      throw new BadRequestException('Khoản cọc nằm trong hóa đơn nhận phòng. Thu tiền một lần trên hóa đơn liên kết.');
+    }
     if (deposit.status !== DepositStatus.DRAFT && deposit.status !== DepositStatus.PENDING) {
       throw new BadRequestException('Can only collect DRAFT or PENDING deposits');
     }
@@ -670,10 +817,12 @@ export class DepositsService extends BaseCrudService<Deposit> {
     }, userId) as any;
   }
 
-  private async reconcileConfirmedPayment(deposit: any) {
+  private async reconcileConfirmedPayment(deposit: any): Promise<{ reconciled: boolean; error: string | null }> {
     try {
       const paymentRequest = (this.prisma as any).paymentRequest;
-      if (!paymentRequest?.findFirst || !this.depositCoreService) return false;
+      if (!paymentRequest?.findFirst || !this.depositCoreService) {
+        return { reconciled: false, error: 'DEPOSIT_RECONCILIATION_UNAVAILABLE' };
+      }
 
       let confirmedRequest = await paymentRequest.findFirst({
         where: {
@@ -716,20 +865,30 @@ export class DepositsService extends BaseCrudService<Deposit> {
         confirmedRequest = await this.findConfirmedSecurityDepositInvoicePayment(deposit);
       }
 
-      if (!confirmedRequest) return false;
+      if (!confirmedRequest) return { reconciled: false, error: null };
       await this.depositCoreService.collect(
         deposit.tenantId,
         deposit.id,
         {
           idempotencyKey: `reconcile:confirmed-payment:${confirmedRequest.id}`,
           note: `Đồng bộ thanh toán ${confirmedRequest.paymentCode || confirmedRequest.id}`,
-          holdExpiresAt: deposit.expiredAt || null,
+          notificationContext: {
+            linkedInvoicePayment: confirmedRequest.sourceType === 'INVOICE',
+            sourceInvoiceId: confirmedRequest.sourceType === 'INVOICE' ? confirmedRequest.sourceId : null,
+            paymentRequestId: confirmedRequest.sourceType === 'INVOICE' ? confirmedRequest.id : null,
+            suppressCustomerZaloConfirmation: confirmedRequest.sourceType === 'INVOICE',
+            skipHoldCreation: confirmedRequest.sourceType === 'INVOICE' && ['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase()),
+            skipRoomReservation: confirmedRequest.sourceType === 'INVOICE' && ['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase()),
+          },
         },
         'PAYMENT_RECONCILIATION',
       );
-      return true;
-    } catch {
-      return false;
+      return { reconciled: true, error: null };
+    } catch (error: any) {
+      return {
+        reconciled: false,
+        error: String(error?.message || error || 'DEPOSIT_RECONCILIATION_FAILED').slice(0, 240),
+      };
     }
   }
 

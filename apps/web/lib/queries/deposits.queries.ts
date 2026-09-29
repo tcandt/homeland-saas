@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { depositsApi, DepositListResponse, RentalCycleFinanceSummary, RoomFinanceSummary } from '../api/deposits.api';
 import { depositAdapter, UI_Deposit } from '../adapters/deposit.adapter';
+import { getBookingDepositRefreshInterval } from '../contracts/booking-conversion';
 
 export const useDepositsQuery = (params: any) => {
   return useQuery({
@@ -33,6 +34,7 @@ export const useDepositDetailQuery = (id: string | null) => {
       };
     },
     enabled: !!id,
+    refetchInterval: (query) => getBookingDepositRefreshInterval(query.state.data?.data),
   });
 };
 

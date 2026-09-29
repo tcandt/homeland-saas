@@ -50,13 +50,32 @@ function normalizeDispatchContext(context: any) {
   const roomContext = buildRoomContext(roomSource, contractSource);
   const roomCode = roomContext.roomCode || baseContext.roomCode || null;
   const buildingName = roomContext.buildingName || baseContext.buildingName || null;
+  const formatMoney = (value: unknown) => {
+    if (value === undefined || value === null || value === '') return '';
+    const raw = String(value).trim();
+    const amount = /^-?\d{1,3}(?:[.,]\d{3})+$/.test(raw)
+      ? Number(raw.replace(/[.,]/g, ''))
+      : Number(value);
+    return Number.isFinite(amount) ? `${amount.toLocaleString('vi-VN')} đ` : String(value);
+  };
 
   return {
     ...baseContext,
     ...roomContext,
+    customerName: baseContext.customerName ?? '',
     roomCode,
     buildingName,
     roomAndBuilding: baseContext.roomAndBuilding || [roomCode, buildingName].filter(Boolean).join(' - '),
+    // Default templates use display-only fields. Keep source amount fields unchanged
+    // so published tenant templates continue to render with their existing values.
+    paymentAmountDisplay: baseContext.paymentAmountDisplay ?? formatMoney(baseContext.paymentAmount),
+    amountDisplay: baseContext.amountDisplay ?? formatMoney(baseContext.amount ?? baseContext.paidAmount),
+    paidAmountDisplay: baseContext.paidAmountDisplay ?? formatMoney(baseContext.paidAmount),
+    remainingAmountDisplay: baseContext.remainingAmountDisplay ?? formatMoney(baseContext.remainingAmount),
+    overdueLabel: baseContext.overdueLabel ?? '',
+    // Older queued payment requests predate the due-date field. Keep their
+    // snapshots renderable when the tenant selects the current default.
+    dueDate: baseContext.dueDate ?? '',
   };
 }
 
@@ -153,6 +172,8 @@ export class CommunicationService {
         const draft = history.find((version) => version.status === 'DRAFT') || null;
         return {
           code: definition.code,
+          audience: definition.audience || 'SYSTEM',
+          category: definition.category || 'SYSTEM',
           variables: definition.variables,
           default: {
             name: definition.name,

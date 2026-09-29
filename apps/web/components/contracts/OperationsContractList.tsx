@@ -1,14 +1,15 @@
 "use client";
 
 import React, { useState } from "react";
-import { useContractsStore } from "@/lib/hooks/useContractsStore";
-import { useContractsQuery } from "@/lib/queries/contracts.queries";
+import { useContractsStore } from "../../lib/hooks/useContractsStore";
+import { useContractsQuery } from "../../lib/queries/contracts.queries";
 import { EmptyState } from "../ui/EmptyState";
 import { ErrorState } from "../ui/ErrorState";
 import { LoadingState } from "../ui/LoadingState";
 import OperationsContractDrawer from "./OperationsContractDrawer";
 import OperationsContractRow from "./OperationsContractRow";
-import { FileText } from "lucide-react";
+import { groupContractRows } from "../../lib/contracts/group-contract-rows";
+import { ArrowRight, ChevronLeft, ChevronRight, FileText } from "lucide-react";
 
 export default function OperationsContractList() {
   const [selectedContract, setSelectedContract] = useState<any | null>(null);
@@ -18,6 +19,7 @@ export default function OperationsContractList() {
   const { data, isLoading, isError } = useContractsQuery({
     search: search || undefined,
     status: status !== "Tất cả" && status ? status : undefined,
+    limit: 100,
   });
 
   React.useEffect(() => {
@@ -38,10 +40,10 @@ export default function OperationsContractList() {
 
   const responseData = data?.data as any;
   const contracts = responseData?.items || (Array.isArray(responseData) ? responseData : []);
-  const total = responseData?.total || contracts.length;
+  const groups = groupContractRows(contracts);
   const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(contracts.length / pageSize));
-  const displayedContracts = contracts.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(groups.length / pageSize));
+  const displayedGroups = groups.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div
@@ -56,14 +58,14 @@ export default function OperationsContractList() {
           </div>
           <h3 className="text-base font-black text-text">Danh sách Hợp đồng</h3>
           <span className="rounded-full bg-surface px-2.5 py-0.5 text-[11px] font-bold font-mono text-muted border border-border">
-            {contracts.length} hợp đồng
+            {groups.length} hồ sơ · {contracts.length} hợp đồng
           </span>
         </div>
       </div>
 
       {/* Main Table Scroll Area */}
       <div className="min-h-0 flex-1 overflow-x-auto">
-        <div className="grid min-w-[1080px] grid-cols-[48px_minmax(160px,0.9fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(320px,1.65fr)_140px] gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5 text-[11px] font-black uppercase tracking-wider text-muted select-none">
+        <div className="grid min-w-[1160px] grid-cols-[80px_minmax(180px,0.9fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(320px,1.65fr)_140px] gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5 text-[11px] font-black uppercase tracking-wider text-muted select-none">
           <span className="text-center">STT</span>
           <span>Mã hợp đồng</span>
           <span>Khách hàng</span>
@@ -72,8 +74,8 @@ export default function OperationsContractList() {
           <span className="text-center">Trạng thái</span>
         </div>
 
-        <div className="flex min-w-[1080px] flex-col divide-y divide-border/40">
-          {contracts.length === 0 ? (
+        <div className="flex min-w-[1160px] flex-col divide-y divide-border/60">
+          {groups.length === 0 ? (
             <div data-testid="empty-contracts-state" className="p-8">
               <EmptyState
                 title="Không tìm thấy hợp đồng"
@@ -81,13 +83,31 @@ export default function OperationsContractList() {
               />
             </div>
           ) : (
-            displayedContracts.map((contract: any, index: number) => (
-              <OperationsContractRow
-                key={contract.id}
-                contract={contract}
-                rowNumber={(page - 1) * pageSize + index + 1}
-                onClick={() => setSelectedContract(contract)}
-              />
+            displayedGroups.map((group, index) => (
+              <div key={group.key} data-testid="contract-group" className="grid grid-cols-[80px_minmax(0,1fr)] gap-3 px-4">
+                <div className={`relative flex items-center py-3 ${group.booking ? "justify-start pl-1" : "justify-center"}`}>
+                  <span className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface font-mono text-xs font-bold text-text">
+                    {(page - 1) * pageSize + index + 1}
+                  </span>
+                  {group.booking && (
+                    <div className="absolute inset-y-0 left-10 w-10 text-primary" role="img" aria-label="Hợp đồng cọc chuyển lên hợp đồng thuê dài hạn">
+                      <span className="absolute left-0 top-1/4 h-1/2 border-l-2 border-primary" aria-hidden="true" />
+                      <span className="absolute left-0 top-1/4 w-6 border-t-2 border-primary" aria-hidden="true" />
+                      <ArrowRight className="absolute left-4 top-[calc(25%-8px)]" size={17} strokeWidth={2.5} aria-hidden="true" />
+                      <span className="absolute left-0 top-3/4 w-7 border-t-2 border-primary" aria-hidden="true" />
+                      <span className="absolute left-[25px] top-[calc(75%-3px)] h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <OperationsContractRow contract={group.rental} onClick={() => setSelectedContract(group.rental)} />
+                  {group.booking && (
+                    <div className="border-t border-dashed border-border/70">
+                      <OperationsContractRow contract={group.booking} onClick={() => setSelectedContract(group.booking)} />
+                    </div>
+                  )}
+                </div>
+              </div>
             ))
           )}
         </div>
@@ -96,8 +116,8 @@ export default function OperationsContractList() {
       {/* Pagination Footer */}
       <div className="mt-auto flex flex-col gap-3 border-t border-border/60 bg-surface/30 px-4 py-2.5 text-[12px] font-semibold text-muted sm:flex-row sm:items-center sm:justify-between">
         <span>
-          Hiển thị {contracts.length === 0 ? 0 : (page - 1) * pageSize + 1} -{" "}
-          {Math.min(page * pageSize, contracts.length)} trên {total} hợp đồng
+          Hiển thị {groups.length === 0 ? 0 : (page - 1) * pageSize + 1} -{" "}
+          {Math.min(page * pageSize, groups.length)} trên {groups.length} hồ sơ
         </span>
 
         <div className="flex items-center gap-1.5">
@@ -107,11 +127,12 @@ export default function OperationsContractList() {
 
           <button
             type="button"
+            aria-label="Trang trước"
             disabled={page <= 1}
             onClick={() => setPage((v) => Math.max(1, v - 1))}
             className="flex h-7 w-7 items-center justify-center rounded-xl border border-border bg-card text-muted hover:text-text hover:border-primary/40 disabled:opacity-40 transition-colors"
           >
-            ‹
+            <ChevronLeft size={15} aria-hidden="true" />
           </button>
 
           {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
@@ -131,11 +152,12 @@ export default function OperationsContractList() {
 
           <button
             type="button"
+            aria-label="Trang sau"
             disabled={page >= totalPages}
             onClick={() => setPage((v) => Math.min(totalPages, v + 1))}
             className="flex h-7 w-7 items-center justify-center rounded-xl border border-border bg-card text-muted hover:text-text hover:border-primary/40 disabled:opacity-40 transition-colors"
           >
-            ›
+            <ChevronRight size={15} aria-hidden="true" />
           </button>
         </div>
       </div>

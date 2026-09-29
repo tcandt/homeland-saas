@@ -148,6 +148,9 @@ function analyzeLifecycleData(data) {
         const left = contracts[leftIndex];
         const right = contracts[rightIndex];
         if (new Date(right.startDate) > new Date(left.endDate)) break;
+        const leftIsConvertedSource = right.termsSnapshot?.convertedFromBookingHold?.sourceContractId === left.id;
+        const rightIsConvertedSource = left.termsSnapshot?.convertedFromBookingHold?.sourceContractId === right.id;
+        if (leftIsConvertedSource || rightIsConvertedSource) continue;
         add('OVERLAPPING_ROOM_CONTRACTS', 'HIGH', 'Contract', left.id, left.tenantId, {
           contractIds: [left.id, right.id],
           roomId: left.roomId,
@@ -182,7 +185,13 @@ function analyzeLifecycleData(data) {
   for (const deposits of depositsByContract.values()) {
     const contract = deposits[0].contract;
     if (!['APPROVED', 'ACTIVE', 'EXPIRING'].includes(contract.status)) continue;
-    const actual = money(deposits.reduce((total, item) => total + money(item.amount), 0));
+    const actual = money(deposits.reduce((total, item) => {
+      const ledgerEntries = Array.isArray(item.ledgerEntries) ? item.ledgerEntries : [];
+      const balance = ledgerEntries.length > 0
+        ? ledgerEntries.reduce((sum, entry) => sum + money(entry.balanceEffect), 0)
+        : money(item.amount);
+      return total + balance;
+    }, 0));
     const expected = money(contract.depositMoney);
     if (actual !== expected) {
       add('CONTRACT_DEPOSIT_BALANCE_MISMATCH', 'CRITICAL', 'Contract', contract.id, contract.tenantId, {
@@ -264,7 +273,7 @@ async function runDetector(options, deps = {}) {
         where: { ...tenantWhere, deletedAt: null },
         select: {
           id: true, tenantId: true, roomId: true, customerId: true, rentalCycleId: true,
-          status: true, startDate: true, endDate: true,
+          status: true, startDate: true, endDate: true, termsSnapshot: true,
           rentalCycle: { select: { tenantId: true, customerId: true, roomId: true } },
         },
       }),
@@ -273,6 +282,7 @@ async function runDetector(options, deps = {}) {
         select: {
           id: true, tenantId: true, roomId: true, customerId: true, contractId: true, rentalCycleId: true, amount: true, status: true,
           contract: { select: { id: true, tenantId: true, roomId: true, customerId: true, rentalCycleId: true, status: true, depositMoney: true } },
+          ledgerEntries: { select: { balanceEffect: true } },
         },
       }),
       prisma.invoice.findMany({

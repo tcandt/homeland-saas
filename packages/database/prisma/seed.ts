@@ -676,13 +676,13 @@ async function main() {
       code: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
       name: 'Invoice Payment Confirmation Zalo',
       subject: 'Đã nhận thanh toán hóa đơn {{invoiceCode}}{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
-      body: 'Xin chào {{customerName}},\n\nHệ thống đã nhận thanh toán thành công cho hóa đơn {{invoiceCode}} với số tiền {{formatCurrency amount "VND"}}.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\n\nTrân trọng,'
+      body: 'Xin chào {{customerName}},\n\n{{paymentReceiptMessage}} cho hóa đơn {{invoiceCode}}.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\n\nTrân trọng,'
     },
     {
       code: 'DEPOSIT_ZALO_PAYMENT_CONFIRMATION',
       name: 'Deposit Payment Confirmation Zalo',
       subject: 'Đã nhận thanh toán phiếu cọc {{depositCode}}{{#if roomCode}} - phòng {{roomCode}}{{/if}}',
-      body: 'Xin chào {{customerName}},\n\nHệ thống đã nhận thanh toán thành công cho phiếu cọc {{depositCode}} với số tiền {{formatCurrency amount "VND"}}.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\n\nTrân trọng,'
+      body: 'Xin chào {{customerName}},\n\n{{paymentReceiptMessage}} cho phiếu cọc {{depositCode}}.{{#if roomCode}}\nPhòng: {{roomCode}}{{#if roomRentalTypeLabel}} ({{roomRentalTypeLabel}}){{/if}}.{{/if}}{{#if buildingName}}\nTòa nhà: {{buildingName}}.{{/if}}\n\nTrân trọng,'
     }
   ];
 

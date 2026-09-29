@@ -3,6 +3,7 @@ import { BuildingResponse } from '../api/buildings.api';
 import { FloorResponse } from '../api/floors.api';
 import { RoomResponse } from '../api/rooms.api';
 import { getRoomUiStatus, isNonTerminalContract } from './room-status.adapter';
+import { resolveRoomType, toUiRoomType } from '../rooms/room-type-resolver';
 
 const toOptionalNumber = (value: unknown): number | undefined => {
   if (value === null || value === undefined || value === '') return undefined;
@@ -28,11 +29,11 @@ export const adaptBuilding = (apiBuilding: any): Building => {
     notes: apiBuilding.notes,
     status: apiBuilding.deletedAt ? "inactive" : "active",
     displayOrder: Number(apiBuilding.displayOrder) || 0,
-    floors: (apiBuilding.floors || []).map((f: any) => adaptFloor(f, apiBuilding.rooms || []))
+    floors: (apiBuilding.floors || []).map((f: any) => adaptFloor(f, apiBuilding.rooms || [], apiBuilding))
   };
 };
 
-export const adaptFloor = (apiFloor: any, allRooms: any[] = []): Floor => {
+export const adaptFloor = (apiFloor: any, allRooms: any[] = [], building?: any): Floor => {
   // If the backend returned rooms flattened on the building, we need to filter them for this floor
   const floorRooms = apiFloor.rooms || allRooms.filter((r: any) => r.floorId === apiFloor.id);
   
@@ -40,7 +41,7 @@ export const adaptFloor = (apiFloor: any, allRooms: any[] = []): Floor => {
     id: apiFloor.id,
     number: apiFloor.level || apiFloor.number || 1,
     notes: apiFloor.usageNote || apiFloor.notes,
-    rooms: floorRooms.map((r: any) => adaptRoom(r))
+    rooms: floorRooms.map((r: any) => adaptRoom(r, building))
   };
 };
 
@@ -52,7 +53,15 @@ export const isTempResidenceDeclared = (customer: any): boolean => {
   return false;
 };
 
-export const adaptRoom = (apiRoom: any): Room => {
+export const adaptRoom = (apiRoom: any, building?: any): Room => {
+  const roomBuilding = apiRoom.building || building;
+  const roomType = resolveRoomType({
+    roomType: apiRoom.roomType,
+    type: apiRoom.type,
+    code: apiRoom.code || apiRoom.name,
+    buildingCode: apiRoom.buildingCode || roomBuilding?.code,
+    buildingName: apiRoom.buildingName || roomBuilding?.name,
+  });
   const allContracts = (apiRoom.contracts && apiRoom.contracts.length > 0)
     ? apiRoom.contracts.filter((c: any) => !c.deletedAt)
     : [];
@@ -236,7 +245,8 @@ export const adaptRoom = (apiRoom: any): Room => {
     name: apiRoom.name || apiRoom.code,
     code: apiRoom.code,
     number: apiRoom.name || apiRoom.code,
-    type: "1PN",
+    type: toUiRoomType(roomType),
+    roomType,
     rentalType: mapApiRentalTypeToUi(apiRoom.rentalType),
     price: activeRent,
     status: uiStatus,
@@ -246,8 +256,8 @@ export const adaptRoom = (apiRoom: any): Room => {
     bedCount: toOptionalNumber(apiRoom.bedCount),
     images: apiRoom.images && apiRoom.images.length > 0 ? apiRoom.images : [],
     notes: apiRoom.notes,
-    building: apiRoom.building,
-    buildingName: apiRoom.building?.name || apiRoom.building?.code || apiRoom.buildingCode || "",
+    building: roomBuilding,
+    buildingName: roomBuilding?.name || roomBuilding?.code || apiRoom.buildingName || apiRoom.buildingCode || "",
     tenant,
     roommates,
     contract,

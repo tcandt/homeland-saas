@@ -84,7 +84,7 @@ export default function OperationsDepositFilters() {
     { value: "ALL", label: "Tất cả", icon: Layers, count: totalCount, activeClass: "bg-primary/10 text-primary border-primary/30" },
     { value: "PENDING", label: "Chờ thu / Nháp", icon: Bookmark, count: (pipelineMap["DRAFT"] || 0) + (pipelineMap["PENDING"] || 0), activeClass: "bg-sky-500/10 text-sky-600 border-sky-500/30" },
     { value: "PAID", label: "Đã thu cọc", icon: Coins, count: pipelineMap["PAID"] || 0, activeClass: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30" },
-    { value: "CONVERTED_TO_CONTRACT", label: "Đã lên HĐ", icon: FileText, count: pipelineMap["CONVERTED_TO_CONTRACT"] || 0, activeClass: "bg-indigo-500/10 text-indigo-600 border-indigo-500/30" },
+    { value: "CONVERTED_TO_CONTRACT", label: "Đã chuyển đổi", icon: FileText, count: pipelineMap["CONVERTED_TO_CONTRACT"] || 0, activeClass: "bg-indigo-500/10 text-indigo-600 border-indigo-500/30" },
     { value: "REFUNDED", label: "Hoàn tiền", icon: RefreshCcw, count: pipelineMap["REFUNDED"] || 0, activeClass: "bg-amber-500/10 text-amber-600 border-amber-500/30" },
     { value: "CANCELLED", label: "Đã hủy", icon: XCircle, count: pipelineMap["CANCELLED"] || 0, activeClass: "bg-rose-500/10 text-rose-600 border-rose-500/30" },
   ];

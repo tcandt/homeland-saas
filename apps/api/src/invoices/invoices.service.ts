@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { BaseCrudService } from "../shared/services/base-crud.service";
 import { Invoice, InvoiceStatus, Prisma } from "@prisma/client";
@@ -16,6 +17,9 @@ import {
 import { PrismaService } from "../prisma.service";
 import { buildRoomContext } from "../shared/context/room-context";
 import { createHash } from "node:crypto";
+import { buildDepositBillingDocument } from "./deposit-billing-document";
+import { DepositCoreService } from "../deposits/deposit-core.service";
+import { assertCombinedEntryInvoice, getCombinedEntryInvoice } from "./combined-entry-invoice";
 
 type InvoiceTransactionClient = Prisma.TransactionClient;
 
@@ -37,8 +41,107 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     repository: InvoicesRepository,
     auditService: AuditService,
     private readonly prisma: PrismaService,
+    @Optional() private readonly depositCoreService?: DepositCoreService,
   ) {
     super(repository, auditService, "Invoice");
+  }
+
+  async listDepositBillingDocuments(
+    tenantId: string,
+    page: number,
+    limit: number,
+    scope: { roomId?: string; customerId?: string; contractId?: string; rentalCycleId?: string } = {},
+  ) {
+    if (!tenantId) throw new BadRequestException("TENANT_REQUIRED");
+    const where = {
+      tenantId,
+      deletedAt: null,
+      type: { in: ["SECURITY", "BOOKING", "RESERVATION"] as const },
+      ...(scope.roomId ? { roomId: scope.roomId } : {}),
+      ...(scope.customerId ? { customerId: scope.customerId } : {}),
+      ...(scope.contractId ? { contractId: scope.contractId } : {}),
+      ...(scope.rentalCycleId ? { rentalCycleId: scope.rentalCycleId } : {}),
+    };
+    const [deposits, total] = await Promise.all([
+      this.prisma.tx.deposit.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        include: {
+          customer: { select: { id: true, fullName: true, phone: true, gender: true } },
+          room: { select: { id: true, code: true, building: { select: { id: true, name: true } } } },
+          contract: { select: { id: true, tenantId: true, customerId: true, rentalCycleId: true, termsSnapshot: true, code: true, status: true, startDate: true, firstPaymentDate: true } },
+          ledgerEntries: {
+            where: { tenantId },
+            select: {
+              id: true, type: true, balanceEffect: true, reversalOfId: true, operationId: true,
+              operation: { select: { idempotencyKey: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.tx.deposit.count({ where }),
+    ]);
+    const cashEntries = deposits.flatMap((deposit) => deposit.ledgerEntries)
+      .filter((entry) => entry.type === "CASH_IN");
+    const invoiceByOperation = new Map<string, string>();
+    const operationIds = [...new Set(cashEntries.map((entry) => entry.operationId))];
+    if (operationIds.length) {
+      const events = await this.prisma.tx.outboxEvent.findMany({
+        where: { tenantId, aggregateType: "DepositOperation", aggregateId: { in: operationIds }, eventName: "deposit.collected" },
+        select: { aggregateId: true, payload: true },
+      });
+      for (const event of events) {
+        const metadata = (event.payload as any)?.metadata;
+        if (metadata?.linkedInvoicePayment === true && typeof metadata.sourceInvoiceId === "string") {
+          invoiceByOperation.set(event.aggregateId, metadata.sourceInvoiceId);
+        }
+      }
+      // Legacy reconciliation keys refer to exact payment-request IDs, not invoice descriptions.
+      const requestOperations = new Map<string, string[]>();
+      for (const entry of cashEntries) {
+        const key = entry.operation.idempotencyKey;
+        const prefix = "reconcile:confirmed-payment:";
+        if (!key.startsWith(prefix)) continue;
+        const requestId = key.slice(prefix.length);
+        if (requestId.startsWith("paid-invoice:")) {
+          invoiceByOperation.set(entry.operationId, requestId.slice("paid-invoice:".length));
+        } else {
+          requestOperations.set(requestId, [...(requestOperations.get(requestId) || []), entry.operationId]);
+        }
+      }
+      if (requestOperations.size) {
+        const requests = await this.prisma.tx.paymentRequest.findMany({
+          where: { tenantId, id: { in: [...requestOperations.keys()] }, sourceType: "INVOICE", status: "CONFIRMED" },
+          select: { id: true, sourceId: true },
+        });
+        for (const request of requests) {
+          for (const operationId of requestOperations.get(request.id) || []) invoiceByOperation.set(operationId, request.sourceId);
+        }
+      }
+    }
+    const combinedEntries = deposits.map((deposit) => getCombinedEntryInvoice(deposit.contract))
+      .filter((entry) => entry?.invoiceId);
+    const linkedInvoiceIds = [...new Set([...invoiceByOperation.values(), ...combinedEntries.map((entry) => entry.invoiceId)])];
+    const linkedInvoices = linkedInvoiceIds.length ? await this.prisma.tx.invoice.findMany({
+      where: { tenantId, deletedAt: null, id: { in: linkedInvoiceIds } }, include: { items: true },
+    }) : [];
+    const existingInvoiceIds = new Set(linkedInvoices.map((invoice) => invoice.id));
+    const coveredEntries = new Set<string>(cashEntries.filter((entry) =>
+      existingInvoiceIds.has(invoiceByOperation.get(entry.operationId) || ""),
+    ).map((entry) => entry.id));
+    return { items: deposits.map((deposit) => {
+      const document = buildDepositBillingDocument(deposit, coveredEntries);
+      const entry = getCombinedEntryInvoice(deposit.contract);
+      const invoice = linkedInvoices.find((row) => row.id === entry?.invoiceId);
+      if (deposit.type === "SECURITY" && entry?.securityDepositId === deposit.id && invoice &&
+        !["CANCELLED", "WRITTEN_OFF"].includes(invoice.status)) {
+        assertCombinedEntryInvoice(invoice, deposit.contract, entry);
+        return { ...document, total: 0, paidAmount: 0, linkedInvoiceId: invoice.id, invoiceObligationAmount: entry.additionalCashRequired };
+      }
+      return document;
+    }), total, page, limit };
   }
 
   async listInvoices(
@@ -664,65 +767,84 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     if (!roomId || !contractId || !customerId) {
       throw new BadRequestException("INVOICE_CREATE_SCOPE_REQUIRED");
     }
-
-    const [contract, customer, room] = await Promise.all([
-      this.prisma.tx.contract.findFirst({
-        where: {
-          id: contractId,
-          tenantId,
-          customerId,
-          roomId,
-          deletedAt: null,
-        },
-        select: { rentalCycleId: true },
-      }),
-      this.prisma.tx.customer.findFirst({
-        where: { id: customerId, tenantId, deletedAt: null },
-        select: { id: true },
-      }),
-      this.prisma.tx.room.findFirst({
-        where: { id: roomId, tenantId, deletedAt: null },
-        select: { id: true },
-      }),
-    ]);
-    if (!contract || !customer || !room) {
-      throw new BadRequestException("INVOICE_CREATE_SCOPE_MISMATCH");
-    }
-
-    const expectedRentalCycleId = String(scope?.rentalCycleId || "").trim();
-    const rentalCycleId = expectedRentalCycleId || contract.rentalCycleId;
-    if (!rentalCycleId) {
-      throw new ConflictException("INVOICE_CONTRACT_RENTAL_CYCLE_MISSING");
-    }
     if (
-      expectedRentalCycleId &&
-      expectedRentalCycleId !== contract.rentalCycleId
+      (data as any).period === "Kỳ đầu vào ở" &&
+      !(data as any).billingKind
     ) {
-      throw new BadRequestException("INVOICE_RENTAL_CYCLE_SCOPE_MISMATCH");
+      throw new ConflictException("IMMEDIATE_ENTRY_BILLING_POLICY_REQUIRED");
     }
 
-    const rentalCycle = await this.prisma.tx.rentalCycle.findFirst({
-      where: { id: rentalCycleId, tenantId, customerId, roomId },
-      select: { id: true },
-    });
-    if (!rentalCycle) {
-      throw new BadRequestException("INVOICE_RENTAL_CYCLE_SCOPE_MISMATCH");
-    }
+    const invoice = await this.runSerializable(async (tx) => {
+      await this.lockContract(tx, tenantId, contractId);
+      const [contract, customer, room] = await Promise.all([
+        tx.contract.findFirst({
+          where: {
+            id: contractId,
+            tenantId,
+            customerId,
+            roomId,
+            deletedAt: null,
+          },
+          select: { rentalCycleId: true },
+        }),
+        tx.customer.findFirst({
+          where: { id: customerId, tenantId, deletedAt: null },
+          select: { id: true },
+        }),
+        tx.room.findFirst({
+          where: { id: roomId, tenantId, deletedAt: null },
+          select: { id: true },
+        }),
+      ]);
+      if (!contract || !customer || !room) {
+        throw new BadRequestException("INVOICE_CREATE_SCOPE_MISMATCH");
+      }
 
-    return super.create(
-      {
-        ...data,
-        tenantId,
-        rentalCycleId: rentalCycle.id,
-        status: InvoiceStatus.DRAFT,
-      } as any,
+      const expectedRentalCycleId = String(scope?.rentalCycleId || "").trim();
+      const rentalCycleId = expectedRentalCycleId || contract.rentalCycleId;
+      if (!rentalCycleId) {
+        throw new ConflictException("INVOICE_CONTRACT_RENTAL_CYCLE_MISSING");
+      }
+      if (
+        expectedRentalCycleId &&
+        expectedRentalCycleId !== contract.rentalCycleId
+      ) {
+        throw new BadRequestException("INVOICE_RENTAL_CYCLE_SCOPE_MISMATCH");
+      }
+
+      const rentalCycle = await tx.rentalCycle.findFirst({
+        where: { id: rentalCycleId, tenantId, customerId, roomId },
+        select: { id: true },
+      });
+      if (!rentalCycle) {
+        throw new BadRequestException("INVOICE_RENTAL_CYCLE_SCOPE_MISMATCH");
+      }
+
+      return tx.invoice.create({
+        data: {
+          ...data,
+          tenantId,
+          rentalCycleId: rentalCycle.id,
+          status: InvoiceStatus.DRAFT,
+        } as any,
+      });
+    }, "INVOICE_CREATE_CONCURRENT_UPDATE");
+    await this.auditService.log({
+      action: "CREATE",
+      entity: this.entityName,
+      entityId: invoice.id,
+      module: moduleName || this.entityName,
+      after: invoice,
       userId,
-      moduleName,
-    );
+    });
+    return invoice;
   }
 
   async update(id: string, data: any, userId?: string, moduleName?: string) {
     const invoice = await this.getDetail(id);
+    if (getCombinedEntryInvoice(invoice.contract)?.invoiceId === id) {
+      throw new ConflictException("COMBINED_ENTRY_INVOICE_IMMUTABLE");
+    }
     if (invoice.status !== InvoiceStatus.DRAFT) {
       throw new BadRequestException(
         "Can only update DRAFT invoices. Use explicit commands (issue, pay, cancel, writeoff) for state transitions.",
@@ -733,9 +855,14 @@ export class InvoicesService extends BaseCrudService<Invoice> {
 
   async issue(id: string, userId: string, tenantIdInput?: string) {
     const tenantId = this.requireTenantId(tenantIdInput);
-    const updated = await this.runSerializable(async (tx) => {
+    return this.runSerializable((tx) => this.issueInTransaction(tx, id, userId, tenantId), "INVOICE_ISSUE_CONCURRENT_UPDATE");
+  }
+
+  async issueInTransaction(tx: InvoiceTransactionClient, id: string, userId: string, tenantId: string) {
       await this.lockInvoice(tx, tenantId, id, "INVOICE_NOT_FOUND");
       const invoice = await this.getScopedInvoiceDetail(tx, id, tenantId);
+      const entry = getCombinedEntryInvoice(invoice.contract);
+      if (entry?.invoiceId === id) assertCombinedEntryInvoice(invoice, invoice.contract, entry);
       if (invoice.status !== InvoiceStatus.DRAFT) {
         throw new BadRequestException(
           `Cannot issue invoice in ${invoice.status} status.`,
@@ -799,9 +926,6 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         ),
       });
       return updated;
-    }, "INVOICE_ISSUE_CONCURRENT_UPDATE");
-
-    return updated;
   }
 
   async markOverdueInvoices(tenantIdInput: string, userId: string) {
@@ -1046,6 +1170,11 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         await this.lockInvoice(tx, tenantId, id, "INVOICE_NOT_FOUND");
       }
       const invoice = await this.getScopedInvoiceDetail(tx, id, tenantId);
+      const entry = getCombinedEntryInvoice(invoice.contract);
+      if (entry?.invoiceId === id) {
+        assertCombinedEntryInvoice(invoice, invoice.contract, entry);
+        if (Number(invoice.creditAmount || 0) !== 0) throw new ConflictException("COMBINED_ENTRY_CASH_PAYMENT_REQUIRED");
+      }
       if (invoice.billingKind === "CREDIT_ADJUSTMENT") {
         throw new ConflictException(
           "CREDIT_ADJUSTMENT_PAYMENT_ALLOCATION_FORBIDDEN",
@@ -1133,6 +1262,18 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         paymentId: payment.id,
         paidAt: payment.paidAt,
       };
+      if (newStatus === InvoiceStatus.PAID && entry?.invoiceId === id && entry.additionalCashRequired > 0) {
+        if (!this.depositCoreService) throw new ConflictException("DEPOSIT_CORE_UNAVAILABLE");
+        // The payment, deposit cash-in and their evidence commit or roll back together.
+        await this.depositCoreService.collectInTransaction(tx, tenantId, entry.securityDepositId, {
+          idempotencyKey: `entry-invoice:${id}:security-funding`,
+          notificationContext: {
+            linkedInvoicePayment: true, sourceInvoiceId: id,
+            suppressCustomerZaloConfirmation: true,
+            paymentProvider: normalizedProvider, paymentRef: normalizedProviderRef,
+          },
+        }, userId);
+      }
       const paymentPromiseModel = (tx as any).paymentPromise;
       if (newStatus === InvoiceStatus.PAID && paymentPromiseModel?.updateMany) {
         await paymentPromiseModel.updateMany({
@@ -1721,6 +1862,19 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     )) as Array<{ id: string }>;
     if (!rows.length) {
       throw new NotFoundException(notFoundCode);
+    }
+  }
+
+  private async lockContract(
+    tx: InvoiceTransactionClient,
+    tenantId: string,
+    contractId: string,
+  ) {
+    const rows = (await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "Contract" WHERE "tenantId" = ${tenantId} AND "id" = ${contractId} AND "deletedAt" IS NULL FOR UPDATE`,
+    )) as Array<{ id: string }>;
+    if (!rows.length) {
+      throw new BadRequestException("INVOICE_CREATE_SCOPE_MISMATCH");
     }
   }
 

@@ -36,6 +36,10 @@ export const invoicesApi = {
     return apiClient.get("/invoices", { params });
   },
 
+  listDepositDocuments: (params?: Pick<InvoiceListParams, "page" | "limit" | "roomId" | "customerId" | "contractId" | "rentalCycleId">) => {
+    return apiClient.get<{ items: any[]; total: number }>("/invoices/deposit-documents", { params });
+  },
+
   getDetail: (id: string) => {
     return apiClient.get(`/invoices/${id}`);
   },

@@ -51,11 +51,16 @@ export const RenewContractSchema = z.object({
  * classified; there is deliberately no silent CREDIT/REFUND default.
  */
 export const ConvertBookingHoldSchema = RenewContractSchema.extend({
+  /** Required only when the source hold is missing/expired and conversion explicitly recovers it. */
+  holdExpiresAt: z.string().or(z.date()).optional().nullable(),
   securityDepositId: z.string().min(1).optional().nullable(),
   excessAction: z.enum(['CREDIT', 'REFUND']).optional(),
   refundStatus: z.enum(['PENDING', 'COMPLETED']).optional(),
   refundAttachmentUrls: z.array(z.string().trim().min(1).max(2048)).max(10).optional(),
 });
+
+/** Explicitly issue or recover the canonical pre-move-in ENTRY invoice. */
+export const PrepareImmediateEntryBillingSchema = z.object({});
 
 export const ContractSettlementInputSchema = z.object({
   actualMoveOutDate: z.string().or(z.date()),
@@ -119,6 +124,7 @@ export type CreateContractInput = z.infer<typeof CreateContractSchema>;
 export type UpdateContractInput = z.infer<typeof UpdateContractSchema>;
 export type RenewContractInput = z.infer<typeof RenewContractSchema>;
 export type ConvertBookingHoldInput = z.infer<typeof ConvertBookingHoldSchema>;
+export type PrepareImmediateEntryBillingInput = z.infer<typeof PrepareImmediateEntryBillingSchema>;
 export type ContractSettlementInput = z.infer<typeof ContractSettlementInputSchema>;
 export type ContractSettlementRefundCompletionInput = z.infer<
   typeof ContractSettlementRefundCompletionSchema

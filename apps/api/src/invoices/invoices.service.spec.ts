@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { InvoicesService } from "./invoices.service";
+import { assertCombinedEntryInvoice, getCombinedEntryInvoice } from "./combined-entry-invoice";
 import { InvoiceStatus } from "@prisma/client";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 
@@ -21,6 +22,7 @@ describe("InvoicesService", () => {
     prisma = {
       tx: {
         invoice: {
+          create: vi.fn().mockResolvedValue({ id: "invoice-1" }),
           findFirst: vi.fn(),
           findFirstOrThrow: vi.fn(),
           findMany: vi.fn(),
@@ -29,7 +31,7 @@ describe("InvoicesService", () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
-        outboxEvent: { create: vi.fn().mockResolvedValue({ id: "outbox-1" }) },
+        outboxEvent: { create: vi.fn().mockResolvedValue({ id: "outbox-1" }), findMany: vi.fn().mockResolvedValue([]) },
         payment: { create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
         paymentAllocation: {
           create: vi.fn(),
@@ -61,6 +63,93 @@ describe("InvoicesService", () => {
       auditService,
       prisma,
     );
+  });
+
+  describe("listDepositBillingDocuments", () => {
+    it("reads security documents with exact tenant and rental scope without writing", async () => {
+      prisma.tx.deposit = {
+        findMany: vi.fn().mockResolvedValue([{
+          id: "security-1", type: "SECURITY", amount: 8_000_000, status: "PAID", ledgerEntries: [
+            { id: "transfer", type: "TRANSFER_IN", balanceEffect: 1_000_000 },
+            { id: "cash", type: "CASH_IN", balanceEffect: 7_000_000, operationId: "collect-1", operation: { idempotencyKey: "manual-1" } },
+          ],
+        }]),
+        count: vi.fn().mockResolvedValue(101),
+        create: vi.fn(), update: vi.fn(), updateMany: vi.fn(),
+      };
+      const scope = { roomId: "room-1", customerId: "customer-1", contractId: "contract-1", rentalCycleId: "cycle-1" };
+      const result = await service.listDepositBillingDocuments("tenant-1", 2, 100, scope);
+      const where = { tenantId: "tenant-1", deletedAt: null, type: { in: ["SECURITY", "BOOKING", "RESERVATION"] }, ...scope };
+      expect(prisma.tx.deposit.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where, skip: 100, take: 100, orderBy: { createdAt: "desc" },
+        include: expect.objectContaining({ ledgerEntries: {
+          where: { tenantId: "tenant-1" },
+          select: {
+            id: true, type: true, balanceEffect: true, reversalOfId: true, operationId: true,
+            operation: { select: { idempotencyKey: true } },
+          },
+        } }),
+      }));
+      expect(prisma.tx.deposit.count).toHaveBeenCalledWith({ where });
+      expect(result).toMatchObject({ total: 101, page: 2, limit: 100, items: [
+        { documentType: "DEPOSIT", total: 7_000_000, paidAmount: 7_000_000 },
+      ] });
+      expect(prisma.tx.deposit.create).not.toHaveBeenCalled();
+      expect(prisma.tx.deposit.update).not.toHaveBeenCalled();
+      expect(prisma.tx.deposit.updateMany).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(prisma.tx.payment.create).not.toHaveBeenCalled();
+      expect(prisma.tx.outboxEvent.findMany).toHaveBeenCalledWith({
+        where: { tenantId: "tenant-1", aggregateType: "DepositOperation", aggregateId: { in: ["collect-1"] }, eventName: "deposit.collected" },
+        select: { aggregateId: true, payload: true },
+      });
+    });
+
+    it.each(["outbox", "request", "legacy-invoice-key"])("excludes already invoiced cash linked by %s", async (source) => {
+      const key = source === "request" ? "reconcile:confirmed-payment:request-1"
+        : source === "legacy-invoice-key" ? "reconcile:confirmed-payment:paid-invoice:invoice-1" : "collection-1";
+      prisma.tx.deposit = {
+        findMany: vi.fn().mockResolvedValue([{
+          id: "security-1", amount: 8_000_000, status: "PAID", ledgerEntries: [
+            { id: "cash-1", type: "CASH_IN", balanceEffect: 8_000_000, operationId: "collect-1", operation: { idempotencyKey: key } },
+          ],
+        }]), count: vi.fn().mockResolvedValue(1),
+      };
+      prisma.tx.outboxEvent.findMany.mockResolvedValue(source === "outbox" ? [{
+        aggregateId: "collect-1", payload: { metadata: { linkedInvoicePayment: true, sourceInvoiceId: "invoice-1" } },
+      }] : []);
+      prisma.tx.paymentRequest = { findMany: vi.fn().mockResolvedValue([{ id: "request-1", sourceId: "invoice-1" }]) };
+      prisma.tx.invoice.findMany.mockResolvedValue([{ id: "invoice-1" }]);
+      const result = await service.listDepositBillingDocuments("tenant-1", 1, 100);
+      expect(result.items[0]).toMatchObject({ total: 0, paidAmount: 0, invoiceCoveredAmount: 8_000_000, status: "PAID" });
+      expect(prisma.tx.invoice.findMany).toHaveBeenCalledWith({
+        where: { tenantId: "tenant-1", deletedAt: null, id: { in: ["invoice-1"] } }, include: { items: true },
+      });
+      if (source === "request") expect(prisma.tx.paymentRequest.findMany).toHaveBeenCalledWith({
+        where: { tenantId: "tenant-1", id: { in: ["request-1"] }, sourceType: "INVOICE", status: "CONFIRMED" },
+        select: { id: true, sourceId: true },
+      });
+    });
+
+    it("does not exclude cash when the linked invoice is absent from the authenticated tenant", async () => {
+      prisma.tx.deposit = {
+        findMany: vi.fn().mockResolvedValue([{
+          id: "security-1", amount: 8_000_000, status: "PAID", ledgerEntries: [
+            { id: "cash-1", type: "CASH_IN", balanceEffect: 8_000_000, operationId: "collect-1", operation: { idempotencyKey: "collection-1" } },
+          ],
+        }]), count: vi.fn().mockResolvedValue(1),
+      };
+      prisma.tx.outboxEvent.findMany.mockResolvedValue([{
+        aggregateId: "collect-1", payload: { metadata: { linkedInvoicePayment: true, sourceInvoiceId: "foreign-invoice" } },
+      }]);
+      prisma.tx.invoice.findMany.mockResolvedValue([]);
+      const result = await service.listDepositBillingDocuments("tenant-1", 1, 100);
+      expect(result.items[0]).toMatchObject({ total: 8_000_000, paidAmount: 8_000_000, invoiceCoveredAmount: 0 });
+    });
+
+    it("requires a tenant before reading financial documents", async () => {
+      await expect(service.listDepositBillingDocuments("", 1, 20)).rejects.toThrow("TENANT_REQUIRED");
+    });
   });
 
   describe("payment promises", () => {
@@ -210,7 +299,7 @@ describe("InvoicesService", () => {
       prisma.tx.customer.findFirst.mockResolvedValue({ id: "customer-1" });
       prisma.tx.room.findFirst.mockResolvedValue({ id: "room-1" });
       prisma.tx.rentalCycle.findFirst.mockResolvedValue({ id: "cycle-1" });
-      repository.create.mockResolvedValue({ id: "invoice-1" });
+      prisma.tx.invoice.create.mockResolvedValue({ id: "invoice-1" });
     };
 
     it("persists an exact authenticated scope as a DRAFT without mutating caller input", async () => {
@@ -239,14 +328,14 @@ describe("InvoicesService", () => {
         },
         select: { id: true },
       });
-      expect(repository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
+      expect(prisma.tx.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({
           tenantId: "tenant-1",
           customerId: "customer-1",
           contractId: "contract-1",
           rentalCycleId: "cycle-1",
           status: InvoiceStatus.DRAFT,
-        }),
+        }) }),
       );
       expect(input).toEqual(original);
     });
@@ -270,8 +359,8 @@ describe("InvoicesService", () => {
         },
         select: { id: true },
       });
-      expect(repository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ rentalCycleId: "cycle-1" }),
+      expect(prisma.tx.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ rentalCycleId: "cycle-1" }) }),
       );
     });
 
@@ -378,6 +467,32 @@ describe("InvoicesService", () => {
 
       expect(repository.create).not.toHaveBeenCalled();
     });
+
+    it("rejects a generic immediate-entry invoice before scope reads or writes", async () => {
+      await expect(
+        service.create({
+          ...data(),
+          period: "Kỳ đầu vào ở",
+          billingKind: null,
+          baseInvoiceKey: null,
+        } as any, "user-1", "Invoices", scope),
+      ).rejects.toThrow("IMMEDIATE_ENTRY_BILLING_POLICY_REQUIRED");
+      expect(prisma.tx.$queryRaw).not.toHaveBeenCalled();
+      expect(prisma.tx.invoice.create).not.toHaveBeenCalled();
+    });
+
+    it("does not allow a caller-supplied key to bypass immediate-entry policy selection", async () => {
+      await expect(
+        service.create({
+          ...data(),
+          period: "Kỳ đầu vào ở",
+          billingKind: null,
+          baseInvoiceKey: "caller-supplied-entry-key",
+        } as any, "user-1", "Invoices", scope),
+      ).rejects.toThrow("IMMEDIATE_ENTRY_BILLING_POLICY_REQUIRED");
+
+      expect(prisma.tx.invoice.create).not.toHaveBeenCalled();
+    });
   });
 
   describe("issue", () => {
@@ -475,6 +590,162 @@ describe("InvoicesService", () => {
         },
       ]);
     };
+
+    const combinedInvoice = (status: InvoiceStatus = InvoiceStatus.ISSUED, paidAmount = 0) => ({
+      id: "entry-combined-1",
+      status,
+      billingKind: "ENTRY",
+      total: 11_000_000,
+      paidAmount,
+      creditAmount: 0,
+      tenantId: "tenant-1",
+      customerId: "customer-1",
+      contractId: "rental-1",
+      rentalCycleId: "cycle-1",
+      customer: {},
+      contract: {
+        id: "rental-1",
+        tenantId: "tenant-1",
+        customerId: "customer-1",
+        rentalCycleId: "cycle-1",
+        termsSnapshot: {
+          convertedFromBookingHold: {
+            bookingDepositConversion: {
+              sourceDepositId: "booking-1", securityDepositId: "security-1",
+              securityRequired: 8_000_000, transferAmount: 1_000_000, additionalCashRequired: 7_000_000,
+            },
+            initialEntryInvoice: {
+              invoiceId: "entry-combined-1", paymentPolicyVersion: "BOOKING_ENTRY_COMBINED_V1",
+              rentAmount: 4_000_000, securityRequired: 8_000_000, transferredAmount: 1_000_000,
+              additionalCashRequired: 7_000_000, amount: 11_000_000,
+              sourceDepositId: "booking-1", securityDepositId: "security-1",
+            },
+          },
+        },
+      },
+      items: [
+        { type: "RENT", amount: 4_000_000 },
+        { type: "OTHER", amount: 8_000_000, servicePeriod: "ENTRY_SECURITY:security-1" },
+        { type: "DISCOUNT", amount: -1_000_000, servicePeriod: "ENTRY_BOOKING_TRANSFER:booking-1" },
+      ],
+    });
+
+    it("collects only the 7M cash remainder after a full 11M combined ENTRY payment", async () => {
+      const invoice = combinedInvoice();
+      expect((service as any).getScopedInvoiceDetail).toBeDefined();
+      expect(() => assertCombinedEntryInvoice(invoice, invoice.contract, getCombinedEntryInvoice(invoice.contract)!)).not.toThrow();
+      mockPaymentTarget(invoice);
+      const collectInTransaction = vi.fn().mockResolvedValue({ depositId: "security-1", collectedAmount: 7_000_000 });
+      (service as any).depositCoreService = { collectInTransaction };
+      prisma.tx.payment.create.mockResolvedValue({ id: "pay-combined-1", paidAt: new Date("2026-09-29") });
+
+      await expect(service.pay(invoice.id, 11_000_000, "SEPAY", "txn-combined-1", "user-1", "tenant-1"))
+        .resolves.toMatchObject({ status: InvoiceStatus.PAID, paidAmount: 11_000_000 });
+      expect(collectInTransaction).toHaveBeenCalledWith(
+        prisma.tx, "tenant-1", "security-1", expect.objectContaining({
+          idempotencyKey: "entry-invoice:entry-combined-1:security-funding",
+          notificationContext: expect.objectContaining({ linkedInvoicePayment: true, sourceInvoiceId: invoice.id }),
+        }), "user-1",
+      );
+    });
+
+    it("funds the full security deposit from one immediate-entry payment", async () => {
+      const invoice = {
+        ...combinedInvoice(),
+        id: "entry-immediate-combined",
+        contractId: "rental-immediate",
+        total: 8_266_667,
+        contract: {
+          id: "rental-immediate",
+          tenantId: "tenant-1",
+          customerId: "customer-1",
+          rentalCycleId: "cycle-1",
+          termsSnapshot: {
+            initialEntryInvoice: {
+              invoiceId: "entry-immediate-combined",
+              paymentPolicyVersion: "BOOKING_ENTRY_COMBINED_V1",
+              rentAmount: 266_667,
+              securityRequired: 8_000_000,
+              transferredAmount: 0,
+              additionalCashRequired: 8_000_000,
+              amount: 8_266_667,
+              sourceDepositId: null,
+              securityDepositId: "security-immediate",
+            },
+          },
+        },
+        items: [
+          { type: "RENT", amount: 266_667 },
+          { type: "OTHER", amount: 8_000_000, servicePeriod: "ENTRY_SECURITY:security-immediate" },
+        ],
+      };
+      mockPaymentTarget(invoice);
+      const collectInTransaction = vi.fn().mockResolvedValue({
+        depositId: "security-immediate",
+        collectedAmount: 8_000_000,
+      });
+      (service as any).depositCoreService = { collectInTransaction };
+      prisma.tx.payment.create.mockResolvedValue({ id: "pay-immediate-combined", paidAt: new Date("2026-09-29") });
+
+      await expect(service.pay(
+        invoice.id,
+        8_266_667,
+        "MANUAL",
+        "cash-immediate-combined",
+        "user-1",
+        "tenant-1",
+      )).resolves.toMatchObject({ status: InvoiceStatus.PAID, paidAmount: 8_266_667 });
+      expect(collectInTransaction).toHaveBeenCalledWith(
+        prisma.tx,
+        "tenant-1",
+        "security-immediate",
+        expect.objectContaining({ idempotencyKey: "entry-invoice:entry-immediate-combined:security-funding" }),
+        "user-1",
+      );
+    });
+
+    it("does not collect security cash until the combined ENTRY invoice is fully paid", async () => {
+      const invoice = combinedInvoice();
+      mockPaymentTarget(invoice);
+      const collectInTransaction = vi.fn();
+      (service as any).depositCoreService = { collectInTransaction };
+      prisma.tx.payment.create.mockResolvedValue({ id: "pay-combined-partial-1", paidAt: new Date("2026-09-29") });
+
+      await expect(service.pay(invoice.id, 4_000_000, "MANUAL", "manual-combined-partial-1", "user-1", "tenant-1"))
+        .resolves.toMatchObject({ status: InvoiceStatus.PARTIALLY_PAID, paidAmount: 4_000_000 });
+      expect(collectInTransaction).not.toHaveBeenCalled();
+    });
+
+    it("propagates security collection failure so the caller transaction can roll back", async () => {
+      const invoice = combinedInvoice();
+      mockPaymentTarget(invoice);
+      const collectInTransaction = vi.fn().mockRejectedValue(new ConflictException("COMBINED_ENTRY_DEPOSIT_FUNDING_CONFLICT"));
+      (service as any).depositCoreService = { collectInTransaction };
+      prisma.tx.payment.create.mockResolvedValue({ id: "pay-combined-fail-1", paidAt: new Date("2026-09-29") });
+
+      await expect(service.pay(invoice.id, 11_000_000, "MANUAL", "manual-combined-fail-1", "user-1", "tenant-1"))
+        .rejects.toThrow("COMBINED_ENTRY_DEPOSIT_FUNDING_CONFLICT");
+      expect(collectInTransaction).toHaveBeenCalledWith(prisma.tx, "tenant-1", "security-1", expect.any(Object), "user-1");
+    });
+
+    it("replays a confirmed combined ENTRY reference without recollecting security cash", async () => {
+      const invoice = combinedInvoice(InvoiceStatus.PAID, 11_000_000);
+      prisma.tx.payment.findFirst.mockResolvedValue({
+        invoiceId: invoice.id,
+        amount: 11_000_000,
+        status: "CONFIRMED",
+      });
+      prisma.tx.invoice.findFirst.mockResolvedValue(invoice);
+      const collectInTransaction = vi.fn();
+      (service as any).depositCoreService = { collectInTransaction };
+
+      await expect(service.pay(invoice.id, 11_000_000, "SEPAY", "txn-combined-replay-1", "user-1", "tenant-1"))
+        .resolves.toMatchObject({ id: invoice.id, status: InvoiceStatus.PAID });
+
+      expect(collectInTransaction).not.toHaveBeenCalled();
+      expect(prisma.tx.payment.create).not.toHaveBeenCalled();
+      expect(prisma.tx.paymentAllocation.create).not.toHaveBeenCalled();
+    });
 
     it("records a partial payment with a durable event", async () => {
       const invoice = {

@@ -2,8 +2,10 @@ import { Module } from '@nestjs/common';
 import { InvoicesController } from './invoices.controller';
 import { InvoicesService } from './invoices.service';
 import { InvoicesRepository } from './invoices.repository';
+import { DepositsModule } from '../deposits/deposits.module';
 
 @Module({
+  imports: [DepositsModule],
   controllers: [InvoicesController],
   providers: [InvoicesService, InvoicesRepository],
   exports: [InvoicesService],

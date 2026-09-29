@@ -24,6 +24,46 @@ function resolveTaiLieuPath(filename: string): string {
   return candidates[0];
 }
 
+function normalizeLookup(value: unknown): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toUpperCase();
+}
+
+function isLk0131OrLk0132(value: unknown): boolean {
+  const source = normalizeLookup(value).replace(/[^A-Z0-9]/g, '');
+  return source.includes('LK0131') || source.includes('LK0132');
+}
+
+function isTwoBedroomIdentifier(value: unknown): boolean {
+  const source = normalizeLookup(value).replace(/\s+/g, '');
+  return source.includes('2PN') || source.includes('2PHONGNGU');
+}
+
+function shouldUseTwoBedroomTemplate(data: any): boolean {
+  const isTwoBedroom =
+    isTwoBedroomIdentifier(data.soPhongNgu) ||
+    isTwoBedroomIdentifier(data.roomType) ||
+    isTwoBedroomIdentifier(data.room?.roomType) ||
+    isTwoBedroomIdentifier(data.room?.type);
+
+  if (!isTwoBedroom) return false;
+
+  const buildingMatches =
+    isLk0131OrLk0132(data.toaNha) ||
+    isLk0131OrLk0132(data.buildingName) ||
+    isLk0131OrLk0132(data.buildingCode) ||
+    isLk0131OrLk0132(data.room?.building?.code) ||
+    isLk0131OrLk0132(data.room?.building?.name) ||
+    isLk0131OrLk0132(data.maPhong) ||
+    isLk0131OrLk0132(data.roomCode);
+
+  return buildingMatches;
+}
+
 export async function POST(request: Request) {
   let templateFilename = 'HOP_DONG_1PN.docx';
   try {
@@ -37,6 +77,8 @@ export async function POST(request: Request) {
       String(data.loaiHopDong || '').toUpperCase() === 'BOOKING_HOLD';
     templateFilename = isBookingHoldTemplate
       ? 'HD-COC-GIU-PHONG.docx'
+      : shouldUseTwoBedroomTemplate(data)
+      ? 'HOP_DONG_2PN.docx'
       : 'HOP_DONG_1PN.docx';
 
     const templatePath = resolveTaiLieuPath(templateFilename);

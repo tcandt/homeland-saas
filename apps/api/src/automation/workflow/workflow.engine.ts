@@ -257,12 +257,7 @@ export class WorkflowEngine {
           templateCode: params?.templateCode || 'SYSTEM_ALERT',
           recipient,
           userId: payload.customerId || null,
-          context: {
-            ...payload,
-            title: params?.title || 'HomeLand - Cập nhật giữ phòng',
-            message: params?.message || 'Giữ phòng của quý khách đã hết hạn. Vui lòng liên hệ ban quản lý nếu cần hỗ trợ.',
-            ...buildRoomContext(payload.room || payload.contract?.room, payload.contract),
-          },
+          context: this.buildZaloEventTemplateContext(payload, params, eventName),
         });
         break;
       }
@@ -287,6 +282,8 @@ export class WorkflowEngine {
           try {
             const roomContext = buildRoomContext(payload.room || payload.contract?.room, payload.contract);
             const collectedAmount = Number(payload.paidAmount ?? payload.amount ?? 0);
+            const remainingAmount = this.resolveRemainingAmount(payload);
+            const paymentAmount = Number(payload.paymentAmount ?? payload.amount ?? 0);
             const result = await this.communicationService.dispatchDirect({
               tenantId: payload.tenantId,
               channel: 'ZALO' as any,
@@ -299,8 +296,10 @@ export class WorkflowEngine {
                 depositCode: payload.depositCode || payload.metadata?.code || payload.paymentCode || null,
                 paymentCode: payload.paymentCode || payload.metadata?.code || null,
                 paymentStatusLabel: this.buildPaymentStatusLabel(payload),
-                paymentAmount: Number(payload.paymentAmount ?? payload.amount ?? 0),
+                paymentAmount,
+                paymentReceiptMessage: this.buildPaymentReceiptMessage(payload, paymentAmount),
                 amount: collectedAmount,
+                remainingAmount,
               },
             });
             if (!result) {
@@ -330,19 +329,19 @@ export class WorkflowEngine {
           break;
         }
         try {
+          const templateCode = this.resolveAdminZaloTemplateCode(payload, params, eventName);
+          const templateParams = { ...params, templateCode };
           await this.communicationService.dispatchDirect({
             tenantId: payload.tenantId,
             channel: 'ZALO' as any,
-            templateCode: params?.templateCode || 'SYSTEM_ALERT',
+            templateCode,
             recipient: adminGroupChatId,
             userId: null,
             context: {
-              ...payload,
+              ...this.buildZaloEventTemplateContext(payload, templateParams, eventName),
               chatId: adminGroupChatId,
               zaloChatId: adminGroupChatId,
               adminGroupChatId,
-              title: this.buildAdminZaloTitle(payload, params, eventName),
-              message: this.buildAdminZaloMessage(payload, params, eventName),
             },
           });
         } catch (error: any) {
@@ -621,9 +620,9 @@ export class WorkflowEngine {
 
   private async shouldSendSePayResultToZalo(payload: any) {
     const requiredProvider = String(payload?.paymentProvider || '').trim().toUpperCase();
-    if (requiredProvider && requiredProvider !== 'SEPAY') {
-      return false;
-    }
+    // The setting controls bank/SePay confirmations only. Manual cash
+    // collection must always notify the linked Zalo Client recipient.
+    if (requiredProvider && requiredProvider !== 'SEPAY') return true;
 
     const record = await this.prisma.appSetting.findUnique({
       where: {
@@ -750,9 +749,18 @@ export class WorkflowEngine {
 
   private buildPaymentStatusLabel(payload: any) {
     const status = String(payload?.metadata?.paymentStatus || '').toUpperCase();
-    if (status === 'PAID') return 'Đã thu đủ qua VietQR';
-    if (status === 'PARTIALLY_PAID') return 'Đã nhận một phần qua VietQR';
-    return 'Đã nhận thanh toán qua VietQR';
+    const provider = String(payload?.paymentProvider || '').trim().toUpperCase();
+    const method = provider === 'MANUAL' ? 'tiền mặt' : 'VietQR';
+    if (status === 'PAID') return `Đã thu đủ bằng ${method}`;
+    if (status === 'PARTIALLY_PAID') return `Đã nhận một phần bằng ${method}`;
+    return `Đã nhận thanh toán bằng ${method}`;
+  }
+
+  private buildPaymentReceiptMessage(payload: any, paymentAmount: number) {
+    const provider = String(payload?.paymentProvider || '').trim().toUpperCase();
+    const amount = Number(paymentAmount || 0).toLocaleString('vi-VN');
+    if (provider === 'MANUAL') return `Đã nhận được thanh toán bằng tiền mặt với số tiền: ${amount} VND`;
+    return `Đã nhận được thanh toán với số tiền: ${amount} VND`;
   }
 
   private buildSystemAlertContext(payload: any, params?: any, eventName?: string) {
@@ -764,6 +772,141 @@ export class WorkflowEngine {
       title: params?.title || payload?.title || this.buildAdminZaloTitle(payload, notificationParams, eventName),
       message: params?.message || payload?.message || this.buildAdminZaloMessage(payload, notificationParams, eventName),
     };
+  }
+
+  private resolveAdminZaloTemplateCode(payload: any, params?: any, eventName?: string) {
+    const configured = String(params?.templateCode || 'SYSTEM_ALERT');
+    if (configured === 'ADMIN_INVOICE_PAID' && (
+      payload?.metadata?.bookingHoldDepositInvoice === true ||
+      String(payload?.metadata?.billingKind || '').toUpperCase() === 'BOOKING_HOLD'
+    )) {
+      return 'ADMIN_DEPOSIT_COLLECTED';
+    }
+    return configured;
+  }
+
+  /** All direct Zalo event templates share this complete, non-optional context. */
+  private buildZaloEventTemplateContext(payload: any, params?: any, eventName?: string) {
+    const metadata = payload?.metadata || {};
+    const roomContext = buildRoomContext(payload?.room || payload?.contract?.room, payload?.contract);
+    const roomCode = payload?.roomCode || roomContext.roomCode || metadata.roomCode || '';
+    const buildingName = payload?.buildingName || roomContext.buildingName || metadata.buildingName || '';
+    const roomAndBuilding = payload?.roomAndBuilding || [roomCode, buildingName].filter(Boolean).join(' - ') || 'Phòng chưa xác định';
+    const templateCode = String(params?.templateCode || 'SYSTEM_ALERT');
+    const amount = Number(payload?.paymentAmount ?? payload?.amount ?? payload?.remainingAmount ?? 0);
+    const paidAmount = Number(payload?.paidAmount ?? payload?.amount ?? 0);
+    const remainingAmount = this.resolveRemainingAmount(payload);
+    const expectedMoveInDate = payload?.expectedMoveInDate || payload?.moveInDate || payload?.startDate || metadata.moveInDate || metadata.startDate;
+    const dueDate = payload?.dueDate;
+    const endDate = payload?.endDate;
+    const formatMoney = (value: unknown) => `${Math.max(0, Number(value || 0)).toLocaleString('vi-VN')} đ`;
+    const formatDate = (value: unknown) => {
+      const date = value ? new Date(value as any) : null;
+      return date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString('vi-VN', { timeZone: 'Asia/Bangkok' }) : '';
+    };
+    const eventKind = String(params?.alertKind || eventName || metadata.eventKind || '').toUpperCase();
+    let headline = this.buildAdminZaloTitle(payload, params, eventName);
+    let primaryValue = amount > 0 ? formatMoney(amount) : '';
+    let secondaryValue = '';
+    let action = '';
+
+    if (templateCode === 'ADMIN_DEPOSIT_CREATED') {
+      headline = '✅ CỌC GIỮ PHÒNG';
+      secondaryValue = expectedMoveInDate ? `Dự kiến vào: ${formatDate(expectedMoveInDate)}` : 'Đã tạo yêu cầu cọc giữ phòng.';
+      action = 'Chuẩn bị phòng và hợp đồng.';
+    } else if (templateCode === 'ADMIN_DEPOSIT_COLLECTED') {
+      headline = '✅ ĐÃ NHẬN CỌC';
+      secondaryValue = `Đã thu: ${formatMoney(paidAmount)}`;
+      action = 'Kiểm tra trạng thái cọc trước khi giữ phòng.';
+    } else if (templateCode === 'ADMIN_INVOICE_PAID') {
+      headline = '✅ THANH TOÁN';
+      primaryValue = formatMoney(Number(payload?.paymentAmount ?? payload?.amount ?? 0));
+      secondaryValue = 'Hóa đơn đã thanh toán đủ.';
+    } else if (templateCode === 'ADMIN_INVOICE_PARTIAL') {
+      headline = '🟡 THANH TOÁN MỘT PHẦN';
+      primaryValue = `Đã nhận ${formatMoney(Number(payload?.paymentAmount ?? payload?.amount ?? 0))}`;
+      secondaryValue = `Còn thiếu: ${formatMoney(remainingAmount)}`;
+      action = 'Theo dõi phần còn thiếu.';
+    } else if (templateCode === 'ADMIN_INVOICE_DUE_SOON') {
+      headline = '⏰ SẮP ĐẾN HẠN';
+      primaryValue = `Còn ${formatMoney(remainingAmount)}`;
+      secondaryValue = dueDate ? `Hạn: ${formatDate(dueDate)}` : '';
+    } else if (templateCode === 'ADMIN_INVOICE_OVERDUE') {
+      headline = '🔴 QUÁ HẠN';
+      primaryValue = `Còn ${formatMoney(remainingAmount)}`;
+      const overdueDays = dueDate ? Math.max(0, Math.floor((Date.now() - new Date(dueDate).getTime()) / 86_400_000)) : 0;
+      secondaryValue = overdueDays > 0 ? `Quá hạn: ${overdueDays} ngày` : 'Đã đến hạn thanh toán.';
+      action = 'Cần liên hệ khách.';
+    } else if (templateCode === 'ADMIN_CONTRACT_CREATED') {
+      headline = '📄 HỢP ĐỒNG MỚI';
+      primaryValue = [formatDate(payload?.startDate), formatDate(endDate)].filter(Boolean).join(' → ');
+    } else if (templateCode === 'ADMIN_CONTRACT_SETTLEMENT_COMPLETED') {
+      const refundToCustomer = Math.max(0, Number(
+        metadata.refundToCustomer ?? metadata.settlement?.totals?.refundToCustomer ?? 0,
+      ));
+      const netReceivable = Math.max(0, Number(
+        metadata.netReceivable ?? metadata.settlement?.totals?.netReceivable ?? amount,
+      ));
+      headline = '✅ QUYẾT TOÁN';
+      primaryValue = refundToCustomer > 0
+        ? `Cọc hoàn lại: ${formatMoney(refundToCustomer)}`
+        : netReceivable > 0 ? `Còn thu: ${formatMoney(netReceivable)}` : 'Đã xử lý quyết toán.';
+      secondaryValue = refundToCustomer > 0 ? '' : 'Đã hoàn tất quyết toán.';
+      action = refundToCustomer > 0 ? 'Kiểm tra trạng thái hoàn cọc.' : '';
+    } else if (templateCode === 'ADMIN_DEPOSIT_CONVERTED' || templateCode === 'CLIENT_DEPOSIT_CONVERTED') {
+      const transferred = Number(metadata.transferAmount ?? payload?.amount ?? 0);
+      const additional = Number(metadata.additionalCashRequired ?? metadata.remainingAmount ?? 0);
+      headline = templateCode.startsWith('ADMIN') ? '✅ CHUYỂN CỌC' : '✅ ĐÃ CHUYỂN TIỀN CỌC';
+      primaryValue = templateCode.startsWith('ADMIN')
+        ? `Đã chuyển: ${formatMoney(transferred)}`
+        : 'Cọc giữ phòng đã chuyển vào cọc hợp đồng.';
+      secondaryValue = additional > 0 ? `Còn cần bổ sung: ${formatMoney(additional)}` : '';
+    } else if (templateCode === 'ADMIN_DEPOSIT_REFUND_PENDING' || templateCode === 'CLIENT_DEPOSIT_REFUND_PENDING') {
+      const refundAmount = Number(metadata.refundAmount ?? payload?.refundAmount ?? payload?.amount ?? 0);
+      headline = templateCode.startsWith('ADMIN') ? '⏳ YÊU CẦU HOÀN CỌC' : '⏳ ĐANG XỬ LÝ HOÀN CỌC';
+      primaryValue = templateCode.startsWith('ADMIN') ? `Chờ xử lý: ${formatMoney(refundAmount)}` : 'Yêu cầu hoàn cọc đã được tiếp nhận.';
+      secondaryValue = 'Khoản hoàn chưa hoàn tất.';
+      action = templateCode.startsWith('ADMIN') ? 'Kiểm tra và xử lý yêu cầu hoàn.' : 'HomeLand sẽ thông báo khi xử lý xong.';
+    } else if (templateCode === 'ADMIN_DEPOSIT_REFUNDED' || templateCode === 'CLIENT_DEPOSIT_REFUNDED') {
+      const refundAmount = Number(metadata.refundAmount ?? payload?.refundAmount ?? payload?.amount ?? 0);
+      headline = templateCode.startsWith('ADMIN') ? '↩️ HOÀN CỌC' : '✅ ĐÃ HOÀN CỌC';
+      primaryValue = `Số tiền hoàn: ${formatMoney(refundAmount)}`;
+      secondaryValue = 'Khoản hoàn cọc đã được xử lý hoàn tất.';
+    } else if (templateCode === 'ADMIN_DEPOSIT_DEDUCTED' || templateCode === 'CLIENT_DEPOSIT_DEDUCTED') {
+      const deducted = Number(metadata.deductAmount ?? metadata.keepAmount ?? payload?.amount ?? 0);
+      headline = templateCode.startsWith('ADMIN') ? '➖ KHẤU TRỪ CỌC' : '➖ ĐÃ XỬ LÝ CỌC';
+      primaryValue = templateCode.startsWith('ADMIN') ? `Khấu trừ: ${formatMoney(deducted)}` : 'Khoản cọc được giữ hoặc khấu trừ theo biên bản.';
+      secondaryValue = metadata.reason || metadata.note || payload?.reason || '';
+      action = templateCode.startsWith('ADMIN') ? '' : 'Liên hệ HomeLand nếu cần hỗ trợ.';
+    } else if (templateCode === 'ADMIN_DEPOSIT_CANCELLED' || templateCode === 'CLIENT_DEPOSIT_CANCELLED') {
+      headline = eventKind.includes('HOLD_EXPIRED') ? '⌛ GIỮ PHÒNG HẾT HẠN' : '❌ HỦY CỌC';
+      primaryValue = eventKind.includes('HOLD_EXPIRED') ? 'Giữ phòng đã hết hạn.' : 'Yêu cầu giữ phòng đã được hủy.';
+      secondaryValue = 'Theo trạng thái xử lý hiện tại.';
+      action = templateCode.startsWith('CLIENT') ? 'Liên hệ HomeLand nếu cần hỗ trợ.' : '';
+    }
+
+    return {
+      ...payload,
+      ...roomContext,
+      roomCode,
+      buildingName,
+      roomAndBuilding,
+      customerName: payload?.customerName || metadata.customerName || 'Khách hàng',
+      headline,
+      primaryValue,
+      secondaryValue,
+      action,
+      title: params?.title || payload?.title || headline,
+      message: params?.message || payload?.message || this.buildAdminZaloMessage(payload, params, eventName),
+    };
+  }
+
+  private resolveRemainingAmount(payload: any) {
+    const metadata = payload?.metadata || {};
+    const paidAmount = Number(payload?.paidAmount ?? payload?.amount ?? 0);
+    const grossTotal = Number(metadata.grossTotal ?? payload?.total ?? 0);
+    const creditAmount = Number(metadata.creditAmount ?? payload?.creditAmount ?? 0);
+    return Math.max(0, Number(payload?.remainingAmount ?? (grossTotal - paidAmount - creditAmount)));
   }
 
   private buildAdminPaymentTitle(payload: any) {

@@ -12,6 +12,7 @@ export type InvoiceQueryOptions = {
   enabled?: boolean;
   refetchInterval?: number | false;
   refetchOnWindowFocus?: boolean;
+  fetchAllPages?: boolean;
 };
 
 export function shouldEnableInvoicesQuery(
@@ -37,7 +38,7 @@ export const useInvoicesQuery = (
   options: InvoiceQueryOptions = {},
 ) => {
   return useQuery({
-    queryKey: invoiceKeys.list(params),
+    queryKey: options.fetchAllPages ? [...invoiceKeys.list(params), "all-pages"] : invoiceKeys.list(params),
     enabled: shouldEnableInvoicesQuery(params, options),
     queryFn: async () => {
       const response = await invoicesApi.list(params);
@@ -49,10 +50,24 @@ export const useInvoicesQuery = (
         : Array.isArray(payload.data)
           ? payload.data
           : [];
+      const total = Number(payload.total ?? payload.meta?.total ?? items.length);
+      if (options.fetchAllPages) {
+        const limit = Number(payload.limit || params?.limit || 100);
+        let nextPage = Number(params?.page || 1) + 1;
+        let lastPageCount = items.length;
+        while (items.length < total && lastPageCount > 0) {
+          const nextResponse: any = await invoicesApi.list({ ...params, page: nextPage, limit });
+          const nextItems = Array.isArray(nextResponse?.items) ? nextResponse.items
+            : Array.isArray(nextResponse?.data) ? nextResponse.data : [];
+          items.push(...nextItems);
+          lastPageCount = nextItems.length;
+          nextPage += 1;
+        }
+      }
       return {
         data: items,
         meta: {
-          total: Number(payload.total || items.length || 0),
+          total,
           page: Number(payload.page || params?.page || 1),
           limit: Number(payload.limit || params?.limit || items.length || 0),
         },
@@ -79,6 +94,26 @@ export const useInvoiceDetailQuery = (
     refetchOnWindowFocus: options.refetchOnWindowFocus,
   });
 };
+
+export const useDepositBillingDocumentsQuery = (enabled: boolean) => useQuery({
+  queryKey: [...invoiceKeys.lists(), "deposit-documents"],
+  enabled,
+  queryFn: async () => {
+    const items: any[] = [];
+    let page = 1;
+    let total = 0;
+    do {
+      const response = await invoicesApi.listDepositDocuments({ page, limit: 100 });
+      items.push(...response.items);
+      total = response.total;
+      page += 1;
+      if (!response.items.length) break;
+    } while (items.length < total);
+    return items;
+  },
+  refetchInterval: 3000,
+  refetchOnWindowFocus: true,
+});
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 

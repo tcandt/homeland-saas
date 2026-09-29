@@ -21,14 +21,14 @@ import { useDepositsQuery } from "../../lib/queries/deposits.queries";
 import { useDeleteDepositMutation } from "../../lib/mutations/deposits.mutations";
 import toast from "react-hot-toast";
 import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
+import { getDepositStatusLabel } from "../../lib/deposits/deposit-status";
+import { DepositDocumentsStatus } from "./DepositDocumentsStatus";
 import { Card } from "../ui/Card";
 import { ErrorState } from "../ui/ErrorState";
 import { EmptyState } from "../ui/EmptyState";
 import { LoadingState } from "../ui/LoadingState";
 import DepositQrModal from "./DepositQrModal";
 import ConfirmDialog from "../ui/ConfirmDialog";
-
-const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
 
 const formatDate = (value?: string | null) => {
   if (!value) return "--/--/----";
@@ -59,7 +59,7 @@ const getStatusMeta = (status: string, type?: string) => {
         dot: "bg-emerald-500"
       };
     case "CONVERTED_TO_CONTRACT":
-      return { label: "Đã lên Hợp đồng", tone: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20", dot: "bg-indigo-500" };
+      return { label: "Đã chuyển đổi", tone: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20", dot: "bg-indigo-500" };
     case "REFUNDED":
       return { label: "Đã hoàn cọc", tone: "bg-amber-500/10 text-amber-600 border-amber-500/20", dot: "bg-amber-500" };
     case "CANCELLED":
@@ -172,7 +172,7 @@ export default function OperationsDepositList() {
                 <th className="w-[180px] px-3.5 py-2.5 font-black whitespace-nowrap">Phòng & Tòa nhà</th>
                 <th className="w-[130px] px-3.5 py-2.5 font-black whitespace-nowrap">Loại cọc</th>
                 <th className="w-[130px] px-3.5 py-2.5 font-black whitespace-nowrap">Ngày lập / Hạn</th>
-                <th className="w-[130px] px-3.5 py-2.5 text-right font-black whitespace-nowrap">Số tiền cọc</th>
+                <th className="w-[160px] px-3.5 py-2.5 font-black whitespace-nowrap">Hồ sơ</th>
                 <th className="w-[140px] px-3.5 py-2.5 font-black whitespace-nowrap">Trạng thái</th>
               </tr>
             </thead>
@@ -267,18 +267,16 @@ export default function OperationsDepositList() {
                       </div>
                     </td>
 
-                    {/* Số tiền cọc */}
-                    <td className="px-3.5 py-2.5 text-right whitespace-nowrap">
-                      <span className="font-mono font-black text-[13px] text-text">
-                        {formatVnd(deposit.amount)}
-                      </span>
+                    {/* Hồ sơ */}
+                    <td className="px-3.5 py-2.5">
+                      <DepositDocumentsStatus documents={deposit.documents} />
                     </td>
 
                     {/* Trạng thái */}
                     <td className="px-3.5 py-2.5 whitespace-nowrap">
                       <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-bold ${statusInfo.tone}`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${statusInfo.dot}`} />
-                        {statusInfo.label}
+                        {getDepositStatusLabel(deposit)}
                       </span>
                     </td>
                   </tr>

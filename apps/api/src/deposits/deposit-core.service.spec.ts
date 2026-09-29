@@ -1,5 +1,5 @@
 import { ConflictException } from '@nestjs/common';
-import { DepositStatus, DepositType, RoomRentalType } from '@prisma/client';
+import { DepositStatus, DepositType, RoomRentalType, RoomStatus } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { DepositCoreService } from './deposit-core.service';
 
@@ -25,6 +25,8 @@ describe('DepositCoreService', () => {
         create: vi.fn().mockResolvedValue({ id: 'ledger-1' }),
         createMany: vi.fn().mockResolvedValue({ count: 2 }),
       },
+      paymentRequest: { findFirst: vi.fn().mockResolvedValue(null) },
+      invoice: { findFirst: vi.fn().mockResolvedValue(null) },
       roomHold: {
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         update: vi.fn().mockResolvedValue({}),
@@ -167,6 +169,160 @@ describe('DepositCoreService', () => {
     expect(tx.deposit.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ status: { in: [DepositStatus.DRAFT, DepositStatus.PENDING] } }),
     }));
+  });
+
+  it('reconciles a settled booking invoice without reviving an expired room hold', async () => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue({ ...booking, expiredAt: new Date('2026-09-22T00:00:00.000Z') });
+    tx.paymentRequest.findFirst.mockResolvedValue({
+      id: 'request-confirmed-1', amount: 2_000_000,
+      providerTransactionId: 'sepay-txn-1', paidAt: new Date('2026-09-22T00:00:00.000Z'),
+    });
+    tx.invoice.findFirst.mockResolvedValue({
+      id: 'invoice-booking-1', period: 'Cọc giữ phòng', status: 'PAID', total: 2_000_000,
+      paidAmount: 2_000_000, creditAmount: 0, contractId: null, rentalCycleId: 'cycle-1',
+      customerId: 'customer-1', contract: { roomId: 'room-1' },
+    });
+
+    await expect(service.collect('tenant-1', booking.id, {
+      idempotencyKey: 'reconcile-booking-paid-1',
+      notificationContext: {
+        linkedInvoicePayment: true,
+        paymentRequestId: 'request-confirmed-1',
+        sourceInvoiceId: 'invoice-booking-1',
+        skipHoldCreation: true,
+        skipRoomReservation: true,
+      },
+    }, 'PAYMENT_RECONCILIATION')).resolves.toMatchObject({ status: DepositStatus.PAID, holdId: null });
+
+    expect(tx.roomHold.create).not.toHaveBeenCalled();
+    expect(tx.rentalCycle.updateMany).not.toHaveBeenCalled();
+    expect(tx.depositLedgerEntry.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a forged, unpaid, or out-of-scope booking invoice reconciliation proof', async () => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue(booking);
+    tx.paymentRequest.findFirst.mockResolvedValue(null);
+
+    await expect(service.collect('tenant-1', booking.id, {
+      idempotencyKey: 'reconcile-booking-forged-1',
+      notificationContext: {
+        linkedInvoicePayment: true,
+        paymentRequestId: 'forged-request',
+        sourceInvoiceId: 'foreign-invoice',
+        skipHoldCreation: true,
+      },
+    }, 'PAYMENT_RECONCILIATION')).rejects.toThrow('DEPOSIT_RECONCILIATION_PROOF_INVALID');
+    expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
+  });
+
+  it('recovers an expired booking hold only with an explicit future expiry and no room conflict', async () => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue({ ...booking, expiredAt: new Date('2026-09-22T00:00:00.000Z') });
+
+    await expect((service as any).ensureActiveHoldForConversionInTransaction(
+      tx, 'tenant-1', booking.id, null, 'user-1', 'convert-hold-missing-1',
+    )).rejects.toThrow('BOOKING_CONVERT_HOLD_RECOVERY_REQUIRES_EXPIRY');
+
+    await expect((service as any).ensureActiveHoldForConversionInTransaction(
+      tx, 'tenant-1', booking.id, '2026-10-01T00:00:00.000Z', 'user-1', 'convert-hold-recover-1',
+    )).resolves.toMatchObject({ id: 'hold-1' });
+    expect(tx.roomHold.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ depositId: booking.id, expiresAt: new Date('2026-10-01T00:00:00.000Z') }),
+    }));
+
+    tx.occupancy.count.mockResolvedValue(1);
+    await expect((service as any).ensureActiveHoldForConversionInTransaction(
+      tx, 'tenant-1', booking.id, '2026-10-02T00:00:00.000Z', 'user-1', 'convert-hold-conflict-1',
+    )).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects fresh hold recovery for unavailable rooms and foreign reservations, while replaying an owned active hold', async () => {
+    const { tx, service } = createHarness();
+    const command = (expiresAt: string | null, key: string) =>
+      (service as any).ensureActiveHoldForConversionInTransaction(
+        tx, 'tenant-1', booking.id, expiresAt, 'user-1', key,
+      );
+    tx.deposit.findFirst.mockResolvedValue({
+      ...booking,
+      room: { ...booking.room, status: RoomStatus.CLEANING },
+    });
+    tx.room.findFirst.mockResolvedValue({
+      id: 'room-1', tenantId: 'tenant-1', rentalType: RoomRentalType.WHOLE,
+      capacity: 1, status: RoomStatus.CLEANING,
+    });
+    await expect(command('2026-10-01T00:00:00.000Z', 'convert-hold-cleaning-1'))
+      .rejects.toThrow('BOOKING_CONVERT_HOLD_ROOM_UNAVAILABLE');
+
+    tx.deposit.findFirst.mockResolvedValue({ ...booking, room: { ...booking.room, status: RoomStatus.AVAILABLE } });
+    tx.room.findFirst.mockResolvedValue({
+      id: 'room-1', tenantId: 'tenant-1', rentalType: RoomRentalType.WHOLE,
+      capacity: 1, status: RoomStatus.AVAILABLE,
+    });
+    tx.contract.findFirst.mockResolvedValue({ id: 'foreign-contract-1' });
+    await expect(command('2026-10-01T00:00:00.000Z', 'convert-hold-foreign-contract-1'))
+      .rejects.toThrow('BOOKING_CONVERT_HOLD_FOREIGN_CONTRACT');
+
+    tx.contract.findFirst.mockResolvedValue(null);
+    tx.rentalCycle.findFirst.mockResolvedValue({ id: 'foreign-cycle-1' });
+    await expect(command('2026-10-01T00:00:00.000Z', 'convert-hold-foreign-cycle-1'))
+      .rejects.toThrow('BOOKING_CONVERT_HOLD_FOREIGN_CYCLE');
+
+    tx.rentalCycle.findFirst.mockResolvedValue(null);
+    tx.roomHold.findFirst.mockResolvedValue({ id: 'owned-active-hold' });
+    await expect(command(null, 'convert-hold-replay-1')).resolves.toEqual({ id: 'owned-active-hold' });
+    expect(tx.roomHold.create).not.toHaveBeenCalled();
+  });
+
+  it('uses room-type-aware capacity checks for fresh and existing conversion holds', async () => {
+    const { tx, service } = createHarness();
+    const sharedBooking = {
+      ...booking,
+      room: { id: 'room-1', rentalType: RoomRentalType.SHARED, capacity: 2 },
+    };
+    const recover = (key: string, expiresAt: string | null = '2026-10-01T00:00:00.000Z') =>
+      (service as any).ensureActiveHoldForConversionInTransaction(
+        tx, 'tenant-1', booking.id, expiresAt, 'user-1', key,
+      );
+    tx.deposit.findFirst.mockResolvedValue(sharedBooking);
+    tx.room.findFirst.mockResolvedValue({
+      id: 'room-1', tenantId: 'tenant-1', rentalType: RoomRentalType.SHARED,
+      capacity: 2, status: RoomStatus.AVAILABLE,
+    });
+    tx.occupancy.count.mockResolvedValue(1);
+    tx.roomHold.count.mockResolvedValue(0);
+    await expect(recover('convert-shared-spare-1')).resolves.toMatchObject({ id: 'hold-1' });
+
+    tx.occupancy.count.mockResolvedValue(2);
+    await expect(recover('convert-shared-full-1')).rejects.toThrow('ROOM_CAPACITY_EXCEEDED');
+
+    tx.deposit.findFirst.mockResolvedValue(booking);
+    tx.room.findFirst.mockResolvedValue({
+      id: 'room-1', tenantId: 'tenant-1', rentalType: RoomRentalType.WHOLE,
+      capacity: 1, status: RoomStatus.AVAILABLE,
+    });
+    tx.occupancy.count.mockResolvedValue(0);
+    tx.roomHold.count.mockResolvedValue(0);
+    tx.roomHold.findFirst.mockResolvedValue({ id: 'own-active-hold' });
+    await expect(recover('convert-own-active-1', null)).resolves.toEqual({ id: 'own-active-hold' });
+    expect(tx.roomHold.count).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ OR: [{ depositId: { not: booking.id } }, { depositId: null }] }),
+    }));
+
+    tx.room.findFirst.mockResolvedValue({
+      id: 'room-1', tenantId: 'tenant-1', rentalType: RoomRentalType.WHOLE,
+      capacity: 1, status: RoomStatus.MAINTENANCE,
+    });
+    await expect(recover('convert-own-maintenance-1', null))
+      .rejects.toThrow('BOOKING_CONVERT_HOLD_ROOM_UNAVAILABLE');
+
+    tx.room.findFirst.mockResolvedValue({
+      id: 'room-1', tenantId: 'tenant-1', rentalType: RoomRentalType.WHOLE,
+      capacity: 1, status: RoomStatus.AVAILABLE,
+    });
+    tx.occupancy.count.mockResolvedValue(1);
+    await expect(recover('convert-own-occupied-1', null)).rejects.toThrow('ROOM_HOLD_CONFLICT');
   });
 
   it('rejects a WHOLE-room hold when the room already has an occupant', async () => {
@@ -500,6 +656,30 @@ describe('DepositCoreService', () => {
     }));
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: 'CREATE', entityId: 'deposit-1' }),
+    }));
+  });
+
+  it('locks and revalidates a contract-scoped deposit before creating it', async () => {
+    const { tx, service } = createHarness();
+    tx.$queryRaw
+      .mockResolvedValueOnce([{ id: 'room-1' }])
+      .mockResolvedValueOnce([{ id: 'contract-1' }]);
+    tx.contract.findFirst.mockResolvedValue({ id: 'contract-1', rentalCycleId: 'cycle-1' });
+    tx.rentalCycle.findFirst.mockResolvedValue({ id: 'cycle-1' });
+    tx.deposit.create.mockResolvedValue({
+      id: 'deposit-contract', tenantId: 'tenant-1', code: 'DEP-CONTRACT', type: DepositType.SECURITY,
+      roomId: 'room-1', customerId: 'customer-1', contractId: 'contract-1', rentalCycleId: 'cycle-1',
+      amount: 1_000_000, status: DepositStatus.PENDING, expiredAt: null, note: null,
+    });
+
+    await service.create('tenant-1', {
+      idempotencyKey: 'contract-deposit-create', roomId: 'room-1', customerId: 'customer-1',
+      contractId: 'contract-1', type: DepositType.SECURITY, amount: 1_000_000,
+    }, 'user-1');
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(tx.contract.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'contract-1', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'customer-1' }),
     }));
   });
 

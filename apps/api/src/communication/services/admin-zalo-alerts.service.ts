@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SettingScope } from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma.service';
-import { ZaloProvider } from '../providers/communication.providers';
+import { CommunicationService } from '../communication.service';
 import { shouldRunGeneralSchedulers } from '../../shared/config/runtime-mode';
 import { SystemUpdateService } from '../../system-update/system-update.service';
 import { RequestAnomalySnapshot, RequestAnomalyTrackerService } from '../../metrics/request-anomaly-tracker.service';
@@ -31,7 +31,7 @@ export class AdminZaloAlertsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly zaloProvider: ZaloProvider,
+    private readonly communicationService: CommunicationService,
     private readonly systemUpdateService: SystemUpdateService,
     private readonly requestAnomalyTracker: RequestAnomalyTrackerService,
   ) {}
@@ -70,12 +70,8 @@ export class AdminZaloAlertsService {
         });
 
         try {
-          await this.zaloProvider.send({
-            tenantId: tenant.tenantId,
-            recipient: tenant.adminGroupChatId,
-            title: built.title,
-            message: built.message,
-            context: {},
+          await this.sendTemplate(tenant, 'ADMIN_SYSTEM_UPDATE_SUCCESS', built, {
+            primaryValue: `${lastRecordedVersion || 'phiên bản trước'} → ${currentVersion}`,
           });
         } catch (err: any) {
           this.logger.warn(`Failed to send update success alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
@@ -107,12 +103,8 @@ export class AdminZaloAlertsService {
 
     for (const tenant of tenants) {
       try {
-        await this.zaloProvider.send({
-          tenantId: tenant.tenantId,
-          recipient: tenant.adminGroupChatId,
-          title: built.title,
-          message: built.message,
-          context: {},
+        await this.sendTemplate(tenant, 'ADMIN_SYSTEM_UPDATE_SUCCESS', built, {
+          primaryValue: `${input.fromVersion || 'phiên bản trước'} → ${input.toVersion}`,
         });
       } catch (err: any) {
         this.logger.warn(`Failed to send manual update success alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
@@ -148,12 +140,10 @@ export class AdminZaloAlertsService {
       });
 
       try {
-        await this.zaloProvider.send({
-          tenantId: tenant.tenantId,
-          recipient: tenant.adminGroupChatId,
-          title: built.title,
-          message: built.message,
-          context: {},
+        await this.sendTemplate(tenant, 'ADMIN_SYSTEM_UPDATE_AVAILABLE', built, {
+          primaryValue: `${check.currentVersion} → ${check.latestVersion}`,
+          secondaryValue: 'Đã có bản cập nhật mới.',
+          action: 'Mở Cài đặt để xem và cập nhật.',
         });
       } catch (err: any) {
         this.logger.warn(`Failed to send update available alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
@@ -195,12 +185,9 @@ export class AdminZaloAlertsService {
         detectedAt: new Date(),
       });
 
-      await this.zaloProvider.send({
-        tenantId: tenant.tenantId,
-        recipient: tenant.adminGroupChatId,
-        title: built.title,
-        message: built.message,
-        context: {},
+      await this.sendTemplate(tenant, 'ADMIN_SYSTEM_OVERLOAD', built, {
+        primaryValue: [snapshot.requestsPerSecond ? `RPS: ${snapshot.requestsPerSecond}` : null, snapshot.uniqueIps ? `IP: ${snapshot.uniqueIps}` : null].filter(Boolean).join(' • ') || 'Đã phát hiện lưu lượng bất thường.',
+        action: 'Kiểm tra hệ thống.',
       });
 
       await this.updateAlertState(tenant, {
@@ -217,6 +204,35 @@ export class AdminZaloAlertsService {
       snapshot.uniqueIps >= this.overloadThresholdUniqueIps ||
       snapshot.topSourceRequests >= this.overloadThresholdTopIpRequests
     );
+  }
+
+  private async sendTemplate(
+    tenant: TenantZaloConfig,
+    templateCode: string,
+    built: { title: string; message: string },
+    overrides: Partial<Record<'headline' | 'primaryValue' | 'secondaryValue' | 'action', string>> = {},
+  ) {
+    await this.communicationService.dispatchDirect({
+      tenantId: tenant.tenantId,
+      channel: 'ZALO',
+      recipient: tenant.adminGroupChatId,
+      templateCode,
+      context: {
+        customerName: 'Hệ thống',
+        roomAndBuilding: 'HomeLand',
+        headline: templateCode === 'ADMIN_SYSTEM_OVERLOAD'
+          ? '🚨 HỆ THỐNG TẢI CAO'
+          : templateCode === 'ADMIN_SYSTEM_UPDATE_AVAILABLE'
+            ? '📢 CÓ PHIÊN BẢN MỚI'
+            : '✅ CẬP NHẬT THÀNH CÔNG',
+        primaryValue: '',
+        secondaryValue: '',
+        action: '',
+        title: built.title,
+        message: built.message,
+        ...overrides,
+      },
+    });
   }
 
   private async getTenantsWithAdminGroup(): Promise<TenantZaloConfig[]> {

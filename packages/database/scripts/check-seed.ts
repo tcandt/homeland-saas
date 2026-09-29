@@ -28,11 +28,32 @@ async function checkSeed() {
     },
   });
   const invalid = details.filter((building) => building.floors.length !== 4
-    || (building.code.startsWith('LK08') && building.floors.some((floor) => floor.rooms.length > 0))
-    || (building.code === 'LK01.32' && building.floors.reduce((sum, floor) => sum + floor.rooms.filter((room) => room.code.startsWith('PN 32-')).length, 0) !== 7));
+    || (building.code.startsWith('LK08') && (() => {
+      const roomPrefix = building.code === 'LK08.24' ? 'P24-' : 'P25-';
+      const rooms = building.floors.flatMap((floor) => floor.rooms);
+      const expectedCodes = new Set(Array.from({ length: 10 }, (_, index) => `${roomPrefix}${String(index + 1).padStart(2, '0')}`));
+      return rooms.length !== 10 || rooms.some((room) => !expectedCodes.has(room.code)
+        || room.bedCount !== 1
+        || room.capacity !== 2
+        || Number(room.area) !== 25);
+    })())
+    || (building.code.startsWith('LK01.') && (() => {
+      const prefix = building.code.endsWith('.31') ? '31' : '32';
+      const rooms = building.floors.flatMap((floor) => floor.rooms)
+        .filter((room) => room.code.startsWith(`PN ${prefix}-`));
+      const twoBedroomSuffixes = new Set(prefix === '31' ? ['02', '04', '06'] : ['02', '04']);
+      return rooms.length !== 7 || rooms.some((room) => {
+        const suffix = room.code.slice(-2);
+        const isTwoBedroom = twoBedroomSuffixes.has(suffix);
+        const isLargeOneBedroom = prefix === '32' && suffix === '06';
+        return room.bedCount !== (isTwoBedroom ? 2 : 1)
+          || room.capacity !== (isTwoBedroom ? 4 : 2)
+          || Number(room.area) !== (isTwoBedroom || isLargeOneBedroom ? 50 : 18);
+      });
+    })()));
 
   if (missing.length === 0 && invalid.length === 0) {
-    console.log(`\nSeed OK: 4 buildings, LK01.32 topology cloned, LK08 pending layouts empty`);
+    console.log(`\nSeed OK: 4 buildings, LK01 topology exact, LK08 topology exact`);
     process.exit(0);
   } else {
     console.error(`\nSeed FAILED: Missing: ${missing.join(', ') || 'none'}; invalid topology: ${invalid.map((item) => item.code).join(', ') || 'none'}`);

@@ -73,7 +73,13 @@ function createService(options: { rooms?: any[]; snapshots?: any[]; invoices?: a
   }
   const prisma: any = {
     $transaction: vi.fn(async (callback: any) => callback(prisma)),
+    $queryRaw: vi.fn().mockResolvedValue([{ id: "contract-lock" }]),
     appSetting: { findUnique: vi.fn().mockResolvedValue(null) },
+    contract: {
+      findFirst: vi.fn().mockResolvedValue({
+        id: "contract-lock", roomId: "room-1", rentalCycleId: null,
+      }),
+    },
     building: { findMany: vi.fn().mockResolvedValue([]) },
     room: { findMany: vi.fn().mockResolvedValue(options.rooms || []) },
     invoice: {

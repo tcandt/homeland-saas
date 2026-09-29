@@ -30,6 +30,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { UI_Deposit } from "../../lib/adapters/deposit.adapter";
+import { getDepositStatusLabel } from "../../lib/deposits/deposit-status";
 import {
   useCollectDepositMutation,
   useRefundDepositMutation,
@@ -49,6 +50,7 @@ import { Badge } from "../ui/Badge";
 import DepositQrModal from "./DepositQrModal";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 import { RefundProofUploader } from "../common/RefundProofUploader";
+import { getBookingHoldState, getBookingRecoveryErrorMessage } from "@/lib/contracts/booking-conversion";
 
 const currencyFormatter = new Intl.NumberFormat("vi-VN");
 const timelineStepTitleClass =
@@ -167,20 +169,20 @@ export default function OperationsDepositDrawer({
   const coreDataUnavailable = detailQuery.isError || (detailQuery.isSuccess && !hasAuthoritativeBalance);
   const pendingOperationUnavailable = refundPending && !detailDeposit.pendingOperationId;
 
-  // Check if this deposit belongs to a contract
-  const isContractDeposit = Boolean(
+  const hasContractLink = Boolean(
     detailDeposit.contractId || detailDeposit.contractCode || isConverted,
   );
 
   // Only allow standalone refund for room booking/holding deposits
   const isBookingDeposit =
     detailDeposit.type === "BOOKING" || detailDeposit.type === "RESERVATION";
+  const isContractDeposit = !isBookingDeposit && hasContractLink;
   const avatarUrl = getTenantAvatar(
     (detailDeposit as any).customerAvatar || (detailDeposit as any).avatar,
     detailDeposit.customerName,
     (detailDeposit as any).gender,
   );
-  const canRefundDirectly = !isContractDeposit && isPaid;
+  const canRefundDirectly = !hasContractLink && isPaid;
 
   const wasEverCollected =
     isPaid ||
@@ -197,21 +199,25 @@ export default function OperationsDepositDrawer({
       || 0,
     ) || 0,
   );
+  const paymentRequestStatus = String(detailDeposit.paymentRequest?.status || "").toUpperCase();
+  const paymentConfirmed = paymentRequestStatus === "CONFIRMED";
   const receivedAmount = wasEverCollected
     ? amount
-    : Math.min(amount, pendingReviewReceivedAmount);
+    : Math.min(amount, paymentConfirmed ? Number(detailDeposit.paymentRequest?.amount || 0) : pendingReviewReceivedAmount);
   const receivedAmountStr = formatCurrency(receivedAmount);
   const hasPendingReviewReceived = !wasEverCollected && receivedAmount > 0;
-  const paymentRequestStatus = String(detailDeposit.paymentRequest?.status || "").toUpperCase();
+  const awaitingReconciliation = paymentConfirmed && isDraft;
+  const bookingHold = getBookingHoldState(detailDeposit);
+  const bookingHoldReady = isConverted || bookingHold.isActive;
   const paymentRequestCreated = Boolean(detailDeposit.paymentRequest?.id);
-  const canShowVietQr = !isPaid && !isRefunded && !isCancelled;
+  const canShowVietQr = !isPaid && !isRefunded && !isCancelled && !isConverted && !paymentConfirmed;
 
   const getStatusConfig = (status: string) => {
     switch (status) {
       case "DRAFT":
       case "PENDING":
         return {
-          label: isContractDeposit
+          label: awaitingReconciliation ? "Đã thanh toán, chờ đồng bộ cọc" : isContractDeposit
             ? "Chờ thu cọc hợp đồng"
             : "Chờ thu cọc giữ phòng",
           variant: "neutral" as const,
@@ -221,17 +227,13 @@ export default function OperationsDepositDrawer({
         };
       case "PAID":
         return {
-          label: isBookingDeposit
-            ? "Đã thu cọc HĐ giữ chỗ"
-            : isContractDeposit
-              ? "Đã thu cọc hợp đồng"
-              : "Đã thu cọc giữ phòng",
+          label: getDepositStatusLabel(detailDeposit),
           variant: "success" as const,
           bg: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
         };
       case "CONVERTED_TO_CONTRACT":
         return {
-          label: "Đã chuyển HĐ",
+          label: "Đã chuyển đổi",
           variant: "primary" as const,
           bg: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
         };
@@ -290,6 +292,10 @@ export default function OperationsDepositDrawer({
 
   // --- Handlers ---
   const handleCollect = () => {
+    if (paymentConfirmed) {
+      showToast("Thanh toán đã xác nhận. Hệ thống đang tự động đồng bộ cọc; không thu lại tiền.", "error");
+      return;
+    }
     if (!collectIdempotencyKeyRef.current) {
       collectIdempotencyKeyRef.current = createIdempotencyKey("collect");
     }
@@ -638,7 +644,7 @@ export default function OperationsDepositDrawer({
 
             <div className="flex items-center gap-2 flex-wrap justify-end">
               {/* Nút Hủy cọc (Chỉ cho cọc chưa lên HĐ) */}
-              {isDraft && (
+              {isDraft && !awaitingReconciliation && (
                 <Button
                   data-testid="deposit-action-cancel"
                   onClick={openCancelModal}
@@ -651,7 +657,7 @@ export default function OperationsDepositDrawer({
                 </Button>
               )}
 
-              {isPaid && !isContractDeposit && (
+              {isPaid && !hasContractLink && (
                 <Button
                   data-testid="deposit-action-cancel"
                   onClick={openCancelModal}
@@ -704,7 +710,7 @@ export default function OperationsDepositDrawer({
               )}
 
               {/* Nút Thu tiền cọc */}
-              {isDraft && (
+              {isDraft && !awaitingReconciliation && (
                 <Button
                   data-testid="deposit-action-collect"
                   onClick={handleCollect}
@@ -722,7 +728,7 @@ export default function OperationsDepositDrawer({
               )}
 
               {/* Nút Lên hợp đồng (cho cọc giữ chỗ đã thu tiền) */}
-              {isPaid && !isContractDeposit && (
+              {isPaid && !hasContractLink && (
                 <Button
                   data-testid="deposit-action-convert"
                   onClick={openConvertModal}
@@ -748,6 +754,11 @@ export default function OperationsDepositDrawer({
         }
       >
         <div className="flex flex-col gap-4">
+          {awaitingReconciliation && (
+            <div role="alert" className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+              <p>{getBookingRecoveryErrorMessage((detailDeposit as any).reconciliationError || "BOOKING_PAYMENT_CONFIRMED_RECONCILIATION_PENDING")}</p>
+            </div>
+          )}
           {(coreDataUnavailable || pendingOperationUnavailable) && (isPaid || refundPending) && (
             <div
               role="alert"
@@ -1163,7 +1174,7 @@ export default function OperationsDepositDrawer({
                                   : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
                               }`}
                             >
-                              {wasEverCollected ? "Đã xác nhận thu" : "Chờ xác nhận thu"}
+                              {wasEverCollected ? "Đã xác nhận thu" : paymentConfirmed ? "Đã thanh toán" : "Chờ xác nhận thu"}
                             </span>
                           </div>
                           <p
@@ -1171,6 +1182,8 @@ export default function OperationsDepositDrawer({
                           >
                             {wasEverCollected
                               ? `Đã xác nhận thu đủ ${amountStr} tiền cọc giữ phòng`
+                              : paymentConfirmed
+                                ? "Thanh toán đã xác nhận, chờ đồng bộ vào sổ cọc. Không thu lại tiền."
                               : paymentRequestStatus === "PENDING"
                                 ? "Đang chờ SePay xác nhận giao dịch"
                                 : "Tự động cập nhật khi SePay xác nhận hoặc admin ghi nhận tiền mặt"}
@@ -1196,12 +1209,12 @@ export default function OperationsDepositDrawer({
                       <div className="flex flex-col items-center shrink-0 w-9">
                         <div
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
-                            wasEverCollected
+                            bookingHoldReady
                               ? "bg-indigo-600 text-white ring-4 ring-indigo-600/15"
                               : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
                           }`}
                         >
-                          {wasEverCollected ? (
+                          {bookingHoldReady ? (
                             <Check size={15} className="stroke-[3]" />
                           ) : (
                             <CircleDashed size={14} />
@@ -1210,10 +1223,10 @@ export default function OperationsDepositDrawer({
                         {/* Pipe 5 -> 6 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
                           <div
-                            className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
+                            className={`h-full ${bookingHoldReady ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
                           />
                           <div
-                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${bookingHoldReady ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
                           >
                             <ChevronDown size={10} className="stroke-[2.5]" />
                           </div>
@@ -1222,35 +1235,38 @@ export default function OperationsDepositDrawer({
                       <div className="flex-1 min-w-0 pb-3">
                         <div
                           className={`p-2.5 rounded-xl transition-all ${
-                            wasEverCollected
+                            bookingHoldReady
                               ? "bg-surface/50 border border-border/50"
-                              : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
+                              : "bg-amber-500/10 border border-amber-500/30"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={wasEverCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
+                              className={timelineStepTitleClass}
                             >
-                              5. Phiếu cọc giữ phòng có hiệu lực
+                              5. Kiểm tra thời hạn giữ phòng
                             </span>
                             <span
                               className={`${timelineStatusBadgeClass} ${
-                                wasEverCollected
+                                bookingHoldReady
                                   ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
-                                  : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
+                                  : "font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30"
                               }`}
                             >
-                              {wasEverCollected
-                                ? "Đã có hiệu lực"
-                                : "Chờ xác nhận thu"}
+                              {isConverted ? "Đã chuyển HĐ thuê" : bookingHold.isActive
+                                ? "Còn hiệu lực"
+                                : wasEverCollected ? "Cần giữ phòng lại" : "Chờ xác nhận thu"}
                             </span>
                           </div>
                           <p
-                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
+                            className="text-[11px] leading-relaxed mt-0.5 text-muted"
                           >
-                            {wasEverCollected
-                              ? `Phiếu cọc có hiệu lực, phòng ${detailDeposit.roomCode || ""} đã được giữ chỗ`
-                              : "Phiếu cọc sẽ có hiệu lực sau khi xác nhận đủ tiền cọc"}
+                            {isConverted ? "Cọc nguồn đã chuyển sang hợp đồng thuê và được lưu để tra soát."
+                              : bookingHold.isActive
+                                ? `Phòng ${detailDeposit.roomCode || ""} đang được giữ đến ${formatDateTime(bookingHold.expiresAt)}`
+                                : wasEverCollected
+                                  ? "Cọc đã ghi nhận. Hệ thống kiểm tra chỗ còn khả dụng khi chuyển sang HĐ thuê."
+                                  : "Kiểm tra thanh toán và thời hạn giữ phòng trước khi chuyển HĐ thuê."}
                           </p>
                         </div>
                       </div>

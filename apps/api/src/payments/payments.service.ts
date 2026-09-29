@@ -21,6 +21,7 @@ import { buildRoomContext } from '../shared/context/room-context';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { ZaloProvider } from '../communication/providers/communication.providers';
 import { classifySePayWebhookBankAccount } from './sepay-bank-account.policy';
+import { COMBINED_ENTRY_POLICY, getCombinedEntryInvoice } from '../invoices/combined-entry-invoice';
 
 type SePayWebhookPayload = {
   id?: number | string;
@@ -813,17 +814,6 @@ export class PaymentsService {
     const bankAccount = resolved.bankAccount;
     const paymentCodePrefix = String(sepayConfig.paymentCodePrefix || memoPrefix || 'PAY');
 
-    // Check if a pending payment request already exists for this source (e.g. invoice)
-    const existingPending = await this.prisma.paymentRequest.findFirst({
-      where: {
-        tenantId,
-        sourceType,
-        sourceId,
-        status: PaymentRequestStatus.PENDING,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
     const roomContext =
       allocation?.roomId || allocation?.buildingId
         ? {
@@ -831,29 +821,94 @@ export class PaymentsService {
             buildingId: allocation?.buildingId || null,
           }
         : {};
-
-    if (existingPending) {
-      const memo = existingPending.paymentCode;
-      const qrUrl = this.buildQrUrl({
-        bankName: bankAccount.bankName,
-        accountNumber: bankAccount.accountNumber,
-        amount,
-        memo,
-        accountName: bankAccount.accountName,
-        store: 'HomeLand',
+    // The unique payment-code constraint does not protect the source
+    // obligation: two clients can otherwise both observe no PENDING row and
+    // create separate QR requests. Lock this tenant/source identity until the
+    // lookup and create/update complete.
+    const result = await this.prisma.$transaction(async (tx: any) => {
+      if (typeof tx.$queryRaw !== 'function') {
+        throw new ConflictException('PAYMENT_REQUEST_LOCK_UNAVAILABLE');
+      }
+      await tx.$queryRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:${sourceType}:${sourceId}`}, 0))::text AS "lock"`,
+      );
+      const existingPending = await tx.paymentRequest.findFirst({
+        where: {
+          tenantId,
+          sourceType,
+          sourceId,
+          status: PaymentRequestStatus.PENDING,
+        },
+        orderBy: { createdAt: 'desc' },
       });
-
-      const updated = await this.prisma.paymentRequest.update({
-        where: { id: existingPending.id },
-        data: {
+      if (existingPending) {
+        const qrUrl = this.buildQrUrl({
+          bankName: bankAccount.bankName,
+          accountNumber: bankAccount.accountNumber,
           amount,
+          memo: existingPending.paymentCode,
+          accountName: bankAccount.accountName,
+          store: 'HomeLand',
+        });
+        return {
+          created: false,
+          request: await tx.paymentRequest.update({
+            where: { id: existingPending.id },
+            data: {
+              amount,
+              bankAccountId: bankAccount.id,
+              bankName: bankAccount.bankName,
+              bankAccountNumber: bankAccount.accountNumber,
+              bankAccountName: bankAccount.accountName,
+              qrUrl,
+              metadata: {
+                ...((existingPending.metadata as object) || {}),
+                ...(metadata && typeof metadata === 'object' ? metadata : {}),
+                ...roomContext,
+                sepayRoutingSource: resolved.source,
+                sepayRoomRouting: resolved.roomRoute || null,
+              },
+            },
+          }),
+        };
+      }
+
+      let paymentCode = randomCode(paymentCodePrefix, tenantId);
+      if (sourceType === PaymentSourceType.INVOICE || sourceType === PaymentSourceType.DEPOSIT) {
+        const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(
+          /[^a-zA-Z0-9]/g,
+          '',
+        );
+        const cleanRoom = roomRaw.slice(-4) || '3101';
+        const now = new Date();
+        const monthYear = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
+        paymentCode = `${sourceType === PaymentSourceType.INVOICE ? 'HD' : 'COC'}${cleanRoom}${monthYear}`;
+      }
+      paymentCode = await this.resolveUniquePaymentCode(tenantId, paymentCode, tx);
+      const request = await tx.paymentRequest.create({
+        data: {
+          tenantId,
+          ownerId: allocation?.ownerId || bankAccount.ownerId || null,
+          buildingId: allocation?.buildingId || null,
+          roomId: allocation?.roomId || null,
           bankAccountId: bankAccount.id,
+          sourceType,
+          sourceId,
+          provider: PaymentProvider.SEPAY,
+          paymentCode,
+          amount,
           bankName: bankAccount.bankName,
           bankAccountNumber: bankAccount.accountNumber,
           bankAccountName: bankAccount.accountName,
-          qrUrl,
+          qrUrl: this.buildQrUrl({
+            bankName: bankAccount.bankName,
+            accountNumber: bankAccount.accountNumber,
+            amount,
+            memo: paymentCode,
+            accountName: bankAccount.accountName,
+            store: 'HomeLand',
+          }),
           metadata: {
-            ...((existingPending.metadata as object) || {}),
             ...(metadata && typeof metadata === 'object' ? metadata : {}),
             ...roomContext,
             sepayRoutingSource: resolved.source,
@@ -861,84 +916,11 @@ export class PaymentsService {
           },
         },
       });
+      return { created: true, request };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    const { request } = result;
 
-      return {
-        id: updated.id,
-        sourceType: updated.sourceType,
-        sourceId: updated.sourceId,
-        paymentCode: updated.paymentCode,
-        amount: Number(updated.amount),
-        bankName: updated.bankName,
-        bankAccountNumber: updated.bankAccountNumber,
-        bankAccountName: updated.bankAccountName,
-        qrUrl: updated.qrUrl,
-        status: updated.status,
-        provider: updated.provider,
-        createdAt: updated.createdAt,
-        updatedAt: updated.updatedAt,
-      };
-    }
-
-    // Generate clean concise payment code (e.g. HD31010826 or COC31010826)
-    let paymentCode = randomCode(paymentCodePrefix, tenantId);
-    if (sourceType === PaymentSourceType.INVOICE) {
-      const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(
-        /[^a-zA-Z0-9]/g,
-        '',
-      );
-      const cleanRoom = roomRaw.slice(-4) || '3101';
-      const now = new Date();
-      const monthYear = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
-      paymentCode = `HD${cleanRoom}${monthYear}`;
-    } else if (sourceType === PaymentSourceType.DEPOSIT) {
-      const roomRaw = String((metadata as any)?.roomCode || (metadata as any)?.roomNumber || '').replace(
-        /[^a-zA-Z0-9]/g,
-        '',
-      );
-      const cleanRoom = roomRaw.slice(-4) || '3101';
-      const now = new Date();
-      const monthYear = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
-      paymentCode = `COC${cleanRoom}${monthYear}`;
-    }
-
-    paymentCode = await this.resolveUniquePaymentCode(tenantId, paymentCode);
-
-    const memo = paymentCode;
-    const qrUrl = this.buildQrUrl({
-      bankName: bankAccount.bankName,
-      accountNumber: bankAccount.accountNumber,
-      amount,
-      memo,
-      accountName: bankAccount.accountName,
-      store: 'HomeLand',
-    });
-
-    const request = await this.prisma.paymentRequest.create({
-      data: {
-        tenantId,
-        ownerId: allocation?.ownerId || bankAccount.ownerId || null,
-        buildingId: allocation?.buildingId || null,
-        roomId: allocation?.roomId || null,
-        bankAccountId: bankAccount.id,
-        sourceType,
-        sourceId,
-        provider: PaymentProvider.SEPAY,
-        paymentCode,
-        amount,
-        bankName: bankAccount.bankName,
-        bankAccountNumber: bankAccount.accountNumber,
-        bankAccountName: bankAccount.accountName,
-        qrUrl,
-        metadata: {
-          ...(metadata && typeof metadata === 'object' ? metadata : {}),
-          ...roomContext,
-          sepayRoutingSource: resolved.source,
-          sepayRoomRouting: resolved.roomRoute || null,
-        },
-      },
-    });
-
-    await this.auditService.log({
+    if (result.created) await this.auditService.log({
       action: AuditAction.CREATE,
       module: 'Payments',
       entity: 'PaymentRequest',
@@ -947,7 +929,7 @@ export class PaymentsService {
       userId,
       after: {
         amount,
-        paymentCode,
+        paymentCode: request.paymentCode,
         sourceType,
         sourceId,
         bankAccountId: bankAccount.id,
@@ -955,7 +937,7 @@ export class PaymentsService {
       },
     });
 
-    await this.logPaymentAudit(
+    if (result.created) await this.logPaymentAudit(
       tenantId,
       'PaymentRequestCreated',
       request.id,
@@ -964,7 +946,7 @@ export class PaymentsService {
         sourceType,
         sourceId,
         amount,
-        paymentCode,
+        paymentCode: request.paymentCode,
         bankName: bankAccount.bankName,
         bankAccountNumber: bankAccount.accountNumber,
         bankAccountName: bankAccount.accountName,
@@ -989,9 +971,9 @@ export class PaymentsService {
     };
   }
 
-  private async resolveUniquePaymentCode(tenantId: string, paymentCode: string) {
+  private async resolveUniquePaymentCode(tenantId: string, paymentCode: string, prisma: any = this.prisma) {
     const exists = async (candidate: string) =>
-      this.prisma.paymentRequest.findUnique({
+      prisma.paymentRequest.findUnique({
         where: { tenantId_paymentCode: { tenantId, paymentCode: candidate } },
       });
 
@@ -1059,6 +1041,7 @@ export class PaymentsService {
       userId,
       {
         invoiceCode: invoice.code,
+        ...(getCombinedEntryInvoice(invoice.contract)?.invoiceId === invoice.id ? { paymentPolicyVersion: COMBINED_ENTRY_POLICY } : {}),
         customerId: invoice.customerId,
         createdBy: userId,
         originalAmount: Number(invoice.total || 0),
@@ -1254,6 +1237,10 @@ export class PaymentsService {
 
   async createDepositRequest(depositId: string, userId: string) {
     const deposit = await this.depositsService.getDetail(depositId);
+    const combinedEntry = getCombinedEntryInvoice(deposit.contract);
+    if (combinedEntry?.securityDepositId === deposit.id) {
+      throw new BadRequestException('Khoản cọc đã nằm trong hóa đơn nhận phòng. Mở hóa đơn để thanh toán một lần.');
+    }
 
     if (deposit.status === 'CANCELLED') {
       throw new BadRequestException('Phiếu cọc đã bị hủy.');
@@ -1605,6 +1592,7 @@ export class PaymentsService {
       source.ownerId,
     );
     const manualMetadata = {
+      ...(getCombinedEntryInvoice(source.contract)?.invoiceId === source.id ? { paymentPolicyVersion: COMBINED_ENTRY_POLICY } : {}),
       manualAssigned: true,
       sourceCode: normalizedSourceCode,
       logId: payload.logId,
@@ -3430,6 +3418,7 @@ export class PaymentsService {
 
     let appliedAmount = 0;
     let shouldConfirmRequest = false;
+    let linkedInvoiceInput: any = undefined;
 
     if (request.sourceType === PaymentSourceType.INVOICE) {
       const existingPayment = await this.prisma.payment.findFirst({
@@ -3479,11 +3468,7 @@ export class PaymentsService {
           );
           appliedAmount = currentAmount;
           shouldConfirmRequest = true;
-          await this.collectLinkedBookingDepositForInvoicePayment(
-            request,
-            transactionId,
-            { ...invoice, ...paidInvoice },
-          );
+          linkedInvoiceInput = { ...invoice, ...paidInvoice };
         }
       } else {
         appliedAmount = Number(existingPayment.amount || 0);
@@ -3548,6 +3533,21 @@ export class PaymentsService {
         },
         'SEPAY_WEBHOOK',
       );
+      // DepositCore verifies the persisted CONFIRMED request as its payment
+      // proof. The fresh webhook must therefore write the request before the
+      // linked booking-deposit collector is allowed to run.
+      if (request.sourceType === PaymentSourceType.INVOICE) {
+        await this.collectLinkedBookingDepositForInvoicePayment(
+          {
+            ...request,
+            status: PaymentRequestStatus.CONFIRMED,
+            providerTransactionId: transactionId,
+            paidAt: new Date(),
+          },
+          transactionId,
+          linkedInvoiceInput,
+        );
+      }
     }
 
     await this.markSePayWebhookLog(log.id, shouldConfirmRequest && appliedAmount >= providerAmount ? 'PROCESSED' : 'NEEDS_REVIEW', {
@@ -3567,7 +3567,11 @@ export class PaymentsService {
     invoiceInput?: any,
   ) {
     try {
-      const db = ((this.prisma as any).tx || this.prisma) as any;
+      const tenantDb = (this.prisma as any).tx as any;
+      // A CLS extension can be partial in background jobs. Fall back to the
+      // real generated Prisma model rather than treating that as no Deposit
+      // model and silently losing a confirmed booking payment.
+      const db = tenantDb?.deposit?.findFirst ? tenantDb : (this.prisma as any);
       const invoice =
         invoiceInput ||
         (await db.invoice?.findFirst?.({
@@ -3645,6 +3649,9 @@ export class PaymentsService {
           sourceInvoiceId: request.sourceId,
           paymentProvider: 'SEPAY',
           paymentRef: transactionId,
+          paymentRequestId: request.id,
+          skipHoldCreation: true,
+          skipRoomReservation: true,
         },
       );
     } catch (error: any) {
@@ -3687,7 +3694,7 @@ export class PaymentsService {
           contractId: true,
           rentalCycleId: true,
           customerId: true,
-          contract: { select: { roomId: true } },
+          contract: { select: { roomId: true, termsSnapshot: true } },
           items: {
             select: {
               description: true,
@@ -3697,6 +3704,7 @@ export class PaymentsService {
         },
       });
       if (!this.isInvoiceSettled(invoice)) return;
+      if (getCombinedEntryInvoice(invoice?.contract)?.invoiceId === invoiceId) return;
       const depositItem = (invoice?.items || []).find((item: any) => {
         const description = String(item.description || '').toLowerCase();
         return (

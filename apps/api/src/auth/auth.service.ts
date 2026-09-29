@@ -29,6 +29,7 @@ type AuthSecurityState = {
   twoFactorEnabled: boolean;
   twoFactorMethod: 'EMAIL';
   idleTimeoutMinutes: number;
+  lastActivityAt?: string;
   pendingTwoFactor?: {
     action: 'ENABLE' | 'DISABLE';
     codeHash: string;
@@ -159,6 +160,7 @@ export class AuthService {
         refreshTokenHash: hashedRefreshToken 
       }
     });
+    await this.touchAuthActivity(user.tenantId, user.id, await this.getAuthSecurity(user.tenantId, user.id));
 
     await this.audit.log({
       action: 'LOGIN_SUCCESS',
@@ -258,6 +260,7 @@ export class AuthService {
         refreshTokenHash: hashedRefreshToken 
       }
     });
+    await this.touchAuthActivity(user.tenantId, user.id, await this.getAuthSecurity(user.tenantId, user.id));
 
     await this.audit.log({
       action: 'REGISTER',
@@ -542,6 +545,9 @@ export class AuthService {
       }
 
       const security = await this.getAuthSecurity(user.tenantId, user.id);
+      if (this.isIdleSessionExpired(security)) {
+        throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_EXPIRED, message: 'Session expired due to inactivity' });
+      }
       if (Number(decoded.sessionVersion || 0) !== security.sessionVersion) {
         throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_INVALID, message: 'Refresh token has been revoked' });
       }
@@ -578,6 +584,7 @@ export class AuthService {
         where: { id: user.id },
         data: { refreshTokenHash: newHashedRefreshToken }
       });
+      await this.touchAuthActivity(user.tenantId, user.id, security);
 
       return {
         accessToken: newAccessToken,
@@ -1232,6 +1239,7 @@ export class AuthService {
         refreshTokenHash: await bcrypt.hash(refreshToken, 10),
       },
     });
+    await this.touchAuthActivity(user.tenantId, user.id, await this.getAuthSecurity(user.tenantId, user.id));
     if (logLogin) {
       await this.audit.log({
         action: 'LOGIN_SUCCESS',
@@ -1284,9 +1292,22 @@ export class AuthService {
         && raw.idleTimeoutMinutes <= 10080
         ? raw.idleTimeoutMinutes
         : 1440,
+      lastActivityAt: typeof raw.lastActivityAt === 'string' ? raw.lastActivityAt : undefined,
       pendingTwoFactor: isRecord(raw.pendingTwoFactor) ? raw.pendingTwoFactor as AuthSecurityState['pendingTwoFactor'] : undefined,
       loginChallenge: isRecord(raw.loginChallenge) ? raw.loginChallenge as AuthSecurityState['loginChallenge'] : undefined,
     };
+  }
+
+  private isIdleSessionExpired(security: AuthSecurityState) {
+    if (!security.lastActivityAt) return false;
+    const lastActivity = Date.parse(security.lastActivityAt);
+    return Number.isFinite(lastActivity)
+      && Date.now() - lastActivity >= security.idleTimeoutMinutes * 60 * 1000;
+  }
+
+  private async touchAuthActivity(tenantId: string, userId: string, security: AuthSecurityState) {
+    security.lastActivityAt = new Date().toISOString();
+    await this.saveAuthSecurity(tenantId, userId, security);
   }
 
   private async saveAuthSecurity(

@@ -125,7 +125,7 @@ describe('CommunicationService', () => {
             roomRentalType: 'SHARED',
             roomRentalTypeLabel: 'Phòng ghép',
             roomMemberCount: 3,
-            buildingName: 'LK01-31',
+            buildingName: '',
           }),
         }),
       }),
@@ -168,8 +168,8 @@ describe('CommunicationService', () => {
 
     expect(prisma.notification.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        title: expect.stringContaining('✅ ĐÃ NHẬN THANH TOÁN'),
-        message: expect.stringContaining('Đã thu đủ qua VietQR'),
+        title: expect.stringContaining('✅ ĐÃ THANH TOÁN ĐỦ'),
+        message: expect.stringContaining('1.000.000đ • VietQR'),
       }),
     });
   });
@@ -184,6 +184,10 @@ describe('CommunicationService', () => {
       expect(preview.title, definition.code).not.toContain('{{');
       expect(preview.message, definition.code).not.toContain('{{');
       expect(preview.variables).toEqual(definition.variables);
+      if (definition.audience === 'ADMIN' || definition.audience === 'CLIENT') {
+        expect(preview.message, definition.code).not.toMatch(/Tòa nhà|LK01|\bVND\b|\d{2}:\d{2}:\d{2}/i);
+        expect(preview.message, definition.code).toMatch(/🕒 \d{2}:\d{2} • \d{2}\/\d{2}\/\d{4}$/);
+      }
     }
   });
 
@@ -200,7 +204,7 @@ describe('CommunicationService', () => {
       templateCode: 'DEPOSIT_COLLECTED',
       context: {
         customerName: 'Khách A',
-        roomAndBuilding: 'P.101 - Tòa A',
+        roomCode: 'PN32-02',
         metadata: { code: 'DEP-001' },
         paymentAmount: 500000,
         amount: 500000,
@@ -210,7 +214,7 @@ describe('CommunicationService', () => {
 
     expect(prisma.notification.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        message: expect.stringContaining('Tổng đã thu: 2.500.000 đ'),
+        message: expect.stringContaining('PN 32-02\n2.500.000đ • VietQR'),
       }),
     });
   });
@@ -263,14 +267,14 @@ describe('CommunicationService', () => {
     expect(prisma.notification.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         title: 'Chào Khách A',
-        message: 'Vui lòng thanh toán theo hướng dẫn của tòa nhà.',
+        message: expect.stringMatching(/^Vui lòng thanh toán theo hướng dẫn của tòa nhà\.\n\n🕒 \d{2}:\d{2} • \d{2}\/\d{2}\/\d{4}$/),
       }),
     });
     expect(prisma.notificationQueue.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         payload: expect.objectContaining({
           title: 'Chào Khách A',
-          message: 'Vui lòng thanh toán theo hướng dẫn của tòa nhà.',
+          message: expect.stringMatching(/^Vui lòng thanh toán theo hướng dẫn của tòa nhà\.\n\n🕒 \d{2}:\d{2} • \d{2}\/\d{2}\/\d{4}$/),
           templateSnapshot: expect.objectContaining({
             source: 'TENANT',
             version: 4,

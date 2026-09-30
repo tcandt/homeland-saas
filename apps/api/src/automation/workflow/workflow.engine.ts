@@ -8,6 +8,7 @@ import { AnalyticsCacheService } from '../../analytics/analytics-cache.service';
 import { JournalEntryService } from '../../finance/journal-entry.service';
 import { DocumentsService } from '../../documents/documents.service';
 import { buildRoomContext } from '../../shared/context/room-context';
+import { buildAdminZaloEventMessage, formatZaloDate, formatZaloMoney, formatZaloRoom } from '../../communication/services/zalo-message-formatter';
 
 @Injectable()
 export class WorkflowEngine {
@@ -789,21 +790,17 @@ export class WorkflowEngine {
   private buildZaloEventTemplateContext(payload: any, params?: any, eventName?: string) {
     const metadata = payload?.metadata || {};
     const roomContext = buildRoomContext(payload?.room || payload?.contract?.room, payload?.contract);
-    const roomCode = payload?.roomCode || roomContext.roomCode || metadata.roomCode || '';
+    const roomCode = formatZaloRoom(payload?.roomCode || roomContext.roomCode || metadata.roomCode || '');
     const buildingName = payload?.buildingName || roomContext.buildingName || metadata.buildingName || '';
-    const roomAndBuilding = payload?.roomAndBuilding || [roomCode, buildingName].filter(Boolean).join(' - ') || 'Phòng chưa xác định';
+    const roomAndBuilding = roomCode || 'Chưa xác định phòng';
     const templateCode = String(params?.templateCode || 'SYSTEM_ALERT');
     const amount = Number(payload?.paymentAmount ?? payload?.amount ?? payload?.remainingAmount ?? 0);
     const paidAmount = Number(payload?.paidAmount ?? payload?.amount ?? 0);
     const remainingAmount = this.resolveRemainingAmount(payload);
-    const expectedMoveInDate = payload?.expectedMoveInDate || payload?.moveInDate || payload?.startDate || metadata.moveInDate || metadata.startDate;
     const dueDate = payload?.dueDate;
     const endDate = payload?.endDate;
-    const formatMoney = (value: unknown) => `${Math.max(0, Number(value || 0)).toLocaleString('vi-VN')} đ`;
-    const formatDate = (value: unknown) => {
-      const date = value ? new Date(value as any) : null;
-      return date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString('vi-VN', { timeZone: 'Asia/Bangkok' }) : '';
-    };
+    const formatMoney = (value: unknown) => formatZaloMoney(Math.max(0, Number(value || 0)));
+    const formatDate = formatZaloDate;
     const eventKind = String(params?.alertKind || eventName || metadata.eventKind || '').toUpperCase();
     let headline = this.buildAdminZaloTitle(payload, params, eventName);
     let primaryValue = amount > 0 ? formatMoney(amount) : '';
@@ -811,29 +808,30 @@ export class WorkflowEngine {
     let action = '';
 
     if (templateCode === 'ADMIN_DEPOSIT_CREATED') {
-      headline = '✅ CỌC GIỮ PHÒNG';
-      secondaryValue = expectedMoveInDate ? `Dự kiến vào: ${formatDate(expectedMoveInDate)}` : 'Đã tạo yêu cầu cọc giữ phòng.';
-      action = 'Chuẩn bị phòng và hợp đồng.';
+      headline = roomCode ? '✅ CỌC GIỮ PHÒNG' : '🟡 YÊU CẦU CỌC MỚI';
+      secondaryValue = roomCode ? 'Đang chờ thanh toán.' : 'Chưa xác định phòng.';
+      action = roomCode ? '' : 'Cần chọn phòng.';
     } else if (templateCode === 'ADMIN_DEPOSIT_COLLECTED') {
-      headline = '✅ ĐÃ NHẬN CỌC';
-      secondaryValue = `Đã thu: ${formatMoney(paidAmount)}`;
-      action = 'Kiểm tra trạng thái cọc trước khi giữ phòng.';
+      headline = remainingAmount > 0 ? '🟡 CỌC CHƯA ĐỦ' : '✅ ĐÃ NHẬN CỌC';
+      primaryValue = remainingAmount > 0 ? `Đã nhận: ${formatMoney(paidAmount)}` : formatMoney(paidAmount);
+      secondaryValue = remainingAmount > 0 ? `Còn thiếu: ${formatMoney(remainingAmount)}` : `Đã thu đủ • ${String(payload?.paymentProvider || '').toUpperCase() === 'MANUAL' ? 'Tiền mặt' : 'VietQR'}`;
+      action = '';
     } else if (templateCode === 'ADMIN_INVOICE_PAID') {
       headline = '✅ THANH TOÁN';
       primaryValue = formatMoney(Number(payload?.paymentAmount ?? payload?.amount ?? 0));
-      secondaryValue = 'Hóa đơn đã thanh toán đủ.';
+      secondaryValue = `Đã thanh toán đủ • ${String(payload?.paymentProvider || '').toUpperCase() === 'MANUAL' ? 'Tiền mặt' : 'VietQR'}`;
     } else if (templateCode === 'ADMIN_INVOICE_PARTIAL') {
       headline = '🟡 THANH TOÁN MỘT PHẦN';
-      primaryValue = `Đã nhận ${formatMoney(Number(payload?.paymentAmount ?? payload?.amount ?? 0))}`;
+      primaryValue = `Đã nhận: ${formatMoney(Number(payload?.paymentAmount ?? payload?.amount ?? 0))}`;
       secondaryValue = `Còn thiếu: ${formatMoney(remainingAmount)}`;
-      action = 'Theo dõi phần còn thiếu.';
+      action = '';
     } else if (templateCode === 'ADMIN_INVOICE_DUE_SOON') {
       headline = '⏰ SẮP ĐẾN HẠN';
-      primaryValue = `Còn ${formatMoney(remainingAmount)}`;
+      primaryValue = `còn ${formatMoney(remainingAmount)}`;
       secondaryValue = dueDate ? `Hạn: ${formatDate(dueDate)}` : '';
     } else if (templateCode === 'ADMIN_INVOICE_OVERDUE') {
       headline = '🔴 QUÁ HẠN';
-      primaryValue = `Còn ${formatMoney(remainingAmount)}`;
+      primaryValue = `còn ${formatMoney(remainingAmount)}`;
       const overdueDays = dueDate ? Math.max(0, Math.floor((Date.now() - new Date(dueDate).getTime()) / 86_400_000)) : 0;
       secondaryValue = overdueDays > 0 ? `Quá hạn: ${overdueDays} ngày` : 'Đã đến hạn thanh toán.';
       action = 'Cần liên hệ khách.';
@@ -851,16 +849,16 @@ export class WorkflowEngine {
       primaryValue = refundToCustomer > 0
         ? `Cọc hoàn lại: ${formatMoney(refundToCustomer)}`
         : netReceivable > 0 ? `Còn thu: ${formatMoney(netReceivable)}` : 'Đã xử lý quyết toán.';
-      secondaryValue = refundToCustomer > 0 ? '' : 'Đã hoàn tất quyết toán.';
-      action = refundToCustomer > 0 ? 'Kiểm tra trạng thái hoàn cọc.' : '';
+      secondaryValue = refundToCustomer > 0
+        ? netReceivable > 0 ? `Còn thu: ${formatMoney(netReceivable)}` : 'Không còn công nợ.'
+        : 'Không còn công nợ.';
+      action = '';
     } else if (templateCode === 'ADMIN_DEPOSIT_CONVERTED' || templateCode === 'CLIENT_DEPOSIT_CONVERTED') {
       const transferred = Number(metadata.transferAmount ?? payload?.amount ?? 0);
       const additional = Number(metadata.additionalCashRequired ?? metadata.remainingAmount ?? 0);
       headline = templateCode.startsWith('ADMIN') ? '✅ CHUYỂN CỌC' : '✅ ĐÃ CHUYỂN TIỀN CỌC';
-      primaryValue = templateCode.startsWith('ADMIN')
-        ? `Đã chuyển: ${formatMoney(transferred)}`
-        : 'Cọc giữ phòng đã chuyển vào cọc hợp đồng.';
-      secondaryValue = additional > 0 ? `Còn cần bổ sung: ${formatMoney(additional)}` : '';
+      primaryValue = additional > 0 ? `Đã chuyển: ${formatMoney(transferred)}` : formatMoney(transferred);
+      secondaryValue = additional > 0 ? `Cần bổ sung: ${formatMoney(additional)}` : 'Đã chuyển vào cọc hợp đồng.';
     } else if (templateCode === 'ADMIN_DEPOSIT_REFUND_PENDING' || templateCode === 'CLIENT_DEPOSIT_REFUND_PENDING') {
       const refundAmount = Number(metadata.refundAmount ?? payload?.refundAmount ?? payload?.amount ?? 0);
       headline = templateCode.startsWith('ADMIN') ? '⏳ YÊU CẦU HOÀN CỌC' : '⏳ ĐANG XỬ LÝ HOÀN CỌC';
@@ -870,8 +868,8 @@ export class WorkflowEngine {
     } else if (templateCode === 'ADMIN_DEPOSIT_REFUNDED' || templateCode === 'CLIENT_DEPOSIT_REFUNDED') {
       const refundAmount = Number(metadata.refundAmount ?? payload?.refundAmount ?? payload?.amount ?? 0);
       headline = templateCode.startsWith('ADMIN') ? '↩️ HOÀN CỌC' : '✅ ĐÃ HOÀN CỌC';
-      primaryValue = `Số tiền hoàn: ${formatMoney(refundAmount)}`;
-      secondaryValue = 'Khoản hoàn cọc đã được xử lý hoàn tất.';
+      primaryValue = templateCode.startsWith('ADMIN') ? `Đã hoàn: ${formatMoney(refundAmount)}` : `Số tiền: ${formatMoney(refundAmount)}`;
+      secondaryValue = templateCode.startsWith('CLIENT') ? 'Khoản hoàn cọc đã được xử lý.' : '';
     } else if (templateCode === 'ADMIN_DEPOSIT_DEDUCTED' || templateCode === 'CLIENT_DEPOSIT_DEDUCTED') {
       const deducted = Number(metadata.deductAmount ?? metadata.keepAmount ?? payload?.amount ?? 0);
       headline = templateCode.startsWith('ADMIN') ? '➖ KHẤU TRỪ CỌC' : '➖ ĐÃ XỬ LÝ CỌC';
@@ -897,7 +895,7 @@ export class WorkflowEngine {
       secondaryValue,
       action,
       title: params?.title || payload?.title || headline,
-      message: params?.message || payload?.message || this.buildAdminZaloMessage(payload, params, eventName),
+      message: params?.message || payload?.message || buildAdminZaloEventMessage(payload, eventKind),
     };
   }
 

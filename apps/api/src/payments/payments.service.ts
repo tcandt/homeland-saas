@@ -1019,7 +1019,6 @@ export class PaymentsService {
 
     // Resolve room and building context
     let room = invoice.contract?.room;
-    let building = room?.building;
     if (!room && invoice.customerId) {
       const contract = await this.prisma.contract.findFirst({
         where: { customerId: invoice.customerId, tenantId: invoice.tenantId },
@@ -1028,9 +1027,9 @@ export class PaymentsService {
       });
       if (contract?.room) {
         room = contract.room;
-        building = contract.room.building;
       }
     }
+    const building = room?.building;
 
     return this.createPaymentRequest(
       invoice.tenantId,
@@ -1103,9 +1102,8 @@ export class PaymentsService {
         ].join('\n')
       : items.length > 0 ? items.join('\n') : `- Tiền thuê phòng: ${amountFormatted} đ`;
 
-    // Resolve room and building name
+    // Resolve the room code shown in the Zalo payment request.
     let room = invoice.contract?.room;
-    let building = room?.building;
     if (!room && invoice.customerId) {
       const contract = await this.prisma.contract.findFirst({
         where: { customerId: invoice.customerId, tenantId: invoice.tenantId },
@@ -1114,15 +1112,11 @@ export class PaymentsService {
       });
       if (contract?.room) {
         room = contract.room;
-        building = contract.room.building;
       }
     }
 
     const roomCode = room?.number || room?.code || 'Phòng';
-    const buildingName = building?.name || building?.code || '';
-    const roomAndBuilding = buildingName
-      ? `${roomCode} - ${buildingName.toLowerCase().startsWith('tòa') ? buildingName : `Tòa nhà ${buildingName}`}`
-      : roomCode;
+    const roomAndBuilding = roomCode;
     const periodStr =
       invoice.period ||
       (invoice.createdAt
@@ -1142,7 +1136,6 @@ export class PaymentsService {
         zaloChatId: invoice.customer?.zaloChatId || null,
         zaloUserId: invoice.customer?.zaloUserId || null,
         roomCode,
-        buildingName,
         roomAndBuilding,
         period: periodStr,
         amount: amountFormatted,
@@ -1291,12 +1284,8 @@ export class PaymentsService {
     const request = await this.createDepositRequest(depositId, userId);
 
     const room = deposit.room || deposit.contract?.room;
-    const building = room?.building;
     const roomCode = room?.number || room?.code || 'Phòng';
-    const buildingName = building?.name || building?.code || '';
-    const roomAndBuilding = buildingName
-      ? `${roomCode} - ${buildingName.toLowerCase().startsWith('tòa') ? buildingName : `Tòa nhà ${buildingName}`}`
-      : roomCode;
+    const roomAndBuilding = roomCode;
     const amountFormatted = new Intl.NumberFormat('vi-VN').format(Number(request.amount));
     const itemsSummary = `- Tiền đặt cọc giữ phòng: ${amountFormatted} đ`;
 
@@ -1313,7 +1302,6 @@ export class PaymentsService {
         zaloChatId: deposit.customer?.zaloChatId || null,
         zaloUserId: deposit.customer?.zaloUserId || null,
         roomCode,
-        buildingName,
         roomAndBuilding,
         amount: amountFormatted,
         rawAmount: Number(request.amount),

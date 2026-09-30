@@ -109,7 +109,7 @@ describe('RuleEngine', () => {
       templateCode: 'CLIENT_INVOICE_DUE_SOON',
       context: expect.objectContaining({
         headline: '⏰ NHẮC THANH TOÁN',
-        remainingAmountDisplay: '2.500.000 đ',
+        remainingAmountDisplay: '2.500.000đ',
       }),
     }));
   });
@@ -179,7 +179,7 @@ describe('RuleEngine', () => {
       templateCode: 'CLIENT_PAYMENT_PROMISE_DUE',
       context: expect.objectContaining({
         headline: '⏰ ĐẾN HẸN THANH TOÁN',
-        remainingAmountDisplay: '3.000.000 đ',
+        remainingAmountDisplay: '3.000.000đ',
       }),
     }));
     expect(prisma.task.create).toHaveBeenCalledWith(expect.objectContaining({

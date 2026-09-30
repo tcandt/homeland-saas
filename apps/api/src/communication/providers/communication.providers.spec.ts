@@ -44,6 +44,7 @@ describe('ZaloProvider', () => {
       'https://bot-api.zaloplatforms.com/botbot-token-1/sendMessage',
       expect.any(Object),
     );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toBe('Hello');
   });
 
   it('accepts non-standard successful sendMessage bodies when Zalo returns HTTP 200', async () => {

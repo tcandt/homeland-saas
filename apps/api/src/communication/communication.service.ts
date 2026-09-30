@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma.service';
 import { TemplateEngine } from './templates/template.engine';
 import { NotificationChannel } from '../automation/automation.constants';
 import { buildRoomContext } from '../shared/context/room-context';
+import { cleanZaloMessage, ensureZaloFooter, formatZaloTimestamp, normalizeZaloTemplateContext } from './services/zalo-message-formatter';
 import {
   DEFAULT_NOTIFICATION_TEMPLATES,
   getNotificationTemplateDefinition,
@@ -66,12 +67,16 @@ function normalizeDispatchContext(context: any) {
     roomCode,
     buildingName,
     roomAndBuilding: baseContext.roomAndBuilding || [roomCode, buildingName].filter(Boolean).join(' - '),
+    roomSuffix: roomCode ? ` — ${roomCode}` : '',
     // Default templates use display-only fields. Keep source amount fields unchanged
     // so published tenant templates continue to render with their existing values.
     paymentAmountDisplay: baseContext.paymentAmountDisplay ?? formatMoney(baseContext.paymentAmount),
     amountDisplay: baseContext.amountDisplay ?? formatMoney(baseContext.amount ?? baseContext.paidAmount),
     paidAmountDisplay: baseContext.paidAmountDisplay ?? formatMoney(baseContext.paidAmount),
     remainingAmountDisplay: baseContext.remainingAmountDisplay ?? formatMoney(baseContext.remainingAmount),
+    paymentMethodLabel: String(baseContext.paymentProvider || baseContext.paymentMethod || '').toUpperCase() === 'MANUAL' ? 'Tiền mặt' : 'VietQR',
+    zaloTime: formatZaloTimestamp(baseContext.occurredAt || baseContext.paidAt || baseContext.sentAt || new Date()),
+    actionLine: baseContext.action ? `➡️ ${String(baseContext.action).replace(/^➡️\s*/, '')}` : '',
     overdueLabel: baseContext.overdueLabel ?? '',
     // Older queued payment requests predate the due-date field. Keep their
     // snapshots renderable when the tenant selects the current default.
@@ -245,12 +250,16 @@ export class CommunicationService {
   async previewTemplate(code: string, input: TemplateContentInput, context?: Record<string, unknown>) {
     const definition = this.getDefinition(code);
     const content = this.normalizeTemplateContent(definition, input);
-    const previewContext = { ...definition.sampleContext, ...(context || {}) };
+    const previewContext = definition.audience === 'ADMIN' || definition.audience === 'CLIENT'
+      ? normalizeZaloTemplateContext({ ...definition.sampleContext, ...(context || {}) })
+      : { ...definition.sampleContext, ...(context || {}) };
     try {
       return {
         code: definition.code,
         title: content.subject ? this.templateEngine.compile(content.subject, previewContext) : content.name,
-        message: this.templateEngine.compile(content.body, previewContext),
+        message: definition.audience === 'ADMIN' || definition.audience === 'CLIENT'
+          ? ensureZaloFooter(cleanZaloMessage(this.templateEngine.compile(content.body, previewContext)), String(previewContext.zaloTime))
+          : this.templateEngine.compile(content.body, previewContext),
         variables: definition.variables,
       };
     } catch (error: any) {
@@ -357,7 +366,10 @@ export class CommunicationService {
   }
 
   async dispatch(payload: CommunicationPayload): Promise<DispatchResult | null> {
-    const context = normalizeDispatchContext(payload.context);
+    const baseContext = normalizeDispatchContext(payload.context);
+    const context = payload.channel === NotificationChannel.ZALO
+      ? normalizeZaloTemplateContext(baseContext)
+      : baseContext;
 
     // 1. Fetch template or use default system template
     const defaultTpl = DEFAULT_NOTIFICATION_TEMPLATES[payload.templateCode];
@@ -407,6 +419,10 @@ export class CommunicationService {
     try {
       title = template.subject ? this.templateEngine.compile(template.subject, context) : template.name;
       message = this.templateEngine.compile(template.body, context);
+      if (payload.channel === NotificationChannel.ZALO) {
+        message = ensureZaloFooter(cleanZaloMessage(message, baseContext.buildingName), context.zaloTime);
+        title = cleanZaloMessage(title, baseContext.buildingName);
+      }
     } catch (error: any) {
       this.logger.error(`Cannot render notification template ${payload.templateCode}: ${error?.message || error}`);
       throw new BadRequestException(error?.message || 'Không thể render mẫu thông báo.');

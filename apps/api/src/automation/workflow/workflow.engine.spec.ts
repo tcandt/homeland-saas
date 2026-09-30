@@ -90,7 +90,7 @@ describe('WorkflowEngine', () => {
           zaloChatId: 'admin-group-1',
           adminGroupChatId: 'admin-group-1',
           title: 'Admin - Đã nhận thanh toán INV-001',
-          message: expect.stringContaining('Mã giao dịch: txn-1'),
+          message: expect.stringContaining('3.500.000đ • Đã thanh toán đủ • VietQR'),
         }),
       }),
     );
@@ -125,13 +125,13 @@ describe('WorkflowEngine', () => {
         recipient: 'admin-group-from-webhook',
         context: expect.objectContaining({
           title: 'Admin - Đã nhận cọc giữ phòng HD-COC-001',
-          message: expect.stringContaining('Ngày vào ở/dự kiến vào ở:'),
+          message: expect.stringContaining('1.350.000đ • Đã thu đủ • VietQR'),
         }),
       }),
     );
-    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Mã giao dịch: TXN-1350');
-    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Phòng: 31-01');
-    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Tòa nhà: LK01');
+    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('✅ ĐÃ NHẬN CỌC — 31-01');
+    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).not.toContain('TXN-1350');
+    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).not.toContain('LK01');
   });
 
   it('uses the deposit-collected template for a booking-hold invoice payment', async () => {
@@ -152,7 +152,7 @@ describe('WorkflowEngine', () => {
       templateCode: 'ADMIN_DEPOSIT_COLLECTED',
       context: expect.objectContaining({
         headline: '✅ ĐÃ NHẬN CỌC',
-        secondaryValue: 'Đã thu: 2.000.000 đ',
+        secondaryValue: 'Đã thu đủ • VietQR',
       }),
     }));
   });
@@ -177,7 +177,7 @@ describe('WorkflowEngine', () => {
       expect.objectContaining({
         recipient: 'admin-group-1',
         context: expect.objectContaining({
-          message: expect.stringContaining('Mã giao dịch: txn-150'),
+          message: expect.stringContaining('150.000đ'),
         }),
       }),
     );
@@ -309,7 +309,7 @@ describe('WorkflowEngine', () => {
       metadata: { grossTotal: 6850000, creditAmount: 0 },
     }, { templateCode: 'ADMIN_INVOICE_PARTIAL' }, 'invoice.payment.recorded');
 
-    expect(context.secondaryValue).toBe('Còn thiếu: 3.850.000 đ');
+    expect(context.secondaryValue).toBe('Còn thiếu: 3.850.000đ');
   });
 
   it('renders a settlement refund without assuming its payment status', () => {
@@ -319,9 +319,9 @@ describe('WorkflowEngine', () => {
       metadata: { refundToCustomer: 5650000 },
     }, { templateCode: 'ADMIN_CONTRACT_SETTLEMENT_COMPLETED' }, 'contract.settlement.completed');
 
-    expect(context.primaryValue).toBe('Cọc hoàn lại: 5.650.000 đ');
-    expect(context.secondaryValue).toBe('');
-    expect(context.action).toBe('Kiểm tra trạng thái hoàn cọc.');
+    expect(context.primaryValue).toBe('Cọc hoàn lại: 5.650.000đ');
+    expect(context.secondaryValue).toBe('Không còn công nợ.');
+    expect(context.action).toBe('');
   });
 
   it('creates an admin in-app notification for every active tenant user', async () => {
@@ -399,14 +399,12 @@ describe('WorkflowEngine', () => {
 
     const inAppContext = communicationService.dispatch.mock.calls[0][0].context;
     const adminContext = communicationService.dispatchDirect.mock.calls[0][0].context;
-    for (const context of [inAppContext, adminContext]) {
-      expect(context.title).toBe('Cập nhật quyết toán hợp đồng CT-01');
-      expect(context.message).toContain('HomeLand - Quyết toán hợp đồng');
-      expect(context.message).toContain('Mã: CT-01');
-      expect(context.message).toContain('Khách: Khách quyết toán');
-      expect(context.message).toContain('Phòng: P-101 (Nguyên căn)');
-      expect(context.message).toContain('Tòa nhà: Tòa nhà A');
-    }
+    expect(inAppContext.title).toBe('Cập nhật quyết toán hợp đồng CT-01');
+    expect(inAppContext.message).toContain('Mã: CT-01');
+    expect(adminContext.message).toContain('✅ QUYẾT TOÁN — P-101');
+    expect(adminContext.message).toContain('Khách quyết toán');
+    expect(adminContext.message).not.toContain('Tòa nhà A');
+    expect(adminContext.message).not.toContain('CT-01');
   });
 
   it('continues payment notifications when journal posting fails', async () => {

@@ -436,6 +436,12 @@ export default function SettingsNotificationAutomation() {
         ) : !selectedTemplate ? (
           <div className="rounded-lg border border-dashed border-border p-4 text-xs font-medium text-muted">Chưa tải được danh mục mẫu tin.</div>
         ) : (
+          <>
+          {selectedTemplate.effective.source === "TENANT" && (
+            <p className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-muted">
+              Mẫu riêng đang được sử dụng. Để áp dụng chuẩn mới, chọn Dùng mặc định, xem trước rồi Xuất bản.
+            </p>
+          )}
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -535,7 +541,9 @@ export default function SettingsNotificationAutomation() {
                 <div className="mb-2 flex items-center gap-1.5 text-xs font-black text-text"><Play size={13} className="text-primary" /> Bản xem trước</div>
                 {templatePreview ? (
                   <div className="space-y-2">
-                    <div className="text-xs font-black text-text">{templatePreview.title}</div>
+                    {selectedTemplate.audience === "SYSTEM" && (
+                      <div className="text-xs font-black text-text">{templatePreview.title}</div>
+                    )}
                     <pre className="whitespace-pre-wrap break-words font-sans text-[11px] leading-5 text-muted">{templatePreview.message}</pre>
                   </div>
                 ) : (
@@ -565,6 +573,7 @@ export default function SettingsNotificationAutomation() {
               </div>
             </div>
           </div>
+          </>
         )}
       </Card>
 

@@ -471,9 +471,9 @@ export class ConsoleProvider implements CommunicationProvider {
     const qrUrl = String(payload.context?.qrUrl || payload.photo || '').trim();
     const title = (payload.title || '').trim();
     const message = (payload.message || '').trim();
-    const text = message
-      ? (title && !message.startsWith(title) ? `${title}\n\n${message}` : message)
-      : title;
+    // Zalo template bodies already include their headline. The subject is
+    // stored for Admin history, but must not become an extra chat line.
+    const text = message || title;
 
     // 1. Send main message
     const { response, body } = await postJsonWithTimeout(

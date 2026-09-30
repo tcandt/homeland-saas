@@ -72,6 +72,7 @@ export class AdminZaloAlertsService {
         try {
           await this.sendTemplate(tenant, 'ADMIN_SYSTEM_UPDATE_SUCCESS', built, {
             primaryValue: `${lastRecordedVersion || 'phiên bản trước'} → ${currentVersion}`,
+            secondaryValue: 'Hệ thống hoạt động bình thường.',
           });
         } catch (err: any) {
           this.logger.warn(`Failed to send update success alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
@@ -105,6 +106,7 @@ export class AdminZaloAlertsService {
       try {
         await this.sendTemplate(tenant, 'ADMIN_SYSTEM_UPDATE_SUCCESS', built, {
           primaryValue: `${input.fromVersion || 'phiên bản trước'} → ${input.toVersion}`,
+          secondaryValue: 'Hệ thống hoạt động bình thường.',
         });
       } catch (err: any) {
         this.logger.warn(`Failed to send manual update success alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
@@ -141,9 +143,8 @@ export class AdminZaloAlertsService {
 
       try {
         await this.sendTemplate(tenant, 'ADMIN_SYSTEM_UPDATE_AVAILABLE', built, {
-          primaryValue: `${check.currentVersion} → ${check.latestVersion}`,
-          secondaryValue: 'Đã có bản cập nhật mới.',
-          action: 'Mở Cài đặt để xem và cập nhật.',
+          primaryValue: `Hiện tại: ${check.currentVersion}`,
+          secondaryValue: `Phiên bản mới: ${check.latestVersion}`,
         });
       } catch (err: any) {
         this.logger.warn(`Failed to send update available alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
@@ -186,7 +187,8 @@ export class AdminZaloAlertsService {
       });
 
       await this.sendTemplate(tenant, 'ADMIN_SYSTEM_OVERLOAD', built, {
-        primaryValue: [snapshot.requestsPerSecond ? `RPS: ${snapshot.requestsPerSecond}` : null, snapshot.uniqueIps ? `IP: ${snapshot.uniqueIps}` : null].filter(Boolean).join(' • ') || 'Đã phát hiện lưu lượng bất thường.',
+        primaryValue: `RPS: ${snapshot.requestsPerSecond || 0} • IP: ${snapshot.uniqueIps || 0}`,
+        secondaryValue: 'Phát hiện lưu lượng bất thường.',
         action: 'Kiểm tra hệ thống.',
       });
 
@@ -221,9 +223,9 @@ export class AdminZaloAlertsService {
         customerName: 'Hệ thống',
         roomAndBuilding: 'HomeLand',
         headline: templateCode === 'ADMIN_SYSTEM_OVERLOAD'
-          ? '🚨 HỆ THỐNG TẢI CAO'
+          ? '🚨 SERVER TẢI CAO'
           : templateCode === 'ADMIN_SYSTEM_UPDATE_AVAILABLE'
-            ? '📢 CÓ PHIÊN BẢN MỚI'
+            ? '📢 CÓ BẢN CẬP NHẬT MỚI'
             : '✅ CẬP NHẬT THÀNH CÔNG',
         primaryValue: '',
         secondaryValue: '',

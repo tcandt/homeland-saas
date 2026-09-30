@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma.service';
 import { RULE_REGISTRY } from './rule.registry';
 import { WorkflowStatus } from '../automation.constants';
 import { CommunicationService } from '../../communication/communication.service';
+import { formatZaloDate, formatZaloMoney, formatZaloRoom } from '../../communication/services/zalo-message-formatter';
 
 @Injectable()
 export class RuleEngine {
@@ -170,9 +171,9 @@ export class RuleEngine {
     const amount = Math.max(0, Number(context.remainingAmount ?? context.total ?? 0));
     const dateValue = context.dueDate || context.endDate || context.startDate;
     const date = dateValue ? new Date(dateValue) : null;
-    const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString('vi-VN', { timeZone: 'Asia/Bangkok' }) : '';
-    const roomAndBuilding = context.roomAndBuilding || [context.roomCode, context.buildingName].filter(Boolean).join(' - ') || 'Phòng chưa xác định';
-    const formatMoney = (value: number) => `${value.toLocaleString('vi-VN')} đ`;
+    const dateLabel = date && !Number.isNaN(date.getTime()) ? formatZaloDate(date) : '';
+    const roomAndBuilding = formatZaloRoom(context.roomCode) || 'Chưa xác định phòng';
+    const formatMoney = formatZaloMoney;
     const overdueDays = context.dueDate
       ? Math.max(0, Math.floor((Date.now() - new Date(context.dueDate).getTime()) / 86_400_000))
       : 0;
@@ -184,7 +185,7 @@ export class RuleEngine {
       roomAndBuilding,
       customerName: context.customerName || 'Khách hàng',
       headline: isContract ? '⏳ SẮP HẾT HỢP ĐỒNG' : isPaymentPromise ? '🔴 ĐẾN HẸN THANH TOÁN' : isDueSoon ? '⏰ SẮP ĐẾN HẠN' : '🔴 QUÁ HẠN',
-      primaryValue: isContract ? `Hết hạn: ${dateLabel}` : `Còn ${formatMoney(amount)}`,
+      primaryValue: isContract ? `Hết hạn: ${dateLabel}` : `còn ${formatMoney(amount)}`,
       secondaryValue: isContract ? '' : isPaymentPromise ? 'Khách đã đến hẹn thanh toán.' : isDueSoon ? `Hạn: ${dateLabel}` : overdueDays > 0 ? `Quá hạn: ${overdueDays} ngày` : 'Đã đến hạn thanh toán.',
       action: isContract ? 'Xác nhận gia hạn hoặc trả phòng.' : isDueSoon ? '' : 'Cần liên hệ khách.',
       title: input.title,
@@ -198,13 +199,9 @@ export class RuleEngine {
       ? context?.endDate
       : (context?.promiseDueDate || context?.dueDate);
     const date = dateValue ? new Date(dateValue) : null;
-    const dateLabel = date && !Number.isNaN(date.getTime())
-      ? date.toLocaleDateString('vi-VN', { timeZone: 'Asia/Bangkok' })
-      : '';
-    const roomAndBuilding = context?.roomAndBuilding
-      || [context?.roomCode, context?.buildingName].filter(Boolean).join(' - ')
-      || 'Phòng chưa xác định';
-    const amountLabel = `${amount.toLocaleString('vi-VN')} đ`;
+    const dateLabel = date && !Number.isNaN(date.getTime()) ? formatZaloDate(date) : '';
+    const roomAndBuilding = formatZaloRoom(context?.roomCode) || 'Chưa xác định phòng';
+    const amountLabel = formatZaloMoney(amount);
     const isContract = templateCode === 'CLIENT_CONTRACT_EXPIRING';
     const isPromise = templateCode === 'CLIENT_PAYMENT_PROMISE_DUE';
     const isOverdue = templateCode === 'INVOICE_OVERDUE';
@@ -220,20 +217,20 @@ export class RuleEngine {
         ? '⏳ HỢP ĐỒNG SẮP HẾT HẠN'
         : isOverdue ? '🔴 THANH TOÁN QUÁ HẠN'
           : isPromise ? '⏰ ĐẾN HẸN THANH TOÁN' : '⏰ NHẮC THANH TOÁN',
-      primaryValue: isContract ? `Hết hạn: ${dateLabel}` : `Còn phải thanh toán: ${amountLabel}`,
+      primaryValue: isContract ? `Hết hạn: ${dateLabel}` : `Còn lại: ${amountLabel}`,
       secondaryValue: isPromise
         ? 'Khoản thanh toán đã hẹn hôm nay đến hạn.'
-        : isOverdue ? (overdueDays > 0 ? `Đã quá hạn ${overdueDays} ngày.` : 'Đã đến hạn thanh toán.')
-          : isContract ? '' : `Hạn thanh toán: ${dateLabel}`,
+        : isOverdue ? (overdueDays > 0 ? `Đã quá hạn: ${overdueDays} ngày` : 'Đã đến hạn thanh toán.')
+          : isContract ? '' : `Hạn: ${dateLabel}`,
       action: isContract
         ? 'Anh/Chị vui lòng xác nhận gia hạn hoặc trả phòng.'
         : isOverdue
-          ? 'Anh/Chị vui lòng thanh toán sớm hoặc liên hệ HomeLand nếu cần hỗ trợ.'
+          ? 'Anh/Chị vui lòng thanh toán sớm.'
         : isPromise
           ? 'Anh/Chị vui lòng thanh toán hoặc liên hệ HomeLand nếu cần hỗ trợ.'
           : 'Anh/Chị vui lòng thanh toán đúng hạn.',
       remainingAmountDisplay: amountLabel,
-      overdueLabel: overdueDays > 0 ? `Đã quá hạn ${overdueDays} ngày.` : 'Đã đến hạn thanh toán.',
+      overdueLabel: overdueDays > 0 ? `Đã quá hạn: ${overdueDays} ngày` : 'Đã đến hạn thanh toán.',
     };
   }
 

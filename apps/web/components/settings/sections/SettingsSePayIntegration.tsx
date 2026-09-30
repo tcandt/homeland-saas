@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import {
   AlertCircle,
+  ArrowLeft,
   Building2,
   Check,
   CheckCircle2,
@@ -843,10 +844,38 @@ export default function SettingsSePayIntegration() {
       {/* Modal: Quản lý ngân hàng Owner */}
       <Modal
         isOpen={Boolean(activeOwner)}
-        onClose={() => !isSavingOwnerDefault && setActiveOwnerId(null)}
-        title={activeOwner ? `Tài khoản nhận tiền • ${activeOwner.name}` : "Tài khoản nhận tiền"}
+        onClose={() => {
+          if (isSavingOwnerDefault || savingBankForm) return;
+          if (bankModal) setBankModal(null);
+          else setActiveOwnerId(null);
+        }}
+        title={bankModal
+          ? (bankModal.bankId ? "Chỉnh sửa tài khoản ngân hàng" : "Thêm tài khoản ngân hàng")
+          : activeOwner ? `Tài khoản nhận tiền • ${activeOwner.name}` : "Tài khoản nhận tiền"}
         maxWidth="max-w-[720px]"
-        footer={
+        headerActions={bankModal ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => !savingBankForm && setBankModal(null)}
+            disabled={savingBankForm}
+            className="h-8 shrink-0 gap-1 rounded-lg px-2 text-xs font-bold text-primary hover:bg-primary/10"
+          >
+            <ArrowLeft size={14} />
+            <span className="hidden sm:inline">Quay lại</span>
+          </Button>
+        ) : undefined}
+        footer={bankModal ? (
+          <div className="flex items-center justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setBankModal(null)} disabled={savingBankForm}>
+              Hủy bỏ
+            </Button>
+            <Button type="button" onClick={saveBankModal} isLoading={savingBankForm}>
+              Lưu tài khoản
+            </Button>
+          </div>
+        ) : (
           <div className="flex items-center justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setActiveOwnerId(null)} disabled={isSavingOwnerDefault}>
               Đóng
@@ -855,9 +884,9 @@ export default function SettingsSePayIntegration() {
               Lưu mặc định
             </Button>
           </div>
-        }
+        )}
       >
-        {activeOwner && (
+        {activeOwner && !bankModal && (
           <div className="space-y-3">
             <div className="rounded-xl border border-border bg-background/70 p-3 text-xs">
               <div className="font-black text-text">{activeOwner.name}</div>
@@ -939,27 +968,9 @@ export default function SettingsSePayIntegration() {
             </div>
           </div>
         )}
-      </Modal>
 
-      {/* Modal: Thêm / Sửa Bank Form */}
-      <Modal
-        isOpen={Boolean(bankModal)}
-        onClose={() => !savingBankForm && setBankModal(null)}
-        title={bankModal?.bankId ? "Chỉnh sửa tài khoản ngân hàng" : "Thêm tài khoản ngân hàng"}
-        maxWidth="max-w-[520px]"
-        footer={
-          <div className="flex items-center justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setBankModal(null)} disabled={savingBankForm}>
-              Hủy bỏ
-            </Button>
-            <Button type="button" onClick={saveBankModal} isLoading={savingBankForm}>
-              Lưu tài khoản
-            </Button>
-          </div>
-        }
-      >
         {bankModal && (
-          <div className="space-y-3">
+          <div className="space-y-4 animate-in slide-in-from-right-2 fade-in duration-200 motion-reduce:animate-none">
             <div className="rounded-xl border border-border bg-background/70 p-3 text-xs">
               <div className="font-black text-text">
                 Chủ nhà: {ownerRows.find((owner: any) => owner.id === bankModal.ownerId)?.name || "Chưa xác định"}

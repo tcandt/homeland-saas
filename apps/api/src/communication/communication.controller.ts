@@ -641,6 +641,9 @@ export class CommunicationController {
     const adminSetupCodePending = hasPendingSetupCode(value);
     return {
       success: true,
+      capabilities: {
+        canEditIntegrationSecrets: String(req.user.email || '').trim().toLowerCase() === 'admin@homeland.vn',
+      },
       status: {
         enabled: value.enabled !== false,
         webhookUrl,

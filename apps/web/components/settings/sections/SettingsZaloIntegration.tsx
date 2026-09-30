@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import useSWR from "swr";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -29,7 +30,6 @@ import {
   Zap,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { useAuthStore } from "@/lib/auth/auth-store";
 import { settingsApi } from "@/lib/api/settings.api";
 
 type ZaloSettings = {
@@ -115,13 +115,17 @@ function resolveZaloErrorMessage(error: unknown) {
 
 export default function SettingsZaloIntegration() {
   const { draft, setDraft, isSaving, save } = useSettingsSection<ZaloSettings>("zalo-provider", "TENANT", fallback);
-  const user = useAuthStore((state) => state.user);
-  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn" && Boolean(draft.botToken);
+  const { data: zaloStatus, mutate: mutateZaloStatus } = useSWR(
+    ["zalo-status"],
+    () => settingsApi.getZaloStatus(),
+    { revalidateOnFocus: false },
+  );
+  const canEditSecrets = zaloStatus?.capabilities?.canEditIntegrationSecrets === true;
 
   // Modal & Edit Draft States
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState<ZaloSettings>(fallback);
-  const [secretTouched, setSecretTouched] = useState({ botToken: false });
+  const [secretTouched, setSecretTouched] = useState({ botToken: false, webhookSecret: false });
   const [showBotToken, setShowBotToken] = useState(false);
   const [showWebhookSecret, setShowWebhookSecret] = useState(false);
 
@@ -172,6 +176,7 @@ export default function SettingsZaloIntegration() {
     setIsRefreshingStatus(true);
     try {
       const result = await settingsApi.getZaloStatus();
+      await mutateZaloStatus(result, { revalidate: false });
       setDiagnosticMessage("");
       setDraft((prev) => ({
         ...prev,
@@ -197,23 +202,26 @@ export default function SettingsZaloIntegration() {
     });
     setShowBotToken(false);
     setShowWebhookSecret(false);
+    setSecretTouched({ botToken: false, webhookSecret: false });
     setIsConfigModalOpen(true);
   };
 
   const closeConfigModal = () => {
+    setSecretTouched({ botToken: false, webhookSecret: false });
     setIsConfigModalOpen(false);
   };
 
   const saveConfigModal = async () => {
     const payload: Partial<ZaloSettings> = { ...configDraft };
     if (!canEditSecrets || !secretTouched.botToken) delete payload.botToken;
+    if (!canEditSecrets || !secretTouched.webhookSecret) delete payload.webhookSecret;
     delete payload.botTokenConfigured;
     delete payload.webhookSecretConfigured;
 
     try {
       setDraft(configDraft);
       await save(payload as ZaloSettings);
-      setSecretTouched({ botToken: false });
+      setSecretTouched({ botToken: false, webhookSecret: false });
       setIsConfigModalOpen(false);
       toast.success("Đã cập nhật cấu hình Zalo thành công!");
     } catch (error: any) {
@@ -224,6 +232,7 @@ export default function SettingsZaloIntegration() {
   const regenerateWebhookSecret = () => {
     if (!canEditSecrets) return;
     const webhookSecret = generateSecret();
+    setSecretTouched((prev) => ({ ...prev, webhookSecret: true }));
     setConfigDraft((prev) => ({ ...prev, webhookSecret }));
     toast.success("Đã tạo Secret mới (hãy bấm Lưu để áp dụng)");
   };
@@ -698,9 +707,10 @@ export default function SettingsZaloIntegration() {
                   <Input
                     type={showWebhookSecret ? "text" : "password"}
                     value={configDraft.webhookSecret}
-                    onChange={(event) =>
-                      setConfigDraft((prev) => ({ ...prev, webhookSecret: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      setSecretTouched((prev) => ({ ...prev, webhookSecret: true }));
+                      setConfigDraft((prev) => ({ ...prev, webhookSecret: event.target.value }));
+                    }}
                     placeholder="Webhook Secret"
                     disabled={!canEditSecrets}
                     className="pr-10 text-xs font-mono"

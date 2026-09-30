@@ -32,7 +32,11 @@ export const settingsApi = {
   },
 
   getZaloStatus: () => {
-    return apiClient.get<{ success: true; status: any }>('/notifications/zalo/status');
+    return apiClient.get<{
+      success: true;
+      status: any;
+      capabilities: { canEditIntegrationSecrets: boolean };
+    }>('/notifications/zalo/status');
   },
 
   testZaloBot: (payload?: { recipient?: string; message?: string }) => {

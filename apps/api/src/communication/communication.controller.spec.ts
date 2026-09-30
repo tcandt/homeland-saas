@@ -34,6 +34,29 @@ describe('CommunicationController Zalo webhook', () => {
     return { controller, prisma, zaloProvider, emailProvider, telegramProvider, zaloRegistrationService };
   }
 
+  it('allows the protected Homeland administrator to edit Zalo integration secrets', async () => {
+    const { controller, prisma } = createController();
+    prisma.appSetting.findUnique.mockResolvedValueOnce(null);
+
+    const result = await controller.getZaloStatus({
+      user: { tenantId: 'tenant-1', email: ' Admin@HomeLand.vn ' },
+    });
+
+    expect(result.capabilities.canEditIntegrationSecrets).toBe(true);
+    expect(result.status.botTokenConfigured).toBe(false);
+  });
+
+  it('keeps Zalo integration secrets locked for other accounts', async () => {
+    const { controller, prisma } = createController();
+    prisma.appSetting.findUnique.mockResolvedValueOnce(null);
+
+    const result = await controller.getZaloStatus({
+      user: { tenantId: 'tenant-1', email: 'manager@homeland.vn' },
+    });
+
+    expect(result.capabilities.canEditIntegrationSecrets).toBe(false);
+  });
+
   it('rejects webhook calls with an invalid secret token', async () => {
     const { controller, prisma } = createController();
     prisma.appSetting.findMany.mockResolvedValueOnce([

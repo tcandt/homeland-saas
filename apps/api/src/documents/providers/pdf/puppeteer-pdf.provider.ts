@@ -7,18 +7,23 @@ export class PuppeteerPdfProvider implements PdfProvider, OnModuleInit, OnModule
   private readonly logger = new Logger(PuppeteerPdfProvider.name);
   private browser: puppeteer.Browser | null = null;
 
+  private getLaunchOptions(): puppeteer.LaunchOptions {
+    return {
+      headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--font-render-hinting=none',
+      ],
+    };
+  }
+
   async onModuleInit() {
     try {
       this.logger.log('Launching Puppeteer browser instance...');
-      this.browser = await puppeteer.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--font-render-hinting=none',
-        ],
-      });
+      this.browser = await puppeteer.launch(this.getLaunchOptions());
       this.logger.log('Puppeteer browser launched successfully.');
     } catch (error) {
       this.logger.error('Failed to launch Puppeteer browser', error);
@@ -38,15 +43,7 @@ export class PuppeteerPdfProvider implements PdfProvider, OnModuleInit, OnModule
     let createdLocal = false;
     if (!localBrowser) {
       try {
-        localBrowser = await puppeteer.launch({
-          headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--font-render-hinting=none',
-          ],
-        });
+        localBrowser = await puppeteer.launch(this.getLaunchOptions());
         createdLocal = true;
       } catch (e) {
         this.logger.warn('Puppeteer browser is not initialized and failed to launch dynamically. Returning dummy PDF buffer.');

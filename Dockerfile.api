@@ -1,9 +1,29 @@
-FROM node:20-alpine
+FROM node:22-alpine
 
 # Install runtime/update tools:
 # - bash/netcat/openssl for API startup and Prisma
 # - git/curl/postgresql-client for guarded system update runner
-RUN apk add --no-cache bash netcat-openbsd openssl git curl postgresql-client
+# - Chromium and fonts for production HTML-to-PDF rendering
+RUN apk add --no-cache \
+    bash \
+    ca-certificates \
+    chromium \
+    curl \
+    font-noto \
+    font-noto-cjk \
+    freetype \
+    git \
+    harfbuzz \
+    netcat-openbsd \
+    nss \
+    openssl \
+    postgresql-client \
+    ttf-freefont
+
+# Puppeteer uses the distro-managed browser so the runtime image has one
+# deterministic executable and npm does not download a second Chrome copy.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 WORKDIR /app
 

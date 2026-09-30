@@ -129,8 +129,17 @@ export class PaymentsController {
   @ApiBearerAuth()
   @RequirePermissions('setting.read')
   @ApiOperation({ summary: 'Get SePay routing config, rooms and receiving accounts for admin settings' })
-  getSePayAdminConfig(@CurrentUser('tenantId') tenantId: string) {
-    return this.paymentsService.getSePayAdminConfig(tenantId).then((config) => ({ success: true, config }));
+  getSePayAdminConfig(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('email') email: string,
+  ) {
+    return this.paymentsService.getSePayAdminConfig(tenantId).then((config) => ({
+      success: true,
+      config,
+      capabilities: {
+        canEditIntegrationSecrets: String(email || '').trim().toLowerCase() === 'admin@homeland.vn',
+      },
+    }));
   }
 
   @Post('sepay/routing')

@@ -221,6 +221,27 @@ async function main() {
     });
   }
 
+  for (const bCode of MANAGED_BUILDINGS) {
+    const building = await prisma.building.findUnique({ where: { tenantId_code: { tenantId: org.id, code: bCode } } });
+    if (!building) continue;
+    await prisma.costCenter.upsert({
+      where: { tenantId_code: { tenantId: org.id, code: `CC-${bCode}` } },
+      update: { ownerId: ownerByBuildingCode[bCode], buildingId: building.id },
+      create: { tenantId: org.id, ownerId: ownerByBuildingCode[bCode], buildingId: building.id, code: `CC-${bCode}`, name: `Chi nhánh ${bCode}` },
+    });
+  }
+
+  if (productionMode) {
+    console.log('Production mode detected. Skipping mock bank accounts, payment routes, contracts, invoices, and transactions.');
+    console.log('Commercial-Grade Seed completed successfully in PRODUCTION mode.');
+    return;
+  }
+
+  // 4. Operational mock data is scoped to LK01-31 only. Structural clones stay clean.
+  const buildingCodes = [...MANAGED_BUILDINGS];
+  const sourceBuilding = await prisma.building.findUniqueOrThrow({ where: { tenantId_code: { tenantId: org.id, code: 'LK01.31' } } });
+  const allRooms = await prisma.room.findMany({ where: { tenantId: org.id, buildingId: sourceBuilding.id, code: { startsWith: 'PN 31-' }, deletedAt: null }, orderBy: { code: 'asc' } });
+
   const bankAccountA = await prisma.bankAccount.upsert({
     where: { tenantId_accountNumber: { tenantId: org.id, accountNumber: '190333444555' } },
     update: { ownerId: ownerA.id, accountName: 'HKD NGUYEN DUC TINH' },
@@ -279,27 +300,6 @@ async function main() {
       throw error;
     }
   }
-
-  for (const bCode of MANAGED_BUILDINGS) {
-    const building = await prisma.building.findUnique({ where: { tenantId_code: { tenantId: org.id, code: bCode } } });
-    if (!building) continue;
-    await prisma.costCenter.upsert({
-      where: { tenantId_code: { tenantId: org.id, code: `CC-${bCode}` } },
-      update: { ownerId: ownerByBuildingCode[bCode], buildingId: building.id },
-      create: { tenantId: org.id, ownerId: ownerByBuildingCode[bCode], buildingId: building.id, code: `CC-${bCode}`, name: `Chi nhánh ${bCode}` },
-    });
-  }
-
-  if (productionMode) {
-    console.log('Production mode detected. Skipping mock buildings, floors, rooms, contracts, invoices, and transactions.');
-    console.log('Commercial-Grade Seed completed successfully in PRODUCTION mode.');
-    return;
-  }
-
-  // 4. Operational mock data is scoped to LK01-31 only. Structural clones stay clean.
-  const buildingCodes = [...MANAGED_BUILDINGS];
-  const sourceBuilding = await prisma.building.findUniqueOrThrow({ where: { tenantId_code: { tenantId: org.id, code: 'LK01.31' } } });
-  const allRooms = await prisma.room.findMany({ where: { tenantId: org.id, buildingId: sourceBuilding.id, code: { startsWith: 'PN 31-' }, deletedAt: null }, orderBy: { code: 'asc' } });
 
   // 5. Advanced Business Scenario distribution
   // 80 rooms total:

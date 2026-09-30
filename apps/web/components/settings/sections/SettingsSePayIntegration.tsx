@@ -30,7 +30,6 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
-import { useAuthStore } from "@/lib/auth/auth-store";
 import toast from "react-hot-toast";
 import { settingsApi } from "@/lib/api/settings.api";
 import { financeApi } from "@/lib/api/finance.api";
@@ -140,8 +139,6 @@ export default function SettingsSePayIntegration() {
     { revalidateOnFocus: false },
   );
   const owners = useSWR(["finance-owners-for-sepay"], () => financeApi.getOwners(), { revalidateOnFocus: false });
-  const user = useAuthStore((state) => state.user);
-
   // Modal states
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState<SePaySettings>(fallback);
@@ -168,13 +165,7 @@ export default function SettingsSePayIntegration() {
   const [togglingBankId, setTogglingBankId] = useState("");
   const [copiedUrl, setCopiedUrl] = useState(false);
 
-  const normalizedUserEmail = (user?.email || "").toLowerCase();
-  const userRoles = Array.isArray(user?.roles) ? user.roles : [];
-  const userPermissions = Array.isArray(user?.permissions) ? user.permissions : [];
-  const canEditSecrets =
-    normalizedUserEmail === "admin@homeland.vn" ||
-    userRoles.includes("ADMIN") ||
-    userPermissions.includes("setting.update");
+  const canEditSecrets = adminConfig?.capabilities?.canEditIntegrationSecrets === true;
 
   const config = adminConfig?.config;
   const status = config?.status;

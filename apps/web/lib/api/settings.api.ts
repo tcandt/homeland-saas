@@ -76,7 +76,11 @@ export const settingsApi = {
   },
 
   getSePayAdminConfig: () => {
-    return apiClient.get<{ success: true; config: any }>('/payments/sepay/admin-config');
+    return apiClient.get<{
+      success: true;
+      config: any;
+      capabilities: { canEditIntegrationSecrets: boolean };
+    }>('/payments/sepay/admin-config');
   },
 
   saveSePayRouting: (payload: { assignments: Array<{ roomId: string; bankAccountId: string; validFrom?: string | null; validTo?: string | null; note?: string | null }> }) => {

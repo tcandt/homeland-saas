@@ -162,7 +162,15 @@ export default function SettingsZaloIntegration() {
     return `${base}/api/v1/notifications/zalo/webhook`;
   }, [configDraft.baseUrl]);
 
-  const hasAdminGroup = Boolean(String(draft.adminGroupChatId || "").trim());
+  const hasAdminGroup = Boolean(String(configDraft.adminGroupChatId || "").trim());
+  const hasBotToken = Boolean(String(configDraft.botToken || "").trim());
+  const hasWebhookSecret = Boolean(String(configDraft.webhookSecret || "").trim());
+  const hasPendingConfigChanges =
+    secretTouched.botToken ||
+    secretTouched.webhookSecret ||
+    configDraft.enabled !== draft.enabled ||
+    normalizeBaseUrl(configDraft.baseUrl) !== normalizeBaseUrl(draft.baseUrl) ||
+    String(configDraft.adminGroupChatId || "").trim() !== String(draft.adminGroupChatId || "").trim();
 
   const copyText = async (value: string, label: string) => {
     if (!value) return;
@@ -211,17 +219,23 @@ export default function SettingsZaloIntegration() {
     setIsConfigModalOpen(false);
   };
 
-  const saveConfigModal = async () => {
+  const persistConfigDraft = async (force = false) => {
+    if (!force && !hasPendingConfigChanges) return;
+
     const payload: Partial<ZaloSettings> = { ...configDraft };
     if (!canEditSecrets || !secretTouched.botToken) delete payload.botToken;
     if (!canEditSecrets || !secretTouched.webhookSecret) delete payload.webhookSecret;
     delete payload.botTokenConfigured;
     delete payload.webhookSecretConfigured;
 
+    setDraft(configDraft);
+    await save(payload as ZaloSettings);
+    setSecretTouched({ botToken: false, webhookSecret: false });
+  };
+
+  const saveConfigModal = async () => {
     try {
-      setDraft(configDraft);
-      await save(payload as ZaloSettings);
-      setSecretTouched({ botToken: false, webhookSecret: false });
+      await persistConfigDraft(true);
       setIsConfigModalOpen(false);
       toast.success("Đã cập nhật cấu hình Zalo thành công!");
     } catch (error: any) {
@@ -234,12 +248,13 @@ export default function SettingsZaloIntegration() {
     const webhookSecret = generateSecret();
     setSecretTouched((prev) => ({ ...prev, webhookSecret: true }));
     setConfigDraft((prev) => ({ ...prev, webhookSecret }));
-    toast.success("Đã tạo Secret mới (hãy bấm Lưu để áp dụng)");
+    toast.success("Đã tạo Secret mới. Bấm Connect hoặc Lưu cấu hình để áp dụng.");
   };
 
   const connectWebhook = async () => {
     setIsConnectingWebhook(true);
     try {
+      await persistConfigDraft();
       const result = await settingsApi.connectZaloWebhook();
       setDiagnosticMessage("");
       setDraft((prev) => ({
@@ -259,6 +274,7 @@ export default function SettingsZaloIntegration() {
   const testAdminGroup = async () => {
     setIsTestingAdminGroup(true);
     try {
+      await persistConfigDraft();
       await settingsApi.testZaloAdminGroup();
       toast.success("Đã gửi tin nhắn test tới nhóm Admin");
     } catch (error: any) {
@@ -271,6 +287,7 @@ export default function SettingsZaloIntegration() {
   const testZaloBot = async () => {
     setIsTestingBot(true);
     try {
+      await persistConfigDraft();
       const targetChatId = draft.lastWebhookChatId || "4e5f8d2fa960403e1971";
       const response = await settingsApi.testZaloBot({ recipient: targetChatId });
       const botData = response?.result?.result || response?.result?.data || response?.result || {};
@@ -293,6 +310,7 @@ export default function SettingsZaloIntegration() {
   const generateAdminGroupSetupCode = async () => {
     setIsGeneratingSetupCode(true);
     try {
+      await persistConfigDraft(true);
       const result = await settingsApi.generateZaloAdminGroupSetupCode();
       setDiagnosticMessage("");
       const command = String(result?.command || "").trim();
@@ -350,6 +368,7 @@ export default function SettingsZaloIntegration() {
   const autoDetectAdminGroup = async () => {
     setIsAutoDetectingAdminGroup(true);
     try {
+      await persistConfigDraft();
       const result = await settingsApi.autoDetectZaloAdminGroup();
       setDiagnosticMessage("");
       const newChatId = result?.chat?.chatId || draft.adminGroupChatId || "";
@@ -582,7 +601,7 @@ export default function SettingsZaloIntegration() {
                 variant="outline"
                 onClick={testAdminGroup}
                 isLoading={isTestingAdminGroup}
-                disabled={!hasAdminGroup}
+                disabled={!hasAdminGroup || !hasBotToken || isSaving}
                 className="h-10 rounded-xl px-3 text-xs font-bold"
               >
                 <Send size={13} className="mr-1.5 text-purple-600" /> Test Admin
@@ -593,7 +612,7 @@ export default function SettingsZaloIntegration() {
                 variant="outline"
                 onClick={testZaloBot}
                 isLoading={isTestingBot}
-                disabled={!draft.botToken}
+                disabled={!hasBotToken || isSaving}
                 className="h-10 rounded-xl px-3 text-xs font-bold"
               >
                 <Bot size={13} className="mr-1.5" /> Test Bot
@@ -604,6 +623,7 @@ export default function SettingsZaloIntegration() {
                 variant="outline"
                 onClick={connectWebhook}
                 isLoading={isConnectingWebhook}
+                disabled={!hasBotToken || !hasWebhookSecret || isSaving}
                 className="h-10 rounded-xl px-3 text-xs font-bold"
               >
                 <Link2 size={13} className="mr-1.5 text-primary" /> Connect
@@ -776,6 +796,7 @@ export default function SettingsZaloIntegration() {
                     size="sm"
                     onClick={generateAdminGroupSetupCode}
                     isLoading={isGeneratingSetupCode}
+                    disabled={isSaving}
                     className="h-9 px-3 rounded-xl text-xs font-bold"
                   >
                     Generate
@@ -786,6 +807,7 @@ export default function SettingsZaloIntegration() {
                     size="sm"
                     onClick={autoDetectAdminGroup}
                     isLoading={isAutoDetectingAdminGroup}
+                    disabled={!hasBotToken || isSaving}
                     className="h-9 px-3 rounded-xl text-xs font-bold"
                   >
                     Get ChatID

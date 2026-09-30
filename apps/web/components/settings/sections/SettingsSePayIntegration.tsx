@@ -23,6 +23,7 @@ import {
   Settings2,
   ShieldCheck,
   Star,
+  Trash2,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -163,6 +164,7 @@ export default function SettingsSePayIntegration() {
   const [isSavingOwnerDefault, setIsSavingOwnerDefault] = useState(false);
   const [bankModal, setBankModal] = useState<BankAccountForm | null>(null);
   const [savingBankForm, setSavingBankForm] = useState(false);
+  const [deletingBankId, setDeletingBankId] = useState("");
   const [togglingBankId, setTogglingBankId] = useState("");
   const [copiedUrl, setCopiedUrl] = useState(false);
 
@@ -260,6 +262,26 @@ export default function SettingsSePayIntegration() {
       toast.error(error?.message || "Không lưu được tài khoản ngân hàng");
     } finally {
       setSavingBankForm(false);
+    }
+  };
+
+  const deleteBankModal = async () => {
+    if (!bankModal?.bankId || deletingBankId) return;
+    const confirmed = window.confirm(
+      "Xóa tài khoản ngân hàng này? Tài khoản đã phát sinh yêu cầu thanh toán hoặc tuyến nhận tiền sẽ không thể xóa.",
+    );
+    if (!confirmed) return;
+    try {
+      setDeletingBankId(bankModal.bankId);
+      await financeApi.deleteBankAccount(bankModal.bankId);
+      await owners.mutate();
+      await mutateAdminConfig();
+      setBankModal(null);
+      toast.success("Đã xóa tài khoản ngân hàng");
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể xóa tài khoản ngân hàng");
+    } finally {
+      setDeletingBankId("");
     }
   };
 
@@ -845,7 +867,7 @@ export default function SettingsSePayIntegration() {
       <Modal
         isOpen={Boolean(activeOwner)}
         onClose={() => {
-          if (isSavingOwnerDefault || savingBankForm) return;
+          if (isSavingOwnerDefault || savingBankForm || deletingBankId) return;
           if (bankModal) setBankModal(null);
           else setActiveOwnerId(null);
         }}
@@ -859,7 +881,7 @@ export default function SettingsSePayIntegration() {
             variant="ghost"
             size="sm"
             onClick={() => !savingBankForm && setBankModal(null)}
-            disabled={savingBankForm}
+            disabled={savingBankForm || Boolean(deletingBankId)}
             className="h-8 shrink-0 gap-1 rounded-lg px-2 text-xs font-bold text-primary hover:bg-primary/10"
           >
             <ArrowLeft size={14} />
@@ -867,13 +889,27 @@ export default function SettingsSePayIntegration() {
           </Button>
         ) : undefined}
         footer={bankModal ? (
-          <div className="flex items-center justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setBankModal(null)} disabled={savingBankForm}>
-              Hủy bỏ
-            </Button>
-            <Button type="button" onClick={saveBankModal} isLoading={savingBankForm}>
-              Lưu tài khoản
-            </Button>
+          <div className="flex items-center justify-between gap-3">
+            {bankModal.bankId ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={deleteBankModal}
+                isLoading={Boolean(deletingBankId)}
+                disabled={savingBankForm || Boolean(deletingBankId)}
+                className="gap-1.5 text-rose-600 hover:bg-rose-500/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+              >
+                <Trash2 size={14} /> Xóa tài khoản
+              </Button>
+            ) : <span />}
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => setBankModal(null)} disabled={savingBankForm || Boolean(deletingBankId)}>
+                Hủy bỏ
+              </Button>
+              <Button type="button" onClick={saveBankModal} isLoading={savingBankForm} disabled={Boolean(deletingBankId)}>
+                Lưu tài khoản
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="flex items-center justify-end gap-2">

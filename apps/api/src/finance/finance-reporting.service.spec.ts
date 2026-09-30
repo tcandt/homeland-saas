@@ -72,10 +72,16 @@ describe('FinanceReportingService', () => {
         findFirst: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        delete: vi.fn(),
+      },
+      roomPaymentAccountRoute: {
+        count: vi.fn().mockResolvedValue(0),
       },
       appSetting: {
         findUnique: vi.fn(),
       },
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      $transaction: vi.fn(async (callback: (tx: any) => unknown) => callback(prisma)),
       ...prismaOverrides,
     };
     const communicationService = {
@@ -442,6 +448,62 @@ describe('FinanceReportingService', () => {
         }),
       }),
     );
+  });
+
+  it('deletes an unused bank account and writes a delete audit', async () => {
+    const { service, prisma } = createService({
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1', tenantId: 'tenant-1', ownerId: 'owner-1',
+          bankName: 'ACB', accountNumber: '123', accountName: 'TINH',
+        }),
+        delete: vi.fn().mockResolvedValue({ id: 'bank-1' }),
+      },
+      paymentRequest: { count: vi.fn().mockResolvedValue(0) },
+      roomPaymentAccountRoute: { count: vi.fn().mockResolvedValue(0) },
+      appSetting: { findUnique: vi.fn().mockResolvedValue(null) },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'bank-1' }]),
+    });
+
+    await expect(service.deleteBankAccount('tenant-1', 'user-1', 'bank-1'))
+      .resolves.toEqual({ deleted: true, id: 'bank-1' });
+    expect(prisma.bankAccount.delete).toHaveBeenCalledWith({ where: { id: 'bank-1' } });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'DELETE', entity: 'BankAccount', entityId: 'bank-1' }),
+    }));
+  });
+
+  it('blocks deleting a bank account that has payment history', async () => {
+    const { service, prisma } = createService({
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'bank-1', tenantId: 'tenant-1' }),
+        delete: vi.fn(),
+      },
+      paymentRequest: { count: vi.fn().mockResolvedValue(1) },
+      roomPaymentAccountRoute: { count: vi.fn().mockResolvedValue(0) },
+      appSetting: { findUnique: vi.fn().mockResolvedValue(null) },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'bank-1' }]),
+    });
+
+    await expect(service.deleteBankAccount('tenant-1', 'user-1', 'bank-1'))
+      .rejects.toThrow('BANK_ACCOUNT_HAS_PAYMENT_HISTORY');
+    expect(prisma.bankAccount.delete).not.toHaveBeenCalled();
+  });
+
+  it('blocks deleting a bank account that is configured as default', async () => {
+    const { service } = createService({
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'bank-1', tenantId: 'tenant-1' }),
+        delete: vi.fn(),
+      },
+      paymentRequest: { count: vi.fn().mockResolvedValue(0) },
+      roomPaymentAccountRoute: { count: vi.fn().mockResolvedValue(0) },
+      appSetting: { findUnique: vi.fn().mockResolvedValue({ value: { defaults: { 'owner-1': 'bank-1' } } }) },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'bank-1' }]),
+    });
+
+    await expect(service.deleteBankAccount('tenant-1', 'user-1', 'bank-1'))
+      .rejects.toThrow('BANK_ACCOUNT_IS_DEFAULT_PAYMENT_BANK');
   });
 
   it('keeps failed SePay webhook status visible in reconciliation', async () => {

@@ -1123,6 +1123,62 @@ export class FinanceReportingService {
     return created;
   }
 
+  async deleteBankAccount(tenantId: string, userId: string | undefined, bankAccountId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      // Lock the account before checking references: new payment requests and
+      // room routes cannot attach to it while deletion is in progress.
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "BankAccount"
+        WHERE "id" = ${bankAccountId} AND "tenantId" = ${tenantId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) throw new BadRequestException('BANK_ACCOUNT_NOT_FOUND');
+
+      const bankAccount = await tx.bankAccount.findFirst({
+        where: { tenantId, id: bankAccountId },
+      });
+      if (!bankAccount) throw new BadRequestException('BANK_ACCOUNT_NOT_FOUND');
+
+      const [requestCount, routeCount, defaultSetting] = await Promise.all([
+        tx.paymentRequest.count({ where: { tenantId, bankAccountId } }),
+        tx.roomPaymentAccountRoute.count({ where: { tenantId, bankAccountId } }),
+        tx.appSetting.findUnique({
+          where: {
+            tenantId_scope_ownerId_key: {
+              tenantId, scope: SettingScope.TENANT, ownerId: tenantId, key: 'owner-bank-defaults',
+            },
+          },
+        }),
+      ]);
+      if (requestCount > 0 || routeCount > 0) {
+        throw new BadRequestException('BANK_ACCOUNT_HAS_PAYMENT_HISTORY');
+      }
+      const defaults = ((defaultSetting?.value as any)?.defaults || {}) as Record<string, string>;
+      if (Object.values(defaults).includes(bankAccountId)) {
+        throw new BadRequestException('BANK_ACCOUNT_IS_DEFAULT_PAYMENT_BANK');
+      }
+
+      await tx.bankAccount.delete({ where: { id: bankAccountId } });
+      await tx.auditLog.create({
+        data: {
+          tenantId,
+          userId,
+          module: 'Finance',
+          entity: 'BankAccount',
+          entityId: bankAccountId,
+          action: AuditAction.DELETE,
+          before: {
+            ownerId: bankAccount.ownerId,
+            bankName: bankAccount.bankName,
+            accountNumber: bankAccount.accountNumber,
+            accountName: bankAccount.accountName,
+          },
+        },
+      });
+      return { deleted: true, id: bankAccountId };
+    });
+  }
+
   async getBankCashFlow(tenantId: string, options: { year?: string; month?: string; ownerId?: string } = {}) {
     const period = this.buildPeriodRange(options.year, options.month);
     const bankAccounts = await this.prisma.bankAccount.findMany({

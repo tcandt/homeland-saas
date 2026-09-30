@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Request, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Request, Res } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { Response } from 'express';
@@ -113,6 +113,12 @@ export class FinanceController {
   @RequirePermissions('finance.update')
   async updateBankAccount(@Param('id') id: string, @Request() req, @Body() body: any) {
     return this.reportingService.updateBankAccountDetails(req.user.tenantId, req.user?.id, id, body || {});
+  }
+
+  @Delete('banks/:id')
+  @RequirePermissions('finance.update')
+  async deleteBankAccount(@Param('id') id: string, @Request() req) {
+    return this.reportingService.deleteBankAccount(req.user.tenantId, req.user?.id, id);
   }
 
   @Get('sepay/reconciliation')

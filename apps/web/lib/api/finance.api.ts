@@ -52,6 +52,9 @@ export const financeApi = {
   updateBankAccount: async (id: string, payload: { bankName: string; accountNumber: string; accountName: string }) => {
     return await apiClient.patch<any>(`/finance/banks/${id}`, payload);
   },
+  deleteBankAccount: async (id: string) => {
+    return await apiClient.delete<{ deleted: boolean; id: string }>(`/finance/banks/${id}`);
+  },
   updateBankAccountStatus: async (id: string, payload: { isActive: boolean }) => {
     return await apiClient.patch<any>(`/finance/banks/${id}/status`, payload);
   },

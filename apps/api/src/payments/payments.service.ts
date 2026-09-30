@@ -2781,10 +2781,12 @@ export class PaymentsService {
       })),
       rooms: await Promise.all(
         rooms.map(async (room) => {
-          const resolved = await this.resolveBankAccount(tenantId, {
-            ownerId: room.building?.ownerId || null,
-            roomId: room.id,
-          });
+          const resolved = bankAccounts.length > 0
+            ? await this.resolveBankAccount(tenantId, {
+                ownerId: room.building?.ownerId || null,
+                roomId: room.id,
+              })
+            : null;
           const assignment = assignmentMap.get(room.id) || null;
           const mappedBankAccount = assignment?.bankAccountId
             ? bankAccountById.get(assignment.bankAccountId) || null
@@ -2800,7 +2802,9 @@ export class PaymentsService {
             ownerId: room.building?.ownerId || null,
             mappedBankAccountId: mappedBankAccount?.id || null,
             mappedBankAccountLabel: mappedBankAccount ? this.formatBankAccountLabel(mappedBankAccount) : null,
-            mappingSource: resolved.source === 'EXPLICIT' ? 'ROOM' : resolved.source,
+            mappingSource: resolved
+              ? (resolved.source === 'EXPLICIT' ? 'ROOM' : resolved.source)
+              : null,
             validFrom: assignment?.validFrom || null,
             validTo: assignment?.validTo || null,
           };

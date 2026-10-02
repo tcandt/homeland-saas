@@ -3,7 +3,7 @@
   "version": "3.0.1",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "prebuild": "node ../../scripts/check-mojibake.js",
     "build": "next build",
     "start": "next start",

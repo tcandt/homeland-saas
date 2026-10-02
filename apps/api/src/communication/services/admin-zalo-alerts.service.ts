@@ -8,7 +8,6 @@ import { SystemUpdateService } from '../../system-update/system-update.service';
 import { RequestAnomalySnapshot, RequestAnomalyTrackerService } from '../../metrics/request-anomaly-tracker.service';
 import {
   buildServerOverloadAlertMessage,
-  buildUpdateAvailableMessage,
   buildUpdateSuccessMessage,
 } from './admin-zalo-message-builder';
 
@@ -22,7 +21,6 @@ type TenantZaloConfig = {
 @Injectable()
 export class AdminZaloAlertsService {
   private readonly logger = new Logger(AdminZaloAlertsService.name);
-  private readonly updateCooldownMs = Number(process.env.ADMIN_ZALO_UPDATE_ALERT_COOLDOWN_MS || 12 * 60 * 60 * 1000);
   private readonly overloadCooldownMs = Number(process.env.ADMIN_ZALO_OVERLOAD_ALERT_COOLDOWN_MS || 15 * 60 * 1000);
   private readonly overloadThresholdRequests = Number(process.env.ADMIN_ZALO_OVERLOAD_THRESHOLD_REQUESTS || 600);
   private readonly overloadThresholdRps = Number(process.env.ADMIN_ZALO_OVERLOAD_THRESHOLD_RPS || 10);
@@ -112,50 +110,7 @@ export class AdminZaloAlertsService {
     }
   }
 
-  @Cron('0 10 * * *', { timeZone: 'Asia/Ho_Chi_Minh' })
-  async checkUpdateAvailableAlerts() {
-    if (!shouldRunGeneralSchedulers()) return;
 
-    const check = await this.systemUpdateService.checkForUpdates();
-    if (!check.updateAvailable) return;
-    const latestArtifact = artifactIdentity(check.latestVersion, check.latestCommit);
-
-    const tenants = await this.getTenantsWithAdminGroup();
-    for (const tenant of tenants) {
-      const state = readAlertState(tenant.value);
-      const alreadySentForArtifact = state.lastUpdateAlertArtifact === latestArtifact;
-      const cooldownActive =
-        state.lastUpdateAlertAt &&
-        Date.now() - new Date(state.lastUpdateAlertAt).getTime() < this.updateCooldownMs;
-
-      if (alreadySentForArtifact && cooldownActive) {
-        continue;
-      }
-
-      const built = buildUpdateAvailableMessage({
-        currentVersion: check.currentVersion,
-        latestVersion: check.latestVersion,
-        checkedAt: check.checkedAt,
-        details: check.releaseHighlights.length > 0 ? check.releaseHighlights : check.changelog,
-      });
-
-      try {
-        await this.sendTemplate(tenant, 'ADMIN_SYSTEM_UPDATE_AVAILABLE', built, {
-          primaryValue: `${check.currentVersion} → ${check.latestVersion}`,
-          secondaryValue: 'Đã có bản cập nhật mới.',
-          action: 'Mở Cài đặt để xem và cập nhật.',
-        });
-      } catch (err: any) {
-        this.logger.warn(`Failed to send update available alert to tenant ${tenant.tenantId}: ${err?.message || err}`);
-      }
-
-      await this.updateAlertState(tenant, {
-        lastUpdateAlertAt: new Date().toISOString(),
-        lastUpdateAlertVersion: check.latestVersion,
-        lastUpdateAlertArtifact: latestArtifact,
-      });
-    }
-  }
 
   @Cron(CronExpression.EVERY_MINUTE)
   async checkServerOverloadAlerts() {

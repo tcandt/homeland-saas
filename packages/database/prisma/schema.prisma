@@ -836,6 +836,7 @@ model Invoice {
   @@index([tenantId, rentalCycleId, status])
   @@index([tenantId, adjustmentOfInvoiceId])
   @@index([tenantId, deletedAt])
+  @@index([tenantId, deletedAt, createdAt(sort: Desc), id(sort: Desc)], map: "Invoice_cursor_feed_idx")
 }
 
 model Payment {

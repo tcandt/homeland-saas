@@ -207,6 +207,10 @@ function resolveAssetUrl(assetUrl: string, apiBaseUrl: string) {
   if (assetUrl.startsWith('http://') || assetUrl.startsWith('https://')) {
     return assetUrl;
   }
+  if (assetUrl.startsWith('document-storage://')) {
+    const storagePath = assetUrl.replace(/^document-storage:\/\//, '');
+    return `${apiBaseUrl}/documents/storage?path=${encodeURIComponent(storagePath)}`;
+  }
   const root = apiBaseUrl.replace(/\/api\/v1\/?$/, '');
   if (assetUrl.startsWith('/')) {
     return `${root}${assetUrl}`;
@@ -217,16 +221,22 @@ function resolveAssetUrl(assetUrl: string, apiBaseUrl: string) {
 async function fetchAssetBuffer(assetUrl: string, apiBaseUrl: string, authHeader?: string | null) {
   const resolvedUrl = resolveAssetUrl(assetUrl, apiBaseUrl);
   if (!resolvedUrl) return null;
-  const response = await fetch(resolvedUrl, {
-    headers: {
-      ...(authHeader ? { Authorization: authHeader } : {}),
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch asset: ${resolvedUrl} (${response.status})`);
+  try {
+    const response = await fetch(resolvedUrl, {
+      headers: {
+        ...(authHeader ? { Authorization: authHeader } : {}),
+      },
+    });
+    if (!response.ok) {
+      console.warn(`Failed to fetch asset: ${resolvedUrl} (${response.status})`);
+      return null;
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (err) {
+    console.warn(`Failed to fetch asset from ${resolvedUrl}:`, err);
+    return null;
   }
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
 }
 
 export async function POST(request: Request) {
@@ -380,18 +390,31 @@ export async function POST(request: Request) {
 
     // 3. Obtain or Generate Lease Contract PDF
     const tempContractPdf = path.join(tempDir, `contract_${nowTimestamp}.pdf`);
-    const docxAttachment = contract.attachments?.find((url: string) => url.toLowerCase().endsWith('.docx'));
+    const docxAttachment = contract.attachments?.find((url: string) => typeof url === 'string' && /\.docx(\?|$)/i.test(url));
+    const contractPdfDirect = contract.contractPdfUrl || contract.pdfUrl;
+    const pdfAttachment = contract.attachments?.find((url: string) => typeof url === 'string' && /\.pdf(\?|$)/i.test(url)) || contractPdfDirect;
     let hasContractPdf = false;
 
-    if (docxAttachment) {
+    if (pdfAttachment) {
+      const pdfBuffer = await fetchAssetBuffer(pdfAttachment, apiBaseUrl, authHeader);
+      if (pdfBuffer) {
+        fs.writeFileSync(tempContractPdf, pdfBuffer);
+        tempFiles.push(tempContractPdf);
+        hasContractPdf = true;
+      }
+    }
+
+    if (!hasContractPdf && docxAttachment) {
       const attachmentBuffer = await fetchAssetBuffer(docxAttachment, apiBaseUrl, authHeader);
       if (attachmentBuffer) {
         const tempAttachmentDocx = path.join(tempDir, `attached_contract_${nowTimestamp}.docx`);
         fs.writeFileSync(tempAttachmentDocx, attachmentBuffer);
         tempFiles.push(tempAttachmentDocx);
         convertDocxToPdf(tempAttachmentDocx, tempContractPdf);
-        tempFiles.push(tempContractPdf);
-        hasContractPdf = true;
+        if (fs.existsSync(tempContractPdf)) {
+          tempFiles.push(tempContractPdf);
+          hasContractPdf = true;
+        }
       }
     }
 
@@ -517,6 +540,10 @@ export async function POST(request: Request) {
     if (fs.existsSync(sodoMSPath)) {
       const imgBuf = fs.readFileSync(sodoMSPath);
       await addImagePage(mergedPdf, imgBuf, false);
+    }
+
+    if (mergedPdf.getPageCount() === 0) {
+      return NextResponse.json({ error: 'Không có nội dung nào để tạo tài liệu PDF' }, { status: 400 });
     }
 
     // Serialize merged PDF

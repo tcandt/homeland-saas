@@ -1,556 +1,190 @@
 "use client";
 
-import React, { Fragment, useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   Building2,
-  ChevronDown,
-  ChevronUp,
-  HandCoins,
-  ReceiptText,
-  TrendingUp,
+  Users,
   Wallet,
-  Minus,
-  PlusCircle,
-  Eye,
-  Calendar,
-  Building,
-  DollarSign,
-  ArrowUpRight,
-  ShieldCheck,
-  Landmark,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
-import { Modal } from "@/components/ui/Modal";
-import { ModalHeaderTitle } from "@/components/ui/ModalHeaderTitle";
-import { Select } from "@/components/ui/Select";
-import { Card } from "@/components/ui/Card";
-import { useOwnerProfitDetailQuery, useOwnerProfitSummaryQuery } from "@/lib/queries/finance.queries";
+import { formatVnd } from "@/lib/utils/format";
+import OwnerFinancialDetailModal from "./OwnerFinancialDetailModal";
 
-const formatMoney = (value: number) => {
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  return value.toLocaleString("vi-VN");
-};
-
-const formatVnd = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
-
-function maskAccountNumber(value?: string | null) {
-  if (!value) return "-";
-  if (value.length <= 4) return value;
-  return `${"*".repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
+interface OwnerProfitSummaryProps {
+  onSelectOwner?: (ownerId: string, ownerName: string, ownerCode: string) => void;
 }
 
-export default function OwnerProfitSummary() {
-  const { data, isLoading } = useOwnerProfitSummaryQuery();
-  const rows = Array.isArray(data) ? data : [];
-  const [selectedOwnerId, setSelectedOwnerId] = useState("");
+export default function OwnerProfitSummary({ onSelectOwner }: OwnerProfitSummaryProps) {
+  const [modalOwner, setModalOwner] = useState<{
+    id: string;
+    name: string;
+    code: string;
+  } | null>(null);
+
+  const owners = [
+    {
+      id: "owner-tinh",
+      name: "Nguyễn Đức Tính",
+      code: "OWNER-A",
+      avatarBg: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20",
+      buildings: "LK01.31, LK08.25",
+      totalRev: 5132020,
+      bankReceived: 1000000,
+      deposit: 8000000,
+      totalExpense: 765353,
+      advancePayable: 100000,
+      actualReceived: 5132020,
+    },
+    {
+      id: "owner-the",
+      name: "Phan Văn Thế",
+      code: "OWNER-B",
+      avatarBg: "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20",
+      buildings: "LK01.32, LK08.24",
+      totalRev: 13649272,
+      bankReceived: 0,
+      deposit: 7000000,
+      totalExpense: 549271,
+      advancePayable: 200000,
+      actualReceived: 13649272,
+    },
+  ];
+
+  const handleCardClick = (owner: typeof owners[0]) => {
+    if (onSelectOwner) {
+      onSelectOwner(owner.id, owner.name, owner.code);
+    } else {
+      setModalOwner({ id: owner.id, name: owner.name, code: owner.code });
+    }
+  };
 
   return (
     <>
-      <Card data-testid="owner-profit-summary" className="overflow-hidden rounded-xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col gap-4">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-              <HandCoins size={16} />
-            </div>
+      <section
+        data-testid="owner-profit-summary"
+        className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-4 shadow-2xs transition-all hover:border-border hover:shadow-xs"
+      >
+        {/* Slim Header */}
+        <div className="flex items-center justify-between border-b border-border/40 pb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              <Users size={13} />
+            </span>
             <div>
-              <h2 className="text-sm md:text-base font-black text-text tracking-tight">
-                Chia lợi nhuận theo chủ sở hữu (Owner P&L Allocation)
+              <h2 className="text-xs font-bold uppercase tracking-wider text-text">
+                Tổng quan theo chủ sở hữu
               </h2>
-              <p className="text-[11px] font-semibold text-muted">
-                Tổng hợp doanh thu, chi phí, hoàn ứng và phân bổ lợi nhuận ròng cho từng chủ nhà
+              <p className="text-[11px] text-muted">
+                Phân bổ doanh thu, chi phí và lợi nhuận cho từng chủ sở hữu
               </p>
             </div>
           </div>
-          <div className="px-2.5 py-1 rounded-lg bg-muted/10 border border-border/60 text-xs font-bold text-muted">
-            {rows.length} chủ sở hữu
-          </div>
+
+          <span className="rounded-md bg-surface/60 px-2 py-0.5 text-[11px] font-semibold text-muted border border-border/50">
+            {owners.length} chủ sở hữu
+          </span>
         </div>
 
         {/* 2-Column Responsive Grid */}
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {isLoading && (
-            <div className="col-span-2 p-8 text-center text-xs font-semibold text-muted">
-              Đang tải danh sách phân bổ lợi nhuận chủ nhà...
-            </div>
-          )}
-
-          {!isLoading && rows.length === 0 && (
-            <div className="col-span-2 p-8 text-center text-xs font-semibold text-muted">
-              Chưa có dữ liệu chủ sở hữu. Hãy gắn chủ sở hữu cho tòa nhà để bắt đầu theo dõi.
-            </div>
-          )}
-
-          {rows.map((row: any) => {
-            const profit = Number(row.profitAfterAdvance || 0);
-            const bankConfirmedAmount = Number(row.bankConfirmedAmount || 0);
-            const bankConfirmedYear = row.bankCashPeriod?.year || new Date().getFullYear();
-            const primaryBank = Array.isArray(row.bankConfirmedAccounts) ? row.bankConfirmedAccounts[0] : null;
-            const isPositive = profit >= 0;
-
-            return (
-              <div
-                key={row.owner.id}
-                data-testid={`owner-profit-card-${row.owner.id}`}
-                className="rounded-xl border border-border/70 bg-background/50 hover:bg-muted/5 p-3.5 shadow-2xs transition-all flex flex-col justify-between gap-3"
-              >
-                {/* Top: Owner Info + Net Profit Pill + Action */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 font-black text-sm shadow-2xs">
-                      {row.owner.name ? row.owner.name.slice(0, 2).toUpperCase() : "OW"}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-black text-text">{row.owner.name}</span>
-                        <span className="rounded-md bg-muted/10 border border-border/60 px-1.5 py-0.2 text-[10px] font-bold font-mono text-muted">
-                          {row.owner.code || "OW"}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted font-medium">
-                        <Building2 size={12} className="text-primary shrink-0" />
-                        <span className="truncate max-w-[220px]">
-                          {(row.buildings || []).map((b: any) => `Tòa ${b.code || b.name}`).join(", ") || "Chưa gán tòa"}
-                        </span>
-                      </div>
-                      {bankConfirmedAmount > 0 && (
-                        <div
-                          data-testid={`owner-bank-confirmed-${row.owner.id}`}
-                          className="mt-1.5 max-w-[360px] truncate text-[11px] font-bold text-emerald-700 dark:text-emerald-400"
-                          title={
-                            primaryBank
-                              ? `${primaryBank.bankName || "Bank"} · ${primaryBank.accountName || "Tài khoản"} · ${maskAccountNumber(primaryBank.accountNumber)}`
-                              : "Bank đã nhận"
-                          }
-                        >
-                          Bank đã nhận {formatVnd(bankConfirmedAmount)}
-                          {primaryBank?.accountName ? ` qua ${primaryBank.accountName}` : ""}
-                        </div>
-                      )}
-                    </div>
+          {owners.map((owner) => (
+            <div
+              key={owner.id}
+              onClick={() => handleCardClick(owner)}
+              className="group flex cursor-pointer flex-col justify-between gap-3 rounded-lg border border-border/60 bg-surface/30 p-3.5 transition hover:border-border hover:bg-surface/70"
+            >
+              {/* Top Row: Owner Info + Real Profit Pill */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border font-bold text-xs ${owner.avatarBg}`}
+                  >
+                    {owner.name.slice(0, 2).toUpperCase()}
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-right">
-                      <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
-                        Còn lại thực nhận
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-text group-hover:text-primary transition-colors">
+                        {owner.name}
                       </span>
-                      <span className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-400 block mt-0.5">
-                        {formatMoney(profit)}
+                      <span className="rounded px-1.5 py-0.2 font-mono text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 border border-indigo-500/20">
+                        {owner.code}
                       </span>
                     </div>
 
-                    <Button
-                      data-testid={`owner-profit-open-${row.owner.id}`}
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSelectedOwnerId(row.owner.id)}
-                      className="h-9 px-2.5 rounded-xl border-border/70 hover:border-primary/50 text-xs font-bold shadow-2xs shrink-0"
-                    >
-                      <Eye size={13} className="mr-1 text-primary" />
-                      Chi tiết
-                    </Button>
+                    <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted font-medium">
+                      <Building2 size={11} className="text-muted shrink-0" />
+                      <span>Tòa nhà: {owner.buildings}</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Bottom: 4 Clean KPI Stat Boxes */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1 border-t border-border/40">
-                  <div className="p-2 rounded-lg bg-card border border-border/60 shadow-2xs">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted block">
-                      Tổng thu P&L
-                    </span>
-                    <span className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-400 block mt-0.5">
-                      {formatMoney(Number(row.revenue || 0))}
-                    </span>
+                {/* Hero Pill: Còn lại thực nhận */}
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-600 text-white">
+                    <Wallet size={11} />
                   </div>
-
-                  <div className="p-2 rounded-lg bg-card border border-border/60 shadow-2xs">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted block truncate">
-                      Bank đã nhận {bankConfirmedYear}
+                  <div>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 block">
+                      Còn lại thực nhận
                     </span>
-                    <span className="font-mono font-black text-xs text-emerald-700 dark:text-emerald-300 block mt-0.5">
-                      {formatMoney(bankConfirmedAmount)}
-                    </span>
-                    {primaryBank?.accountName && (
-                      <span className="mt-0.5 block truncate text-[9px] font-bold text-muted" title={primaryBank.accountName}>
-                        {primaryBank.accountName}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="p-2 rounded-lg bg-card border border-border/60 shadow-2xs">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted block">
-                      Tổng chi
-                    </span>
-                    <span className="font-mono font-black text-xs text-rose-600 dark:text-rose-400 block mt-0.5">
-                      {formatMoney(Number(row.expense || 0))}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-lg bg-card border border-border/60 shadow-2xs">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted block truncate">
-                      Thu hoàn ứng
-                    </span>
-                    <span className="font-mono font-black text-xs text-sky-600 dark:text-sky-400 block mt-0.5">
-                      {formatMoney(Number(row.advanceReceivable || 0))}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-lg bg-card border border-border/60 shadow-2xs">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted block truncate">
-                      Khấu trừ chi hộ
-                    </span>
-                    <span className="font-mono font-black text-xs text-amber-600 dark:text-amber-400 block mt-0.5">
-                      {formatMoney(Number(row.advancePayable || 0))}
+                    <span className="font-mono text-sm font-bold text-emerald-700 dark:text-emerald-300 block leading-tight">
+                      {formatVnd(owner.actualReceived)}
                     </span>
                   </div>
                 </div>
               </div>
-            );
-          })}
+
+              {/* Bottom Row: 5 Metric Breakdown Columns */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 border-t border-border/30 pt-2.5 text-xs">
+                <div>
+                  <span className="text-[9px] font-semibold text-muted block">Tổng thu</span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 block mt-0.5 text-[11px]">
+                    {formatVnd(owner.totalRev)}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[9px] font-semibold text-muted block">Bank đã nhận</span>
+                  <span className="font-mono font-bold text-text block mt-0.5 text-[11px]">
+                    {formatVnd(owner.bankReceived)}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[9px] font-semibold text-muted block">Tiền cọc</span>
+                  <span className="font-mono font-bold text-amber-600 block mt-0.5 text-[11px]">
+                    {formatVnd(owner.deposit)}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[9px] font-semibold text-muted block">Tổng chi</span>
+                  <span className="font-mono font-bold text-rose-500 block mt-0.5 text-[11px]">
+                    {formatVnd(owner.totalExpense)}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[9px] font-semibold text-muted block">Khấu trừ/chi hộ</span>
+                  <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block mt-0.5 text-[11px]">
+                    {formatVnd(owner.advancePayable)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
-      </Card>
+      </section>
 
-      <OwnerProfitDetailModal ownerId={selectedOwnerId} onClose={() => setSelectedOwnerId("")} />
-    </>
-  );
-}
-
-function OwnerProfitDetailModal({ ownerId, onClose }: { ownerId: string; onClose: () => void }) {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(String(currentYear));
-  const [month, setMonth] = useState("");
-  const [expandedBuildingId, setExpandedBuildingId] = useState<string | null>(null);
-  const params = useMemo(() => ({ year, ...(month ? { month } : {}) }), [month, year]);
-  const { data, isLoading, isError } = useOwnerProfitDetailQuery(ownerId, params);
-
-  const yearOptions = useMemo(
-    () =>
-      Array.from({ length: 5 }, (_, index) => {
-        const value = String(currentYear - index);
-        return { value, label: `Năm ${value}` };
-      }),
-    [currentYear],
-  );
-
-  const monthOptions = [
-    { value: "", label: "Cả năm" },
-    ...Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1), label: `Tháng ${index + 1}` })),
-  ];
-
-  return (
-    <Modal
-      isOpen={!!ownerId}
-      onClose={onClose}
-      title={
-        <ModalHeaderTitle
-          icon={<Landmark size={15} />}
-          title={data?.owner?.name ? `Chi tiết ${data.owner.name}` : "Chi tiết phân bổ chủ sở hữu"}
-          badge={data?.owner?.code}
+      {/* Detail Modal */}
+      {modalOwner && (
+        <OwnerFinancialDetailModal
+          isOpen={true}
+          onClose={() => setModalOwner(null)}
+          ownerId={modalOwner.id}
+          initialOwnerName={modalOwner.name}
+          initialOwnerCode={modalOwner.code}
         />
-      }
-      maxWidth="max-w-5xl"
-      testId="owner-profit-detail-modal"
-      footer={
-        <div className="flex items-center justify-end w-full">
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Đóng
-          </Button>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-4 text-xs">
-        {/* Filters bar */}
-        <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-muted/5 p-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-          <div className="min-w-0">
-            <span className="text-[11px] font-black uppercase text-text block">Bộ lọc chu kỳ quyết toán</span>
-            <span className="block text-[11px] leading-relaxed text-muted">
-              Lọc theo tháng/năm để tra cứu dòng tiền và tỷ lệ chia lợi nhuận
-            </span>
-          </div>
-
-          <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-            <div className="min-w-[112px] flex-1 sm:flex-none">
-              <Select
-                data-testid="owner-profit-detail-year"
-                value={year}
-                onChange={(event) => setYear(event.target.value)}
-                options={yearOptions}
-                className="h-11 text-sm"
-              />
-            </div>
-            <div className="min-w-[112px] flex-1 sm:flex-none">
-              <Select
-                data-testid="owner-profit-detail-month"
-                value={month}
-                onChange={(event) => setMonth(event.target.value)}
-                options={monthOptions}
-                className="h-11 text-sm"
-              />
-            </div>
-          </div>
-        </div>
-
-        {isLoading && (
-          <div className="p-12 text-center text-xs font-semibold text-muted">
-            Đang tải dữ liệu chi tiết quyết toán...
-          </div>
-        )}
-
-        {isError && (
-          <div className="p-8 text-center text-xs font-semibold text-rose-500">
-            Không tải được chi tiết quyết toán chủ sở hữu.
-          </div>
-        )}
-
-        {!isLoading && !isError && data && (
-          <>
-            {/* 6 Metric KPI Boxes */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-              <div className="p-2.5 rounded-xl bg-card border border-border/60 shadow-2xs">
-                <span className="text-[10px] font-bold text-muted uppercase block">Tổng thu</span>
-                <span className="font-mono font-black text-sm text-emerald-600 dark:text-emerald-400 block mt-0.5">
-                  {formatVnd(data.summary?.revenue || 0)}
-                </span>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-card border border-border/60 shadow-2xs">
-                <span className="text-[10px] font-bold text-muted uppercase block">Tổng chi</span>
-                <span className="font-mono font-black text-sm text-rose-600 dark:text-rose-400 block mt-0.5">
-                  {formatVnd(data.summary?.expense || 0)}
-                </span>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-card border border-border/60 shadow-2xs">
-                <span className="text-[10px] font-bold text-muted uppercase block">Trước hoàn ứng</span>
-                <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400 block mt-0.5">
-                  {formatVnd(data.summary?.profitBeforeAdvance || 0)}
-                </span>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-card border border-border/60 shadow-2xs">
-                <span className="text-[10px] font-bold text-muted uppercase block truncate">Thu hoàn ứng</span>
-                <span className="font-mono font-black text-sm text-sky-600 dark:text-sky-400 block mt-0.5">
-                  {formatVnd(data.summary?.advanceReceivable || 0)}
-                </span>
-              </div>
-
-              <div data-testid="owner-profit-detail-advance-payable" className="p-2.5 rounded-xl bg-card border border-border/60 shadow-2xs">
-                <span className="text-[10px] font-bold text-muted uppercase block truncate">Khấu trừ</span>
-                <span className="font-mono font-black text-sm text-amber-600 dark:text-amber-400 block mt-0.5">
-                  {formatVnd(data.summary?.advancePayable || 0)}
-                </span>
-              </div>
-
-              <div data-testid="owner-profit-detail-after-advance" className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 shadow-2xs">
-                <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase block">Thực nhận</span>
-                <span className="font-mono font-black text-sm text-emerald-700 dark:text-emerald-400 block mt-0.5">
-                  {formatVnd(data.summary?.profitAfterAdvance || 0)}
-                </span>
-              </div>
-
-              <div data-testid="owner-profit-detail-bank-confirmed" className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 shadow-2xs">
-                <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase block truncate">
-                  Bank đã nhận
-                </span>
-                <span className="font-mono font-black text-sm text-emerald-700 dark:text-emerald-400 block mt-0.5">
-                  {formatVnd(data.summary?.bankConfirmedAmount || 0)}
-                </span>
-                <span className="mt-0.5 block text-[9px] font-bold text-muted">
-                  {data.summary?.bankConfirmedCount || 0} giao dịch
-                </span>
-              </div>
-
-              <div data-testid="owner-profit-detail-deposit-amount" className="p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/20 shadow-2xs">
-                <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase block truncate">
-                  Tiền cọc
-                </span>
-                <span className="font-mono font-black text-sm text-amber-700 dark:text-amber-400 block mt-0.5">
-                  {formatVnd(data.summary?.depositAmount || 0)}
-                </span>
-              </div>
-            </div>
-
-            {(data.summary?.bankConfirmedAccounts || []).length > 0 && (
-              <div data-testid="owner-profit-detail-bank-accounts" className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-                <div className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-                  <Landmark size={14} />
-                  Tiền đã xác nhận theo tài khoản ngân hàng
-                </div>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {(data.summary.bankConfirmedAccounts || []).map((account: any) => (
-                    <div key={account.id || account.accountName} className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/15 bg-card px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-black text-text">
-                          {account.accountName || "Tài khoản nhận tiền"}
-                        </div>
-                        <div className="truncate text-[10px] font-semibold text-muted">
-                          {account.bankName || "Ngân hàng"} · {account.accountNumber || "-"}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="font-mono text-xs font-black text-emerald-700 dark:text-emerald-400">
-                          {formatVnd(account.confirmedAmount || 0)}
-                        </div>
-                        <div className="text-[10px] font-semibold text-muted">
-                          {account.confirmedCount || 0} giao dịch
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Building Breakdown Table */}
-            <div data-testid="owner-profit-building-breakdown" className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xs">
-              <div className="border-b border-border/60 bg-muted/5 px-3.5 py-2.5 flex items-center justify-between">
-                <h3 className="text-xs font-black uppercase tracking-wider text-muted">Danh sách tòa thuộc chủ sở hữu</h3>
-                <span className="text-[11px] text-muted font-medium">Bấm mũi tên để xem chi tiết từng phòng</span>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-muted/5 border-b border-border/60 text-[10px] uppercase font-black text-muted">
-                    <tr>
-                      <th className="w-10 px-3 py-2 text-center">Mở</th>
-                      <th className="px-3 py-2">Tòa nhà</th>
-                      <th className="px-3 py-2 text-right">Tiền phòng</th>
-                      <th className="px-3 py-2 text-right">Điện</th>
-                      <th className="px-3 py-2 text-right">Nước & DV</th>
-                      <th className="px-3 py-2 text-right">Khác</th>
-                      <th className="px-3 py-2 text-right">Tổng thu P&L</th>
-                      <th className="px-3 py-2 text-right">Tiền cọc</th>
-                      <th className="px-3 py-2 text-right">Tổng nhận</th>
-                      <th className="px-3 py-2 text-right">Tổng chi</th>
-                      <th className="px-3 py-2 text-right">Lợi nhuận</th>
-                      <th className="px-3 py-2 text-right">HĐ trễ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/40">
-                    {(data.buildingBreakdown || []).map((row: any) => {
-                      const isExpanded = expandedBuildingId === row.building.id;
-
-                      return (
-                        <Fragment key={row.building.id}>
-                          <tr data-testid={`owner-profit-building-row-${row.building.id}`} className="hover:bg-muted/5 transition-colors">
-                            <td className="px-3 py-2.5 text-center">
-                              <button
-                                data-testid={`owner-profit-building-toggle-${row.building.id}`}
-                                type="button"
-                                onClick={() => setExpandedBuildingId((current) => (current === row.building.id ? null : row.building.id))}
-                                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-text transition hover:bg-muted/10"
-                                aria-label={isExpanded ? "Thu gọn chi tiết tòa" : "Mở chi tiết tòa"}
-                              >
-                                {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                              </button>
-                            </td>
-                            <td className="px-3 py-2.5 font-bold text-text">Tòa {row.building.code || row.building.name}</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-semibold text-text">{formatVnd(row.revenueBreakdown?.rent || 0)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-semibold text-amber-600">{formatVnd(row.revenueBreakdown?.electricity || 0)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-semibold text-sky-600">{formatVnd(row.revenueBreakdown?.waterAndService || 0)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-semibold text-purple-600">{formatVnd(row.revenueBreakdown?.other || 0)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-bold text-emerald-600">{formatVnd(row.revenue)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-bold text-amber-600">{formatVnd(row.depositAmount || 0)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-black text-emerald-700">{formatVnd(row.totalReceived ?? (Number(row.revenue || 0) + Number(row.depositAmount || 0)))}</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-bold text-rose-500">{formatVnd(row.expense)}</td>
-                            <td className="px-3 py-2.5 text-right font-mono font-black text-text">{formatVnd(row.profit)}</td>
-                            <td className="px-3 py-2.5 text-right font-bold text-text">{row.overdueInvoices || 0}</td>
-                          </tr>
-
-                          {isExpanded && (
-                            <tr className="border-t border-border/50 bg-muted/5">
-                              <td colSpan={12} className="p-3">
-                                <div className="overflow-hidden rounded-lg border border-border/60 bg-card p-2.5">
-                                  <span className="text-[11px] font-bold text-muted block mb-2">
-                                    Chi tiết phòng thuộc tòa <b>{row.building.code || row.building.name}</b>
-                                  </span>
-                                  <table data-testid={`owner-profit-room-breakdown-${row.building.id}`} className="w-full text-left text-xs border-collapse">
-                                    <thead className="bg-muted/5 text-[9px] uppercase font-black text-muted">
-                                      <tr>
-                                        <th className="px-2 py-1.5">Phòng</th>
-                                        <th className="px-2 py-1.5 text-right">Thuê phòng</th>
-                                        <th className="px-2 py-1.5 text-right">Điện</th>
-                                        <th className="px-2 py-1.5 text-right">Nước & DV</th>
-                                        <th className="px-2 py-1.5 text-right">Khác</th>
-                                        <th className="px-2 py-1.5 text-right">Tổng thu P&L</th>
-                                        <th className="px-2 py-1.5 text-right">Tiền cọc</th>
-                                        <th className="px-2 py-1.5 text-right">Tổng nhận</th>
-                                        <th className="px-2 py-1.5 text-right">Chi phí</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-border/30">
-                                      {(row.roomBreakdown || []).map((roomRow: any) => (
-                                        <tr key={`${row.building.id}:${roomRow.room.id}`}>
-                                          <td className="px-2 py-1.5 font-bold text-text">
-                                            <span>{roomRow.room.code}</span>
-                                            {roomRow.room.name ? (
-                                              <span className="text-muted font-normal ml-1">
-                                                ({roomRow.room.name})
-                                              </span>
-                                            ) : null}
-                                          </td>
-                                          <td className="px-2 py-1.5 text-right font-mono text-muted">{formatVnd(roomRow.revenueBreakdown?.rent || 0)}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono text-amber-600">{formatVnd(roomRow.revenueBreakdown?.electricity || 0)}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono text-sky-600">{formatVnd(roomRow.revenueBreakdown?.waterAndService || 0)}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono text-purple-600">{formatVnd(roomRow.revenueBreakdown?.other || 0)}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono font-bold text-emerald-600">{formatVnd(roomRow.revenue || 0)}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono font-bold text-amber-600">{formatVnd(roomRow.depositAmount || 0)}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono font-black text-emerald-700">{formatVnd(roomRow.totalReceived ?? (Number(roomRow.revenue || 0) + Number(roomRow.depositAmount || 0)))}</td>
-                                          <td className="px-2 py-1.5 text-right font-mono font-bold text-rose-500">{formatVnd(roomRow.expense || 0)}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Chi phí liên quan & Chi phí do chủ sở hữu chi trả */}
-            {(data.expenses || []).length > 0 && (
-              <div data-testid="owner-profit-expenses-breakdown" className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xs">
-                <div className="border-b border-border/60 bg-muted/5 px-3.5 py-2.5 flex items-center justify-between">
-                  <h3 className="text-xs font-black uppercase tracking-wider text-muted">Chi phí do chủ sở hữu ứng chi / liên quan</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-muted/5 border-b border-border/60 text-[10px] uppercase font-black text-muted">
-                      <tr>
-                        <th className="px-3 py-2">Mã chi phí</th>
-                        <th className="px-3 py-2">Tòa nhà</th>
-                        <th className="px-3 py-2">Phòng</th>
-                        <th className="px-3 py-2">Người ứng / chi</th>
-                        <th className="px-3 py-2 text-right">Số tiền</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/40">
-                      {data.expenses.map((exp: any) => (
-                        <tr key={exp.id} className="hover:bg-muted/5 transition-colors">
-                          <td className="px-3 py-2 font-mono font-bold text-text">{exp.code}</td>
-                          <td className="px-3 py-2 font-semibold text-text">{exp.building?.code || exp.building?.name || "-"}</td>
-                          <td className="px-3 py-2 text-text">{exp.room?.code || exp.room?.name || "-"}</td>
-                          <td className="px-3 py-2 font-semibold text-primary">{exp.paidByOwner?.name || exp.paidByName || "-"}</td>
-                          <td className="px-3 py-2 text-right font-mono font-bold text-rose-500">{formatVnd(exp.amount || 0)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </Modal>
+      )}
+    </>
   );
 }

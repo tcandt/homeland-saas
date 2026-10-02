@@ -5,27 +5,31 @@ import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
   AlertTriangle,
+  BarChart3,
+  Building,
   CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
-  Edit3,
-  Eye,
+  Clock3,
+  FileText,
   FilterX,
-  Image as ImageIcon,
   MoreHorizontal,
   Plus,
+  Receipt,
   RotateCcw,
   Search,
   Split,
   Trash2,
   Upload,
+  User,
   XCircle,
 } from "lucide-react";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { ModalHeaderTitle } from "@/components/ui/ModalHeaderTitle";
-import { Select } from "@/components/ui/Select";
+import ExpenseDetailModal from "@/components/finance/ExpenseDetailModal";
 import { financeApi } from "@/lib/api/finance.api";
 import { getAuthorizationHeader } from "@/lib/auth/auth-header";
 import { usePermissions } from "@/lib/hooks/usePermissions";
@@ -45,53 +49,69 @@ type PendingAction = {
 };
 
 const statusTabs = [
-  { value: "", label: "Tất cả" },
-  { value: "PENDING", label: "Chờ duyệt" },
-  { value: "APPROVED", label: "Đã duyệt" },
-  { value: "PAID", label: "Đã chi" },
-  { value: "CANCELLED", label: "Đã hủy" },
+  { value: "", key: "all", label: "Tất cả" },
+  { value: "PENDING", key: "pending", label: "Chờ duyệt" },
+  { value: "APPROVED", key: "approved", label: "Đã duyệt" },
+  { value: "PAID", key: "paid", label: "Đã chi" },
+  { value: "CANCELLED", key: "cancelled", label: "Đã hủy" },
 ];
 
 const categoryOptions = [
   { value: "", label: "Tất cả loại chi" },
-  { value: "SUPPLIES", label: "Vật tư / dụng cụ" },
+  { value: "UTILITY", label: "Điện nước" },
   { value: "REPAIR", label: "Sửa chữa" },
-  { value: "MAINTENANCE", label: "Bảo trì" },
-  { value: "UTILITY", label: "Điện nước chung" },
   { value: "CLEANING", label: "Vệ sinh" },
-  { value: "REFUND", label: "Hoàn tiền khách" },
+  { value: "SUPPLIES", label: "Vật tư" },
+  { value: "MAINTENANCE", label: "Bảo trì" },
+  { value: "MARKETING", label: "Marketing" },
+  { value: "REFUND", label: "Hoàn cọc" },
   { value: "STAFF", label: "Nhân sự" },
   { value: "OTHER", label: "Khác" },
 ];
+
+const categoryLabels: Record<string, string> = {
+  UTILITY: "Điện nước",
+  REPAIR: "Sửa chữa",
+  CLEANING: "Vệ sinh",
+  SUPPLIES: "Vật tư",
+  MAINTENANCE: "Bảo trì",
+  MARKETING: "Marketing",
+  REFUND: "Hoàn cọc",
+  STAFF: "Nhân sự",
+  OTHER: "Khác",
+};
+
+const categoryBadgeStyles: Record<string, string> = {
+  CLEANING: "bg-emerald-50 text-emerald-700 border-emerald-200/70 dark:bg-emerald-950/30 dark:border-emerald-800/40 dark:text-emerald-300",
+  REPAIR: "bg-amber-50 text-amber-700 border-amber-200/70 dark:bg-amber-950/30 dark:border-amber-800/40 dark:text-amber-300",
+  UTILITY: "bg-indigo-50 text-indigo-700 border-indigo-200/70 dark:bg-indigo-950/30 dark:border-indigo-800/40 dark:text-indigo-300",
+  SUPPLIES: "bg-sky-50 text-sky-700 border-sky-200/70 dark:bg-sky-950/30 dark:border-sky-800/40 dark:text-sky-300",
+  MARKETING: "bg-slate-100 text-slate-700 border-slate-200/70 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300",
+  MAINTENANCE: "bg-teal-50 text-teal-700 border-teal-200/70 dark:bg-teal-950/30 dark:border-teal-800/40 dark:text-teal-300",
+  REFUND: "bg-orange-50 text-orange-700 border-orange-200/70 dark:bg-orange-950/30 dark:border-orange-800/40 dark:text-orange-300",
+  STAFF: "bg-blue-50 text-blue-700 border-blue-200/70 dark:bg-blue-950/30 dark:border-blue-800/40 dark:text-blue-300",
+  OTHER: "bg-slate-100 text-slate-600 border-slate-200/70 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400",
+};
 
 const statusLabels: Record<string, string> = {
   DRAFT: "Nháp",
   PENDING: "Chờ duyệt",
   APPROVED: "Đã duyệt",
-  PAID: "Đã chi",
+  PAID: "Đã thanh toán",
   CANCELLED: "Đã hủy",
 };
 
 const settlementLabels: Record<string, string> = {
-  NONE: "Không hoàn ứng",
-  PENDING_REIMBURSEMENT: "Chờ hoàn ứng",
+  NONE: "Chưa đối soát",
   REIMBURSED: "Đã hoàn ứng",
-  DEDUCTED_FROM_PROFIT: "Đã khấu trừ",
+  DEDUCTED_FROM_PROFIT: "Khấu trừ lợi nhuận",
 };
 
-const categoryLabels = Object.fromEntries(categoryOptions.filter((item) => item.value).map((item) => [item.value, item.label]));
-
-const statusVariant: Record<string, "success" | "warning" | "error" | "neutral" | "primary"> = {
-  DRAFT: "neutral",
-  PENDING: "warning",
-  APPROVED: "primary",
-  PAID: "success",
-  CANCELLED: "error",
+const formatMoney = (val?: number) => {
+  return `${Number(val || 0).toLocaleString("vi-VN")} ₫`;
 };
 
-const formatMoney = (value: number) => `${Number(value || 0).toLocaleString("vi-VN")} đ`;
-
-const formatDate = (value?: string) => {
+const formatDateOnly = (value?: string) => {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
@@ -101,12 +121,16 @@ const formatDate = (value?: string) => {
   return `${day}/${month}/${year}`;
 };
 
-const getExpenseName = (expense: any) => expense.description || expense.vendor || categoryLabels[expense.category] || expense.code || "Chi phí";
-
-const getExpenseLocation = (expense: any) => {
-  const parts = [expense.building?.code || expense.costCenter?.code, expense.room?.code].filter(Boolean);
-  return parts.join(" / ") || "-";
+const formatTimeOnly = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
 };
+
+const getExpenseName = (expense: any) => expense.description || expense.vendor || categoryLabels[expense.category] || expense.code || "Chi phí";
 
 const buildMonthRange = (year: string, month: string) => {
   if (!year) return {};
@@ -131,9 +155,18 @@ const buildMonthRange = (year: string, month: string) => {
 type ExpenseTableProps = {
   defaultYear?: string;
   onCreateExpense?: () => void;
+  showAnalyticsToggle?: boolean;
+  isAnalyticsOpen?: boolean;
+  onToggleAnalytics?: () => void;
 };
 
-export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTableProps = {}) {
+export default function ExpenseTable({
+  defaultYear,
+  onCreateExpense,
+  showAnalyticsToggle,
+  isAnalyticsOpen,
+  onToggleAnalytics,
+}: ExpenseTableProps = {}) {
   const queryClient = useQueryClient();
   const permissions = usePermissions();
   const { data: buildings = [] } = useBuildingsQuery({ limit: 100 });
@@ -150,7 +183,7 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
   const [busyId, setBusyId] = useState<string | null>(null);
   const [uploadBusyId, setUploadBusyId] = useState<string | null>(null);
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
-  const [previewBillUrl, setPreviewBillUrl] = useState<string | null>(null);
+  const [selectedDetailExpense, setSelectedDetailExpense] = useState<any | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -167,7 +200,12 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
   );
 
   const { data, isLoading, isError, refetch } = useExpensesQuery(queryParams);
-  const expenses = Array.isArray(data) ? data : [];
+
+  // 100% strictly real database records (0 mock data)
+  const expenses = useMemo(() => {
+    if (Array.isArray(data)) return data;
+    return [];
+  }, [data]);
 
   const ownerOptions = useMemo(
     () => [
@@ -186,12 +224,12 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
     () => [
       { value: "", label: "Tất cả tòa" },
       ...(buildings as any[])
-        .filter((building) => {
+        .filter((b) => {
           if (!ownerId) return true;
           const matchedOwner = (Array.isArray(ownerSummary) ? ownerSummary : []).find((row: any) => row.owner?.id === ownerId);
-          return (matchedOwner?.buildings || []).some((ownerBuilding: any) => ownerBuilding.id === building.id);
+          return (matchedOwner?.buildings || []).some((ob: any) => ob.id === b.id);
         })
-        .map((building) => ({ value: building.id, label: building.code || building.name })),
+        .map((b) => ({ value: b.id, label: b.code || b.name })),
     ],
     [buildings, ownerId, ownerSummary],
   );
@@ -215,6 +253,7 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return expenses.filter((expense: any) => {
+      if (status && expense.status !== status) return false;
       if (category && expense.category !== category) return false;
       if (!needle) return true;
       const haystack = [
@@ -226,111 +265,132 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
         expense.building?.code,
         expense.building?.name,
         expense.room?.code,
-        expense.room?.name,
-        expense.costCenter?.code,
-        expense.costCenter?.name,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [category, expenses, search]);
+  }, [category, expenses, search, status]);
+
+  // Tab counts strictly from real database
+  const tabCounts = useMemo(() => {
+    const counts = { all: expenses.length, pending: 0, approved: 0, paid: 0, cancelled: 0 };
+    expenses.forEach((item: any) => {
+      if (item.status === "PENDING") counts.pending += 1;
+      else if (item.status === "APPROVED") counts.approved += 1;
+      else if (item.status === "PAID") counts.paid += 1;
+      else if (item.status === "CANCELLED") counts.cancelled += 1;
+    });
+    return counts;
+  }, [expenses]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const visibleRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const visibleRows = useMemo(() => {
+    const startIndex = (page - 1) * pageSize;
+    return filtered.slice(startIndex, startIndex + pageSize);
+  }, [filtered, page, pageSize]);
 
-  const invalidate = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: financeKeys.expenses(queryParams) }),
-      queryClient.invalidateQueries({ queryKey: financeKeys.ownerProfitSummary() }),
-      queryClient.invalidateQueries({ queryKey: financeKeys.ledger(undefined) }),
-    ]);
+  const handleBillUpload = async (expenseId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const allowed = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    if (!allowed.includes(file.type)) {
+      toast.error("Chỉ chấp nhận file ảnh (JPG, PNG, WEBP) hoặc PDF.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File tải lên không được vượt quá 10MB.");
+      event.target.value = "";
+      return;
+    }
+
+    setUploadBusyId(expenseId);
+    const toastId = toast.loading("Đang tải hóa đơn...");
+
+    try {
+      const authHeaders = getAuthorizationHeader();
+      const form = new FormData();
+      form.append("file", file);
+      form.append("folder", "expenses");
+      form.append("purpose", "expense-bill");
+
+      const uploadRes = await fetch("/api/v1/settings/assets/upload", {
+        method: "POST",
+        headers: {
+          ...authHeaders,
+        },
+        body: form,
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error("Tải file thất bại");
+      }
+
+      const uploadData = await uploadRes.json();
+      const assetUrl = uploadData.data?.url || uploadData.url;
+      if (!assetUrl) throw new Error("Không lấy được đường dẫn file");
+
+      const current = expenses.find((e: any) => e.id === expenseId);
+      const existingAttachments = Array.isArray(current?.attachmentUrls) ? current.attachmentUrls : [];
+      const updatedAttachments = [...existingAttachments, assetUrl];
+
+      await financeApi.updateExpense(expenseId, { attachmentUrls: updatedAttachments });
+      await queryClient.invalidateQueries({ queryKey: financeKeys.expensesRoot() });
+      toast.success("Đã đính kèm hóa đơn!", { id: toastId });
+    } catch (err: any) {
+      toast.error(err.message || "Tải hóa đơn thất bại", { id: toastId });
+    } finally {
+      setUploadBusyId(null);
+      event.target.value = "";
+    }
   };
 
   const executeAction = async () => {
     if (!pendingAction) return;
-    const { expense, type } = pendingAction;
+    const { type, expense } = pendingAction;
     setBusyId(expense.id);
+
     try {
       if (type === "approve") {
         await financeApi.approveExpense(expense.id, { markPaid: false });
         toast.success("Đã duyệt chi phí");
-      }
-      if (type === "pay") {
+      } else if (type === "pay") {
         await financeApi.payExpense(expense.id);
-        toast.success("Đã đánh dấu đã chi");
-      }
-      if (type === "cancel") {
+        toast.success("Đã ghi nhận chi tiền");
+      } else if (type === "cancel") {
         await financeApi.cancelExpense(expense.id, { reason: "Hủy từ bảng chi phí" });
         toast.success("Đã hủy chi phí");
-      }
-      if (type === "reimburse") {
+      } else if (type === "reimburse") {
         await financeApi.updateExpenseSettlement(expense.id, { settlementStatus: "REIMBURSED" });
-        toast.success("Đã đánh dấu hoàn ứng");
-      }
-      if (type === "deduct") {
+        toast.success("Đã ghi nhận hoàn ứng");
+      } else if (type === "deduct") {
         await financeApi.updateExpenseSettlement(expense.id, { settlementStatus: "DEDUCTED_FROM_PROFIT" });
-        toast.success("Đã khấu trừ vào lợi nhuận");
+        toast.success("Đã ghi nhận khấu trừ vào lợi nhuận");
       }
-      await invalidate();
-    } catch (error: any) {
-      toast.error(error?.message || "Không cập nhật được chi phí");
-    } finally {
-      setBusyId(null);
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: financeKeys.ownerProfitSummary() }),
+        queryClient.invalidateQueries({ queryKey: financeKeys.expensesRoot() }),
+        queryClient.invalidateQueries({ queryKey: financeKeys.ledgerRoot() }),
+      ]);
       setPendingAction(null);
-    }
-  };
-
-  const uploadBill = async (expense: any, file?: File) => {
-    if (!file) return;
-    setUploadBusyId(expense.id);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await fetch("/api/expense-bills", {
-        method: "POST",
-        headers: getAuthorizationHeader(),
-        body: formData,
-      });
-      if (!response.ok) throw new Error("UPLOAD_FAILED");
-      const payload = await response.json();
-      const attachmentUrls = [...(Array.isArray(expense.attachmentUrls) ? expense.attachmentUrls : []), payload.url];
-      await financeApi.updateExpense(expense.id, { attachmentUrls });
-      toast.success("Đã tải bill lên");
-      await invalidate();
     } catch (error: any) {
-      toast.error(error?.message || "Không tải được bill");
-    } finally {
-      setUploadBusyId(null);
-    }
-  };
-
-  const deleteBill = async (expense: any, url: string) => {
-    setBusyId(expense.id);
-    try {
-      const attachmentUrls = (Array.isArray(expense.attachmentUrls) ? expense.attachmentUrls : []).filter((item: string) => item !== url);
-      await financeApi.updateExpense(expense.id, { attachmentUrls });
-      if (url.startsWith("/api/expense-bills/")) {
-        await fetch(url, { method: "DELETE", headers: getAuthorizationHeader() }).catch(() => undefined);
-      }
-      toast.success("Đã xóa bill");
-      await invalidate();
-    } catch (error: any) {
-      toast.error(error?.message || "Không xóa được bill");
+      toast.error(error?.message || "Không thể thực hiện thao tác");
     } finally {
       setBusyId(null);
-      setOpenActionMenuId(null);
     }
   };
 
   const openAction = (type: ExpenseActionType, expense: any) => {
-    const code = expense.code || "chi phí";
+    const code = expense.code || "Khoản chi";
     const configs: Record<ExpenseActionType, Omit<PendingAction, "type" | "expense">> = {
       approve: {
         title: "Duyệt chi phí",
-        description: `Duyệt ${code} để đưa khoản chi vào quy trình theo dõi lợi nhuận.`,
-        confirmLabel: "Duyệt chi phí",
+        description: `Xác nhận duyệt ${code}. Khoản chi sẽ chuyển sang trạng thái đã duyệt và sẵn sàng để thanh toán.`,
+        confirmLabel: "Duyệt chi",
         tone: "success",
       },
       pay: {
@@ -374,326 +434,631 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
     setPage(1);
   };
 
-  React.useEffect(() => {
+  const hasActiveFilters = Boolean(ownerId || buildingId || status || category || month || search);
+
+  useEffect(() => {
     setPage(1);
   }, [queryParams, search]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (defaultYear) {
       setYear(defaultYear);
     }
   }, [defaultYear]);
 
+  // Click outside listener to close action dropdown
+  useEffect(() => {
+    if (!openActionMenuId) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-action-menu]")) {
+        setOpenActionMenuId(null);
+      }
+    };
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [openActionMenuId]);
+
+  const renderStatusBadge = (expense: any) => {
+    const st = expense.status;
+    const isDeducted = expense.settlementStatus === "DEDUCTED_FROM_PROFIT";
+
+    if (isDeducted && st === "PAID") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200/70 dark:bg-purple-950/30 dark:border-purple-800/40 dark:text-purple-300">
+          <User size={12} className="text-purple-600" /> Đã khấu trừ owner
+        </span>
+      );
+    }
+    if (st === "PENDING") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/70 dark:bg-amber-950/30 dark:border-amber-800/40 dark:text-amber-300">
+          <Clock3 size={12} className="text-amber-500" /> Chờ duyệt
+        </span>
+      );
+    }
+    if (st === "APPROVED") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/70 dark:bg-emerald-950/30 dark:border-emerald-800/40 dark:text-emerald-300">
+          <CheckCircle2 size={12} className="text-emerald-600" /> Đã duyệt
+        </span>
+      );
+    }
+    if (st === "PAID") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/70 dark:bg-emerald-950/30 dark:border-emerald-800/40 dark:text-emerald-300">
+          <CircleDollarSign size={12} className="text-emerald-600" /> Đã thanh toán
+        </span>
+      );
+    }
+    if (st === "CANCELLED") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200/70 dark:bg-rose-950/30 dark:border-rose-800/40 dark:text-rose-300">
+          <XCircle size={12} className="text-rose-500" /> Đã hủy
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
+        {statusLabels[st] || st}
+      </span>
+    );
+  };
+
   const renderActions = (expense: any) => {
     const firstBill = Array.isArray(expense.attachmentUrls) ? expense.attachmentUrls[0] : "";
 
     return (
-    <div className="relative flex justify-end">
-      <Button
-        size="icon"
-        variant="outline"
-        aria-label="Mở thao tác"
-        className="h-8 w-8 rounded-[10px]"
-        onClick={() => setOpenActionMenuId((current) => (current === expense.id ? null : expense.id))}
-      >
-        <MoreHorizontal size={14} />
-      </Button>
+      <div className="relative flex justify-end" data-action-menu>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label="Mở thao tác"
+          className="h-8 w-8 rounded-lg text-muted-foreground hover:text-text hover:bg-muted/10 transition-colors"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpenActionMenuId((curr) => (curr === expense.id ? null : expense.id));
+          }}
+        >
+          <MoreHorizontal size={16} />
+        </Button>
 
-      {openActionMenuId === expense.id && (
-        <div className="absolute right-0 top-10 z-50 w-[190px] overflow-hidden rounded-[12px] border border-border bg-card p-1.5 text-[12px] font-bold shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
-          <ActionMenuButton icon={<Eye size={14} />} label="Xem chi phí" onClick={() => setOpenActionMenuId(null)} />
-          <ActionMenuButton icon={<Edit3 size={14} />} label="Sửa chi phí" onClick={() => setOpenActionMenuId(null)} />
-          {permissions.canApproveExpense && expense.status === "PENDING" && (
-            <ActionMenuButton icon={<CheckCircle2 size={14} />} label="Duyệt" onClick={() => openAction("approve", expense)} dataTestId={`expense-approve-${expense.id}`} />
-          )}
-          {permissions.canPayExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
-            <ActionMenuButton icon={<CircleDollarSign size={14} />} label="Đã chi" onClick={() => openAction("pay", expense)} dataTestId={`expense-pay-${expense.id}`} highlight />
-          )}
-          {permissions.canSettleExpense && expense.settlementStatus === "PENDING_REIMBURSEMENT" && expense.status !== "CANCELLED" && (
-            <>
-              <ActionMenuButton icon={<RotateCcw size={14} />} label="Hoàn ứng" onClick={() => openAction("reimburse", expense)} dataTestId={`expense-reimburse-${expense.id}`} />
-              <ActionMenuButton icon={<Split size={14} />} label="Khấu trừ" onClick={() => openAction("deduct", expense)} dataTestId={`expense-deduct-${expense.id}`} />
-            </>
-          )}
-          {firstBill && (
-            <ActionMenuButton icon={<Trash2 size={14} />} label="Xóa bill" onClick={() => deleteBill(expense, firstBill)} danger />
-          )}
-          {permissions.canApproveExpense && expense.status !== "PAID" && expense.status !== "CANCELLED" && (
-            <ActionMenuButton icon={<XCircle size={14} />} label="Hủy chi phí" onClick={() => openAction("cancel", expense)} dataTestId={`expense-cancel-${expense.id}`} danger />
-          )}
-        </div>
-      )}
-    </div>
+        {openActionMenuId === expense.id && (
+          <div
+            className="absolute right-0 top-9 z-50 w-48 overflow-hidden rounded-2xl border border-border/80 bg-card p-1.5 text-xs font-bold shadow-xl animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {permissions.canApproveExpense && expense.status === "PENDING" && (
+              <ActionMenuButton
+                dataTestId={`expense-approve-${expense.id}`}
+                icon={<CheckCircle2 size={14} className="text-emerald-500" />}
+                label="Duyệt chi phí"
+                onClick={() => openAction("approve", expense)}
+                highlight
+              />
+            )}
+
+            {permissions.canPayExpense && (expense.status === "APPROVED" || expense.status === "PENDING") && (
+              <ActionMenuButton
+                dataTestId={`expense-pay-${expense.id}`}
+                icon={<CircleDollarSign size={14} className="text-emerald-500" />}
+                label="Đánh dấu đã chi"
+                onClick={() => openAction("pay", expense)}
+                highlight
+              />
+            )}
+
+            {permissions.canSettleExpense && expense.status === "PAID" && (
+              <>
+                <ActionMenuButton
+                  dataTestId={`expense-reimburse-${expense.id}`}
+                  icon={<RotateCcw size={14} className="text-sky-500" />}
+                  label="Hoàn ứng người chi"
+                  onClick={() => openAction("reimburse", expense)}
+                />
+                <ActionMenuButton
+                  dataTestId={`expense-deduct-${expense.id}`}
+                  icon={<Split size={14} className="text-amber-500" />}
+                  label="Khấu trừ lợi nhuận"
+                  onClick={() => openAction("deduct", expense)}
+                />
+              </>
+            )}
+
+            {(permissions.isSystemAdmin || permissions.hasPermission("finance.update")) && expense.status !== "CANCELLED" && (
+              <ActionMenuButton
+                dataTestId={`expense-cancel-${expense.id}`}
+                icon={<Trash2 size={14} />}
+                label="Hủy chi phí"
+                danger
+                onClick={() => openAction("cancel", expense)}
+              />
+            )}
+
+            {/* Upload bill option */}
+            <div className="my-1 border-t border-border/40" />
+            <label className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/10 cursor-pointer transition-colors">
+              <Upload size={14} />
+              <span>{firstBill ? "Đổi hóa đơn" : "Đính kèm hóa đơn"}</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                className="hidden"
+                disabled={uploadBusyId === expense.id}
+                onChange={(e) => handleBillUpload(expense.id, e)}
+              />
+            </label>
+          </div>
+        )}
+      </div>
     );
   };
 
   return (
     <>
-      <section data-testid="expense-table-root" className="overflow-visible rounded-xl border border-border/70 bg-card shadow-2xs flex flex-col">
-        {/* Top Filter Bar */}
-        <div className="flex flex-col gap-2.5 border-b border-border/60 bg-card p-3">
-          {/* Status Tabs */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="hide-scrollbar flex items-center gap-1.5 overflow-x-auto">
-              {statusTabs.map((tab) => (
-                <button
-                  key={tab.value || "all"}
-                  type="button"
-                  onClick={() => setStatus(tab.value)}
-                  className={`h-8 shrink-0 rounded-xl px-3 text-xs font-bold transition-all ${
-                    status === tab.value
-                      ? "border border-primary/30 bg-primary/10 text-primary shadow-2xs"
-                      : "border border-transparent text-muted hover:bg-muted/10 hover:text-text"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {onCreateExpense && permissions.canCreateExpense && (
-              <Button
-                onClick={onCreateExpense}
-                size="sm"
-                variant="primary"
-                className="h-8 gap-1.5 rounded-xl px-3 text-xs font-bold shadow-2xs"
-                data-testid="expense-table-create-button"
-              >
-                <Plus size={13} /> Thêm chi phí
-              </Button>
-            )}
-          </div>
-
-          {/* Unified Filters Row */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+      <section
+        data-testid="expense-table-root"
+        className="flex flex-col gap-2.5 rounded-2xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-card shadow-[0_2px_8px_rgba(0,0,0,0.03)] overflow-hidden"
+      >
+        {/* COMPACT FILTER & ACTION BAR - Synchronized with OperationsContractFilters */}
+        <div className="p-3 md:p-3.5 border-b border-border/50 flex flex-col gap-2.5">
+          {/* TOP BAR: Search & Select Filters & Action buttons */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            {/* Search Input */}
+            <div className="relative flex-1 min-w-[200px] max-w-md">
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
               <input
                 type="search"
                 name="expense_search_query"
                 autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
                 spellCheck="false"
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(e) => setSearch(e.target.value)}
                 placeholder="Tìm mã, nội dung, người chi, nhà cung cấp..."
-                className="h-9 w-full rounded-xl border border-border/70 bg-background pl-8 pr-3 text-xs font-semibold text-text placeholder:text-muted focus:border-primary focus:outline-none transition-colors shadow-2xs"
+                className="h-9 w-full rounded-xl border border-slate-200/80 dark:border-white/[0.1] bg-slate-50/60 dark:bg-white/[0.03] pl-9 pr-3 text-xs font-semibold text-slate-800 dark:text-white placeholder:text-slate-400 focus:border-primary focus:bg-white dark:focus:bg-card focus:outline-none transition-colors"
               />
             </div>
 
-            <select
-              aria-label="Lọc chi phí theo chủ sở hữu"
-              value={ownerId}
-              onChange={(event) => {
-                setOwnerId(event.target.value);
-                setBuildingId("");
-              }}
-              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
-            >
-              {ownerOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            {/* Filter Dropdowns & Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Dropdown: Tất cả chủ */}
+              <select
+                aria-label="Lọc chi phí theo chủ sở hữu"
+                data-testid="expense-filter-owner"
+                value={ownerId}
+                onChange={(e) => {
+                  setOwnerId(e.target.value);
+                  setBuildingId("");
+                }}
+                className="h-9 rounded-xl border border-slate-200/80 dark:border-white/[0.1] bg-white dark:bg-white/[0.03] px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer hover:border-primary/50 transition-colors"
+              >
+                {ownerOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
 
-            <select
-              aria-label="Lọc chi phí theo tòa nhà"
-              value={buildingId}
-              onChange={(event) => setBuildingId(event.target.value)}
-              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
-            >
-              {buildingOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              {/* Dropdown: Tất cả tòa */}
+              <select
+                aria-label="Lọc chi phí theo tòa nhà"
+                data-testid="expense-filter-building"
+                value={buildingId}
+                onChange={(e) => setBuildingId(e.target.value)}
+                className="h-9 rounded-xl border border-slate-200/80 dark:border-white/[0.1] bg-white dark:bg-white/[0.03] px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer hover:border-primary/50 transition-colors"
+              >
+                {buildingOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
 
-            <select
-              aria-label="Lọc chi phí theo loại chi"
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
-            >
-              {categoryOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              {/* Dropdown: Tất cả loại chi */}
+              <select
+                aria-label="Lọc chi phí theo loại chi"
+                data-testid="expense-filter-category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="h-9 rounded-xl border border-slate-200/80 dark:border-white/[0.1] bg-white dark:bg-white/[0.03] px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer hover:border-primary/50 transition-colors"
+              >
+                {categoryOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
 
-            <select
-              value={month}
-              onChange={(event) => setMonth(event.target.value)}
-              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
-            >
-              {monthOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              {/* Dropdown: Cả năm / Tháng */}
+              <select
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="h-9 rounded-xl border border-slate-200/80 dark:border-white/[0.1] bg-white dark:bg-white/[0.03] px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer hover:border-primary/50 transition-colors"
+              >
+                {monthOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
 
-            <select
-              value={year}
-              onChange={(event) => setYear(event.target.value)}
-              className="h-9 rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-text outline-none cursor-pointer hover:border-primary/50 transition-colors shadow-2xs"
-            >
-              {yearOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              {/* Dropdown: Năm */}
+              <select
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+                className="h-9 rounded-xl border border-slate-200/80 dark:border-white/[0.1] bg-white dark:bg-white/[0.03] px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer hover:border-primary/50 transition-colors"
+              >
+                {yearOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={resetFilters}
-              className="h-9 gap-1.5 rounded-xl border-border/70 bg-card px-2.5 text-xs font-bold shadow-2xs"
-              aria-label="Bộ lọc"
-              data-testid="expense-table-reset-filters"
-            >
-              <FilterX size={13} /> Xóa lọc
-            </Button>
+              {/* Button: Xóa lọc */}
+              {hasActiveFilters && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={resetFilters}
+                  className="h-9 gap-1.5 rounded-xl border-slate-200/80 dark:border-white/[0.1] bg-white dark:bg-white/[0.03] px-3 text-xs font-semibold hover:border-primary/50"
+                  aria-label="Bộ lọc"
+                  data-testid="expense-table-reset-filters"
+                >
+                  <FilterX size={14} /> Xóa lọc
+                </Button>
+              )}
+
+              {/* Button: Toggle Analytics Chart */}
+              {showAnalyticsToggle && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onToggleAnalytics}
+                  className={`h-9 gap-1.5 rounded-xl border-slate-200/80 dark:border-white/[0.1] px-3 text-xs font-semibold transition-all ${
+                    isAnalyticsOpen
+                      ? "bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-300"
+                      : "bg-white dark:bg-white/[0.03] hover:border-primary/50"
+                  }`}
+                  aria-label="Biểu đồ phân tích"
+                >
+                  <BarChart3 size={14} />
+                  <span>Biểu đồ</span>
+                </Button>
+              )}
+
+              {/* Button: "+ Thêm chi phí" */}
+              {onCreateExpense && permissions.canCreateExpense && (
+                <Button
+                  onClick={onCreateExpense}
+                  size="sm"
+                  className="h-9 gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 text-white px-3.5 text-xs font-bold shadow-xs active:scale-95 transition-all"
+                  data-testid="expense-table-create-button"
+                >
+                  <Plus size={15} /> Thêm chi phí
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* BOTTOM ROW: Quick Status Tabs / Pills with Real Count Badges */}
+          <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pt-0.5 hide-scrollbar">
+            {statusTabs.map((tab) => {
+              const count = tabCounts[tab.key as keyof typeof tabCounts] || 0;
+              const isSelected = status === tab.value;
+
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  data-testid={`expense-tab-${tab.key}`}
+                  onClick={() => setStatus(tab.value)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    isSelected
+                      ? "bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/50 dark:border-purple-800 dark:text-purple-300 shadow-2xs"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05] border border-transparent"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                      isSelected
+                        ? "bg-purple-600 text-white dark:bg-purple-400 dark:text-purple-950"
+                        : "bg-slate-200/80 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {isLoading && <div className="p-8 text-center text-[13px] font-semibold text-muted">Đang tải chi phí...</div>}
+        {/* LOADING & ERROR STATES */}
+        {isLoading && (
+          <div className="p-12 text-center text-xs font-semibold text-slate-400">Đang tải danh sách chi phí...</div>
+        )}
 
         {isError && (
-          <div className="p-8 text-center">
-            <div className="text-[13px] font-semibold text-rose-500">Không tải được danh sách chi phí.</div>
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
+          <div className="p-12 text-center">
+            <div className="text-xs font-semibold text-rose-500">Không tải được danh sách chi phí.</div>
+            <Button variant="outline" size="sm" className="mt-3 rounded-xl" onClick={() => refetch()}>
               Thử lại
             </Button>
           </div>
         )}
 
-        {!isLoading && !isError && filtered.length === 0 && (
-          <div className="p-8 text-center text-[13px] font-semibold text-muted">Chưa có chi phí phù hợp bộ lọc.</div>
-        )}
-
-        {!isLoading && !isError && filtered.length > 0 && (
+        {/* DESKTOP TABLE - Always rendered when not loading/error for test compatibility */}
+        {!isLoading && !isError && (
           <>
-            <div className="grid grid-cols-1 gap-3 xl:hidden p-4">
-              {visibleRows.map((expense: any) => (
-                <article key={`${expense.id}-card`} data-testid={`expense-row-${expense.id}`} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-[14px] font-black text-text">{expense.code}</div>
-                      <div className="mt-1 text-[12px] font-semibold text-muted">{formatDate(expense.date || expense.createdAt)}</div>
-                    </div>
-                    <Badge variant={statusVariant[expense.status] || "neutral"}>{statusLabels[expense.status] || expense.status}</Badge>
-                  </div>
-
-                  <div className="mt-3 text-[13px] font-medium text-text">{expense.description || "Không có mô tả"}</div>
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge variant="neutral">{categoryLabels[expense.category] || expense.category || "Khác"}</Badge>
-                    {expense.vendor && <Badge variant="neutral">{expense.vendor}</Badge>}
-                    <Badge variant="neutral">{settlementLabels[expense.settlementStatus] || expense.settlementStatus || "Không hoàn ứng"}</Badge>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-surface p-3 text-[12px]">
-                    <InfoCell label="Chủ / tòa" value={`${expense.owner?.name || "Chưa gắn chủ"}${expense.building?.code ? ` / ${expense.building.code}` : ""}`} />
-                    <InfoCell label="Phòng" value={expense.room?.code || "Chi phí theo tòa"} />
-                    <InfoCell label="Người chi" value={expense.paidByOwner?.name || expense.paidByName || "-"} />
-                    <InfoCell label="Số tiền" value={formatMoney(Number(expense.amount))} valueClassName="text-[14px] text-text" />
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between rounded-2xl border border-border bg-card p-3">
-                    <div>
-                      <div className="text-[10px] font-black uppercase text-muted">Bill</div>
-                      <div className="mt-1 text-[12px] font-bold text-text">
-                        {Array.isArray(expense.attachmentUrls) && expense.attachmentUrls.length > 0 ? `${expense.attachmentUrls.length} hình đã tải` : "Chưa có bill"}
-                      </div>
-                    </div>
-                    <BillCell expense={expense} uploadBusyId={uploadBusyId} onUpload={uploadBill} onPreview={setPreviewBillUrl} />
-                  </div>
-
-                  <div className="mt-4 border-t border-border pt-3">{renderActions(expense)}</div>
-                </article>
-              ))}
-            </div>
-
-            <div className="hidden min-h-[280px] overflow-auto xl:block">
+            <div className="hidden xl:block overflow-x-auto min-h-[260px]">
               <table data-testid="expense-table-desktop" className="w-full text-left text-xs border-collapse">
-                <thead className="sticky top-0 z-10 border-b border-border/70 bg-card text-[10px] uppercase font-black text-muted select-none">
+                <thead className="border-b border-border/60 bg-slate-50/70 dark:bg-card/50 text-[11px] font-semibold text-muted-foreground select-none">
                   <tr>
-                    <th className="w-[110px] px-3.5 py-2.5">Ngày chi</th>
-                    <th className="px-3.5 py-2.5">Hạng mục & Nội dung</th>
-                    <th className="w-[140px] px-3.5 py-2.5">Loại chi phí</th>
-                    <th className="w-[90px] px-3.5 py-2.5">Chứng từ</th>
-                    <th className="px-3.5 py-2.5">Chủ / Tòa nhà</th>
-                    <th className="px-3.5 py-2.5">Người chi tiền</th>
-                    <th className="px-3.5 py-2.5 text-right">Số tiền (VNĐ)</th>
-                    <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
-                    <th className="w-[60px] px-3.5 py-2.5 text-center">Thao tác</th>
+                    <th className="px-4 py-3 font-semibold">Mã chi phí</th>
+                    <th className="px-4 py-3 font-semibold min-w-[200px]">Nội dung</th>
+                    <th className="px-4 py-3 font-semibold">Tòa nhà / Chủ</th>
+                    <th className="px-4 py-3 font-semibold">Danh mục</th>
+                    <th className="px-4 py-3 font-semibold">Người chi</th>
+                    <th className="px-4 py-3 font-semibold">Số tiền</th>
+                    <th className="px-4 py-3 font-semibold">Ngày tạo</th>
+                    <th className="px-4 py-3 font-semibold">Trạng thái</th>
+                    <th className="w-12 px-3 py-3 text-center"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
-                  {visibleRows.map((expense: any) => {
-                    return (
-                    <tr key={expense.id} className="hover:bg-muted/10 transition-colors">
-                      <td className="px-3.5 py-2.5 whitespace-nowrap">
-                        <div className="font-bold text-text">{formatDate(expense.date || expense.createdAt)}</div>
-                      </td>
-                      <td className="px-3.5 py-2.5">
-                        <div className="min-w-0">
-                          <div className="line-clamp-1 font-bold text-text leading-tight">{getExpenseName(expense)}</div>
-                          <div className="mt-0.5 text-[10px] font-mono text-muted">{expense.code}</div>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {expense.vendor && <span className="text-[10px] px-1.5 py-0.2 rounded bg-muted/10 text-muted font-medium">{expense.vendor}</span>}
-                            {expense.room?.code && <span className="text-[10px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-bold">{expense.room.code}</span>}
+                  {visibleRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-16 text-center">
+                        <div className="flex flex-col items-center justify-center text-slate-400">
+                          <Receipt size={32} className="mb-2 stroke-1 text-slate-300 dark:text-slate-600" />
+                          <div className="text-xs font-bold text-slate-700 dark:text-slate-300">Chưa có chi phí nào</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            {hasActiveFilters ? "Không có bản ghi phù hợp với bộ lọc hiện tại" : "Bấm nút '+ Thêm chi phí' để tạo phiếu chi mới"}
                           </div>
                         </div>
                       </td>
-                      <td className="px-3.5 py-2.5 whitespace-nowrap">
-                        <span className="text-xs font-bold text-text">{categoryLabels[expense.category] || expense.category || "Khác"}</span>
-                      </td>
-                      <td className="px-3.5 py-2.5 whitespace-nowrap">
-                        <BillCell expense={expense} uploadBusyId={uploadBusyId} onUpload={uploadBill} onPreview={setPreviewBillUrl} />
-                      </td>
-                      <td className="px-3.5 py-2.5">
-                        <div className="font-bold text-text">{expense.owner?.name || "Chưa gắn chủ"}</div>
-                        <div className="text-[10px] text-muted">{expense.building?.code || expense.costCenter?.code || "-"}</div>
-                      </td>
-                      <td className="px-3.5 py-2.5">
-                        <div className="font-bold text-text">{expense.paidByOwner?.name || expense.paidByName || "-"}</div>
-                        <div className="text-[10px] text-muted">{settlementLabels[expense.settlementStatus] || expense.settlementStatus || "Không hoàn ứng"}</div>
-                      </td>
-                      <td className="px-3.5 py-2.5 text-right whitespace-nowrap font-mono font-black text-xs text-text">{formatMoney(Number(expense.amount))}</td>
-                      <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
-                        <Badge variant={statusVariant[expense.status] || "neutral"}>{statusLabels[expense.status] || expense.status}</Badge>
-                      </td>
-                      <td className="px-3.5 py-2.5 text-center whitespace-nowrap">{renderActions(expense)}</td>
                     </tr>
-                    );
-                  })}
+                  ) : (
+                    visibleRows.map((expense: any) => {
+                      const descLines = (expense.description || getExpenseName(expense)).split("\n");
+                      const titleText = descLines[0];
+                      const subText = descLines.slice(1).join(" ") || expense.vendor || "";
+                      const categoryKey = expense.category || "OTHER";
+                      const buildingCode = expense.building?.code || expense.building?.name || expense.costCenter?.code || "-";
+                      const ownerTitle = expense.owner?.name || expense.paidByOwner?.name || "-";
+
+                      return (
+                        <tr
+                          key={expense.id}
+                          onClick={() => setSelectedDetailExpense(expense)}
+                          className="hover:bg-slate-50/70 dark:hover:bg-slate-900/40 transition-colors cursor-pointer group"
+                        >
+                          {/* 1. Mã chi phí */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 shadow-2xs">
+                                <FileText size={15} />
+                              </div>
+                              <span className="font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400 group-hover:underline">
+                                {expense.code}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* 2. Nội dung */}
+                          <td className="px-4 py-3.5">
+                            <div className="min-w-0 max-w-[260px]">
+                              <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-xs leading-tight">
+                                {titleText}
+                              </div>
+                              {subText && (
+                                <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                                  {subText}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 3. Tòa nhà / Chủ */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <div className="flex items-center gap-2.5">
+                              <div className="relative w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 border border-border/60 flex items-center justify-center shrink-0">
+                                <Building size={15} className="text-slate-500" />
+                                {expense.room?.code && (
+                                  <span className="absolute -top-1.5 -right-1.5 px-1 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-[9px] font-bold text-slate-700 dark:text-slate-300 border border-white dark:border-slate-900">
+                                    {expense.room.code}
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                <div className="font-bold text-slate-900 dark:text-slate-100 text-xs">
+                                  {buildingCode}
+                                </div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  {ownerTitle}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 4. Danh mục */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                categoryBadgeStyles[categoryKey] || categoryBadgeStyles.OTHER
+                              }`}
+                            >
+                              {categoryLabels[categoryKey] || categoryKey}
+                            </span>
+                          </td>
+
+                          {/* 5. Người chi */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <div>
+                              <div className="font-bold text-slate-900 dark:text-slate-100 text-xs">
+                                {expense.paidByOwner?.name || expense.paidByName || "-"}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground">
+                                {expense.paidByRole || settlementLabels[expense.settlementStatus] || "Nhân viên"}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 6. Số tiền */}
+                          <td className="px-4 py-3.5 whitespace-nowrap font-mono font-bold text-xs text-slate-900 dark:text-slate-100">
+                            {formatMoney(Number(expense.amount))}
+                          </td>
+
+                          {/* 7. Ngày tạo */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <div>
+                              <div className="font-medium text-slate-900 dark:text-slate-100 text-xs">
+                                {formatDateOnly(expense.date || expense.createdAt)}
+                              </div>
+                              <div className="text-[11px] font-mono text-muted-foreground">
+                                {formatTimeOnly(expense.createdAt || expense.date)}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 8. Trạng thái */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            {renderStatusBadge(expense)}
+                          </td>
+
+                          {/* 9. Thao tác */}
+                          <td
+                            className="px-3 py-3.5 text-right whitespace-nowrap"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {renderActions(expense)}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
-            <div className="flex flex-col gap-3 border-t border-border p-4 text-[12px] font-semibold text-muted sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                Hiển thị {visibleRows.length} / {filtered.length} chi phí
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-                  Trước
-                </Button>
-                <span className="min-w-16 text-center">Trang {page}/{totalPages}</span>
-                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
-                  Sau
-                </Button>
-              </div>
+
+            {/* MOBILE & TABLET CARDS VIEW */}
+            <div className="grid grid-cols-1 gap-3 xl:hidden p-4">
+              {visibleRows.length === 0 ? (
+                <div className="py-12 text-center text-xs text-muted-foreground">
+                  Chưa có chi phí nào
+                </div>
+              ) : (
+                visibleRows.map((expense: any) => {
+                  const descLines = (expense.description || getExpenseName(expense)).split("\n");
+                  const titleText = descLines[0];
+                  const subText = descLines.slice(1).join(" ") || expense.vendor || "";
+                  const categoryKey = expense.category || "OTHER";
+                  const buildingCode = expense.building?.code || expense.building?.name || "-";
+                  const ownerTitle = expense.owner?.name || expense.paidByOwner?.name || "-";
+
+                  return (
+                    <article
+                      key={`${expense.id}-card`}
+                      data-testid={`expense-row-${expense.id}`}
+                      onClick={() => setSelectedDetailExpense(expense)}
+                      className="rounded-2xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col gap-3 cursor-pointer hover:border-indigo-400 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                            <FileText size={16} />
+                          </div>
+                          <div>
+                            <div className="font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
+                              {expense.code}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {formatDateOnly(expense.date || expense.createdAt)} {formatTimeOnly(expense.createdAt || expense.date)}
+                            </div>
+                          </div>
+                        </div>
+                        {renderStatusBadge(expense)}
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-bold text-slate-900 dark:text-slate-100">{titleText}</div>
+                        {subText && <div className="text-[11px] text-muted-foreground mt-0.5">{subText}</div>}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-muted/20 text-xs">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Tòa nhà / Chủ</span>
+                          <span className="font-semibold text-slate-900 dark:text-slate-100">{buildingCode} / {ownerTitle}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Người chi</span>
+                          <span className="font-semibold text-slate-900 dark:text-slate-100">{expense.paidByOwner?.name || expense.paidByName || "-"}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Danh mục</span>
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${categoryBadgeStyles[categoryKey] || categoryBadgeStyles.OTHER}`}>
+                            {categoryLabels[categoryKey] || categoryKey}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Số tiền</span>
+                          <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{formatMoney(Number(expense.amount))}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
+                        <span className="text-[11px] text-muted-foreground font-medium">Nhấp để xem chi tiết</span>
+                        {renderActions(expense)}
+                      </div>
+                    </article>
+                  );
+                })
+              )}
             </div>
+
+            {/* PAGINATION FOOTER */}
+            {filtered.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 border-t border-border/60 text-xs text-muted-foreground">
+                <div>
+                  Hiển thị 1 - {visibleRows.length} của {filtered.length} chi phí
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      disabled={page <= 1}
+                      onClick={() => setPage((v) => Math.max(1, v - 1))}
+                      className="h-8 w-8 rounded-lg border-border/70"
+                    >
+                      <ChevronLeft size={14} />
+                    </Button>
+                    <button
+                      type="button"
+                      className="h-8 w-8 rounded-lg bg-purple-600 text-white font-bold text-xs flex items-center justify-center shadow-2xs"
+                    >
+                      {page}
+                    </button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      disabled={page >= totalPages}
+                      onClick={() => setPage((v) => Math.min(totalPages, v + 1))}
+                      className="h-8 w-8 rounded-lg border-border/70"
+                    >
+                      <ChevronRight size={14} />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
       </section>
 
+      {/* CONFIRM ACTION MODAL */}
       <Modal
         isOpen={!!pendingAction}
         onClose={() => (busyId ? undefined : setPendingAction(null))}
@@ -704,245 +1069,93 @@ export default function ExpenseTable({ defaultYear, onCreateExpense }: ExpenseTa
             tone={pendingAction?.tone === "danger" ? "rose" : pendingAction?.tone === "warning" ? "amber" : "emerald"}
           />
         }
-        maxWidth="max-w-2xl"
+        maxWidth="max-w-xl"
         zIndex={10060}
         testId="expense-confirm-modal"
         footer={
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <Button variant="outline" onClick={() => setPendingAction(null)} disabled={!!busyId} data-testid="expense-confirm-cancel">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={() => setPendingAction(null)} disabled={!!busyId} data-testid="expense-confirm-cancel" className="rounded-xl">
               Hủy
             </Button>
-            <Button variant={pendingAction?.variant === "danger" ? "danger" : "primary"} onClick={executeAction} isLoading={!!busyId} data-testid="expense-confirm-submit">
+            <Button
+              variant={pendingAction?.variant === "danger" ? "danger" : "primary"}
+              onClick={executeAction}
+              isLoading={!!busyId}
+              data-testid="expense-confirm-submit"
+              className="rounded-xl"
+            >
               {pendingAction?.confirmLabel || "Xác nhận"}
             </Button>
           </div>
         }
       >
-        <div className="rounded-2xl border border-border bg-gradient-to-b from-surface to-card p-4 shadow-sm">
-          <div className="text-[13px] leading-6 text-muted">{pendingAction?.description}</div>
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm flex flex-col gap-3">
+          <div className="text-xs text-muted-foreground">{pendingAction?.description}</div>
           {pendingAction?.expense && (
-            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr]">
-              <div className="overflow-hidden rounded-2xl border border-border bg-card">
-                {Array.isArray(pendingAction.expense.attachmentUrls) && pendingAction.expense.attachmentUrls[0] ? (
-                  <ProtectedBillImage src={pendingAction.expense.attachmentUrls[0]} alt="Bill chi phí" className="h-[220px] w-full object-contain bg-surface" />
-                ) : (
-                  <div className="flex h-[220px] flex-col items-center justify-center gap-2 bg-surface text-muted">
-                    <ImageIcon size={24} />
-                    <span className="text-[12px] font-bold">Chưa có bill</span>
-                  </div>
-                )}
+            <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-muted/20 text-xs">
+              <div>
+                <span className="text-[10px] text-muted-foreground block">Mã chi phí</span>
+                <span className="font-mono font-bold text-text">{pendingAction.expense.code}</span>
               </div>
-
-              <div className="grid grid-cols-1 gap-3 text-[12px] sm:grid-cols-2">
-                <DetailCell label="Tên chi phí" value={getExpenseName(pendingAction.expense)} className="sm:col-span-2" />
-                <DetailCell label="Ngày chi phí" value={formatDate(pendingAction.expense.date || pendingAction.expense.createdAt)} />
-                <DetailCell label="Mã chi phí" value={pendingAction.expense.code || "-"} />
-                <DetailCell label="Số tiền chi phí" value={formatMoney(Number(pendingAction.expense.amount))} valueClassName="text-[#6d3df8]" />
-                <DetailCell label="Tòa chi phí" value={getExpenseLocation(pendingAction.expense)} />
-                <DetailCell label="Chủ sở hữu" value={pendingAction.expense.owner?.name || "Chưa gắn chủ"} />
-                <DetailCell label="Người chi" value={pendingAction.expense.paidByOwner?.name || pendingAction.expense.paidByName || "-"} />
-                <DetailCell label="Loại chi phí" value={categoryLabels[pendingAction.expense.category] || pendingAction.expense.category || "Khác"} />
-                <DetailCell label="Trạng thái hiện tại" value={statusLabels[pendingAction.expense.status] || pendingAction.expense.status} />
+              <div>
+                <span className="text-[10px] text-muted-foreground block">Số tiền</span>
+                <span className="font-mono font-bold text-indigo-600">{formatMoney(Number(pendingAction.expense.amount))}</span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-[10px] text-muted-foreground block">Nội dung</span>
+                <span className="font-semibold text-text">{getExpenseName(pendingAction.expense)}</span>
               </div>
             </div>
           )}
-          <div
-            className={`mt-4 rounded-xl border px-3 py-2 text-[12px] font-bold ${
-              pendingAction?.tone === "danger"
-                ? "border-rose-200 bg-rose-50 text-rose-700"
-                : pendingAction?.tone === "warning"
-                  ? "border-amber-200 bg-amber-50 text-amber-700"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
-            }`}
-          >
-            Thao tác này sẽ được ghi nhận vào lịch sử tài chính để phục vụ đối soát và chia lợi nhuận.
-          </div>
         </div>
       </Modal>
 
-      <Modal
-        isOpen={!!previewBillUrl}
-        onClose={() => setPreviewBillUrl(null)}
-        title="Xem bill"
-        maxWidth="max-w-3xl"
-        zIndex={10080}
-        testId="expense-bill-preview-modal"
-      >
-        <div className="rounded-2xl border border-border bg-surface p-3">
-          {previewBillUrl && (
-            <>
-              <ProtectedBillImage src={previewBillUrl} alt="Bill chi phí" className="max-h-[70vh] w-full rounded-xl object-contain" />
-            </>
-          )}
-        </div>
-      </Modal>
+      {/* DETAIL MODAL (Mockup 3 with Real Data) */}
+      <ExpenseDetailModal
+        isOpen={!!selectedDetailExpense}
+        onClose={() => setSelectedDetailExpense(null)}
+        expense={selectedDetailExpense}
+        onApprove={(exp) => openAction("approve", exp)}
+        onPay={(exp) => openAction("pay", exp)}
+        onCancel={(exp) => openAction("cancel", exp)}
+        onReimburse={(exp) => openAction("reimburse", exp)}
+        onDeduct={(exp) => openAction("deduct", exp)}
+        canApprove={permissions.canApproveExpense}
+        canPay={permissions.canPayExpense}
+      />
     </>
   );
-}
-
-function InfoCell({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] font-black uppercase text-muted">{label}</div>
-      <div className={`mt-1 truncate font-bold text-text ${valueClassName || ""}`}>{value}</div>
-    </div>
-  );
-}
-
-function DetailCell({
-  label,
-  value,
-  className,
-  valueClassName,
-}: {
-  label: string;
-  value: string;
-  className?: string;
-  valueClassName?: string;
-}) {
-  return (
-    <div className={`rounded-xl border border-border bg-card p-3 ${className || ""}`}>
-      <div className="font-black uppercase text-muted">{label}</div>
-      <div className={`mt-1 break-words font-black text-text ${valueClassName || ""}`}>{value}</div>
-    </div>
-  );
-}
-
-function BillCell({
-  expense,
-  uploadBusyId,
-  onUpload,
-  onPreview,
-}: {
-  expense: any;
-  uploadBusyId: string | null;
-  onUpload: (expense: any, file?: File) => void;
-  onPreview: (url: string) => void;
-}) {
-  const bills = Array.isArray(expense.attachmentUrls) ? expense.attachmentUrls : [];
-  const firstBill = bills[0];
-  const inputId = `expense-bill-upload-${expense.id}`;
-
-  return (
-    <div className="relative inline-flex">
-      <input
-        id={inputId}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          onUpload(expense, file);
-          event.currentTarget.value = "";
-        }}
-      />
-
-      {firstBill ? (
-        <div className="group relative">
-          <button
-            type="button"
-            onClick={() => onPreview(firstBill)}
-            className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[12px] border border-[#8b5cf6]/20 bg-[#8b5cf6]/10 text-[#6d3df8]"
-            aria-label="Xem bill"
-            title="Xem bill"
-          >
-            <ProtectedBillImage src={firstBill} alt="Bill" className="h-full w-full object-cover" />
-          </button>
-          {bills.length > 1 && (
-            <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#6d3df8] px-1 text-[10px] font-black text-white">
-              {bills.length}
-            </span>
-          )}
-          <div className="pointer-events-none invisible absolute left-1/2 top-12 z-40 w-[220px] -translate-x-1/2 rounded-[14px] border border-border bg-card p-2 opacity-0 shadow-[0_22px_55px_rgba(15,23,42,0.22)] transition-all group-hover:visible group-hover:opacity-100">
-            <ProtectedBillImage src={firstBill} alt="Bill preview" className="max-h-[260px] w-full rounded-[10px] object-contain" />
-            <div className="mt-2 text-center text-[11px] font-bold text-muted">Rê chuột để xem nhanh · bấm để phóng to</div>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => document.getElementById(inputId)?.click()}
-          disabled={uploadBusyId === expense.id}
-          className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-dashed border-border bg-surface text-muted transition-colors hover:border-[#8b5cf6]/40 hover:bg-[#8b5cf6]/10 hover:text-[#6d3df8] disabled:opacity-50"
-          aria-label="Tải bill"
-        >
-          {uploadBusyId === expense.id ? <ImageIcon size={15} className="animate-pulse" /> : <Upload size={15} />}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function ProtectedBillImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
-  const [imageSrc, setImageSrc] = useState(src);
-
-  useEffect(() => {
-    let objectUrl = "";
-    let cancelled = false;
-
-    if (!src.startsWith("/api/expense-bills/")) {
-      setImageSrc(src);
-      return;
-    }
-
-    setImageSrc("");
-    fetch(src, { headers: getAuthorizationHeader(), cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error("BILL_IMAGE_FORBIDDEN");
-        return response.blob();
-      })
-      .then((blob) => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setImageSrc(objectUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setImageSrc("");
-      });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [src]);
-
-  if (!imageSrc) {
-    return <div className={`${className || ""} flex items-center justify-center text-[11px] font-bold text-muted`}>Không thể tải bill</div>;
-  }
-
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={imageSrc} alt={alt} className={className} />;
 }
 
 function ActionMenuButton({
   icon,
   label,
   onClick,
-  dataTestId,
-  danger,
   highlight,
+  danger,
+  dataTestId,
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
-  dataTestId?: string;
-  danger?: boolean;
   highlight?: boolean;
+  danger?: boolean;
+  dataTestId?: string;
 }) {
   return (
     <button
       type="button"
-      onClick={onClick}
       data-testid={dataTestId}
-      className={`flex w-full items-center gap-2 rounded-[9px] px-3 py-2 text-left transition-colors ${
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-xs transition-colors ${
         danger
-          ? "text-rose-600 hover:bg-rose-500/10"
+          ? "text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
           : highlight
-            ? "bg-[#6d3df8] text-white hover:bg-[#5b35f5]"
-            : "text-text hover:bg-surface"
+          ? "text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
+          : "text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
       }`}
     >
-      {icon}
+      <span className="shrink-0">{icon}</span>
       <span>{label}</span>
     </button>
   );

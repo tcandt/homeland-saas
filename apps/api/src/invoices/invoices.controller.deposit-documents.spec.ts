@@ -21,4 +21,17 @@ describe("deposit document read endpoint", () => {
       roomId: "room-1", customerId: "customer-1", contractId: "contract-1", rentalCycleId: "cycle-1",
     });
   });
+
+  it("forwards a bounded invoice window for tenant-scoped deposit grouping", () => {
+    const listDepositBillingDocuments = vi.fn();
+    const controller = new InvoicesController({ listDepositBillingDocuments } as any);
+    controller.listDepositDocuments({ page: "1", limit: "100", invoiceIds: "invoice-1,invoice-2" }, "tenant-authenticated");
+    expect(listDepositBillingDocuments).toHaveBeenCalledWith("tenant-authenticated", 1, 100, {
+      roomId: undefined,
+      customerId: undefined,
+      contractId: undefined,
+      rentalCycleId: undefined,
+      invoiceIds: ["invoice-1", "invoice-2"],
+    });
+  });
 });

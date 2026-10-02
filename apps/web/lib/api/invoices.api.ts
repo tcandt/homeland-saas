@@ -3,6 +3,8 @@ import { apiClient } from "./client";
 export type InvoiceListParams = {
   page?: number;
   limit?: number;
+  cursor?: string;
+  paginationMode?: "cursor";
   search?: string;
   status?: string;
   roomId?: string;
@@ -36,7 +38,7 @@ export const invoicesApi = {
     return apiClient.get("/invoices", { params });
   },
 
-  listDepositDocuments: (params?: Pick<InvoiceListParams, "page" | "limit" | "roomId" | "customerId" | "contractId" | "rentalCycleId">) => {
+  listDepositDocuments: (params?: Pick<InvoiceListParams, "page" | "limit" | "roomId" | "customerId" | "contractId" | "rentalCycleId"> & { invoiceIds?: string }) => {
     return apiClient.get<{ items: any[]; total: number }>("/invoices/deposit-documents", { params });
   },
 

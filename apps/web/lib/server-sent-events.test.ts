@@ -21,7 +21,7 @@ describe('parseServerSentEvents', () => {
   it('keeps notification access tokens out of the stream URL', () => {
     const headerSource = readFileSync(join(__dirname, '..', 'components', 'layout', 'Header.tsx'), 'utf8');
 
-    expect(headerSource).toContain('Authorization: `Bearer ${accessToken}`');
+    expect(headerSource).toContain('authenticatedFetch(`${apiUrl}/notifications/stream`');
     expect(headerSource).not.toContain('notifications/stream?token=');
   });
 

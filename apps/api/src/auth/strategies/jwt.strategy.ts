@@ -44,16 +44,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (Number(payload.sessionVersion || 0) !== currentVersion) {
       throw new UnauthorizedException('This session has been revoked');
     }
-    if ((this.prisma.appSetting as any).upsert) {
-      await (this.prisma.appSetting as any).upsert({
-        where: { tenantId_scope_ownerId_key: {
-          tenantId: payload.tenantId, scope: SettingScope.USER, ownerId: payload.sub, key: 'auth-security',
-        } },
-        create: { tenantId: payload.tenantId, scope: SettingScope.USER, ownerId: payload.sub, key: 'auth-security', value: { ...value, lastActivityAt: new Date().toISOString() } },
-        update: { value: { ...value, lastActivityAt: new Date().toISOString() } },
-      });
-    }
-
     this.cls.set('tenantId', payload.tenantId);
     this.cls.set('userId', payload.sub);
 

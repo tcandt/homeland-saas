@@ -3,6 +3,7 @@ import { shouldRecoverSessionFromUnauthorized } from './auth-unauthorized-policy
 import { clearMobileLoginCredentials, readMobileLoginCredentials, shouldUseMobileSessionRecovery } from '../auth/mobile-session-recovery';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001/api/v1';
+const REFRESH_LOCK_NAME = 'homeland-auth-refresh';
 let refreshPromise: Promise<string | null> | null = null;
 
 export class ApiError extends Error {
@@ -23,23 +24,56 @@ interface FetchOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
 }
 
+/**
+ * Fetch a browser-only protected resource with the current Zustand token.
+ *
+ * This is intentionally response-based (rather than JSON-based) for callers
+ * such as SSE that need to consume a stream. A stale access token is retried
+ * once after the shared refresh operation succeeds; a failed refresh or a
+ * second 401 is the only case that clears the local session.
+ */
+export async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  let attemptedAccessToken = '';
+  const requestWithCurrentToken = () => {
+    const headers = new Headers(init.headers);
+    const accessToken = useAuthStore.getState().accessToken;
+    attemptedAccessToken = accessToken || '';
+
+    if (accessToken) {
+      headers.set('Authorization', `Bearer ${accessToken}`);
+    } else {
+      headers.delete('Authorization');
+    }
+
+    return fetch(input, { ...init, headers });
+  };
+
+  let response = await requestWithCurrentToken();
+  if (response.status !== 401 || typeof window === 'undefined') return response;
+
+  const refreshedToken = await refreshAccessToken(attemptedAccessToken);
+  if (!refreshedToken) {
+    clearAuthAndRedirect();
+    return response;
+  }
+
+  response = await requestWithCurrentToken();
+  if (response.status === 401) {
+    clearAuthAndRedirect();
+  }
+
+  return response;
+}
+
 export const apiClient = {
   async fetch<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
     const { params, headers, ...customConfig } = options;
     
-    // Auto attach token from localStorage if available
-    let token = '';
-    if (typeof window !== 'undefined') {
-      try {
-        const authStore = localStorage.getItem('auth-storage');
-        if (authStore) {
-          const parsed = JSON.parse(authStore);
-          token = parsed?.state?.accessToken || '';
-        }
-      } catch (e) {
-        console.error('Failed to parse auth token', e);
-      }
-    }
+    // Keep the attempted token so a concurrent tab refresh can be detected
+    // before this tab spends a one-time refresh token.
+    const token = typeof window !== 'undefined'
+      ? useAuthStore.getState().accessToken || readStoredTokens()?.accessToken || ''
+      : '';
 
     // Attach X-Correlation-ID if on server
     let correlationId = '';
@@ -90,7 +124,7 @@ export const apiClient = {
       : undefined;
 
     if (response.status === 401 && shouldRecoverSessionFromUnauthorized(endpoint, unauthorizedCode)) {
-      const refreshedToken = endpoint !== '/auth/refresh' ? await refreshAccessToken() : null;
+      const refreshedToken = endpoint !== '/auth/refresh' ? await refreshAccessToken(token) : null;
       if (refreshedToken) {
         response = await fetch(url, {
           ...config,
@@ -173,8 +207,21 @@ export const apiClient = {
   },
 };
 
-async function refreshAccessToken() {
+async function refreshAccessToken(staleAccessToken = '') {
   if (typeof window === 'undefined') return null;
+
+  const lockManager = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (lockManager) {
+    return lockManager.request(REFRESH_LOCK_NAME, { mode: 'exclusive' }, async () => {
+      const tokenFromAnotherTab = syncTokensFromStorage(staleAccessToken);
+      return tokenFromAnotherTab || refreshWithinThisTab();
+    });
+  }
+
+  return refreshWithinThisTab();
+}
+
+function refreshWithinThisTab() {
   if (!refreshPromise) {
     refreshPromise = runRefreshToken().finally(() => {
       refreshPromise = null;
@@ -184,7 +231,8 @@ async function refreshAccessToken() {
 }
 
 async function runRefreshToken() {
-  const refreshToken = useAuthStore.getState().refreshToken || readStoredRefreshToken();
+  // Persisted state can be newer than this tab's in-memory Zustand state.
+  const refreshToken = readStoredTokens()?.refreshToken || useAuthStore.getState().refreshToken;
   if (!refreshToken) return null;
 
   try {
@@ -263,14 +311,29 @@ async function readApiErrorCode(response: Response) {
   }
 }
 
-function readStoredRefreshToken() {
+function syncTokensFromStorage(staleAccessToken: string) {
+  const storedTokens = readStoredTokens();
+  if (!storedTokens?.accessToken || !storedTokens.refreshToken || storedTokens.accessToken === staleAccessToken) {
+    return null;
+  }
+
+  useAuthStore.getState().updateTokens(storedTokens);
+  return storedTokens.accessToken;
+}
+
+function readStoredTokens(): { accessToken: string; refreshToken: string } | null {
+  if (typeof window === 'undefined') return null;
   try {
     const authStore = localStorage.getItem('auth-storage');
-    if (!authStore) return '';
+    if (!authStore) return null;
     const parsed = JSON.parse(authStore);
-    return parsed?.state?.refreshToken || '';
+    const accessToken = parsed?.state?.accessToken;
+    const refreshToken = parsed?.state?.refreshToken;
+    return typeof accessToken === 'string' && typeof refreshToken === 'string'
+      ? { accessToken, refreshToken }
+      : null;
   } catch {
-    return '';
+    return null;
   }
 }
 

@@ -14,6 +14,7 @@ describe("InvoicesService", () => {
     repository = {
       findById: vi.fn(),
       paginate: vi.fn(),
+      paginateCursor: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       softDelete: vi.fn(),
@@ -275,6 +276,69 @@ describe("InvoicesService", () => {
         { createdAt: "desc" },
         expect.any(Object),
       );
+    });
+
+    it("uses keyset pagination without the legacy count/offset path", async () => {
+      repository.paginateCursor.mockResolvedValue({ data: [], hasNextPage: false });
+
+      const result = await service.listInvoices(
+        1,
+        50,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+        "createdAt",
+        "desc",
+        "tenant-1",
+        undefined,
+        "cursor",
+      );
+
+      expect(repository.paginateCursor).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: "tenant-1" }),
+        50,
+        undefined,
+        expect.any(Object),
+      );
+      expect(repository.paginate).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ meta: { limit: 50, hasNextPage: false, nextCursor: null } });
+    });
+
+    it("applies the createdAt/id tie-breaker and rejects a cursor from another tenant", async () => {
+      repository.paginateCursor.mockResolvedValue({ data: [], hasNextPage: false });
+      const cursor = Buffer.from(JSON.stringify({
+        v: 1,
+        tenantId: "tenant-1",
+        createdAt: "2026-09-30T10:00:00.000Z",
+        id: "invoice-100",
+      })).toString("base64url");
+
+      await service.listInvoices(1, 20, undefined, undefined, undefined, undefined, undefined, undefined, undefined, false, undefined, undefined, "tenant-1", cursor);
+      expect(repository.paginateCursor).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: "tenant-1" }),
+        20,
+        expect.objectContaining({ createdAt: expect.any(Date), id: "invoice-100" }),
+        expect.any(Object),
+      );
+
+      const foreignCursor = Buffer.from(JSON.stringify({
+        v: 1,
+        tenantId: "tenant-2",
+        createdAt: "2026-09-30T10:00:00.000Z",
+        id: "invoice-100",
+      })).toString("base64url");
+      await expect(
+        service.listInvoices(1, 20, undefined, undefined, undefined, undefined, undefined, undefined, undefined, false, undefined, undefined, "tenant-1", foreignCursor),
+      ).rejects.toThrow("INVALID_INVOICE_CURSOR");
+      await expect(
+        service.listInvoices(1, 20, undefined, undefined, undefined, undefined, undefined, undefined, undefined, false, undefined, undefined, "tenant-1", ""),
+      ).rejects.toThrow("INVALID_INVOICE_CURSOR");
+      expect(repository.paginateCursor).toHaveBeenCalledTimes(1);
     });
   });
 

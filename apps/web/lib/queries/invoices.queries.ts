@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   InvoiceListParams,
   invoicesApi,
@@ -13,6 +13,15 @@ export type InvoiceQueryOptions = {
   refetchInterval?: number | false;
   refetchOnWindowFocus?: boolean;
   fetchAllPages?: boolean;
+};
+
+export type InvoiceCursorPage = {
+  data: any[];
+  meta: {
+    limit: number;
+    nextCursor: string | null;
+    hasNextPage: boolean;
+  };
 };
 
 export function shouldEnableInvoicesQuery(
@@ -78,6 +87,44 @@ export const useInvoicesQuery = (
   });
 };
 
+/**
+ * Cursor feed for the operations screen. It deliberately keeps only the
+ * windows requested by the user in memory and never walks every page.
+ */
+export const useInfiniteInvoicesQuery = (
+  params: Omit<InvoiceListParams, "cursor" | "paginationMode" | "page"> = {},
+  options: Pick<InvoiceQueryOptions, "enabled" | "refetchOnWindowFocus"> & { pageSize?: number } = {},
+) => useInfiniteQuery<InvoiceCursorPage>({
+  queryKey: [...invoiceKeys.list(params), "cursor"],
+  enabled: shouldEnableInvoicesQuery(params, options),
+  initialPageParam: null as string | null,
+  queryFn: async ({ pageParam }) => {
+    const cursor = pageParam as string | null;
+    const response: any = await invoicesApi.list({
+      ...params,
+      limit: options.pageSize ?? 100,
+      paginationMode: "cursor",
+      ...(cursor ? { cursor } : {}),
+    });
+    const payload = Array.isArray(response) ? { items: response } : response || {};
+    const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.data) ? payload.data : [];
+    return {
+      data: items,
+      meta: {
+        limit: Number(payload.meta?.limit ?? payload.limit ?? options.pageSize ?? 100),
+        nextCursor: payload.meta?.nextCursor ?? payload.nextCursor ?? null,
+        hasNextPage: Boolean(payload.meta?.hasNextPage ?? payload.hasNextPage),
+      },
+    };
+  },
+  getNextPageParam: (lastPage) => lastPage.meta.hasNextPage ? lastPage.meta.nextCursor : undefined,
+  getPreviousPageParam: () => undefined,
+  // Keep a single 100-row operations window. Advancing the cursor replaces
+  // it, so DOM and query memory stay constant even for very large tenants.
+  maxPages: 1,
+  refetchOnWindowFocus: options.refetchOnWindowFocus ?? false,
+});
+
 export const useInvoiceDetailQuery = (
   id: string,
   options: Pick<InvoiceQueryOptions, "enabled" | "refetchInterval" | "refetchOnWindowFocus"> = {},
@@ -95,24 +142,18 @@ export const useInvoiceDetailQuery = (
   });
 };
 
-export const useDepositBillingDocumentsQuery = (enabled: boolean) => useQuery({
-  queryKey: [...invoiceKeys.lists(), "deposit-documents"],
-  enabled,
+export const useDepositBillingDocumentsQuery = (enabled: boolean, invoiceIds: string[] = []) => useQuery({
+  queryKey: [...invoiceKeys.lists(), "deposit-documents", invoiceIds],
+  enabled: enabled && invoiceIds.length > 0,
   queryFn: async () => {
-    const items: any[] = [];
-    let page = 1;
-    let total = 0;
-    do {
-      const response = await invoicesApi.listDepositDocuments({ page, limit: 100 });
-      items.push(...response.items);
-      total = response.total;
-      page += 1;
-      if (!response.items.length) break;
-    } while (items.length < total);
-    return items;
+    // Deposit documents are enrichment for the visible invoice window. Keep
+    // this bounded so a large tenant cannot make the browser enumerate every
+    // historical deposit before the invoice feed can render.
+    const response = await invoicesApi.listDepositDocuments({ page: 1, limit: 100, invoiceIds: invoiceIds.join(",") });
+    return response.items || [];
   },
-  refetchInterval: 3000,
-  refetchOnWindowFocus: true,
+  refetchInterval: false,
+  refetchOnWindowFocus: false,
 });
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";

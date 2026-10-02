@@ -45,12 +45,13 @@ describe('contract row grouping', () => {
     expect(groupContractRows([rental])).toMatchObject([{ booking: null, rental: { id: 'rental-1' } }]);
   });
 
-  it('renders one STT, an upward conversion arrow, and two separately openable rows', () => {
+  it('renders a linked rental and booking pair without an ordinal column', () => {
     queryResult.data.data = [rental, booking];
     const html = renderToStaticMarkup(React.createElement(OperationsContractList));
     expect(html.match(/data-testid="contract-group"/g)).toHaveLength(1);
     expect(html.match(/data-testid="contract-card"/g)).toHaveLength(2);
-    expect(html).toContain('1 hồ sơ · 2 hợp đồng');
+    expect(html).toContain('2 hợp đồng');
+    expect(html).not.toContain('STT');
     expect(html).toContain('Hợp đồng cọc chuyển lên hợp đồng thuê dài hạn');
     expect(html.indexOf('HD-THUE-1')).toBeLessThan(html.indexOf('HD-COC-1'));
     expect(html).toContain('Mở Hợp đồng thuê phòng HD-THUE-1');

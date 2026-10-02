@@ -4,7 +4,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
-  ChevronRight,
   FileClock,
   Loader2,
   Search,
@@ -17,6 +16,7 @@ import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { evaluateExistingCustomerSelection } from '../../lib/adapters/customer-selection';
 import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
+import { TenantJourneyHeader } from "./TenantJourneyHeader";
 
 export type ExistingCustomerOption = {
   id: string;
@@ -118,7 +118,6 @@ export default function TenantSourcePickerModal({
     }
   };
 
-  const currentStepLabel = view === "choose" ? "Chọn khách" : "Danh sách khách";
   const canNavigateBackToIntent = Boolean(flowIntentLabel && onBackToIntent && !selectingCustomerId);
 
   return (
@@ -129,45 +128,24 @@ export default function TenantSourcePickerModal({
         <ModalHeaderTitle
           icon={view === "choose" ? <UserPlus size={18} /> : <Users size={18} />}
           title={view === "choose" ? "Thêm khách thuê" : "Chọn khách thuê có sẵn"}
-          badge={view === "choose" ? "Bước 1" : "Bước 2"}
           tone={view === "choose" ? "primary" : "indigo"}
         />
       }
-      maxWidth={view === "choose" ? "max-w-2xl" : "max-w-xl"}
+      maxWidth={flowIntentLabel || view === "choose" ? "max-w-2xl" : "max-w-xl"}
       testId="tenant-source-picker-modal"
-      headerActions={
-        flowIntentLabel ? (
-          <div
-            className="hidden min-w-0 items-center gap-1 rounded-full bg-slate-100/80 px-1.5 py-1 text-[11px] font-black text-muted dark:bg-white/[0.06] md:flex"
-            aria-label="Luồng thêm khách thuê"
-          >
-            <button
-              type="button"
-              data-testid="tenant-flow-back-to-intent"
-              onClick={onBackToIntent}
-              disabled={!canNavigateBackToIntent}
-              title="Quay lại bước chọn Cọc giữ phòng hoặc Thuê ở ngay"
-              className="max-w-[150px] truncate rounded-full px-2.5 py-1 text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {flowIntentLabel}
-            </button>
-            <ChevronRight size={13} className="shrink-0 opacity-60" />
-            <button
-              type="button"
-              data-testid="tenant-flow-current-step"
-              onClick={() => view === "existing" && !selectingCustomerId && setView("choose")}
-              disabled={view === "choose" || Boolean(selectingCustomerId)}
-              title={view === "existing" ? "Quay lại bước chọn khách có sẵn/khách mới" : "Đang ở bước chọn khách"}
-              className="max-w-[130px] truncate rounded-full bg-card px-2.5 py-1 text-text shadow-xs transition-colors disabled:cursor-default"
-            >
-              {currentStepLabel}
-            </button>
-          </div>
-        ) : undefined
-      }
+      headerContent={flowIntentLabel ? (
+        <TenantJourneyHeader
+          currentStep={2}
+          intent={flowIntentLabel === "Cọc giữ phòng" ? "BOOKING" : "IMMEDIATE"}
+          onBack={view === "existing" && !selectingCustomerId
+            ? () => setView("choose")
+            : canNavigateBackToIntent ? onBackToIntent : undefined}
+          backLabel={view === "existing" ? "Chọn khách" : "Chọn hình thức"}
+        />
+      ) : undefined}
       footer={
         <div className="flex w-full items-center justify-between gap-3">
-          {view === "existing" ? (
+          {view === "existing" && !flowIntentLabel ? (
             <Button
               variant="outline"
               onClick={() => setView("choose")}

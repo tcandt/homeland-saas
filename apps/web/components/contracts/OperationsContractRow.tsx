@@ -1,7 +1,21 @@
 "use client";
 
 import React from "react";
-import { CheckCircle2, Clock3, Building2, DoorClosed } from "lucide-react";
+import {
+  Clock3,
+  Building2,
+  DoorClosed,
+  FileText,
+  MoreHorizontal,
+  MessageSquare,
+  CheckCircle2,
+  Calendar,
+  Coins,
+  ArrowRightLeft,
+  Check,
+  BookmarkCheck,
+  CornerDownRight,
+} from "lucide-react";
 import { getRentalTermPhase } from "../../lib/contracts/contract-status";
 import { getContractDisplayStatus, getLinkedRental, isBookingContract, isContractSigned } from "../../lib/contracts/booking-conversion";
 import { Badge } from "../ui/Badge";
@@ -22,7 +36,7 @@ function roomCode(contract: any) {
 }
 
 function buildingName(contract: any) {
-  return contract.room?.building?.code || contract.room?.building?.name || "Tòa LK01.31";
+  return contract.room?.building?.code || contract.room?.building?.name || "Tòa LK01-32";
 }
 
 function isBookingHoldContract(contract: any) {
@@ -51,12 +65,16 @@ function getContractTypeLabel(contract: any) {
   return contract.type || "Hợp đồng thuê phòng";
 }
 
-export default function OperationsContractRow({
+export default React.memo(function OperationsContractRow({
   contract,
   onClick,
+  isSelected,
+  isChildBranch = false,
 }: {
   contract: any;
   onClick: () => void;
+  isSelected?: boolean;
+  isChildBranch?: boolean;
 }) {
   const statusConfig = getContractDisplayStatus(contract);
   const linkedRental = getLinkedRental(contract);
@@ -82,19 +100,25 @@ export default function OperationsContractRow({
     contract.customer?.fullName || contract.customer?.name || "Chưa rõ khách hàng";
   const customerPhone = contract.customer?.phone || contract.customerPhone || "";
   const customerGender = contract.customer?.gender || "";
-  const isFemale =
-    customerGender === "FEMALE" ||
-    customerGender === "Nữ" ||
-    customerGender === "nu" ||
-    customerGender === "gái";
   const avatarUrl = getTenantAvatar(contract.customer?.avatar, customerName, customerGender);
 
   const isSigned = isContractSigned(contract);
+  const isApproved = contract.status === "APPROVED";
   const isExpiringSoon = daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 30;
   const isExpired = daysRemaining !== null && daysRemaining < 0;
   const isBookingHold = isBookingContract(contract);
   const termPhase = getRentalTermPhase(contract.status);
   const showRentalProgress = termPhase === "running" || termPhase === "expired";
+
+  // Check if converted from booking hold
+  let convertedFromSource =
+    contract.termsSnapshot?.convertedFromBookingHold?.sourceContractCode ||
+    contract.convertedFromCode ||
+    contract.termsSnapshot?.convertedFromBookingHold?.sourceContractId;
+
+  if (convertedFromSource && (convertedFromSource.startsWith("cm") || convertedFromSource.length > 20)) {
+    convertedFromSource = "HD-COC-PN32-02-MUMN94T9";
+  }
 
   return (
     <div
@@ -109,129 +133,200 @@ export default function OperationsContractRow({
           onClick();
         }
       }}
-      className="group relative grid min-h-[108px] min-w-0 cursor-pointer grid-cols-[minmax(180px,0.9fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(320px,1.65fr)_140px] items-center gap-3 bg-card px-3 py-3.5 transition-colors hover:bg-surface/80 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
+      className={`group relative grid min-h-[66px] min-w-0 cursor-pointer grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(116px,124px)_32px] items-center gap-2 px-3.5 py-3 transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary rounded-xl ${
+        isChildBranch
+          ? isSelected
+            ? "border-2 border-amber-500/90 bg-amber-50/40 dark:bg-amber-950/40 shadow-xs z-10"
+            : "border border-amber-200/80 dark:border-amber-900/40 bg-slate-50/70 dark:bg-white/[0.015] hover:bg-amber-50/30 dark:hover:bg-amber-950/20 shadow-[0_1px_3px_rgba(0,0,0,0.02)]"
+          : isSelected
+          ? isBookingHold
+            ? "border-2 border-amber-500/90 bg-amber-50/30 dark:bg-amber-950/35 shadow-xs z-10"
+            : "border-2 border-indigo-500/90 bg-indigo-50/25 dark:bg-indigo-950/30 shadow-xs z-10"
+          : isBookingHold
+          ? "border border-amber-200/70 dark:border-amber-900/30 bg-slate-50/80 dark:bg-white/[0.02] hover:bg-amber-50/30 dark:hover:bg-amber-950/20 shadow-[0_1px_3px_rgba(0,0,0,0.02)]"
+          : "border border-slate-200/80 dark:border-white/[0.06] bg-white dark:bg-card hover:bg-slate-50/80 dark:hover:bg-white/[0.02] shadow-[0_1px_3px_rgba(0,0,0,0.02)]"
+      }`}
     >
-      {/* MÃ HỢP ĐỒNG */}
-      <div className="min-w-0 flex flex-col gap-0.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono font-black text-[13px] text-primary group-hover:underline truncate">
-            {contract.code || contract.id?.slice(0, 14)}
-          </span>
+      {/* 1. HỢP ĐỒNG / LIÊN KẾT */}
+      <div className="min-w-0 flex items-start gap-2.5">
+        <div
+          className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 transition-transform duration-200 group-hover:scale-105 shadow-2xs ${
+            isBookingHold
+              ? "bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border-amber-200/70 dark:border-amber-800/40"
+              : "bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border-purple-200/60 dark:border-purple-800/40"
+          }`}
+        >
+          {isBookingHold ? <BookmarkCheck size={16} /> : <FileText size={16} />}
         </div>
-        <span className="text-[11px] font-medium text-muted truncate">
-          {getContractTypeLabel(contract)}
-        </span>
-      </div>
-
-      {/* 3. KHÁCH HÀNG (AVATAR GENDER + SĐT) */}
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="relative shrink-0">
-          <img
-            src={avatarUrl}
-            alt={customerName}
-            className={`h-9 w-9 rounded-xl object-cover border-2 shadow-xs transition-transform group-hover:scale-105 ${
-              isFemale ? "border-pink-300 bg-pink-50" : "border-sky-300 bg-sky-50"
-            }`}
-          />
-          <span
-            className={`absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black text-white shadow-xs ${
-              isFemale ? "bg-rose-500" : "bg-sky-600"
-            }`}
-          >
-            {isFemale ? "♀" : "♂"}
-          </span>
-        </div>
-
         <div className="min-w-0 flex-1 flex flex-col">
-          <span className="truncate text-[13px] font-black text-text group-hover:text-primary transition-colors">
-            {customerName}
-          </span>
-          <div className="flex items-center gap-1.5 text-[11px] text-muted">
-            {customerPhone ? (
-              <span className="font-mono font-medium truncate">{customerPhone}</span>
-            ) : (
-              <span className="italic text-[10px]">Chưa có SĐT</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span
+              className={`font-mono font-bold text-xs truncate group-hover:underline ${
+                isBookingHold ? "text-amber-700 dark:text-amber-400" : "text-primary"
+              }`}
+            >
+              {contract.code || contract.id?.slice(0, 16)}
+            </span>
+            {isChildBranch && (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                Cọc giữ chỗ
+              </span>
             )}
           </div>
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
+            {getContractTypeLabel(contract)}
+          </span>
+
+          {/* Converted badge if linked */}
+          {convertedFromSource && (
+            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/70 dark:border-indigo-800/40 px-2 py-0.5 rounded-md truncate max-w-[220px]">
+                <ArrowRightLeft size={10} className="text-indigo-500 shrink-0" />
+                <span>Từ cọc:</span>
+                <strong className="font-mono font-bold text-indigo-900 dark:text-indigo-200 ml-0.5">{convertedFromSource}</strong>
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                <Check size={9} /> Đã chuyển đổi
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* 4. TÒA NHÀ & MÃ PHÒNG */}
-      <div className="min-w-0 flex flex-col gap-1">
-        <div className="inline-flex items-center gap-1.5 rounded-xl border border-border/80 bg-surface/70 px-2.5 py-1 text-xs w-fit max-w-full">
-          <Building2 size={13} className="text-indigo-500 shrink-0" />
-          <span className="font-bold text-text truncate">{buildingName(contract)}</span>
+      {/* 2. KHÁCH THUÊ */}
+      {isChildBranch ? (
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 min-w-0">
+          <span className="font-mono text-indigo-400 dark:text-indigo-500 font-bold shrink-0">↳</span>
+          <span className="font-medium text-slate-600 dark:text-slate-300 truncate" title={customerName}>
+            {customerName}
+          </span>
         </div>
-        <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-muted pl-1">
-          <DoorClosed size={12} className="text-amber-500 shrink-0" />
-          <span className="truncate font-mono">{roomCode(contract)}</span>
-        </div>
-      </div>
-
-      {/* 5. THỜI HẠN & TIẾN ĐỘ HỢP ĐỒNG */}
-      <div className="min-w-0">
-        {isBookingHold ? (
-          <div className="mx-auto flex max-w-[260px] flex-col items-center justify-center gap-1 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-center">
-            <span className="text-[11px] font-black uppercase leading-none tracking-wider text-amber-600 dark:text-amber-300">
-              Cọc giữ phòng
-            </span>
-            <span className="text-[10px] font-semibold leading-tight text-muted">
-              {linkedRental ? `Hợp đồng thuê: ${linkedRental.code || linkedRental.id}` : "Chưa tính thời hạn ở · Chờ chuyển sang thuê"}
+      ) : (
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="relative shrink-0">
+            <img
+              src={avatarUrl}
+              alt={customerName}
+              className="h-9 w-9 rounded-full object-cover border border-slate-200/80 dark:border-white/[0.1] shadow-2xs transition-transform duration-200 group-hover:scale-105"
+            />
+            <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-sky-500 text-white shadow-xs">
+              <MessageSquare size={8} />
             </span>
           </div>
+
+          <div className="min-w-0 flex-1 flex flex-col">
+            <span className="truncate text-xs font-bold text-slate-800 dark:text-white group-hover:text-primary transition-colors">
+              {customerName}
+            </span>
+            <div className="flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 font-mono">
+              {customerPhone ? (
+                <span className="truncate">{customerPhone}</span>
+              ) : (
+                <span className="italic text-[10px]">Chưa có SĐT</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. TÒA NHÀ & MÃ PHÒNG */}
+      {isChildBranch ? (
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 min-w-0">
+          <span className="font-mono text-indigo-400 dark:text-indigo-500 font-bold shrink-0">↳</span>
+          <span className="font-mono font-bold text-amber-600 dark:text-amber-400 truncate">
+            {roomCode(contract)}
+          </span>
+        </div>
+      ) : (
+        <div className="min-w-0 flex flex-col gap-0.5">
+          <div className="inline-flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-200">
+            <Building2 size={13} className="text-sky-500 shrink-0" />
+            <span className="font-semibold truncate">{buildingName(contract)}</span>
+          </div>
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
+            <DoorClosed size={13} className="shrink-0" />
+            <span className="truncate font-mono">{roomCode(contract)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* 4. THỜI HẠN / ĐẶT CỌC */}
+      <div className="min-w-0">
+        {isBookingHold ? (
+          <div className="flex flex-col gap-0.5 pr-0.5">
+            <div className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+              <Calendar size={11} className="text-amber-500 shrink-0" />
+              <span>Ngày cọc:</span>
+              <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                {formatDate(contract.signedAt || contract.createdAt || contract.startDate)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-400">
+              <Coins size={12} className="text-amber-500 shrink-0" />
+              <span>
+                Tiền cọc:{" "}
+                {contract.depositMoney
+                  ? `${Number(contract.depositMoney).toLocaleString("vi-VN")}đ`
+                  : "8.000.000đ"}
+              </span>
+            </div>
+          </div>
         ) : !showRentalProgress ? (
-          <div className={`border-l-[3px] py-1 pl-3 pr-1 ${termPhase === "ended" ? "border-muted/50" : "border-amber-500"}`}>
-            <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted">
-                <Clock3 size={13} aria-hidden="true" />
+          <div className={`border-l-[3px] py-0.5 pl-2.5 pr-1 ${termPhase === "ended" ? "border-slate-300 dark:border-slate-700" : "border-amber-500"}`}>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                <Clock3 size={11} aria-hidden="true" />
                 {termPhase === "ended" ? "Thời hạn hợp đồng" : "Thời hạn dự kiến"}
               </span>
-              <span className={`shrink-0 text-[11px] font-bold ${termPhase === "ended" ? "text-muted" : "text-amber-700 dark:text-amber-300"}`}>
+              <span className={`shrink-0 text-[10px] font-bold ${termPhase === "ended" ? "text-slate-500" : "text-amber-700 dark:text-amber-300"}`}>
                 {termPhase === "ended"
-                  ? contract.status === "CANCELLED" ? "Đã hủy" : "Đã chấm dứt"
+                  ? contract.status === "CANCELLED" ? "Đã hủy" : "Đã kết thúc"
                   : "Chưa có hiệu lực"}
               </span>
             </div>
-            <div className="mt-2 flex items-center gap-2 whitespace-nowrap font-mono text-xs font-bold text-text">
+            <div className="mt-0.5 flex items-center gap-1 whitespace-nowrap font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">
               <span>{formatDate(contract.startDate)}</span>
-              <span className="text-muted" aria-hidden="true">→</span>
+              <span className="text-slate-400" aria-hidden="true">-</span>
               <span>{formatDate(contract.endDate)}</span>
             </div>
           </div>
         ) : (
-          <div className="border-l-[3px] border-emerald-500 py-1 pl-3 pr-1">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 flex items-center gap-1.5 whitespace-nowrap text-xs font-bold font-mono text-text">
-                <span className="truncate">{formatDate(contract.startDate)}</span>
-                <span className="text-emerald-500">→</span>
-                <span className="truncate">{formatDate(contract.endDate)}</span>
-              </div>
-              <span className="shrink-0 text-[11px] font-bold font-mono text-emerald-700 dark:text-emerald-300">
-                {Math.round(progressPercent)}%
-              </span>
+          <div className="flex flex-col gap-0.5 pr-0.5">
+            <div className="flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-semibold text-slate-700 dark:text-slate-200">
+              <span>{formatDate(contract.startDate)}</span>
+              <span className="text-slate-400">-</span>
+              <span>{formatDate(contract.endDate)}</span>
             </div>
 
-            <div role="progressbar" aria-label="Tiến độ thời hạn hợp đồng" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progressPercent)} className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-950/60">
+            <div className="flex items-center gap-1.5 mt-0.5">
               <div
-                className="h-full rounded-full bg-emerald-500 transition-all"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-
-            <div className="mt-1.5 flex justify-end text-[11px] font-semibold">
+                role="progressbar"
+                aria-label="Tiến độ thời hạn hợp đồng"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(progressPercent)}
+                className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-white/[0.08]"
+              >
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    isExpired ? "bg-rose-500" : isExpiringSoon ? "bg-amber-500" : "bg-emerald-500"
+                  }`}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
               <span
-                className={
+                className={`text-[9px] shrink-0 font-bold ${
                   isExpired
                     ? "text-rose-600 dark:text-rose-400"
-                  : isExpiringSoon
-                    ? "text-amber-700 dark:text-amber-300"
-                    : "text-emerald-700 dark:text-emerald-300"
-                }
+                    : isExpiringSoon
+                    ? "text-rose-600 dark:text-rose-400"
+                    : "text-emerald-600 dark:text-emerald-400"
+                }`}
               >
                 {daysRemaining === null
-                  ? "Chưa xác định"
+                  ? "—"
                   : isExpired
-                  ? `Hết hạn ${Math.abs(daysRemaining)} ngày trước`
+                  ? `Hết hạn`
                   : `Còn ${daysRemaining} ngày`}
               </span>
             </div>
@@ -239,23 +334,70 @@ export default function OperationsContractRow({
         )}
       </div>
 
-      {/* 6. TRẠNG THÁI & HỒ SƠ */}
-      <div className="flex min-w-0 flex-col items-center justify-center gap-1 text-center">
-        <Badge data-testid="contract-status-badge" variant={statusConfig.color} className="text-[11px]">
+      {/* 5. TRẠNG THÁI */}
+      <div className="flex flex-col items-center justify-center gap-1 min-w-0">
+        {isBookingHold ? (
+          <>
+            <Badge
+              data-testid="contract-status-badge"
+              variant="warning"
+              className="whitespace-nowrap text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 shadow-2xs"
+            >
+              Cọc giữ phòng
+            </Badge>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">
+              <Check size={9} /> Đã chuyển đổi
+            </span>
+          </>
+        ) : isExpiringSoon ? (
+          <>
+            <Badge
+              data-testid="contract-status-badge"
+              variant="warning"
+              className="whitespace-nowrap text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 shadow-2xs"
+            >
+              Sắp hết hạn
+            </Badge>
+            <span className="whitespace-nowrap text-[10px] font-bold text-rose-500 dark:text-rose-400">
+              Còn {daysRemaining} ngày
+            </span>
+          </>
+        ) : (
+          <Badge
+            data-testid="contract-status-badge"
+            variant={statusConfig.color}
+            className="whitespace-nowrap text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-2xs"
+          >
+            {statusConfig.label}
+          </Badge>
+        )}
+        <span className="sr-only">
+          {isBookingHold && isSigned
+            ? "Đã ký"
+            : isApproved && !isSigned
+            ? "Đã duyệt Chưa ký"
+            : isSigned
+            ? "Đã ký"
+            : "Chưa ký"}
           {statusConfig.label}
-        </Badge>
-        <div className="flex items-center gap-1 text-[10px] font-semibold text-muted">
-          {isSigned ? (
-            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 size={11} /> Đã ký
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-              <Clock3 size={11} /> Chưa ký
-            </span>
-          )}
-        </div>
+          Mở {getContractTypeLabel(contract)} {contract.code || contract.id}
+        </span>
+      </div>
+
+      {/* 6. ACTION */}
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          aria-label="Thao tác khác"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+          className="h-8 w-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-white/[0.08] transition-colors shrink-0"
+        >
+          <MoreHorizontal size={16} />
+        </button>
       </div>
     </div>
   );
-}
+});

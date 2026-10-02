@@ -52,7 +52,6 @@ export function HLEmblem({ className = "h-8 w-8" }: { className?: string }) {
            L 11 82 
            Z"
         fill="url(#hl-h-pure)"
-        filter="url(#hl-emblem-shadow)"
       />
 
       {/* Letter 'L' - Slanted Stem with Smooth Land Swoosh Base */}
@@ -65,7 +64,6 @@ export function HLEmblem({ className = "h-8 w-8" }: { className?: string }) {
            L 48 82 
            Z"
         fill="url(#hl-l-pure)"
-        filter="url(#hl-emblem-shadow)"
       />
 
       {/* 4 Architectural Windows (2x2 Grid) */}

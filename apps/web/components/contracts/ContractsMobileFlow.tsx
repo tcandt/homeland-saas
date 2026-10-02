@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { Building2, ChevronDown, Clock, FileX, UserCheck } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Building2, ChevronLeft, ChevronRight, Clock, FileText, UserCheck } from "lucide-react";
 import { Card } from "../ui/Card";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
@@ -33,24 +33,30 @@ function getStatusGroup(contract: any) {
 
 export default function ContractsMobileFlow() {
   const [selectedContract, setSelectedContract] = useState<any | null>(null);
-  const { search, status } = useContractsStore();
+  const [page, setPage] = useState(1);
+  const { search, status, setStatus } = useContractsStore();
+  const pageSize = 20;
+
+  useEffect(() => setPage(1), [search, status]);
 
   const { data, isLoading, isError } = useContractsQuery({
     search: search || undefined,
-    status: status && status !== "Tất cả" ? status : undefined,
-    limit: 100,
+    status: status || undefined,
+    page,
+    limit: pageSize,
   });
 
   const responseData = data?.data as any;
   const contracts = useMemo(() => normalizeContracts(responseData), [responseData]);
-  const total = Number((data as any)?.meta?.total || contracts.length || 0);
+  const total = Number((data as any)?.meta?.total ?? contracts.length);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const stats = useMemo(() => {
     const active = contracts.filter((contract: any) => getStatusGroup(contract) === "ACTIVE").length;
     const expiring = contracts.filter((contract: any) => getStatusGroup(contract) === "EXPIRING").length;
-    const pendingSign = contracts.filter((contract: any) => getStatusGroup(contract) === "PENDING").length;
-    const terminated = contracts.filter((contract: any) => getStatusGroup(contract) === "TERMINATED").length;
-    return { active, expiring, pendingSign, terminated };
+    const pendingApproval = contracts.filter((contract: any) => String(contract.status).toUpperCase() === "PENDING_APPROVAL").length;
+    const terminated = contracts.filter((contract: any) => String(contract.status).toUpperCase() === "TERMINATED").length;
+    return { active, expiring, pendingApproval, terminated };
   }, [contracts]);
 
   if (isLoading) {
@@ -74,39 +80,37 @@ export default function ContractsMobileFlow() {
         </Card>
         <Card className="p-2.5 flex flex-col items-center justify-center gap-1">
           <div className="text-[16px] font-black text-[#22c55e]">{stats.active}</div>
-          <div className="text-[9px] font-bold text-muted uppercase text-center leading-tight">Hiệu lực</div>
+          <div className="text-[9px] font-bold text-muted uppercase text-center leading-tight">Hiệu lực · trang</div>
         </Card>
         <Card className="bg-[#f97316]/10 border-[#f97316]/20 p-2.5 flex flex-col items-center justify-center gap-1">
           <div className="text-[16px] font-black text-[#f97316]">{stats.expiring}</div>
-          <div className="text-[9px] font-bold text-[#f97316] uppercase text-center leading-tight">Sắp hết hạn</div>
+          <div className="text-[9px] font-bold text-[#f97316] uppercase text-center leading-tight">Sắp hết hạn · trang</div>
         </Card>
         <Card className="p-2.5 flex flex-col items-center justify-center gap-1">
           <div className="text-[16px] font-black text-muted">{stats.terminated}</div>
-          <div className="text-[9px] font-bold text-muted uppercase text-center leading-tight">Đã chấm dứt</div>
+          <div className="text-[9px] font-bold text-muted uppercase text-center leading-tight">Chấm dứt · trang</div>
         </Card>
       </section>
 
       <section data-testid="contracts-filter-bar" className="flex gap-2 overflow-x-auto hide-scrollbar px-1">
-        <Button variant="outline" size="sm" className="bg-[#4f46e5]/10 text-[#4f46e5] border-[#4f46e5]/20 text-[11px] h-7 px-3 rounded-full shrink-0">
+        <Button variant="outline" size="sm" onClick={() => setStatus("")} aria-pressed={!status} className={`text-[11px] h-7 px-3 rounded-full shrink-0 motion-reduce:transition-none ${!status ? "bg-[#4f46e5]/10 text-[#4f46e5] border-[#4f46e5]/20" : "text-muted"}`}>
           Tất cả Hợp đồng ({total})
         </Button>
-        <Button variant="outline" size="sm" className="text-muted text-[11px] h-7 px-3 rounded-full shrink-0">
+        <Button variant="outline" size="sm" onClick={() => setStatus("EXPIRING")} aria-pressed={status === "EXPIRING"} className={`text-[11px] h-7 px-3 rounded-full shrink-0 motion-reduce:transition-none ${status === "EXPIRING" ? "bg-[#f97316]/10 text-[#f97316] border-[#f97316]/20" : "text-muted"}`}>
           <Clock size={12} className="mr-1" /> Sắp hết hạn ({stats.expiring})
         </Button>
-        <Button variant="outline" size="sm" className="text-muted text-[11px] h-7 px-3 rounded-full shrink-0">
-          <UserCheck size={12} className="mr-1" /> Chờ ký ({stats.pendingSign})
+        <Button variant="outline" size="sm" onClick={() => setStatus("PENDING_APPROVAL")} aria-pressed={status === "PENDING_APPROVAL"} className={`text-[11px] h-7 px-3 rounded-full shrink-0 motion-reduce:transition-none ${status === "PENDING_APPROVAL" ? "bg-[#4f46e5]/10 text-[#4f46e5] border-[#4f46e5]/20" : "text-muted"}`}>
+          <UserCheck size={12} className="mr-1" /> Chờ duyệt ({stats.pendingApproval})
         </Button>
-        <Button variant="outline" size="sm" className="text-muted text-[11px] h-7 px-3 rounded-full shrink-0">
-          <FileX size={12} className="mr-1" /> Đã thanh lý ({stats.terminated})
+        <Button variant="outline" size="sm" onClick={() => setStatus("TERMINATED")} aria-pressed={status === "TERMINATED"} className={`text-[11px] h-7 px-3 rounded-full shrink-0 motion-reduce:transition-none ${status === "TERMINATED" ? "bg-slate-500/10 text-slate-700 border-slate-500/20" : "text-muted"}`}>
+          <FileText size={12} className="mr-1" /> Đã chấm dứt ({stats.terminated})
         </Button>
       </section>
 
       <section data-testid="contracts-list" className="flex flex-col gap-2 px-1">
         <div className="flex justify-between items-end px-1">
           <h3 className="text-[13px] font-black text-text">Danh sách ({total})</h3>
-          <span className="text-[11px] font-bold text-[#4f46e5] flex items-center gap-1">
-            Mới nhất <ChevronDown size={14} />
-          </span>
+          <span className="text-[11px] font-bold text-muted">Trang {page}/{totalPages}</span>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -124,7 +128,11 @@ export default function ContractsMobileFlow() {
                   data-testid="contract-card"
                   onClick={() => setSelectedContract(item)}
                   key={item.id || i}
-                  className="p-3 flex flex-col relative overflow-hidden group active:scale-[0.98] transition-transform"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Mở hợp đồng ${item.code || item.id || ""}`}
+                  onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedContract(item); } }}
+                  className="p-3 flex flex-col relative overflow-hidden group active:scale-[0.98] transition-transform motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 >
                   <div
                     className="absolute top-0 left-0 w-1 h-full"
@@ -176,6 +184,11 @@ export default function ContractsMobileFlow() {
             })
           )}
         </div>
+        {total > pageSize && <nav aria-label="Phân trang hợp đồng" className="flex items-center justify-center gap-3 pt-2">
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={15} className="mr-1" />Trước</Button>
+          <span className="text-xs font-semibold text-muted">{Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} / {total}</span>
+          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((current) => current + 1)}>Sau<ChevronRight size={15} className="ml-1" /></Button>
+        </nav>}
       </section>
 
       <OperationsContractDrawer

@@ -51,6 +51,7 @@ import {
   User,
   CheckCircle2,
   AlertCircle,
+  ArrowRight,
 } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 import { numberToWordsVietnamese } from "../../lib/utils/number-to-words";
@@ -92,6 +93,7 @@ import { formatRoomDisplayLabel } from "../tenants/TenantFormModal";
 import TenantSourcePickerModal, {
   type ExistingCustomerOption,
 } from "../tenants/TenantSourcePickerModal";
+import { TenantJourneyHeader } from "../tenants/TenantJourneyHeader";
 import MoveOutOccupantModal from "../tenants/MoveOutOccupantModal";
 import { adaptRoom } from "@/lib/adapters/building.adapter";
 import {
@@ -568,6 +570,7 @@ export default function RoomPremiumModal({
     generation: 0,
   });
   const tenantSaveInFlightRef = useRef(false);
+  const preserveNewTenantDraftOnBackRef = useRef(false);
 
   if (
     tenantSelectionContext.current.roomId !== roomId ||
@@ -1058,6 +1061,7 @@ export default function RoomPremiumModal({
 
   const openTenantSourcePicker = (startAsRepresentative: boolean) => {
     invalidateTenantSelectionContext();
+    preserveNewTenantDraftOnBackRef.current = false;
     setIsContractRepresentative(startAsRepresentative);
     setHouseholdRepId("");
     setTenantDraft({ ...EMPTY_TENANT_DRAFT });
@@ -1075,6 +1079,7 @@ export default function RoomPremiumModal({
   };
 
   const openTenantSourceForIntent = (mode: "BOOKING" | "IMMEDIATE") => {
+    preserveNewTenantDraftOnBackRef.current = false;
     setRentalIntentMode(mode);
     setIsRentalIntentModalOpen(false);
     setIsTenantSourceModalOpen(true);
@@ -1091,16 +1096,28 @@ export default function RoomPremiumModal({
   const handleCreateNewTenant = () => {
     invalidateTenantSelectionContext();
     setZaloWaiting(null);
-    setTenantDraft({ ...EMPTY_TENANT_DRAFT });
+    if (!preserveNewTenantDraftOnBackRef.current) {
+      setTenantDraft({ ...EMPTY_TENANT_DRAFT });
+    }
+    preserveNewTenantDraftOnBackRef.current = false;
     setTenantFieldErrors({});
     setDuplicateWarning(null);
     setIsTenantSourceModalOpen(false);
     setIsTenantModalOpen(true);
   };
 
+  const handleBackToTenantSource = () => {
+    invalidateTenantSelectionContext();
+    preserveNewTenantDraftOnBackRef.current = !tenantDraft.id;
+    setTenantModalStep(1);
+    setIsTenantModalOpen(false);
+    setIsTenantSourceModalOpen(true);
+  };
+
   const handleSelectExistingTenant = async (
     option: ExistingCustomerOption,
   ): Promise<boolean> => {
+    preserveNewTenantDraftOnBackRef.current = false;
     setZaloWaiting(null);
     invalidateTenantSelectionContext();
     const generation = tenantSelectionContext.current.generation;
@@ -5586,13 +5603,13 @@ export default function RoomPremiumModal({
             .filter(Boolean)}
           initialSearch={tenantDraft.phone || tenantDraft.cccd || ""}
           flowIntentLabel={
-            rentalIntentMode === "BOOKING"
+            isContractRepresentative && rentalIntentMode === "BOOKING"
               ? "Cọc giữ phòng"
-              : rentalIntentMode === "IMMEDIATE"
+              : isContractRepresentative && rentalIntentMode === "IMMEDIATE"
                 ? "Thuê ở ngay"
                 : undefined
           }
-          onBackToIntent={rentalIntentMode ? handleBackToRentalIntent : undefined}
+          onBackToIntent={isContractRepresentative && rentalIntentMode ? handleBackToRentalIntent : undefined}
           onClose={() => {
             invalidateTenantSelectionContext();
             setIsTenantSourceModalOpen(false);
@@ -5614,7 +5631,17 @@ export default function RoomPremiumModal({
             ? "Cập nhật thông tin khách thuê"
             : `Thêm khách thuê ${getOccupantsList().length + 1}`
         }
-        maxWidth="max-w-xl"
+        maxWidth={isContractRepresentative && rentalIntentMode ? "max-w-2xl" : "max-w-xl"}
+        headerContent={isContractRepresentative && rentalIntentMode ? (
+          <TenantJourneyHeader
+            currentStep={zaloWaiting ? 5 : tenantModalStep === 1 ? 3 : 4}
+            intent={rentalIntentMode}
+            onBack={zaloWaiting || isExporting ? undefined : tenantModalStep === 2
+              ? () => setTenantModalStep(1)
+              : handleBackToTenantSource}
+            backLabel={tenantModalStep === 2 ? "Thông tin khách" : "Chọn khách"}
+          />
+        ) : undefined}
         headerActions={
           zaloWaiting ? null : <div className="relative">
             <button
@@ -5667,7 +5694,7 @@ export default function RoomPremiumModal({
               </Button>
             ) : (
               <>
-                {tenantModalStep === 2 && (
+                {tenantModalStep === 2 && !(isContractRepresentative && rentalIntentMode) && (
                   <Button
                     variant="outline"
                     onClick={() => setTenantModalStep(1)}
@@ -6641,7 +6668,9 @@ export default function RoomPremiumModal({
           setRentalIntentMode(null);
           setRentalIntentContext(null);
         }}
-        title="Chọn luồng thêm khách thuê"
+        title="Thêm khách thuê"
+        maxWidth="max-w-2xl"
+        headerContent={<TenantJourneyHeader currentStep={1} />}
         footer={
           <div className="flex justify-end">
             <Button
@@ -6658,28 +6687,50 @@ export default function RoomPremiumModal({
           </div>
         }
       >
+        <div className="mb-5">
+          <h3 className="text-lg font-black tracking-tight text-text">Khách sẽ bắt đầu thuê như thế nào?</h3>
+          <p className="mt-1 text-sm leading-6 text-muted">
+            Chọn một hình thức để tiếp tục. Các bước sau sẽ hướng dẫn chọn khách, nhập hồ sơ và thiết lập khoản thanh toán.
+          </p>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <button
             type="button"
-            className="rounded-lg border border-orange-300 bg-orange-50 p-4 text-left text-orange-950 transition-colors hover:bg-orange-100"
+            className="group relative flex min-h-[190px] flex-col rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-orange-50/60 to-white p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 motion-reduce:transform-none dark:border-amber-500/25 dark:from-amber-950/30 dark:via-orange-950/10 dark:to-card"
             onClick={() => openTenantSourceForIntent("BOOKING")}
           >
-            <span className="block font-bold">Cọc giữ phòng</span>
-            <span className="mt-1 block text-xs">
-              Chọn/tạo khách, lưu thông tin, tự sinh hợp đồng cọc, hóa đơn và QR.
+            <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/20">
+              <Calendar size={21} aria-hidden="true" />
+            </span>
+            <span className="block text-base font-black text-amber-950 dark:text-amber-100">Cọc giữ phòng</span>
+            <span className="mt-1.5 block text-sm leading-5 text-amber-900/75 dark:text-amber-100/70">
+              Khách đặt cọc trước, xác nhận ngày dự kiến vào ở.
+            </span>
+            <span className="mt-auto inline-flex items-center gap-1.5 pt-5 text-xs font-black text-amber-700 dark:text-amber-300">
+              Bắt đầu giữ phòng <ArrowRight size={15} className="transition-transform group-hover:translate-x-1 motion-reduce:transform-none" aria-hidden="true" />
             </span>
           </button>
           <button
             type="button"
-            className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-left text-text transition-colors hover:bg-primary/10"
+            className="group relative flex min-h-[190px] flex-col rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-blue-50/50 to-white p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transform-none dark:border-indigo-500/25 dark:from-indigo-950/30 dark:via-blue-950/10 dark:to-card"
             onClick={() => openTenantSourceForIntent("IMMEDIATE")}
           >
-            <span className="block font-bold">Thuê ở ngay</span>
-            <span className="mt-1 block text-xs">
-              Chọn/tạo khách, lưu thông tin, tự sinh hợp đồng thuê, hóa đơn đầu kỳ và QR.
+            <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/20">
+              <DoorOpen size={21} aria-hidden="true" />
+            </span>
+            <span className="block text-base font-black text-indigo-950 dark:text-indigo-100">Thuê ở ngay</span>
+            <span className="mt-1.5 block text-sm leading-5 text-indigo-900/75 dark:text-indigo-100/70">
+              Khách bắt đầu ở và thanh toán theo hợp đồng thuê.
+            </span>
+            <span className="mt-auto inline-flex items-center gap-1.5 pt-5 text-xs font-black text-indigo-700 dark:text-indigo-300">
+              Bắt đầu thuê <ArrowRight size={15} className="transition-transform group-hover:translate-x-1 motion-reduce:transform-none" aria-hidden="true" />
             </span>
           </button>
         </div>
+        <p className="mt-4 flex items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-2.5 text-xs leading-5 text-muted dark:border-white/10 dark:bg-white/[0.04]">
+          <CheckCircle2 size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+          Sau khi lưu, hệ thống sẽ tạo chứng từ và mã QR phù hợp với hình thức đã chọn.
+        </p>
       </Modal>
 
       <Modal
@@ -6689,6 +6740,7 @@ export default function RoomPremiumModal({
           setIsIntentContractFlow(false);
         }}
         title="Tạo hợp đồng mới"
+        headerContent={isIntentContractFlow ? <TenantJourneyHeader currentStep={4} intent={rentalIntentMode} /> : undefined}
         footer={
           <div className="flex gap-3 justify-end w-full">
             <Button

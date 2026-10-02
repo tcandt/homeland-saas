@@ -127,6 +127,14 @@ export class AuthController {
     return this.authService.getSecurity(userId);
   }
 
+  @Post('activity')
+  @ApiBearerAuth()
+  @AllowPasswordChangeRequired()
+  @ApiOperation({ summary: 'Record explicit user activity for inactivity timeout' })
+  recordActivity(@CurrentUser('id') userId: string) {
+    return this.authService.recordActivity(userId);
+  }
+
   @Patch('security')
   @ApiBearerAuth()
   @AllowPasswordChangeRequired()

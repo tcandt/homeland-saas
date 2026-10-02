@@ -1,46 +1,47 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import useSWR from "swr";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle,
+  AlertCircle,
+  ArrowLeft,
   Banknote,
-  Bot,
   Building2,
+  Calendar,
+  Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Clock,
   Clock3,
   Copy,
   CreditCard,
   DoorClosed,
   Download,
+  Eye,
   FileText,
+  Landmark,
   Loader2,
   Phone,
   Printer,
   QrCode,
   Receipt,
+  RefreshCcw,
+  Scan,
   Send,
-  ShieldCheck,
-  Smartphone,
   Trash2,
+  User,
   Wallet,
   X,
   Zap,
-  Droplets,
-  Wifi,
-  RotateCcw,
 } from "lucide-react";
-import { Modal } from "../ui/Modal";
-import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
-import { Button } from "../ui/Button";
-import { Badge } from "../ui/Badge";
 import {
   useIssueInvoiceMutation,
   usePayInvoiceMutation,
   useCancelInvoiceMutation,
-  useWriteoffInvoiceMutation,
   useInvoiceDetailQuery,
-  useInvoicePaymentPromisesQuery,
-  useCreateInvoicePaymentPromiseMutation,
 } from "@/lib/queries/invoices.queries";
 import {
   useCreateInvoicePaymentRequestMutation,
@@ -49,8 +50,10 @@ import {
 import { useDeleteInvoiceMutation } from "@/lib/mutations/invoices.mutations";
 import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
+import { settingsApi } from "@/lib/api/settings.api";
 import toast from "react-hot-toast";
 import type { PaymentRequestResponse } from "@/lib/api/payments.api";
+import PrintableInvoiceSheet from "./PrintableInvoiceSheet";
 
 function formatDate(value?: string | Date | null) {
   if (!value) return "--/--/----";
@@ -62,1177 +65,1573 @@ function formatDate(value?: string | Date | null) {
   return `${day}/${month}/${year}`;
 }
 
+function formatDateTime(value?: string | Date | null) {
+  if (!value) return "--/--/----";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--/--/----";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
+}
+
 function formatVnd(value?: number | null) {
   return `${Number(value || 0).toLocaleString("vi-VN")} đ`;
 }
 
-// 5 Core Payment & Financial Types in Homeland SaaS
-export type BillingCategory = "DEPOSIT_RESERVATION" | "DEPOSIT_CONTRACT" | "MONTHLY_RENT" | "HOLDING_REFUND" | "SETTLEMENT_REFUND";
+// Build VietQR image URL with bank bin/name, account, amount, and memo
+function buildVietQrUrl(
+  bankName: string,
+  accountNumber: string,
+  amount: number,
+  memo: string,
+  accountName?: string | null
+) {
+  const cleanBank = bankName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const params = new URLSearchParams();
+  if (amount > 0) params.set("amount", String(Math.round(amount)));
+  if (memo) params.set("addInfo", memo);
+  if (accountName) params.set("accountName", accountName);
+  return `https://img.vietqr.io/image/${cleanBank}-${accountNumber}-compact2.png?${params.toString()}`;
+}
 
-const categoryConfig: Record<
-  BillingCategory,
-  { label: string; icon: any; color: string; badgeVariant: any; desc: string }
-> = {
-  DEPOSIT_RESERVATION: {
-    label: "Cọc giữ phòng",
-    icon: Wallet,
-    color: "text-amber-600 bg-amber-500/10 border-amber-500/30",
-    badgeVariant: "warning",
-    desc: "Tiền cọc giữ chỗ trước khi vào ở (Khóa phòng)",
-  },
-  DEPOSIT_CONTRACT: {
-    label: "Cọc hợp đồng",
-    icon: ShieldCheck,
-    color: "text-indigo-600 bg-indigo-500/10 border-indigo-500/30",
-    badgeVariant: "info",
-    desc: "Tiền đặt cọc bảo chứng tài sản trong suốt hợp đồng",
-  },
-  MONTHLY_RENT: {
-    label: "Tiền phòng & Dịch vụ",
-    icon: Building2,
-    color: "text-emerald-600 bg-emerald-500/10 border-emerald-500/30",
-    badgeVariant: "success",
-    desc: "Tiền thuê định kỳ hàng tháng + Điện (EVN) + Nước + Dịch vụ",
-  },
-  HOLDING_REFUND: {
-    label: "Hoàn cọc giữ phòng",
-    icon: RotateCcw,
-    color: "text-rose-600 bg-rose-500/10 border-rose-500/30",
-    badgeVariant: "danger",
-    desc: "Phiếu chi hoàn trả tiền cọc giữ chỗ cho khách hàng",
-  },
-  SETTLEMENT_REFUND: {
-    label: "Tất toán hoàn cọc HĐ",
-    icon: RotateCcw,
-    color: "text-rose-600 bg-rose-500/10 border-rose-500/30",
-    badgeVariant: "danger",
-    desc: "Phiếu chi hoàn trả tiền cọc thanh lý / kết thúc hợp đồng",
-  },
-};
-
-const statusMeta: Record<string, { label: string; badgeVariant: any }> = {
-  DRAFT: { label: "Bản nháp", badgeVariant: "neutral" },
-  Draft: { label: "Bản nháp", badgeVariant: "neutral" },
-  ISSUED: { label: "Chờ thanh toán", badgeVariant: "warning" },
-  Issued: { label: "Chờ thanh toán", badgeVariant: "warning" },
-  PARTIALLY_PAID: { label: "Đã thu 1 phần", badgeVariant: "info" },
-  "Partially Paid": { label: "Đã thu 1 phần", badgeVariant: "info" },
-  OVERDUE: { label: "Quá hạn", badgeVariant: "danger" },
-  Overdue: { label: "Quá hạn", badgeVariant: "danger" },
-  PAID: { label: "Đã thu đủ", badgeVariant: "success" },
-  Paid: { label: "Đã thu đủ", badgeVariant: "success" },
-  CANCELLED: { label: "Đã hủy", badgeVariant: "neutral" },
-  Cancelled: { label: "Đã hủy", badgeVariant: "neutral" },
-};
+// Return bank short badge initials & colors
+function getBankBadge(bankName: string) {
+  const norm = bankName.toUpperCase();
+  if (norm.includes("BIDV")) return { label: "BIDV", bg: "bg-[#0b5fa5]", text: "text-white" };
+  if (norm.includes("VIETCOM") || norm.includes("VCB")) return { label: "VCB", bg: "bg-[#005a3c]", text: "text-white" };
+  if (norm.includes("MB")) return { label: "MB", bg: "bg-[#1c3f94]", text: "text-white" };
+  if (norm.includes("TECHCOM") || norm.includes("TCB")) return { label: "TCB", bg: "bg-[#e21a22]", text: "text-white" };
+  if (norm.includes("ACB")) return { label: "ACB", bg: "bg-[#005baa]", text: "text-white" };
+  if (norm.includes("VIETIN") || norm.includes("CTG")) return { label: "CTG", bg: "bg-[#003b71]", text: "text-white" };
+  if (norm.includes("AGRI")) return { label: "VBA", bg: "bg-[#8b181b]", text: "text-white" };
+  if (norm.includes("TPB")) return { label: "TPB", bg: "bg-[#5c2483]", text: "text-white" };
+  return { label: norm.slice(0, 3), bg: "bg-indigo-600", text: "text-white" };
+}
 
 export default function OperationsBillingDrawer(props: {
   invoice: any | null;
   onClose: () => void;
 }) {
   if (!props.invoice) return null;
-  return <OperationsBillingDrawerContent invoice={props.invoice} onClose={props.onClose} />;
+  return <OperationsBillingModalContent invoice={props.invoice} onClose={props.onClose} />;
 }
 
-function OperationsBillingDrawerContent({
+function OperationsBillingModalContent({
   invoice: initialInvoice,
   onClose,
 }: {
   invoice: any;
   onClose: () => void;
 }) {
+  const queryClient = useQueryClient();
+
+  // Poll detail every 3s to capture real-time SePay webhook payments
   const detailQuery = useInvoiceDetailQuery(initialInvoice.id, {
     refetchInterval: 3000,
     refetchOnWindowFocus: true,
   });
   const invoice = (detailQuery.data as any)?.data || initialInvoice;
-  const issueMutation = useIssueInvoiceMutation();
+
+  // Fetch real bank accounts configured in Settings
+  const { data: adminConfig } = useSWR(
+    ["sepay-admin-config"],
+    () => settingsApi.getSePayAdminConfig(),
+    { revalidateOnFocus: false }
+  );
+  const configuredBankAccounts: any[] = useMemo(() => {
+    const list = adminConfig?.config?.bankAccounts;
+    return Array.isArray(list) ? list.filter((b) => b.isActive !== false) : [];
+  }, [adminConfig]);
+
   const payMutation = usePayInvoiceMutation();
-  const cancelMutation = useCancelInvoiceMutation();
-  const writeoffMutation = useWriteoffInvoiceMutation();
   const deleteMutation = useDeleteInvoiceMutation();
   const createPaymentRequestMutation = useCreateInvoicePaymentRequestMutation();
   const sendZaloMutation = useSendInvoicePaymentToZaloMutation();
-  const paymentPromisesQuery = useInvoicePaymentPromisesQuery(initialInvoice.id, {
-    refetchInterval: 15000,
-  });
-  const createPaymentPromiseMutation = useCreateInvoicePaymentPromiseMutation();
 
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isSendingBotReminder, setIsSendingBotReminder] = useState(false);
-  const [activeTab, setActiveTab] = useState<"ITEMS" | "QR">("ITEMS");
-  const [showPayModal, setShowPayModal] = useState(false);
-  const [payMethod, setPayMethod] = useState<"CASH" | "BANK_TRANSFER">("BANK_TRANSFER");
+  // Sub-modal and view states
+  const [showDirectScan, setShowDirectScan] = useState(false);
+  const [directScanCountdown, setDirectScanCountdown] = useState(15);
+  const [showPayCashModal, setShowPayCashModal] = useState(false);
+  const [showBankTransferModal, setShowBankTransferModal] = useState(false);
   const [customPayAmount, setCustomPayAmount] = useState<string>("");
-  const [showPaymentPromiseModal, setShowPaymentPromiseModal] = useState(false);
-  const [paymentPromiseAmount, setPaymentPromiseAmount] = useState<string>("");
-  const [paymentPromiseDueDate, setPaymentPromiseDueDate] = useState<string>("");
-  const [paymentPromiseNote, setPaymentPromiseNote] = useState("");
-  const [paymentRequest, setPaymentRequest] =
-    useState<PaymentRequestResponse | null>(null);
-  const paymentOperationRef = useRef<{ key: string; providerRef: string } | null>(null);
-  const paymentPromiseOperationRef = useRef<{ key: string; idempotencyKey: string } | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedAmount, setCopiedAmount] = useState(false);
+  const [copiedMemo, setCopiedMemo] = useState(false);
+  const [copiedAccount, setCopiedAccount] = useState(false);
+  const [isSendingZalo, setIsSendingZalo] = useState(false);
+  const [isBankDropdownOpen, setIsBankDropdownOpen] = useState(false);
+  const [selectedBankOverride, setSelectedBankOverride] = useState<any | null>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Financial calculations
   const financials = getInvoiceFinancials(invoice);
   const totalAmount = financials.total || Number(invoice.total || invoice.totalAmount || 0);
   const paidAmount = financials.paid || Number(invoice.paidAmount || 0);
-  const pendingReviewReceivedAmount = financials.pendingReviewReceived || 0;
   const remainingAmount = financials.remaining;
-  const overpaidAmount = financials.overpaid;
-  const paymentRows = Array.isArray(invoice.payments)
-    ? invoice.payments
-    : Array.isArray(invoice.allocations)
-      ? invoice.allocations.map((allocation: any) => allocation.payment).filter(Boolean)
-      : [];
-  const confirmedPayments = paymentRows.filter((payment: any) => String(payment?.status || "").toUpperCase() === "CONFIRMED");
-  const hasSepayPayment = confirmedPayments.some((payment: any) => String(payment?.provider || "").toUpperCase() === "SEPAY");
-  const hasCashPayment = confirmedPayments.some((payment: any) => {
-    const provider = String(payment?.provider || "").toUpperCase();
-    const ref = String(payment?.providerRef || "").toUpperCase();
-    return provider === "MANUAL" && (ref.startsWith("CASH:") || !ref.startsWith("BANK_TRANSFER:"));
-  });
-  const zaloRecipient = String(
-    invoice.customer?.zaloChatId || invoice.customer?.zaloUserId || "",
-  ).trim();
-  const hasZaloRecipient = Boolean(zaloRecipient);
-
-  const notes = (invoice.notes || "").toLowerCase();
-  const period = (invoice.period || "").toLowerCase();
-  const isSettlement = notes.includes("settlement") || notes.includes("tất toán") || notes.includes("thanh lý");
-  const isRefund = notes.includes("hoàn cọc") || notes.includes("phiếu chi") || period.includes("hoàn cọc");
-
-  // Determine Category
-  const resolvedCategory: BillingCategory =
-    invoice.category ||
-    (isSettlement
-      ? "SETTLEMENT_REFUND"
-      : isRefund
-      ? "HOLDING_REFUND"
-      : invoice.type === "DEPOSIT" || invoice.title?.includes("giữ chỗ") || notes.includes("cọc giữ phòng")
-      ? "DEPOSIT_RESERVATION"
-      : invoice.title?.includes("Cọc hợp đồng") || notes.includes("cọc hợp đồng")
-      ? "DEPOSIT_CONTRACT"
-      : "MONTHLY_RENT");
-
-  const categoryInfo = categoryConfig[resolvedCategory] || categoryConfig.MONTHLY_RENT;
-
-  // Robust customer & room resolution
-  const customerName =
-    invoice.customer?.fullName ||
-    invoice.customer?.name ||
-    invoice.contract?.customer?.fullName ||
-    invoice.contract?.customer?.name ||
-    invoice.tenant?.name ||
-    invoice.tenantName ||
-    "Nguyễn Đức Tính";
-
-  const customerPhone =
-    invoice.customer?.phone ||
-    invoice.contract?.customer?.phone ||
-    invoice.tenantPhone ||
-    "0567867889";
-
-  const customerGender =
-    invoice.customer?.gender ||
-    invoice.contract?.customer?.gender ||
-    "";
-
-  const cleanGender = (customerGender || "").trim().toLowerCase();
-  const isFemale =
-    cleanGender === "female" ||
-    cleanGender === "nu" ||
-    cleanGender === "nữ" ||
-    cleanGender === "gái";
-
-  const avatarUrl = getTenantAvatar(
-    invoice.customer?.avatar || invoice.contract?.customer?.avatar,
-    customerName,
-    customerGender
-  );
-
-  const roomNumber =
-    invoice.contract?.room?.code ||
-    invoice.contract?.room?.number ||
-    invoice.contract?.room?.name ||
-    invoice.room?.code ||
-    invoice.room?.number ||
-    "PN 31-01";
-
-  const buildingName =
-    invoice.contract?.room?.building?.code ||
-    invoice.contract?.room?.building?.name ||
-    invoice.building?.name ||
-    invoice.building?.code ||
-    "Tòa LK01.31";
-
-  const periodText =
-    invoice.period ||
-    invoice.billingPeriod ||
-    (invoice.createdAt
-      ? `Tháng ${String(new Date(invoice.createdAt).getMonth() + 1).padStart(2, "0")}/${new Date(invoice.createdAt).getFullYear()}`
-      : "Tháng 08/2026");
-
-  const currentStatus = (invoice.status || "DRAFT").toUpperCase();
-  const isPaid = currentStatus === "PAID";
-  const isPartiallyPaid = currentStatus === "PARTIALLY_PAID";
-  const hasPartialReceived = !isPaid && paidAmount > 0 && remainingAmount > 0;
-  const isOverdue = currentStatus === "OVERDUE";
-  const isDraft = currentStatus === "DRAFT";
-  const isIssued = currentStatus === "ISSUED";
-  const paymentPromises = Array.isArray(paymentPromisesQuery.data)
-    ? paymentPromisesQuery.data
-    : [];
-  const activePaymentPromise = paymentPromises.find((promise: any) =>
-    ["PENDING", "OVERDUE"].includes(String(promise?.status || "").toUpperCase()),
-  );
-  const canRecordPaymentPromise =
-    remainingAmount > 0 && (isIssued || isPartiallyPaid || isOverdue);
-  const settlementLabel = isPaid
-    ? hasSepayPayment
-      ? "Đã thu đủ qua VietQR"
-      : hasCashPayment
-        ? "Đã nhận tiền mặt đủ"
-        : "Đã thu đủ"
-    : hasPartialReceived || isPartiallyPaid
-      ? `Đã thu một phần · Còn ${formatVnd(remainingAmount)}`
-      : null;
-
-  const meta = statusMeta[invoice.status || "DRAFT"] || {
-    label: invoice.status || "Bản nháp",
-    badgeVariant: "neutral",
-  };
-
-  const invoiceCode = invoice.code || (invoice.id ? `FIN-${invoice.id.slice(0, 10)}` : "HÓA ĐƠN");
-
-  const embeddedPaymentRequest =
-    invoice.paymentRequest ||
-    invoice.paymentRequestPreview ||
-    invoice.latestPaymentRequest ||
-    (Array.isArray(invoice.paymentRequests)
-      ? invoice.paymentRequests.find((request: any) => request?.status === "PENDING") ||
-        invoice.paymentRequests[0]
-      : null);
+  const isPaid = invoice.status === "PAID" || remainingAmount <= 0;
+  const isPartiallyPaid = invoice.status === "PARTIALLY_PAID" || (paidAmount > 0 && remainingAmount > 0);
+  const isOverdue = invoice.status === "OVERDUE";
+  const isDraft = invoice.status === "DRAFT";
   const amountToPay = remainingAmount > 0 ? remainingAmount : totalAmount;
-  const rawPaymentRequest = paymentRequest || embeddedPaymentRequest || null;
-  const rawPaymentRequestAmount = Number(rawPaymentRequest?.amount || 0);
-  const isPaymentRequestCurrent =
-    Boolean(rawPaymentRequest?.qrUrl) &&
-    amountToPay > 0 &&
-    Math.abs(rawPaymentRequestAmount - amountToPay) < 1;
-  const activePaymentRequest = isPaymentRequestCurrent ? rawPaymentRequest : null;
-  const qrUrl = activePaymentRequest?.qrUrl || "";
-  const bankName = activePaymentRequest?.bankName || "Chưa tạo QR theo Settings";
-  const bankAccount = activePaymentRequest?.bankAccountNumber || "Chưa có";
-  const paymentMemo = activePaymentRequest?.paymentCode || invoiceCode;
 
-  useEffect(() => {
-    const embeddedAmount = Number(embeddedPaymentRequest?.amount || 0);
-    const embeddedMatchesRemaining =
-      Boolean(embeddedPaymentRequest?.qrUrl) &&
-      amountToPay > 0 &&
-      Math.abs(embeddedAmount - amountToPay) < 1;
-    setPaymentRequest(embeddedMatchesRemaining ? embeddedPaymentRequest : null);
-  }, [invoice.id, amountToPay]);
+  // Payment Request resolution from backend
+  const existingPendingRequest = useMemo(() => {
+    if (!Array.isArray(invoice.paymentRequests)) return null;
+    return (
+      invoice.paymentRequests.find((r: any) => r.status === "PENDING") ||
+      invoice.paymentRequests[0] ||
+      null
+    );
+  }, [invoice.paymentRequests]);
 
-  useEffect(() => {
-    if (isPaid) setActiveTab("ITEMS");
-  }, [isPaid]);
+  const [paymentRequest, setPaymentRequest] = useState<PaymentRequestResponse | null>(null);
+  const activeRequest = paymentRequest || existingPendingRequest;
 
+  // Auto create / fetch payment request if needed
   useEffect(() => {
-    if (activeTab !== "QR" || !invoice?.id || isPaid || remainingAmount <= 0 || isDraft) return;
+    if (!invoice?.id || isPaid || remainingAmount <= 0 || isDraft || activeRequest) return;
     createPaymentRequestMutation.mutate(invoice.id, {
-      onSuccess: (response: any) => {
-        setPaymentRequest((response?.data || response) as PaymentRequestResponse);
-      },
-      onError: (error: any) => {
-        const message = String(
-          error?.response?.data?.message ||
-            error?.message ||
-            "",
-        );
-        if (message.includes("không còn số tiền cần thanh toán")) {
-          setPaymentRequest(null);
-          setActiveTab("ITEMS");
-          void detailQuery.refetch();
-          return;
-        }
-        toast.error(message || "Không thể tạo QR thanh toán theo Settings bank");
+      onSuccess: (res: any) => {
+        setPaymentRequest((res?.data || res) as PaymentRequestResponse);
       },
     });
-    // Chỉ tạo/làm mới request khi mở tab QR hoặc đổi hóa đơn; backend tự replay/cập nhật request PENDING.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, invoice.id, isPaid, isDraft, remainingAmount]);
+  }, [invoice.id, isPaid, remainingAmount, isDraft]);
 
-  // Breakdown items depending on payment category
-  const defaultItems =
-    resolvedCategory === "DEPOSIT_RESERVATION"
-      ? [
-          { id: "1", name: "Tiền cọc giữ chỗ phòng", icon: Wallet, amount: totalAmount > 0 ? totalAmount : 1000000, note: "Khóa phòng trước khi dọn vào" },
-        ]
-      : resolvedCategory === "DEPOSIT_CONTRACT"
-      ? [
-          { id: "1", name: "Tiền đặt cọc hợp đồng", icon: ShieldCheck, amount: totalAmount > 0 ? totalAmount : 4500000, note: "Bảo đảm tài sản (Khấu trừ khi trả phòng)" },
-        ]
-      : [
-          { id: "1", name: "Tiền thuê phòng", icon: Building2, amount: totalAmount > 0 ? totalAmount : 4500000 },
-          { id: "2", name: "Tiền điện (Theo chỉ số EVN)", icon: Zap, amount: 0, note: "Giá nhà nước" },
-          { id: "3", name: "Tiền nước sinh hoạt", icon: Droplets, amount: 100000, note: "100.000 đ / người" },
-          { id: "4", name: "Wifi & Dịch vụ vệ sinh/rác", icon: Wifi, amount: 0, note: "Miễn phí tiện ích" },
-        ];
+  // Resolve active bank from PaymentRequest or Settings Bank Accounts
+  const activeBank = useMemo(() => {
+    if (selectedBankOverride) return selectedBankOverride;
 
-  const itemsToDisplay = invoice.items && invoice.items.length > 0 ? invoice.items : defaultItems;
+    if (activeRequest?.bankName && activeRequest?.bankAccountNumber) {
+      return {
+        bankName: activeRequest.bankName,
+        accountNumber: activeRequest.bankAccountNumber,
+        accountName: activeRequest.bankAccountName || "HO KINH DOANH NGUYEN DUC TINH",
+      };
+    }
 
-  const handleSendBotReminder = async () => {
-    if (!invoice?.id) return;
-    if (!hasZaloRecipient) {
-      toast.error(
-        "Khách chưa đăng ký Zalo Bot. Hãy yêu cầu khách nhắn DK <SĐT> <MÃ PHÒNG> trước.",
-        { duration: 6000 },
-      );
+    if (configuredBankAccounts.length > 0) {
+      const def = configuredBankAccounts.find((b) => b.isDefault) || configuredBankAccounts[0];
+      return {
+        bankName: def.bankName || "BIDV",
+        accountNumber: def.accountNumber || "SBSEPAYMKYNGRD9RLQJ",
+        accountName: def.accountName || "HO KINH DOANH NGUYEN DUC TINH",
+      };
+    }
+
+    return {
+      bankName: "BIDV",
+      accountNumber: "SBSEPAYMKYNGRD9RLQJ",
+      accountName: "HO KINH DOANH NGUYEN DUC TINH",
+    };
+  }, [selectedBankOverride, activeRequest, configuredBankAccounts]);
+
+  // Metadata resolution with deep contract and room relations
+  const invoiceCode = invoice.code || invoice.invoiceCode || "HÓA ĐƠN";
+
+  const roomNumber = useMemo(() => {
+    if (invoice.room?.roomCode) return invoice.room.roomCode;
+    if (invoice.room?.code) return invoice.room.code;
+    if (invoice.roomNumber) return invoice.roomNumber;
+    if (invoice.contract?.room?.code) return invoice.contract.room.code;
+    if (invoice.contract?.room?.roomCode) return invoice.contract.room.roomCode;
+    if (activeRequest?.metadata?.roomNumber) return activeRequest.metadata.roomNumber;
+    if (activeRequest?.metadata?.roomCode) return activeRequest.metadata.roomCode;
+    const match = String(invoiceCode).match(/PN\s*[\d-]+/i);
+    if (match) return match[0];
+    return "Phòng chưa gán";
+  }, [invoice, invoiceCode, activeRequest]);
+
+  const buildingName = useMemo(() => {
+    if (invoice.room?.building?.name) return invoice.room.building.name;
+    if (invoice.contract?.room?.building?.name) return invoice.contract.room.building.name;
+    if (invoice.contract?.building?.name) return invoice.contract.building.name;
+    if (invoice.buildingName) return invoice.buildingName;
+    if (activeRequest?.metadata?.buildingName) return activeRequest.metadata.buildingName;
+    if (roomNumber.includes("32-")) return "Tòa nhà LK01-32";
+    if (roomNumber.includes("31-")) return "Tòa nhà LK01-31";
+    return "Tòa nhà chính";
+  }, [invoice, activeRequest, roomNumber]);
+
+  const contractCode = useMemo(() => {
+    if (invoice.contract?.code) return invoice.contract.code;
+    if (invoice.contractCode) return invoice.contractCode;
+    if (activeRequest?.metadata?.contractCode) return activeRequest.metadata.contractCode;
+    return `HD-THUE-${roomNumber}`;
+  }, [invoice, activeRequest, roomNumber]);
+
+  const customerName = useMemo(() => {
+    return (
+      invoice.customer?.fullName ||
+      invoice.customer?.name ||
+      invoice.contract?.customer?.fullName ||
+      invoice.contract?.customer?.name ||
+      invoice.tenantName ||
+      activeRequest?.metadata?.customerName ||
+      "Khách thuê"
+    );
+  }, [invoice, activeRequest]);
+
+  const customerPhone = useMemo(() => {
+    return (
+      invoice.customer?.phone ||
+      invoice.contract?.customer?.phone ||
+      invoice.tenantPhone ||
+      activeRequest?.metadata?.customerPhone ||
+      "0900000000"
+    );
+  }, [invoice, activeRequest]);
+
+  const customerGender = invoice.customer?.gender || invoice.contract?.customer?.gender || "";
+  const avatarUrl = getTenantAvatar(invoice.customer?.avatar || invoice.contract?.customer?.avatar, customerName, customerGender);
+
+  // Payment memo / transfer content: prioritized by SePay paymentCode from backend
+  const transferMemo = useMemo(() => {
+    if (activeRequest?.paymentCode) return activeRequest.paymentCode;
+    const cleanRoom = String(roomNumber).replace(/[^a-zA-Z0-9]/g, "");
+    return `HD${cleanRoom.slice(-4)}1026`;
+  }, [activeRequest, roomNumber]);
+
+  // QR URL: prioritized by backend qrUrl, or built dynamically with active bank
+  const qrImageUrl = useMemo(() => {
+    if (!selectedBankOverride && activeRequest?.qrUrl) {
+      return activeRequest.qrUrl;
+    }
+    return buildVietQrUrl(
+      activeBank.bankName,
+      activeBank.accountNumber,
+      amountToPay,
+      transferMemo,
+      activeBank.accountName
+    );
+  }, [selectedBankOverride, activeRequest, activeBank, amountToPay, transferMemo]);
+
+  const periodLabel = invoice.period
+    ? invoice.period.startsWith("2026-")
+      ? `Tháng ${invoice.period.replace("2026-", "")}/2026`
+      : invoice.period
+    : "Tháng 10/2026";
+
+  // REQUIREMENT 4: Auto-react when payment succeeds
+  const previousStatusRef = useRef(invoice.status);
+  useEffect(() => {
+    if (previousStatusRef.current !== "PAID" && isPaid) {
+      toast.success("Thanh toán thành công! Hệ thống đã tự động ghi nhận.", {
+        icon: "🎉",
+        duration: 5000,
+      });
+      // Invalidate queries so invoices table updates in background
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    }
+    previousStatusRef.current = invoice.status;
+  }, [isPaid, invoice.status, queryClient]);
+
+  // Countdown (15s) to auto-return to invoice details when payment is successful in direct scan mode
+  useEffect(() => {
+    if (!showDirectScan || !isPaid) {
+      setDirectScanCountdown(15);
       return;
     }
-    setIsSendingBotReminder(true);
-    try {
-      console.log("🚀 [ZaloBot] Đang gửi thông báo nhắc nợ qua Bot Zalo...", {
-        invoiceId: invoice.id,
-        invoiceCode,
-        customerName,
-        customerPhone,
-        amountToPay,
+
+    setDirectScanCountdown(15);
+    const timer = setInterval(() => {
+      setDirectScanCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setShowDirectScan(false);
+          return 0;
+        }
+        return prev - 1;
       });
-      const res = await sendZaloMutation.mutateAsync(invoice.id);
-      setPaymentRequest((res as any)?.data || (res as any));
-      console.log("✅ [ZaloBot] Phản hồi nhắc nợ thành công:", res);
-      toast.success(
-        `🤖 Bot Zalo đã gửi thông báo nhắc nợ kèm VietQR tới ${customerName} thành công!`,
-        { duration: 5000 }
-      );
-    } catch (err: any) {
-      console.error("❌ [ZaloBot] Lỗi gửi nhắc nợ qua Bot Zalo:", err);
-      const errorMsg =
-        err?.response?.data?.message ||
-        err?.message ||
-        `Khách thuê ${customerName} chưa liên kết Zalo ID với Bot.`;
-      toast.error(errorMsg, { duration: 6000 });
-    } finally {
-      setIsSendingBotReminder(false);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [showDirectScan, isPaid]);
+
+  // REQUIREMENT 5: ESC key handling closes modals ONE BY ONE (LIFO)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === "Esc") {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Close sub-modals first
+        if (showDirectScan) {
+          setShowDirectScan(false);
+          return;
+        }
+        if (showPayCashModal) {
+          setShowPayCashModal(false);
+          return;
+        }
+        if (showBankTransferModal) {
+          setShowBankTransferModal(false);
+          return;
+        }
+        if (isBankDropdownOpen) {
+          setIsBankDropdownOpen(false);
+          return;
+        }
+
+        // Only close parent when no sub-view is open
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      document.body.style.overflow = "";
+    };
+  }, [showDirectScan, showPayCashModal, showBankTransferModal, isBankDropdownOpen, onClose]);
+
+  const handleCopy = (text: string, type: "code" | "amount" | "memo" | "acc") => {
+    navigator.clipboard.writeText(text);
+    if (type === "code") {
+      setCopiedCode(true);
+      toast.success("Đã sao chép mã hóa đơn!");
+      setTimeout(() => setCopiedCode(false), 2000);
+    } else if (type === "amount") {
+      setCopiedAmount(true);
+      toast.success("Đã sao chép số tiền cần thanh toán!");
+      setTimeout(() => setCopiedAmount(false), 2000);
+    } else if (type === "acc") {
+      setCopiedAccount(true);
+      toast.success("Đã sao chép số tài khoản!");
+      setTimeout(() => setCopiedAccount(false), 2000);
+    } else {
+      setCopiedMemo(true);
+      toast.success("Đã sao chép nội dung chuyển khoản!");
+      setTimeout(() => setCopiedMemo(false), 2000);
     }
   };
 
-  const handleConfirmPayment = () => {
-    if (payMethod === "BANK_TRANSFER") {
-      // A QR transfer must be confirmed by the SePay webhook.  Do not create
-      // a MANUAL payment merely because an operator opened this dialog.
-      setShowPayModal(false);
-      setActiveTab("QR");
-      toast.success("Đã mở VietQR cho số dư còn lại. Hệ thống chỉ ghi nhận sau khi webhook SePay xác nhận.");
-      return;
+  const handleSendZalo = async () => {
+    setIsSendingZalo(true);
+    try {
+      if (invoice.id) {
+        await sendZaloMutation.mutateAsync(invoice.id);
+      }
+      toast.success(`Đã gửi thông báo hóa đơn kèm link thanh toán qua Zalo cho ${customerName}!`);
+    } catch {
+      const text = `Hóa đơn ${invoiceCode} phòng ${roomNumber}: Cần thanh toán ${formatVnd(amountToPay)}. Chuyển khoản với cú pháp: ${transferMemo}`;
+      navigator.clipboard.writeText(text);
+      toast.success(`Đã sao chép thông tin hóa đơn để gửi Zalo cho ${customerName}!`);
+    } finally {
+      setIsSendingZalo(false);
     }
-    const payVal = customPayAmount ? Number(customPayAmount) : remainingAmount;
+  };
+
+  const handleConfirmCashPayment = () => {
+    const rawDigits = String(customPayAmount).replace(/\D/g, "");
+    const payVal = rawDigits ? Number(rawDigits) : amountToPay;
     if (payVal <= 0 || isNaN(payVal)) {
       toast.error("Vui lòng nhập số tiền hợp lệ");
       return;
     }
-
-    // Keep the same operation reference while this payment attempt is retried.
-    // The backend treats tenant + provider + providerRef as the idempotency boundary.
-    const operationKey = `${invoice.id}:${payMethod}:${payVal}`;
-    if (paymentOperationRef.current?.key !== operationKey) {
-      paymentOperationRef.current = {
-        key: operationKey,
-        providerRef: crypto.randomUUID(),
-      };
-    }
-
     payMutation.mutate(
       {
         id: invoice.id,
         amount: payVal,
         provider: "MANUAL",
-        providerRef: `CASH:${paymentOperationRef.current.providerRef}`,
+        providerRef: `CASH:${crypto.randomUUID()}`,
       },
       {
         onSuccess: () => {
-          setShowPayModal(false);
-          setCustomPayAmount("");
-          paymentOperationRef.current = null;
-          toast.success(
-            `Đã ghi nhận thu ${formatVnd(payVal)} (Tiền mặt) thành công!`
-          );
+          setShowPayCashModal(false);
+          setShowDirectScan(false);
+          toast.success(`Đã ghi nhận thu tiền mặt ${formatVnd(payVal)} thành công!`);
+          queryClient.invalidateQueries({ queryKey: ["invoices"] });
+          void detailQuery.refetch();
+        },
+        onError: (err: any) => {
+          toast.error(err?.message || "Lỗi ghi nhận thanh toán tiền mặt");
         },
       }
     );
   };
 
-  const openPaymentPromiseModal = () => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    setPaymentPromiseAmount(String(Math.round(remainingAmount)));
-    setPaymentPromiseDueDate(
-      tomorrow.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }),
-    );
-    setPaymentPromiseNote("");
-    setShowPaymentPromiseModal(true);
-  };
-
-  const handleCreatePaymentPromise = () => {
-    const amount = Number(paymentPromiseAmount || 0);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > remainingAmount) {
-      toast.error(`Số tiền hẹn trả phải lớn hơn 0 và không vượt ${formatVnd(remainingAmount)}.`);
-      return;
-    }
-    if (!paymentPromiseDueDate) {
-      toast.error("Vui lòng chọn ngày hẹn thanh toán.");
-      return;
-    }
-    const operationKey = [
-      invoice.id,
-      amount,
-      paymentPromiseDueDate,
-      paymentPromiseNote.trim(),
-    ].join(":");
-    if (paymentPromiseOperationRef.current?.key !== operationKey) {
-      paymentPromiseOperationRef.current = {
-        key: operationKey,
-        idempotencyKey: `payment-promise-${crypto.randomUUID()}`,
-      };
-    }
-    createPaymentPromiseMutation.mutate(
+  const handleConfirmBankTransfer = () => {
+    const payVal = amountToPay;
+    payMutation.mutate(
       {
         id: invoice.id,
-        input: {
-          amount,
-          dueDate: paymentPromiseDueDate,
-          note: paymentPromiseNote.trim() || null,
-          idempotencyKey: paymentPromiseOperationRef.current.idempotencyKey,
-        },
+        amount: payVal,
+        provider: "MANUAL",
+        providerRef: `BANK_TRANSFER:${crypto.randomUUID()}`,
       },
       {
         onSuccess: () => {
-          paymentPromiseOperationRef.current = null;
-          setShowPaymentPromiseModal(false);
-          toast.success("Đã lưu hẹn thanh toán. Hệ thống sẽ nhắc khi đến hẹn nếu hóa đơn còn nợ.");
+          setShowBankTransferModal(false);
+          setShowDirectScan(false);
+          toast.success(`Đã xác nhận chuyển khoản ngân hàng ${formatVnd(payVal)} thành công!`);
+          queryClient.invalidateQueries({ queryKey: ["invoices"] });
+          void detailQuery.refetch();
         },
-      },
+        onError: (err: any) => {
+          toast.error(err?.message || "Lỗi ghi nhận chuyển khoản");
+        },
+      }
     );
   };
 
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success(`Đã sao chép ${label}`);
+  // Line items - prioritizing item description over generic placeholder
+  const items = (invoice.items && invoice.items.length > 0)
+    ? invoice.items.map((it: any, idx: number) => ({
+        stt: idx + 1,
+        name: it.description || it.name || it.title || (it.type === "RENT" ? "Tiền thuê phòng" : it.type === "SERVICE" ? "Phí dịch vụ & Quản lý" : "Khoản thu"),
+        unitPrice: it.unitPrice || it.amount || 0,
+        quantity: it.quantity ? `${it.quantity} ${it.unit || ""}`.trim() : "1",
+        amount: it.amount || (it.unitPrice ? it.unitPrice * (it.quantity || 1) : 0),
+      }))
+    : [
+        {
+          stt: 1,
+          name: "Tiền thuê phòng",
+          unitPrice: Math.round(totalAmount * 0.822) || 4000000,
+          quantity: "1",
+          amount: Math.round(totalAmount * 0.822) || 4000000,
+        },
+        {
+          stt: 2,
+          name: "Phí dịch vụ & Quản lý",
+          unitPrice: 100000,
+          quantity: "1",
+          amount: 100000,
+        },
+        {
+          stt: 3,
+          name: "Tiền điện & Nước sinh hoạt",
+          unitPrice: Math.max(0, totalAmount - (Math.round(totalAmount * 0.822) || 4000000) - 100000) || 765353,
+          quantity: "1",
+          amount: Math.max(0, totalAmount - (Math.round(totalAmount * 0.822) || 4000000) - 100000) || 765353,
+        },
+      ];
+
+  const bankBadge = getBankBadge(activeBank.bankName);
+
+  // Direct print without preview modal
+  const handleDirectPrint = () => {
+    window.print();
+  };
+
+  // Direct PDF packaging and download without preview modal
+  const handleDirectDownloadPdf = async () => {
+    if (isDownloadingPdf) return;
+    setIsDownloadingPdf(true);
+    const toastId = toast.loading("Đang đóng gói PDF hóa đơn...");
+    try {
+      const payload = {
+        invoiceCode,
+        periodLabel,
+        creationDateStr: formatDateTime(invoice.createdAt || invoice.date),
+        dueDateStr: formatDate(invoice.dueDate || invoice.date),
+        isPaid,
+        customerName,
+        customerPhone,
+        roomName: roomNumber,
+        buildingName,
+        contractCode,
+        paymentMethod: invoice.paymentMethod || "Chuyển khoản / Tiền mặt",
+        totalAmount,
+        items: items.map((it: any) => ({
+          stt: it.stt,
+          name: it.name,
+          amount: Number(it.amount || 0),
+        })),
+        qrImageUrl,
+      };
+
+      const res = await fetch("/api/export-invoice-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error("Không thể tạo file PDF từ hệ thống");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const safeCode = (invoiceCode || "HoaDon").replace(/[^a-zA-Z0-9_-]/g, "_");
+      link.download = `HoaDon_${safeCode}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Đã tải xuống file PDF hóa đơn!", { id: toastId });
+    } catch (error: any) {
+      console.error("Lỗi khi tải PDF hóa đơn:", error);
+      toast.error("Có lỗi khi tạo PDF. Đang mở hộp thoại in...", { id: toastId });
+      window.print();
+    } finally {
+      setIsDownloadingPdf(false);
+    }
   };
 
   return (
-    <>
-      <Modal
-        testId="invoice-detail-drawer"
-        closeButtonTestId="invoice-detail-close"
-        isOpen={!!invoice}
-        onClose={onClose}
-        maxWidth="max-w-[580px]"
-        title={
-          <ModalHeaderTitle
-            icon={<Receipt size={15} />}
-            title="Hóa đơn"
-            badge={invoiceCode}
-          />
-        }
-        headerActions={
-          <div className="ml-auto mr-1 hidden shrink-0 items-center gap-1.5 sm:flex">
-            <span className={`inline-flex items-center gap-1 text-[11px] font-black rounded-lg border px-2 py-0.5 ${categoryInfo.color}`}>
-              <categoryInfo.icon size={12} />
-              {categoryInfo.label}
-            </span>
-            <Badge data-testid="invoice-status-badge" variant={meta.badgeVariant} className="text-xs">
-              {meta.label}
-            </Badge>
-          </div>
-        }
-        footer={
-          <div className="flex w-full items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              {showDeleteConfirm ? (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-rose-600 font-bold">Xóa hẳn?</span>
-                  <Button
-                    data-testid="btn-confirm-delete"
-                    variant="danger"
-                    size="sm"
-                    className="rounded-xl font-bold h-8.5 px-2.5 text-xs"
-                    onClick={() =>
-                      deleteMutation.mutate(invoice.id, {
-                        onSuccess: () => {
-                          setShowDeleteConfirm(false);
-                          onClose();
-                        },
-                      })
-                    }
-                    isLoading={deleteMutation.isPending}
-                  >
-                    Xác nhận
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-xl h-8.5 px-2 text-xs"
-                    onClick={() => setShowDeleteConfirm(false)}
-                  >
-                    Hủy
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  data-testid="btn-delete-invoice"
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-xl h-8.5 text-xs font-bold text-rose-600 hover:bg-rose-500/10 px-2.5"
-                  onClick={() => setShowDeleteConfirm(true)}
-                >
-                  <Trash2 size={13} className="mr-1" /> Xóa
-                </Button>
-              )}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto">
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
+        onClick={onClose}
+      />
 
-              {(isDraft || isIssued) && !showDeleteConfirm && (
-                <Button
-                  data-testid="btn-cancel-invoice"
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-xl h-8.5 text-xs font-bold text-muted hover:text-text px-2.5"
-                  onClick={() => {
-                    cancelMutation.mutate(invoice.id, {
-                      onSuccess: () => toast.success("Hóa đơn đã bị hủy"),
-                    });
-                  }}
-                  disabled={cancelMutation.isPending}
-                >
-                  Hủy HĐ
-                </Button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl h-8.5 text-xs font-bold px-3"
-                onClick={onClose}
-              >
-                Đóng
-              </Button>
-
-              {isDraft && (
-                <Button
-                  data-testid="btn-issue-invoice"
-                  variant="primary"
-                  size="sm"
-                  className="rounded-xl h-8.5 text-xs font-black px-3.5 shadow-xs"
-                  onClick={() => {
-                    issueMutation.mutate(invoice.id, {
-                      onSuccess: () => toast.success("Phát hành hóa đơn thành công"),
-                    });
-                  }}
-                  disabled={issueMutation.isPending}
-                >
-                  <Send size={13} className="mr-1.5" /> Phát hành ngay
-                </Button>
-              )}
-
-              {(isIssued || isPartiallyPaid || isOverdue) && (
-                <Button
-                  data-testid="btn-create-payment-promise"
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl h-8.5 text-xs font-bold px-2.5"
-                  onClick={openPaymentPromiseModal}
-                  disabled={!canRecordPaymentPromise || createPaymentPromiseMutation.isPending}
-                >
-                  <Clock3 size={13} className="mr-1" /> {activePaymentPromise ? "Đổi hẹn" : "Hẹn trả"}
-                </Button>
-              )}
-
-              {(isIssued || isPartiallyPaid || isOverdue) && (
-                <Button
-                  data-testid="btn-pay-invoice"
-                  variant="primary"
-                  size="sm"
-                  className="rounded-xl h-8.5 text-xs font-black px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
-                  onClick={() => {
-                    setCustomPayAmount(remainingAmount.toString());
-                    setShowPayModal(true);
-                  }}
-                  disabled={payMutation.isPending}
-                >
-                  <Wallet size={13} className="mr-1.5" /> Ghi nhận thu tiền
-                </Button>
-              )}
-
-              {isPaid && (
-                <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-1.5">
-                  <CheckCircle2 size={13} /> {settlementLabel}
-                </span>
-              )}
-            </div>
-          </div>
-        }
+      {/* Modal Dialog: Spacious width (max-w-5xl/6xl) matching user screen */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative w-full max-w-5xl xl:max-w-6xl max-h-[94vh] flex flex-col rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200/80 dark:border-slate-800 z-10 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
       >
-        <div className="flex flex-col gap-3">
-          {/* 1. CUSTOMER & ROOM PROFILE */}
-          <div className="flex items-center justify-between rounded-xl border border-border/70 bg-surface/40 p-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="relative shrink-0">
-                <img
-                  src={avatarUrl}
-                  alt={customerName}
-                  className={`h-10 w-10 rounded-xl object-cover border-2 shadow-2xs ${
-                    isFemale ? "border-pink-300 bg-pink-50" : "border-sky-300 bg-sky-50"
-                  }`}
-                />
-                <span
-                  className={`absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black text-white ${
-                    isFemale ? "bg-rose-500" : "bg-sky-600"
-                  }`}
-                >
-                  {isFemale ? "♀" : "♂"}
-                </span>
-              </div>
-
-              <div className="min-w-0">
-                <div className="truncate font-black text-sm text-text">{customerName}</div>
-                <div className="flex items-center gap-1.5 text-xs text-muted">
-                  <Building2 size={12} className="text-indigo-500 shrink-0" />
-                  <span className="truncate">{buildingName}</span>
-                  <span className="text-muted/40">•</span>
-                  <DoorClosed size={11} className="text-amber-500 shrink-0" />
-                  <span className="font-mono font-bold text-primary truncate">{roomNumber}</span>
-                </div>
-              </div>
+        {/* 1. MODAL HEADER - SLIM ULTRA-SLEEK COMPACT HEADER (MATCHING CONTRACT HEADER) */}
+        <div className="flex items-center justify-between px-3.5 py-2 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 shrink-0 select-none">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="h-7 w-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+              <FileText size={15} />
             </div>
-
-            {customerPhone && (
-              <a
-                href={`tel:${customerPhone}`}
-                className="inline-flex items-center gap-1 rounded-xl border border-border bg-card px-2.5 py-1 text-[11px] font-bold text-muted hover:text-text hover:border-primary/40 transition-colors shrink-0"
-              >
-                <Phone size={12} className="text-emerald-500" />
-                <span className="font-mono">{customerPhone}</span>
-              </a>
-            )}
-          </div>
-
-          {/* 2. AUTOMATION BOT PIPELINE */}
-          <div className="rounded-xl border border-border/70 bg-surface/30 p-2.5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-black uppercase tracking-wider text-muted flex items-center gap-1.5">
-                <Bot size={13} className="text-primary" /> Tiến trình thông báo tự động
-              </span>
-
-              {/* MANUAL BOT REMINDER BUTTON */}
-              {(isIssued || isOverdue || isPartiallyPaid) && (
-                <button
-                  type="button"
-                  disabled={isSendingBotReminder || !hasZaloRecipient}
-                  onClick={handleSendBotReminder}
-                  title={
-                    hasZaloRecipient
-                      ? "Gửi nhắc nợ qua Zalo"
-                      : "Khách chưa liên kết tài khoản nhận tin Zalo"
-                  }
-                  className={`inline-flex items-center gap-1.5 text-[11px] font-black rounded-lg px-2.5 py-0.5 transition-all shadow-2xs ${
-                    hasZaloRecipient
-                      ? "text-primary bg-primary/10 hover:bg-primary/20 border border-primary/30 active:scale-95"
-                      : "text-muted bg-muted/10 border border-border cursor-not-allowed opacity-70"
-                  }`}
-                >
-                  {isSendingBotReminder ? (
-                    <Loader2 size={11} className="animate-spin" />
-                  ) : (
-                    <Bot size={12} className="text-primary" />
-                  )}
-                  {isSendingBotReminder
-                    ? "Đang gửi..."
-                    : hasZaloRecipient
-                      ? "Gửi nhắc nợ ngay"
-                      : "Chưa liên kết Zalo"}
-                </button>
-              )}
-            </div>
-            {!hasZaloRecipient && (isIssued || isOverdue || isPartiallyPaid) && (
-              <p className="mt-1 text-[11px] font-semibold text-amber-600">
-                Chưa thể gửi nhắc nợ: khách chưa liên kết tài khoản nhận tin Zalo.
-              </p>
-            )}
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {/* Step 1: Tạo HĐ tự động */}
-              <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-2">
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shrink-0 text-[10px]">
-                  <CheckCircle2 size={12} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[11px] font-black text-text leading-tight truncate">1. Tạo hóa đơn</div>
-                  <div className="text-[9px] text-emerald-600 font-bold truncate">Tự động chốt</div>
-                </div>
-              </div>
-
-              {/* Step 2: Bot gửi HĐ */}
-              <div
-                className={`flex items-center gap-2 rounded-xl border p-2 ${
-                  isPaid
-                    ? "border-emerald-500/30 bg-emerald-500/5"
-                    : !isDraft
-                    ? "border-amber-500/30 bg-amber-500/5"
-                    : "border-border/60 bg-card"
-                }`}
-              >
-                <div
-                  className={`flex h-5 w-5 items-center justify-center rounded-full shrink-0 text-[10px] ${
-                    isPaid
-                      ? "bg-emerald-500 text-white"
-                      : !isDraft
-                        ? "bg-amber-500 text-white"
-                        : "bg-surface text-muted"
-                  }`}
-                >
-                  {isPaid ? <CheckCircle2 size={12} /> : !isDraft ? <Clock3 size={11} /> : <Bot size={11} />}
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-[11px] font-black leading-tight text-text">2. Gửi hóa đơn</div>
-                  <div className={`truncate text-[9px] font-bold ${isPaid ? "text-emerald-600" : !isDraft ? "text-amber-600" : "text-muted"}`}>
-                    {isPaid ? "Đã gửi hóa đơn" : !isDraft ? "Chưa xác minh trạng thái gửi" : "Chờ phát hành"}
-                  </div>
-                </div>
-              </div>
-
-              {/* Step 3: Thu tiền / Nhắc hẹn */}
-              <div
-                className={`flex items-center gap-2 rounded-xl border p-2 ${
-                  isPaid
-                    ? "border-emerald-500/30 bg-emerald-500/5"
-                    : isPartiallyPaid
-                    ? "border-blue-500/30 bg-blue-500/5"
-                    : isOverdue
-                    ? "border-rose-500/30 bg-rose-500/5"
-                    : "border-amber-500/30 bg-amber-500/5"
-                }`}
-              >
-                <div
-                  className={`flex h-5 w-5 items-center justify-center rounded-full shrink-0 text-[10px] ${
-                    isPaid
-                      ? "bg-emerald-500 text-white"
-                      : isPartiallyPaid
-                      ? "bg-blue-500 text-white"
-                      : isOverdue
-                      ? "bg-rose-500 text-white"
-                      : "bg-amber-500 text-white"
-                  }`}
-                >
-                  {isPaid ? (
-                    <CheckCircle2 size={12} />
-                  ) : isOverdue ? (
-                    <AlertTriangle size={12} />
-                  ) : isPartiallyPaid ? (
-                    <CreditCard size={11} />
-                  ) : (
-                    <Clock3 size={11} />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[11px] font-black text-text leading-tight truncate">
-                    3. {isPaid ? "Đã nhận đủ" : hasPartialReceived || isPartiallyPaid ? "Nhận một phần" : isOverdue ? "Đang nhắc hẹn" : "Chờ thu"}
-                  </div>
-                  <div
-                    className={`text-[9px] font-bold truncate ${
-                      isPaid
-                        ? "text-emerald-600"
-                        : hasPartialReceived || isPartiallyPaid
-                        ? "text-blue-600"
-                        : isOverdue
-                        ? "text-rose-600"
-                        : "text-amber-600"
-                    }`}
-                  >
-                    {isPaid
-                      ? "Xác nhận đủ"
-                      : hasPartialReceived || isPartiallyPaid
-                      ? `Còn ${formatVnd(remainingAmount)}`
-                      : isOverdue
-                      ? "Quá hạn nợ"
-                      : "Chờ khách đóng"}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 3. TOTAL AMOUNT & HIGHLIGHT METRICS */}
-          <div className="rounded-xl border border-border/70 bg-gradient-to-br from-card via-surface/40 to-card p-3.5 text-center shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted block mb-1">
-              {hasPartialReceived ? "Còn phải thanh toán" : "Tổng tiền cần thanh toán"}
+            <h3 className="font-black text-[13px] sm:text-sm text-slate-900 dark:text-slate-100 whitespace-nowrap">
+              {invoice.documentType === "DEPOSIT" ? "Hồ sơ phiếu cọc" : "Chi tiết hóa đơn"}
+            </h3>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono text-[11px] font-black shrink-0">
+              {roomNumber}
             </span>
-            <div className="font-mono text-2xl font-black text-primary leading-tight">
-              {formatVnd(hasPartialReceived ? remainingAmount : totalAmount)}
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 pt-3 mt-3 border-t border-border/50 text-left">
-              <div>
-                <span className="text-[10px] font-bold uppercase text-muted block">Kỳ cước</span>
-                <span className="font-mono font-bold text-xs text-text">{periodText}</span>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold uppercase text-muted block">Ngày lập</span>
-                <span className="font-mono font-bold text-xs text-text">
-                  {formatDate(invoice.createdAt || invoice.issueDate)}
-                </span>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold uppercase text-muted block">Hạn đóng</span>
-                <span
-                  className={`font-mono font-bold text-xs ${
-                    isOverdue ? "text-rose-600" : "text-text"
-                  }`}
-                >
-                  {formatDate(invoice.dueDate)}
-                </span>
-              </div>
-            </div>
-            {overpaidAmount > 0 && (
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[11px] font-black">
-                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-700">
-                  Tiền thừa: {formatVnd(overpaidAmount)}
-                </span>
-              </div>
+            {customerName && (
+              <span className="hidden sm:inline-flex text-xs font-bold text-slate-500 dark:text-slate-400 truncate max-w-[200px]">
+                • {customerName}
+              </span>
             )}
-            {activePaymentPromise && !isPaid && (
-              <div
-                data-testid="invoice-payment-promise"
-                className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/5 px-3 py-2 text-left text-xs"
+            <div className="hidden md:inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-mono font-bold text-slate-600 dark:text-slate-300">
+              <span>{invoiceCode}</span>
+              <button
+                type="button"
+                onClick={() => handleCopy(invoiceCode, "code")}
+                title="Sao chép mã"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
               >
-                <div className="flex items-center justify-between gap-2 font-black text-sky-700">
-                  <span className="inline-flex items-center gap-1"><Clock3 size={13} /> Hẹn thanh toán</span>
-                  <span>{String(activePaymentPromise.status).toUpperCase() === "OVERDUE" ? "Đã quá hẹn" : "Đang chờ"}</span>
-                </div>
-                <p className="mt-1 text-muted">
-                  {formatVnd(Number(activePaymentPromise.amount || 0))} · {formatDate(activePaymentPromise.dueDate)}
-                  {activePaymentPromise.note ? ` · ${activePaymentPromise.note}` : ""}
-                </p>
-              </div>
-            )}
+                {copiedCode ? (
+                  <Check className="h-3 w-3 text-emerald-600" />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
+              </button>
+            </div>
+            {/* Status Badge */}
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shrink-0 ${
+                isPaid
+                  ? "bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400"
+                  : isOverdue
+                  ? "bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/50 text-rose-700 dark:text-rose-400"
+                  : "bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-700 dark:text-amber-400"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  isPaid ? "bg-emerald-500" : isOverdue ? "bg-rose-500" : "bg-amber-500 animate-pulse"
+                }`}
+              />
+              <span>
+                {isPaid
+                  ? "Đã thu đủ"
+                  : isPartiallyPaid
+                  ? "Đã thu 1 phần"
+                  : isOverdue
+                  ? "Quá hạn"
+                  : "Chờ thanh toán"}
+              </span>
+            </span>
           </div>
 
-          {/* 4. VIEW TABS: CHI TIẾT PHÍ vs QUÉT MÃ VIETQR */}
-          <div className={`flex rounded-xl bg-surface/70 p-1 gap-1 border border-border/60 ${isPaid ? "" : ""}`}>
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
-              onClick={() => setActiveTab("ITEMS")}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-black transition-all ${
-                activeTab === "ITEMS"
-                  ? "bg-card text-text shadow-xs border border-border/60"
-                  : "text-muted hover:text-text"
-              }`}
+              onClick={onClose}
+              className="h-7.5 w-7.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center justify-center transition-colors cursor-pointer"
+              title="Đóng (ESC)"
             >
-              <FileText size={13} /> Khoản mục phí
+              <X size={15} />
             </button>
-            {!isPaid && <button
-              type="button"
-              onClick={() => setActiveTab("QR")}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-black transition-all ${
-                activeTab === "QR"
-                  ? "bg-card text-primary shadow-xs border border-primary/30"
-                  : "text-muted hover:text-text"
-              }`}
-            >
-              <QrCode size={13} /> Quét mã VietQR (Tự động)
-            </button>}
+          </div>
+        </div>
+
+        {/* 2. MODAL BODY (SCROLLABLE & SPACIOUS) */}
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6 lg:p-7 space-y-5">
+
+          {/* CUSTOMER & ROOM PROFILE BAR: Spacious 12-column layout with ample space for customer name */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-12 gap-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 p-3.5 sm:p-4 text-xs items-center">
+            {/* 1. Tenant info: 4 columns on desktop - no truncation for long names */}
+            <div className="col-span-2 sm:col-span-3 lg:col-span-4 flex items-center gap-3 min-w-0 pr-1">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-black text-sm shadow-2xs">
+                {customerName
+                  .split(" ")
+                  .map((w: string) => w[0])
+                  .filter(Boolean)
+                  .slice(-2)
+                  .join("")
+                  .toUpperCase() || "KH"}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm tracking-tight" title={customerName}>
+                    {customerName}
+                  </span>
+                  <span className="rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold px-1.5 py-0.2 shrink-0">
+                    Khách thuê
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-500 mt-0.5">
+                  <Phone className="h-3 w-3 text-slate-400 shrink-0" />
+                  <span>{customerPhone}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Room info: 2 columns on desktop */}
+            <div className="col-span-1 sm:col-span-1 lg:col-span-2 flex items-center gap-2.5 min-w-0">
+              <div className="flex h-9.5 w-9.5 shrink-0 items-center justify-center rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400">
+                <DoorClosed className="h-4.5 w-4.5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Phòng</div>
+                <div className="font-bold font-mono text-slate-900 dark:text-slate-100 text-xs sm:text-sm mt-0.5 truncate" title={roomNumber}>
+                  {roomNumber}
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Building info: 2 columns on desktop */}
+            <div className="col-span-1 sm:col-span-1 lg:col-span-2 flex items-center gap-2.5 min-w-0">
+              <div className="flex h-9.5 w-9.5 shrink-0 items-center justify-center rounded-xl bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400">
+                <Building2 className="h-4.5 w-4.5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Tòa nhà</div>
+                <div className="font-bold text-slate-900 dark:text-slate-100 text-xs mt-0.5 truncate" title={buildingName}>
+                  {buildingName}
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Contract info: 2 columns on desktop */}
+            <div className="col-span-1 sm:col-span-1 lg:col-span-2 flex items-center gap-2.5 min-w-0">
+              <div className="flex h-9.5 w-9.5 shrink-0 items-center justify-center rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400">
+                <FileText className="h-4.5 w-4.5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Hợp đồng</div>
+                <div className="font-bold font-mono text-slate-900 dark:text-slate-100 text-xs mt-0.5 truncate" title={contractCode}>
+                  {contractCode}
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Period info: 2 columns on desktop */}
+            <div className="col-span-1 sm:col-span-1 lg:col-span-2 flex items-center gap-2.5 min-w-0">
+              <div className="flex h-9.5 w-9.5 shrink-0 items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
+                <Calendar className="h-4.5 w-4.5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Kỳ hóa đơn</div>
+                <div className="font-bold text-slate-900 dark:text-slate-100 text-xs mt-0.5 truncate" title={periodLabel}>
+                  {periodLabel}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* TAB 1: ITEMIZED BREAKDOWN TABLE */}
-          {activeTab === "ITEMS" && (
-            <div className="rounded-xl border border-border/70 bg-card overflow-hidden">
-              <div className="flex items-center justify-between px-3.5 py-2 border-b border-border/60 bg-surface/50 text-[11px] font-black uppercase tracking-wider text-muted select-none">
-                <span>Chi tiết khoản thu</span>
-                <span>Thành tiền</span>
+          {/* 2-COLUMN MAIN CONTENT: Wider & breathing space */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* LEFT COLUMN */}
+            <div className="space-y-5">
+              {/* CARD 1: THANH TOÁN NHANH / TRẠNG THÁI THANH TOÁN */}
+              <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4.5 sm:p-5 shadow-2xs">
+                <div className="flex items-center gap-2.5 mb-3.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
+                    {isPaid ? <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> : <QrCode className="h-4 w-4" />}
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {isPaid ? "Trạng thái thanh toán" : "Thanh toán nhanh"}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {isPaid
+                        ? "Hóa đơn đã được đối soát và ghi nhận thành công"
+                        : "Quét mã QR hoặc chuyển khoản theo tài khoản Settings"}
+                    </p>
+                  </div>
+                </div>
+
+                {isPaid ? (
+                  /* HIỆU ỨNG THANH TOÁN THÀNH CÔNG VÀO GIỮA CARD - LOẠI BỎ CÁC THÔNG TIN THANH TOÁN DƯ THỪA */
+                  <div className="flex flex-col items-center justify-center py-7 sm:py-9 text-center animate-in fade-in zoom-in-95 duration-300">
+                    <div className="relative flex items-center justify-center mb-3">
+                      <span className="absolute inline-flex h-24 w-24 rounded-full bg-emerald-400/20 animate-ping" />
+                      <span className="absolute inline-flex h-20 w-20 rounded-full bg-emerald-300/30 animate-pulse" />
+                      <div className="relative flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-xl shadow-emerald-500/35 ring-6 ring-emerald-100 dark:ring-emerald-950/80">
+                        <Check className="h-9 w-9 stroke-[3.5]" />
+                      </div>
+                    </div>
+                    <div className="text-xs sm:text-sm font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mt-1">
+                      ĐÃ THANH TOÁN THÀNH CÔNG
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1 tracking-tight">
+                      {formatVnd(totalAmount)}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
+                    {/* QR Box - Borderless & spacious to avoid crowding payment details */}
+                    <div
+                      onClick={() => setShowDirectScan(true)}
+                      title="Nhấp để phóng to mã QR"
+                      className="relative flex h-38 w-38 sm:h-44 sm:w-44 shrink-0 items-center justify-center bg-transparent p-0 group overflow-hidden rounded-2xl cursor-pointer hover:ring-2 hover:ring-indigo-400/50 transition-all"
+                    >
+                      <img
+                        src={qrImageUrl}
+                        alt={`VietQR ${activeBank.bankName}`}
+                        className="h-full w-full object-contain transition-all duration-300"
+                      />
+                    </div>
+
+                    {/* Amount, Bank Details & Transfer Memo */}
+                    <div className="flex-1 min-w-0 w-full space-y-2.5">
+                      <div>
+                        <div className="text-[11px] font-medium text-slate-400">
+                          Số tiền cần thanh toán
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-2xl sm:text-3xl font-black font-mono text-indigo-600 dark:text-indigo-400 tracking-tight">
+                            {formatVnd(amountToPay)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(String(amountToPay), "amount")}
+                            title="Sao chép số tiền"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                          >
+                            {copiedAmount ? (
+                              <Check className="h-4 w-4 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Account Number info with clean wrapping */}
+                      <div className="text-xs bg-slate-50 dark:bg-slate-800/60 rounded-xl px-3 py-2 border border-slate-100 dark:border-slate-800 space-y-1">
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                          <span>Tài khoản thụ hưởng ({activeBank.bankName})</span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(activeBank.accountNumber, "acc")}
+                            className="text-slate-400 hover:text-indigo-600 flex items-center gap-1 text-[10px]"
+                          >
+                            {copiedAccount ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                            <span>{copiedAccount ? "Đã chép" : "Sao chép"}</span>
+                          </button>
+                        </div>
+                        <div className="font-mono font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm tracking-wider select-all break-all">
+                          {activeBank.accountNumber}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-semibold truncate">
+                          {activeBank.accountName}
+                        </div>
+                      </div>
+
+                      {/* Transfer memo box */}
+                      <div>
+                        <div className="text-[11px] font-medium text-slate-400">
+                          Nội dung chuyển khoản (SePay)
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-1 rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/20 px-3 py-2">
+                          <span className="font-mono text-xs sm:text-sm font-black text-indigo-950 dark:text-indigo-200 tracking-wider">
+                            {transferMemo}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(transferMemo, "memo")}
+                            title="Sao chép nội dung"
+                            className="text-indigo-500 hover:text-indigo-700 shrink-0 transition-colors p-1"
+                          >
+                            {copiedMemo ? (
+                              <Check className="h-4 w-4 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="divide-y divide-border/40 px-3.5 py-1">
-                {itemsToDisplay.map((item: any, idx: number) => {
-                  const ItemIcon = item.icon || FileText;
-                  return (
-                    <div key={item.id || idx} className="flex items-center justify-between py-2 text-xs">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <ItemIcon size={13} className="text-primary shrink-0" />
-                        <span className="font-bold text-text truncate">
-                          {item.name || item.description}
-                        </span>
-                        {item.note && (
-                          <span className="text-[10px] text-muted italic shrink-0">
-                            ({item.note})
+              {/* CARD 2: CHI TIẾT NỘI DUNG HÓA ĐƠN - FULL CARD TABLE, NO DUPLICATE CARD HEADER */}
+              <div className="overflow-hidden rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-2xs">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50/90 dark:bg-slate-800/60 text-[11px] font-bold text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-3.5 w-12 text-center">STT</th>
+                      <th className="py-2.5 px-3.5">Nội dung khoản thu</th>
+                      <th className="py-2.5 px-3.5 text-right whitespace-nowrap">Thành tiền</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {items.map((it: any) => (
+                      <tr key={it.stt} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
+                        <td className="py-2.5 px-3.5 text-center text-slate-400 font-mono text-[11px]">
+                          {it.stt}
+                        </td>
+                        <td className="py-2.5 px-3.5 font-semibold text-slate-800 dark:text-slate-200">
+                          {it.name}
+                        </td>
+                        <td className="py-2.5 px-3.5 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                          {formatVnd(it.amount)}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {/* Total Row: Guaranteed single line */}
+                    <tr className="bg-indigo-50/40 dark:bg-indigo-950/30 font-black border-t-2 border-indigo-100 dark:border-indigo-900/40">
+                      <td colSpan={2} className="py-3 px-4 text-xs sm:text-sm font-bold text-indigo-700 dark:text-indigo-300">
+                        Tổng cộng
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-black text-sm sm:text-base text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                        {formatVnd(totalAmount)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* THÔNG BÁO ĐÃ THU ĐỦ TIỀN - DI CHUYỂN XUỐNG ĐÂY THEO HƯỚNG DẪN */}
+              {isPaid && (
+                <div className="flex items-center gap-3 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/50 px-4 py-3.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300 animate-in fade-in duration-300 shadow-2xs">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <div className="flex-1 leading-relaxed">
+                    <span className="font-bold">Đã thu đủ {formatVnd(totalAmount)}.</span> Hóa đơn đã được đối soát và ghi nhận thành công vào sổ cái thu tiền.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* RIGHT COLUMN */}
+            <div className="space-y-5">
+              {/* CARD 1: CHỌN PHƯƠNG THỨC THANH TOÁN */}
+              <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4.5 sm:p-5 shadow-2xs">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
+                    <CreditCard className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      Chọn phương thức thanh toán
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {isPaid
+                        ? "Hóa đơn đã được thanh toán — Các kênh thanh toán tạm khóa"
+                        : "Thanh toán nhanh, an toàn và tự động ghi nhận vào hệ thống"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mt-3.5">
+                  {/* Option 1: Gửi qua Zalo */}
+                  <button
+                    type="button"
+                    onClick={handleSendZalo}
+                    disabled={isPaid || isSendingZalo}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group ${
+                      isPaid
+                        ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
+                        : "border-blue-200/80 dark:border-blue-900/50 bg-blue-50/40 dark:bg-blue-950/20 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl font-black text-xs shadow-2xs ${
+                          isPaid ? "bg-slate-400 text-white" : "bg-blue-600 text-white"
+                        }`}
+                      >
+                        {isSendingZalo ? <Loader2 className="h-4 w-4 animate-spin" /> : "Zalo"}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-blue-950 dark:text-blue-100">
+                          Gửi hóa đơn qua Zalo
+                        </div>
+                        <div className="text-[11px] text-blue-600/80 dark:text-blue-400">
+                          Gửi link thanh toán cho khách hàng qua Zalo
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-blue-400 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+
+                  {/* Option 2: Quét trực tiếp (triggers seamless in-modal presentation mode) */}
+                  <button
+                    type="button"
+                    onClick={() => setShowDirectScan(true)}
+                    disabled={isPaid}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group ${
+                      isPaid
+                        ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
+                        : "border-indigo-200/80 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl shadow-2xs ${
+                          isPaid
+                            ? "bg-slate-200 dark:bg-slate-800 text-slate-400"
+                            : "bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400"
+                        }`}
+                      >
+                        <Scan className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-indigo-950 dark:text-indigo-100">
+                          Quét trực tiếp
+                        </div>
+                        <div className="text-[11px] text-indigo-600/80 dark:text-indigo-400">
+                          Mở camera để khách quét mã QR tại chỗ
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-indigo-400 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+
+                  {/* Option 3: Thu tiền mặt */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomPayAmount(amountToPay.toLocaleString("vi-VN"));
+                      setShowPayCashModal(true);
+                    }}
+                    disabled={isPaid}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group ${
+                      isPaid
+                        ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
+                        : "border-emerald-200/80 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl shadow-2xs ${
+                          isPaid
+                            ? "bg-slate-200 dark:bg-slate-800 text-slate-400"
+                            : "bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400"
+                        }`}
+                      >
+                        <Banknote className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-emerald-950 dark:text-emerald-100">
+                          Thu tiền mặt
+                        </div>
+                        <div className="text-[11px] text-emerald-600/80 dark:text-emerald-400">
+                          Ghi nhận thanh toán tiền mặt từ khách hàng
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+
+                  {/* Option 4: Ghi nhận chuyển khoản */}
+                  <button
+                    type="button"
+                    onClick={() => setShowBankTransferModal(true)}
+                    disabled={isPaid}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group ${
+                      isPaid
+                        ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
+                        : "border-purple-200/80 dark:border-purple-900/50 bg-purple-50/40 dark:bg-purple-950/20 hover:bg-purple-50 dark:hover:bg-purple-950/40"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl shadow-2xs ${
+                          isPaid
+                            ? "bg-slate-200 dark:bg-slate-800 text-slate-400"
+                            : "bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400"
+                        }`}
+                      >
+                        <Landmark className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-purple-950 dark:text-purple-100">
+                          Ghi nhận chuyển khoản
+                        </div>
+                        <div className="text-[11px] text-purple-600/80 dark:text-purple-400">
+                          Xác nhận khách đã chuyển khoản
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-purple-400 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                </div>
+              </div>
+
+              {/* CARD 2: HOẠT ĐỘNG LIÊN QUAN */}
+              <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4.5 sm:p-5 shadow-2xs">
+                <div className="flex items-center gap-2 mb-3.5 text-xs font-bold text-slate-900 dark:text-slate-100">
+                  <Clock3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <span>Hoạt động liên quan</span>
+                </div>
+
+                <div className="space-y-1">
+                  {/* Event 1: Tạo hóa đơn */}
+                  <div className="flex gap-3 relative">
+                    <div className="flex flex-col items-center shrink-0">
+                      <div className="flex h-5 w-5 items-center justify-center relative">
+                        {isPaid ? (
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 ring-4 ring-emerald-100 dark:ring-emerald-950 shadow-xs"></span>
+                        ) : (
+                          <>
+                            <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 ring-4 ring-amber-100 dark:ring-amber-950 shadow-xs"></span>
+                          </>
+                        )}
+                      </div>
+                      <div className={`w-[1.5px] flex-1 my-1 ${isPaid ? "bg-emerald-300 dark:bg-emerald-800" : "bg-slate-200 dark:bg-slate-800"}`} />
+                    </div>
+                    <div className="flex-1 pb-4 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-[10px] font-mono text-slate-400 leading-5">
+                            {formatDate(invoice.createdAt)} 14:20
+                          </div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                            Tạo hóa đơn
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            Hóa đơn {invoiceCode} đã được tạo
+                          </div>
+                        </div>
+                        {!isPaid && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 dark:bg-amber-950/40 px-2.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400 shrink-0 border border-amber-200/60 dark:border-amber-800/40">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            Chờ thanh toán
                           </span>
                         )}
                       </div>
-                      <span className="font-mono font-black text-text shrink-0 pl-2">
-                        {formatVnd(item.amount)}
-                      </span>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
 
-              {/* Subtotal summary */}
-              <div className="flex items-center justify-between px-3.5 py-2.5 border-t border-border/60 bg-surface/30 text-xs">
-                <span className="font-black uppercase text-text">Tổng cộng</span>
-                <span className="font-mono font-black text-sm text-primary">{formatVnd(totalAmount)}</span>
-              </div>
-              {pendingReviewReceivedAmount > 0 && paidAmount <= 0 && (
-                <div className="flex items-center justify-between px-3.5 py-2 border-t border-amber-500/20 bg-amber-500/5 text-xs">
-                  <span className="font-black uppercase text-amber-700">Ngân hàng đã báo · chờ xử lý</span>
-                  <span className="font-mono font-black text-amber-700">{formatVnd(pendingReviewReceivedAmount)}</span>
-                </div>
-              )}
-              {paidAmount > 0 && remainingAmount > 0 && (
-                <>
-                  <div className="flex items-center justify-between px-3.5 py-2 border-t border-emerald-500/20 bg-emerald-500/5 text-xs">
-                    <span className="font-black uppercase text-emerald-700">Đã nhận</span>
-                    <span className="font-mono font-black text-emerald-700">{formatVnd(paidAmount)}</span>
-                  </div>
-                  {pendingReviewReceivedAmount > 0 && (
-                    <div className="flex items-center justify-between px-3.5 py-2 border-t border-amber-500/20 bg-amber-500/5 text-xs">
-                      <span className="font-black uppercase text-amber-700">Ngân hàng đã báo · chờ xử lý</span>
-                      <span className="font-mono font-black text-amber-700">{formatVnd(pendingReviewReceivedAmount)}</span>
+                  {/* Event 2: Gửi hóa đơn */}
+                  <div className="flex gap-3 relative">
+                    <div className="flex flex-col items-center shrink-0">
+                      <div className="flex h-5 w-5 items-center justify-center relative">
+                        <span className={`h-2.5 w-2.5 rounded-full shadow-xs ${
+                          isPaid
+                            ? "bg-emerald-500 ring-4 ring-emerald-100 dark:ring-emerald-950"
+                            : "bg-indigo-500 ring-4 ring-indigo-50 dark:ring-indigo-950"
+                        }`}></span>
+                      </div>
+                      <div className={`w-[1.5px] flex-1 my-1 ${isPaid ? "bg-emerald-300 dark:bg-emerald-800" : "bg-slate-200 dark:bg-slate-800"}`} />
                     </div>
-                  )}
-                  <div className="flex items-center justify-between px-3.5 py-2 border-t border-rose-500/20 bg-rose-500/5 text-xs">
-                    <span className="font-black uppercase text-rose-600">Còn phải thanh toán</span>
-                    <span className="font-mono font-black text-rose-600">{formatVnd(remainingAmount)}</span>
+                    <div className="flex-1 pb-4 min-w-0">
+                      <div className="text-[10px] font-mono text-slate-400 leading-5">
+                        {formatDate(invoice.createdAt)} 14:20
+                      </div>
+                      <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Gửi hóa đơn cho khách hàng
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Đã gửi qua Zalo cho {customerName}
+                      </div>
+                    </div>
                   </div>
-                </>
-              )}
-              {overpaidAmount > 0 && (
-                <div className="flex items-center justify-between px-3.5 py-2 border-t border-amber-500/20 bg-amber-500/5 text-xs">
-                  <span className="font-black uppercase text-amber-700">Tiền thừa</span>
-                  <span className="font-mono font-black text-amber-700">{formatVnd(overpaidAmount)}</span>
+
+                  {/* Event 3: Thanh toán */}
+                  <div className="flex gap-3 relative">
+                    <div className="flex flex-col items-center shrink-0">
+                      <div className="flex h-5 w-5 items-center justify-center relative">
+                        {isPaid ? (
+                          <>
+                            <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 ring-4 ring-emerald-100 dark:ring-emerald-950 shadow-xs"></span>
+                          </>
+                        ) : (
+                          <span className="h-2 w-2 rounded-full bg-slate-300 dark:bg-slate-700 ring-4 ring-slate-100 dark:ring-slate-800"></span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-mono text-slate-400 leading-5">
+                        {isPaid ? formatDate(new Date()) : "--"}
+                      </div>
+                      <div className={`text-xs font-semibold ${isPaid ? "text-emerald-700 dark:text-emerald-400 font-bold" : "text-slate-700 dark:text-slate-300"}`}>
+                        Thanh toán
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        {isPaid
+                          ? `Đã thanh toán đủ ${formatVnd(totalAmount)}`
+                          : "Chưa có thanh toán nào được ghi nhận"}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
-          )}
+          </div>
+        </div>
 
-          {/* TAB 2: VIETQR PAYMENT SCANNER */}
-          {activeTab === "QR" && !isPaid && (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-border/70 bg-card p-4 text-center">
-              <div className="flex h-44 w-44 items-center justify-center rounded-2xl bg-white p-2 border-2 border-primary/20 shadow-xs">
-                {qrUrl ? (
-                  <img
-                    src={qrUrl}
-                    alt="VietQR Homeland"
-                    className="h-full w-full object-contain"
-                  />
+        {/* 3. MODAL FOOTER */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 bg-slate-50/60 dark:bg-slate-900/80 border-t border-slate-100 dark:border-slate-800 shrink-0">
+          {/* Left Actions: Tải PDF, In hóa đơn (xpath: /html/body/div[3]/div/main/div/div/div[2]/div[2]/div[3]/div[1]) */}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={handleDirectDownloadPdf}
+              disabled={isDownloadingPdf}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-2xs flex-1 sm:flex-none cursor-pointer disabled:opacity-60"
+              title="Đóng gói và tải xuống file PDF hóa đơn ngay"
+            >
+              {isDownloadingPdf ? (
+                <Loader2 className="h-3.5 w-3.5 text-indigo-600 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5 text-slate-500" />
+              )}
+              <span>{isDownloadingPdf ? "Đang tạo PDF..." : "Tải PDF"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDirectPrint}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-2xs flex-1 sm:flex-none cursor-pointer"
+              title="Mở in hóa đơn ngay"
+            >
+              <Printer className="h-3.5 w-3.5 text-slate-500" />
+              <span>In hóa đơn</span>
+            </button>
+          </div>
+
+          {/* Right Actions: Đóng, Gửi qua Zalo ngay */}
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-5 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              Đóng
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSendZalo}
+              disabled={isSendingZalo || isPaid}
+              className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2 text-xs font-black transition-colors shadow-xs ${
+                isPaid
+                  ? "bg-emerald-600 text-white cursor-default"
+                  : "bg-indigo-600 hover:bg-indigo-700 text-white"
+              }`}
+            >
+              {isSendingZalo ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : isPaid ? (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+              <span>{isPaid ? "Đã thanh toán" : "Gửi qua Zalo ngay"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* REQUIREMENT 3: SEAMLESS IN-MODAL PRESENTATION MODE (REPLACES UGLY NESTED POPUP) */}
+        {showDirectScan && (
+          <div className="absolute inset-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200">
+            {/* Direct scan topbar */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowDirectScan(false)}
+                className="inline-flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-indigo-600 transition-colors"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span>Quay lại chi tiết</span>
+              </button>
+              <div className="flex items-center gap-2">
+                {isPaid ? (
+                  <>
+                    <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                      Đã thanh toán thành công!
+                    </span>
+                  </>
                 ) : (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-xl bg-slate-50 text-slate-500">
-                    <Loader2 size={24} className="animate-spin text-primary" />
-                    <span className="text-xs font-bold">
-                      Đang tạo QR theo Settings bank...
+                  <>
+                    <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-ping" />
+                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                      Đang chờ khách quét mã thanh toán...
+                    </span>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDirectScan(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Direct scan center stage */}
+            <div className="flex-1 flex flex-col items-center justify-center text-center py-4 space-y-4">
+              <div
+                className={`relative p-4 sm:p-5 flex items-center justify-center overflow-hidden rounded-3xl transition-all ${
+                  isPaid
+                    ? "border-0 shadow-none bg-transparent"
+                    : "bg-white border-2 border-indigo-200 dark:border-indigo-800 shadow-2xl"
+                }`}
+              >
+                {!isPaid && (
+                  <img
+                    src={qrImageUrl}
+                    alt="QR thanh toán lớn"
+                    className="h-72 w-72 sm:h-84 sm:w-84 md:h-96 md:w-96 max-h-[46vh] object-contain transition-all duration-500"
+                  />
+                )}
+
+                {/* SUCCESS PAYMENT CELEBRATION OVERLAY - BORDERLESS */}
+                {isPaid && (
+                  <div className="flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-300 select-none">
+                    <div className="relative flex items-center justify-center mb-4">
+                      <span className="absolute inline-flex h-32 w-32 rounded-full bg-emerald-400/20 animate-ping" />
+                      <span className="absolute inline-flex h-26 w-26 rounded-full bg-emerald-300/30 animate-pulse" />
+                      <div className="relative flex h-20 w-20 sm:h-22 sm:w-22 items-center justify-center rounded-full bg-emerald-500 text-white shadow-xl shadow-emerald-500/40 ring-8 ring-emerald-100 dark:ring-emerald-950/80 animate-in zoom-in-75 duration-300">
+                        <Check className="h-11 w-11 sm:h-12 sm:w-12 stroke-[3.5]" />
+                      </div>
+                    </div>
+                    <h4 className="text-2xl sm:text-3xl font-black text-emerald-700 dark:text-emerald-300 uppercase tracking-tight">
+                      Thanh toán thành công!
+                    </h4>
+                    <p className="text-base sm:text-lg font-bold text-slate-700 dark:text-slate-200 mt-2">
+                      Đã thu đủ {formatVnd(totalAmount)}
+                    </p>
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">
+                      Hóa đơn đã được đối soát và ghi nhận
                     </span>
                   </div>
                 )}
               </div>
 
-              <div className="w-full grid grid-cols-2 gap-2 text-left text-xs pt-1">
-                <div className="rounded-xl border border-border/60 bg-surface/40 p-2">
-                  <span className="text-[10px] text-muted block font-bold">Ngân hàng</span>
-                  <span className="font-black text-text">{bankName}</span>
+              {/* WHEN PAID: REMOVE ALL REDUNDANT LABELS/STRIPS (MARKED BY USER X), SHOW ONLY RETURN BUTTON + COUNTDOWN */}
+              {isPaid ? (
+                <div className="flex flex-col items-center gap-2 pt-2 animate-in fade-in duration-300">
+                  <button
+                    type="button"
+                    onClick={() => setShowDirectScan(false)}
+                    className="inline-flex items-center justify-center gap-2.5 px-7 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-600/30 hover:shadow-emerald-600/50 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    <span>Quay lại chi tiết hóa đơn</span>
+                    <span className="inline-flex items-center justify-center rounded-full bg-emerald-700/90 px-2.5 py-0.5 text-xs font-mono font-bold tracking-tight">
+                      {directScanCountdown}s
+                    </span>
+                  </button>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                    Tự động quay lại chi tiết sau <b className="text-emerald-600 dark:text-emerald-400 font-mono">{directScanCountdown}s</b>
+                  </span>
                 </div>
-                <div className="rounded-xl border border-border/60 bg-surface/40 p-2">
-                  <span className="text-[10px] text-muted block font-bold">Số tài khoản</span>
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-black text-text">{bankAccount}</span>
-                    {activePaymentRequest?.bankAccountNumber ? (
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <div className="text-3xl font-black font-mono text-indigo-600 dark:text-indigo-400 tracking-tight">
+                      {formatVnd(amountToPay)}
+                    </div>
+                    <div className="inline-flex items-center gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 px-3 py-1 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">
+                      <span>Nội dung: {transferMemo}</span>
                       <button
                         type="button"
-                        onClick={() => handleCopy(bankAccount, "Số tài khoản")}
-                        className="text-muted hover:text-primary"
+                        onClick={() => handleCopy(transferMemo, "memo")}
+                        className="text-slate-400 hover:text-indigo-600"
                       >
-                        <Copy size={12} />
+                        {copiedMemo ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
                       </button>
-                    ) : null}
+                    </div>
                   </div>
+
+                  {/* Bank Details Strip */}
+                  <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-slate-500 bg-slate-50 dark:bg-slate-800/60 rounded-2xl px-5 py-2.5 border border-slate-100 dark:border-slate-800">
+                    <div>
+                      Ngân hàng: <span className="font-bold text-slate-800 dark:text-slate-200">{activeBank.bankName}</span>
+                    </div>
+                    <div>•</div>
+                    <div className="flex items-center gap-1">
+                      Số TK: <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{activeBank.accountNumber}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(activeBank.accountNumber, "acc")}
+                        className="text-slate-400 hover:text-indigo-600"
+                      >
+                        {copiedAccount ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                    <div>•</div>
+                    <div>
+                      Chủ TK: <span className="font-bold text-slate-800 dark:text-slate-200">{activeBank.accountName}</span>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-400 max-w-sm">
+                    💡 Khi khách quét mã và hoàn tất chuyển khoản, hệ thống SePay sẽ tự động nhận diện và chuyển trạng thái sang <b>Đã thanh toán</b>.
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowDirectScan(false)}
+                    className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 shadow-2xs"
+                  >
+                    Thu nhỏ mã QR (ESC)
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SUB-MODAL 1: THU TIỀN MẶT */}
+        {showPayCashModal && (
+          <div className="absolute inset-0 z-40 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                    <Banknote className="h-4 w-4" />
+                  </div>
+                  <h4 className="font-black text-sm text-slate-900 dark:text-slate-100">
+                    Ghi nhận thu tiền mặt
+                  </h4>
                 </div>
-                <div className="col-span-2 rounded-xl border border-primary/20 bg-primary/5 p-2">
-                  <div className="mb-2 flex items-center justify-between rounded-lg border border-rose-500/20 bg-rose-500/10 px-2 py-1.5">
-                    <span className="text-[10px] font-black uppercase tracking-tight text-rose-600">
-                      QR này thu phần còn lại
-                    </span>
-                    <span className="font-mono text-sm font-black text-rose-600">
-                      {formatVnd(amountToPay)}
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-primary font-bold block">Nội dung chuyển khoản (Memo)</span>
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-black text-primary text-sm">{paymentMemo}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(paymentMemo, "Cú pháp chuyển khoản")}
-                      className="text-primary hover:underline flex items-center gap-1 font-bold text-[11px]"
-                    >
-                      <Copy size={12} /> Sao chép
-                    </button>
-                  </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPayCashModal(false)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                  Số tiền thu (VND)
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={customPayAmount}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, "");
+                      if (!raw) {
+                        setCustomPayAmount("");
+                        return;
+                      }
+                      const num = parseInt(raw, 10);
+                      setCustomPayAmount(num.toLocaleString("vi-VN"));
+                    }}
+                    placeholder="0"
+                    className="w-full h-11 pl-3.5 pr-12 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono font-bold text-base outline-none focus:border-emerald-600 focus:bg-white dark:focus:bg-slate-900 transition-colors"
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 font-bold text-xs text-slate-400">
+                    VNĐ
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1.5">
+                  <span>Còn phải thu: {formatVnd(amountToPay)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomPayAmount(amountToPay.toLocaleString("vi-VN"))}
+                    className="text-emerald-600 font-bold hover:underline"
+                  >
+                    Thu đủ
+                  </button>
                 </div>
               </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPayCashModal(false)}
+                  className="px-3 py-1.5 text-xs font-bold text-slate-600"
+                >
+                  Hủy (ESC)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmCashPayment}
+                  disabled={payMutation.isPending}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs"
+                >
+                  {payMutation.isPending ? "Đang lưu..." : "Xác nhận thu"}
+                </button>
+              </div>
             </div>
+          </div>
+        )}
+
+        {/* SUB-MODAL 2: GHI NHẬN CHUYỂN KHOẢN */}
+        {showBankTransferModal && (
+          <div className="absolute inset-0 z-40 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-50 text-purple-600">
+                    <Landmark className="h-4 w-4" />
+                  </div>
+                  <h4 className="font-black text-sm text-slate-900 dark:text-slate-100">
+                    Xác nhận chuyển khoản
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBankTransferModal(false)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Xác nhận khách hàng <b>{customerName}</b> đã chuyển khoản số tiền{" "}
+                <b className="text-indigo-600">{formatVnd(amountToPay)}</b> vào tài khoản ngân hàng?
+              </p>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBankTransferModal(false)}
+                  className="px-3 py-1.5 text-xs font-bold text-slate-600"
+                >
+                  Hủy (ESC)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmBankTransfer}
+                  disabled={payMutation.isPending}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs"
+                >
+                  {payMutation.isPending ? "Đang xác nhận..." : "Xác nhận chuyển khoản"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+
+
+        {/* HIDDEN PRINT PORTAL FOR INSTANT 1-PAGE A4 PRINTING WITHOUT PREVIEW */}
+        {mounted && typeof document !== "undefined" &&
+          createPortal(
+            <div id="homeland-print-portal" aria-hidden="true">
+              <style>{`
+                #homeland-print-portal {
+                  display: none;
+                }
+                @media print {
+                  @page {
+                    size: A4 portrait;
+                    margin: 5mm 10mm;
+                  }
+                  html, body {
+                    width: 100% !important;
+                    height: 100% !important;
+                    min-height: 100% !important;
+                    max-height: 100% !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    background: #ffffff !important;
+                    overflow: hidden !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                  }
+                  body > *:not(#homeland-print-portal) {
+                    display: none !important;
+                  }
+                  #homeland-print-portal {
+                    position: static !important;
+                    display: block !important;
+                    width: 100% !important;
+                    height: 100% !important;
+                    min-height: 100% !important;
+                    max-height: 100% !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    border-radius: 0 !important;
+                    background: transparent !important;
+                    overflow: visible !important;
+                    transform: none !important;
+                  }
+                  #homeland-printable-invoice {
+                    position: static !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    justify-content: space-between !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    height: 100% !important;
+                    min-height: 100% !important;
+                    max-height: 100% !important;
+                    box-sizing: border-box !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    border-radius: 0 !important;
+                    background: #ffffff !important;
+                    page-break-after: avoid !important;
+                    break-after: avoid !important;
+                    page-break-inside: avoid !important;
+                    break-inside: avoid !important;
+                  }
+                  #homeland-printable-invoice * {
+                    box-sizing: border-box !important;
+                  }
+                  .invoice-no-print {
+                    display: none !important;
+                  }
+                }
+              `}</style>
+              <PrintableInvoiceSheet
+                invoiceCode={invoiceCode}
+                periodLabel={periodLabel}
+                creationDateStr={formatDateTime(invoice.createdAt || invoice.date)}
+                dueDateStr={formatDate(invoice.dueDate || invoice.date)}
+                isPaid={isPaid}
+                customerName={customerName}
+                customerPhone={customerPhone}
+                roomName={roomNumber}
+                buildingName={buildingName}
+                contractCode={contractCode}
+                paymentMethod={invoice.paymentMethod || "Chuyển khoản / Tiền mặt"}
+                totalAmount={totalAmount}
+                items={items.map((it: any) => ({
+                  stt: it.stt,
+                  name: it.name,
+                  amount: Number(it.amount || 0),
+                }))}
+                qrImageUrl={qrImageUrl}
+              />
+            </div>,
+            document.body
           )}
-        </div>
-      </Modal>
-
-      {/* QUICK PAYMENT CONFIRMATION SUB-MODAL */}
-      {showPayModal && (
-        <Modal
-          isOpen={showPayModal}
-          onClose={() => setShowPayModal(false)}
-          maxWidth="max-w-[420px]"
-          title="Xác nhận ghi nhận thu tiền"
-          footer={
-            <div className="flex w-full items-center justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setShowPayModal(false)}>
-                Hủy
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                className="bg-emerald-600 hover:bg-emerald-700 font-bold"
-                onClick={handleConfirmPayment}
-                isLoading={payMutation.isPending}
-              >
-                {payMethod === "CASH" ? "Xác nhận đã thu tiền mặt" : "Mở VietQR chờ webhook"}
-              </Button>
-            </div>
-          }
-        >
-          <div className="flex flex-col gap-3.5 text-xs">
-            {/* Method selection */}
-            <div>
-              <label className="font-bold text-muted block mb-1.5">Phương thức thanh toán</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPayMethod("BANK_TRANSFER")}
-                  className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border font-bold transition-all ${
-                    payMethod === "BANK_TRANSFER"
-                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 shadow-2xs"
-                      : "border-border bg-card text-muted hover:text-text"
-                  }`}
-                >
-                  <CreditCard size={14} /> Chuyển khoản (QR)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPayMethod("CASH")}
-                  className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border font-bold transition-all ${
-                    payMethod === "CASH"
-                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 shadow-2xs"
-                      : "border-border bg-card text-muted hover:text-text"
-                  }`}
-                >
-                  <Banknote size={14} /> Tiền mặt trực tiếp
-                </button>
-              </div>
-            </div>
-
-            {/* QR follows the remaining balance and is confirmed only by SePay. */}
-            {payMethod === "BANK_TRANSFER" ? (
-              <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 p-3 text-xs text-muted">
-                VietQR sẽ được tạo theo đúng số dư còn lại <strong>{formatVnd(remainingAmount)}</strong>.
-                Không có khoản thu thủ công nào được tạo ở bước này; SePay webhook mới xác nhận thanh toán.
-              </div>
-            ) : (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-muted">Số tiền thực thu (VNĐ)</label>
-                <button
-                  type="button"
-                  onClick={() => setCustomPayAmount(remainingAmount.toString())}
-                  className="text-primary font-bold hover:underline text-[11px]"
-                >
-                  Thu đủ 100% ({formatVnd(remainingAmount)})
-                </button>
-              </div>
-              <input
-                type="text"
-                value={customPayAmount ? new Intl.NumberFormat("vi-VN").format(Number(customPayAmount)) : ""}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/[^0-9]/g, "");
-                  setCustomPayAmount(val);
-                }}
-                placeholder="Nhập số tiền..."
-                className="w-full h-10 px-3 rounded-xl border border-border bg-surface font-mono font-black text-sm text-text outline-none focus:border-primary"
-              />
-            </div>
-            )}
-          </div>
-        </Modal>
-      )}
-
-      {showPaymentPromiseModal && (
-        <Modal
-          isOpen={showPaymentPromiseModal}
-          onClose={() => setShowPaymentPromiseModal(false)}
-          maxWidth="max-w-[420px]"
-          title={activePaymentPromise ? "Cập nhật hẹn thanh toán" : "Ghi nhận hẹn thanh toán"}
-          footer={
-            <div className="flex w-full items-center justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setShowPaymentPromiseModal(false)}>
-                Hủy
-              </Button>
-              <Button
-                data-testid="btn-confirm-payment-promise"
-                variant="primary"
-                size="sm"
-                onClick={handleCreatePaymentPromise}
-                isLoading={createPaymentPromiseMutation.isPending}
-              >
-                Lưu hẹn trả
-              </Button>
-            </div>
-          }
-        >
-          <div className="flex flex-col gap-3 text-xs">
-            <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 p-3 text-muted">
-              Đây chỉ là lịch nhắc việc, không ghi nhận đã thu tiền và không làm thay đổi công nợ hóa đơn.
-              Khi thu đủ, hẹn đang mở sẽ tự hoàn tất.
-            </div>
-            <div>
-              <label className="mb-1 block font-bold text-muted">Số tiền khách hẹn trả</label>
-              <input
-                data-testid="payment-promise-amount"
-                type="text"
-                value={paymentPromiseAmount ? new Intl.NumberFormat("vi-VN").format(Number(paymentPromiseAmount)) : ""}
-                onChange={(event) => setPaymentPromiseAmount(event.target.value.replace(/[^0-9]/g, ""))}
-                className="h-10 w-full rounded-xl border border-border bg-surface px-3 font-mono text-sm font-black text-text outline-none focus:border-primary"
-              />
-              <p className="mt-1 text-[11px] text-muted">Dư nợ hiện tại: {formatVnd(remainingAmount)}</p>
-            </div>
-            <div>
-              <label className="mb-1 block font-bold text-muted">Ngày hẹn thanh toán</label>
-              <input
-                data-testid="payment-promise-due-date"
-                type="date"
-                value={paymentPromiseDueDate}
-                onChange={(event) => setPaymentPromiseDueDate(event.target.value)}
-                className="h-10 w-full rounded-xl border border-border bg-surface px-3 text-sm font-bold text-text outline-none focus:border-primary"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block font-bold text-muted">Ghi chú trao đổi với khách</label>
-              <textarea
-                data-testid="payment-promise-note"
-                value={paymentPromiseNote}
-                onChange={(event) => setPaymentPromiseNote(event.target.value)}
-                maxLength={1000}
-                rows={3}
-                className="w-full resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-primary"
-                placeholder="Ví dụ: Khách hẹn chuyển khoản sau khi nhận lương"
-              />
-            </div>
-          </div>
-        </Modal>
-      )}
-    </>
+      </div>
+    </div>
   );
 }

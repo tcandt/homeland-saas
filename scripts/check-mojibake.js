@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = require("path");
 
 const roots = [
@@ -9,7 +9,7 @@ const roots = [
 ];
 
 const extensions = new Set([".ts", ".tsx", ".js", ".jsx", ".json", ".md"]);
-const ignoreDirs = new Set(["node_modules", ".next", ".turbo", "dist", "coverage", ".git", ".auth", "playwright-report", "test-results", ".tmp-smoke", ".tmp-production-verify"]);
+const ignoreDirs = new Set(["node_modules", ".next", ".next-p14-e2e", ".turbo", "dist", "coverage", ".git", ".auth", "playwright-report", "test-results", ".tmp-smoke", ".tmp-production-verify"]);
 const ignoreFiles = new Set(["report.json", "report_permission.json", "performance-results.jsonl", "opencv.js"]);
 
 const markers = [

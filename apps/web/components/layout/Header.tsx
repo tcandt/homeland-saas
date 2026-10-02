@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import useSWR from "swr";
 import { useTheme } from "next-themes";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { authenticatedFetch } from "@/lib/api/client";
 import { useCurrentUserQuery } from "@/lib/queries/auth.queries";
 import { useSettingsSectionQuery } from "@/lib/queries/settings.queries";
 import Link from "next/link";
@@ -55,8 +56,8 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
   },
   "/contracts": {
     title: "Hợp đồng",
-    subtitle: "Theo dõi vòng đời hợp đồng và hạn gia hạn",
-    mobileSubtitle: "Hợp đồng đang hiệu lực và sắp hết hạn",
+    subtitle: "Theo dõi và quản lý toàn bộ hợp đồng thuê, cọc giữ phòng",
+    mobileSubtitle: "Theo dõi và quản lý toàn bộ hợp đồng thuê, cọc giữ phòng",
   },
   "/deposits": {
     title: "Đặt cọc",
@@ -65,7 +66,7 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
   },
   "/finance": {
     title: "Doanh thu & Tài chính",
-    subtitle: "Theo dõi dòng tiền vào, doanh thu và công nợ",
+    subtitle: "Theo dõi dòng tiền, doanh thu, chi phí và lợi nhuận theo tòa nhà và chủ sở hữu",
     mobileSubtitle: "Doanh thu, công nợ và dòng tiền vào",
   },
   "/finance/reconciliation": {
@@ -196,27 +197,11 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   const pendingAudioNotificationsRef = useRef<any[]>([]);
   const pendingAudioNotificationIdsRef = useRef<Set<string>>(new Set());
 
-  const handleUnauthorizedSession = () => {
-    useAuthStore.getState().clearSession();
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem("auth-storage");
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
-      }
-    }
-  };
-
   const fetchNotifications = async (url: string) => {
     if (!accessToken) return [];
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (res.status === 401) {
-        handleUnauthorizedSession();
-        throw new Error("Phiên đăng nhập đã hết hạn.");
-      }
-      if (!res.ok) throw new Error("Không tải được thông báo. Vui lòng thử lại.");
-      return res.json();
+    const res = await authenticatedFetch(url);
+    if (!res.ok) throw new Error("Không tải được thông báo. Vui lòng thử lại.");
+    return res.json();
   };
 
   const [markingRead, setMarkingRead] = useState(false);
@@ -414,19 +399,12 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     const fetchInitialCount = async () => {
       if (!accessToken) return;
       try {
-        const res = await fetch("/api/v1/notifications/unread-count", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        const res = await authenticatedFetch("/api/v1/notifications/unread-count");
 
-          if (res.status === 401) {
-            handleUnauthorizedSession();
-            return;
-          }
-
-          if (res.ok && isSubscribed) {
-            const data = await res.json();
-            setUnreadCount(data.count || data.data?.count || 0);
-          }
+        if (res.ok && isSubscribed) {
+          const data = await res.json();
+          setUnreadCount(data.count || data.data?.count || 0);
+        }
       } catch {
         // Silent catch for dev server restarts
       }
@@ -460,19 +438,13 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       }
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
       streamController = new AbortController();
-      fetch(`${apiUrl}/notifications/stream`, {
+      authenticatedFetch(`${apiUrl}/notifications/stream`, {
         headers: {
           Accept: "text/event-stream",
-          Authorization: `Bearer ${accessToken}`,
         },
         signal: streamController.signal,
       })
         .then(async (response) => {
-          if (response.status === 401) {
-            handleUnauthorizedSession();
-            return;
-          }
-
           if (response.ok && isSubscribed) {
             await consumeServerSentEvents(response, handleSseData);
             if (isSubscribed) {
@@ -694,9 +666,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
                   setMarkingRead(true);
                   setNotificationActionError("");
                   try {
-                  const response = await fetch("/api/v1/notifications/read-all", {
+                  const response = await authenticatedFetch("/api/v1/notifications/read-all", {
                     method: "PATCH",
-                    headers: { Authorization: `Bearer ${accessToken}` },
                   });
                   if (!response.ok) throw new Error("read-all failed");
                   setUnreadCount(0);
@@ -725,9 +696,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
                     onClick={async () => {
                       if (isUnread && accessToken) {
                         try {
-                        const response = await fetch(`/api/v1/notifications/${item.id}/read`, {
+                        const response = await authenticatedFetch(`/api/v1/notifications/${item.id}/read`, {
                           method: "PATCH",
-                          headers: { Authorization: `Bearer ${accessToken}` },
                         });
                         if (!response.ok) throw new Error("mark-read failed");
                         setUnreadCount((currentValue) => Math.max(0, currentValue - 1));

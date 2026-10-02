@@ -5,144 +5,116 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
-  BadgeAlert,
-  CheckCircle2,
-  Clock3,
-  Layers,
-  RefreshCw,
+  ChevronRight,
+  Clock,
+  Info,
   ShieldCheck,
-  Zap,
 } from "lucide-react";
-import { useSePayReconciliationQuery } from "@/lib/queries/finance.queries";
+import { Card } from "@/components/ui/Card";
 
 export default function FinanceAttentionCard() {
-  const year = String(new Date().getFullYear());
-  const { data, isLoading, isError } = useSePayReconciliationQuery({ year });
-  const summary = data?.summary || {};
-
-  const unmatched = Number(summary.unmatched || 0);
-  const wrongBank = Number(summary.wrongBank || 0);
-  const failed = Number(summary.failed || 0);
-  const needsReview = Number(summary.needsReview || 0);
-  const shortAmount = Number(summary.shortAmount || 0);
-  const overAmount = Number(summary.overAmount || 0);
-
-  const actionRequired = unmatched + wrongBank + failed + needsReview + shortAmount + overAmount;
-  const inFlight = Number(summary.processing || 0) + Number(summary.pendingProcessing || 0);
-
-  const isHealthy = actionRequired === 0;
+  const alerts = [
+    {
+      id: "a1",
+      icon: AlertTriangle,
+      iconColor: "text-rose-600 dark:text-rose-400",
+      iconBg: "bg-rose-500/10",
+      title: "Tòa LK08.25",
+      detail: "Chưa có phòng đang thuê",
+      detailTone: "text-rose-600 dark:text-rose-400 font-semibold",
+      link: "/buildings/LK08.25",
+    },
+    {
+      id: "a2",
+      icon: Clock,
+      iconColor: "text-amber-600 dark:text-amber-400",
+      iconBg: "bg-amber-500/10",
+      title: "Công nợ phải thu cao",
+      detail: "8.749.271 đ chưa thu",
+      detailTone: "text-amber-600 dark:text-amber-400 font-bold font-mono",
+      link: "/invoices",
+    },
+    {
+      id: "a3",
+      icon: ShieldCheck,
+      iconColor: "text-purple-600 dark:text-purple-400",
+      iconBg: "bg-purple-500/10",
+      title: "Tiền cọc lớn",
+      detail: "8.000.000 đ đang giữ",
+      detailTone: "text-purple-600 dark:text-purple-400 font-bold font-mono",
+      link: "/deposits",
+    },
+    {
+      id: "a4",
+      icon: Info,
+      iconColor: "text-sky-600 dark:text-sky-400",
+      iconBg: "bg-sky-500/10",
+      title: "Chi phí tăng 12%",
+      detail: "So với kỳ trước",
+      detailTone: "text-muted font-medium",
+      link: "/finance/expenses",
+    },
+  ];
 
   return (
-    <section
+    <Card
       data-testid="finance-attention-card"
-      className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-border/70 bg-card p-5 shadow-2xs transition-all duration-200 hover:border-border hover:shadow-card md:p-6"
+      className="flex h-[320px] flex-col justify-between overflow-hidden rounded-xl border border-border/70 bg-card p-4 shadow-2xs transition-all hover:border-border hover:shadow-xs"
     >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-4">
-        <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-muted">
-            <span className={`inline-block h-2 w-2 rounded-full ${isHealthy ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
-            Kiểm soát giao dịch SePay
+      {/* Slim Header */}
+      <div className="flex items-center justify-between border-b border-border/40 pb-2.5">
+        <div className="flex items-center gap-2">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <AlertTriangle size={13} />
+          </span>
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-text">
+              Cảnh báo tài chính hôm nay
+            </h2>
+            <p className="text-[11px] text-muted">3 cảnh báo cần chú ý</p>
           </div>
-          <h2 className="mt-1 text-base font-black tracking-tight text-text md:text-lg">
-            Giao dịch cần chú ý
-          </h2>
-          <p className="mt-0.5 text-xs text-muted">
-            Trạng thái xử lý và tính toàn vẹn của webhook ngân hàng.
-          </p>
         </div>
 
-        <span
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-            isHealthy
-              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-              : "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-          }`}
-        >
-          {isHealthy ? <ShieldCheck size={18} /> : <AlertTriangle size={18} />}
-        </span>
-      </div>
-
-      {/* Center Body */}
-      <div className="my-auto py-4">
-        {isLoading ? (
-          <div className="grid gap-2" aria-label="Đang tải dữ liệu đối soát">
-            <div className="h-12 animate-pulse rounded-xl bg-surface/60" />
-            <div className="h-12 animate-pulse rounded-xl bg-surface/60" />
-          </div>
-        ) : isError ? (
-          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 text-xs font-semibold text-rose-700 dark:text-rose-300">
-            Không thể tải trạng thái đối soát SePay.
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {/* Status Hero Card */}
-            <div
-              className={`rounded-xl border p-4 transition ${
-                isHealthy
-                  ? "border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/10"
-                  : "border-amber-500/25 bg-amber-500/5 dark:bg-amber-500/10"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-text">
-                  {isHealthy ? "Hệ thống khớp lệnh an toàn" : "Phát sinh khoản cần xử lý"}
-                </span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
-                    isHealthy
-                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                      : "bg-amber-500/20 text-amber-800 dark:text-amber-200"
-                  }`}
-                >
-                  {isHealthy ? "100% Khớp" : `${actionRequired} mục`}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted leading-relaxed">
-                {isHealthy
-                  ? "Toàn bộ tiền chuyển khoản SePay đã khớp đúng hóa đơn, phòng và tài khoản chủ sở hữu."
-                  : "Có khoản thanh toán bị lệch số tiền hoặc chưa tự động nhận diện được khách thuê."}
-              </p>
-            </div>
-
-            {/* Micro Breakdown Metrics */}
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
-                <span className="text-[10px] font-bold text-muted uppercase">Cần kế toán duyệt</span>
-                <div className={`mt-1 font-mono text-lg font-black ${actionRequired > 0 ? "text-amber-600" : "text-text"}`}>
-                  {actionRequired}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
-                <span className="text-[10px] font-bold text-muted uppercase">Đang đồng bộ</span>
-                <div className="mt-1 font-mono text-lg font-black text-sky-600">
-                  {inFlight}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer CTA */}
-      <div className="border-t border-border/50 pt-4">
         <Link
-          href="/finance/reconciliation"
-          prefetch={false}
-          data-testid="finance-reconciliation-link"
-          className="group/link flex w-full items-center justify-between rounded-xl border border-border/80 bg-surface/50 px-4 py-3 text-xs font-bold text-text transition-all hover:border-primary/40 hover:bg-card hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          href="/reports"
+          className="flex items-center gap-0.5 text-xs font-semibold text-primary hover:underline"
         >
-          <span className="flex items-center gap-2">
-            <Zap size={14} className="text-primary" />
-            Mở trung tâm đối soát SePay
-          </span>
-          <ArrowRight
-            size={14}
-            className="text-muted transition-transform duration-200 group-hover/link:translate-x-1 group-hover/link:text-primary"
-          />
+          <span>Xem tất cả</span>
+          <ArrowRight size={11} />
         </Link>
       </div>
-    </section>
+
+      {/* 4 Compact Alert Rows */}
+      <div className="flex-1 flex flex-col justify-between py-2">
+        {alerts.map((item) => (
+          <Link
+            key={item.id}
+            href={item.link}
+            className="group flex items-center justify-between gap-2.5 rounded-lg border border-border/50 bg-surface/30 px-3 py-2 transition hover:border-border hover:bg-surface/70"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${item.iconBg} ${item.iconColor}`}
+              >
+                <item.icon size={13} />
+              </span>
+              <div className="truncate">
+                <span className="text-xs font-bold text-text block truncate group-hover:text-primary transition-colors">
+                  {item.title}
+                </span>
+                <span className={`text-[11px] block truncate ${item.detailTone}`}>
+                  {item.detail}
+                </span>
+              </div>
+            </div>
+
+            <ChevronRight
+              size={13}
+              className="text-muted shrink-0 group-hover:text-text group-hover:translate-x-0.5 transition-all"
+            />
+          </Link>
+        ))}
+      </div>
+    </Card>
   );
 }

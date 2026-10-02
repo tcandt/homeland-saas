@@ -35,6 +35,31 @@ const ADJUSTMENT_BILLING_KINDS = new Set([
   "CREDIT_ADJUSTMENT",
 ]);
 
+const INVOICE_SORT_FIELDS = new Set([
+  "createdAt",
+  "updatedAt",
+  "dueDate",
+  "total",
+  "status",
+  "code",
+]);
+
+type InvoiceCursorPayload = {
+  v: 1;
+  tenantId: string;
+  createdAt: string;
+  id: string;
+};
+
+type CursorPageResult<T> = {
+  data: T[];
+  meta: {
+    limit: number;
+    nextCursor: string | null;
+    hasNextPage: boolean;
+  };
+};
+
 @Injectable()
 export class InvoicesService extends BaseCrudService<Invoice> {
   constructor(
@@ -50,9 +75,16 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     tenantId: string,
     page: number,
     limit: number,
-    scope: { roomId?: string; customerId?: string; contractId?: string; rentalCycleId?: string } = {},
+    scope: { roomId?: string; customerId?: string; contractId?: string; rentalCycleId?: string; invoiceIds?: string[] } = {},
   ) {
     if (!tenantId) throw new BadRequestException("TENANT_REQUIRED");
+    const linkedInvoices = scope.invoiceIds?.length ? await this.prisma.tx.invoice.findMany({
+      where: { tenantId, deletedAt: null, id: { in: scope.invoiceIds } },
+      select: { contractId: true, contract: { select: { termsSnapshot: true } } },
+    }) : [];
+    const linkedSecurityDepositIds = [...new Set(linkedInvoices
+      .map((invoice) => getCombinedEntryInvoice(invoice.contract)?.securityDepositId)
+      .filter(Boolean))] as string[];
     const where = {
       tenantId,
       deletedAt: null,
@@ -61,6 +93,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       ...(scope.customerId ? { customerId: scope.customerId } : {}),
       ...(scope.contractId ? { contractId: scope.contractId } : {}),
       ...(scope.rentalCycleId ? { rentalCycleId: scope.rentalCycleId } : {}),
+      ...(scope.invoiceIds?.length ? { id: { in: linkedSecurityDepositIds } } : {}),
     };
     const [deposits, total] = await Promise.all([
       this.prisma.tx.deposit.findMany({
@@ -124,17 +157,17 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     const combinedEntries = deposits.map((deposit) => getCombinedEntryInvoice(deposit.contract))
       .filter((entry) => entry?.invoiceId);
     const linkedInvoiceIds = [...new Set([...invoiceByOperation.values(), ...combinedEntries.map((entry) => entry.invoiceId)])];
-    const linkedInvoices = linkedInvoiceIds.length ? await this.prisma.tx.invoice.findMany({
+    const hydratedLinkedInvoices = linkedInvoiceIds.length ? await this.prisma.tx.invoice.findMany({
       where: { tenantId, deletedAt: null, id: { in: linkedInvoiceIds } }, include: { items: true },
     }) : [];
-    const existingInvoiceIds = new Set(linkedInvoices.map((invoice) => invoice.id));
+    const existingInvoiceIds = new Set(hydratedLinkedInvoices.map((invoice) => invoice.id));
     const coveredEntries = new Set<string>(cashEntries.filter((entry) =>
       existingInvoiceIds.has(invoiceByOperation.get(entry.operationId) || ""),
     ).map((entry) => entry.id));
     return { items: deposits.map((deposit) => {
       const document = buildDepositBillingDocument(deposit, coveredEntries);
       const entry = getCombinedEntryInvoice(deposit.contract);
-      const invoice = linkedInvoices.find((row) => row.id === entry?.invoiceId);
+      const invoice = hydratedLinkedInvoices.find((row) => row.id === entry?.invoiceId);
       if (deposit.type === "SECURITY" && entry?.securityDepositId === deposit.id && invoice &&
         !["CANCELLED", "WRITTEN_OFF"].includes(invoice.status)) {
         assertCombinedEntryInvoice(invoice, deposit.contract, entry);
@@ -158,7 +191,31 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     sort?: string,
     order?: string,
     tenantId?: string,
-  ): Promise<PaginatedResult<Invoice>> {
+    cursor?: string,
+    paginationMode?: string,
+  ): Promise<PaginatedResult<Invoice> | CursorPageResult<Invoice>> {
+    const cursorMode = paginationMode === "cursor" || cursor !== undefined;
+    const effectiveSort = sort || "createdAt";
+    const effectiveOrder = order || "desc";
+    if (!INVOICE_SORT_FIELDS.has(effectiveSort)) {
+      throw new BadRequestException("INVALID_INVOICE_SORT");
+    }
+    if (effectiveOrder !== "asc" && effectiveOrder !== "desc") {
+      throw new BadRequestException("INVALID_INVOICE_ORDER");
+    }
+    if (cursorMode) {
+      if (!tenantId) throw new BadRequestException("TENANT_REQUIRED");
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        throw new BadRequestException("CURSOR_LIMIT_MUST_BE_1_TO_100");
+      }
+      if (effectiveSort !== "createdAt" || effectiveOrder !== "desc") {
+        throw new BadRequestException("CURSOR_SORT_MUST_BE_CREATED_AT_DESC");
+      }
+    }
+
+    const decodedCursor = cursorMode && cursor !== undefined
+      ? this.decodeInvoiceCursor(cursor, tenantId as string)
+      : undefined;
     const where: any = {
       AND: [
         {
@@ -176,7 +233,9 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         ],
       });
     }
-    if (status) where.status = status;
+    if (status === "PENDING") {
+      where.status = { in: [InvoiceStatus.DRAFT, InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID] };
+    } else if (status) where.status = status;
     if (roomId) where.contract = { is: { roomId } };
     if (customerId) where.customerId = customerId;
     if (contractId) where.contractId = contractId;
@@ -194,9 +253,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       };
     }
 
-    const orderBy = { [sort || "createdAt"]: order || "desc" };
-
-    const result = await this.repository.paginate(where, page, limit, orderBy, {
+    const include = {
       customer: {
         select: {
           id: true,
@@ -241,7 +298,16 @@ export class InvoicesService extends BaseCrudService<Invoice> {
           amount: true,
         },
       },
-    });
+    };
+    const result = cursorMode
+      ? await (this.repository as InvoicesRepository).paginateCursor(where, limit, decodedCursor, include)
+      : await this.repository.paginate(
+          where,
+          page,
+          limit,
+          { [effectiveSort]: effectiveOrder },
+          include,
+        );
     const invoiceIds = result.data.map((invoice: any) => invoice.id);
     if (invoiceIds.length > 0) {
       const requests = await this.prisma.paymentRequest.findMany({
@@ -358,7 +424,51 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         );
       }
     }
-    return result;
+    if (!cursorMode) return result as PaginatedResult<Invoice>;
+    const cursorResult = result as { data: Invoice[]; hasNextPage: boolean };
+    const last = cursorResult.data[cursorResult.data.length - 1] as any;
+    return {
+      data: cursorResult.data,
+      meta: {
+        limit,
+        hasNextPage: cursorResult.hasNextPage,
+        nextCursor: cursorResult.hasNextPage && last
+          ? this.encodeInvoiceCursor(tenantId as string, last.createdAt, last.id)
+          : null,
+      },
+    };
+  }
+
+  private encodeInvoiceCursor(tenantId: string, createdAt: Date | string, id: string): string {
+    const payload: InvoiceCursorPayload = {
+      v: 1,
+      tenantId,
+      createdAt: new Date(createdAt).toISOString(),
+      id,
+    };
+    return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  }
+
+  private decodeInvoiceCursor(cursor: string, tenantId: string): { createdAt: Date; id: string } {
+    let payload: Partial<InvoiceCursorPayload>;
+    try {
+      const raw = Buffer.from(cursor, "base64url").toString("utf8");
+      payload = JSON.parse(raw) as Partial<InvoiceCursorPayload>;
+    } catch {
+      throw new BadRequestException("INVALID_INVOICE_CURSOR");
+    }
+    const createdAt = typeof payload.createdAt === "string" ? new Date(payload.createdAt) : null;
+    if (
+      payload.v !== 1 ||
+      payload.tenantId !== tenantId ||
+      !payload.id ||
+      payload.id.length > 200 ||
+      !createdAt ||
+      Number.isNaN(createdAt.getTime())
+    ) {
+      throw new BadRequestException("INVALID_INVOICE_CURSOR");
+    }
+    return { createdAt, id: payload.id };
   }
 
   private resolveWebhookPaymentCodeFromPayload(payload: Record<string, any>, paymentCodes: string[]) {
@@ -434,6 +544,10 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         sourceId: true,
         paymentCode: true,
         amount: true,
+        bankName: true,
+        bankAccountNumber: true,
+        bankAccountName: true,
+        qrUrl: true,
         status: true,
         providerTransactionId: true,
         paidAt: true,

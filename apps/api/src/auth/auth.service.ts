@@ -317,15 +317,24 @@ export class AuthService {
     };
   }
 
+  async recordActivity(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, tenantId: true, status: true },
+    });
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('User is inactive');
+
+    const security = await this.touchAuthActivity(user.tenantId, user.id, undefined, user.id, true);
+    return { success: true, idleTimeoutMinutes: security.idleTimeoutMinutes };
+  }
+
   async updateSecurity(userId: string, input: UpdateAuthSecurityInput) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, tenantId: true },
     });
     if (!user) throw new NotFoundException('User not found');
-    const security = await this.getAuthSecurity(user.tenantId, user.id);
-    security.idleTimeoutMinutes = input.idleTimeoutMinutes;
-    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    await this.updateAuthSecurityTimeout(user.tenantId, user.id, input.idleTimeoutMinutes, user.id);
     await this.audit.log({
       action: 'UPDATE',
       entity: 'AuthSecurity',
@@ -344,26 +353,26 @@ export class AuthService {
       select: { id: true, tenantId: true, email: true, status: true },
     });
     if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('User is inactive');
-    const security = await this.getAuthSecurity(user.tenantId, user.id);
-    if (security.twoFactorEnabled === input.enabled) {
-      throw new BadRequestException(input.enabled ? '2FA is already enabled' : '2FA is already disabled');
-    }
-
     const code = this.generateOtp();
-    security.pendingTwoFactor = {
-      action: input.enabled ? 'ENABLE' : 'DISABLE',
-      codeHash: this.hashOtp(code),
-      expiresAt: new Date(Date.now() + TWO_FACTOR_TTL_MS).toISOString(),
-      attempts: 0,
-    };
-    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    const { result: pending } = await this.mutateAuthSecurity(user.tenantId, user.id, user.id, (security) => {
+      if (security.twoFactorEnabled === input.enabled) {
+        throw new BadRequestException(input.enabled ? '2FA is already enabled' : '2FA is already disabled');
+      }
+      security.pendingTwoFactor = {
+        action: input.enabled ? 'ENABLE' : 'DISABLE',
+        codeHash: this.hashOtp(code),
+        expiresAt: new Date(Date.now() + TWO_FACTOR_TTL_MS).toISOString(),
+        attempts: 0,
+      };
+      return security.pendingTwoFactor;
+    });
     await this.mailProvider.sendTwoFactorCode(
       user.email,
       code,
       user.tenantId,
       input.enabled ? 'ENABLE' : 'DISABLE',
     );
-    return { success: true, expiresAt: security.pendingTwoFactor.expiresAt, method: 'EMAIL' as const };
+    return { success: true, expiresAt: pending.expiresAt, method: 'EMAIL' as const };
   }
 
   async confirmTwoFactorChange(userId: string, input: ConfirmTwoFactorChangeInput) {
@@ -372,22 +381,24 @@ export class AuthService {
       select: { id: true, tenantId: true, status: true },
     });
     if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('User is inactive');
-    const security = await this.getAuthSecurity(user.tenantId, user.id);
-    const pending = security.pendingTwoFactor;
     const expectedAction = input.enabled ? 'ENABLE' : 'DISABLE';
-    if (!pending || pending.action !== expectedAction || new Date(pending.expiresAt).getTime() <= Date.now()) {
-      throw new UnauthorizedException({ code: 'AUTH_2FA_CHALLENGE_EXPIRED', message: 'Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới.' });
-    }
-    if (pending.attempts >= MAX_OTP_ATTEMPTS || !this.matchesOtp(input.code, pending.codeHash)) {
-      pending.attempts += 1;
-      await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    const { security, result } = await this.mutateAuthSecurity(user.tenantId, user.id, user.id, (current) => {
+      const pending = current.pendingTwoFactor;
+      if (!pending || pending.action !== expectedAction || new Date(pending.expiresAt).getTime() <= Date.now()) {
+        throw new UnauthorizedException({ code: 'AUTH_2FA_CHALLENGE_EXPIRED', message: 'Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới.' });
+      }
+      if (pending.attempts >= MAX_OTP_ATTEMPTS || !this.matchesOtp(input.code, pending.codeHash)) {
+        pending.attempts += 1;
+        return { invalid: true };
+      }
+      current.twoFactorEnabled = input.enabled;
+      delete current.pendingTwoFactor;
+      delete current.loginChallenge;
+      return { invalid: false };
+    });
+    if (result.invalid) {
       throw new UnauthorizedException({ code: 'AUTH_2FA_CODE_INVALID', message: 'Mã xác thực không đúng.' });
     }
-
-    security.twoFactorEnabled = input.enabled;
-    delete security.pendingTwoFactor;
-    delete security.loginChallenge;
-    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
     await this.audit.log({
       action: 'UPDATE',
       entity: 'AuthSecurity',
@@ -419,24 +430,26 @@ export class AuthService {
       },
     });
     if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('User is inactive');
-    const security = await this.getAuthSecurity(user.tenantId, user.id);
-    const challenge = security.loginChallenge;
-    if (
-      !security.twoFactorEnabled
-      || !challenge
-      || challenge.nonceHash !== this.hashOtp(decoded.nonce)
-      || new Date(challenge.expiresAt).getTime() <= Date.now()
-    ) {
-      throw new UnauthorizedException({ code: 'AUTH_2FA_CHALLENGE_EXPIRED', message: 'Phiên xác thực đã hết hạn.' });
-    }
-    if (challenge.attempts >= MAX_OTP_ATTEMPTS || !this.matchesOtp(input.code, challenge.codeHash)) {
-      challenge.attempts += 1;
-      await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    const { security, result } = await this.mutateAuthSecurity(user.tenantId, user.id, user.id, (current) => {
+      const challenge = current.loginChallenge;
+      if (
+        !current.twoFactorEnabled
+        || !challenge
+        || challenge.nonceHash !== this.hashOtp(decoded.nonce)
+        || new Date(challenge.expiresAt).getTime() <= Date.now()
+      ) {
+        throw new UnauthorizedException({ code: 'AUTH_2FA_CHALLENGE_EXPIRED', message: 'Phiên xác thực đã hết hạn.' });
+      }
+      if (challenge.attempts >= MAX_OTP_ATTEMPTS || !this.matchesOtp(input.code, challenge.codeHash)) {
+        challenge.attempts += 1;
+        return { invalid: true };
+      }
+      delete current.loginChallenge;
+      return { invalid: false };
+    });
+    if (result.invalid) {
       throw new UnauthorizedException({ code: 'AUTH_2FA_CODE_INVALID', message: 'Mã OTP không đúng.' });
     }
-
-    delete security.loginChallenge;
-    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
     return this.issueSession(user, security.sessionVersion, ip, userAgent);
   }
 
@@ -449,10 +462,10 @@ export class AuthService {
       },
     });
     if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('User is inactive');
-    const security = await this.getAuthSecurity(user.tenantId, user.id);
-    security.sessionVersion += 1;
-    delete security.loginChallenge;
-    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    const { security } = await this.mutateAuthSecurity(user.tenantId, user.id, user.id, (current) => {
+      current.sessionVersion += 1;
+      delete current.loginChallenge;
+    });
     const session = await this.issueSession(user, security.sessionVersion, ip, userAgent, false);
     await this.audit.log({
       action: 'LOGOUT',
@@ -584,7 +597,6 @@ export class AuthService {
         where: { id: user.id },
         data: { refreshTokenHash: newHashedRefreshToken }
       });
-      await this.touchAuthActivity(user.tenantId, user.id, security);
 
       return {
         accessToken: newAccessToken,
@@ -1171,17 +1183,21 @@ export class AuthService {
     return { success: true };
   }
 
-  private async createLoginChallenge(user: any, security: AuthSecurityState) {
+  private async createLoginChallenge(user: any, _security: AuthSecurityState) {
     const code = this.generateOtp();
     const nonce = crypto.randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + TWO_FACTOR_TTL_MS).toISOString();
-    security.loginChallenge = {
-      nonceHash: this.hashOtp(nonce),
-      codeHash: this.hashOtp(code),
-      expiresAt,
-      attempts: 0,
-    };
-    await this.saveAuthSecurity(user.tenantId, user.id, security, user.id);
+    await this.mutateAuthSecurity(user.tenantId, user.id, user.id, (current) => {
+      if (!current.twoFactorEnabled) {
+        throw new BadRequestException('2FA is no longer enabled');
+      }
+      current.loginChallenge = {
+        nonceHash: this.hashOtp(nonce),
+        codeHash: this.hashOtp(code),
+        expiresAt,
+        attempts: 0,
+      };
+    });
     await this.mailProvider.sendTwoFactorCode(user.email, code, user.tenantId, 'LOGIN');
     const challengeToken = this.jwtService.sign(
       { sub: user.id, tenantId: user.tenantId, nonce, tokenType: '2fa-challenge' },
@@ -1282,7 +1298,11 @@ export class AuthService {
           select: { value: true },
         })
       : null;
-    const raw = isRecord(record?.value) ? record.value : {};
+    return this.parseAuthSecurity(record?.value);
+  }
+
+  private parseAuthSecurity(value: unknown): AuthSecurityState {
+    const raw = isRecord(value) ? value : {};
     return {
       sessionVersion: Number.isSafeInteger(raw.sessionVersion) && raw.sessionVersion >= 0 ? raw.sessionVersion : 0,
       twoFactorEnabled: raw.twoFactorEnabled === true,
@@ -1305,18 +1325,67 @@ export class AuthService {
       && Date.now() - lastActivity >= security.idleTimeoutMinutes * 60 * 1000;
   }
 
-  private async touchAuthActivity(tenantId: string, userId: string, security: AuthSecurityState) {
-    security.lastActivityAt = new Date().toISOString();
-    await this.saveAuthSecurity(tenantId, userId, security);
-  }
-
-  private async saveAuthSecurity(
+  private async mutateAuthSecurity<T>(
     tenantId: string,
     userId: string,
-    value: AuthSecurityState,
+    updatedBy: string | undefined,
+    mutate: (security: AuthSecurityState) => T | Promise<T>,
+  ): Promise<{ security: AuthSecurityState; result: T }> {
+    return this.withAuthSecurityLock(tenantId, userId, async (tx) => {
+      const record = await tx.appSetting.findUnique({
+        where: { tenantId_scope_ownerId_key: {
+          tenantId, scope: SettingScope.USER, ownerId: userId, key: AUTH_SECURITY_KEY,
+        } },
+        select: { value: true },
+      });
+      const security = this.parseAuthSecurity(record?.value);
+      const result = await mutate(security);
+      await this.persistAuthSecurity(tx, tenantId, userId, security, updatedBy);
+      return { security, result };
+    });
+  }
+
+  private async touchAuthActivity(
+    tenantId: string,
+    userId: string,
+    security?: AuthSecurityState,
     updatedBy?: string,
+    rejectIfExpired = false,
   ) {
-    const appSetting = (this.prisma as any).appSetting;
+    return this.withAuthSecurityLock(tenantId, userId, async (tx) => {
+      const currentRecord = await tx.appSetting.findUnique({
+        where: { tenantId_scope_ownerId_key: {
+          tenantId, scope: SettingScope.USER, ownerId: userId, key: AUTH_SECURITY_KEY,
+        } },
+        select: { value: true },
+      });
+      const current = this.parseAuthSecurity(currentRecord?.value ?? security ?? {});
+      if (rejectIfExpired && this.isIdleSessionExpired(current)) {
+        throw new UnauthorizedException({ code: ErrorCodes.AUTH_TOKEN_EXPIRED, message: 'Session expired due to inactivity' });
+      }
+      current.lastActivityAt = new Date().toISOString();
+      await this.persistAuthSecurity(tx, tenantId, userId, current, updatedBy);
+      return current;
+    });
+  }
+
+  private async updateAuthSecurityTimeout(tenantId: string, userId: string, idleTimeoutMinutes: number, updatedBy?: string) {
+    return this.withAuthSecurityLock(tenantId, userId, async (tx) => {
+      const record = await tx.appSetting.findUnique({
+        where: { tenantId_scope_ownerId_key: {
+          tenantId, scope: SettingScope.USER, ownerId: userId, key: AUTH_SECURITY_KEY,
+        } },
+        select: { value: true },
+      });
+      const security = this.parseAuthSecurity(record?.value);
+      security.idleTimeoutMinutes = idleTimeoutMinutes;
+      await this.persistAuthSecurity(tx, tenantId, userId, security, updatedBy);
+      return security;
+    });
+  }
+
+  private async persistAuthSecurity(tx: any, tenantId: string, userId: string, value: AuthSecurityState, updatedBy?: string) {
+    const appSetting = tx.appSetting;
     if (!appSetting?.upsert) return;
     const persistedValue = JSON.parse(JSON.stringify(value));
     await appSetting.upsert({
@@ -1337,6 +1406,17 @@ export class AuthService {
         updatedBy,
       },
       update: { value: persistedValue, updatedBy },
+    });
+  }
+
+  private async withAuthSecurityLock<T>(tenantId: string, userId: string, callback: (tx: any) => Promise<T>): Promise<T> {
+    const prisma = this.prisma as any;
+    if (typeof prisma.$transaction !== 'function') return callback(prisma);
+    return prisma.$transaction(async (tx: any) => {
+      if (typeof tx.$queryRaw === 'function') {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:${userId}`}, 0))::text AS "lock"`;
+      }
+      return callback(tx);
     });
   }
 

@@ -44,11 +44,24 @@ export class InvoicesController {
   @ApiQuery({ name: "rentalCycleId", required: false })
   @ApiQuery({ name: "period", required: false })
   @ApiQuery({ name: "overdue", required: false })
+  @ApiQuery({ name: "cursor", required: false, description: "Opaque invoice keyset cursor" })
+  @ApiQuery({ name: "paginationMode", required: false, enum: ["cursor"] })
   list(@Query() query: any, @CurrentUser("tenantId") tenantId: string) {
     const { page, limit, search, sort, order } = PaginationSchema.parse(query);
     const { status, roomId, customerId, contractId, rentalCycleId, period } =
       query;
     const overdue = query.overdue === "true";
+    const paginationMode = query.paginationMode;
+    const cursor = query.cursor;
+    if (paginationMode !== undefined && paginationMode !== "cursor") {
+      throw new BadRequestException("INVALID_PAGINATION_MODE");
+    }
+    if (cursor !== undefined && typeof cursor !== "string") {
+      throw new BadRequestException("INVALID_INVOICE_CURSOR");
+    }
+    if ((paginationMode === "cursor" || cursor !== undefined) && limit > 100) {
+      throw new BadRequestException("CURSOR_LIMIT_MUST_BE_1_TO_100");
+    }
     return this.invoicesService.listInvoices(
       page,
       limit,
@@ -63,6 +76,8 @@ export class InvoicesController {
       sort,
       order,
       tenantId,
+      cursor,
+      paginationMode,
     );
   }
 
@@ -72,8 +87,20 @@ export class InvoicesController {
   listDepositDocuments(@Query() query: any, @CurrentUser("tenantId") tenantId: string) {
     const { page, limit } = PaginationSchema.parse(query);
     const { roomId, customerId, contractId, rentalCycleId } = query;
+    const invoiceIds = typeof query.invoiceIds === "string"
+      ? query.invoiceIds.split(",").map((id: string) => id.trim()).filter(Boolean)
+      : [];
+    if (invoiceIds.length > 100 || invoiceIds.some((id: string) => id.length > 200)) {
+      throw new BadRequestException("INVALID_INVOICE_IDS");
+    }
     return this.invoicesService.listDepositBillingDocuments(
-      tenantId, page, limit, { roomId, customerId, contractId, rentalCycleId },
+      tenantId, page, limit, {
+        roomId,
+        customerId,
+        contractId,
+        rentalCycleId,
+        ...(invoiceIds.length ? { invoiceIds } : {}),
+      },
     );
   }
 

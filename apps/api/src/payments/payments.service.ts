@@ -273,12 +273,14 @@ export class PaymentsService {
         lines: {
           create: [
             {
+              tenantId,
               accountId: bankAccount.id,
               type: 'DEBIT',
               amount,
               description: 'Tien thua da vao ngan hang',
             },
             {
+              tenantId,
               accountId: customerCreditLiability.id,
               type: 'CREDIT',
               amount,
@@ -334,12 +336,12 @@ export class PaymentsService {
         lines: {
           create: pending
             ? [
-                { accountId: bankAccount.id, type: 'DEBIT', amount, description: 'Tien thua da vao ngan hang' },
-                { accountId: customerCreditLiability.id, type: 'CREDIT', amount, description: 'No phai hoan cho khach' },
+                { tenantId, accountId: bankAccount.id, type: 'DEBIT', amount, description: 'Tien thua da vao ngan hang' },
+                { tenantId, accountId: customerCreditLiability.id, type: 'CREDIT', amount, description: 'No phai hoan cho khach' },
               ]
             : [
-                { accountId: customerCreditLiability.id, type: 'DEBIT', amount, description: 'Giam no phai hoan cho khach' },
-                { accountId: bankAccount.id, type: 'CREDIT', amount, description: 'Tien da hoan tu ngan hang' },
+                { tenantId, accountId: customerCreditLiability.id, type: 'DEBIT', amount, description: 'Giam no phai hoan cho khach' },
+                { tenantId, accountId: bankAccount.id, type: 'CREDIT', amount, description: 'Tien da hoan tu ngan hang' },
               ],
         },
       },

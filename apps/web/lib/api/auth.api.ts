@@ -71,6 +71,8 @@ export const authApi = {
   refresh: (data: { refreshToken: string }) => {
     return apiClient.post<Pick<LoginResponse, 'accessToken' | 'refreshToken'>>('/auth/refresh', data);
   },
+
+  recordActivity: () => apiClient.post<{ success: true; idleTimeoutMinutes: number }>('/auth/activity'),
   
   register: (data: any) => {
     return apiClient.post<LoginResponse>('/auth/register', data);

@@ -2393,8 +2393,8 @@ describe('PaymentsService', () => {
         sourceType: 'ADJUSTMENT',
         sourceId: 'credit-note-1',
         lines: { create: [
-          expect.objectContaining({ accountId: 'bank-account', type: 'DEBIT', amount: 20000 }),
-          expect.objectContaining({ accountId: 'liability-account', type: 'CREDIT', amount: 20000 }),
+          expect.objectContaining({ tenantId: 'tenant-1', accountId: 'bank-account', type: 'DEBIT', amount: 20000 }),
+          expect.objectContaining({ tenantId: 'tenant-1', accountId: 'liability-account', type: 'CREDIT', amount: 20000 }),
         ] },
         }),
       }),
@@ -2479,6 +2479,12 @@ describe('PaymentsService', () => {
         code: 'JE-SEPAY-OVERPAY-PENDING-log-over-2',
         sourceType: 'ADJUSTMENT',
         sourceId: 'deposit-1',
+        lines: {
+          create: [
+            expect.objectContaining({ tenantId: 'tenant-1', accountId: 'bank-account', type: 'DEBIT', amount: 50000 }),
+            expect.objectContaining({ tenantId: 'tenant-1', accountId: 'liability-account', type: 'CREDIT', amount: 50000 }),
+          ],
+        },
       }),
     }));
     expect(auditService.log).toHaveBeenCalledWith(
@@ -2633,6 +2639,34 @@ describe('PaymentsService', () => {
       }),
     });
     expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(prisma.journalEntry.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          code: 'JE-SEPAY-OVERPAY-PENDING-log-over-3',
+          lines: {
+            create: [
+              expect.objectContaining({ tenantId: 'tenant-1', accountId: 'bank-account', type: 'DEBIT', amount: 30000 }),
+              expect.objectContaining({ tenantId: 'tenant-1', accountId: 'liability-account', type: 'CREDIT', amount: 30000 }),
+            ],
+          },
+        }),
+      }),
+    );
+    expect(prisma.journalEntry.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          code: 'JE-SEPAY-OVERPAY-REFUND-log-over-3',
+          lines: {
+            create: [
+              expect.objectContaining({ tenantId: 'tenant-1', accountId: 'liability-account', type: 'DEBIT', amount: 30000 }),
+              expect.objectContaining({ tenantId: 'tenant-1', accountId: 'bank-account', type: 'CREDIT', amount: 30000 }),
+            ],
+          },
+        }),
+      }),
+    );
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
         module: 'Payments',

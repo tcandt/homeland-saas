@@ -1,4 +1,4 @@
-﻿import { expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { test } from '../../fixtures/admin.fixture';
 
 type ExpenseRow = {
@@ -562,5 +562,65 @@ test.describe('Finance Expenses Regression', () => {
     await expect(ownerTwoRow).toBeVisible();
     await expect(ownerTwoRow).toContainText('Thể');
     await expect(ownerTwoRow).toContainText('Đã hoàn ứng');
+  });
+
+  test('supports quick cluster selection for LK01 and LK08 clusters in create modal', async ({ admin }) => {
+    const clusterBuildings = [
+      { ...baseBuilding, id: 'b-1', code: 'LK01.31', name: 'LK01.31' },
+      { ...baseBuilding, id: 'b-2', code: 'LK01.32', name: 'LK01.32' },
+      { ...baseBuilding, id: 'b-3', code: 'LK08.24', name: 'LK08.24' },
+      { ...baseBuilding, id: 'b-4', code: 'LK08.25', name: 'LK08.25' },
+    ];
+
+    const createdPayloads: any[] = [];
+    await mockExpensePage(
+      admin.page,
+      [],
+      (payload) => {
+        createdPayloads.push(payload);
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        buildings: clusterBuildings,
+      },
+    );
+
+    await admin.page.goto('/finance/expenses');
+    await admin.page.getByTestId('expense-table-create-button').click();
+    await expect(admin.page.getByTestId('expense-create-modal')).toBeVisible();
+
+    // 1. Quick select LK01 cluster
+    const lk01Btn = admin.page.getByTestId('expense-cluster-lk01');
+    const lk08Btn = admin.page.getByTestId('expense-cluster-lk08');
+    await expect(lk01Btn).toBeVisible();
+    await expect(lk08Btn).toBeVisible();
+
+    await lk01Btn.click();
+    const buildingGrid = admin.page.getByTestId('expense-create-building');
+    await expect(buildingGrid.getByText('LK01.31')).toBeVisible();
+    await expect(buildingGrid.getByText('LK01.32')).toBeVisible();
+    await expect(admin.page.getByTestId('expense-create-clear-building')).toHaveText(/Bỏ chọn \(2\)/);
+
+    // 2. Clear selection
+    await admin.page.getByTestId('expense-create-clear-building').click();
+    await expect(admin.page.getByTestId('expense-create-clear-building')).not.toBeVisible();
+
+    // 3. Quick select LK08 cluster
+    await lk08Btn.click();
+    await expect(admin.page.getByTestId('expense-create-clear-building')).toHaveText(/Bỏ chọn \(2\)/);
+
+    // 4. Fill form and submit
+    const createForm = admin.page.getByTestId('expense-create-form');
+    await admin.page.getByTestId('expense-create-amount').fill('1000000');
+    await createForm.locator('textarea').fill('Bảo trì cụm LK08');
+    await admin.page.getByRole('button', { name: /lưu chi phí/i }).click();
+
+    // Two expenses created (split 500,000 each for LK08.24 and LK08.25)
+    await expect.poll(() => createdPayloads.length, { timeout: 10000 }).toBe(2);
+    expect(createdPayloads[0].amount).toBe(500000);
+    expect(createdPayloads[1].amount).toBe(500000);
   });
 });

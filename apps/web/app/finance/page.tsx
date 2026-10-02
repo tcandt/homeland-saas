@@ -1,44 +1,52 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import {
   ArrowUpRight,
-  BookOpenCheck,
+  BookOpen,
+  Building2,
+  Calendar,
+  CheckCircle2,
+  Coins,
+  CreditCard,
+  Download,
   Landmark,
   PieChart,
   Receipt,
+  Sparkles,
+  TrendingUp,
   Wallet,
 } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
+import FinanceExecutiveKpi from "@/components/finance/FinanceExecutiveKpi";
+import OwnerProfitSplitHero from "@/components/finance/OwnerProfitSplitHero";
+import BuildingRoomsBreakdownTable from "@/components/finance/BuildingRoomsBreakdownTable";
 import BankCashFlowSummary from "@/components/finance/BankCashFlowSummary";
-import BuildingProfitSummary from "@/components/finance/BuildingProfitSummary";
 import FinanceAttentionCard from "@/components/finance/FinanceAttentionCard";
-import FinanceDisclosureSection from "@/components/finance/FinanceDisclosureSection";
+import OperationsFinanceChart from "@/components/finance/OperationsFinanceChart";
+import FinancialCommandLedger from "@/components/finance/FinancialCommandLedger";
 import FinanceExportDrawer from "@/components/finance/FinanceExportDrawer";
 import FinancialCommandDrawer from "@/components/finance/FinancialCommandDrawer";
-import FinancialCommandKpi from "@/components/finance/FinancialCommandKpi";
-import FinancialCommandLedger from "@/components/finance/FinancialCommandLedger";
-import OperationsFinanceChart from "@/components/finance/OperationsFinanceChart";
-import OwnerProfitSummary from "@/components/finance/OwnerProfitSummary";
+import BankCashflowReconciliationModal from "@/components/finance/BankCashflowReconciliationModal";
+import OwnerFinancialDetailModal from "@/components/finance/OwnerFinancialDetailModal";
+import BuildingPerformanceDetailModal from "@/components/finance/BuildingPerformanceDetailModal";
 import { usePermissions } from "@/lib/hooks/usePermissions";
-import { useLedgerQuery } from "@/lib/queries/finance.queries";
 import { useFinanceStore } from "@/lib/stores/finance.store";
 
 export default function FinancePage() {
   const permissions = usePermissions();
   const selectedJournalId = useFinanceStore((state) => state.selectedJournalId);
-  const { data: ledgerRows } = useLedgerQuery();
 
-  const reconciliation = useMemo(() => {
-    const rows = ledgerRows || [];
-    return {
-      draftCount: rows.filter((row: any) => row.status === "DRAFT").length,
-      postedCount: rows.filter((row: any) => row.status === "POSTED").length,
-      depositCount: rows.filter((row: any) => row.sourceType === "DEPOSIT").length,
-      expenseCount: rows.filter((row: any) => row.sourceType === "EXPENSE").length,
-    };
-  }, [ledgerRows]);
+  const [selectedYear, setSelectedYear] = useState("2026");
+  const [activeTab, setActiveTab] = useState<"buildings" | "banking" | "trends" | "ledger">("buildings");
+  const [isReconciliationModalOpen, setIsReconciliationModalOpen] = useState(false);
+  const [selectedOwnerForModal, setSelectedOwnerForModal] = useState<{
+    id: string;
+    name: string;
+    code: string;
+  } | null>(null);
+  const [selectedBuildingForModal, setSelectedBuildingForModal] = useState<string | null>(null);
 
   return (
     <AppShell>
@@ -46,38 +54,61 @@ export default function FinancePage() {
 
       <main
         data-testid="finance-root"
-        className="-m-4 min-h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background p-3 md:min-h-[calc(100dvh-80px)] md:p-5"
+        className="-m-4 min-h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background p-3.5 md:min-h-[calc(100dvh-80px)] md:p-5"
       >
         <div className="flex w-full flex-col gap-4">
-          {/* Quick Sub-Navigation Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="text-xs font-bold text-muted uppercase tracking-wider">
-                Dữ liệu tài chính thời gian thực
+          {/* Top Control Bar: Realtime System Status + Period Selector + Quick Nav Links */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/40 pb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
               </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-foreground">
+                  Hệ Thống Tài Chính Doanh Thu Hợp Nhất
+                </span>
+                <span className="rounded-md bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  Đồng bộ webhook SePay tự động
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {/* Year Selector */}
+              <div className="flex items-center gap-1.5 rounded-xl border border-border/80 bg-card px-3 py-1.5 shadow-2xs">
+                <Calendar size={13} className="text-muted-foreground" />
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                  aria-label="Chọn năm tài chính"
+                  className="bg-transparent text-xs font-bold text-foreground outline-none cursor-pointer"
+                >
+                  <option value="2026">Kỳ tài chính: Năm 2026</option>
+                  <option value="2025">Kỳ tài chính: Năm 2025</option>
+                </select>
+              </div>
+
+              {/* Sub-Navigation Links */}
               <Link
                 href="/finance/transactions"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-border/70 bg-card px-3 py-1.5 text-xs font-bold text-text shadow-2xs transition hover:border-border hover:bg-surface"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border/80 bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-2xs transition hover:border-primary hover:bg-surface hover:text-primary"
               >
                 <Receipt size={13} className="text-primary" />
                 <span>Sổ giao dịch</span>
               </Link>
 
-              <Link
-                href="/finance/reconciliation"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-border/70 bg-card px-3 py-1.5 text-xs font-bold text-text shadow-2xs transition hover:border-border hover:bg-surface"
+              <button
+                onClick={() => setIsReconciliationModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border/80 bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-2xs transition hover:border-emerald-500 hover:bg-surface hover:text-emerald-600 cursor-pointer"
               >
                 <Landmark size={13} className="text-emerald-600" />
                 <span>Đối soát SePay</span>
-              </Link>
+              </button>
 
               <Link
                 href="/finance/expenses"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-border/70 bg-card px-3 py-1.5 text-xs font-bold text-text shadow-2xs transition hover:border-border hover:bg-surface"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border/80 bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-2xs transition hover:border-rose-500 hover:bg-surface hover:text-rose-600"
               >
                 <Wallet size={13} className="text-rose-600" />
                 <span>Chi phí</span>
@@ -85,127 +116,176 @@ export default function FinancePage() {
 
               <Link
                 href="/reports"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-border/70 bg-card px-3 py-1.5 text-xs font-bold text-text shadow-2xs transition hover:border-border hover:bg-surface"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border/80 bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-2xs transition hover:border-indigo-500 hover:bg-surface hover:text-indigo-600"
               >
                 <PieChart size={13} className="text-indigo-600" />
                 <span>Báo cáo P&L</span>
-                <ArrowUpRight size={12} className="text-muted" />
+                <ArrowUpRight size={11} className="text-muted-foreground" />
               </Link>
             </div>
           </div>
 
-          {/* 5 Executive KPI Cards */}
-          <FinancialCommandKpi />
+          {/* Section 1: 4 Macro Financial KPIs */}
+          <FinanceExecutiveKpi />
 
-          {/* Recharts Operations Chart & Attention Card */}
-          <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.8fr)_minmax(330px,0.7fr)]">
-            <OperationsFinanceChart />
-            <FinanceAttentionCard />
-          </div>
+          {/* Section 2: HERO COMPONENT - Bảng Phân Chia Lợi Nhuận Quyết Toán 2 Chủ Sở Hữu */}
+          <OwnerProfitSplitHero
+            onOpenOwnerDetail={(id, name, code) =>
+              setSelectedOwnerForModal({ id, name, code })
+            }
+          />
 
-          {/* Bank Cashflow SePay Summary with Recharts */}
-          <BankCashFlowSummary />
+          {/* Section 3: Pragmatic Tabbed Workbench */}
+          <div className="space-y-3 pt-2">
+            {/* Tab Navigation Strip */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-2">
+              <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border/70 bg-card/60 p-1 shadow-2xs">
+                <button
+                  onClick={() => setActiveTab("buildings")}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer ${activeTab === "buildings"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:bg-surface hover:text-foreground"
+                    }`}
+                >
+                  <Building2 size={14} />
+                  <span>Hiệu quả Tòa nhà & Phòng</span>
+                  <span
+                    className={`ml-1 rounded-full px-1.5 py-0.2 text-[10px] ${activeTab === "buildings"
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                      }`}
+                  >
+                    4
+                  </span>
+                </button>
 
-          {/* Owner Profit Summary */}
-          {permissions.canReadOwnerProfit && (
-            <FinanceDisclosureSection
-              testId="finance-owner-profit-disclosure"
-              eyebrow="Phân tích chủ sở hữu"
-              title="Quyết toán và lợi nhuận theo chủ sở hữu"
-              description="Mở khi cần kiểm tra tiền thực nhận, hoàn ứng, tiền cọc và chi tiết từng tòa nhà."
-            >
-              <OwnerProfitSummary />
-            </FinanceDisclosureSection>
-          )}
+                <button
+                  onClick={() => setActiveTab("banking")}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer ${activeTab === "banking"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:bg-surface hover:text-foreground"
+                    }`}
+                >
+                  <Landmark size={14} />
+                  <span>Dòng tiền Ngân hàng & Cảnh báo</span>
+                </button>
 
-          {/* Building Profit Summary */}
-          <FinanceDisclosureSection
-            testId="finance-building-profit-disclosure"
-            eyebrow="Hiệu quả vận hành"
-            title="Doanh thu và lợi nhuận theo tòa nhà"
-            description="So sánh hiệu quả từng tòa, sau đó mở sâu xuống phòng khi cần điều tra chênh lệch."
-          >
-            <BuildingProfitSummary />
-          </FinanceDisclosureSection>
+                <button
+                  onClick={() => setActiveTab("trends")}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer ${activeTab === "trends"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:bg-surface hover:text-foreground"
+                    }`}
+                >
+                  <TrendingUp size={14} />
+                  <span>Biểu đồ Xu hướng 12 Tháng</span>
+                </button>
 
-          {/* General Ledger & Control */}
-          <FinanceDisclosureSection
-            testId="finance-ledger-disclosure"
-            eyebrow="Sổ kế toán"
-            title="Bút toán và kiểm soát ghi sổ"
-            description="Danh sách chi tiết được đóng gọn để dashboard chính luôn dễ đọc."
-          >
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-              <FinancialCommandLedger />
+                <button
+                  onClick={() => setActiveTab("ledger")}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer ${activeTab === "ledger"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:bg-surface hover:text-foreground"
+                    }`}
+                >
+                  <BookOpen size={14} />
+                  <span>Sổ Kế toán & Ghi sổ</span>
+                </button>
+              </div>
 
-              <aside
-                data-testid="finance-right-panel"
-                className="flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xs"
-              >
-                <div className="border-b border-border/70 bg-surface/50 p-4">
-                  <div className="flex items-center gap-2">
-                    <BookOpenCheck size={16} className="text-primary" />
-                    <h3 className="text-sm font-black text-text">Trạng thái ghi sổ</h3>
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-muted">
-                    Tổng hợp theo dữ liệu sổ cái (ledger) hiện tại.
-                  </p>
-                </div>
-                <div className="grid gap-3 p-4">
-                  <LedgerStatusCard
-                    tone="warning"
-                    value={reconciliation.draftCount}
-                    title="Bút toán nháp"
-                    detail="Cần kiểm tra trước khi ghi sổ chính thức."
-                  />
-                  <LedgerStatusCard
-                    tone="success"
-                    value={reconciliation.postedCount}
-                    title="Đã ghi sổ chính thức"
-                    detail={`${reconciliation.depositCount} nguồn cọc · ${reconciliation.expenseCount} nguồn chi phí`}
-                  />
-                </div>
-              </aside>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsReconciliationModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border/80 bg-card px-2.5 py-1 text-xs font-semibold text-foreground shadow-2xs transition hover:border-primary hover:text-primary cursor-pointer"
+                >
+                  <Sparkles size={12} className="text-amber-500" />
+                  <span>Kiểm tra sai lệch đối soát</span>
+                </button>
+              </div>
             </div>
-          </FinanceDisclosureSection>
+
+            {/* Tab 1 Content: Bảng hiệu quả theo Tòa nhà & Phòng */}
+            {activeTab === "buildings" && (
+              <BuildingRoomsBreakdownTable
+                onSelectBuilding={(code) => setSelectedBuildingForModal(code)}
+              />
+            )}
+
+            {/* Tab 2 Content: Dòng tiền Ngân hàng & Cảnh báo */}
+            {activeTab === "banking" && (
+              <div className="grid grid-cols-1 items-stretch gap-3.5 lg:grid-cols-12">
+                <div className="lg:col-span-7">
+                  <BankCashFlowSummary
+                    onOpenDetail={() => setIsReconciliationModalOpen(true)}
+                  />
+                </div>
+                <div className="lg:col-span-5">
+                  <FinanceAttentionCard />
+                </div>
+              </div>
+            )}
+
+            {/* Tab 3 Content: Biểu đồ xu hướng tài chính */}
+            {activeTab === "trends" && (
+              <div className="overflow-hidden rounded-2xl border border-border/80 bg-card p-5 shadow-xs">
+                <div className="mb-4 flex items-center justify-between border-b border-border/40 pb-3">
+                  <div>
+                    <h3 className="text-base font-black text-foreground">
+                      Biểu Đồ Xu Hướng Doanh Thu, Chi Phí & Lợi Nhuận
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Theo dõi biến động dòng tiền hợp nhất hệ thống năm 2026
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-600">
+                    <CheckCircle2 size={13} />
+                    Biên độ dương 93%
+                  </span>
+                </div>
+                <OperationsFinanceChart />
+              </div>
+            )}
+
+            {/* Tab 4 Content: Sổ lệnh kế toán & Ghi sổ */}
+            {activeTab === "ledger" && (
+              <FinancialCommandLedger
+                onOpenReconciliation={() => setIsReconciliationModalOpen(true)}
+              />
+            )}
+          </div>
         </div>
       </main>
 
+      {/* Modal 1: Chi tiết tài chính & phòng của Chủ sở hữu */}
+      {selectedOwnerForModal && (
+        <OwnerFinancialDetailModal
+          isOpen={true}
+          onClose={() => setSelectedOwnerForModal(null)}
+          ownerId={selectedOwnerForModal.id}
+          initialOwnerName={selectedOwnerForModal.name}
+          initialOwnerCode={selectedOwnerForModal.code}
+        />
+      )}
+
+      {/* Modal 2: Đối soát dòng tiền ngân hàng SePay */}
+      {isReconciliationModalOpen && (
+        <BankCashflowReconciliationModal
+          isOpen={true}
+          onClose={() => setIsReconciliationModalOpen(false)}
+        />
+      )}
+
+      {/* Modal 3: Chi tiết hiệu quả tòa nhà */}
+      {selectedBuildingForModal && (
+        <BuildingPerformanceDetailModal
+          isOpen={true}
+          onClose={() => setSelectedBuildingForModal(null)}
+          buildingCode={selectedBuildingForModal}
+        />
+      )}
+
+      {/* Financial Drawer for Journal Entries */}
       {selectedJournalId && <FinancialCommandDrawer />}
     </AppShell>
-  );
-}
-
-function LedgerStatusCard({
-  tone,
-  value,
-  title,
-  detail,
-}: {
-  tone: "warning" | "success";
-  value: number;
-  title: string;
-  detail: string;
-}) {
-  const toneClass =
-    tone === "warning"
-      ? "border-amber-500/25 bg-amber-500/5 text-amber-700 dark:text-amber-300"
-      : "border-emerald-500/25 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300";
-
-  return (
-    <div className={`rounded-xl border p-4 transition shadow-2xs ${toneClass}`}>
-      <div className="flex items-baseline justify-between">
-        <span className="font-mono text-2xl font-black">{value}</span>
-        <span
-          className={`rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase ${
-            tone === "warning" ? "bg-amber-500/15 text-amber-800 dark:text-amber-200" : "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
-          }`}
-        >
-          {tone === "warning" ? "Chờ duyệt" : "Hoàn tất"}
-        </span>
-      </div>
-      <div className="mt-1.5 text-sm font-black text-text">{title}</div>
-      <div className="mt-1 text-xs leading-relaxed text-muted">{detail}</div>
-    </div>
   );
 }

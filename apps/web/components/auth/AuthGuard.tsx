@@ -19,6 +19,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [passwordPromptReady, setPasswordPromptReady] = useState(false);
   const [passwordPromptDeferred, setPasswordPromptDeferred] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
+  const lastActivityRecordedAtRef = useRef(0);
 
   useEffect(() => {
     // Wait for Zustand persist to hydrate before checking auth state
@@ -82,8 +83,18 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       idleTimerRef.current = window.setTimeout(logoutForIdle, getTimeoutMs());
     };
 
+    const recordUserActivity = () => {
+      resetIdleTimer();
+      const now = Date.now();
+      if (now - lastActivityRecordedAtRef.current < 60_000) return;
+      lastActivityRecordedAtRef.current = now;
+      void authApi.recordActivity().catch(() => {
+        // A transient activity write failure must not end a valid local session.
+      });
+    };
+
     const events: Array<keyof WindowEventMap> = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "focus"];
-    events.forEach((eventName) => window.addEventListener(eventName, resetIdleTimer, { passive: true }));
+    events.forEach((eventName) => window.addEventListener(eventName, recordUserActivity, { passive: true }));
 
     const handleTimeoutUpdated = () => {
       const stored = Number(localStorage.getItem("homeland_session_idle_timeout_minutes"));
@@ -117,7 +128,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       active = false;
       if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
-      events.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer));
+      events.forEach((eventName) => window.removeEventListener(eventName, recordUserActivity));
       window.removeEventListener("homeland:session-timeout-updated", handleTimeoutUpdated);
       window.removeEventListener("storage", handleStorage);
     };

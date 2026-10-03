@@ -50,7 +50,7 @@ function Copy-DirectoryContents {
 
   Ensure-Directory $Destination
   Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
-    if ($ExcludeNames -contains $_.Name) {
+    if ($ExcludeNames -contains $_.Name -or $_.Name -like ".next*" -or $_.Name -like ".turbo") {
       return
     }
 

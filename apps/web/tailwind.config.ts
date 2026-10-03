@@ -17,6 +17,7 @@ const config: Config = {
         muted: "var(--muted)",
         border: "var(--border)",
         primary: "var(--primary)",
+        "primary-foreground": "var(--primary-foreground)",
         secondary: "var(--secondary)",
         danger: "var(--danger)",
         success: "var(--success)",

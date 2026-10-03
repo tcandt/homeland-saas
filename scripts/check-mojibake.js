@@ -48,7 +48,7 @@ const markers = [
 
 function walk(dir, results = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (ignoreDirs.has(entry.name)) continue;
+    if (ignoreDirs.has(entry.name) || entry.name.startsWith(".next")) continue;
     const full = path.join(dir, entry.name);
     if (full.includes(`${path.sep}public${path.sep}qr${path.sep}assets${path.sep}`)) continue;
     if (entry.isDirectory()) {

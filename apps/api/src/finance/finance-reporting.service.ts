@@ -533,8 +533,8 @@ export class FinanceReportingService {
     };
   }
 
-  async getBuildingProfitSummary(tenantId: string, options: { year?: string; month?: string } = {}) {
-    const period = this.buildPeriodRange(options.year, options.month);
+  async getBuildingProfitSummary(tenantId: string, options: { year?: string; month?: string; startMonth?: string; endMonth?: string; startYear?: string; endYear?: string; startDate?: string; endDate?: string } = {}) {
+    const period = this.buildPeriodRange(options.year, options.month, options);
     const buildings = (await this.prisma.building.findMany({
       where: { tenantId, deletedAt: null },
       include: {
@@ -659,9 +659,12 @@ export class FinanceReportingService {
         this.prisma.expense.findMany({
           where: {
             tenantId,
-            roomId: { in: roomIds },
             deletedAt: null,
             date: period,
+            OR: [
+              { roomId: { in: roomIds } },
+              { buildingId: building.id },
+            ],
           },
           select: {
             id: true,
@@ -3279,7 +3282,32 @@ export class FinanceReportingService {
     };
   }
 
-  private buildPeriodRange(year?: string, month?: string) {
+  private buildPeriodRange(
+    year?: string,
+    month?: string,
+    extraOptions: { startDate?: string; endDate?: string; startMonth?: string; endMonth?: string; startYear?: string; endYear?: string } = {},
+  ) {
+    if (extraOptions.startDate && extraOptions.endDate) {
+      const sDate = new Date(extraOptions.startDate);
+      const eDate = new Date(extraOptions.endDate);
+      if (!Number.isNaN(sDate.getTime()) && !Number.isNaN(eDate.getTime())) {
+        return { gte: sDate, lte: eDate };
+      }
+    }
+
+    if (extraOptions.startMonth && extraOptions.endMonth) {
+      const sYear = Number(extraOptions.startYear || year || new Date().getFullYear());
+      const eYear = Number(extraOptions.endYear || year || new Date().getFullYear());
+      const sMonth = Number(extraOptions.startMonth);
+      const eMonth = Number(extraOptions.endMonth);
+      if (Number.isInteger(sYear) && Number.isInteger(eYear) && sMonth >= 1 && sMonth <= 12 && eMonth >= 1 && eMonth <= 12) {
+        return {
+          gte: new Date(sYear, sMonth - 1, 1),
+          lte: new Date(eYear, eMonth, 0, 23, 59, 59, 999),
+        };
+      }
+    }
+
     const selectedYear = Number(year || new Date().getFullYear());
     if (!Number.isInteger(selectedYear)) {
       throw new BadRequestException('PERIOD_YEAR_INVALID');

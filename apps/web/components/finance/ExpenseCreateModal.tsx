@@ -4,6 +4,7 @@ import React, { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
+  Building2,
   Calendar,
   Check,
   ChevronDown,
@@ -13,6 +14,7 @@ import {
   Info,
   Layers,
   Link as LinkIcon,
+  Paperclip,
   ReceiptText,
   Send,
   Store,
@@ -379,87 +381,93 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         onSubmit={handleSubmit}
         className="flex flex-col gap-4 text-xs"
       >
-        {/* ROW 1: TÒA NHÀ, CHỦ SỞ HỮU, PHÒNG LIÊN QUAN */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          {/* Col 1: Tòa nhà */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between gap-1">
-              <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-                Tòa nhà <span className="text-rose-500">*</span>
-              </label>
+        {/* ROW 1: TÒA NHÀ ÁP DỤNG (span-2) + CHỦ SỞ HỮU & PHÒNG LIÊN QUAN (span-1) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
+          {/* Col 1 & 2: Tòa nhà */}
+          <div className="md:col-span-2 flex flex-col gap-2 rounded-2xl border border-border/80 bg-surface/30 p-3 shadow-2xs">
+            {/* Header: Title + Selected count badge + Clear button */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1.5">
+                  <Building2 size={13} className="text-indigo-600 dark:text-indigo-400" />
+                  Tòa nhà <span className="text-rose-500">*</span>
+                </label>
+                {buildingIds.length > 0 && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300">
+                    Đã chọn {buildingIds.length}
+                  </span>
+                )}
+              </div>
               {buildingIds.length > 0 && (
                 <button
                   type="button"
                   data-testid="expense-create-clear-building"
                   onClick={() => setBuildingIds([])}
-                  className="text-[11px] text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 transition-colors font-semibold"
+                  className="text-[11px] text-muted hover:text-rose-600 dark:hover:text-rose-400 transition-colors font-semibold flex items-center gap-1 cursor-pointer"
                 >
-                  Bỏ chọn ({buildingIds.length})
+                  <X size={12} />
+                  <span>Bỏ chọn ({buildingIds.length})</span>
                 </button>
               )}
             </div>
 
             {/* Chọn nhanh theo cụm */}
             {(lk01Buildings.length > 0 || lk08Buildings.length > 0) && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider shrink-0">
+              <div className="flex items-center gap-2 pt-0.5">
+                <span className="text-[10px] font-bold text-muted uppercase tracking-wider shrink-0 flex items-center gap-1">
+                  <Layers size={11} className="text-indigo-500" />
                   Cụm:
                 </span>
-                {lk01Buildings.length > 0 && (
-                  <button
-                    type="button"
-                    data-testid="expense-cluster-lk01"
-                    onClick={toggleClusterLK01}
-                    className={`flex-1 py-1 px-2 rounded-xl text-xs font-bold transition-all border inline-flex items-center justify-center gap-1.5 shadow-2xs ${
-                      isLK01AllSelected
-                        ? "border-indigo-600 bg-indigo-50/90 text-indigo-700 dark:bg-indigo-950/50 dark:border-indigo-500 dark:text-indigo-300 ring-1 ring-indigo-500/20"
-                        : "border-border/70 bg-card text-muted-foreground hover:text-text hover:border-indigo-300 hover:bg-muted/10"
-                    }`}
-                  >
-                    <span>LK01 (31, 32)</span>
-                    <span
-                      className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border text-[9px] transition-all ${
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {lk01Buildings.length > 0 && (
+                    <button
+                      type="button"
+                      data-testid="expense-cluster-lk01"
+                      onClick={toggleClusterLK01}
+                      className={`h-7 px-2.5 rounded-lg text-xs font-bold transition-all border inline-flex items-center gap-1.5 cursor-pointer shadow-2xs ${
                         isLK01AllSelected
-                          ? "border-indigo-600 bg-indigo-600 text-white dark:border-indigo-500 dark:bg-indigo-500"
-                          : "border-slate-300 bg-card dark:border-slate-600"
+                          ? "border-indigo-600 bg-indigo-600 text-white shadow-xs"
+                          : "border-border/80 bg-card text-muted hover:text-text hover:border-indigo-300 hover:bg-muted/20"
                       }`}
                     >
-                      {isLK01AllSelected && <Check size={8} strokeWidth={3} />}
-                    </span>
-                  </button>
-                )}
-                {lk08Buildings.length > 0 && (
-                  <button
-                    type="button"
-                    data-testid="expense-cluster-lk08"
-                    onClick={toggleClusterLK08}
-                    className={`flex-1 py-1 px-2 rounded-xl text-xs font-bold transition-all border inline-flex items-center justify-center gap-1.5 shadow-2xs ${
-                      isLK08AllSelected
-                        ? "border-indigo-600 bg-indigo-50/90 text-indigo-700 dark:bg-indigo-950/50 dark:border-indigo-500 dark:text-indigo-300 ring-1 ring-indigo-500/20"
-                        : "border-border/70 bg-card text-muted-foreground hover:text-text hover:border-indigo-300 hover:bg-muted/10"
-                    }`}
-                  >
-                    <span>LK08 (24, 25)</span>
-                    <span
-                      className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border text-[9px] transition-all ${
+                      <span>LK01 (31, 32)</span>
+                      {isLK01AllSelected ? (
+                        <Check size={11} strokeWidth={3} className="text-white" />
+                      ) : (
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+                      )}
+                    </button>
+                  )}
+                  {lk08Buildings.length > 0 && (
+                    <button
+                      type="button"
+                      data-testid="expense-cluster-lk08"
+                      onClick={toggleClusterLK08}
+                      className={`h-7 px-2.5 rounded-lg text-xs font-bold transition-all border inline-flex items-center gap-1.5 cursor-pointer shadow-2xs ${
                         isLK08AllSelected
-                          ? "border-indigo-600 bg-indigo-600 text-white dark:border-indigo-500 dark:bg-indigo-500"
-                          : "border-slate-300 bg-card dark:border-slate-600"
+                          ? "border-indigo-600 bg-indigo-600 text-white shadow-xs"
+                          : "border-border/80 bg-card text-muted hover:text-text hover:border-indigo-300 hover:bg-muted/20"
                       }`}
                     >
-                      {isLK08AllSelected && <Check size={8} strokeWidth={3} />}
-                    </span>
-                  </button>
-                )}
+                      <span>LK08 (24, 25)</span>
+                      {isLK08AllSelected ? (
+                        <Check size={11} strokeWidth={3} className="text-white" />
+                      ) : (
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
+            {/* Danh sách tòa nhà */}
             <div
-              className="grid grid-cols-2 gap-2 rounded-2xl border border-border/70 bg-surface/40 p-2 min-h-[92px] max-h-36 overflow-y-auto"
+              className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-0.5"
               data-testid="expense-create-building"
             >
               {buildingList.length === 0 ? (
-                <div className="col-span-2 flex items-center justify-center text-xs text-muted-foreground py-4">
+                <div className="col-span-2 flex items-center justify-center text-xs text-muted py-4">
                   Chưa có tòa nhà nào trong hệ thống
                 </div>
               ) : (
@@ -470,18 +478,29 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
                       key={building.id}
                       type="button"
                       onClick={() => toggleBuilding(building.id)}
-                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-xs font-bold transition-all shadow-2xs ${
+                      className={`group flex items-center justify-between gap-2.5 rounded-xl border p-2 text-left text-xs font-bold transition-all cursor-pointer shadow-2xs ${
                         active
-                          ? "border-indigo-600 bg-indigo-50/70 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-500 dark:text-indigo-300"
-                          : "border-border/70 bg-card text-text hover:border-indigo-300 hover:bg-muted/10"
+                          ? "border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200 ring-1 ring-indigo-500/20 shadow-xs"
+                          : "border-border/80 bg-card text-text hover:border-indigo-300 hover:bg-muted/20"
                       }`}
                     >
-                      <span className="truncate">{building.code || building.name}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                            active
+                              ? "bg-indigo-600 text-white"
+                              : "bg-muted/70 text-muted group-hover:text-indigo-600 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-950/40"
+                          }`}
+                        >
+                          <Building2 size={14} />
+                        </div>
+                        <span className="truncate">{building.code || building.name}</span>
+                      </div>
                       <span
-                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-all ${
+                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md border transition-all ${
                           active
-                            ? "border-indigo-600 bg-indigo-600 text-white dark:border-indigo-500 dark:bg-indigo-500"
-                            : "border-slate-300 bg-card dark:border-slate-600"
+                            ? "border-indigo-600 bg-indigo-600 text-white shadow-xs"
+                            : "border-slate-300 dark:border-slate-600 bg-card group-hover:border-indigo-400"
                         }`}
                       >
                         {active && <Check size={10} strokeWidth={3} />}
@@ -493,82 +512,92 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
             </div>
           </div>
 
-          {/* Col 2: Chủ sở hữu */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">
-              Chủ sở hữu
-            </label>
-            <div className="rounded-2xl border border-border/70 bg-surface/40 p-3 min-h-[92px] flex-1 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-                <User size={20} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{ownerName}</div>
-                <div className="text-[11px] text-muted-foreground">Tự động theo tòa nhà</div>
+          {/* Col 3: Chủ sở hữu & Phòng liên quan (stacked) */}
+          <div className="flex flex-col gap-2.5">
+            {/* Chủ sở hữu */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+                <User size={12} className="text-indigo-600 dark:text-indigo-400" />
+                Chủ sở hữu
+              </label>
+              <div className="rounded-xl border border-border/80 bg-surface/30 px-3 py-2 flex items-center gap-3 shadow-2xs min-h-[48px]">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                  <User size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-text truncate leading-snug">
+                    {ownerName}
+                  </div>
+                  <div className="text-[10px] text-muted leading-tight">
+                    Tự động theo tòa nhà
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Col 3: Phòng liên quan (custom styled dropdown) */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">
-              Phòng liên quan
-            </label>
-            <div className="relative">
-              <DoorOpen size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              <button
-                type="button"
-                onClick={() => setIsRoomOpen(!isRoomOpen)}
-                className="h-10 w-full rounded-xl border border-border/70 bg-card pl-9 pr-3 text-left text-xs font-semibold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors flex items-center justify-between"
-              >
-                <span className={roomId ? "text-text" : "text-muted-foreground"}>
-                  {roomId ? `Phòng ${roomId}` : "Không bắt buộc"}
-                </span>
-                <ChevronDown size={14} className="text-muted-foreground" />
-              </button>
-              {isRoomOpen && (
-                <div className="absolute left-0 right-0 top-11 z-50 rounded-xl border border-border/80 bg-card p-1 text-xs font-semibold shadow-xl animate-in fade-in zoom-in-95 duration-100 max-h-40 overflow-y-auto">
-                  <div
-                    onClick={() => {
-                      setRoomId("");
-                      setIsRoomOpen(false);
-                    }}
-                    className="px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg cursor-pointer text-muted-foreground"
-                  >
-                    Không bắt buộc
-                  </div>
-                  {["101", "102", "201", "202"].map((r) => (
+            {/* Phòng liên quan */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+                <DoorOpen size={12} className="text-indigo-600 dark:text-indigo-400" />
+                Phòng liên quan
+              </label>
+              <div className="relative">
+                <DoorOpen size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+                <button
+                  type="button"
+                  onClick={() => setIsRoomOpen(!isRoomOpen)}
+                  className="h-10 w-full rounded-xl border border-border/80 bg-card pl-9 pr-3 text-left text-xs font-semibold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors flex items-center justify-between"
+                >
+                  <span className={roomId ? "text-text font-bold" : "text-muted"}>
+                    {roomId ? `Phòng ${roomId}` : "Không bắt buộc"}
+                  </span>
+                  <ChevronDown size={14} className="text-muted" />
+                </button>
+                {isRoomOpen && (
+                  <div className="absolute left-0 right-0 top-11 z-50 rounded-xl border border-border/80 bg-card p-1 text-xs font-semibold shadow-xl animate-in fade-in zoom-in-95 duration-100 max-h-40 overflow-y-auto">
                     <div
-                      key={r}
                       onClick={() => {
-                        setRoomId(r);
+                        setRoomId("");
                         setIsRoomOpen(false);
                       }}
-                      className="px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg cursor-pointer text-text"
+                      className="px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg cursor-pointer text-muted"
                     >
-                      Phòng {r}
+                      Không bắt buộc
                     </div>
-                  ))}
-                </div>
-              )}
+                    {["101", "102", "201", "202"].map((r) => (
+                      <div
+                        key={r}
+                        onClick={() => {
+                          setRoomId(r);
+                          setIsRoomOpen(false);
+                        }}
+                        className="px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg cursor-pointer text-text"
+                      >
+                        Phòng {r}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         {/* ROW 2: Loại chi phí (Select 0), Trạng thái (Select 1), Nguồn thanh toán (Select 2) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          {/* Col 1: Loại chi phí (First select in form for e2e compatibility) */}
+          {/* Col 1: Loại chi phí */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+              <Layers size={12} className="text-indigo-600 dark:text-indigo-400" />
               Loại chi phí <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
-              <Layers size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-600 pointer-events-none" />
+              <Layers size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-600 dark:text-indigo-400 pointer-events-none" />
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 data-testid="expense-create-category"
-                className="h-10 w-full rounded-xl border border-border/70 bg-card pl-9 pr-8 text-xs font-bold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors"
+                className="h-10 w-full rounded-xl border border-border/80 bg-card pl-9 pr-8 text-xs font-bold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors"
               >
                 {categoryOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -579,18 +608,19 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
             </div>
           </div>
 
-          {/* Col 2: Trạng thái (Second select in form for e2e compatibility) */}
+          {/* Col 2: Trạng thái */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+              <Clock3 size={12} className="text-amber-500" />
               Trạng thái
             </label>
             <div className="relative">
-              <Clock3 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500 pointer-events-none" />
+              <Clock3 size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500 pointer-events-none" />
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
                 data-testid="expense-create-status"
-                className="h-10 w-full rounded-xl border border-border/70 bg-card pl-9 pr-8 text-xs font-bold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors"
+                className="h-10 w-full rounded-xl border border-border/80 bg-card pl-9 pr-8 text-xs font-bold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors"
               >
                 {statusOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -603,15 +633,16 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
 
           {/* Col 3: Nguồn thanh toán */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+              <Wallet size={12} className="text-indigo-600 dark:text-indigo-400" />
               Nguồn thanh toán <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
-              <Wallet size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-600 pointer-events-none" />
+              <Wallet size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-600 dark:text-indigo-400 pointer-events-none" />
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
-                className="h-10 w-full rounded-xl border border-border/70 bg-card pl-9 pr-8 text-xs font-bold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors"
+                className="h-10 w-full rounded-xl border border-border/80 bg-card pl-9 pr-8 text-xs font-bold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors"
               >
                 {paymentMethodOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -627,11 +658,12 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
           {/* Col 1: Số tiền */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+              <CircleDollarSign size={12} className="text-emerald-600 dark:text-emerald-400" />
               Số tiền <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
-              <CircleDollarSign size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-600 pointer-events-none" />
+              <CircleDollarSign size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600 dark:text-emerald-400 pointer-events-none" />
               <input
                 type="text"
                 inputMode="numeric"
@@ -639,30 +671,31 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="VD: 3.500.000 đ"
                 data-testid="expense-create-amount"
-                className="h-10 w-full rounded-xl border border-border/70 bg-card pl-9 pr-3 text-xs font-mono font-bold text-text shadow-2xs outline-none focus:border-indigo-500 transition-colors"
+                className="h-10 w-full rounded-xl border border-border/80 bg-card pl-9 pr-3 text-xs font-mono font-bold text-text shadow-2xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
               />
             </div>
           </div>
 
           {/* Col 2: Người chi / ứng tiền */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+              <User size={12} className="text-muted" />
               Người chi / ứng tiền <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
-              <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <input
                 type="text"
                 value={paidByName}
                 onChange={(e) => setPaidByName(e.target.value)}
                 placeholder="Người chi / ứng tiền (vd: Admin A)"
-                className="h-10 w-full rounded-xl border border-border/70 bg-card pl-9 pr-8 text-xs font-semibold text-text shadow-2xs outline-none focus:border-indigo-500 transition-colors"
+                className="h-10 w-full rounded-xl border border-border/80 bg-card pl-9 pr-8 text-xs font-semibold text-text shadow-2xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
               />
               {paidByName && (
                 <button
                   type="button"
                   onClick={() => setPaidByName("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-text p-0.5 rounded-full"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-text p-0.5 rounded-full"
                 >
                   <X size={13} />
                 </button>
@@ -672,23 +705,24 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
 
           {/* Col 3: Nhà cung cấp */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+              <Store size={12} className="text-muted" />
               Nhà cung cấp
             </label>
             <div className="relative">
-              <Store size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Store size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <input
                 type="text"
                 value={vendor}
                 onChange={(e) => setVendor(e.target.value)}
                 placeholder="Nhà cung cấp (vd: Cửa hàng vật tư)"
-                className="h-10 w-full rounded-xl border border-border/70 bg-card pl-9 pr-8 text-xs font-semibold text-text shadow-2xs outline-none focus:border-indigo-500 transition-colors"
+                className="h-10 w-full rounded-xl border border-border/80 bg-card pl-9 pr-8 text-xs font-semibold text-text shadow-2xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
               />
               {vendor && (
                 <button
                   type="button"
                   onClick={() => setVendor("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-text p-0.5 rounded-full"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-text p-0.5 rounded-full"
                 >
                   <X size={13} />
                 </button>
@@ -701,36 +735,38 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
           {/* Col 1: Ngày phát sinh */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+              <Calendar size={12} className="text-muted" />
               Ngày phát sinh <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
-              <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Calendar size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <input
                 type="date"
                 value={expenseDate}
                 onChange={(e) => setExpenseDate(e.target.value)}
-                className="h-10 w-full rounded-xl border border-border/70 bg-card pl-9 pr-3 text-xs font-semibold text-text shadow-2xs outline-none focus:border-indigo-500 transition-colors"
+                className="h-10 w-full rounded-xl border border-border/80 bg-card pl-9 pr-3 text-xs font-semibold text-text shadow-2xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
               />
             </div>
           </div>
 
-          {/* Col 2: Liên kết hợp đồng / Hóa đơn (custom styled dropdown) */}
+          {/* Col 2: Liên kết hợp đồng / Hóa đơn */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+              <LinkIcon size={12} className="text-muted" />
               Liên kết hợp đồng / Hóa đơn
             </label>
             <div className="relative">
-              <LinkIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <LinkIcon size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <button
                 type="button"
                 onClick={() => setIsContractOpen(!isContractOpen)}
-                className="h-10 w-full rounded-xl border border-border/70 bg-card pl-9 pr-3 text-left text-xs font-semibold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors flex items-center justify-between"
+                className="h-10 w-full rounded-xl border border-border/80 bg-card pl-9 pr-3 text-left text-xs font-semibold text-text shadow-2xs outline-none cursor-pointer hover:border-indigo-400 focus:border-indigo-500 transition-colors flex items-center justify-between"
               >
-                <span className={linkedContract ? "text-text" : "text-muted-foreground"}>
+                <span className={linkedContract ? "text-text font-bold" : "text-muted"}>
                   {linkedContract || "Không bắt buộc"}
                 </span>
-                <ChevronDown size={14} className="text-muted-foreground" />
+                <ChevronDown size={14} className="text-muted" />
               </button>
               {isContractOpen && (
                 <div className="absolute left-0 right-0 top-11 z-50 rounded-xl border border-border/80 bg-card p-1 text-xs font-semibold shadow-xl animate-in fade-in zoom-in-95 duration-100 max-h-40 overflow-y-auto">
@@ -739,7 +775,7 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
                       setLinkedContract("");
                       setIsContractOpen(false);
                     }}
-                    className="px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg cursor-pointer text-muted-foreground"
+                    className="px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg cursor-pointer text-muted"
                   >
                     Không bắt buộc
                   </div>
@@ -750,10 +786,18 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
 
           {/* Col 3: Khấu trừ owner */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">
-              Khấu trừ owner
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted">
+              Khấu trừ lợi nhuận owner
             </label>
-            <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-surface/30 px-3 py-2 h-10 shadow-2xs">
+            <div className="flex items-center justify-between rounded-xl border border-border/80 bg-surface/30 px-3 h-10 shadow-2xs">
+              <div className="flex flex-col min-w-0 pr-2">
+                <span className="text-xs font-semibold text-text truncate">
+                  {isDeductOwner ? "Khấu trừ vào lợi nhuận" : "Không khấu trừ"}
+                </span>
+                <span className="text-[10px] text-muted truncate">
+                  Trừ công nợ chủ sở hữu
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsDeductOwner(!isDeductOwner)}
@@ -767,17 +811,15 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
                   }`}
                 />
               </button>
-              <span className="text-[11px] font-medium text-muted-foreground leading-tight">
-                Chi phí này sẽ được khấu trừ vào công nợ của chủ sở hữu.
-              </span>
             </div>
           </div>
         </div>
 
         {/* ROW 5: CHỨNG TỪ (Drag & Drop + Uploaded Cards) */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">
-            Chứng từ
+          <label className="text-[11px] font-black uppercase tracking-wide text-muted flex items-center gap-1">
+            <Paperclip size={12} className="text-indigo-600 dark:text-indigo-400" />
+            Chứng từ đính kèm
           </label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {/* Left: Drag & Drop Dropzone */}
@@ -791,38 +833,39 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
             />
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="group flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-indigo-300 dark:border-indigo-900 bg-indigo-50/20 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 cursor-pointer transition-colors shadow-2xs min-h-[96px]"
+              className="group flex flex-col items-center justify-center p-3.5 rounded-2xl border-2 border-dashed border-indigo-200 hover:border-indigo-400 dark:border-indigo-900/80 dark:hover:border-indigo-700 bg-indigo-50/20 hover:bg-indigo-50/40 dark:bg-indigo-950/10 dark:hover:bg-indigo-950/20 cursor-pointer transition-all shadow-2xs min-h-[96px]"
               data-testid="expense-create-upload-trigger"
             >
-              <div className="w-9 h-9 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
-                <UploadCloud size={20} />
+              <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+                <UploadCloud size={18} />
               </div>
-              <div className="text-xs font-medium text-slate-800 dark:text-slate-200 text-center">
-                Kéo thả file vào đây hoặc <span className="font-bold text-indigo-600 hover:underline">nhấp để tải lên</span>
+              <div className="text-xs font-semibold text-text text-center">
+                Kéo thả file vào đây hoặc <span className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline">tải lên</span>
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">
-                Hỗ trợ JPG, PNG, WEBP, PDF • tối đa 10MB
+              <div className="text-[10px] text-muted mt-0.5">
+                JPG, PNG, WEBP, PDF • tối đa 10MB
               </div>
             </div>
 
             {/* Right: Uploaded Files Preview Cards */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 max-h-[110px] overflow-y-auto">
               {attachments.length === 0 ? (
-                <div className="col-span-2 flex items-center justify-center rounded-xl border border-dashed border-border/70 p-4 text-xs text-muted-foreground">
-                  Chưa đính kèm chứng từ nào
+                <div className="col-span-2 flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 p-4 text-xs text-muted/80 h-full min-h-[96px]">
+                  <ReceiptText size={18} className="text-muted/40 mb-1" />
+                  <span>Chưa đính kèm chứng từ nào</span>
                 </div>
               ) : (
                 attachments.map((file, idx) => (
                   <div
                     key={idx}
-                    className="relative flex items-center gap-2.5 p-2 rounded-xl border border-border/70 bg-card shadow-2xs group"
+                    className="relative flex items-center gap-2 p-2 rounded-xl border border-border/70 bg-card shadow-2xs group"
                   >
-                    <div className="w-12 h-12 rounded-lg bg-surface overflow-hidden shrink-0 border border-border/50">
+                    <div className="w-10 h-10 rounded-lg bg-surface overflow-hidden shrink-0 border border-border/50">
                       <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">{file.name}</div>
-                      <div className="text-[10px] text-muted-foreground">{file.size}</div>
+                      <div className="text-xs font-bold text-text truncate">{file.name}</div>
+                      <div className="text-[10px] text-muted">{file.size}</div>
                     </div>
                     <button
                       type="button"
@@ -842,19 +885,19 @@ export default function ExpenseCreateModal({ isOpen, onClose }: ExpenseCreateMod
         {/* ROW 6: MÔ TẢ */}
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <label className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">
-              Mô tả
+            <label className="text-[11px] font-black uppercase tracking-wide text-muted">
+              Mô tả chi tiết
             </label>
-            <span className="text-[10px] font-mono text-muted-foreground">
+            <span className="text-[10px] font-mono text-muted">
               {description.length}/500
             </span>
           </div>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value.slice(0, 500))}
-            rows={3}
+            rows={2.5}
             placeholder="Nhập ghi chú chi tiết cho khoản chi phí..."
-            className="w-full rounded-xl border border-border/70 bg-card p-3 text-xs text-text shadow-2xs outline-none focus:border-indigo-500 transition-colors resize-none"
+            className="w-full rounded-xl border border-border/80 bg-card p-3 text-xs text-text shadow-2xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all resize-none"
           />
         </div>
       </form>

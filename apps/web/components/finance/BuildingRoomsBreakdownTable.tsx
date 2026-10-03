@@ -29,7 +29,7 @@ export default function BuildingRoomsBreakdownTable({
   const buildings = [
     {
       code: "LK01.32",
-      name: "Tòa LK01 - 32 phòng",
+      name: "Tòa LK01.32",
       owner: "Phan Văn Thế",
       ownerCode: "OWNER-B",
       occupancy: 29,
@@ -46,7 +46,7 @@ export default function BuildingRoomsBreakdownTable({
     },
     {
       code: "LK01.31",
-      name: "Tòa LK01 - 31 phòng",
+      name: "Tòa LK01.31",
       owner: "Nguyễn Đức Tính",
       ownerCode: "OWNER-A",
       occupancy: 14,
@@ -63,7 +63,7 @@ export default function BuildingRoomsBreakdownTable({
     },
     {
       code: "LK08.24",
-      name: "Tòa LK08 - 24 phòng",
+      name: "Tòa LK08.24",
       owner: "Phan Văn Thế",
       ownerCode: "OWNER-B",
       occupancy: 10,
@@ -80,7 +80,7 @@ export default function BuildingRoomsBreakdownTable({
     },
     {
       code: "LK08.25",
-      name: "Tòa LK08 - 25 phòng",
+      name: "Tòa LK08.25",
       owner: "Nguyễn Đức Tính",
       ownerCode: "OWNER-A",
       occupancy: 0,

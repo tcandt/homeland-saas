@@ -34,7 +34,7 @@ import toast from "react-hot-toast";
 
 const fallback: Required<HunonicSettingsPayload> = {
   enabled: false,
-  mode: "website",
+  mode: "mobile",
   username: "",
   password: "",
   passwordConfigured: false,
@@ -73,8 +73,7 @@ export default function SettingsHunonicIntegration() {
   );
   const overview = useSWR(["hunonic-overview"], () => hunonicApi.overview(), { revalidateOnFocus: false });
   const user = useAuthStore((state) => state.user);
-  const isHunonicSection = typeof window !== "undefined" && window.location.search.includes("section=hunonic");
-  const canEditSecrets = !isHunonicSection && (user?.email || "").toLowerCase() === "admin@homeland.vn";
+  const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState<Required<HunonicSettingsPayload>>(fallback);
@@ -100,7 +99,7 @@ export default function SettingsHunonicIntegration() {
     const current = draft || fallback;
     setConfigDraft({
       enabled: Boolean(current.enabled),
-      mode: current.mode || "website",
+      mode: current.mode || "mobile",
       username: current.username || "",
       password: current.password || "",
       passwordConfigured: Boolean(current.passwordConfigured),
@@ -125,18 +124,36 @@ export default function SettingsHunonicIntegration() {
     setIsConfigModalOpen(false);
   };
 
-  const saveConfigModal = async () => {
-    const payload: HunonicSettingsPayload = { ...configDraft };
+  const buildPayload = (
+    source: Required<HunonicSettingsPayload>,
+    touched = secretTouched,
+  ): HunonicSettingsPayload => {
+    const payload: HunonicSettingsPayload = { ...source };
     delete payload.passwordConfigured;
     delete payload.websiteTokenConfigured;
     delete payload.websiteCookieConfigured;
 
-    if (!canEditSecrets || !secretTouched.password) delete payload.password;
-    if (!canEditSecrets || !secretTouched.websiteToken) delete payload.websiteToken;
-    if (!canEditSecrets || !secretTouched.websiteCookie) delete payload.websiteCookie;
+    if (!canEditSecrets || (!touched.password && !source.password)) delete payload.password;
+    if (!canEditSecrets || (!touched.websiteToken && !source.websiteToken)) delete payload.websiteToken;
+    if (!canEditSecrets || (!touched.websiteCookie && !source.websiteCookie)) delete payload.websiteCookie;
+    return payload;
+  };
+
+  const saveInlineConfig = async () => {
+    const payload = buildPayload(draft);
 
     try {
-      setDraft(configDraft);
+      await save(payload as Required<HunonicSettingsPayload>);
+      await overview.mutate();
+      toast.success("Đã cập nhật cấu hình Hunonic thành công!");
+    } catch (error: any) {
+      toast.error(error?.message || "Lỗi khi lưu cấu hình Hunonic");
+    }
+  };
+
+  const saveConfigModal = async () => {
+    const payload = buildPayload(configDraft);
+    try {
       await save(payload as Required<HunonicSettingsPayload>);
       await overview.mutate();
       setIsConfigModalOpen(false);
@@ -149,10 +166,12 @@ export default function SettingsHunonicIntegration() {
   const testConnection = async () => {
     setIsTesting(true);
     try {
-      const payload: HunonicSettingsPayload = { ...configDraft };
-      if (!secretTouched.password && !configDraft.password) delete payload.password;
-      if (!secretTouched.websiteToken && !configDraft.websiteToken) delete payload.websiteToken;
-      if (!secretTouched.websiteCookie && !configDraft.websiteCookie) delete payload.websiteCookie;
+      const source = isConfigModalOpen ? configDraft : draft;
+      const payload = buildPayload(source, isConfigModalOpen ? secretTouched : {
+        password: Boolean(source.password),
+        websiteToken: Boolean(source.websiteToken),
+        websiteCookie: Boolean(source.websiteCookie),
+      });
 
       const result: any = await hunonicApi.test(payload);
       if (result?.success || result?.data?.success) {
@@ -266,7 +285,7 @@ export default function SettingsHunonicIntegration() {
               <Button
                 type="button"
                 size="sm"
-                onClick={saveConfigModal}
+                onClick={saveInlineConfig}
                 isLoading={isSaving}
                 className="h-8 rounded-xl px-3 text-xs font-bold bg-primary text-white"
               >
@@ -280,7 +299,9 @@ export default function SettingsHunonicIntegration() {
               <label className="text-xs font-bold text-text">Tài khoản Hunonic</label>
               <Input
                 value={draft.username || ""}
-                onChange={(event) => setDraft((prev) => ({ ...prev, username: event.target.value }))}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, mode: "mobile", username: event.target.value }))
+                }
                 placeholder="0987654321"
                 className="h-9 text-xs font-mono"
               />
@@ -292,7 +313,10 @@ export default function SettingsHunonicIntegration() {
                   {...(draft.mode === "mobile" ? { "data-testid": "integration-secret-field" } : {})}
                   type={showPassword ? "text" : "password"}
                   value={draft.password || ""}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, password: event.target.value }))}
+                  onChange={(event) => {
+                    setSecretTouched((prev) => ({ ...prev, password: true }));
+                    setDraft((prev) => ({ ...prev, mode: "mobile", password: event.target.value }));
+                  }}
                   placeholder={canEditSecrets ? "Nhập mật khẩu" : "••••••••"}
                   disabled={!canEditSecrets}
                   className="pr-10 text-xs font-mono h-9"

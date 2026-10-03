@@ -736,11 +736,9 @@ export default function InvoicesPage() {
 
               <button
                 type="button"
-                onClick={() => {
-                  setCreateModalTab("INVOICE");
-                  setIsCreateModalOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 text-xs font-black transition-colors shadow-xs"
+                disabled
+                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 text-white px-3.5 py-1.5 text-xs font-black shadow-xs opacity-50 cursor-not-allowed select-none"
+                title="Chức năng đang tạm khóa"
               >
                 <Plus className="h-4 w-4" />
                 <span>Lập hóa đơn / Cọc</span>

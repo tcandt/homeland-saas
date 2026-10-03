@@ -916,23 +916,42 @@ export class HunonicService {
 
   async testConnection(tenantId: string, settings: HunonicSettings) {
     const savedSettings = await this.getSettings(tenantId);
-    const provider = new HunonicProvider(this.toProviderOptions(mergeSavedHunonicSecrets(savedSettings, settings)));
-    const dashboard = await provider.fetchDashboardData();
-    return {
-      source: dashboard.source,
-      summary: dashboard.summary,
-      matchedMeters: dashboard.electric_meters
-        .map((meter) => ({ meter, fixed: resolveFixedRoomMapping(meter) }))
-        .filter((item) => item.fixed)
-        .map(({ meter, fixed }) => ({
-          providerMeterId: meter.provider_meter_id,
-          name: meter.name,
-          buildingCode: fixed?.buildingCode,
-          roomCode: fixed?.roomCode,
-          moneyMonthVnd: meter.money_month_vnd,
-          energyMonthKwh: meter.energy_month_kwh,
-        })),
-    };
+    const mergedSettings = mergeSavedHunonicSecrets(savedSettings, settings);
+    const mode = this.resolveProviderMode(mergedSettings);
+
+    if (mode === 'website' && !mergedSettings.websiteToken && !mergedSettings.websiteCookie) {
+      throw new BadRequestException(
+        'Thiếu token/cookie Hunonic Website. Hãy chuyển sang Mobile API hoặc nhập Website Session.',
+      );
+    }
+    if (mode === 'mobile' && (!mergedSettings.username || !mergedSettings.password)) {
+      throw new BadRequestException(
+        'Thiếu tài khoản hoặc mật khẩu Hunonic Mobile API.',
+      );
+    }
+
+    try {
+      const provider = new HunonicProvider(this.toProviderOptions({ ...mergedSettings, mode }));
+      const dashboard = await provider.fetchDashboardData();
+      return {
+        source: dashboard.source,
+        summary: dashboard.summary,
+        matchedMeters: dashboard.electric_meters
+          .map((meter) => ({ meter, fixed: resolveFixedRoomMapping(meter) }))
+          .filter((item) => item.fixed)
+          .map(({ meter, fixed }) => ({
+            providerMeterId: meter.provider_meter_id,
+            name: meter.name,
+            buildingCode: fixed?.buildingCode,
+            roomCode: fixed?.roomCode,
+            moneyMonthVnd: meter.money_month_vnd,
+            energyMonthKwh: meter.energy_month_kwh,
+          })),
+      };
+    } catch (error: any) {
+      this.logger.warn(`Hunonic connection test failed: ${error?.message || error}`);
+      throw new BadRequestException(error?.message || 'Không thể kết nối Hunonic.');
+    }
   }
 
   @Cron('0 */15 * * * *')

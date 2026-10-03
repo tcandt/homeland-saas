@@ -35,8 +35,8 @@ export default function OwnerProfitSplitHero({
       code: "OWNER-A",
       avatarBg: "bg-blue-600 text-white",
       buildings: [
-        { code: "LK01.31", name: "Tòa LK01 - 31 phòng", revenue: 5132020 },
-        { code: "LK08.25", name: "Tòa LK08 - 25 phòng", revenue: 0 },
+        { code: "LK01.31", name: "LK01.31", revenue: 5132020 },
+        { code: "LK08.25", name: "LK08.25", revenue: 0 },
       ],
       rentRevenue: 4266667,
       utilityRevenue: 865353,
@@ -60,8 +60,8 @@ export default function OwnerProfitSplitHero({
       code: "OWNER-B",
       avatarBg: "bg-purple-600 text-white",
       buildings: [
-        { code: "LK01.32", name: "Tòa LK01 - 32 phòng", revenue: 9282605 },
-        { code: "LK08.24", name: "Tòa LK08 - 24 phòng", revenue: 4366667 },
+        { code: "LK01.32", name: "LK01.32", revenue: 9282605 },
+        { code: "LK08.24", name: "LK08.24", revenue: 4366667 },
       ],
       rentRevenue: 12800001,
       utilityRevenue: 849271,

@@ -94,7 +94,7 @@ export default function OwnerFinancialDetailModal({
     if (isPhanVanThe) {
       return [
         {
-          building: { id: "b-lk0132", code: "LK01.32", name: "Tòa nhà LK01 - 32 phòng" },
+          building: { id: "b-lk0132", code: "LK01.32", name: "Tòa LK01.32" },
           status: "Đang hoạt động",
           revenueBreakdown: { rent: 8533334, electricity: 549271, waterAndService: 200000 },
           revenue: 9282605,
@@ -135,7 +135,7 @@ export default function OwnerFinancialDetailModal({
           ],
         },
         {
-          building: { id: "b-lk0824", code: "LK08.24", name: "Tòa nhà LK08 - 24 phòng" },
+          building: { id: "b-lk0824", code: "LK08.24", name: "Tòa LK08.24" },
           status: "Đang hoạt động",
           revenueBreakdown: { rent: 4266667, electricity: 0, waterAndService: 100000 },
           revenue: 4366667,
@@ -162,7 +162,7 @@ export default function OwnerFinancialDetailModal({
     } else {
       return [
         {
-          building: { id: "b-lk0131", code: "LK01.31", name: "Tòa nhà LK01 - 31 phòng" },
+          building: { id: "b-lk0131", code: "LK01.31", name: "Tòa LK01.31" },
           status: "Đang hoạt động",
           revenueBreakdown: { rent: 4266667, electricity: 765353, waterAndService: 100000 },
           revenue: 5132020,
@@ -186,7 +186,7 @@ export default function OwnerFinancialDetailModal({
           ],
         },
         {
-          building: { id: "b-lk0825", code: "LK08.25", name: "Tòa nhà LK08 - 25 phòng" },
+          building: { id: "b-lk0825", code: "LK08.25", name: "Tòa LK08.25" },
           status: "Chưa có khách",
           revenueBreakdown: { rent: 0, electricity: 0, waterAndService: 0 },
           revenue: 0,

@@ -220,45 +220,22 @@ export class ContractsService extends BaseCrudService<Contract> {
       if (existing) {
         const marker = (existing.termsSnapshot as any)?.bookingCommand;
         if (marker?.requestHash !== requestHash) throw new ConflictException("BOOKING_IDEMPOTENCY_KEY_REUSED");
+        if (!marker?.depositId) throw new ConflictException("BOOKING_PARTIAL_REQUIRES_RECONCILIATION");
         return existing;
       }
-      // Keep the same room-first/customer-second order as deposit creation.
-      // This serializes competing holds for one customer without creating a
-      // room/customer lock inversion with approval and activation flows.
-      await this.lockRoomLifecycle(tx, tenantId, input.roomId);
-      await this.lockCustomerLifecycle(tx, tenantId, input.customerId);
+      // Advisory booking lock protects the command key; authoritative room and
+      // customer serialization happens inside DepositCore after its derived
+      // deposit lock. These reads keep validation errors deterministic without
+      // introducing a room/customer lock inversion.
       const customer = await tx.customer.findFirst({ where: { id: input.customerId, tenantId, deletedAt: null }, select: { id: true, roomId: true } });
       const room = await tx.room.findFirst({ where: { id: input.roomId, tenantId, deletedAt: null }, select: { id: true } });
       if (!customer) throw new BadRequestException("CUSTOMER_NOT_FOUND");
       if (!room) throw new BadRequestException("ROOM_NOT_FOUND");
-      if (customer.roomId && customer.roomId !== input.roomId) {
-        throw new ConflictException("BOOKING_CUSTOMER_ALREADY_BOUND");
-      }
-      const openOccupancy = await tx.occupancy.findFirst({
-            where: {
-              tenantId,
-              customerId: input.customerId,
-              roomId: { not: input.roomId },
-              leftAt: null,
-            },
-            select: { id: true },
-          });
-      if (openOccupancy) {
-        throw new ConflictException("BOOKING_CUSTOMER_ALREADY_OCCUPIED");
-      }
-      const activeContract = await tx.contract.findFirst({
-            where: {
-              tenantId,
-              customerId: input.customerId,
-              roomId: { not: input.roomId },
-              deletedAt: null,
-              status: { in: [ContractStatus.ACTIVE, ContractStatus.EXPIRING] },
-            },
-            select: { id: true },
-          });
-      if (activeContract) {
-        throw new ConflictException("BOOKING_CUSTOMER_ACTIVE_CONTRACT");
-      }
+      if (customer.roomId && customer.roomId !== input.roomId) throw new ConflictException("BOOKING_CUSTOMER_ALREADY_BOUND");
+      const openOccupancy = await tx.occupancy.findFirst({ where: { tenantId, customerId: input.customerId, roomId: { not: input.roomId }, leftAt: null }, select: { id: true } });
+      if (openOccupancy) throw new ConflictException("BOOKING_CUSTOMER_ALREADY_OCCUPIED");
+      const activeContract = await tx.contract.findFirst({ where: { tenantId, customerId: input.customerId, roomId: { not: input.roomId }, deletedAt: null, status: { in: [ContractStatus.ACTIVE, ContractStatus.EXPIRING] } }, select: { id: true } });
+      if (activeContract) throw new ConflictException("BOOKING_CUSTOMER_ACTIVE_CONTRACT");
       const cycle = await tx.rentalCycle.create({
         data: {
           tenantId,
@@ -314,29 +291,32 @@ export class ContractsService extends BaseCrudService<Contract> {
             after: this.asJson(created),
           },
       });
-      return created;
-    });
-
-    const marker = (contract.termsSnapshot as any)?.bookingCommand || {};
-    let deposit: any = marker.depositId
-      ? await this.prisma.tx.deposit.findFirst({ where: { id: marker.depositId, tenantId, deletedAt: null } })
-      : null;
-    if (!deposit) {
       if (!this.depositCoreService) throw new ConflictException("BOOKING_DEPOSIT_CORE_UNAVAILABLE");
-      deposit = await this.depositCoreService.create(tenantId, {
+      const deposit: any = await this.depositCoreService.createInTransaction(tx, tenantId, {
         idempotencyKey: bookingDepositKey,
         code: `DC-GP-${contractCode}`,
         type: DepositType.BOOKING,
         roomId: input.roomId,
         customerId: input.customerId,
-        contractId: contract.id,
-        rentalCycleId: contract.rentalCycleId,
+        contractId: created.id,
+        rentalCycleId: created.rentalCycleId,
         amount: normalized.bookingAmount,
         status: DepositStatus.PENDING,
         expiredAt,
         note: normalized.note || `Tạo từ lệnh booking ${commandKey}`,
       }, userId);
-    }
+      const completed = await tx.contract.update({
+        where: { id: created.id },
+        data: { termsSnapshot: this.asJson({ ...(created.termsSnapshot as any), bookingCommand: { ...(created.termsSnapshot as any).bookingCommand, phase: "DEPOSIT_CREATED", depositId: deposit.id } }) },
+      });
+      return completed;
+    });
+
+    const marker = (contract.termsSnapshot as any)?.bookingCommand || {};
+    const deposit: any = marker.depositId
+      ? await this.prisma.tx.deposit.findFirst({ where: { id: marker.depositId, tenantId, deletedAt: null } })
+      : null;
+    if (!deposit) throw new ConflictException("BOOKING_DEPOSIT_NOT_CREATED");
     const withDeposit = await this.runBookingSerializable(async (tx: any) => {
       await this.lockBookingCommand(tx, tenantId, commandKey);
       const current = await tx.contract.findFirst({ where: { id: contract.id, tenantId, deletedAt: null } });

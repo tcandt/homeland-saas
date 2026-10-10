@@ -81,6 +81,40 @@ if (enabled && (!parsed || !['127.0.0.1', 'localhost', '[::1]'].includes(parsed.
     expect(await clients[0].deposit.count({ where: { tenantId, customerId: customer.id } })).toBe(0);
   });
 
+  it('rolls back the complete booking aggregate when the room is full', async () => {
+    const occupant = await createCustomer('full-occupant');
+    const cycle = await clients[0].rentalCycle.create({ data: { tenantId, roomId: rooms[0], customerId: occupant.id, status: 'ACTIVE' } });
+    await clients[0].occupancy.create({ data: { tenantId, roomId: rooms[0], customerId: occupant.id, rentalCycleId: cycle.id, role: 'REPRESENTATIVE' } });
+    const customer = await createCustomer('full-booking');
+    await expect(services[0].createBookingHold(command(customer.id, rooms[0], `full-${id}`), userId, tenantId)).rejects.toThrow('ROOM_HOLD_CONFLICT');
+    expect(await clients[0].contract.count({ where: { tenantId, customerId: customer.id } })).toBe(0);
+    expect(await clients[0].rentalCycle.count({ where: { tenantId, customerId: customer.id } })).toBe(0);
+    expect(await clients[0].deposit.count({ where: { tenantId, customerId: customer.id } })).toBe(0);
+  });
+
+  it('rejects unavailable rooms before reserving and leaves no draft aggregate', async () => {
+    const customer = await createCustomer('unavailable');
+    await clients[0].room.update({ where: { id: rooms[2] }, data: { status: 'MAINTENANCE' } });
+    await expect(services[0].createBookingHold(command(customer.id, rooms[2], `unavailable-${id}`), userId, tenantId)).rejects.toThrow('ROOM_UNAVAILABLE');
+    expect(await clients[0].contract.count({ where: { tenantId, customerId: customer.id } })).toBe(0);
+    expect(await clients[0].rentalCycle.count({ where: { tenantId, customerId: customer.id } })).toBe(0);
+    expect(await clients[0].deposit.count({ where: { tenantId, customerId: customer.id } })).toBe(0);
+    await clients[0].room.update({ where: { id: rooms[2] }, data: { status: 'AVAILABLE' } });
+  });
+
+  it('rolls back the losing different-room booking for one customer', async () => {
+    const customer = await createCustomer('booking-race');
+    const results = await Promise.allSettled([
+      services[0].createBookingHold(command(customer.id, rooms[1], `booking-race-a-${id}`), userId, tenantId),
+      services[1].createBookingHold(command(customer.id, rooms[2], `booking-race-b-${id}`), userId, tenantId),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(await clients[0].contract.count({ where: { tenantId, customerId: customer.id } })).toBe(1);
+    expect(await clients[0].rentalCycle.count({ where: { tenantId, customerId: customer.id } })).toBe(1);
+    expect(await clients[0].deposit.count({ where: { tenantId, customerId: customer.id } })).toBe(1);
+  }, 20_000);
+
   it('allows only one cross-room customer binding under concurrent deposit creation', async () => {
     const customer = await createCustomer('race');
     const results = await Promise.allSettled(deposits.map((service, n) => service.create(tenantId,

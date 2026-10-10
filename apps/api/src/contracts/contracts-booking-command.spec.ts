@@ -40,7 +40,7 @@ function fixture() {
         state.contracts.push(row); return clone(row);
       }),
       update: vi.fn(async ({ where, data }) => {
-        const row = state.contracts.find((row: any) => matches(row, where));
+        const row = state.contracts.find((row: any) => where.id ? row.id === where.id : matches(row, where));
         if (!row) throw new Error('Missing scoped contract');
         Object.assign(row, clone(data)); return clone(row);
       }),
@@ -66,7 +66,12 @@ function fixture() {
     const row = { ...data, tenantId, id: `deposit-${state.deposits.length + 1}` };
     state.deposits.push(row); return clone(row);
   };
-  const depositCore = { create: vi.fn(persistDeposit) };
+  const depositCore = {
+    create: vi.fn(persistDeposit),
+    createInTransaction: vi.fn(async (_tx: any, tenantId: string, data: any) => {
+      return persistDeposit(tenantId, data);
+    }),
+  };
   const payments = { createInvoiceRequest: vi.fn(async (id) => ({ id: `request-${id}`, sourceId: id })) };
   const invoices = { issueInTransaction: vi.fn(async (_db, id) => {
     const row = state.invoices.find((row: any) => row.id === id);
@@ -106,7 +111,7 @@ describe('resumable booking command — unit orchestration', () => {
     const f = fixture(); await f.service.createBookingHold(input(), 'user-1', 'tenant-1');
     await expect(f.service.createBookingHold(input({ bookingAmount: 1_000_000 }), 'user-1', 'tenant-1'))
       .rejects.toThrow('BOOKING_IDEMPOTENCY_KEY_REUSED');
-    expect(f.depositCore.create).toHaveBeenCalledTimes(1);
+    expect(f.depositCore.createInTransaction).toHaveBeenCalledTimes(1);
     expect(f.state().invoices).toHaveLength(1);
   });
 
@@ -143,7 +148,7 @@ describe('resumable booking command — unit orchestration', () => {
 
   it('resumes after a deposit response is lost without creating a second deposit', async () => {
     const f = fixture();
-    f.depositCore.create.mockImplementationOnce(async (tenantId, data) => {
+    f.depositCore.createInTransaction.mockImplementationOnce(async (_tx, tenantId, data) => {
       await f.persistDeposit(tenantId, data); throw new Error('response lost');
     });
     await expect(f.service.createBookingHold(input(), 'user-1', 'tenant-1')).rejects.toThrow('response lost');
@@ -170,12 +175,12 @@ describe('resumable booking command — unit orchestration', () => {
     await expect(f.service.createBookingHold(input(), 'user-1', 'tenant-1')).rejects.toThrow('audit unavailable');
     expect(f.state().contracts).toHaveLength(0);
     expect(f.state().cycles).toHaveLength(0);
-    expect(f.depositCore.create).not.toHaveBeenCalled();
+    expect(f.depositCore.createInTransaction).not.toHaveBeenCalled();
   });
 
   it('keeps derived deposit identity within the core limit for a maximum-size caller key', async () => {
     const f = fixture(); await f.service.createBookingHold(input({ idempotencyKey: 'x'.repeat(128) }), 'user-1', 'tenant-1');
-    expect(f.depositCore.create.mock.calls[0][1].idempotencyKey.length).toBeLessThanOrEqual(128);
+    expect(f.depositCore.createInTransaction.mock.calls[0][2].idempotencyKey.length).toBeLessThanOrEqual(128);
   });
 
   it('rejects invalid dates and amounts before database writes', async () => {

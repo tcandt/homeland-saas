@@ -137,7 +137,20 @@ export class DepositCoreService {
 
   async create(tenantId: string, input: CreateDepositCommand, userId: string) {
     const command = this.normalizeCommand(input);
-    return this.runSerializable(async (tx: TransactionClient) => {
+    return this.runSerializable((tx: TransactionClient) =>
+      this.createInTransaction(tx, tenantId, command, userId),
+    );
+  }
+
+  async createInTransaction(
+    tx: TransactionClient,
+    tenantId: string,
+    input: any,
+    userId: string,
+  ) {
+    const command: any = 'input' in (input as any) && 'requestHash' in (input as any)
+      ? input
+      : this.normalizeCommand(input as CreateDepositCommand);
       await this.lockCommand(tx, tenantId, command.idempotencyKey);
       const replay = await this.getReplay(tx, tenantId, command.idempotencyKey, command.requestHash);
       if (replay) return replay;
@@ -340,7 +353,6 @@ export class DepositCoreService {
       await this.completeOperation(tx, tenantId, operation.id, response);
       await this.writeAudit(tx, tenantId, userId, 'CREATE', deposit.id, null, response);
       return response;
-    });
   }
 
   async collect(tenantId: string, depositId: string, input: CollectDepositCommand, userId: string) {
@@ -1894,6 +1906,9 @@ export class DepositCoreService {
 
     const room = deposit.room || await tx.room.findFirst({ where: { id: deposit.roomId, tenantId, deletedAt: null } });
     if (!room) throw new BadRequestException('ROOM_NOT_FOUND');
+    if ([RoomStatus.MAINTENANCE, RoomStatus.CLEANING, RoomStatus.INACTIVE].includes(room.status)) {
+      throw new ConflictException('ROOM_UNAVAILABLE');
+    }
     await this.assertRoomCapacity(tx, tenantId, room, now);
     const whole = room.rentalType === RoomRentalType.WHOLE;
     const expiresAt = holdExpiresAt ? new Date(holdExpiresAt) : deposit.expiredAt ? new Date(deposit.expiredAt) : new Date(now.getTime() + 24 * 60 * 60 * 1000);

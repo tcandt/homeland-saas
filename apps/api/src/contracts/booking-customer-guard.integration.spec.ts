@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { CreateBookingHoldSchema } from '@homeland/shared';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -21,7 +22,7 @@ if (enabled && (!parsed || !['127.0.0.1', 'localhost', '[::1]'].includes(parsed.
   const id = randomUUID().slice(0, 8);
   const tenantId = `booking-guard-${id}`;
   const foreignTenantId = `booking-foreign-${id}`;
-  const rooms = [0, 1, 2, 3].map((n) => `booking-room-${id}-${n}`);
+  const rooms = Array.from({ length: 10 }, (_, n) => `booking-room-${id}-${n}`);
   const userId = `booking-user-${id}`;
   const deposits = clients.map((client) => new DepositCoreService({ tx: client } as any));
   const payment = { createInvoiceRequest: vi.fn(async () => ({ id: 'mock-provider-request' })) };
@@ -48,6 +49,35 @@ if (enabled && (!parsed || !['127.0.0.1', 'localhost', '[::1]'].includes(parsed.
     idempotencyKey: key, customerId, roomId, amount: 2_000_000,
     type: 'BOOKING' as const, expiredAt: expiry.toISOString(),
   });
+  const legacyBooking = async (suffix: string, roomId: string) => {
+    const customer = await createCustomer(suffix);
+    const input = command(customer.id, roomId, `legacy-${suffix}-${id}`);
+    const commandKey = input.idempotencyKey;
+    const code = `HD-COC-${roomId.slice(-8).toUpperCase()}-${createHash('sha256').update(`${tenantId}:${commandKey}`).digest('hex').slice(0, 8).toUpperCase()}`;
+    const depositKey = `booking:${createHash('sha256').update(`${tenantId}:${commandKey}`).digest('hex')}:deposit`;
+    const requestHash = (services[0] as any).hashSettlementRequest({ tenantId, commandKey,
+      customerId: input.customerId, roomId: input.roomId, contractCode: null,
+      startDate: input.startDate, endDate: input.endDate, firstPaymentDate: null,
+      rentAmount: input.rentAmount, contractDepositAmount: input.contractDepositAmount,
+      bookingAmount: input.bookingAmount, memberCount: input.memberCount || 1,
+      purpose: null, expiredAt: input.expiredAt, note: null,
+    });
+    const cycle = await clients[0].rentalCycle.create({ data: { tenantId, customerId: customer.id, roomId, status: 'PLANNED', expectedMoveInAt: new Date(input.startDate) } });
+    const contract = await clients[0].contract.create({ data: { tenantId, customerId: customer.id,
+      roomId, rentalCycleId: cycle.id, code, status: 'DRAFT', startDate: new Date(input.startDate),
+      endDate: new Date(input.endDate), monthlyRent: input.rentAmount, depositMoney: input.bookingAmount,
+      termsSnapshot: { bookingCommand: { idempotencyKey: commandKey, requestHash,
+        phase: 'CONTRACT_CREATED', depositId: null, invoiceId: null,
+        depositIdempotencyKey: depositKey, contractCode: code,
+        requestedContractDepositAmount: input.contractDepositAmount,
+      } },
+    } });
+    const legacyDepositInput = { ...depositInput(customer.id, roomId, depositKey),
+      code: `DC-GP-${code}`, contractId: contract.id, rentalCycleId: cycle.id,
+      status: 'PENDING' as const, expiredAt: new Date(input.expiredAt!), note: `Tạo từ lệnh booking ${commandKey}`,
+    };
+    return { customer, input, cycle, contract, legacyDepositInput };
+  };
 
   beforeAll(async () => {
     await clients[0].tenantOrg.createMany({ data: [
@@ -150,4 +180,80 @@ if (enabled && (!parsed || !['127.0.0.1', 'localhost', '[::1]'].includes(parsed.
     await expect(services[0].createBookingHold(command(foreign.id, rooms[3], `foreign-${id}`), userId, tenantId)).rejects.toThrow('CUSTOMER_NOT_FOUND');
     expect(await clients[0].contract.count({ where: { tenantId, customerId: foreign.id } })).toBe(0);
   });
+
+  it('resumes a legacy contract-only stage concurrently without duplicate documents', async () => {
+    const f = await legacyBooking('contract-only', rooms[4]);
+    const results = await Promise.all(services.map((s) => s.createBookingHold(f.input, userId, tenantId)));
+    expect(results.every((r) => r.contract.id === f.contract.id)).toBe(true);
+    expect(new Set(results.map((r) => r.deposit.id)).size).toBe(1);
+    expect(new Set(results.map((r) => r.invoice.id)).size).toBe(1);
+    expect(await clients[0].rentalCycle.count({ where: { tenantId, customerId: f.customer.id } })).toBe(1);
+    expect(await clients[0].deposit.count({ where: { tenantId, customerId: f.customer.id } })).toBe(1);
+    expect(await clients[0].depositOperation.count({ where: { tenantId, contractId: f.contract.id, type: 'CREATE' } })).toBe(1);
+    expect(await clients[0].auditLog.count({ where: { tenantId, entityId: f.contract.id, action: 'UPDATE', module: 'ContractsBookingHold' } })).toBe(1);
+  }, 20_000);
+
+  it('links the completed legacy deposit operation instead of creating another deposit', async () => {
+    const f = await legacyBooking('deposit-exists', rooms[5]);
+    const deposit: any = await deposits[0].create(tenantId, f.legacyDepositInput, userId);
+    const recovered = await services[0].createBookingHold(f.input, userId, tenantId);
+    expect(recovered.contract.id).toBe(f.contract.id);
+    expect(recovered.deposit.id).toBe(deposit.id);
+    expect(await clients[0].deposit.count({ where: { tenantId, customerId: f.customer.id } })).toBe(1);
+    expect(await clients[0].depositOperation.count({ where: { tenantId, contractId: f.contract.id } })).toBe(1);
+  });
+
+  it('does not resurrect a cancelled legacy hold or issue an invoice on retry', async () => {
+    const f = await legacyBooking('cancelled', rooms[6]);
+    const deposit: any = await deposits[0].create(tenantId, f.legacyDepositInput, userId);
+    await deposits[0].collect(tenantId, deposit.id, { idempotencyKey: `legacy-collect-${id}`, holdExpiresAt: f.input.expiredAt }, userId);
+    await deposits[0].cancel(tenantId, deposit.id, { idempotencyKey: `legacy-cancel-${id}`, reason: 'Disposable cancellation', refundAmount: 2_000_000 }, userId);
+    await expect(services[0].createBookingHold(f.input, userId, tenantId)).rejects.toThrow('BOOKING_PARTIAL_REQUIRES_RECONCILIATION');
+    expect(await clients[0].deposit.count({ where: { tenantId, customerId: f.customer.id } })).toBe(1);
+    expect(await clients[0].invoice.count({ where: { tenantId, customerId: f.customer.id } })).toBe(0);
+    expect((await clients[0].contract.findUniqueOrThrow({ where: { id: f.contract.id } })).termsSnapshot).toEqual(f.contract.termsSnapshot);
+  });
+
+  it('rolls back recovery when the mandatory recovery audit fails', async () => {
+    const f = await legacyBooking('audit-fails', rooms[7]);
+    const originalPrisma = (services[0] as any).prisma;
+    (services[0] as any).prisma = { tx: { $transaction: (callback: any, options: any) => clients[0].$transaction((tx) => callback(new Proxy(tx, {
+      get(target, property) {
+        if (property === 'auditLog') return { create: (args: any) => {
+          if (args.data.module === 'ContractsBookingHold') throw new Error('mock recovery audit failure');
+          return target.auditLog.create(args);
+        } };
+        return Reflect.get(target, property);
+      },
+    })), options) } };
+    try {
+      await expect(services[0].createBookingHold(f.input, userId, tenantId)).rejects.toThrow('mock recovery audit failure');
+    } finally { (services[0] as any).prisma = originalPrisma; }
+    expect(await clients[0].deposit.count({ where: { tenantId, customerId: f.customer.id } })).toBe(0);
+    expect(await clients[0].roomHold.count({ where: { tenantId, rentalCycleId: f.cycle.id } })).toBe(0);
+    expect((await clients[0].customer.findUniqueOrThrow({ where: { id: f.customer.id } })).roomId).toBeNull();
+    expect((await clients[0].contract.findUniqueOrThrow({ where: { id: f.contract.id } })).termsSnapshot).toEqual(f.contract.termsSnapshot);
+  });
+
+  it('does not issue an invoice when cancellation wins between recovery and invoice stages', async () => {
+    const f = await legacyBooking('cancel-before-invoice', rooms[8]);
+    const service: any = services[0];
+    const original = service.runBookingSerializable.bind(service);
+    let stage = 0;
+    service.runBookingSerializable = async (callback: any) => {
+      const result = await original(callback);
+      stage += 1;
+      if (stage === 2) {
+        const deposit = await clients[0].deposit.findFirstOrThrow({ where: { tenantId, customerId: f.customer.id } });
+        await deposits[1].collect(tenantId, deposit.id, { idempotencyKey: `cancel-before-invoice-collect-${id}`, holdExpiresAt: f.input.expiredAt }, userId);
+        await deposits[1].cancel(tenantId, deposit.id, { idempotencyKey: `cancel-before-invoice-cancel-${id}`, reason: 'Cancelled before invoice stage', refundAmount: 2_000_000 }, userId);
+      }
+      return result;
+    };
+    try {
+      await expect(service.createBookingHold(f.input, userId, tenantId)).rejects.toThrow('BOOKING_DEPOSIT_NOT_OPEN');
+    } finally { service.runBookingSerializable = original; }
+    expect(await clients[0].invoice.count({ where: { tenantId, customerId: f.customer.id } })).toBe(0);
+    expect((await clients[0].contract.findUniqueOrThrow({ where: { id: f.contract.id } })).status).toBe('CANCELLED');
+  }, 20_000);
 });

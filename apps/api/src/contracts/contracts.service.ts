@@ -207,6 +207,22 @@ export class ContractsService extends BaseCrudService<Contract> {
     const contractCode = normalized.contractCode || `HD-COC-${input.roomId.slice(-8).toUpperCase()}-${createHash("sha256").update(`${tenantId}:${commandKey}`).digest("hex").slice(0, 8).toUpperCase()}`;
     // The deposit core accepts at most 128 characters, including its prefix.
     const bookingDepositKey = `booking:${createHash("sha256").update(`${tenantId}:${commandKey}`).digest("hex")}:deposit`;
+    const createDeposit = async (tx: any, row: any, recovering = false): Promise<any> => {
+      if (!this.depositCoreService) throw new ConflictException("BOOKING_DEPOSIT_CORE_UNAVAILABLE");
+      return this.depositCoreService.createInTransaction(tx, tenantId, {
+        idempotencyKey: bookingDepositKey,
+        code: `DC-GP-${contractCode}`,
+        type: DepositType.BOOKING,
+        roomId: input.roomId,
+        customerId: input.customerId,
+        contractId: row.id,
+        rentalCycleId: row.rentalCycleId,
+        amount: normalized.bookingAmount,
+        status: DepositStatus.PENDING,
+        expiredAt,
+        note: normalized.note || `Tạo từ lệnh booking ${commandKey}`,
+      }, userId, { lockReplayDeposit: recovering });
+    };
 
     const contract = await this.runBookingSerializable(async (tx: any) => {
       await this.lockBookingCommand(tx, tenantId, commandKey);
@@ -220,7 +236,58 @@ export class ContractsService extends BaseCrudService<Contract> {
       if (existing) {
         const marker = (existing.termsSnapshot as any)?.bookingCommand;
         if (marker?.requestHash !== requestHash) throw new ConflictException("BOOKING_IDEMPOTENCY_KEY_REUSED");
-        if (!marker?.depositId) throw new ConflictException("BOOKING_PARTIAL_REQUIRES_RECONCILIATION");
+        if (!marker?.depositId) {
+          // Resume only the precise legacy stage, never a converted/cancelled
+          // aggregate or a marker pointing at another operation. DepositCore
+          // acquires the derived command lock before room/customer/contract.
+          if (marker.phase !== "CONTRACT_CREATED" || marker.invoiceId ||
+              marker.depositIdempotencyKey !== bookingDepositKey ||
+              marker.contractCode !== contractCode || existing.code !== contractCode ||
+              existing.customerId !== input.customerId || existing.roomId !== input.roomId ||
+              existing.status !== ContractStatus.DRAFT || !existing.rentalCycleId ||
+              Number(existing.depositMoney) !== normalized.bookingAmount) {
+            throw new ConflictException("BOOKING_PARTIAL_REQUIRES_RECONCILIATION");
+          }
+          const recovered = await createDeposit(tx, existing, true);
+          // Replay may return without row locks. Re-read the live aggregate
+          // under the same room -> customer -> contract order before linking.
+          await this.lockRoomLifecycle(tx, tenantId, input.roomId);
+          await this.lockCustomerLifecycle(tx, tenantId, input.customerId);
+          await this.lockContractLifecycle(tx, tenantId, existing.id);
+          const current = await tx.contract.findFirst({ where: { id: existing.id, tenantId, deletedAt: null } });
+          const cycle = await tx.rentalCycle.findFirst({ where: {
+            id: existing.rentalCycleId, tenantId, roomId: input.roomId, customerId: input.customerId,
+            status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED] },
+          } });
+          const customer = await tx.customer.findFirst({ where: { id: input.customerId, tenantId, deletedAt: null } });
+          const room = await tx.room.findFirst({ where: { id: input.roomId, tenantId, deletedAt: null } });
+          const deposit = recovered?.id ? await tx.deposit.findFirst({ where: { id: recovered.id, tenantId, deletedAt: null } }) : null;
+          const linkedCount = await tx.deposit.count({ where: { tenantId, deletedAt: null,
+            OR: [{ contractId: existing.id }, { rentalCycleId: existing.rentalCycleId }],
+          } });
+          const hold = deposit ? await tx.roomHold.findFirst({ where: {
+            tenantId, depositId: deposit.id, roomId: input.roomId, rentalCycleId: existing.rentalCycleId,
+            status: "ACTIVE", expiresAt: { gt: new Date() },
+          } }) : null;
+          if (!current || current.status !== ContractStatus.DRAFT || !cycle ||
+              customer?.roomId !== input.roomId || !room ||
+              [RoomStatus.MAINTENANCE, RoomStatus.CLEANING, RoomStatus.INACTIVE].includes(room.status) ||
+              !deposit || linkedCount !== 1 || !hold || deposit.type !== DepositType.BOOKING ||
+              deposit.contractId !== existing.id || deposit.rentalCycleId !== existing.rentalCycleId ||
+              deposit.customerId !== input.customerId || deposit.roomId !== input.roomId ||
+              Number(deposit.amount) !== normalized.bookingAmount ||
+              ![DepositStatus.PENDING, DepositStatus.PAID].includes(deposit.status)) {
+            throw new ConflictException("BOOKING_PARTIAL_REQUIRES_RECONCILIATION");
+          }
+          const completed = await tx.contract.update({ where: { id: existing.id, tenantId }, data: {
+            termsSnapshot: this.asJson({ ...(current.termsSnapshot as any), bookingCommand: { ...marker, phase: "DEPOSIT_CREATED", depositId: deposit.id } }),
+          } });
+          await tx.auditLog.create({ data: { tenantId, userId, module: "ContractsBookingHold",
+            entity: this.entityName, entityId: existing.id, action: "UPDATE",
+            before: this.asJson(current), after: this.asJson(completed),
+          } });
+          return completed;
+        }
         return existing;
       }
       // Advisory booking lock protects the command key; authoritative room and
@@ -291,20 +358,7 @@ export class ContractsService extends BaseCrudService<Contract> {
             after: this.asJson(created),
           },
       });
-      if (!this.depositCoreService) throw new ConflictException("BOOKING_DEPOSIT_CORE_UNAVAILABLE");
-      const deposit: any = await this.depositCoreService.createInTransaction(tx, tenantId, {
-        idempotencyKey: bookingDepositKey,
-        code: `DC-GP-${contractCode}`,
-        type: DepositType.BOOKING,
-        roomId: input.roomId,
-        customerId: input.customerId,
-        contractId: created.id,
-        rentalCycleId: created.rentalCycleId,
-        amount: normalized.bookingAmount,
-        status: DepositStatus.PENDING,
-        expiredAt,
-        note: normalized.note || `Tạo từ lệnh booking ${commandKey}`,
-      }, userId);
+      const deposit = await createDeposit(tx, created);
       const completed = await tx.contract.update({
         where: { id: created.id },
         data: { termsSnapshot: this.asJson({ ...(created.termsSnapshot as any), bookingCommand: { ...(created.termsSnapshot as any).bookingCommand, phase: "DEPOSIT_CREATED", depositId: deposit.id } }) },
@@ -332,8 +386,28 @@ export class ContractsService extends BaseCrudService<Contract> {
 
     const invoice = await this.runBookingSerializable(async (tx: any) => {
       await this.lockBookingCommand(tx, tenantId, commandKey);
+      // The invoice is a later resumable stage: cancellation can legitimately
+      // win after the aggregate commits, so check live state again under the
+      // deposit lock rather than issuing from the earlier response snapshot.
+      await this.lockContractDeposit(tx, tenantId, deposit.id);
+      const liveDeposit = await tx.deposit.findFirst({ where: { id: deposit.id, tenantId, deletedAt: null } });
+      if (!liveDeposit || ![DepositStatus.PENDING, DepositStatus.PAID].includes(liveDeposit.status)) {
+        throw new ConflictException("BOOKING_DEPOSIT_NOT_OPEN");
+      }
+      const liveHold = await tx.roomHold.findFirst({ where: {
+        tenantId, depositId: deposit.id, rentalCycleId: liveDeposit.rentalCycleId,
+        status: "ACTIVE", expiresAt: { gt: new Date() },
+      } });
+      const liveCycle = liveDeposit.rentalCycleId
+        ? await tx.rentalCycle.findFirst({ where: { id: liveDeposit.rentalCycleId, tenantId,
+          status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED] } } })
+        : null;
+      if (!liveHold || !liveCycle) throw new ConflictException("BOOKING_HOLD_NOT_OPEN");
       const current = await tx.contract.findFirst({ where: { id: withDeposit.id, tenantId, deletedAt: null } });
       if (!current) throw new NotFoundException("BOOKING_CONTRACT_NOT_FOUND");
+      if (current.status !== ContractStatus.DRAFT) {
+        throw new ConflictException("BOOKING_CONTRACT_NOT_OPEN");
+      }
       const currentMarker = (current.termsSnapshot as any)?.bookingCommand;
       if (currentMarker?.requestHash !== requestHash) throw new ConflictException("BOOKING_IDEMPOTENCY_KEY_REUSED");
       const baseInvoiceKey = `BOOKING:${current.id}:${commandKey}`;

@@ -138,22 +138,30 @@ export class DepositCoreService {
   async create(tenantId: string, input: CreateDepositCommand, userId: string) {
     const command = this.normalizeCommand(input);
     return this.runSerializable((tx: TransactionClient) =>
-      this.createInTransaction(tx, tenantId, command, userId),
+      this.createInTransaction(tx, tenantId, command.input, userId),
     );
   }
 
   async createInTransaction(
     tx: TransactionClient,
     tenantId: string,
-    input: any,
+    input: CreateDepositCommand,
     userId: string,
+    options: { lockReplayDeposit?: boolean } = {},
   ) {
-    const command: any = 'input' in (input as any) && 'requestHash' in (input as any)
-      ? input
-      : this.normalizeCommand(input as CreateDepositCommand);
+    const command = this.normalizeCommand(input);
       await this.lockCommand(tx, tenantId, command.idempotencyKey);
       const replay = await this.getReplay(tx, tenantId, command.idempotencyKey, command.requestHash);
-      if (replay) return replay;
+      if (replay) {
+        if (options.lockReplayDeposit) {
+          const depositId = (replay as any).id;
+          if (!depositId) throw new ConflictException('DEPOSIT_REPLAY_SOURCE_MISSING');
+          // Recovery must serialize against collect/cancel before it locks the
+          // room or changes the parent contract marker.
+          await this.lockDeposit(tx, tenantId, depositId);
+        }
+        return replay;
+      }
       await this.lockRoom(tx, tenantId, command.input.roomId);
       // Room-first ordering is shared with approval/activation flows. The
       // customer row is then serialized before any cycle/deposit/projection

@@ -30,7 +30,7 @@ function fixture() {
     rentalCycle: { create: vi.fn(async ({ data }) => {
       const row = { ...data, id: `cycle-${state.cycles.length + 1}` };
       state.cycles.push(row); return clone(row);
-    }) },
+    }), findFirst: vi.fn(async ({ where }) => clone(state.cycles.find((row: any) => row.id === where.id && row.tenantId === where.tenantId && row.status === 'PLANNED'))) },
     contract: {
       findFirst: vi.fn(async ({ where }) => clone(state.contracts.find((row: any) =>
         matches(row, where) && (!where.termsSnapshot ||
@@ -46,6 +46,10 @@ function fixture() {
       }),
     },
     deposit: { findFirst: vi.fn(async ({ where }) => clone(state.deposits.find((row: any) => matches(row, where)))) },
+    roomHold: { findFirst: vi.fn(async ({ where }) => {
+      const deposit = state.deposits.find((row: any) => row.id === where.depositId);
+      return deposit ? { id: `hold-${deposit.id}`, depositId: deposit.id, rentalCycleId: deposit.rentalCycleId, status: 'ACTIVE', expiresAt: new Date(Date.now() + 86_400_000) } : null;
+    }) },
     invoice: {
       findFirst: vi.fn(async ({ where }) => clone(state.invoices.find((row: any) =>
         matches(row, where) && row.baseInvoiceKey === where.baseInvoiceKey))),

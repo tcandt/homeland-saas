@@ -1,12 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { EventEmitter } from 'node:events';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { SystemUpdateService } from './system-update.service';
+import { SystemUpdateController } from './system-update.controller';
 
-const { execFileMock, execFileSyncMock, spawnMock } = vi.hoisted(() => ({
+const { execFileMock, execFileSyncMock, spawnMock, resolveBackupRuntimeMock, runBackupScriptMock, verifyBackupBundleMock } = vi.hoisted(() => ({
   execFileMock: vi.fn(),
   execFileSyncMock: vi.fn(),
   spawnMock: vi.fn(),
+  resolveBackupRuntimeMock: vi.fn(),
+  runBackupScriptMock: vi.fn(),
+  verifyBackupBundleMock: vi.fn(),
+}));
+
+vi.mock('./system-backup.runtime', () => ({
+  assertNoBackupSymlinks: vi.fn(),
+  resolveBackupRuntime: resolveBackupRuntimeMock,
+  runBackupScript: runBackupScriptMock,
+  verifyBackupBundle: verifyBackupBundleMock,
 }));
 
 vi.mock('child_process', () => ({
@@ -80,6 +94,15 @@ describe('SystemUpdateService', () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+    resolveBackupRuntimeMock.mockReset().mockReturnValue({
+      workspaceRoot: resolve(tmpdir(), 'homeland-service-fixture-workspace'),
+      backupRoot: resolve(tmpdir(), 'homeland-service-fixture-empty'),
+      storageRoot: resolve(tmpdir(), 'homeland-service-fixture-storage'),
+    });
+    runBackupScriptMock.mockReset();
+    verifyBackupBundleMock.mockReset().mockResolvedValue(false);
+    vi.stubEnv('SYSTEM_BACKUP_ENABLED', 'true');
+    vi.stubEnv('DATABASE_URL', 'postgresql://fixture:fixture@localhost/fixture');
     execFileSyncMock.mockImplementation((command: string, args: string[]) => {
       if (command === 'git' && args[0] === 'rev-parse') return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n';
       throw new Error('unexpected local git args');
@@ -161,6 +184,89 @@ describe('SystemUpdateService', () => {
       snapshotId: 'snapshot-safe-id',
       password: 'secret',
     })).rejects.toThrow('đang bị khóa');
+  });
+
+  it('requires explicit full-backup configuration for create and schedule enablement', async () => {
+    vi.stubEnv('SYSTEM_BACKUP_ENABLED', 'false');
+    const prisma: any = { appSetting: { upsert: vi.fn() } };
+    const service = new SystemUpdateService(prisma);
+    await expect(service.createBackupSnapshot()).rejects.toThrow('not configured');
+    await expect(service.updateBackupSchedule('tenant-1', 'user-1', true)).rejects.toThrow('not configured');
+    expect(runBackupScriptMock).not.toHaveBeenCalled();
+    expect(prisma.appSetting.upsert).not.toHaveBeenCalled();
+  });
+
+  it('restricts global backup metadata to the same system admin as create/delete', () => {
+    const service = { getBackupStatus: vi.fn() };
+    const controller = new SystemUpdateController(service as any);
+    expect(() => controller.getBackups('tenant-1', 'manager@homeland.vn')).toThrow('Chỉ admin@homeland.vn');
+    expect(service.getBackupStatus).not.toHaveBeenCalled();
+    controller.getBackups('tenant-1', 'admin@homeland.vn');
+    expect(service.getBackupStatus).toHaveBeenCalledWith('tenant-1');
+  });
+
+  it('runs the full backup runner and verifier without reading seven Prisma tables', async () => {
+    const runtime = resolveBackupRuntimeMock();
+    const manifestPath = join(runtime.backupRoot, 'snapshot-a', 'manifest.json');
+    runBackupScriptMock.mockResolvedValue({ status: 'SUCCESS', manifestPath });
+    verifyBackupBundleMock.mockResolvedValue(true);
+    const prisma: any = { contract: { findMany: vi.fn() } };
+    const service = new SystemUpdateService(prisma);
+    vi.spyOn(service, 'getBackupStatus').mockResolvedValue({ restoreSupported: false } as any);
+    await service.createBackupSnapshot({ note: 'local fixture', type: 'pre_update' }, 'tenant-1');
+    expect(runBackupScriptMock).toHaveBeenCalledWith(runtime.workspaceRoot, 'production-backup.js', [
+      '--env-managed-externally', '--output-dir', runtime.backupRoot, '--storage-dir', runtime.storageRoot,
+      '--type', 'pre_update', '--note', 'local fixture',
+    ]);
+    expect(verifyBackupBundleMock).toHaveBeenCalledWith(runtime.workspaceRoot, manifestPath);
+    expect(prisma.contract.findMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a successful-looking bundle that fails verification and releases the lock', async () => {
+    const service = new SystemUpdateService();
+    const runtime = resolveBackupRuntimeMock();
+    runBackupScriptMock.mockResolvedValue({ status: 'SUCCESS', manifestPath: join(runtime.backupRoot, 'snapshot-a', 'manifest.json') });
+    await expect(service.createBackupSnapshot()).rejects.toThrow('failed verification');
+    await expect(service.createBackupSnapshot()).rejects.toThrow('failed verification');
+    expect(runBackupScriptMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects overlapping manual backups while a full runner is active', async () => {
+    const service = new SystemUpdateService();
+    const runtime = resolveBackupRuntimeMock();
+    let finish: (result: any) => void;
+    runBackupScriptMock.mockReturnValue(new Promise((resolveResult) => { finish = resolveResult; }));
+    verifyBackupBundleMock.mockResolvedValue(true);
+    vi.spyOn(service, 'getBackupStatus').mockResolvedValue({} as any);
+    const running = service.createBackupSnapshot();
+    await expect(service.createBackupSnapshot()).rejects.toThrow('already running');
+    finish!({ status: 'SUCCESS', manifestPath: join(runtime.backupRoot, 'snapshot-a', 'manifest.json') });
+    await running;
+    expect(runBackupScriptMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not promote legacy, incomplete, failed or corrupt manifests to READY', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homeland-backup-status-'));
+    resolveBackupRuntimeMock.mockReturnValue({ workspaceRoot: root, backupRoot: root, storageRoot: join(root, 'unused') });
+    try {
+      for (const [id, status] of [['legacy', 'READY'], ['incomplete', 'INCOMPLETE'], ['failed', 'FAILED'], ['candidate', 'SUCCESS']]) {
+        mkdirSync(join(root, id));
+        writeFileSync(join(root, id, 'manifest.json'), JSON.stringify({ id, status, complete: status === 'SUCCESS', summary: { totalSizeBytes: 1845200 } }));
+      }
+      mkdirSync(join(root, 'broken'));
+      writeFileSync(join(root, 'broken', 'manifest.json'), 'invalid-json');
+      const service = new SystemUpdateService();
+      const invalid = await service.getBackupStatus();
+      expect(invalid.backups.map((b) => b.status)).not.toContain('READY');
+      expect(invalid.storageUsedBytes).toBe(0);
+      expect(invalid.lastBackupAt).toBeNull();
+      expect(invalid.restoreSupported).toBe(false);
+      verifyBackupBundleMock.mockResolvedValue(true);
+      const verified = await service.getBackupStatus();
+      expect(verified.backups.filter((b) => b.status === 'READY').map((b) => b.id)).toEqual(['candidate']);
+    } finally {
+      rmSync(root, { recursive: true });
+    }
   });
 
   it('detects a remote version and creates a non-destructive install job by default', async () => {

@@ -24,6 +24,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ModalHeaderTitle } from "@/components/ui/ModalHeaderTitle";
 import { systemUpdateApi, SystemBackupStatus, BackupManifestInfo } from "@/lib/api/system-update.api";
 import toast from "react-hot-toast";
+import { backupStatusLabel } from "@/lib/utils/backup-status";
 
 function formatBytes(bytes: number) {
   if (!bytes || bytes === 0) return "0 B";
@@ -128,6 +129,7 @@ export default function SettingsBackup() {
   };
 
   const handleOpenRestore = (snapshot?: BackupManifestInfo) => {
+    if (backupData?.restoreSupported !== true) return;
     const target = snapshot || backups[0] || null;
     setSelectedSnapshotForRestore(target);
     setRestorePassword("");
@@ -135,6 +137,7 @@ export default function SettingsBackup() {
   };
 
   const handleExecuteRestore = async () => {
+    if (backupData?.restoreSupported !== true) return;
     const target = selectedSnapshotForRestore || backups[0];
     if (!target?.id) {
       toast.error("Không tìm thấy thông tin bản sao lưu");
@@ -195,7 +198,7 @@ export default function SettingsBackup() {
     try {
       if (autoBackupBeforeWipe) {
         toast("Đang tạo bản sao lưu snapshot bảo vệ trước khi xóa...", { icon: "🛡️" });
-        await systemUpdateApi.createBackup({ note: "Tự động sao lưu trước khi Reset / Xóa dữ liệu" }).catch(() => null);
+        await systemUpdateApi.createBackup({ note: "Tự động sao lưu trước khi Reset / Xóa dữ liệu" });
       }
 
       const res = await systemUpdateApi.wipeData({
@@ -226,7 +229,8 @@ export default function SettingsBackup() {
         <Button
           variant="primary"
           onClick={handleCreateBackup}
-          disabled={isCreating || isLoading}
+          disabled={isCreating || isLoading || !backupData?.connected}
+          title={backupData?.connected ? 'Tạo bản sao lưu' : 'Sao lưu chưa được cấu hình'}
           className="h-10 rounded-xl text-xs font-bold gap-2 shadow-2xs cursor-pointer"
         >
           {isCreating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
@@ -259,7 +263,8 @@ export default function SettingsBackup() {
         <Button
           variant="outline"
           onClick={() => handleOpenRestore()}
-          disabled={backups.length === 0}
+          disabled={backups.length === 0 || backupData?.restoreSupported !== true}
+          title="Khôi phục trực tiếp đang khóa"
           className="h-10 rounded-xl text-xs font-bold gap-2 text-text hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer shadow-2xs hover:border-blue-500/40"
         >
           <RotateCcw size={14} /> Khôi phục dữ liệu
@@ -286,7 +291,7 @@ export default function SettingsBackup() {
             type="button"
             role="switch"
             aria-checked={scheduleEnabled}
-            disabled={isTogglingSchedule || isLoading}
+            disabled={isTogglingSchedule || isLoading || (!scheduleEnabled && !backupData?.connected)}
             onClick={handleToggleSchedule}
             className="flex items-center gap-2.5 cursor-pointer select-none group focus:outline-none p-1 rounded-lg hover:bg-muted/10 transition"
             title={scheduleEnabled ? "Bấm để tạm tắt lịch trình sao lưu tự động" : "Bấm để bật lịch trình sao lưu tự động"}
@@ -369,8 +374,8 @@ export default function SettingsBackup() {
                     <td className="py-3 px-4 font-mono font-medium">{formatBytes(b.sizeBytes)}</td>
                     <td className="py-3 px-4 text-muted">{formatDate(b.createdAt)}</td>
                     <td className="py-3 px-4">
-                      <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
-                        <CheckCircle2 size={13} /> Sẵn sàng
+                      <span className={`inline-flex items-center gap-1 font-bold text-[11px] ${b.status === 'READY' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                        {b.status === 'READY' ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />} {backupStatusLabel(b.status)}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right relative">
@@ -409,6 +414,8 @@ export default function SettingsBackup() {
 
                               <button
                                 type="button"
+                                disabled={backupData?.restoreSupported !== true || b.status !== 'READY'}
+                                title="Khôi phục trực tiếp đang khóa"
                                 onClick={() => {
                                   setOpenDropdownId(null);
                                   handleOpenRestore(b);

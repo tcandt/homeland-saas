@@ -219,6 +219,14 @@ Thu tu rollout khuyen nghi:
 
 ## Restore khi có sự cố
 
+### Web backup runtime (local/NAS local storage)
+
+- Manual and scheduled web backups require explicit `SYSTEM_BACKUP_ENABLED=true`, a configured `DATABASE_URL`, available PostgreSQL client tools and `STORAGE_PROVIDER=local`. S3/R2 is refused rather than claiming a local directory copy covers remote objects.
+- `SYSTEM_BACKUP_DIR` is an absolute persistent-volume path, or resolves relative to the workspace containing `scripts/production-backup.js`. The runner is resolved from that workspace even when API starts in `apps/api`. `STORAGE_DIR` uses the same working-directory resolution as LocalStorageProvider; use an absolute persistent-volume path for deployment. Backup and storage roots cannot overlap or traverse symlinks.
+- When enabling web backup, set `BACKUP_MANIFEST_PATH` to the absolute `latest-manifest.json` path in the resolved backup root. Monitoring still resolves its default relative to the API working directory, so this alignment is explicit, including when API starts in `apps/api`. The backup covers the full PostgreSQL custom dump, local attachment files and checksums. Deployment secrets remain managed externally; they are not copied from API environment to a bundle.
+- A web row is `READY` only after component/checksum/freshness and actual `pg_restore --list` verification. Legacy seven-table JSON snapshots, incomplete bundles and failed checks are never ready. `READY` is a local precheck, not off-host, restore-drill, financial reconciliation or production release approval.
+- Web restore remains disabled. Restore storage and database together on an isolated target and verify the application before requesting production cutover approval. No production configuration is changed by adding these controls.
+
 - Chặn write và giữ bằng chứng trước khi quyết định restore.
 - Xác định phạm vi mất dữ liệu, recovery point và các giao dịch cần nhập lại.
 - Ưu tiên rollback app hoặc forward-fix nếu database vẫn toàn vẹn.

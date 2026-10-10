@@ -47,11 +47,12 @@ export type BackupManifestInfo = {
   version?: string;
   type: 'manual' | 'daily_schedule' | 'pre_update';
   filesCount: number;
-  status: 'READY' | 'CORRUPTED';
+  status: 'READY' | 'CORRUPTED' | 'INCOMPLETE' | 'FAILED';
 };
 
 export type SystemBackupStatus = {
   connected: boolean;
+  restoreSupported?: boolean;
   agentVersion: string;
   scheduleEnabled: boolean;
   scheduleCron: string;

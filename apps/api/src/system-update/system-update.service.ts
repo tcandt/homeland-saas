@@ -1,12 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { execFile, execFileSync, spawn } from 'child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
-import { isAbsolute, join, resolve } from 'path';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
+import { isAbsolute, join, resolve, sep } from 'path';
 import * as bcrypt from 'bcryptjs';
 import { Cron } from '@nestjs/schedule';
 import { SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { normalizeCustomerIdentityNo, normalizeCustomerPhone } from '../customers/customer-identifiers';
+import { assertNoBackupSymlinks, resolveBackupRuntime, runBackupScript, verifyBackupBundle } from './system-backup.runtime';
 
 type UpdateJobStatus =
   | 'IDLE'
@@ -258,8 +259,10 @@ export class SystemUpdateService {
   }
 
   async getBackupStatus(tenantId?: string) {
-    const backupDir = join(process.cwd(), '.codex-backups', 'production');
-    const updateBackupDir = join(process.cwd(), '.codex-backups', 'system-update');
+    let runtime: ReturnType<typeof resolveBackupRuntime> | null = null;
+    try { runtime = resolveBackupRuntime(); } catch { /* Keep unavailable backups unverified. */ }
+    const backupDir = runtime?.backupRoot || join(process.cwd(), '.codex-backups', 'production');
+    const updateBackupDir = join(runtime?.workspaceRoot || process.cwd(), '.codex-backups', 'system-update');
     const backups: any[] = [];
     let totalSizeBytes = 0;
 
@@ -267,34 +270,46 @@ export class SystemUpdateService {
     for (const dir of dirsToScan) {
       if (existsSync(dir)) {
         try {
+          assertNoBackupSymlinks(dir);
           const entries = readdirSync(dir, { withFileTypes: true });
           for (const entry of entries) {
             const entryPath = join(dir, entry.name);
-            if (entry.isDirectory()) {
+            if (entry.isDirectory() && !lstatSync(entryPath).isSymbolicLink()) {
+              try {
               const metadataPath = join(entryPath, 'manifest.json');
               const legacyMetadataPath = join(entryPath, 'metadata.json');
               let meta: any = null;
               if (existsSync(metadataPath)) {
+                if (lstatSync(metadataPath).isSymbolicLink() || !lstatSync(metadataPath).isFile()) throw new Error();
                 meta = JSON.parse(readFileSync(metadataPath, 'utf8'));
               } else if (existsSync(legacyMetadataPath)) {
+                if (lstatSync(legacyMetadataPath).isSymbolicLink() || !lstatSync(legacyMetadataPath).isFile()) throw new Error();
                 meta = JSON.parse(readFileSync(legacyMetadataPath, 'utf8'));
               }
 
               const stat = statSync(entryPath);
               const createdAt = meta?.createdAt || meta?.created_at || stat.birthtime.toISOString();
-              const size = meta?.summary?.totalSizeBytes || meta?.sizeBytes || 1024 * 1024;
+              const records = [meta?.database, meta?.envFile, meta?.storage?.manifest, ...(Array.isArray(meta?.storage?.files) ? meta.storage.files : [])].filter(Boolean);
+              const size = records.reduce((total, record) => total + (Number.isSafeInteger(record.size) && record.size >= 0 ? record.size : 0), 0);
+              const verified = Boolean(runtime && meta?.status === 'SUCCESS' && meta?.complete === true
+                && await verifyBackupBundle(runtime.workspaceRoot, metadataPath));
               totalSizeBytes += size;
               backups.push({
                 id: entry.name,
                 name: `Snapshot ${entry.name}`,
-                createdAt,
+                createdAt: meta?.startedAt || createdAt,
                 sizeBytes: size,
-                commitSha: meta?.commitSha || meta?.commit || getCurrentCommit(),
-                version: meta?.version || readPackageVersion(),
+                commitSha: meta?.commitSha || meta?.commit || undefined,
+                version: meta?.version || undefined,
                 type: meta?.type || (entry.name.includes('before') ? 'pre_update' : 'manual'),
-                filesCount: meta?.files?.length || 2,
-                status: 'READY',
+                filesCount: records.length,
+                status: verified ? 'READY' : meta?.status === 'FAILED' ? 'FAILED'
+                  : meta?.status === 'SUCCESS' ? 'CORRUPTED' : 'INCOMPLETE',
               });
+              } catch {
+                backups.push({ id: entry.name, name: `Snapshot ${entry.name}`, createdAt: statSync(entryPath).birthtime.toISOString(), sizeBytes: 0,
+                  type: 'manual', filesCount: 0, status: 'CORRUPTED' });
+              }
             }
           }
         } catch {
@@ -323,12 +338,13 @@ export class SystemUpdateService {
       : {};
 
     return {
-      connected: true,
+      connected: Boolean(runtime && process.env.SYSTEM_BACKUP_ENABLED === 'true' && process.env.DATABASE_URL),
+      restoreSupported: false,
       agentVersion: readCurrentVersion(readPackageVersion()),
       scheduleEnabled: scheduleValue.enabled === true,
       scheduleCron: '0 2 * * *',
       scheduleDescription: 'Tự động chụp snapshot định kỳ vào 02:00 AM',
-      lastBackupAt: backups[0]?.createdAt || null,
+      lastBackupAt: backups.find((backup) => backup.status === 'READY')?.createdAt || null,
       totalBackups: backups.length,
       storageUsedBytes: totalSizeBytes,
       backups,
@@ -337,6 +353,12 @@ export class SystemUpdateService {
 
   async updateBackupSchedule(tenantId: string, userId: string, enabled: boolean) {
     if (!this.prisma) throw new ConflictException('Database connection is unavailable');
+    if (enabled && (process.env.SYSTEM_BACKUP_ENABLED !== 'true' || !process.env.DATABASE_URL)) {
+      throw new ConflictException('Full database/storage backup is not configured');
+    }
+    if (enabled) {
+      try { resolveBackupRuntime(); } catch { throw new ConflictException('Backup runner is unavailable'); }
+    }
     await this.prisma.appSetting.upsert({
       where: {
         tenantId_scope_ownerId_key: {
@@ -375,89 +397,65 @@ export class SystemUpdateService {
     });
     if (!enabled) return;
 
-    this.backupInProgress = true;
     try {
       await this.createBackupSnapshot({
         note: 'Sao lưu tự động hàng ngày lúc 02:00',
         type: 'daily_schedule',
       });
+    } catch {
+      this.logger.error('Scheduled backup failed; no verified backup was created.');
+    }
+  }
+
+  async createBackupSnapshot(input?: { note?: string; type?: 'manual' | 'daily_schedule' | 'pre_update' }, tenantId?: string) {
+    if (this.backupInProgress) throw new ConflictException('Backup is already running');
+    if (process.env.SYSTEM_BACKUP_ENABLED !== 'true' || !process.env.DATABASE_URL) {
+      throw new ConflictException('Full database/storage backup is not configured');
+    }
+    this.backupInProgress = true;
+    try {
+      const runtime = resolveBackupRuntime();
+      const result = await runBackupScript(runtime.workspaceRoot, 'production-backup.js', [
+        '--env-managed-externally', '--output-dir', runtime.backupRoot, '--storage-dir', runtime.storageRoot,
+        '--type', input?.type || 'manual', '--note', String(input?.note || '').slice(0, 500),
+      ]);
+      if (result?.status !== 'SUCCESS' || typeof result?.manifestPath !== 'string'
+        || !isAbsolute(result.manifestPath)
+        || !resolve(result.manifestPath).startsWith(runtime.backupRoot + sep)
+        || !await verifyBackupBundle(runtime.workspaceRoot, result.manifestPath)) {
+        throw new Error('Backup verification failed');
+      }
+      return await this.getBackupStatus(tenantId);
+    } catch {
+      throw new ConflictException('Full backup failed verification; no ready backup was reported');
     } finally {
       this.backupInProgress = false;
     }
   }
 
-  async createBackupSnapshot(input?: { note?: string; type?: 'manual' | 'daily_schedule' | 'pre_update' }, tenantId?: string) {
-    const backupRoot = join(process.cwd(), '.codex-backups', 'production');
-    if (!existsSync(backupRoot)) {
-      mkdirSync(backupRoot, { recursive: true });
-    }
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const snapshotId = `snapshot-${timestamp}`;
-    const snapshotDir = join(backupRoot, snapshotId);
-    mkdirSync(snapshotDir, { recursive: true });
-
-    const currentCommit = getCurrentCommit();
-    const version = readPackageVersion();
-
-    let dumpSizeBytes = 0;
-    try {
-      if (this.prisma) {
-        const [contracts, customers, deposits, invoices, invoiceItems, payments, meterReadings] = await Promise.all([
-          this.prisma.contract.findMany({}),
-          this.prisma.customer.findMany({}),
-          this.prisma.deposit.findMany({}),
-          this.prisma.invoice.findMany({}),
-          this.prisma.invoiceItem.findMany({}),
-          this.prisma.payment.findMany({}),
-          (this.prisma as any).hunonicMeterReading ? (this.prisma as any).hunonicMeterReading.findMany({}) : [],
-        ]);
-        const dump = { contracts, customers, deposits, invoices, invoiceItems, payments, meterReadings };
-        const dumpJson = JSON.stringify(dump, null, 2);
-        writeFileSync(join(snapshotDir, 'data.json'), dumpJson, 'utf8');
-        dumpSizeBytes = Buffer.byteLength(dumpJson);
-      }
-    } catch (err: any) {
-      this.logger.warn(`Could not dump data.json for snapshot: ${err?.message}`);
-    }
-
-    const manifest = {
-      id: snapshotId,
-      name: `Snapshot ${snapshotId}`,
-      createdAt: new Date().toISOString(),
-      commitSha: currentCommit,
-      version,
-      note: input?.note || 'Bản sao lưu thủ công từ giao diện web',
-      type: input?.type || 'manual',
-      summary: {
-        totalFiles: 3,
-        totalSizeBytes: dumpSizeBytes > 0 ? dumpSizeBytes : 1845200,
-      },
-      status: 'READY',
-    };
-
-    writeFileSync(join(snapshotDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
-    writeFileSync(join(backupRoot, 'latest-manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
-
-    return this.getBackupStatus(tenantId);
-  }
-
   async deleteBackupSnapshot(snapshotId: string) {
     assertBackupSnapshotId(snapshotId);
+    const runtime = resolveBackupRuntime();
     const backupDirs = [
-      join(process.cwd(), '.codex-backups', 'production', snapshotId),
-      join(process.cwd(), '.codex-backups', snapshotId),
-      join(process.cwd(), 'backups', snapshotId),
+      join(runtime.backupRoot, snapshotId),
+      join(runtime.workspaceRoot, '.codex-backups', 'system-update', snapshotId),
     ];
+    let deleted = false;
+    // Validate every candidate before removing any matching bundle.
+    for (const dir of backupDirs) {
+      assertNoBackupSymlinks(dir);
+      if (existsSync(dir) && !lstatSync(dir).isDirectory()) throw new ConflictException('Backup directory is unsafe');
+    }
     for (const dir of backupDirs) {
       if (existsSync(dir)) {
-        try {
-          rmSync(dir, { recursive: true, force: true });
-        } catch (e: any) {
-          this.logger.warn(`Could not delete backup dir ${dir}: ${e.message}`);
+        if (lstatSync(dir).isSymbolicLink() || !lstatSync(dir).isDirectory()) {
+          throw new ConflictException('Backup directory is unsafe');
         }
+        rmSync(dir, { recursive: true });
+        deleted = true;
       }
     }
+    if (!deleted) throw new NotFoundException('Backup snapshot was not found');
     return {
       success: true,
       message: `Đã xóa bản sao lưu ${snapshotId}`,

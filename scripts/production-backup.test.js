@@ -90,7 +90,33 @@ test('parses backup CLI arguments', () => {
     skipDb: true,
     skipStorage: false,
     pgDump: process.env.PG_DUMP_PATH || 'pg_dump',
+    type: 'manual',
+    note: '',
   });
+});
+
+test('validates backup origin metadata and bounds notes', () => {
+  assert.equal(parseArguments(['--type', 'daily_schedule', '--note', 'n'.repeat(600)]).note.length, 500);
+  assert.equal(parseArguments(['--type', 'pre_update']).type, 'pre_update');
+  assert.throws(() => parseArguments(['--type', 'fabricated']), /type is invalid/);
+});
+
+test('refuses a symlinked latest index without overwriting the target', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'homeland-backup-index-'));
+  const previousExitCode = process.exitCode;
+  t.after(() => {
+    process.exitCode = previousExitCode;
+    fs.rmSync(root, { recursive: true });
+  });
+  const outputDir = path.join(root, 'bundles');
+  const storageDir = path.join(root, 'storage');
+  fs.mkdirSync(outputDir);
+  fs.mkdirSync(storageDir);
+  const protectedFile = path.join(root, 'protected.txt');
+  fs.writeFileSync(protectedFile, 'untouched');
+  fs.symlinkSync(protectedFile, path.join(outputDir, 'latest-manifest.json'));
+  assert.throws(() => runBackup({ outputDir, storageDir, skipDb: true, envManagedExternally: true }), /index path is unsafe/);
+  assert.equal(fs.readFileSync(protectedFile, 'utf8'), 'untouched');
 });
 
 test('requires an explicit and exclusive externally-managed env declaration', () => {

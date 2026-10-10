@@ -41,6 +41,7 @@ import { ModalHeaderTitle } from "@/components/ui/ModalHeaderTitle";
 import { systemUpdateApi, SystemUpdateCheck, SystemUpdateJob, BackupManifestInfo } from "@/lib/api/system-update.api";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import toast from "react-hot-toast";
+import { backupStatusLabel } from "@/lib/utils/backup-status";
 
 const UPDATE_STAGES = [
   { key: "CHECKING", label: "Kiểm tra Version", percent: 8, icon: GitBranch },
@@ -364,6 +365,7 @@ export default function SystemUpdateLivePage() {
   };
 
   const handleExecuteRestore = async () => {
+    if (backups.data?.restoreSupported !== true) return;
     if (!selectedSnapshotForRestore?.id) return;
     if (!restorePassword) {
       toast.error("Vui lòng nhập mật khẩu quản trị viên để xác nhận");
@@ -904,8 +906,8 @@ export default function SystemUpdateLivePage() {
                       <td className="py-2.5 px-3.5 font-mono font-medium">{formatBytes(b.sizeBytes)}</td>
                       <td className="py-2.5 px-3.5 text-muted">{new Date(b.createdAt).toLocaleString("vi-VN")}</td>
                       <td className="py-2.5 px-3.5">
-                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-[10px]">
-                          <CheckCircle2 size={11} /> Sẵn sàng
+                        <span className={`inline-flex items-center gap-1 font-bold text-[10px] ${b.status === 'READY' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                          {b.status === 'READY' ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {backupStatusLabel(b.status)}
                         </span>
                       </td>
                       <td className="py-2.5 px-3.5 text-right relative">
@@ -940,6 +942,8 @@ export default function SystemUpdateLivePage() {
                                 </button>
                                 <button
                                   type="button"
+                                  disabled={backups.data?.restoreSupported !== true || b.status !== 'READY'}
+                                  title="Khôi phục trực tiếp đang khóa"
                                   onClick={() => {
                                     setOpenDropdownId(null);
                                     setSelectedSnapshotForRestore(b);

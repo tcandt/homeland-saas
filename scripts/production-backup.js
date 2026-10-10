@@ -14,6 +14,8 @@ function parseArguments(argv) {
     skipDb: false,
     skipStorage: false,
     pgDump: process.env.PG_DUMP_PATH || 'pg_dump',
+    type: 'manual',
+    note: '',
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -32,6 +34,12 @@ function parseArguments(argv) {
     } else if (argument === '--pg-dump') {
       options.pgDump = argv[index + 1] || options.pgDump;
       index += 1;
+    } else if (argument === '--type') {
+      options.type = argv[index + 1];
+      index += 1;
+    } else if (argument === '--note') {
+      options.note = argv[index + 1] || '';
+      index += 1;
     } else if (argument === '--skip-db') {
       options.skipDb = true;
     } else if (argument === '--skip-storage') {
@@ -44,6 +52,10 @@ function parseArguments(argv) {
   if (options.envFile && options.envManagedExternally) {
     throw new Error('--env-file and --env-managed-externally cannot be used together.');
   }
+  if (!['manual', 'daily_schedule', 'pre_update'].includes(options.type)) {
+    throw new Error('Backup type is invalid.');
+  }
+  options.note = options.note.slice(0, 500);
 
   return options;
 }
@@ -217,6 +229,10 @@ function runBackup(options, deps = {}) {
     complete: false,
     startedAt: startedAt.toISOString(),
     completedAt: null,
+    type: options.type || 'manual',
+    note: options.note || '',
+    version: process.env.APP_VERSION || null,
+    commitSha: process.env.COMMIT_SHA || null,
     database: null,
     envFile: null,
     envManagedExternally: options.envManagedExternally === true,
@@ -277,7 +293,17 @@ function runBackup(options, deps = {}) {
       }
     }
     const latestPath = path.join(outputRoot, 'latest-manifest.json');
-    fs.writeFileSync(latestPath, JSON.stringify(resultManifest, null, 2));
+    if (fs.existsSync(latestPath) && fs.lstatSync(latestPath).isSymbolicLink()) {
+      throw new Error('Backup index path is unsafe.');
+    }
+    const latestTempPath = path.join(outputRoot, `.latest-${crypto.randomUUID()}.json`);
+    fs.writeFileSync(latestTempPath, JSON.stringify(resultManifest, null, 2), { flag: 'wx', mode: 0o600 });
+    try {
+      // Rename replaces the index itself; it never follows a swapped symlink.
+      fs.renameSync(latestTempPath, latestPath);
+    } finally {
+      if (fs.existsSync(latestTempPath)) fs.unlinkSync(latestTempPath);
+    }
     process.stdout.write(`${JSON.stringify({ manifestPath, status: resultManifest.status }, null, 2)}\n`);
   }
 

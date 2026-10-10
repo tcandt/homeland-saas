@@ -62,7 +62,8 @@ export class SystemUpdateController {
   @Get('backups')
   @RequirePermissions('system.backup.read')
   @ApiOperation({ summary: 'Get backup agent connection status and snapshot list' })
-  getBackups(@CurrentUser('tenantId') tenantId: string) {
+  getBackups(@CurrentUser('tenantId') tenantId: string, @CurrentUser('email') email: string) {
+    assertSystemUpdateAdmin(email);
     return this.systemUpdateService.getBackupStatus(tenantId);
   }
 

@@ -6,7 +6,7 @@ import { CustomersRepository } from './customers.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { PrismaService } from '../prisma.service';
 import { PaginatedResult } from '@homeland/shared';
-import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
+import { ACTIVE_LIKE_CONTRACT_STATUSES, ROOM_VISIBLE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 import { normalizeCustomerIdentityNo, normalizeCustomerPhone } from './customer-identifiers';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -769,7 +769,7 @@ export class CustomersService extends BaseCrudService<Customer> {
       contracts: {
         where: {
           deletedAt: null,
-          status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+          status: { in: ROOM_VISIBLE_CONTRACT_STATUSES },
         },
         orderBy: { endDate: 'asc' },
         take: 1,

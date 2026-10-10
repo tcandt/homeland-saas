@@ -5,7 +5,7 @@ import { CustomersService } from './customers.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CustomersRepository } from './customers.repository';
 import { AuditService } from '../shared/audit/audit.service';
-import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
+import { ACTIVE_LIKE_CONTRACT_STATUSES, ROOM_VISIBLE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 import { PrismaService } from '../prisma.service';
 import { applyTenantScope } from '../prisma.service';
 
@@ -145,7 +145,7 @@ describe('CustomersService', () => {
       contracts: {
         where: {
           deletedAt: null,
-          status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+          status: { in: ROOM_VISIBLE_CONTRACT_STATUSES },
         },
         orderBy: { endDate: 'asc' },
         take: 1,
@@ -240,7 +240,7 @@ describe('CustomersService', () => {
       expect(include.contracts).toEqual({
         where: {
           deletedAt: null,
-          status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+          status: { in: ROOM_VISIBLE_CONTRACT_STATUSES },
         },
         orderBy: { endDate: 'asc' },
         take: 1,

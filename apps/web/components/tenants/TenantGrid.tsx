@@ -100,7 +100,9 @@ export default function TenantGrid() {
       // The paginated customer response owns this bounded relation. Do not
       // infer it from a separate global contract result set.
       const customerContracts: any[] = Array.isArray(customer.contracts) ? customer.contracts : [];
-      const activeContract = customerContracts[0] || null;
+      const activeContract = customerContracts.find((contract: any) =>
+        ["ACTIVE", "EXPIRING"].includes(String(contract?.status || "").toUpperCase()),
+      ) || null;
 
       const debt = Number(customer.kpis?.totalDebt || activeContract?.debt || 0);
       const endDate = activeContract?.endDate;

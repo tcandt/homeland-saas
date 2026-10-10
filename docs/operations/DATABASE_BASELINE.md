@@ -36,3 +36,11 @@ ContractStatus yêu cầu chính xác thứ tự: `DRAFT`, `PENDING_APPROVAL`, `
 Chỉ CI disposable `localhost:5433/homeland` với toàn bộ guard mới dùng script. Rehearsal bắt buộc gồm FRESH isolated và EXISTING isolate restore/copy, fingerprints khớp tuyệt đối, 18/18 chỉ resolve sau fresh verification và deploy no-op. Lưu commit SHA/checksum/fingerprint/log; xóa container/DB tạm sau rehearsal.
 
 Production apply vẫn **NOT RUN**. Cần maintenance-window approval, database identity phê duyệt, backup/restore point và rehearsal cùng commit. Với schema additive, rollback thực tế là rollback image khi không phụ thuộc schema mới; nếu đã ghi dữ liệu mới thì forward-fix hoặc restore backup. Không rollback bằng sửa historical migration.
+
+## Local release repair supplement — 10/10/2026
+
+The frozen historical manifest 18/18 and BASELINE-V2 SQL/checksums remain unchanged. Four additive prerequisites added later have backdated directory names and are already represented by BASELINE-V2. `supplemental-migration-manifest.json` locks those four files separately; any other unknown backdated migration or checksum drift blocks bootstrap.
+
+Fresh disposable bootstrap verifies an empty public schema, canonical inventory and contract enum before recording historical history. It then executes the four supplemental SQL files, rechecks the same full canonical fingerprint and only then records their own history. Normal forward migration deployment follows. The existing-database path remains audit-only; never use this fresh procedure to resolve or conceal drift on NAS/production.
+
+Local rehearsal is restricted to an explicitly confirmed localhost:5436/homeland_release_baseline_test database (`LOCAL_DATABASE_BOOTSTRAP=true`, `LOCAL_DATABASE_BOOTSTRAP_CONFIRM=homeland_release_baseline_test`). Evidence 10/10/2026: fresh baseline + forward deploy/status 32/32 and schema diff empty. Independent migration review and final release gates are still pending; this is not production migration approval.

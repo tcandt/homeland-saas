@@ -108,7 +108,7 @@ describe('ReportsService', () => {
       remainingAmount: 500_000,
     });
     expect(prisma.invoice.findMany).toHaveBeenCalledWith({
-      where: { tenantId: 'tenant-1', status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] } },
+      where: { tenantId: 'tenant-1', deletedAt: null, status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] } },
       include: {
         customer: true,
         contract: {

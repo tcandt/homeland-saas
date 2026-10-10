@@ -1,6 +1,6 @@
 import { Controller, Get, Query, Res, UseGuards, Param } from '@nestjs/common';
 import { Response } from 'express';
-import { ReportsService } from './reports.service';
+import { ReportsService, ReportPeriodOptions } from './reports.service';
 import { ExportService } from './export/export.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ClsService } from 'nestjs-cls';
@@ -32,30 +32,30 @@ export class ReportsController {
 
   @Get('cashflow')
   @ApiOperation({ summary: 'Get Cashflow Report' })
-  async getCashFlow() {
+  async getCashFlow(@Query() query: ReportPeriodOptions) {
     const tenantId = await this.getTenantId();
-    return await this.reportsService.getCashFlow(tenantId);
+    return await this.reportsService.getCashFlow(tenantId, query);
   }
 
   @Get('profit-loss')
   @ApiOperation({ summary: 'Get Profit & Loss Report' })
-  async getProfitLoss() {
+  async getProfitLoss(@Query() query: ReportPeriodOptions) {
     const tenantId = await this.getTenantId();
-    return await this.reportsService.getProfitLoss(tenantId);
+    return await this.reportsService.getProfitLoss(tenantId, query);
   }
 
   @Get('revenue-by-building')
   @ApiOperation({ summary: 'Get Revenue by Building Report' })
-  async getRevenueByBuilding() {
+  async getRevenueByBuilding(@Query() query: ReportPeriodOptions) {
     const tenantId = await this.getTenantId();
-    return await this.reportsService.getRevenueByBuilding(tenantId);
+    return await this.reportsService.getRevenueByBuilding(tenantId, query);
   }
 
   @Get('revenue-by-room')
   @ApiOperation({ summary: 'Get Revenue by Room Report' })
-  async getRevenueByRoom() {
+  async getRevenueByRoom(@Query() query: ReportPeriodOptions) {
     const tenantId = await this.getTenantId();
-    return await this.reportsService.getRevenueByRoom(tenantId);
+    return await this.reportsService.getRevenueByRoom(tenantId, query);
   }
 
   @Get('deposit-liability')
@@ -74,10 +74,12 @@ export class ReportsController {
 
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Get(':type/export')
+  @RequirePermissions('finance.export')
   @ApiOperation({ summary: 'Export Report' })
   async exportReport(
     @Param('type') type: string,
     @Query('format') format: string = 'xlsx',
+    @Query() query: ReportPeriodOptions,
     @Res() res: Response
   ) {
     const tenantId = await this.getTenantId();
@@ -94,21 +96,21 @@ export class ReportsController {
         title = 'Receivable Aging Report';
         break;
       case 'revenue-by-building':
-        data = await this.reportsService.getRevenueByBuilding(tenantId);
+        data = await this.reportsService.getRevenueByBuilding(tenantId, query);
         title = 'Revenue by Building';
         break;
       case 'revenue-by-room':
-        data = await this.reportsService.getRevenueByRoom(tenantId);
+        data = await this.reportsService.getRevenueByRoom(tenantId, query);
         title = 'Revenue by Room';
         break;
       // Cashflow and P/L have nested structures, flattening them for simple export
       case 'cashflow':
-        const cf = await this.reportsService.getCashFlow(tenantId);
+        const cf = await this.reportsService.getCashFlow(tenantId, query);
         data = [{ Inflow: cf.totalInflow, Outflow: cf.totalOutflow, Net: cf.netCashFlow }];
         title = 'Cash Flow Summary';
         break;
       case 'profit-loss':
-        const pl = await this.reportsService.getProfitLoss(tenantId);
+        const pl = await this.reportsService.getProfitLoss(tenantId, query);
         data = [{ Revenue: pl.revenue, Expenses: pl.expenses, NetProfit: pl.netProfit }];
         title = 'Profit & Loss Summary';
         break;

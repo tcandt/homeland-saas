@@ -14,6 +14,7 @@ const baselineV2Sql = path.join(baselineV2Root, 'baseline-v2.sql');
 const preludeSql = path.join(root, 'packages/database/prisma/baseline/enable-pgvector.sql');
 const prismaCli = path.join(root, 'node_modules', 'prisma', 'build', 'index.js');
 const historicalManifest = JSON.parse(fs.readFileSync(historicalManifestPath, 'utf8'));
+const supplementalManifest = JSON.parse(fs.readFileSync(path.join(root, 'packages/database/prisma/baseline/supplemental-migration-manifest.json'), 'utf8'));
 const baselineV2Manifest = JSON.parse(fs.readFileSync(baselineV2ManifestPath, 'utf8'));
 const reviewedMigrations = historicalManifest.migrations.map(({ name, sha256 }) => [name, sha256]);
 
@@ -24,22 +25,30 @@ function runPrisma(args) {
   execFileSync(process.execPath, [prismaCli, ...args], { cwd: root, env: process.env, stdio: 'inherit' });
 }
 
-function assertHistoricalManifest() {
-  const directories = fs.readdirSync(migrationsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  const historicalCount = historicalManifest.migrations.length;
-  if (historicalCount !== 18 || directories.length < historicalCount) throw new Error(`Historical manifest coverage drift: manifest=${historicalCount}, disk=${directories.length}; expected at least 18.`);
-  const historicalDirectories = directories.slice(0, historicalCount);
-  historicalManifest.migrations.forEach((migration, index) => {
-    if (migration.order !== index + 1 || migration.name !== historicalDirectories[index] || sha256(migrationFile(migration.name)) !== migration.sha256) throw new Error(`Historical migration checksum/order drift: ${migration.name}.`);
-  });
-  // BASELINE-V2 represents migrations 1..18 only. Migrations added later
-  // remain forward-only: Prisma verifies and deploys them after the reviewed
-  // baseline history has been recorded. Do not extend the baseline manifest
-  // or resolve their history here.
-  const latestHistorical = historicalManifest.migrations[historicalCount - 1]?.name;
-  if (directories.slice(historicalCount).some((name) => name <= latestHistorical)) {
+function validateMigrationInventory(historical, supplemental, directories, readHash) {
+  if (historical.length !== 18 || supplemental.length !== 4 || directories.length < 22) throw new Error('Baseline migration manifest coverage drift.');
+  const historicalNames = historical.map((migration) => migration.name);
+  if (JSON.stringify([...historicalNames].sort()) !== JSON.stringify(historicalNames)) throw new Error('Historical migration ordering drift.');
+  const covered = new Set();
+  for (const [index, migration] of historical.entries()) {
+    if (migration.order !== index + 1) throw new Error(`Historical migration order drift: ${migration.name}.`);
+  }
+  for (const migration of [...historical, ...supplemental]) {
+    if (!/^\d{14}_[a-z0-9_]+$/.test(migration.name) || !/^[a-f0-9]{64}$/.test(migration.sha256) || covered.has(migration.name) || !directories.includes(migration.name) || readHash(migration.name) !== migration.sha256) {
+      throw new Error(`Baseline migration checksum/coverage drift: ${migration.name}.`);
+    }
+    covered.add(migration.name);
+  }
+  const latestHistorical = historicalNames.at(-1);
+  if (directories.some((name) => !covered.has(name) && name <= latestHistorical)) {
     throw new Error('Forward migration ordering drift after BASELINE-V2 history.');
   }
+}
+
+function assertHistoricalManifest() {
+  const directories = fs.readdirSync(migrationsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  if (supplementalManifest.version !== 'BASELINE-V2-SUPPLEMENT-01') throw new Error('Supplemental baseline manifest version drift.');
+  validateMigrationInventory(historicalManifest.migrations, supplementalManifest.migrations, directories, (name) => sha256(migrationFile(name)));
 }
 
 function assertBaselineV2Artifact() {
@@ -54,6 +63,13 @@ function assertDisposableCiDatabase() {
   if (process.env.CI !== 'true' || process.env.GITHUB_ACTIONS !== 'true' || process.env.CI_DATABASE_BOOTSTRAP !== 'true' || process.env.RUN_DESTRUCTIVE_E2E !== 'true') throw new Error('CI database bootstrap is restricted to the destructive GitHub Actions integration job.');
   const databaseUrl = new URL(process.env.DATABASE_URL || '');
   if (databaseUrl.protocol !== 'postgresql:' || !new Set(['localhost', '127.0.0.1']).has(databaseUrl.hostname) || databaseUrl.port !== '5433' || databaseUrl.username !== 'homeland' || databaseUrl.pathname !== '/homeland') throw new Error('CI database bootstrap requires the disposable localhost:5433/homeland database.');
+}
+
+function assertDisposableLocalDatabase(env = process.env) {
+  const databaseUrl = new URL(env.DATABASE_URL || '');
+  if (env.LOCAL_DATABASE_BOOTSTRAP !== 'true' || env.LOCAL_DATABASE_BOOTSTRAP_CONFIRM !== 'homeland_release_baseline_test' || databaseUrl.protocol !== 'postgresql:' || !new Set(['localhost', '127.0.0.1']).has(databaseUrl.hostname) || databaseUrl.port !== '5436' || databaseUrl.username !== 'homeland_test' || databaseUrl.pathname !== '/homeland_release_baseline_test') {
+    throw new Error('Local bootstrap requires the explicitly confirmed disposable localhost:5436/homeland_release_baseline_test database.');
+  }
 }
 
 async function queryRows(prisma, sql) { return prisma.$queryRawUnsafe(sql); }
@@ -131,6 +147,20 @@ async function freshApprovedBaseline(prisma) {
   await assertCanonicalFingerprint(prisma);
   await contractStatusAudit(prisma);
   await resolveHistoricalAfterFreshVerification(prisma);
+  // These independently checksum-locked additive SQL files postdate the frozen
+  // historical manifest but have backdated names. Prove that they leave the
+  // reviewed canonical schema unchanged before recording THEIR own history.
+  // This function is reachable only after the truly-empty database guard.
+  for (const { name } of supplementalManifest.migrations) {
+    runPrisma(['db', 'execute', '--file', migrationFile(name), '--schema', schema]);
+  }
+  await assertCanonicalFingerprint(prisma);
+  await contractStatusAudit(prisma);
+  await assertExactlyHistoricalState(prisma);
+  for (const { name } of supplementalManifest.migrations) runPrisma(['migrate', 'resolve', '--applied', name, '--schema', schema]);
+  const state = await getMigrationState(prisma);
+  const expected = [...reviewedMigrations.map(([name]) => name), ...supplementalManifest.migrations.map(({ name }) => name)].sort();
+  if (state.failed !== 0 || JSON.stringify(state.applied) !== JSON.stringify(expected)) throw new Error('Fresh supplemental baseline history drift.');
 }
 
 async function existingVerifiedBaseline(prisma) {
@@ -147,7 +177,7 @@ async function existingVerifiedBaseline(prisma) {
 }
 
 async function main() {
-  assertDisposableCiDatabase();
+  if (process.env.LOCAL_DATABASE_BOOTSTRAP === 'true') assertDisposableLocalDatabase(); else assertDisposableCiDatabase();
   assertHistoricalManifest();
   assertBaselineV2Artifact();
   const mode = process.env.CI_DATABASE_BOOTSTRAP_MODE || 'FRESH';
@@ -166,4 +196,4 @@ async function main() {
 
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
 
-module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, contractStatusAudit, historicalManifest, reviewedMigrations };
+module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations };

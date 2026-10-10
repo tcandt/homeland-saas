@@ -12,14 +12,14 @@ import {
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { financeApi } from "@/lib/api/finance.api";
+import { financeApi, type FinanceExportParams } from "@/lib/api/finance.api";
 
 type ExportFormat = "excel" | "pdf";
 
-async function downloadFinanceFile(format: ExportFormat) {
+async function downloadFinanceFile(format: ExportFormat, params: FinanceExportParams) {
   const response: any = await (format === "excel"
-    ? financeApi.exportExcelReport()
-    : financeApi.exportPdfReport());
+    ? financeApi.exportExcelReport(params)
+    : financeApi.exportPdfReport(params));
   const url = window.URL.createObjectURL(new Blob([response.data]));
   const link = document.createElement("a");
   const contentDisposition = response.headers["content-disposition"];
@@ -33,7 +33,7 @@ async function downloadFinanceFile(format: ExportFormat) {
   window.URL.revokeObjectURL(url);
 }
 
-export default function FinanceExportDrawer() {
+export default function FinanceExportDrawer({ period, periodLabel }: { period: FinanceExportParams; periodLabel: string }) {
   const [open, setOpen] = useState(false);
   const [pendingFormat, setPendingFormat] = useState<ExportFormat | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -79,7 +79,7 @@ export default function FinanceExportDrawer() {
   const handleExport = async (format: ExportFormat) => {
     setPendingFormat(format);
     try {
-      await downloadFinanceFile(format);
+      await downloadFinanceFile(format, period);
       toast.success(format === "excel" ? "Đã xuất báo cáo Excel." : "Đã xuất báo cáo PDF.");
     } catch {
       toast.error(format === "excel" ? "Không thể xuất báo cáo Excel." : "Không thể xuất báo cáo PDF.");
@@ -166,14 +166,14 @@ export default function FinanceExportDrawer() {
               Dữ liệu theo quyền truy cập hiện tại
             </div>
             <p className="mt-1 text-sm leading-6 text-muted">
-              File xuất không bao gồm dữ liệu ngoài tenant và quyền tài chính của tài khoản đang đăng nhập.
+              Kỳ xuất: {periodLabel} (GMT+7). File gồm các bút toán đã ghi nhận trong kỳ, theo tenant và quyền tài chính hiện tại.
             </p>
           </div>
 
           <div className="mt-6">
             <h3 className="text-sm font-black text-text">Nội dung báo cáo</h3>
             <div className="mt-3 grid gap-2">
-              {["Tổng quan doanh thu và dòng tiền", "Chi phí và lợi nhuận ròng", "Công nợ và trạng thái thu", "Chi tiết bút toán tài chính"].map((label) => (
+              {["Chi tiết bút toán tài chính trong kỳ", "Ngày, tài khoản, số tiền và nguồn bút toán"].map((label) => (
                 <div key={label} className="flex items-center gap-3 rounded-xl border border-border/70 bg-surface/50 px-3.5 py-3 text-sm font-semibold text-text">
                   <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
                     <Check size={14} aria-hidden />

@@ -88,5 +88,14 @@ describe('CustomersController', () => {
       );
       expect(service.createIdempotent).not.toHaveBeenCalled();
     });
+
+    it('maps identity images through create persistence', () => {
+      controller.create({ ...payload, notes: 'VIP', idImages: ['front.jpg', 'back.jpg'] }, 'user-a', 'tenant-a');
+      expect(service.create).toHaveBeenCalledWith(
+        expect.objectContaining({ notes: 'VIP', idImages: ['front.jpg', 'back.jpg'] }),
+        'user-a',
+        'Customers',
+      );
+    });
   });
 });

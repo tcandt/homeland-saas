@@ -16,6 +16,7 @@
     "test:e2e:core1004": "playwright test tests/e2e/smoke/contracts.smoke.spec.ts tests/e2e/smoke/deposits.smoke.spec.ts tests/e2e/regression/deposits/deposits.refund.desktop.spec.ts tests/e2e/core/contract-lifecycle.e2e.spec.ts tests/e2e/core/invoice-lifecycle.e2e.spec.ts tests/e2e/core/sepay-webhook-local.e2e.spec.ts tests/e2e/regression/finance/transactions.core.spec.ts tests/e2e/acceptance/core08-07-shared-room-finance.e2e.spec.ts tests/e2e/regression/summary/monthly-settlement-core07-08.desktop.spec.ts tests/e2e/regression/contracts/contracts.settlement.desktop.spec.ts tests/e2e/regression/reports/reports.real-data.desktop.spec.ts tests/e2e/regression/finance/finance-cross-page.desktop.spec.ts --project=\"Desktop 1366\" --workers=1",
     "test:e2e:prod": "cross-env VERIFY_PROD=1 playwright test tests/e2e/production/theme-audit.desktop.spec.ts tests/e2e/production/responsive-audit.desktop.spec.ts tests/e2e/production/registration-closed.desktop.spec.ts tests/e2e/regression/settings/settings-rbac.desktop.spec.ts tests/e2e/regression/settings/security-password.desktop.spec.ts tests/e2e/regression/contracts/contracts.settlement.desktop.spec.ts tests/e2e/regression/deposits/deposits.refund.desktop.spec.ts tests/e2e/regression/finance/expenses.core.spec.ts tests/e2e/regression/finance/sepay-reconciliation.desktop.spec.ts tests/e2e/regression/finance/transactions.core.spec.ts tests/e2e/regression/invoices/invoices.credit.desktop.spec.ts --project=\"Desktop 1920\"",
     "test:e2e:ui": "playwright test --ui",
+    "test:release-repair": "vitest run lib/utils/report-period.test.ts lib/utils/cccd-qr-compatibility.test.ts lib/finance/equal-profit-shares.test.ts lib/api/finance-export.test.ts lib/invoices/invoice-financials.test.ts tests/unit/invoice-row-grouping.test.ts",
     "test": "vitest run app.test.ts components/auth/AuthGuard.test.ts components/buildings/workspace/building-profiles.test.ts components/buildings/cockpit/building-image-maps.test.ts components/buildings/cockpit/building-cockpit-data.test.ts lib/adapters/building.adapter.test.ts lib/api/client.test.ts lib/server/expense-bill-storage.test.ts lib/server-sent-events.test.ts lib/utils/learning-store.test.ts tests/unit/room-finance-rental-cycle.test.ts tests/unit/room-status-open-occupancy.test.ts tests/unit/whole-room-representative-guard.test.ts tests/unit/tenant-existing-profile.test.ts tests/unit/tenant-email-optional.test.ts tests/unit/room-contract-dedupe.test.ts tests/unit/hunonic-snapshot-presentation.test.ts tests/unit/core07-08-billing-snapshot-presentation.test.ts tests/unit/terminal-deposit-new-cycle.test.ts tests/unit/deposit-mutations-and-invariants.test.ts tests/unit/p0-rental-intent-flow.test.ts tests/unit/p1-customer-identity-isolation.test.ts tests/unit/p5-finance-cross-tab-invalidation.test.ts"
   },
   "dependencies": {
@@ -27,9 +28,9 @@
     "@tanstack/react-virtual": "^3.14.4",
     "@techstark/opencv-js": "^5.0.0-release.1",
     "@vercel/otel": "^2.1.3",
-    "@zxing/browser": "^0.2.1",
-    "@zxing/library": "^0.23.0",
-    "axios": "^1.18.1",
+    "@zxing/browser": "0.1.5",
+    "@zxing/library": "0.21.3",
+    "axios": "1.20.0",
     "dayjs": "^1.11.21",
     "docx-preview": "^0.4.0",
     "docxtemplater": "^3.69.0",
@@ -38,7 +39,7 @@
     "jimp": "^1.6.1",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.364.0",
-    "next": "^16.2.10",
+    "next": "16.3.8",
     "next-themes": "^0.3.0",
     "pdf-lib": "^1.17.1",
     "pino": "^10.3.1",
@@ -63,9 +64,9 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.19",
-    "eslint": "^8",
-    "eslint-config-next": "^16.2.10",
-    "postcss": "^8.4.38",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.8",
+    "postcss": "8.5.23",
     "tailwindcss": "^3.4.3",
     "typescript": "^5"
   }

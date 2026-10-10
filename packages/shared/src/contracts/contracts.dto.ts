@@ -30,6 +30,29 @@ export const CreateContractSchema = z.object({
   coRepresentativeIds: z.array(z.string()).optional(),
 });
 
+/**
+ * Resumable booking-hold command.  The idempotency key is supplied by the
+ * caller (normally the booking intent, not a UI render) and is part of the
+ * immutable command identity. `bookingAmount` is the cash hold;
+ * `contractDepositAmount` is descriptive future intent, not money received.
+ */
+export const CreateBookingHoldSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(128),
+  customerId: z.string().min(1),
+  roomId: z.string().min(1),
+  contractCode: z.string().trim().min(1).max(200).optional(),
+  startDate: z.string().or(z.date()),
+  endDate: z.string().or(z.date()),
+  firstPaymentDate: z.string().or(z.date()).optional().nullable(),
+  rentAmount: z.number().finite().min(0),
+  contractDepositAmount: z.number().finite().min(0).default(0),
+  bookingAmount: z.number().finite().positive(),
+  memberCount: z.number().int().min(1).default(1),
+  purpose: z.string().max(2000).optional().nullable(),
+  expiredAt: z.string().or(z.date()).optional().nullable(),
+  note: z.string().max(2000).optional().nullable(),
+});
+
 export const UpdateContractSchema = CreateContractSchema.partial();
 
 /** A renewal is a new contract version, never an update to the source. */
@@ -121,6 +144,7 @@ export const TransferOccupantInputSchema = z.object({
 });
 
 export type CreateContractInput = z.infer<typeof CreateContractSchema>;
+export type CreateBookingHoldInput = z.infer<typeof CreateBookingHoldSchema>;
 export type UpdateContractInput = z.infer<typeof UpdateContractSchema>;
 export type RenewContractInput = z.infer<typeof RenewContractSchema>;
 export type ConvertBookingHoldInput = z.infer<typeof ConvertBookingHoldSchema>;

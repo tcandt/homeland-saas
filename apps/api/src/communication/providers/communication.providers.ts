@@ -5,6 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SettingScope } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import nodemailer from 'nodemailer';
+import type { Transporter } from 'nodemailer';
 
 type ProviderPayload = {
   tenantId?: string;
@@ -204,7 +205,7 @@ export class ConsoleProvider implements CommunicationProvider {
 
 @Injectable() export class EmailProvider implements CommunicationProvider {
   channel = NotificationChannel.EMAIL;
-  private readonly transporters = new Map<string, { fingerprint: string; transporter: nodemailer.Transporter }>();
+  private readonly transporters = new Map<string, { fingerprint: string; transporter: Transporter }>();
 
   constructor(private readonly prisma: PrismaService) {}
 

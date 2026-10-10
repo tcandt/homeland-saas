@@ -214,28 +214,24 @@ function OperationsBillingModalContent({
       return {
         bankName: activeRequest.bankName,
         accountNumber: activeRequest.bankAccountNumber,
-        accountName: activeRequest.bankAccountName || "HO KINH DOANH NGUYEN DUC TINH",
+        accountName: activeRequest.bankAccountName || "",
       };
     }
 
     if (configuredBankAccounts.length > 0) {
       const def = configuredBankAccounts.find((b) => b.isDefault) || configuredBankAccounts[0];
       return {
-        bankName: def.bankName || "BIDV",
-        accountNumber: def.accountNumber || "SBSEPAYMKYNGRD9RLQJ",
-        accountName: def.accountName || "HO KINH DOANH NGUYEN DUC TINH",
+        bankName: String(def.bankName || "").trim(),
+        accountNumber: String(def.accountNumber || "").trim(),
+        accountName: String(def.accountName || "").trim(),
       };
     }
 
-    return {
-      bankName: "BIDV",
-      accountNumber: "SBSEPAYMKYNGRD9RLQJ",
-      accountName: "HO KINH DOANH NGUYEN DUC TINH",
-    };
+    return { bankName: "", accountNumber: "", accountName: "" };
   }, [selectedBankOverride, activeRequest, configuredBankAccounts]);
 
   // Metadata resolution with deep contract and room relations
-  const invoiceCode = invoice.code || invoice.invoiceCode || "HÓA ĐƠN";
+  const invoiceCode = invoice.code || invoice.invoiceCode || "Chưa có mã";
 
   const roomNumber = useMemo(() => {
     if (invoice.room?.roomCode) return invoice.room.roomCode;
@@ -256,17 +252,15 @@ function OperationsBillingModalContent({
     if (invoice.contract?.building?.name) return invoice.contract.building.name;
     if (invoice.buildingName) return invoice.buildingName;
     if (activeRequest?.metadata?.buildingName) return activeRequest.metadata.buildingName;
-    if (roomNumber.includes("32-")) return "Tòa nhà LK01-32";
-    if (roomNumber.includes("31-")) return "Tòa nhà LK01-31";
-    return "Tòa nhà chính";
-  }, [invoice, activeRequest, roomNumber]);
+    return "Chưa gán tòa nhà";
+  }, [invoice, activeRequest]);
 
   const contractCode = useMemo(() => {
     if (invoice.contract?.code) return invoice.contract.code;
     if (invoice.contractCode) return invoice.contractCode;
     if (activeRequest?.metadata?.contractCode) return activeRequest.metadata.contractCode;
-    return `HD-THUE-${roomNumber}`;
-  }, [invoice, activeRequest, roomNumber]);
+    return "Chưa liên kết hợp đồng";
+  }, [invoice, activeRequest]);
 
   const customerName = useMemo(() => {
     return (
@@ -286,7 +280,7 @@ function OperationsBillingModalContent({
       invoice.contract?.customer?.phone ||
       invoice.tenantPhone ||
       activeRequest?.metadata?.customerPhone ||
-      "0900000000"
+      "Chưa có"
     );
   }, [invoice, activeRequest]);
 
@@ -296,15 +290,15 @@ function OperationsBillingModalContent({
   // Payment memo / transfer content: prioritized by SePay paymentCode from backend
   const transferMemo = useMemo(() => {
     if (activeRequest?.paymentCode) return activeRequest.paymentCode;
-    const cleanRoom = String(roomNumber).replace(/[^a-zA-Z0-9]/g, "");
-    return `HD${cleanRoom.slice(-4)}1026`;
-  }, [activeRequest, roomNumber]);
+    return invoice.paymentCode || invoice.code || invoice.invoiceCode || "";
+  }, [activeRequest, invoice]);
 
   // QR URL: prioritized by backend qrUrl, or built dynamically with active bank
   const qrImageUrl = useMemo(() => {
     if (!selectedBankOverride && activeRequest?.qrUrl) {
       return activeRequest.qrUrl;
     }
+    if (!activeBank.bankName || !activeBank.accountNumber) return "";
     return buildVietQrUrl(
       activeBank.bankName,
       activeBank.accountNumber,
@@ -314,11 +308,13 @@ function OperationsBillingModalContent({
     );
   }, [selectedBankOverride, activeRequest, activeBank, amountToPay, transferMemo]);
 
-  const periodLabel = invoice.period
-    ? invoice.period.startsWith("2026-")
-      ? `Tháng ${invoice.period.replace("2026-", "")}/2026`
-      : invoice.period
-    : "Tháng 10/2026";
+  const hasPaymentAccount = Boolean(qrImageUrl);
+
+  const periodLabel = useMemo(() => {
+    const period = String(invoice.period || invoice.billingPeriod || "").trim();
+    const match = period.match(/^(\d{4})-(\d{2})$/);
+    return match ? `Tháng ${match[2]}/${match[1]}` : period || "Chưa xác định";
+  }, [invoice.period, invoice.billingPeriod]);
 
   // REQUIREMENT 4: Auto-react when payment succeeds
   const previousStatusRef = useRef(invoice.status);
@@ -492,31 +488,14 @@ function OperationsBillingModalContent({
         quantity: it.quantity ? `${it.quantity} ${it.unit || ""}`.trim() : "1",
         amount: it.amount || (it.unitPrice ? it.unitPrice * (it.quantity || 1) : 0),
       }))
-    : [
-        {
-          stt: 1,
-          name: "Tiền thuê phòng",
-          unitPrice: Math.round(totalAmount * 0.822) || 4000000,
-          quantity: "1",
-          amount: Math.round(totalAmount * 0.822) || 4000000,
-        },
-        {
-          stt: 2,
-          name: "Phí dịch vụ & Quản lý",
-          unitPrice: 100000,
-          quantity: "1",
-          amount: 100000,
-        },
-        {
-          stt: 3,
-          name: "Tiền điện & Nước sinh hoạt",
-          unitPrice: Math.max(0, totalAmount - (Math.round(totalAmount * 0.822) || 4000000) - 100000) || 765353,
-          quantity: "1",
-          amount: Math.max(0, totalAmount - (Math.round(totalAmount * 0.822) || 4000000) - 100000) || 765353,
-        },
-      ];
+    : [];
 
   const bankBadge = getBankBadge(activeBank.bankName);
+  const confirmedPayment = Array.isArray(invoice.payments)
+    ? invoice.payments.find((payment: any) => payment?.status === "CONFIRMED")
+    : undefined;
+  const paymentMethod = confirmedPayment?.provider || invoice.paymentMethod || "Chưa ghi nhận";
+  const paidAt = confirmedPayment?.paidAt || activeRequest?.paidAt;
 
   // Direct print without preview modal
   const handleDirectPrint = () => {
@@ -540,7 +519,7 @@ function OperationsBillingModalContent({
         roomName: roomNumber,
         buildingName,
         contractCode,
-        paymentMethod: invoice.paymentMethod || "Chuyển khoản / Tiền mặt",
+        paymentMethod,
         totalAmount,
         items: items.map((it: any) => ({
           stt: it.stt,
@@ -790,7 +769,7 @@ function OperationsBillingModalContent({
                       {formatVnd(totalAmount)}
                     </div>
                   </div>
-                ) : (
+                ) : hasPaymentAccount ? (
                   <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
                     {/* QR Box - Borderless & spacious to avoid crowding payment details */}
                     <div
@@ -876,6 +855,13 @@ function OperationsBillingModalContent({
                       </div>
                     </div>
                   </div>
+                ) : (
+                  <div className="flex min-h-44 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 px-5 text-center dark:border-amber-800 dark:bg-amber-950/20">
+                    <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                    <div className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                      Chưa cấu hình tài khoản nhận tiền trong Settings
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -903,6 +889,13 @@ function OperationsBillingModalContent({
                         </td>
                       </tr>
                     ))}
+                    {items.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-5 text-center text-slate-500">
+                          Hóa đơn chưa có chi tiết khoản thu.
+                        </td>
+                      </tr>
+                    )}
 
                     {/* Total Row: Guaranteed single line */}
                     <tr className="bg-indigo-50/40 dark:bg-indigo-950/30 font-black border-t-2 border-indigo-100 dark:border-indigo-900/40">
@@ -983,10 +976,10 @@ function OperationsBillingModalContent({
                   {/* Option 2: Quét trực tiếp (triggers seamless in-modal presentation mode) */}
                   <button
                     type="button"
-                    onClick={() => setShowDirectScan(true)}
-                    disabled={isPaid}
+                    onClick={() => hasPaymentAccount && setShowDirectScan(true)}
+                    disabled={isPaid || !hasPaymentAccount}
                     className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group ${
-                      isPaid
+                      isPaid || !hasPaymentAccount
                         ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
                         : "border-indigo-200/80 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
                     }`}
@@ -1111,7 +1104,7 @@ function OperationsBillingModalContent({
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <div className="text-[10px] font-mono text-slate-400 leading-5">
-                            {formatDate(invoice.createdAt)} 14:20
+                            {formatDateTime(invoice.createdAt)}
                           </div>
                           <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
                             Tạo hóa đơn
@@ -1130,32 +1123,7 @@ function OperationsBillingModalContent({
                     </div>
                   </div>
 
-                  {/* Event 2: Gửi hóa đơn */}
-                  <div className="flex gap-3 relative">
-                    <div className="flex flex-col items-center shrink-0">
-                      <div className="flex h-5 w-5 items-center justify-center relative">
-                        <span className={`h-2.5 w-2.5 rounded-full shadow-xs ${
-                          isPaid
-                            ? "bg-emerald-500 ring-4 ring-emerald-100 dark:ring-emerald-950"
-                            : "bg-indigo-500 ring-4 ring-indigo-50 dark:ring-indigo-950"
-                        }`}></span>
-                      </div>
-                      <div className={`w-[1.5px] flex-1 my-1 ${isPaid ? "bg-emerald-300 dark:bg-emerald-800" : "bg-slate-200 dark:bg-slate-800"}`} />
-                    </div>
-                    <div className="flex-1 pb-4 min-w-0">
-                      <div className="text-[10px] font-mono text-slate-400 leading-5">
-                        {formatDate(invoice.createdAt)} 14:20
-                      </div>
-                      <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Gửi hóa đơn cho khách hàng
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        Đã gửi qua Zalo cho {customerName}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Event 3: Thanh toán */}
+                  {/* Event 2: Thanh toán */}
                   <div className="flex gap-3 relative">
                     <div className="flex flex-col items-center shrink-0">
                       <div className="flex h-5 w-5 items-center justify-center relative">
@@ -1171,7 +1139,7 @@ function OperationsBillingModalContent({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-[10px] font-mono text-slate-400 leading-5">
-                        {isPaid ? formatDate(new Date()) : "--"}
+                        {paidAt ? formatDateTime(paidAt) : "--"}
                       </div>
                       <div className={`text-xs font-semibold ${isPaid ? "text-emerald-700 dark:text-emerald-400 font-bold" : "text-slate-700 dark:text-slate-300"}`}>
                         Thanh toán
@@ -1298,7 +1266,7 @@ function OperationsBillingModalContent({
                     : "bg-white border-2 border-indigo-200 dark:border-indigo-800 shadow-2xl"
                 }`}
               >
-                {!isPaid && (
+                {!isPaid && hasPaymentAccount && (
                   <img
                     src={qrImageUrl}
                     alt="QR thanh toán lớn"
@@ -1347,7 +1315,7 @@ function OperationsBillingModalContent({
                     Tự động quay lại chi tiết sau <b className="text-emerald-600 dark:text-emerald-400 font-mono">{directScanCountdown}s</b>
                   </span>
                 </div>
-              ) : (
+              ) : hasPaymentAccount ? (
                 <>
                   <div className="space-y-1">
                     <div className="text-3xl font-black font-mono text-indigo-600 dark:text-indigo-400 tracking-tight">
@@ -1399,6 +1367,13 @@ function OperationsBillingModalContent({
                     Thu nhỏ mã QR (ESC)
                   </button>
                 </>
+              ) : (
+                <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 px-6 py-5 dark:border-amber-800 dark:bg-amber-950/20">
+                  <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                  <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                    Chưa cấu hình tài khoản nhận tiền trong Settings
+                  </span>
+                </div>
               )}
             </div>
           </div>
@@ -1619,7 +1594,7 @@ function OperationsBillingModalContent({
                 roomName={roomNumber}
                 buildingName={buildingName}
                 contractCode={contractCode}
-                paymentMethod={invoice.paymentMethod || "Chuyển khoản / Tiền mặt"}
+                paymentMethod={paymentMethod}
                 totalAmount={totalAmount}
                 items={items.map((it: any) => ({
                   stt: it.stt,

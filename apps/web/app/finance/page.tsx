@@ -4,41 +4,24 @@ import React, { useMemo, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import OwnerEqualProfitSettlement from "@/components/finance/OwnerEqualProfitSettlement";
 import FinanceExportDrawer from "@/components/finance/FinanceExportDrawer";
+import { getVietnamMonthRange, getVietnamMonthRangeBounds, type ReportMonthRange } from "@/lib/utils/report-period";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import {
   useBuildingProfitSummaryQuery,
   useExpensesQuery,
 } from "@/lib/queries/finance.queries";
 
-type MonthRange = {
-  startMonth: number;
-  startYear: number;
-  endMonth: number;
-  endYear: number;
-};
-
 export default function FinancePage() {
   const permissions = usePermissions();
 
-  // Default to Q3/2026 (Tháng 7 tới Tháng 9 năm 2026) as requested
-  const [monthRange, setMonthRange] = useState<MonthRange>({
-    startMonth: 7,
-    startYear: 2026,
-    endMonth: 9,
-    endYear: 2026,
-  });
+  const [monthRange, setMonthRange] = useState<ReportMonthRange>(() => getVietnamMonthRange());
 
   // Compute precise date bounds for the selected month range
   const queryParams = useMemo(() => {
-    // Start of the first month at 00:00:00 UTC
-    const startDate = new Date(
-      Date.UTC(monthRange.startYear, monthRange.startMonth - 1, 1, 0, 0, 0, 0)
-    ).toISOString();
-
-    // End of the last month at 23:59:59.999 UTC
-    const endDate = new Date(
-      Date.UTC(monthRange.endYear, monthRange.endMonth, 0, 23, 59, 59, 999)
-    ).toISOString();
+    const bounds = getVietnamMonthRangeBounds(monthRange);
+    const startDate = bounds.startDate;
+    // Finance's legacy endDate is inclusive; reports use the exclusive bound.
+    const endDate = new Date(new Date(bounds.endDate).getTime() - 1).toISOString();
 
     return {
       startDate,
@@ -56,6 +39,7 @@ export default function FinancePage() {
     data: buildingsData,
     isLoading: isLoadingBuildings,
     refetch: refetchBuildings,
+    isError: isBuildingsError,
   } = useBuildingProfitSummaryQuery(queryParams);
 
   // Fetch live expenses and cluster incidentals
@@ -63,6 +47,7 @@ export default function FinancePage() {
     data: expensesData,
     isLoading: isLoadingExpenses,
     refetch: refetchExpenses,
+    isError: isExpensesError,
   } = useExpensesQuery({
     startDate: queryParams.startDate,
     endDate: queryParams.endDate,
@@ -70,7 +55,7 @@ export default function FinancePage() {
 
   return (
     <AppShell>
-      {permissions.canExportFinance && <FinanceExportDrawer />}
+      {permissions.canExportFinance && <FinanceExportDrawer period={queryParams} periodLabel={`${String(monthRange.startMonth).padStart(2, "0")}/${monthRange.startYear} – ${String(monthRange.endMonth).padStart(2, "0")}/${monthRange.endYear}`} />}
 
       <main
         data-testid="finance-root"
@@ -78,13 +63,18 @@ export default function FinancePage() {
       >
         <div className="flex w-full flex-col gap-4">
           {/* CORE SECTION: BẢNG DOANH THU, CHI PHÍ, PHÁT SINH VÀ QUYẾT TOÁN LỢI NHUẬN CHIA ĐÔI */}
-          <OwnerEqualProfitSettlement
+          {isBuildingsError || isExpensesError ? (
+            <div role="alert" className="rounded-xl border border-danger/30 bg-card p-4">
+              <p>Không tải được số liệu kỳ báo cáo. Không thể kết luận doanh thu bằng 0.</p>
+              <button type="button" onClick={() => { void Promise.all([refetchBuildings(), refetchExpenses()]); }} className="mt-2 text-primary">Thử lại</button>
+            </div>
+          ) : <OwnerEqualProfitSettlement
             buildingsData={Array.isArray(buildingsData) ? buildingsData : []}
             expenses={Array.isArray(expensesData) ? expensesData : []}
             isLoading={isLoadingBuildings || isLoadingExpenses}
             monthRange={monthRange}
             onMonthRangeChange={setMonthRange}
-          />
+          />}
         </div>
       </main>
     </AppShell>

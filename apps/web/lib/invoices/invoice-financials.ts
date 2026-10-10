@@ -67,3 +67,74 @@ export function getInvoicesFinancialSummary(invoices: any[] = []) {
     },
   );
 }
+
+export type InvoiceOperationsSummary = {
+  totalIncome: number;
+  paidIncome: number;
+  pendingAmount: number;
+  overdueAmount: number;
+  recoveryRate: number;
+  pendingRate: number;
+  firstPaymentBundleTotal: number;
+  bundleCount: number;
+  totalCount: number;
+};
+
+export function getInvoiceOperationsSummary(
+  invoices: any[] = [],
+  billingGroups: Array<{ linked?: boolean; bundleData?: { total?: number }; rows?: any[] }> = [],
+  getDirection: (invoice: any) => "INCOME" | "EXPENSE" = () => "INCOME",
+): InvoiceOperationsSummary {
+  let totalIncome = 0;
+  let paidIncome = 0;
+  let pendingAmount = 0;
+  let overdueAmount = 0;
+  let firstPaymentBundleTotal = 0;
+  let bundleCount = 0;
+
+  for (const group of billingGroups) {
+    if (!group.linked) continue;
+    bundleCount += 1;
+    const groupTotal = Math.max(0, Number(group.bundleData?.total ?? 0) || 0);
+    firstPaymentBundleTotal += groupTotal;
+  }
+
+  for (const invoice of invoices) {
+    if (["CANCELLED", "WRITTEN_OFF"].includes(String(invoice?.status || "").toUpperCase())) continue;
+    const direction = getDirection(invoice);
+    const cashflow = getBillingDocumentCashflow(invoice, direction);
+    totalIncome += cashflow.totalIncome;
+    paidIncome += cashflow.paidIncome;
+
+    if (direction !== "INCOME") continue;
+    const remaining = getInvoiceFinancials(invoice).remaining;
+    if (invoice?.status === "OVERDUE") {
+      overdueAmount += remaining;
+      pendingAmount += remaining;
+    } else if (["DRAFT", "ISSUED", "PARTIALLY_PAID", "RECONCILIATION_PENDING"].includes(invoice?.status)) {
+      pendingAmount += remaining;
+    }
+  }
+
+  const recoveryRate = totalIncome > 0 ? Math.min(100, Math.round((paidIncome / totalIncome) * 100)) : 0;
+
+  return {
+    totalIncome,
+    paidIncome,
+    pendingAmount,
+    overdueAmount,
+    recoveryRate,
+    pendingRate: totalIncome > 0 ? Math.min(100, Math.round((pendingAmount / totalIncome) * 100)) : 0,
+    firstPaymentBundleTotal,
+    bundleCount,
+    totalCount: invoices.length,
+  };
+}
+
+export function getInvoiceDocumentCounts(invoices: any[] = []) {
+  return {
+    totalAll: invoices.length,
+    invoiceOnly: invoices.filter((invoice) => invoice?.documentType !== "DEPOSIT").length,
+    depositOnly: invoices.filter((invoice) => invoice?.documentType === "DEPOSIT").length,
+  };
+}

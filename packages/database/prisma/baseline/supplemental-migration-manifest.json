@@ -1,0 +1,10 @@
+{
+  "version": "BASELINE-V2-SUPPLEMENT-01",
+  "description": "Four additive prerequisites already represented by the frozen BASELINE-V2 schema. Apply and re-audit their canonical inventory only on a verified empty disposable database before recording their own history. Never alter the historical 18 migration checksums.",
+  "migrations": [
+    { "name": "20260904080000_add_invoice_item_baseline", "sha256": "99415afc0db90d02a7d9571811cd682137f429cb70e30c1ea5543b01f0f1f1f7" },
+    { "name": "20260905100000_add_customer_gender_baseline", "sha256": "ec1a01da01c760152ce1c5a2ff5132be9d94a70e32348d0d761253f1d76b69c5" },
+    { "name": "20260905101000_add_contract_history_baseline_fields", "sha256": "8e557ce3924cad0fb0e2842abe86c40c73a33a78881da0cfc9e86d401375cab2" },
+    { "name": "20260909150000_add_payment_allocation_baseline", "sha256": "869e1f5bd679a9f2c69e4a88baddc78aa0f6b64ca33b83f5a854dc681cd331f5" }
+  ]
+}

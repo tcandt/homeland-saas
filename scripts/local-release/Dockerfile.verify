@@ -1,0 +1,27 @@
+# Disposable local verification only; does not change API/Web release runtimes.
+ARG VERIFY_NODE=22
+FROM node:${VERIFY_NODE}-alpine
+RUN apk add --no-cache openssl libc6-compat
+WORKDIR /app
+RUN chown node:node /app
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV NEXT_TELEMETRY_DISABLED=1
+LABEL homeland.scope="local-release-test"
+USER node
+COPY --chown=node:node package.json package-lock.json turbo.json ./
+COPY --chown=node:node apps/api/package.json ./apps/api/
+COPY --chown=node:node apps/web/package.json ./apps/web/
+COPY --chown=node:node packages/database/package.json ./packages/database/
+COPY --chown=node:node packages/shared/package.json ./packages/shared/
+COPY --chown=node:node packages/tsconfig ./packages/tsconfig/
+RUN npm ci
+# Selectively copy source; no env files, backups, documents or deploy bundles.
+COPY --chown=node:node packages/database ./packages/database
+COPY --chown=node:node packages/shared ./packages/shared
+COPY --chown=node:node apps/api ./apps/api
+COPY --chown=node:node apps/web ./apps/web
+COPY --chown=node:node scripts/check-mojibake.js ./scripts/check-mojibake.js
+RUN npm run db:generate && npm run build --workspace=@homeland/shared
+# Batch verification needs no network, host mounts or health endpoint.
+USER node
+CMD ["sh", "-c", "node scripts/check-mojibake.js && node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --noEmit --incremental false && node node_modules/typescript/bin/tsc -p apps/web/tsconfig.json --noEmit --incremental false"]

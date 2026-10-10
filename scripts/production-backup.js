@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { createPostgresCliEnv } = require('./postgres-cli');
 
 function parseArguments(argv) {
   const options = {
@@ -70,7 +71,8 @@ function sha256File(filePath) {
 }
 
 function fileRecord(baseDir, filePath) {
-  const stat = fs.statSync(filePath);
+  const stat = fs.lstatSync(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Backup file validation failed.');
   return {
     path: path.relative(baseDir, filePath).replace(/\\/g, '/'),
     size: stat.size,
@@ -114,21 +116,22 @@ function walkFiles(root) {
   return files.sort();
 }
 
-function runPgDump(options, backupDir) {
+function runPgDump(options, backupDir, deps = {}) {
   if (options.skipDb) return null;
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required unless --skip-db is used.');
 
   const dumpPath = path.join(backupDir, 'database.dump');
   ensureInside(backupDir, dumpPath);
-  const cliDatabaseUrl = normalizePostgresCliUrl(databaseUrl);
-  const result = spawnSync(options.pgDump, ['--format=custom', '--no-owner', '--no-acl', '--file', dumpPath, cliDatabaseUrl], {
+  const { env } = createPostgresCliEnv(databaseUrl, deps.env || process.env);
+  const result = (deps.spawnSync || spawnSync)(options.pgDump, ['--format=custom', '--no-owner', '--no-acl', '--file', dumpPath], {
     stdio: 'pipe',
     encoding: 'utf8',
+    env,
   });
 
   if (result.status !== 0) {
-    throw new Error(`pg_dump failed: ${result.stderr || result.stdout || `exit ${result.status}`}`);
+    throw new Error('Database dump command failed.');
   }
 
   return fileRecord(backupDir, dumpPath);
@@ -145,10 +148,19 @@ function copyEnvironmentFile(options, backupDir) {
 }
 
 function copyStorage(options, backupDir) {
-  if (options.skipStorage) return { copied: false, files: [] };
+  if (options.skipStorage) return { copied: false, files: [], incompleteReason: 'Storage backup was explicitly skipped.' };
 
   const sourceRoot = path.resolve(options.storageDir);
-  if (!fs.existsSync(sourceRoot)) return { copied: false, files: [] };
+  if (!fs.existsSync(sourceRoot)) return { copied: false, files: [], incompleteReason: 'Storage source is unavailable.' };
+  const pending = [sourceRoot];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    const currentStat = fs.lstatSync(current);
+    if (currentStat.isSymbolicLink()) return { copied: false, files: [], incompleteReason: 'Storage source contains a symbolic link.' };
+    if (currentStat.isDirectory()) {
+      for (const entry of fs.readdirSync(current)) pending.push(path.join(current, entry));
+    }
+  }
 
   const targetRoot = path.join(backupDir, 'storage');
   ensureInside(backupDir, targetRoot);
@@ -164,33 +176,45 @@ function copyStorage(options, backupDir) {
   return { copied: true, files, manifest: fileRecord(backupDir, manifestPath) };
 }
 
-function maybeCopyOffHost(backupDir, backupId) {
-  const destination = process.env.BACKUP_RCLONE_DEST;
-  if (!destination) return null;
+function maybeCopyOffHost(backupDir, backupId, deps = {}) {
+  const location = resolveOffHostLocation(backupId);
+  if (!location) return null;
 
-  const result = spawnSync('rclone', ['copy', backupDir, `${destination.replace(/\/+$/, '')}/${backupId}`], {
+  const result = (deps.spawnSync || spawnSync)('rclone', ['copy', backupDir, location], {
     stdio: 'pipe',
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error(`rclone copy failed: ${result.stderr || result.stdout || `exit ${result.status}`}`);
+    throw new Error('Off-host backup copy failed.');
   }
-  return `${destination.replace(/\/+$/, '')}/${backupId}`;
+  const verified = (deps.spawnSync || spawnSync)('rclone', ['check', '--download', backupDir, location], {
+    stdio: 'pipe',
+    encoding: 'utf8',
+  });
+  if (verified.status !== 0) throw new Error('Off-host backup verification failed.');
+  return location;
 }
 
-function runBackup(options) {
+function resolveOffHostLocation(backupId) {
+  const destination = process.env.BACKUP_RCLONE_DEST;
+  return destination ? `${destination.replace(/\/+$/, '')}/${backupId}` : null;
+}
+
+function runBackup(options, deps = {}) {
   loadEnvFile(options.envFile);
 
   const startedAt = new Date();
-  const backupId = startedAt.toISOString().replace(/[:.]/g, '-');
+  const backupId = `${startedAt.toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID()}`;
   const outputRoot = path.resolve(options.outputDir);
   const backupDir = path.join(outputRoot, backupId);
   ensureInside(outputRoot, backupDir);
-  fs.mkdirSync(backupDir, { recursive: true });
+  fs.mkdirSync(outputRoot, { recursive: true });
+  fs.mkdirSync(backupDir, { mode: 0o700 });
 
   const manifest = {
     id: backupId,
     status: 'RUNNING',
+    complete: false,
     startedAt: startedAt.toISOString(),
     completedAt: null,
     database: null,
@@ -200,27 +224,64 @@ function runBackup(options) {
     offHostLocation: null,
     errors: [],
   };
+  let resultManifest = manifest;
 
   try {
     manifest.envFile = copyEnvironmentFile(options, backupDir);
-    manifest.database = runPgDump(options, backupDir);
+    manifest.database = runPgDump(options, backupDir, deps);
     manifest.storage = copyStorage(options, backupDir);
-    manifest.offHostLocation = maybeCopyOffHost(backupDir, backupId);
-    manifest.status = 'SUCCESS';
+    const incomplete = [
+      !manifest.database && 'Database component is incomplete.',
+      !manifest.envFile && !manifest.envManagedExternally && 'Environment component is incomplete.',
+      (!manifest.storage || manifest.storage.copied !== true) && (manifest.storage?.incompleteReason || 'Storage component is incomplete.'),
+    ].filter(Boolean);
+    if (incomplete.length > 0) {
+      manifest.status = 'INCOMPLETE';
+      manifest.errors.push(...incomplete);
+      process.exitCode = 1;
+    } else {
+      manifest.status = 'SUCCESS';
+      manifest.complete = true;
+    }
   } catch (error) {
     manifest.status = 'FAILED';
-    manifest.errors.push(error instanceof Error ? error.message : String(error));
+    manifest.errors.push('Backup execution failed.');
     process.exitCode = 1;
   } finally {
     manifest.completedAt = new Date().toISOString();
     const manifestPath = path.join(backupDir, 'manifest.json');
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    if (manifest.status === 'SUCCESS') {
+      try {
+        const offHostLocation = maybeCopyOffHost(backupDir, backupId, deps);
+        if (offHostLocation) {
+          const receipt = { backupId, status: 'VERIFIED', manifestSha256: sha256File(manifestPath), location: offHostLocation, verifiedAt: new Date().toISOString() };
+          const receiptPath = path.join(backupDir, 'off-host-receipt.json');
+          fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2), { flag: 'wx' });
+          try {
+            const spawn = deps.spawnSync || spawnSync;
+            const copy = spawn('rclone', ['copyto', receiptPath, `${offHostLocation}/off-host-receipt.json`], { stdio: 'pipe', encoding: 'utf8' });
+            if (copy.status !== 0) throw new Error();
+            const check = spawn('rclone', ['check', '--download', backupDir, offHostLocation], { stdio: 'pipe', encoding: 'utf8' });
+            if (check.status !== 0) throw new Error();
+          } catch {
+            fs.writeFileSync(receiptPath, JSON.stringify({ ...receipt, status: 'FAILED' }, null, 2));
+            throw new Error('Off-host receipt verification failed.');
+          }
+          resultManifest = { ...manifest, offHostLocation };
+        }
+      } catch {
+        resultManifest = { ...manifest, status: 'FAILED', complete: false, errors: [...manifest.errors, 'Off-host backup copy failed.'] };
+        fs.writeFileSync(manifestPath, JSON.stringify(resultManifest, null, 2));
+        process.exitCode = 1;
+      }
+    }
     const latestPath = path.join(outputRoot, 'latest-manifest.json');
-    fs.writeFileSync(latestPath, JSON.stringify(manifest, null, 2));
-    process.stdout.write(`${JSON.stringify({ manifestPath, status: manifest.status }, null, 2)}\n`);
+    fs.writeFileSync(latestPath, JSON.stringify(resultManifest, null, 2));
+    process.stdout.write(`${JSON.stringify({ manifestPath, status: resultManifest.status }, null, 2)}\n`);
   }
 
-  return manifest;
+  return resultManifest;
 }
 
 function runCli() {
@@ -232,7 +293,7 @@ if (require.main === module) {
   try {
     runCli();
   } catch (error) {
-    process.stderr.write(`Production backup failed: ${error instanceof Error ? error.message : 'Unknown error'}\n`);
+    process.stderr.write('Production backup failed.\n');
     process.exitCode = 1;
   }
 }

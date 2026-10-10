@@ -142,12 +142,43 @@ export class DepositCoreService {
       const replay = await this.getReplay(tx, tenantId, command.idempotencyKey, command.requestHash);
       if (replay) return replay;
       await this.lockRoom(tx, tenantId, command.input.roomId);
+      // Room-first ordering is shared with approval/activation flows. The
+      // customer row is then serialized before any cycle/deposit/projection
+      // writes so two concurrent holds cannot silently move one resident.
+      await this.lockCustomer(tx, tenantId, command.input.customerId);
 
       const customer = await tx.customer.findFirst({
         where: { id: command.input.customerId, tenantId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, roomId: true },
       });
       if (!customer) throw new BadRequestException('CUSTOMER_NOT_FOUND');
+
+      if (customer.roomId && customer.roomId !== command.input.roomId) {
+        throw new ConflictException('DEPOSIT_CUSTOMER_ALREADY_BOUND');
+      }
+      const openOccupancyCount = await tx.occupancy.count({
+            where: {
+              tenantId,
+              customerId: command.input.customerId,
+              roomId: { not: command.input.roomId },
+              leftAt: null,
+            },
+          });
+      if (openOccupancyCount > 0) {
+        throw new ConflictException('DEPOSIT_CUSTOMER_ALREADY_OCCUPIED');
+      }
+      const activeContractCount = await tx.contract.count({
+            where: {
+              tenantId,
+              customerId: command.input.customerId,
+              roomId: { not: command.input.roomId },
+              deletedAt: null,
+              status: { in: [ContractStatus.ACTIVE, ContractStatus.EXPIRING] },
+            },
+          });
+      if (activeContractCount > 0) {
+        throw new ConflictException('DEPOSIT_CUSTOMER_ACTIVE_CONTRACT');
+      }
 
       let rentalCycleId = command.input.rentalCycleId || null;
       let contractId = command.input.contractId || null;
@@ -1991,6 +2022,13 @@ export class DepositCoreService {
       Prisma.sql`SELECT "id" FROM "Room" WHERE "tenantId" = ${tenantId} AND "id" = ${roomId} AND "deletedAt" IS NULL FOR UPDATE`,
     ) as Array<{ id: string }>;
     if (!rows.length) throw new BadRequestException('ROOM_NOT_FOUND');
+  }
+
+  private async lockCustomer(tx: TransactionClient, tenantId: string, customerId: string) {
+    const rows = await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "Customer" WHERE "tenantId" = ${tenantId} AND "id" = ${customerId} AND "deletedAt" IS NULL FOR UPDATE`,
+    ) as Array<{ id: string }>;
+    if (!rows.length) throw new BadRequestException('CUSTOMER_NOT_FOUND');
   }
 
   private async lockContract(tx: TransactionClient, tenantId: string, contractId: string) {

@@ -155,6 +155,14 @@ describe('SystemUpdateService', () => {
     })).rejects.toThrow('không hợp lệ');
   });
 
+  it('fails closed for valid online restores instead of deleting financial rows', async () => {
+    const service = new SystemUpdateService({} as any);
+    await expect(service.restoreBackupSnapshot('user-1', 'tenant-1', {
+      snapshotId: 'snapshot-safe-id',
+      password: 'secret',
+    })).rejects.toThrow('đang bị khóa');
+  });
+
   it('detects a remote version and creates a non-destructive install job by default', async () => {
     const service = new SystemUpdateService();
 

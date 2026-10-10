@@ -588,7 +588,6 @@ export default function InvoiceCreateModal({
             fullName: newCustomerName.trim() || effectiveRecipient?.fullName || "Khách hàng",
             phone: newCustomerPhone.trim() || effectiveRecipient?.phone || "",
             citizenId: newCustomerCitizenId.trim() || undefined,
-            status: "ACTIVE",
             roomId: selectedRoomId,
           });
           const cData = (createCustRes as any)?.data || createCustRes;

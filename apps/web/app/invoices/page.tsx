@@ -39,7 +39,11 @@ import { depositAdapter } from "@/lib/adapters/deposit.adapter";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import InvoiceCreateModal, { InvoiceModalTab } from "@/components/invoices/InvoiceCreateModal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
-import { getBillingDocumentCashflow, getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
+import {
+  getInvoiceDocumentCounts,
+  getInvoiceFinancials,
+  getInvoiceOperationsSummary,
+} from "@/lib/invoices/invoice-financials";
 import { useDepositBillingDocumentsQuery, useInfiniteInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { invoicesApi } from "@/lib/api/invoices.api";
 import toast from "react-hot-toast";
@@ -296,8 +300,10 @@ export default function InvoicesPage() {
   const canReadDeposits = Boolean(user?.roles?.includes("ADMIN") || user?.permissions?.includes("deposit.read"));
   const visibleInvoiceIds = useMemo(() => invoiceItems.map((invoice) => invoice.id).filter(Boolean), [invoiceItems]);
   const depositDocuments = useDepositBillingDocumentsQuery(canReadDeposits, visibleInvoiceIds);
-  const isLoading = invoiceFeed.isLoading || (canReadDeposits && depositDocuments.isPending);
-  const isError = invoiceFeed.isError || (canReadDeposits && depositDocuments.isError);
+  // Deposit documents enrich the invoice window; their request must never
+  // blank or block the authoritative invoice feed.
+  const isLoading = invoiceFeed.isLoading;
+  const isError = invoiceFeed.isError;
 
   const billingGroups = useMemo(
     () =>
@@ -348,60 +354,17 @@ export default function InvoicesPage() {
     }
   };
 
-  // High-level financial KPIs
-  const summary = useMemo(() => {
-    let totalIncome = 0;
-    let paidIncome = 0;
-    let pendingAmount = 0;
-    let overdueAmount = 0;
-    let firstPaymentBundleTotal = 0;
-    let bundleCount = 0;
-
-    billingGroups.forEach((group) => {
-      if (group.linked) {
-        bundleCount += 1;
-        const bTotal = group.bundleData?.total ?? group.rows.reduce((s: number, r: any) => s + invoiceAmount(r), 0);
-        if (firstPaymentBundleTotal === 0) firstPaymentBundleTotal = bTotal;
-      }
-    });
-
-    invoices.forEach((inv: any) => {
-      const { direction } = getInvoiceTypeAndDirection(inv);
-      const cashflow = getBillingDocumentCashflow(inv, direction);
-      totalIncome += cashflow.totalIncome;
-      paidIncome += cashflow.paidIncome;
-      const rem = invoiceRemaining(inv);
-      if (inv.status === "OVERDUE") overdueAmount += rem;
-      else if (["DRAFT", "ISSUED", "PARTIALLY_PAID", "RECONCILIATION_PENDING"].includes(inv.status)) pendingAmount += rem;
-    });
-
-    // Provide default fallback values if empty so UI looks beautiful
-    const displayTotal = totalIncome > 0 ? totalIncome : 42066668;
-    const displayPaid = paidIncome > 0 ? paidIncome : 33066668;
-    const displayPending = pendingAmount > 0 ? pendingAmount : 9000000;
-    const recoveryRate = displayTotal > 0 ? (displayPaid / displayTotal) * 100 : 79;
-    const pendingRate = 100 - recoveryRate;
-
-    return {
-      totalIncome: displayTotal,
-      paidIncome: displayPaid,
-      pendingAmount: displayPending,
-      overdueAmount,
-      recoveryRate: Math.round(recoveryRate),
-      pendingRate: Math.round(pendingRate),
-      firstPaymentBundleTotal: firstPaymentBundleTotal > 0 ? firstPaymentBundleTotal : 7266667,
-      bundleCount: Math.max(1, bundleCount),
-      totalCount: Math.max(8, invoices.length),
-    };
-  }, [billingGroups, invoices]);
+  const summary = useMemo(
+    () => getInvoiceOperationsSummary(
+      invoices,
+      billingGroups,
+      (invoice) => getInvoiceTypeAndDirection(invoice).direction,
+    ),
+    [billingGroups, invoices],
+  );
 
   // Document Counts for Tab Pills
-  const counts = useMemo(() => {
-    const totalAll = invoices.length || 8;
-    const invoiceOnly = invoices.filter((i: any) => i.documentType !== "DEPOSIT").length || 5;
-    const depositOnly = invoices.filter((i: any) => i.documentType === "DEPOSIT").length || 3;
-    return { totalAll, invoiceOnly, depositOnly };
-  }, [invoices]);
+  const counts = useMemo(() => getInvoiceDocumentCounts(invoices), [invoices]);
 
   // Filtered Groups
   const visibleGroups = useMemo(() => {
@@ -598,7 +561,7 @@ export default function InvoicesPage() {
                   </div>
                   <div className="h-1.5" />
                   <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500 truncate">
-                    Trong {summary.totalCount} hóa đơn · {summary.bundleCount} đợt thanh toán
+                    Trong {summary.totalCount} chứng từ · {summary.bundleCount} đợt thanh toán
                   </p>
                 </div>
               </div>
@@ -1041,8 +1004,8 @@ function GroupBundleRow({
   const isFemale = cleanGender === "female" || cleanGender === "nu" || cleanGender === "nữ";
   const avatarUrl = getTenantAvatar(primary.customer?.avatar, customerName, customerGender);
   const { roomCode, buildingName } = invoiceRoom(primary);
-  const period = invoicePeriod(primary) !== "--" ? invoicePeriod(primary) : "2026-09";
-  const dueDate = primary.dueDate ? formatDate(primary.dueDate) : "29/09/2026";
+  const period = invoicePeriod(primary);
+  const dueDate = formatDate(primary.dueDate);
 
   return (
     <tr
@@ -1185,8 +1148,8 @@ function ChildVoucherRow({
   const total = invoiceAmount(row);
   const paid = invoicePaid(row);
   const remaining = invoiceRemaining(row);
-  const period = invoicePeriod(row) !== "--" ? invoicePeriod(row) : "2026-09";
-  const dueDate = row.dueDate ? formatDate(row.dueDate) : "29/09/2026";
+  const period = invoicePeriod(row);
+  const dueDate = formatDate(row.dueDate);
   const isDeduction = row.isDeduction || total < 0;
 
   // Derive badge type (Hóa đơn vs Phiếu cọc)
@@ -1241,7 +1204,7 @@ function ChildVoucherRow({
           <div>
             <div className="font-bold text-xs text-slate-700 dark:text-slate-300">{row.linkSubtype}</div>
             <div className="text-[11px] font-mono text-slate-400 dark:text-slate-500 truncate">
-              {row.linkedContractCode || "HD-THUE-PN 32-02"}
+              {row.linkedContractCode || "Chưa liên kết hợp đồng"}
             </div>
           </div>
         ) : (
@@ -1308,8 +1271,8 @@ function SingleInvoiceRow({
   const isFemale = cleanGender === "female" || cleanGender === "nu" || cleanGender === "nữ";
   const avatarUrl = getTenantAvatar(invoice.customer?.avatar, customerName, customerGender);
   const { roomCode, buildingName } = invoiceRoom(invoice);
-  const period = invoicePeriod(invoice) !== "--" ? invoicePeriod(invoice) : "2026-09";
-  const dueDate = invoice.dueDate ? formatDate(invoice.dueDate) : "29/09/2026";
+  const period = invoicePeriod(invoice);
+  const dueDate = formatDate(invoice.dueDate);
   const isDeposit = invoice.documentType === "DEPOSIT";
 
   return (

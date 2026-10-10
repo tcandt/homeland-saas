@@ -1,9 +1,14 @@
 import { ConflictException } from '@nestjs/common';
 import { DepositStatus, DepositType, RoomRentalType, RoomStatus } from '@prisma/client';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DepositCoreService } from './deposit-core.service';
 
 describe('DepositCoreService', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-23T00:00:00.000Z'));
+  });
+  afterEach(() => vi.useRealTimers());
   function createHarness() {
     const tx: any = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'room-1' }]),
@@ -677,10 +682,39 @@ describe('DepositCoreService', () => {
       contractId: 'contract-1', type: DepositType.SECURITY, amount: 1_000_000,
     }, 'user-1');
 
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(4);
     expect(tx.contract.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: 'contract-1', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'customer-1' }),
     }));
+  });
+
+  it('rejects a deposit that would silently move a customer bound to another room', async () => {
+    const { tx, service } = createHarness();
+    tx.customer.findFirst.mockResolvedValue({ id: 'customer-1', roomId: 'room-2' });
+
+    await expect(service.create('tenant-1', {
+      idempotencyKey: 'cross-room-customer-guard',
+      roomId: 'room-1',
+      customerId: 'customer-1',
+      type: DepositType.BOOKING,
+      amount: 1_000_000,
+    }, 'user-1')).rejects.toThrow('DEPOSIT_CUSTOMER_ALREADY_BOUND');
+    expect(tx.deposit.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a deposit when an active contract still binds the customer elsewhere', async () => {
+    const { tx, service } = createHarness();
+    tx.customer.findFirst.mockResolvedValue({ id: 'customer-1', roomId: null });
+    tx.contract.count.mockResolvedValue(1);
+
+    await expect(service.create('tenant-1', {
+      idempotencyKey: 'active-contract-customer-guard',
+      roomId: 'room-1',
+      customerId: 'customer-1',
+      type: DepositType.BOOKING,
+      amount: 1_000_000,
+    }, 'user-1')).rejects.toThrow('DEPOSIT_CUSTOMER_ACTIVE_CONTRACT');
+    expect(tx.deposit.create).not.toHaveBeenCalled();
   });
 
   it('replays an idempotent deposit create without writing a second deposit', async () => {

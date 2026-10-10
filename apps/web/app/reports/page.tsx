@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -34,6 +34,7 @@ import {
   useReceivableAgingReportQuery,
   useRevenueByBuildingReportQuery,
 } from "@/lib/queries/reports.queries";
+import { getVietnamCurrentMonth, getVietnamMonthBounds } from "@/lib/utils/report-period";
 
 function formatVnd(value: number) {
   return `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(value || 0)} đ`;
@@ -52,10 +53,13 @@ function formatCompactVnd(value: number) {
 const PIE_COLORS = ["#6366f1", "#10b981", "#0ea5e9", "#f59e0b", "#ec4899", "#8b5cf6", "#14b8a6"];
 
 export default function ReportsPage() {
+  const [period, setPeriod] = useState(getVietnamCurrentMonth);
+  const periodBounds = getVietnamMonthBounds(period);
+  const reportParams = useMemo(() => ({ ...period, ...periodBounds }), [period, periodBounds.startDate, periodBounds.endDate]);
   const dashboardQuery = useDashboardQuery();
-  const revenueHistoryQuery = useProfitLossHistoryReportQuery();
-  const revenueByBuildingQuery = useRevenueByBuildingReportQuery();
-  const receivableAgingQuery = useReceivableAgingReportQuery();
+  const revenueHistoryQuery = useProfitLossHistoryReportQuery(reportParams);
+  const revenueByBuildingQuery = useRevenueByBuildingReportQuery(reportParams);
+  const receivableAgingQuery = useReceivableAgingReportQuery(reportParams);
 
   const dashboard = dashboardQuery.data;
   const revenueHistory = Array.isArray(revenueHistoryQuery.data) ? revenueHistoryQuery.data : [];
@@ -75,22 +79,25 @@ export default function ReportsPage() {
   const summary = useMemo(() => {
     const totals = revenueByBuilding.reduce(
       (result, row) => {
-        result.totalRevenue += Number(row.totalAmount || 0);
+        result.totalRevenue += Number(row.operatingRevenueAmount ?? row.totalAmount ?? 0);
+        result.invoicedTotal += Number(row.totalAmount || 0);
         result.collected += Number(row.paidAmount || 0);
         result.settled += Number(row.paidAmount || 0) + Number(row.creditAmount || 0);
         result.debt += Number(row.remainingAmount || 0);
         result.invoiceCount += Number(row.invoiceCount || 0);
         return result;
       },
-      { totalRevenue: 0, collected: 0, settled: 0, debt: 0, invoiceCount: 0 }
+      { totalRevenue: 0, invoicedTotal: 0, collected: 0, settled: 0, debt: 0, invoiceCount: 0 }
     );
     const totalRooms = Number(dashboard?.occupancy?.totalRooms || 0);
     const occupiedRooms = Number(dashboard?.occupancy?.occupiedRooms || 0);
     const occupancyRate = totalRooms
       ? (occupiedRooms / totalRooms) * 100
       : Number(dashboard?.occupancy?.rate || 0);
-    const recoveryRate = totals.totalRevenue ? (totals.collected / totals.totalRevenue) * 100 : 0;
+    const recoveryRate = totals.invoicedTotal ? (totals.collected / totals.invoicedTotal) * 100 : 0;
     const revPar = totalRooms ? Math.round(totals.totalRevenue / totalRooms) : 0;
+    // Aging is the current open balance across all periods, not just new invoices.
+    totals.debt = receivableAging.reduce((sum, row) => sum + Number(row.remainingAmount || 0), 0);
 
     return {
       ...totals,
@@ -150,7 +157,7 @@ export default function ReportsPage() {
   const buildingRows = useMemo(() => {
     const grouped = new Map<
       string,
-      { code: string; name: string; totalRooms: number; occupiedRooms: number; revenue: number; collected: number; debt: number }
+      { code: string; name: string; totalRooms: number; occupiedRooms: number; revenue: number; invoicedTotal: number; collected: number; debt: number }
     >();
 
     buildingHealth.forEach((building: any) => {
@@ -161,6 +168,7 @@ export default function ReportsPage() {
         totalRooms: Number(building.rooms || 0),
         occupiedRooms: Number(building.occupied || 0),
         revenue: 0,
+        invoicedTotal: 0,
         collected: 0,
         debt: 0,
       });
@@ -175,22 +183,33 @@ export default function ReportsPage() {
           totalRooms: 0,
           occupiedRooms: 0,
           revenue: 0,
+          invoicedTotal: 0,
           collected: 0,
           debt: 0,
         });
       }
       const target = grouped.get(bKey)!;
-      target.revenue += Number(row.totalAmount || 0);
+      target.revenue += Number(row.operatingRevenueAmount ?? row.totalAmount ?? 0);
+      target.invoicedTotal += Number(row.totalAmount || 0);
       target.collected += Number(row.paidAmount || 0);
+    });
+
+    receivableAging.forEach((row) => {
+      const key = row.buildingCode || row.buildingId || row.buildingName || "Chưa rõ";
+      const target = grouped.get(key) || {
+        code: key, name: row.buildingName || key, totalRooms: 0,
+        occupiedRooms: 0, revenue: 0, invoicedTotal: 0, collected: 0, debt: 0,
+      };
       target.debt += Number(row.remainingAmount || 0);
+      grouped.set(key, target);
     });
 
     const list = Array.from(grouped.values()).filter(
-      (row) => row.revenue > 0 || row.totalRooms > 0
+      (row) => row.revenue > 0 || row.totalRooms > 0 || row.debt > 0
     );
 
     return list.sort((a, b) => b.revenue - a.revenue);
-  }, [buildingHealth, revenueByBuilding]);
+  }, [buildingHealth, revenueByBuilding, receivableAging]);
 
   const debtRows = useMemo(() => {
     return receivableAging
@@ -215,9 +234,34 @@ export default function ReportsPage() {
       .slice(0, 10);
   }, [receivableAging]);
 
+  if (dashboardQuery.isError || revenueHistoryQuery.isError || revenueByBuildingQuery.isError || receivableAgingQuery.isError) {
+    return <AppShell><div role="alert" className="rounded-xl border border-border bg-card p-4">
+      <p>Không tải được báo cáo. Số liệu chưa xác định, không phải bằng 0.</p>
+      <button type="button" className="mt-2 text-primary" onClick={() => {
+        void Promise.all([dashboardQuery.refetch(), revenueHistoryQuery.refetch(), revenueByBuildingQuery.refetch(), receivableAgingQuery.refetch()]);
+      }}>Thử lại</button>
+    </div></AppShell>;
+  }
+
   return (
     <AppShell>
       <div data-testid="reports-root" className="flex flex-col gap-3.5 pb-10">
+        <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+          <label htmlFor="reports-period">Kỳ báo cáo</label>
+          <input
+            id="reports-period"
+            type="month"
+            min="0100-01"
+            max="9998-12"
+            value={`${period.year}-${String(period.month).padStart(2, "0")}`}
+            onChange={(event) => {
+              const [year, month] = event.target.value.split("-").map(Number);
+              if (Number.isInteger(year) && year >= 100 && year <= 9998 && month >= 1 && month <= 12) setPeriod({ year, month });
+            }}
+            className="rounded-md border border-border bg-card px-2 py-1 text-foreground"
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">Doanh thu hóa đơn kỳ đã chọn không gồm cọc. Đã thu/tỷ lệ thu là số đã thanh toán trên các hóa đơn đó, gồm cọc nếu hóa đơn hỗn hợp; không phải dòng tiền phát sinh riêng trong tháng. Công nợ tồn và phòng/hợp đồng là số liệu hiện tại, gồm nợ kỳ trước.</p>
         {/* 1. 6 SLIM LUXURY KPI METRIC CARDS (AGGREGATED ACROSS ALL 4 BUILDINGS) */}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5">
           {/* Total Revenue */}
@@ -501,7 +545,7 @@ export default function ReportsPage() {
                   </tr>
                 ) : (
                   buildingRows.map((row) => {
-                    const recovery = row.revenue > 0 ? Math.round((row.collected / row.revenue) * 100) : 0;
+                    const recovery = row.invoicedTotal > 0 ? Math.round((row.collected / row.invoicedTotal) * 100) : 0;
                     const occRate = row.totalRooms > 0 ? Math.round((row.occupiedRooms / row.totalRooms) * 100) : 0;
                     return (
                       <tr key={row.code} className="hover:bg-muted/10 transition-colors">

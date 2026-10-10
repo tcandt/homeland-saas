@@ -20,6 +20,7 @@ import { RequirePermissions } from "../shared/decorators/require-permissions.dec
 import { CurrentUser } from "../shared/decorators/current-user.decorator";
 import {
   CreateContractSchema,
+  CreateBookingHoldSchema,
   UpdateContractSchema,
   PaginationSchema,
   ContractSettlementInputSchema,
@@ -158,6 +159,27 @@ export class ContractsController {
       coRepresentativeIds: input.coRepresentativeIds || [],
     };
     return this.contractsService.create(data, userId, "Contracts");
+  }
+
+  @Post("booking-hold")
+  @RequirePermissions(
+    "contract.create",
+    "deposit.create",
+    "invoice.create",
+    "invoice.update",
+    "invoice.read",
+  )
+  @ApiOperation({ summary: "Create or resume a booking-hold aggregate" })
+  createBookingHold(
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+  ) {
+    return this.contractsService.createBookingHold(
+      CreateBookingHoldSchema.parse(body),
+      userId,
+      tenantId,
+    );
   }
 
   @Post(":id/renew")

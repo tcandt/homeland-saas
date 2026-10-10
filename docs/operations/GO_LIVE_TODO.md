@@ -45,7 +45,7 @@ Mỗi mục chỉ được đổi sang `[x]` khi đủ `Definition of Done` và 
 |---|---|---|---|
 | `SCP-01` | `DEFERRED (OWNER)` | P11/P12 dùng fixture Hunonic mock có provenance để kiểm thử phần mềm. Không thực hiện UAT provider Hunonic trong đợt này. | Owner sẽ kiểm chứng Hunonic thủ công sau. Khi mở lại phải chạy `HUN-01..07` với provider thật; mock không được ghi là bằng chứng provider, giá điện thực tế hoặc production billing. |
 | `SCP-02` | `DEFERRED (OWNER)` | Không triển khai/nghiệm thu upload ảnh hoặc chứng từ khách chuyển khoản để FIN xác nhận thủ công trong đợt này. | Owner sẽ upload và kiểm thử thủ công sau. Không được bypass automatic SePay matching, `NEEDS_REVIEW`, tenant scope, ledger, allocation, idempotency hoặc audit. |
-| `SCP-03` | `DEFERRED (OWNER)` | Dừng phát triển backup/restore/rollback và nâng phiên bản cho tới đợt sau. P19 chỉ giữ evidence local hiện có. | Mở lại `BKP-*`, `STG-05`, `CORE-10.07` và `SEC-02` trước production release. Đây không cho phép production GO; `LIVE NO-GO` giữ nguyên. |
+| `SCP-03` | `REOPENED (OWNER) — LOCAL IN PROGRESS` | Owner xác nhận ngày 10/10/2026: phát triển Backup/Restore/Rollback và sửa lỗi deploy trên local với Docker Desktop; hoàn tất mới commit phiên bản ứng dụng mới và kiểm chứng CI/CD. Target phát hành là NAS Synology Container Manager qua QuickConnect. | Mở lại `BKP-*`, `STG-05`, `CORE-10.07` cho đợt sửa này. Không tác động NAS/production, không apply migration/data repair production; phát hành phải qua gate và duyệt riêng. Không tự nâng Node/dependency/platform (`SEC-02` vẫn giữ giới hạn). `LIVE NO-GO` giữ nguyên. |
 
 ## Big Update — TODO triển khai vòng đời thuê cốt lõi
 
@@ -204,8 +204,12 @@ Quy tắc bắt buộc sau hợp nhất: mọi kết quả DEV2 cũ được xem
 - [ ] `CORE-10.05` Dual-read/reconciliation và feature flag theo tenant/tòa nhà trước khi đổi source of truth.
 - [ ] `CORE-10.06` Staging UAT OPS/FIN/SALES/OWNER ký duyệt; không còn P0/P1 cốt lõi.
 - [ ] `CORE-10.07` Backup pre-cutover, immutable release, smoke, monitoring, GO/NO-GO và rollback drill.
+  - `OWNER REOPEN` 10/10/2026: phát triển và diễn tập Backup/Restore/Rollback trên local Docker Desktop đã được duyệt; sửa B01–B12 với kỳ mặc định là tháng hiện tại GMT+7. NAS Synology/Container Manager là target phát hành, chưa được phép thao tác trong đợt local. Giữ dirty working tree; commit/bump phiên bản chỉ sau khi phạm vi hoàn chỉnh và qua review/test gate. CI/CD phải chặn deploy tự động không được duyệt; evidence local không thay thế production GO.
+  - `LOCAL DEPENDENCY CHECKPOINT — FINAL GATE OPEN` 10/10/2026: owner đã duyệt và triển khai local Nodemailer10.0.6, QR0.1.5/0.21.3 và Web ESLint9; CI22/API Docker22/Web Docker20 giữ nguyên. Runtime audit từ high17/critical3 về high0/critical0, còn low1/moderate28 được báo nguyên trạng; dev-inclusive audit còn high16 cần triage cuối. Cài sạch và affected checks trong Docker PASS; riêng test giờ hóa đơn từng fail dưới UTC đã sửa GMT+7 và rerun PASS. Đây không phải release image/full regression sign-off. Chi tiết lock-resolution, một lần writer dùng force đã bị dừng và evidence: `VPS_REPAIR_LOCAL_2026-10-10.md`. Không bump/commit phát hành khi toàn bộ gate chưa đạt.
+  - Booking hold frontend đã dùng command canonical + durable intent scoped tenant/user/room/customer, fail-closed khi payload/storage/coordination bất thường, không optimistic `deposited`, invalidate liên quan và không claim QR khi payment request lỗi. Legacy online JSON restore đã khóa fail-closed sau validate snapshot; full PostgreSQL+storage backup/checksum, isolated restore và rollback drill vẫn mở.
+  - `LOCAL CONTINUATION — GATE OPEN` 10/10/2026: actual Web20 Docker build/login smoke PASS; backup safety review sau hai finding đã PASS cho isolated drill; bounded script/CI suite59/59 và PostgreSQL16 restore rehearsal76 tables/32 migrations/0 tenants PASS, storage chỉ một fixture synthetic, chưa off-host thật/app rollback. Booking customer guard unit43/43 và5 real DB cases PASS nhưng independent review vẫn BLOCK vì split-stage orphan/race và maintenance/cleaning room guard. Real DB phát hiện BOOKING_HOLD bị CHECK constraint từ chối; migration forward mới đã thử trên DB repair riêng, final review/deploy/status còn mở. Không bump/commit/push/NAS; xem `VPS_REPAIR_LOCAL_2026-10-10.md` để phân biệt evidence và gap.
   - `LOCAL EVIDENCE` 26/09/2026: guardrail suite cho preflight/backup/restore/rollback PASS 82/82. Rehearsal PostgreSQL cô lập tạo dump có checksum từ database test và restore sang target test được xác nhận tên; `pg_restore --list`, restore và Prisma migration status PASS 10/10. Windows launcher đã chạy Prisma entrypoint trực tiếp, không dùng shell. Storage bị skip, không có off-host copy, rollback/alert/on-call production-like chưa diễn tập.
-  - Theo `SCP-03`, P19/`CORE-10.07` được `DEFERRED (OWNER)` sang đợt phát triển kế tiếp, gồm backup/restore/rollback và nâng phiên bản. Evidence local được giữ để mở lại, không được dùng làm production evidence hoặc nâng trạng thái release; P20 tiếp tục `LIVE NO-GO`.
+  - Quyết định lịch sử 26/09/2026: P19/`CORE-10.07` từng được `DEFERRED (OWNER)`. Quyết định 10/10/2026 ở trên mở lại phần phát triển local; evidence cũ vẫn không được dùng làm production evidence hoặc nâng trạng thái release. P20 tiếp tục `LIVE NO-GO`.
 - [ ] `CORE-10.08` Hypercare đối soát tiền/điện/phòng trong 24 giờ, 7 ngày và đóng Big Update.
 
 ### Phase tiếp theo — chưa nằm trên critical path Big Update
@@ -311,7 +315,7 @@ Thực hiện theo thứ tự. Một phase không được coi là đạt nếu 
 
 ## 7. P0 - Dữ liệu, backup và restore
 
-> `SCP-03`: `BKP-01..04`, `DAT-05` phụ thuộc backup và `STG-05` được giữ nguyên checklist nhưng tạm hoãn sang đợt sau. Không tick `[x]`, không dùng local drill làm production evidence và không mở traffic khi các mục này còn deferred.
+> `SCP-03` cập nhật 10/10/2026: owner đã mở lại phát triển/diễn tập local `BKP-01..04`, `DAT-05` phụ thuộc backup và `STG-05`. Checklist vẫn mở; không dùng local drill làm production evidence, không tác động NAS/production hoặc mở traffic khi chưa đạt gate và có duyệt cutover riêng.
 
 | ID | Trạng thái | Owner | Dependency | Việc cần làm | Definition of Done / bằng chứng |
 |---|---|---|---|---|---|
@@ -494,9 +498,9 @@ Không mở hoặc phải dừng LIVE khi có một trong các điều kiện:
 ## 19. Việc cần làm ngay tiếp theo
 
 1. Gán người thật cho `GOV-01` và chốt quyền truy cập GitHub Actions.
-2. Giữ nguyên Node/dependency/platform theo `SCP-03`; không nâng phiên bản cho tới đợt sau.
+2. Giữ nguyên Node/runtime của Docker/NAS. Ngoại lệ owner duyệt 10/10/2026: CI chuyển Node20→22; API Docker22/Web Docker20 không đổi. Owner sau đó duyệt vá thư viện bảo mật/QR tối thiểu trên local; mọi thay đổi major cần xin duyệt riêng, không tự nâng framework/platform. Cần kiểm chứng riêng ảnh Web20 ở release gate, không coi CI22 là bằng chứng đồng nhất runtime.
 3. Mở run CI mới nhất và lấy artifact audit để thực hiện `SEC-01`, `SEC-03`.
 4. Không chạy Hunonic provider UAT trong đợt này theo `SCP-01`; duy trì fixture mock có provenance.
 5. Chọn hạ tầng/domain/secret manager, thực hiện `INF-01..09`.
 6. Deploy staging immutable, baseline DB và chạy full gate `STG-01..05`.
-7. Sau đó chạy nghiệm thu SePay/notification/UAT không thuộc phạm vi deferred; Hunonic provider và backup/restore chỉ mở lại theo `SCP-01`/`SCP-03`.
+7. Backup/restore/rollback đã mở lại cho phát triển và diễn tập local theo `SCP-03` ngày 10/10/2026. SePay/notification/UAT production cần duyệt và môi trường riêng; Hunonic provider thật vẫn deferred theo `SCP-01`.

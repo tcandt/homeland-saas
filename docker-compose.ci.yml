@@ -1,0 +1,32 @@
+# Disposable test services only. Never include the application/production stack.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: homeland
+      POSTGRES_PASSWORD: homeland123
+      POSTGRES_DB: homeland
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - ci-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homeland -d homeland"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    labels:
+      homeland.scope: disposable-ci
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6385:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    labels:
+      homeland.scope: disposable-ci
+volumes:
+  ci-postgres:

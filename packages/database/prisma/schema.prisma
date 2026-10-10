@@ -465,6 +465,7 @@ model Customer {
   roomId         String?
   room           Room?     @relation("RoomRoommates", fields: [roomId], references: [id])
   relationship   String?
+  notes          String?
   idImages       String[]  @default([])
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

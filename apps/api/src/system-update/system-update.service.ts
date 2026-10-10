@@ -474,6 +474,10 @@ export class SystemUpdateService {
       throw new BadRequestException('Vui lòng chọn bản sao lưu snapshot cần khôi phục');
     }
     assertBackupSnapshotId(body.snapshotId);
+    // Online row-by-row restore is intentionally fail-closed. It cannot
+    // restore the full relational database/storage atomically and is unsafe
+    // for financial data. Use the reviewed disposable restore runner instead.
+    throw new BadRequestException('Khôi phục trực tiếp trên hệ thống đang bị khóa; cần chạy quy trình restore cô lập đã xác minh.');
     if (!body?.password) {
       throw new BadRequestException('Vui lòng nhập mật khẩu quản trị viên để xác nhận');
     }

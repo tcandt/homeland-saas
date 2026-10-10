@@ -48,6 +48,34 @@ export type AddWholeRoomOccupantPayload = {
   relationship?: string | null;
 };
 
+export type CreateBookingHoldPayload = {
+  idempotencyKey: string;
+  customerId: string;
+  roomId: string;
+  contractCode?: string;
+  startDate: string;
+  endDate: string;
+  firstPaymentDate?: string | null;
+  rentAmount: number;
+  contractDepositAmount: number;
+  bookingAmount: number;
+  memberCount: number;
+  purpose?: string | null;
+  expiredAt?: string | null;
+  note?: string | null;
+};
+
+export type CreateBookingHoldResult = {
+  commandKey: string;
+  requestHash: string;
+  replayed: boolean;
+  contract: any;
+  deposit: any;
+  invoice: any;
+  paymentRequest: any | null;
+  paymentRequestError: string | null;
+};
+
 export type RenewContractPayload = {
   startDate: string;
   endDate: string;
@@ -90,6 +118,15 @@ export const contractsApi = {
 
   create: (data: any) => {
     return apiClient.post("/contracts", data);
+  },
+
+  createBookingHold: (payload: CreateBookingHoldPayload) => {
+    const commandKey = requireIdempotencyKey(payload.idempotencyKey);
+    return apiClient.post<CreateBookingHoldResult>(
+      "/contracts/booking-hold",
+      { ...payload, idempotencyKey: commandKey },
+      { headers: { "Idempotency-Key": commandKey } },
+    );
   },
 
   convertBookingHold: (id: string, data: any, idempotencyKey: string) => {

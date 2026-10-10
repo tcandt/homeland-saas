@@ -79,6 +79,8 @@ export class CustomersController {
       emergencyPhone: input.emergencyPhone,
       roomId: input.roomId,
       relationship: input.relationship,
+      notes: input.notes,
+      idImages: input.idImages,
     };
     if (idempotencyKey) {
       return this.customersService.createIdempotent(tenantId, userId, data, idempotencyKey);
@@ -105,6 +107,7 @@ export class CustomersController {
       ...(input.emergencyPhone !== undefined && { emergencyPhone: input.emergencyPhone }),
       ...(input.roomId !== undefined && { roomId: input.roomId }),
       ...(input.relationship !== undefined && { relationship: input.relationship }),
+      ...(input.notes !== undefined && { notes: input.notes }),
       ...(input.idImages !== undefined && { idImages: input.idImages }),
     };
     return this.customersService.update(id, data, userId, 'Customers');

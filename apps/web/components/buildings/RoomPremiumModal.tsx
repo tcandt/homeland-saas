@@ -85,7 +85,11 @@ import { depositsApi } from "@/lib/api/deposits.api";
 import { invoicesApi } from "@/lib/api/invoices.api";
 import { paymentsApi } from "@/lib/api/payments.api";
 import { hunonicApi } from "@/lib/api/hunonic.api";
-import { buildRoomBookingIdempotencyKey } from "@/lib/rentals/rental-intent-context";
+import {
+  getOrCreateBookingHoldIntent,
+  markBookingHoldIntentAccepted,
+} from "@/lib/rentals/booking-hold-intent";
+import { useAuthStore } from "@/lib/auth/auth-store";
 import { getWholeRoomOccupantCommandPreflightError } from "@/lib/rentals/whole-room-occupant-guard";
 import { getAuthorizationHeader } from "@/lib/auth/auth-header";
 import { getRoomDisplayName } from "./building-labels";
@@ -2283,7 +2287,6 @@ export default function RoomPremiumModal({
         zaloChatId: tenantDraft.zaloChatId?.trim() || null,
         zaloUserId: tenantDraft.zaloUserId?.trim() || null,
         notes: tenantDraft.notes?.trim() || null,
-        status: "ACTIVE",
         roomId:
           !isContractRepresentative && !requiresWholeRoomOccupancyCommand
             ? roomId
@@ -2476,47 +2479,30 @@ export default function RoomPremiumModal({
             queryClient.invalidateQueries({ queryKey: ["deposits"] }),
             queryClient.invalidateQueries({ queryKey: ["invoices"] }),
             queryClient.invalidateQueries({ queryKey: ["room-finance-summary", roomContext.roomId] }),
+            queryClient.invalidateQueries({ queryKey: ["rental-cycle-finance-summary"] }),
+            queryClient.invalidateQueries({ queryKey: ["finance"] }),
+            queryClient.invalidateQueries({ queryKey: ["monthly-settlement"] }),
+            queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+            queryClient.invalidateQueries({ queryKey: ["reports"] }),
           ]);
-          setRoomData((prev) => {
-            if (!prev) return prev;
-            const bookingTenant = {
-              ...savedTenantInfo,
-              role: "Đặt cọc giữ phòng",
-              rentalStatus: "BOOKING_HOLD",
-              isBookingHold: true,
-              isRep: false,
-              deposit: Number(contractDraft.tienCoc.replace(/\D/g, "")) || 0,
-              rentPrice: Number(contractDraft.tienThue.replace(/\D/g, "")) || Number(roomData?.monthlyPrice || 0),
-              contractDeposit: Number(contractDraft.tienCocHopDong.replace(/\D/g, "")) || 0,
-              startDate: contractDraft.ngayBatDau || getLocalYMD(),
-              endDate: contractDraft.ngayBatDau || getLocalYMD(),
-              contractId: bookingResult?.contract?.id || "",
-              contractCode: bookingResult?.contract?.code || "",
-              depositId: bookingResult?.deposit?.id || "",
-              depositCode: bookingResult?.deposit?.code || "",
-            } as any;
-            const sharedTenants = [...(prev.sharedTenants || [])];
-            const existingIdx = sharedTenants.findIndex((item: any) => item.id === customerId);
-            if (existingIdx >= 0) {
-              sharedTenants[existingIdx] = { ...sharedTenants[existingIdx], ...bookingTenant };
-            } else {
-              sharedTenants.push(bookingTenant);
-            }
-            return {
-              ...prev,
-              status: "deposited",
-              sharedTenants,
-            };
-          });
+          if (
+            tenantSelectionContext.current.generation !== expectedGeneration ||
+            tenantSelectionContext.current.roomId !== roomContext.roomId
+          ) {
+            showToast("Đã tạo cọc giữ chỗ. Ngữ cảnh phòng đã thay đổi, vui lòng tải lại phòng để xem.", "info");
+            return;
+          }
           setActiveTab("finances");
           showToast(
-            bookingResult?.contract
-              ? "Đã tạo cọc giữ chỗ, hợp đồng cọc, hóa đơn và QR thanh toán."
-              : "Đã tạo cọc giữ chỗ và QR thanh toán.",
-            "success",
+            bookingResult?.paymentRequest
+              ? "Đã tạo cọc giữ chỗ, hợp đồng cọc, hóa đơn và yêu cầu thanh toán QR."
+              : bookingResult?.paymentRequestError
+                ? "Đã tạo cọc giữ chỗ, hợp đồng cọc và hóa đơn; chưa tạo được yêu cầu thanh toán, bạn có thể thử lại."
+                : "Đã tạo cọc giữ chỗ, hợp đồng cọc và hóa đơn.",
+            bookingResult?.paymentRequest ? "success" : "info",
           );
-          if (!beginZaloWaitingIfNeeded(customerId, bookingResult?.invoiceId || null)) {
-            closeTenantModal(true);
+          if (bookingResult?.paymentRequest) {
+            beginZaloWaitingIfNeeded(customerId, bookingResult?.invoice?.id || null);
           }
           return;
         }
@@ -2923,6 +2909,12 @@ export default function RoomPremiumModal({
       }
     } catch (error) {
       console.error("Error in commitTenantDraft:", error);
+      showToast(
+        error instanceof Error && error.message.startsWith("BOOKING_INTENT_")
+          ? "Không thể tiếp tục lệnh cọc giữ phòng an toàn. Vui lòng giữ nguyên thông tin để thử lại."
+          : "Không thể hoàn tất thao tác. Vui lòng thử lại.",
+        "error",
+      );
     } finally {
       setIsExporting(false);
     }
@@ -3318,8 +3310,6 @@ export default function RoomPremiumModal({
       generation?: number;
     },
   ) => {
-    const bookingGeneration =
-      roomContext.generation ?? tenantSelectionContext.current.generation;
     const amount = parseMoney(
       contractDraft.tienCoc,
       Math.min(Number(roomData?.monthlyPrice || 0), 2_000_000) || 1_000_000,
@@ -3331,70 +3321,48 @@ export default function RoomPremiumModal({
     const bookingContractDeposit = parseMoney(contractDraft.tienCocHopDong, 0);
     const expectedMoveInDate = normalizeStrictYmdDate(contractDraft.ngayBatDau) || getLocalYMD();
     const startDate = expectedMoveInDate;
-    const endDate = normalizeStrictYmdDate(contractDraft.ngayKetThuc) || expectedMoveInDate;
+    const endDate = normalizeStrictYmdDate(contractDraft.ngayKetThuc);
+    if (!endDate || endDate <= expectedMoveInDate) {
+      throw new Error("BOOKING_END_DATE_REQUIRED");
+    }
     const firstPaymentDate = normalizeStrictYmdDate(contractDraft.ngayThanhToanDauTien);
     const expectedMoveInDateText = formatYmdForVietnamDisplay(expectedMoveInDate);
-    const contractResponse: any = await contractsApi.create({
+    const user = useAuthStore.getState().user;
+    if (!user?.tenantId || !user.id) {
+      throw new Error("BOOKING_INTENT_AUTH_REQUIRED");
+    }
+    const intentScope = {
+      tenantId: user.tenantId,
+      userId: user.id,
+      roomId: roomContext.roomId,
+      customerId,
+    };
+    const intent = await getOrCreateBookingHoldIntent(intentScope, {
       customerId,
       roomId: roomContext.roomId,
-      contractCode: `HD-COC-${roomData?.code || roomData?.name || roomId}-${Date.now().toString().slice(-4)}`,
       startDate,
       endDate,
       firstPaymentDate: firstPaymentDate
         ? vietnamDateToIso(firstPaymentDate)
-        : new Date().toISOString(),
+        : vietnamDateToIso(startDate),
       rentAmount: bookingMonthlyRent,
-      depositAmount: amount,
+      contractDepositAmount: bookingContractDeposit,
+      bookingAmount: amount,
       memberCount: 1,
-      status: "DRAFT",
       purpose: `Hợp đồng cọc giữ phòng - dự kiến vào ở ngày ${expectedMoveInDateText} | Giá thuê: ${bookingMonthlyRent.toLocaleString("vi-VN")} đồng/tháng | Tiền cọc hợp đồng: ${bookingContractDeposit > 0 ? bookingContractDeposit.toLocaleString("vi-VN") : "........"} đồng | Các khoản phí khác: ........ đồng`,
-      coRepresentativeIds: [],
+      expiredAt: vietnamDateToIso(expectedMoveInDate, true),
+      note: `Tạo từ popup Khách thuê → Cọc giữ chỗ; dự kiến vào ở ngày ${expectedMoveInDateText}`,
     });
-    const contract = contractResponse?.data || contractResponse;
-    if (!contract?.id) throw new Error("Không thể tạo hợp đồng cọc giữ phòng.");
-
-    const depositResponse: any = await depositsApi.create(
-      {
-        code: `DC-GP-${roomData?.code || roomId.slice(-4)}-${Date.now().toString().slice(-4)}`,
-        type: "BOOKING",
-        roomId: roomContext.roomId,
-        customerId,
-        contractId: contract.id,
-        rentalCycleId: contract.rentalCycleId,
-        amount,
-        status: "PENDING",
-        expiredAt: expectedMoveInDate
-          ? vietnamDateToIso(expectedMoveInDate, true)
-          : undefined,
-        note: `Tạo từ popup Khách thuê → Cọc giữ chỗ; dự kiến vào ở ngày ${expectedMoveInDateText}`,
-      },
-      buildRoomBookingIdempotencyKey(roomContext.roomId, customerId, bookingGeneration),
-    );
-    const deposit = depositResponse?.data || depositResponse;
-
-    const invoiceResponse: any = await invoicesApi.create({
-      roomId: roomContext.roomId,
-      contractId: contract.id,
-      customerId,
-      rentalCycleId: contract.rentalCycleId || deposit?.rentalCycleId,
-      period: "Cọc giữ phòng",
-      dueDate: expectedMoveInDate ? vietnamDateToIso(expectedMoveInDate, true) : new Date().toISOString(),
-      totalAmount: amount,
-      paidAmount: 0,
-      notes: `Hóa đơn cọc giữ phòng • Dự kiến vào ở ${expectedMoveInDateText} • Deposit ${deposit?.code || deposit?.id || ""}`,
-      items: [{ name: "Tiền cọc giữ phòng", type: "RENT", amount, quantity: 1 }],
-    });
-    const invoice = invoiceResponse?.data || invoiceResponse;
-    if (invoice?.id) {
-      await invoicesApi.issue(invoice.id);
-      await paymentsApi.createInvoiceRequest(invoice.id);
+    const result = await contractsApi.createBookingHold(intent.command);
+    markBookingHoldIntentAccepted(intentScope, intent.command);
+    if (result?.paymentRequest && result?.invoice?.id) {
       try {
-        await paymentsApi.sendInvoiceToZalo(invoice.id);
+        await paymentsApi.sendInvoiceToZalo(result.invoice.id);
       } catch {
         showToast("Đã tạo QR hóa đơn cọc; khách chưa liên kết Bot Zalo nên cần gửi lại từ chi tiết hóa đơn.", "info");
       }
     }
-    return { contract, deposit, invoiceId: invoice?.id || null };
+    return result;
   };
 
   const createInitialInvoiceForContract = async (

@@ -32,17 +32,21 @@ export default defineConfig({
       },
     },
     ignoreSnapshots: !!process.env.CI,
-    // Homeland desktop-only validation baseline: minimum supported viewport is 1366×720.
+    // Homeland desktop-only validation baseline: large screens (1920, 1440, 1366).
     projects: [
       {
-              name: 'Desktop 1366',
-              use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 720 } },
+              name: 'Desktop 1920',
+              use: { ...devices['Desktop Chrome'], viewport: { width: 1920, height: 1080 } },
       },
       {
               name: 'Laptop 1440',
               use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
       },
-        ],
+      {
+              name: 'Desktop 1366',
+              use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 720 } },
+      },
+    ],
     webServer: process.env.VERIFY_PROD ? undefined : [
       {
               command: 'npm run start',

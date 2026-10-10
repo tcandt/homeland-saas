@@ -433,6 +433,8 @@ export class CustomersService extends BaseCrudService<Customer> {
       emergencyPhone: normalizeCustomerPhone(data.emergencyPhone) || null,
       roomId: String(data.roomId || '').trim() || null,
       relationship: String(data.relationship || '').trim() || null,
+      notes: String(data.notes || '').trim() || null,
+      idImages: Array.isArray(data.idImages) ? data.idImages.map((value: unknown) => String(value).trim()) : [],
     };
     return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
   }

@@ -1,5 +1,7 @@
 import { apiClient } from './client';
 
+export type FinanceExportParams = { startDate: string; endDate: string };
+
 export type ManualSePayAssignment = {
   logId: string;
   sourceType: 'INVOICE' | 'DEPOSIT';
@@ -96,16 +98,16 @@ export const financeApi = {
   updateExpenseSettlement: async (id: string, payload: { settlementStatus: string }) => {
     return await apiClient.patch<any>(`/finance/expenses/${id}/settlement`, payload);
   },
-  exportReport: async () => {
-    const response = await apiClient.get('/finance/export', { responseType: 'blob' } as any);
+  exportReport: async (params?: FinanceExportParams) => {
+    const response = await apiClient.get('/finance/export', { params, responseType: 'blob' } as any);
     return response;
   },
-  exportExcelReport: async () => {
-    const response = await apiClient.get('/finance/export.xlsx', { responseType: 'blob' } as any);
+  exportExcelReport: async (params?: FinanceExportParams) => {
+    const response = await apiClient.get('/finance/export.xlsx', { params, responseType: 'blob' } as any);
     return response;
   },
-  exportPdfReport: async () => {
-    const response = await apiClient.get('/finance/export.pdf', { responseType: 'blob' } as any);
+  exportPdfReport: async (params?: FinanceExportParams) => {
+    const response = await apiClient.get('/finance/export.pdf', { params, responseType: 'blob' } as any);
     return response;
   }
 };

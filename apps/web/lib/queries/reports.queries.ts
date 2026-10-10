@@ -1,15 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { reportsApi } from "../api/reports.api";
+import type { ReportPeriodParams } from "../api/reports.api";
 
 export const reportsKeys = {
   all: ["reports"] as const,
-  profitLossHistory: (params?: { months?: number; year?: number; month?: number }) =>
+  profitLossHistory: (params?: ReportPeriodParams) =>
     [...reportsKeys.all, "profit-loss-history", params ?? {}] as const,
-  revenueByBuilding: () => [...reportsKeys.all, "revenue-by-building"] as const,
-  receivableAging: () => [...reportsKeys.all, "receivable-aging"] as const,
+  revenueByBuilding: (params?: ReportPeriodParams) => [...reportsKeys.all, "revenue-by-building", params ?? {}] as const,
+  receivableAging: (params?: ReportPeriodParams) => [...reportsKeys.all, "receivable-aging", params ?? {}] as const,
 };
 
-export function useProfitLossHistoryReportQuery(params?: { months?: number; year?: number; month?: number }) {
+export function useProfitLossHistoryReportQuery(params?: ReportPeriodParams) {
   return useQuery({
     queryKey: reportsKeys.profitLossHistory(params),
     queryFn: async () => {
@@ -20,18 +21,18 @@ export function useProfitLossHistoryReportQuery(params?: { months?: number; year
   });
 }
 
-export function useRevenueByBuildingReportQuery() {
+export function useRevenueByBuildingReportQuery(params?: ReportPeriodParams) {
   return useQuery({
-    queryKey: reportsKeys.revenueByBuilding(),
-    queryFn: reportsApi.getRevenueByBuilding,
+    queryKey: reportsKeys.revenueByBuilding(params),
+    queryFn: () => reportsApi.getRevenueByBuilding(params),
     staleTime: 60 * 1000,
   });
 }
 
-export function useReceivableAgingReportQuery() {
+export function useReceivableAgingReportQuery(params?: ReportPeriodParams) {
   return useQuery({
-    queryKey: reportsKeys.receivableAging(),
-    queryFn: reportsApi.getReceivableAging,
+    queryKey: reportsKeys.receivableAging(params),
+    queryFn: () => reportsApi.getReceivableAging(params),
     staleTime: 60 * 1000,
   });
 }

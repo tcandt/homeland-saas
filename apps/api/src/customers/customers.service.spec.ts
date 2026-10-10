@@ -353,6 +353,14 @@ describe('CustomersService', () => {
       });
     });
 
+    it('treats identity images as part of the idempotent request fingerprint', () => {
+      const base = { fullName: 'Nguyen Van A', phone: '0901234567' };
+      expect((service as any).createRequestHash({ ...base, notes: 'VIP', idImages: ['front.jpg'] }))
+        .not.toBe((service as any).createRequestHash({ ...base, notes: 'VIP', idImages: ['back.jpg'] }));
+      expect((service as any).createRequestHash({ ...base, notes: 'VIP' }))
+        .not.toBe((service as any).createRequestHash({ ...base, notes: 'Other' }));
+    });
+
     it('allows the same canonical identifiers in another tenant', async () => {
       const foreignCustomer = {
         id: 'customer-b',

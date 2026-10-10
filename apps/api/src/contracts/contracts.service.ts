@@ -24,6 +24,7 @@ import {
   AddWholeRoomOccupantInput,
   ContractSettlementInput,
   ConvertBookingHoldInput,
+  CreateBookingHoldInput,
   MoveOutOccupantInput,
   PaginatedResult,
   RenewContractInput,
@@ -152,6 +153,265 @@ export class ContractsService extends BaseCrudService<Contract> {
       await this.syncContractDeposit(created);
     }
     return created;
+  }
+
+  /**
+   * Create the booking-hold aggregate as a resumable command.  The command is
+   * intentionally staged around the existing deposit/invoice cores: each
+   * stage has a deterministic key and the contract terms snapshot records the
+   * canonical ids.  A lost response therefore resumes the exact aggregate
+   * instead of issuing a second financial document.
+   */
+  async createBookingHold(
+    input: CreateBookingHoldInput,
+    userId: string,
+    tenantId: string,
+  ): Promise<any> {
+    if (!tenantId) throw new BadRequestException("BOOKING_TENANT_REQUIRED");
+    const commandKey = this.requireSettlementIdempotencyKey(input.idempotencyKey);
+    const startDate = new Date(input.startDate);
+    const endDate = new Date(input.endDate);
+    if (Number.isNaN(startDate.getTime())) throw new BadRequestException("BOOKING_START_DATE_INVALID");
+    if (Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+      throw new BadRequestException("BOOKING_END_DATE_INVALID");
+    }
+    const firstPaymentDate = input.firstPaymentDate == null
+      ? null
+      : new Date(input.firstPaymentDate);
+    if (firstPaymentDate && Number.isNaN(firstPaymentDate.getTime())) {
+      throw new BadRequestException("BOOKING_FIRST_PAYMENT_DATE_INVALID");
+    }
+    const expiredAt = input.expiredAt == null ? endDate : new Date(input.expiredAt);
+    if (Number.isNaN(expiredAt.getTime())) throw new BadRequestException("BOOKING_EXPIRY_INVALID");
+    const normalized = {
+      customerId: input.customerId,
+      roomId: input.roomId,
+      contractCode: input.contractCode || null,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      firstPaymentDate: firstPaymentDate?.toISOString() || null,
+      rentAmount: this.roundMoney(input.rentAmount),
+      contractDepositAmount: this.roundMoney(input.contractDepositAmount),
+      bookingAmount: this.roundMoney(input.bookingAmount),
+      memberCount: input.memberCount || 1,
+      purpose: input.purpose || null,
+      expiredAt: expiredAt.toISOString(),
+      note: input.note || null,
+    };
+    if (
+      [normalized.rentAmount, normalized.contractDepositAmount, normalized.bookingAmount]
+        .some((value) => !Number.isFinite(value) || value < 0) ||
+      normalized.bookingAmount <= 0
+    ) throw new BadRequestException("BOOKING_AMOUNT_INVALID");
+    const requestHash = this.hashSettlementRequest({ tenantId, commandKey, ...normalized });
+    const contractCode = normalized.contractCode || `HD-COC-${input.roomId.slice(-8).toUpperCase()}-${createHash("sha256").update(`${tenantId}:${commandKey}`).digest("hex").slice(0, 8).toUpperCase()}`;
+    // The deposit core accepts at most 128 characters, including its prefix.
+    const bookingDepositKey = `booking:${createHash("sha256").update(`${tenantId}:${commandKey}`).digest("hex")}:deposit`;
+
+    const contract = await this.runBookingSerializable(async (tx: any) => {
+      await this.lockBookingCommand(tx, tenantId, commandKey);
+      const existing = await tx.contract.findFirst({
+        where: {
+          tenantId,
+          deletedAt: null,
+          termsSnapshot: { path: ["bookingCommand", "idempotencyKey"], equals: commandKey },
+        },
+      });
+      if (existing) {
+        const marker = (existing.termsSnapshot as any)?.bookingCommand;
+        if (marker?.requestHash !== requestHash) throw new ConflictException("BOOKING_IDEMPOTENCY_KEY_REUSED");
+        return existing;
+      }
+      // Keep the same room-first/customer-second order as deposit creation.
+      // This serializes competing holds for one customer without creating a
+      // room/customer lock inversion with approval and activation flows.
+      await this.lockRoomLifecycle(tx, tenantId, input.roomId);
+      await this.lockCustomerLifecycle(tx, tenantId, input.customerId);
+      const customer = await tx.customer.findFirst({ where: { id: input.customerId, tenantId, deletedAt: null }, select: { id: true, roomId: true } });
+      const room = await tx.room.findFirst({ where: { id: input.roomId, tenantId, deletedAt: null }, select: { id: true } });
+      if (!customer) throw new BadRequestException("CUSTOMER_NOT_FOUND");
+      if (!room) throw new BadRequestException("ROOM_NOT_FOUND");
+      if (customer.roomId && customer.roomId !== input.roomId) {
+        throw new ConflictException("BOOKING_CUSTOMER_ALREADY_BOUND");
+      }
+      const openOccupancy = await tx.occupancy.findFirst({
+            where: {
+              tenantId,
+              customerId: input.customerId,
+              roomId: { not: input.roomId },
+              leftAt: null,
+            },
+            select: { id: true },
+          });
+      if (openOccupancy) {
+        throw new ConflictException("BOOKING_CUSTOMER_ALREADY_OCCUPIED");
+      }
+      const activeContract = await tx.contract.findFirst({
+            where: {
+              tenantId,
+              customerId: input.customerId,
+              roomId: { not: input.roomId },
+              deletedAt: null,
+              status: { in: [ContractStatus.ACTIVE, ContractStatus.EXPIRING] },
+            },
+            select: { id: true },
+          });
+      if (activeContract) {
+        throw new ConflictException("BOOKING_CUSTOMER_ACTIVE_CONTRACT");
+      }
+      const cycle = await tx.rentalCycle.create({
+        data: {
+          tenantId,
+          customerId: input.customerId,
+          roomId: input.roomId,
+          status: RentalCycleStatus.PLANNED,
+          expectedMoveInAt: startDate,
+        },
+      });
+      const prepared = await this.withContractSnapshots({
+        tenantId,
+        customerId: input.customerId,
+        roomId: input.roomId,
+        rentalCycleId: cycle.id,
+        code: contractCode,
+        status: ContractStatus.DRAFT,
+        startDate,
+        endDate,
+        firstPaymentDate,
+        monthlyRent: normalized.rentAmount,
+        // Booking-hold contracts use the cash hold as their source amount;
+        // the future security deposit is descriptive intent until conversion.
+        depositMoney: normalized.bookingAmount,
+        memberCount: normalized.memberCount,
+        purpose: normalized.purpose || `Hợp đồng cọc giữ phòng ${contractCode}`,
+        coRepresentativeIds: [],
+        attachments: [],
+      });
+      prepared.termsSnapshot = this.asJson({
+        ...(prepared.termsSnapshot as any),
+        bookingCommand: {
+          idempotencyKey: commandKey,
+          requestHash,
+          phase: "CONTRACT_CREATED",
+          depositId: null,
+          invoiceId: null,
+          depositIdempotencyKey: bookingDepositKey,
+          contractCode,
+          requestedContractDepositAmount: normalized.contractDepositAmount,
+        },
+      });
+      const created = await tx.contract.create({ data: prepared });
+      await this.syncContractHistory(created, tx);
+      await tx.auditLog.create({
+          data: {
+            tenantId,
+            userId,
+            module: "ContractsBookingHold",
+            entity: this.entityName,
+            entityId: created.id,
+            action: "CREATE",
+            before: null,
+            after: this.asJson(created),
+          },
+      });
+      return created;
+    });
+
+    const marker = (contract.termsSnapshot as any)?.bookingCommand || {};
+    let deposit: any = marker.depositId
+      ? await this.prisma.tx.deposit.findFirst({ where: { id: marker.depositId, tenantId, deletedAt: null } })
+      : null;
+    if (!deposit) {
+      if (!this.depositCoreService) throw new ConflictException("BOOKING_DEPOSIT_CORE_UNAVAILABLE");
+      deposit = await this.depositCoreService.create(tenantId, {
+        idempotencyKey: bookingDepositKey,
+        code: `DC-GP-${contractCode}`,
+        type: DepositType.BOOKING,
+        roomId: input.roomId,
+        customerId: input.customerId,
+        contractId: contract.id,
+        rentalCycleId: contract.rentalCycleId,
+        amount: normalized.bookingAmount,
+        status: DepositStatus.PENDING,
+        expiredAt,
+        note: normalized.note || `Tạo từ lệnh booking ${commandKey}`,
+      }, userId);
+    }
+    const withDeposit = await this.runBookingSerializable(async (tx: any) => {
+      await this.lockBookingCommand(tx, tenantId, commandKey);
+      const current = await tx.contract.findFirst({ where: { id: contract.id, tenantId, deletedAt: null } });
+      if (!current) throw new NotFoundException("BOOKING_CONTRACT_NOT_FOUND");
+      const currentMarker = (current.termsSnapshot as any)?.bookingCommand;
+      if (currentMarker?.requestHash !== requestHash) throw new ConflictException("BOOKING_IDEMPOTENCY_KEY_REUSED");
+      if (currentMarker?.depositId === deposit.id && currentMarker?.phase !== "CONTRACT_CREATED") return current;
+      return tx.contract.update({
+        where: { id: current.id, tenantId },
+        data: { termsSnapshot: this.asJson({ ...(current.termsSnapshot as any), bookingCommand: { ...currentMarker, phase: "DEPOSIT_CREATED", depositId: deposit.id } }) },
+      });
+    });
+
+    const invoice = await this.runBookingSerializable(async (tx: any) => {
+      await this.lockBookingCommand(tx, tenantId, commandKey);
+      const current = await tx.contract.findFirst({ where: { id: withDeposit.id, tenantId, deletedAt: null } });
+      if (!current) throw new NotFoundException("BOOKING_CONTRACT_NOT_FOUND");
+      const currentMarker = (current.termsSnapshot as any)?.bookingCommand;
+      if (currentMarker?.requestHash !== requestHash) throw new ConflictException("BOOKING_IDEMPOTENCY_KEY_REUSED");
+      const baseInvoiceKey = `BOOKING:${current.id}:${commandKey}`;
+      let row = await tx.invoice.findFirst({ where: { tenantId, baseInvoiceKey, deletedAt: null }, include: { items: true } });
+      if (!row) {
+        row = await tx.invoice.create({
+          data: {
+            tenantId,
+            contractId: current.id,
+            rentalCycleId: current.rentalCycleId,
+            customerId: current.customerId,
+            code: `INV-COC-${current.code}`,
+            period: "Cọc giữ phòng",
+            usagePeriod: "Cọc giữ phòng",
+            status: InvoiceStatus.DRAFT,
+            billingKind: "BOOKING_HOLD",
+            baseInvoiceKey,
+            dueDate: expiredAt,
+            subtotal: normalized.bookingAmount,
+            discount: 0,
+            total: normalized.bookingAmount,
+            paidAmount: 0,
+            creditAmount: 0,
+            items: { create: [{ tenantId, type: InvoiceItemType.RENT, description: "Tiền cọc giữ phòng", servicePeriod: "BOOKING_HOLD", quantity: 1, unitPrice: normalized.bookingAmount, amount: normalized.bookingAmount }] },
+          },
+          include: { items: true },
+        });
+      }
+      if (row.status === InvoiceStatus.DRAFT) {
+        if (!this.invoicesService) throw new ConflictException("BOOKING_INVOICE_CORE_UNAVAILABLE");
+        row = await this.invoicesService.issueInTransaction(tx, row.id, userId, tenantId);
+      }
+      await tx.contract.update({ where: { id: current.id, tenantId }, data: { termsSnapshot: this.asJson({ ...(current.termsSnapshot as any), bookingCommand: { ...currentMarker, phase: "INVOICE_ISSUED", invoiceId: row.id } }) } });
+      const updatedContract = await tx.contract.findFirst({ where: { id: current.id, tenantId, deletedAt: null } });
+      return { row, updatedContract };
+    });
+
+    let paymentRequest: any = null;
+    let paymentRequestError: string | null = this.paymentsService
+      ? null
+      : "BOOKING_PAYMENT_CORE_UNAVAILABLE";
+    if (this.paymentsService) {
+      try {
+        paymentRequest = await this.paymentsService.createInvoiceRequest(invoice.row.id, userId);
+      } catch {
+        paymentRequestError = "BOOKING_PAYMENT_REQUEST_FAILED";
+      }
+    }
+    return {
+      commandKey,
+      requestHash,
+      replayed: Boolean(marker.phase === "INVOICE_ISSUED"),
+      contract: invoice.updatedContract || withDeposit,
+      deposit,
+      invoice: invoice.row,
+      paymentRequest,
+      paymentRequestError,
+    };
   }
 
   /**
@@ -1099,6 +1359,9 @@ export class ContractsService extends BaseCrudService<Contract> {
                 bookingConversion: (current.termsSnapshot as any)
                   .bookingConversion,
               }
+            : {}),
+          ...((current.termsSnapshot as any)?.bookingCommand
+            ? { bookingCommand: (current.termsSnapshot as any).bookingCommand }
             : {}),
           ...((current.termsSnapshot as any)?.initialEntryInvoice
             ? {
@@ -6785,6 +7048,41 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   private roundMoney(value: number) {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+  }
+
+  private async runBookingSerializable<T>(callback: (tx: any) => Promise<T>): Promise<T> {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await this.prisma.tx.$transaction(callback, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error: any) {
+        const retryable =
+          error?.code === "P2034" ||
+          error?.code === "P2002" ||
+          (error?.code === "P2010" && ["40001", "40P01"].includes(String(error?.meta?.code || "")));
+        if (retryable && attempt < 3) continue;
+        if (retryable) throw new ConflictException("BOOKING_CONCURRENT_CONFLICT");
+        throw error;
+      }
+    }
+    throw new ConflictException("BOOKING_CONCURRENT_CONFLICT");
+  }
+
+  private async lockBookingCommand(tx: any, tenantId: string, commandKey: string) {
+    if (typeof tx.$queryRaw !== "function") throw new ConflictException("BOOKING_LOCK_UNAVAILABLE");
+    const lockKey = `${tenantId}:booking-hold:${commandKey}`;
+    await tx.$queryRaw(
+      Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))::text AS "lock"`,
+    );
+  }
+
+  private async lockCustomerLifecycle(tx: any, tenantId: string, customerId: string) {
+    if (typeof tx.$queryRaw !== "function") throw new ConflictException("BOOKING_LOCK_UNAVAILABLE");
+    const rows = (await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "Customer" WHERE "id" = ${customerId} AND "tenantId" = ${tenantId} AND "deletedAt" IS NULL FOR UPDATE`,
+    )) as Array<{ id: string }>;
+    if (!rows.length) throw new NotFoundException("CUSTOMER_NOT_FOUND");
   }
 
   private normalizeSettlementAttachmentUrls(value: unknown): string[] {

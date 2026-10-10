@@ -334,8 +334,19 @@ export class FinanceReportingService {
     const entryWhere: any = {};
     if (options.startDate || options.endDate) {
       entryWhere.entryDate = {};
-      if (options.startDate) entryWhere.entryDate.gte = new Date(options.startDate);
-      if (options.endDate) entryWhere.entryDate.lte = new Date(options.endDate);
+      if (options.startDate) {
+        const start = new Date(options.startDate);
+        if (Number.isNaN(start.getTime())) throw new BadRequestException('PERIOD_DATE_INVALID');
+        entryWhere.entryDate.gte = start;
+      }
+      if (options.endDate) {
+        const end = new Date(options.endDate);
+        if (Number.isNaN(end.getTime())) throw new BadRequestException('PERIOD_DATE_INVALID');
+        entryWhere.entryDate.lte = end;
+      }
+      if (entryWhere.entryDate.gte && entryWhere.entryDate.lte && entryWhere.entryDate.gte > entryWhere.entryDate.lte) {
+        throw new BadRequestException('PERIOD_DATE_RANGE_INVALID');
+      }
     }
 
     return this.prisma.journalLine.findMany({
@@ -397,8 +408,9 @@ export class FinanceReportingService {
     }
 
     const now = new Date();
-    const endYear = Number(options.year ?? now.getFullYear());
-    const endMonth = Number(options.month ?? now.getMonth() + 1);
+    const vietnamParts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: 'numeric' }).formatToParts(now);
+    const endYear = Number(options.year ?? vietnamParts.find((part) => part.type === 'year')?.value);
+    const endMonth = Number(options.month ?? vietnamParts.find((part) => part.type === 'month')?.value);
     // Reuse the existing report range validation before calculating prior periods.
     this.buildPeriodRange(String(endYear), String(endMonth));
 
@@ -3287,37 +3299,43 @@ export class FinanceReportingService {
     month?: string,
     extraOptions: { startDate?: string; endDate?: string; startMonth?: string; endMonth?: string; startYear?: string; endYear?: string } = {},
   ) {
-    if (extraOptions.startDate && extraOptions.endDate) {
+    const hasExplicitDate = extraOptions.startDate !== undefined || extraOptions.endDate !== undefined;
+    if (hasExplicitDate) {
+      if (!extraOptions.startDate || !extraOptions.endDate) throw new BadRequestException('PERIOD_DATES_REQUIRED');
       const sDate = new Date(extraOptions.startDate);
       const eDate = new Date(extraOptions.endDate);
-      if (!Number.isNaN(sDate.getTime()) && !Number.isNaN(eDate.getTime())) {
-        return { gte: sDate, lte: eDate };
-      }
+      if (Number.isNaN(sDate.getTime()) || Number.isNaN(eDate.getTime())) throw new BadRequestException('PERIOD_DATE_INVALID');
+      if (sDate.getTime() > eDate.getTime()) throw new BadRequestException('PERIOD_DATE_RANGE_INVALID');
+      return { gte: sDate, lte: eDate };
     }
 
-    if (extraOptions.startMonth && extraOptions.endMonth) {
-      const sYear = Number(extraOptions.startYear || year || new Date().getFullYear());
-      const eYear = Number(extraOptions.endYear || year || new Date().getFullYear());
+    const hasMonthRange = extraOptions.startMonth !== undefined || extraOptions.endMonth !== undefined || extraOptions.startYear !== undefined || extraOptions.endYear !== undefined;
+    if (hasMonthRange) {
+      if (!extraOptions.startMonth || !extraOptions.endMonth) throw new BadRequestException('PERIOD_MONTH_RANGE_REQUIRED');
+      const vietnamYear = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()));
+      const sYear = Number(extraOptions.startYear || year || vietnamYear);
+      const eYear = Number(extraOptions.endYear || year || vietnamYear);
       const sMonth = Number(extraOptions.startMonth);
       const eMonth = Number(extraOptions.endMonth);
-      if (Number.isInteger(sYear) && Number.isInteger(eYear) && sMonth >= 1 && sMonth <= 12 && eMonth >= 1 && eMonth <= 12) {
-        return {
-          gte: new Date(sYear, sMonth - 1, 1),
-          lte: new Date(eYear, eMonth, 0, 23, 59, 59, 999),
-        };
+      if (!Number.isInteger(sYear) || !Number.isInteger(eYear) || sYear < 100 || sYear > 9998 || eYear < 100 || eYear > 9998 || !Number.isInteger(sMonth) || sMonth < 1 || sMonth > 12 || !Number.isInteger(eMonth) || eMonth < 1 || eMonth > 12) {
+        throw new BadRequestException('PERIOD_MONTH_RANGE_INVALID');
       }
+      if (sYear * 12 + sMonth > eYear * 12 + eMonth) throw new BadRequestException('PERIOD_DATE_RANGE_INVALID');
+      const offset = 7 * 60 * 60 * 1000;
+      return {
+        gte: new Date(Date.UTC(sYear, sMonth - 1, 1) - offset),
+        lte: new Date(Date.UTC(eYear, eMonth, 1) - offset - 1),
+      };
     }
 
-    const selectedYear = Number(year || new Date().getFullYear());
-    if (!Number.isInteger(selectedYear)) {
+    const selectedYear = Number(year || new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()));
+    if (!Number.isInteger(selectedYear) || selectedYear < 100 || selectedYear > 9998) {
       throw new BadRequestException('PERIOD_YEAR_INVALID');
     }
 
     if (!month) {
-      return {
-        gte: new Date(selectedYear, 0, 1),
-        lte: new Date(selectedYear, 11, 31, 23, 59, 59, 999),
-      };
+      const offset = 7 * 60 * 60 * 1000;
+      return { gte: new Date(Date.UTC(selectedYear, 0, 1) - offset), lte: new Date(Date.UTC(selectedYear + 1, 0, 1) - offset - 1) };
     }
 
     const selectedMonth = Number(month);
@@ -3325,9 +3343,10 @@ export class FinanceReportingService {
       throw new BadRequestException('PERIOD_MONTH_INVALID');
     }
 
+    const offset = 7 * 60 * 60 * 1000;
     return {
-      gte: new Date(selectedYear, selectedMonth - 1, 1),
-      lte: new Date(selectedYear, selectedMonth, 0, 23, 59, 59, 999),
+      gte: new Date(Date.UTC(selectedYear, selectedMonth - 1, 1) - offset),
+      lte: new Date(Date.UTC(selectedYear, selectedMonth, 1) - offset - 1),
     };
   }
 

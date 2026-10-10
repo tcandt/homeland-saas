@@ -8,6 +8,40 @@ export type BillingDocumentGroup = {
 
 const money = (value: unknown) => Math.max(0, Number(value || 0) || 0);
 
+const realText = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+};
+
+const formatEventTime = (value: unknown) => {
+  if (!value) return "";
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+};
+
+const voucherStatus = (status: unknown) => {
+  const normalized = String(status || "").toUpperCase();
+  if (["PAID", "CONFIRMED", "CONVERTED_TO_CONTRACT"].includes(normalized)) {
+    return { badge: "Đã thu đủ", badgeType: "success" as const };
+  }
+  if (["PARTIALLY_PAID", "RECONCILIATION_PENDING"].includes(normalized)) {
+    return { badge: "Đang đối soát", badgeType: "warning" as const };
+  }
+  return { badge: "Chờ thanh toán", badgeType: "warning" as const };
+};
+
 function projectCombinedEntryRows(invoice: any, deposit: any) {
   const combinedTotal = money(invoice.total ?? invoice.totalAmount);
   const combinedPaid = money(invoice.paidAmount ?? invoice.paid);
@@ -66,17 +100,14 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
 
   const room = invoice.contract?.room || invoice.room || deposit.room || {};
   const building = room.building || invoice.building || deposit.building || {};
-  const roomCode = room.code || room.number || room.name || "PN 32-02";
-  const buildingName = building.code || building.name || "LK01.32";
-  const period = invoice.period || invoice.billingPeriod || "2026-09";
-  const sanitizedRoom = String(roomCode).replace(/\s+/g, "");
-  const bundleCode = `PAYMENT-BUNDLE-${sanitizedRoom}-${period}`;
+  const roomCode = realText(room.code, room.number, room.name);
+  const buildingName = realText(building.code, building.name);
+  const period = realText(invoice.period, invoice.billingPeriod, invoice.usagePeriod);
+  const bundleCode = `PAYMENT-BUNDLE-${realText(invoice.code, invoice.id)}`;
 
   const sourceDepositCode =
     deposit.sourceDepositCode ||
-    (deposit.code && deposit.code.includes("-")
-      ? deposit.code.replace(/^SEC-/, "").replace(/-[^-]+$/, "")
-      : "DEP-C3C6AAB83CAA");
+    realText(deposit.code, deposit.id);
 
   let childRows = baseRows;
   if (transferred > 0) {
@@ -84,7 +115,7 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
       {
         ...invoice,
         id: invoice.id,
-        code: invoice.code || "INV-ENTRY-HD-THUE-PN 32-02-E9BE8CA1",
+        code: realText(invoice.code, invoice.id),
         billingGroupId: groupId,
         linkedBillingDocumentId: deposit.id,
         presentationCategory: "RENT",
@@ -97,13 +128,13 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
         combinedPaymentTotal: combinedTotal,
         combinedPaymentPaid: combinedPaid,
         period,
-        dueDate: invoice.dueDate || "2026-09-29",
-        status: invoice.status || "PAID",
+        dueDate: invoice.dueDate,
+        status: invoice.status,
       },
       {
         ...deposit,
         id: deposit.id,
-        code: deposit.code || "SEC-DEP-C3C6AAB83CAA-0GLL1WM9C",
+        code: realText(deposit.code, deposit.id),
         billingGroupId: groupId,
         linkedBillingDocumentId: invoice.id,
         presentationCategory: "CONTRACT_DEPOSIT",
@@ -111,12 +142,12 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
         typeBadge: "Phiếu cọc",
         typeLabel: "Phiếu cọc",
         displayTotal: securityRequired,
-        displayPaidAmount: securityRequired,
-        displayRemaining: 0,
-        linkedContractCode: invoice.contract?.code || deposit.contract?.code || "HD-THUE-PN 32-02",
+        displayPaidAmount: depositPaid,
+        displayRemaining: Math.max(0, securityRequired - depositPaid),
+        linkedContractCode: realText(invoice.contract?.code, deposit.contract?.code),
         linkSubtype: "Hợp đồng",
-        dueDate: deposit.dueDate || invoice.dueDate || "2026-09-29",
-        status: "PAID",
+        dueDate: deposit.dueDate || invoice.dueDate,
+        status: deposit.status,
       },
       {
         ...deposit,
@@ -132,16 +163,36 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
         displayTotal: -transferred,
         displayPaidAmount: -transferred,
         displayRemaining: 0,
-        linkedContractCode: invoice.contract?.code || deposit.contract?.code || "HD-THUE-PN 32-02",
+        linkedContractCode: realText(invoice.contract?.code, deposit.contract?.code),
         linkSubtype: "Giữ phòng",
-        dueDate: deposit.dueDate || invoice.dueDate || "2026-09-29",
-        status: "PAID",
+        dueDate: deposit.dueDate || invoice.dueDate,
+        status: deposit.status,
         isDeduction: true,
       },
     ];
   }
 
+  const confirmedPayment = Array.isArray(invoice.payments)
+    ? invoice.payments.find((payment: any) => payment?.status === "CONFIRMED")
+    : undefined;
+  const settledRequest = Array.isArray(invoice.paymentRequests)
+    ? invoice.paymentRequests.find((request: any) => request?.status === "PAID")
+    : undefined;
+  const createdAt = realText(invoice.createdAt, deposit.createdAt);
+  const paidAt = realText(confirmedPayment?.paidAt, settledRequest?.paidAt);
+  const invoiceVoucherStatus = voucherStatus(invoice.status);
+  const depositVoucherStatus = voucherStatus(deposit.status);
+  const activities = [
+    ...(paidAt
+      ? [{ time: formatEventTime(paidAt), text: `Đã ghi nhận thanh toán ${combinedPaid.toLocaleString("vi-VN")} đ` }]
+      : []),
+    ...(createdAt
+      ? [{ time: formatEventTime(createdAt), text: "Đã tạo nghĩa vụ thanh toán đầu tiên" }]
+      : []),
+  ].filter((activity) => activity.time);
+
   const bundleData = {
+    invoiceId: invoice.id,
     bundleCode,
     title: "Đợt thanh toán đầu tiên",
     modalTitle: "Chi tiết đợt thanh toán đầu tiên",
@@ -157,10 +208,11 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
     total: combinedTotal,
     paid: combinedPaid,
     remaining: Math.max(0, combinedTotal - combinedPaid),
-    status: invoice.status || "PAID",
+    status: invoice.status,
     statusLabel: invoice.status === "PAID" ? "Đã thu đủ" : "Chờ thanh toán",
-    dueDate: invoice.dueDate || "2026-09-29",
+    dueDate: invoice.dueDate || "",
     period,
+    createdAt,
     customer: invoice.customer || deposit.customer,
     room: { roomCode, buildingName },
     contract: invoice.contract || deposit.contract,
@@ -189,53 +241,39 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
     vouchers: [
       {
         id: invoice.id,
-        code: invoice.code || "INV-ENTRY-HD-THUE-PN 32-02-E9BE8CA1",
+        code: realText(invoice.code, invoice.id),
         title: "Tiền phòng kỳ đầu",
-        badge: "● Đã thu đủ",
-        badgeType: "success" as const,
+        ...invoiceVoucherStatus,
         type: "INVOICE" as const,
       },
       {
         id: deposit.id,
-        code: deposit.code || "SEC-DEP-C3C6AAB83CAA-0GLL1WM9C",
+        code: realText(deposit.code, deposit.id),
         title: "Cọc hợp đồng",
-        badge: "● Đã thu đủ",
-        badgeType: "success" as const,
+        ...depositVoucherStatus,
         type: "DEPOSIT" as const,
       },
       ...(transferred > 0
         ? [
             {
-              id: "dep-deduct",
+              id: `dep-deduct:${deposit.id}`,
               code: sourceDepositCode,
               title: "Trừ cọc giữ phòng",
-              badge: "● Đã bù trừ",
+              badge: "Đã bù trừ",
               badgeType: "info" as const,
               type: "DEPOSIT" as const,
             },
           ]
         : []),
     ],
+    paymentMethod: realText(confirmedPayment?.provider, settledRequest ? "SEPAY" : ""),
+    transactionRef: realText(confirmedPayment?.providerRef, settledRequest?.providerTransactionId),
+    paymentCode: realText(settledRequest?.paymentCode, invoice.paymentRequests?.[0]?.paymentCode),
     steps: [
-      { label: "Tạo nhóm thanh toán", time: "29/09 14:20", done: true },
-      { label: "Gửi QR / hóa đơn", time: "29/09 14:21", done: true },
-      { label: "Xác nhận nhận tiền", time: "29/09 15:03", done: true },
-      { label: "Hoàn tất đối soát", time: "29/09 15:05", done: true },
+      ...(createdAt ? [{ label: "Tạo nghĩa vụ thanh toán", time: formatEventTime(createdAt), done: true }] : []),
+      ...(paidAt ? [{ label: "Xác nhận nhận tiền", time: formatEventTime(paidAt), done: true }] : []),
     ],
-    activities: [
-      {
-        time: "29/09/2026 15:05",
-        text: "Đã hoàn tất đối soát và đánh dấu đã thu đủ",
-      },
-      {
-        time: "29/09/2026 15:03",
-        text: `Đã nhận đủ tiền thanh toán (${Number(combinedPaid || 7266667).toLocaleString("vi-VN")} đ)`,
-      },
-      {
-        time: "29/09/2026 14:21",
-        text: "Đã gửi hóa đơn cho khách thuê",
-      },
-    ],
+    activities,
   };
 
   return { baseRows, childRows, bundleData };

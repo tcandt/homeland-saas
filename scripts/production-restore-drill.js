@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { runRestoreCheck } = require('./production-restore-check');
+const { createPostgresCliEnv, parsePostgresUrl } = require('./postgres-cli');
 
 function defaultPrismaCli() {
   const localCli = path.resolve('node_modules', '.bin', process.platform === 'win32' ? 'prisma.cmd' : 'prisma');
@@ -15,6 +16,7 @@ function parseArguments(argv) {
     maxAgeHours: 24,
     requireOffHost: false,
     pgRestore: process.env.PG_RESTORE_PATH || 'pg_restore',
+    psql: process.env.PSQL_PATH || 'psql',
     prisma: process.env.PRISMA_CLI_PATH || defaultPrismaCli(),
     schema: 'packages/database/prisma/schema.prisma',
     databaseUrl: process.env.RESTORE_DRILL_DATABASE_URL || '',
@@ -35,6 +37,9 @@ function parseArguments(argv) {
       options.requireOffHost = true;
     } else if (argument === '--pg-restore') {
       options.pgRestore = argv[index + 1] || options.pgRestore;
+      index += 1;
+    } else if (argument === '--psql') {
+      options.psql = argv[index + 1] || options.psql;
       index += 1;
     } else if (argument === '--prisma') {
       options.prisma = argv[index + 1] || options.prisma;
@@ -82,14 +87,14 @@ function inferBackupDir(manifestPath, manifest) {
 
 function parseDatabaseIdentity(databaseUrl) {
   try {
-    const parsed = new URL(databaseUrl);
-    const databaseName = decodeURIComponent(parsed.pathname.replace(/^\/+/, '').split('?')[0]);
+    const parsed = parsePostgresUrl(databaseUrl);
+    const databaseName = parsed.databaseName;
     return {
       protocol: parsed.protocol,
-      host: parsed.hostname,
+      host: parsed.host,
       port: parsed.port || null,
       databaseName,
-      maskedUrl: `${parsed.protocol}//${parsed.username ? '***@' : ''}${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}/${databaseName}`,
+      maskedUrl: `${parsed.protocol}//${parsed.username ? '***@' : ''}${parsed.host}${parsed.port ? `:${parsed.port}` : ''}/${databaseName}`,
     };
   } catch {
     throw new Error('Restore drill database URL is invalid.');
@@ -104,13 +109,21 @@ function normalizePostgresCliUrl(databaseUrl) {
   return parsed.toString();
 }
 
-function validateRestoreTarget(databaseUrl, confirmTargetDb) {
+function validateRestoreTarget(databaseUrl, confirmTargetDb, sourceDatabaseUrl = process.env.DATABASE_URL) {
   if (!databaseUrl) {
     return fail('restore_target', 'Missing --database-url or RESTORE_DRILL_DATABASE_URL.');
   }
 
-  const identity = parseDatabaseIdentity(databaseUrl);
+  let identity;
+  try {
+    identity = parseDatabaseIdentity(databaseUrl);
+  } catch {
+    return fail('restore_target', 'Restore target database URL is invalid.');
+  }
   const databaseName = identity.databaseName;
+  if (!['localhost', '127.0.0.1', '::1'].includes(identity.host.toLowerCase())) {
+    return fail('restore_target', 'Restore target must use a local database host.');
+  }
   const safeName = /(restore|drill|test|tmp|scratch)/i.test(databaseName);
   const bannedName = /^(homeland|postgres|production|prod)$/i.test(databaseName);
   const confirmed = confirmTargetDb && confirmTargetDb === databaseName;
@@ -126,6 +139,20 @@ function validateRestoreTarget(databaseUrl, confirmTargetDb) {
   }
   if (!confirmed) {
     return fail('restore_target', `Pass --confirm-target-db ${databaseName} to confirm the isolated restore target.`);
+  }
+
+  if (sourceDatabaseUrl) {
+    try {
+      const source = parseDatabaseIdentity(sourceDatabaseUrl);
+      const normalizeHost = (host) => ['localhost', '127.0.0.1', '::1'].includes(host.toLowerCase()) ? 'loopback' : host.toLowerCase();
+      if (normalizeHost(source.host) === normalizeHost(identity.host)
+        && String(source.port || '5432') === String(identity.port || '5432')
+        && source.databaseName === identity.databaseName) {
+        return fail('restore_target', 'Restore target must differ from DATABASE_URL.');
+      }
+    } catch {
+      return fail('restore_target', 'Source database configuration is invalid.');
+    }
   }
 
   return pass('restore_target', `Restore target is explicitly confirmed: ${identity.maskedUrl}.`);
@@ -154,20 +181,54 @@ function runCommand(id, command, args, options = {}) {
   });
 
   if (result.status !== 0) {
-    const output = [result.stderr, result.stdout].filter(Boolean).join('\n').trim();
-    return fail(id, output || `${command} exited with ${result.status}.`);
+    return fail(id, `${id} command failed.`);
   }
 
   return pass(id, options.successMessage || `${command} completed successfully.`);
 }
 
 function isHarmlessTransactionTimeoutCompatibilityWarning(result) {
-  const output = [result?.stderr, result?.stdout].filter(Boolean).join('\n');
-  const errorCount = (output.match(/ERROR:/g) || []).length;
-  return result?.status === 1
-    && errorCount === 1
-    && /unrecognized configuration parameter ["']transaction_timeout["']/i.test(output)
-    && /errors ignored on restore:\s*1/i.test(output);
+  return false;
+}
+
+function checkEmptyRestoreTarget(options, deps = {}) {
+  const { env } = createPostgresCliEnv(options.databaseUrl, deps.env || process.env);
+  const query = `BEGIN TRANSACTION READ ONLY;
+    WITH user_namespace AS (SELECT oid FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema')
+    SELECT CASE WHEN
+      EXISTS (SELECT 1 FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname NOT IN ('public', 'information_schema'))
+      OR EXISTS (SELECT 1 FROM pg_class WHERE relnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_type WHERE typnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_operator WHERE oprnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_opclass WHERE opcnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_opfamily WHERE opfnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_collation WHERE collnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_conversion WHERE connamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_ts_dict WHERE dictnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_ts_parser WHERE prsnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_ts_template WHERE tmplnamespace IN (SELECT oid FROM user_namespace))
+      OR EXISTS (SELECT 1 FROM pg_extension WHERE extname <> 'plpgsql')
+      OR EXISTS (SELECT 1 FROM pg_language WHERE lanname NOT IN ('internal', 'c', 'sql', 'plpgsql'))
+      OR EXISTS (SELECT 1 FROM pg_event_trigger)
+      OR EXISTS (SELECT 1 FROM pg_foreign_data_wrapper)
+      OR EXISTS (SELECT 1 FROM pg_foreign_server)
+      OR EXISTS (SELECT 1 FROM pg_publication)
+      OR EXISTS (SELECT 1 FROM pg_subscription)
+    THEN 'NONEMPTY' ELSE 'EMPTY' END; ROLLBACK;`;
+  const result = (deps.spawnSync || spawnSync)(options.psql || 'psql', [
+    '--no-psqlrc',
+    '--set=ON_ERROR_STOP=1',
+    '--quiet',
+    '--tuples-only',
+    '--no-align',
+    '--command',
+    query,
+  ], { stdio: 'pipe', encoding: 'utf8', env });
+  if (result.status !== 0) return fail('restore_target_empty', 'Target database emptiness check failed.');
+  if (String(result.stdout || '').trim() !== 'EMPTY') return fail('restore_target_empty', 'Target database is not empty.');
+  return pass('restore_target_empty', 'Target database is empty and safe to restore.');
 }
 
 function runRestoreDrill(options, deps = {}) {
@@ -185,7 +246,7 @@ function runRestoreDrill(options, deps = {}) {
   });
   checks.push(...restoreCheck.checks);
 
-  const targetCheck = validateRestoreTarget(options.databaseUrl, options.confirmTargetDb);
+  const targetCheck = validateRestoreTarget(options.databaseUrl, options.confirmTargetDb, deps.sourceDatabaseUrl || process.env.DATABASE_URL);
   checks.push(targetCheck);
 
   if (!restoreCheck.ready || targetCheck.status === 'FAIL') {
@@ -200,36 +261,39 @@ function runRestoreDrill(options, deps = {}) {
     };
   }
 
+  const emptyTargetCheck = checkEmptyRestoreTarget(options, deps);
+  checks.push(emptyTargetCheck);
+  if (emptyTargetCheck.status === 'FAIL') {
+    const failed = checks.filter((check) => check.status === 'FAIL').length;
+    return { ready: false, restored: false, backupId: restoreCheck.backupId || null, backupDir: restoreCheck.backupDir || null, summary: { passed: checks.length - failed, failed, total: checks.length }, checks };
+  }
+
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const backupDir = inferBackupDir(manifestPath, manifest);
   const dumpPath = path.resolve(backupDir, manifest.database.path || '');
+  const { env: restoreEnv } = createPostgresCliEnv(options.databaseUrl, deps.env || process.env);
   const spawn = deps.spawnSync || spawnSync;
 
   const restoreResult = spawn(options.pgRestore, [
-    '--clean',
-    '--if-exists',
     '--no-owner',
     '--no-acl',
+    '--exit-on-error',
+    '--single-transaction',
     '--dbname',
-    normalizePostgresCliUrl(options.databaseUrl),
+    restoreEnv.PGDATABASE,
     dumpPath,
   ], {
     stdio: 'pipe',
     encoding: 'utf8',
+    env: restoreEnv,
   });
-  const harmlessCompatibilityWarning = isHarmlessTransactionTimeoutCompatibilityWarning(restoreResult);
   checks.push(
-    restoreResult.status === 0 || harmlessCompatibilityWarning
-      ? pass(
-          'pg_restore_drill',
-          harmlessCompatibilityWarning
-            ? 'Database restored; ignored the single PostgreSQL client/server compatibility SET transaction_timeout warning.'
-            : 'Database dump restored into the isolated drill database.',
-        )
-      : fail('pg_restore_drill', [restoreResult.stderr, restoreResult.stdout].filter(Boolean).join('\n').trim() || 'pg_restore drill failed.'),
+    restoreResult.status === 0
+      ? pass('pg_restore_drill', 'Database dump restored into the isolated drill database.')
+      : fail('pg_restore_drill', 'Database restore command failed.'),
   );
 
-  if (!options.skipMigrateStatus && (restoreResult.status === 0 || harmlessCompatibilityWarning)) {
+  if (!options.skipMigrateStatus && restoreResult.status === 0) {
     const prismaInvocation = resolvePrismaInvocation(options.prisma, [
       'migrate',
       'status',
@@ -280,7 +344,7 @@ if (require.main === module) {
   try {
     runCli();
   } catch (error) {
-    process.stderr.write(`Production restore drill failed: ${error instanceof Error ? error.message : 'Unknown error'}\n`);
+    process.stderr.write('Production restore drill failed.\n');
     process.exitCode = 1;
   }
 }
@@ -294,4 +358,5 @@ module.exports = {
   parseDatabaseIdentity,
   runRestoreDrill,
   validateRestoreTarget,
+  checkEmptyRestoreTarget,
 };

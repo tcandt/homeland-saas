@@ -24,6 +24,8 @@ import {
   X,
 } from "lucide-react";
 import { formatVnd, formatNumber } from "@/lib/utils/format";
+import { getVietnamCurrentMonth, shiftReportMonth } from "@/lib/utils/report-period";
+import { splitEqualProfit } from "@/lib/finance/equal-profit-shares";
 
 export type MonthRange = {
   startMonth: number;
@@ -111,6 +113,7 @@ export default function OwnerEqualProfitSettlement({
   monthRange,
   onMonthRangeChange,
 }: OwnerEqualProfitSettlementProps) {
+  const current = getVietnamCurrentMonth();
   // Aggregate data for the 4 core buildings & 2 clusters
   const financialData = useMemo(() => {
     const buildingMap = new Map<string, any>();
@@ -207,7 +210,7 @@ export default function OwnerEqualProfitSettlement({
     const netProfit = totalRevenue - totalDirectExpenses - totalIncidental;
 
     // Equal 50/50 split
-    const halfProfit = Math.round(netProfit / 2);
+    const [tinhShare, theShare] = splitEqualProfit(netProfit);
 
     return {
       buildingsSummary,
@@ -218,19 +221,19 @@ export default function OwnerEqualProfitSettlement({
       totalRevenue,
       totalDirectExpenses,
       netProfit,
-      tinhShare: halfProfit,
-      theShare: halfProfit,
+      tinhShare,
+      theShare,
       classifiedExpenses,
     };
   }, [buildingsData, expenses]);
 
   const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [tempStartMonth, setTempStartMonth] = useState(monthRange?.startMonth || 7);
-  const [tempStartYear, setTempStartYear] = useState(monthRange?.startYear || 2026);
-  const [tempEndMonth, setTempEndMonth] = useState(monthRange?.endMonth || 9);
-  const [tempEndYear, setTempEndYear] = useState(monthRange?.endYear || 2026);
-  const [calendarYear, setCalendarYear] = useState(monthRange?.startYear || 2026);
-  const [activePreset, setActivePreset] = useState<string>("last_3_months");
+  const [tempStartMonth, setTempStartMonth] = useState(monthRange?.startMonth || current.month);
+  const [tempStartYear, setTempStartYear] = useState(monthRange?.startYear || current.year);
+  const [tempEndMonth, setTempEndMonth] = useState(monthRange?.endMonth || current.month);
+  const [tempEndYear, setTempEndYear] = useState(monthRange?.endYear || current.year);
+  const [calendarYear, setCalendarYear] = useState(monthRange?.startYear || current.year);
+  const [activePreset, setActivePreset] = useState<string>("this_month");
   const [isSelectingEnd, setIsSelectingEnd] = useState(false);
   const [hoverMonth, setHoverMonth] = useState<number | null>(null);
 
@@ -245,39 +248,23 @@ export default function OwnerEqualProfitSettlement({
       setCalendarYear(monthRange.startYear);
       setIsSelectingEnd(false);
 
-      if (
-        monthRange.startMonth === 10 &&
-        monthRange.startYear === 2026 &&
-        monthRange.endMonth === 10 &&
-        monthRange.endYear === 2026
-      ) {
+      const currentStart = current;
+      const threeStart = shiftReportMonth(current, -2);
+      const sixStart = shiftReportMonth(current, -5);
+      const twelveStart = shiftReportMonth(current, -11);
+      if (monthRange.startMonth === currentStart.month && monthRange.startYear === currentStart.year && monthRange.endMonth === current.month && monthRange.endYear === current.year) {
         setActivePreset("this_month");
-      } else if (
-        monthRange.startMonth === 7 &&
-        monthRange.startYear === 2026 &&
-        monthRange.endMonth === 9 &&
-        monthRange.endYear === 2026
-      ) {
+      } else if (monthRange.startMonth === threeStart.month && monthRange.startYear === threeStart.year && monthRange.endMonth === current.month && monthRange.endYear === current.year) {
         setActivePreset("last_3_months");
-      } else if (
-        monthRange.startMonth === 4 &&
-        monthRange.startYear === 2026 &&
-        monthRange.endMonth === 9 &&
-        monthRange.endYear === 2026
-      ) {
+      } else if (monthRange.startMonth === sixStart.month && monthRange.startYear === sixStart.year && monthRange.endMonth === current.month && monthRange.endYear === current.year) {
         setActivePreset("last_6_months");
-      } else if (
-        monthRange.startMonth === 1 &&
-        monthRange.startYear === 2026 &&
-        monthRange.endMonth === 12 &&
-        monthRange.endYear === 2026
-      ) {
+      } else if (monthRange.startMonth === twelveStart.month && monthRange.startYear === twelveStart.year && monthRange.endMonth === current.month && monthRange.endYear === current.year) {
         setActivePreset("last_12_months");
       } else {
         setActivePreset("custom");
       }
     }
-  }, [monthRange, isPickerOpen]);
+  }, [monthRange, isPickerOpen, current.year, current.month]);
 
   const handleCancel = () => {
     if (monthRange) {
@@ -320,29 +307,13 @@ export default function OwnerEqualProfitSettlement({
     setIsSelectingEnd(false);
     setHoverMonth(null);
     if (presetId === "this_month") {
-      setTempStartMonth(10);
-      setTempStartYear(2026);
-      setTempEndMonth(10);
-      setTempEndYear(2026);
-      setCalendarYear(2026);
+      setTempStartMonth(current.month); setTempStartYear(current.year); setTempEndMonth(current.month); setTempEndYear(current.year); setCalendarYear(current.year);
     } else if (presetId === "last_3_months") {
-      setTempStartMonth(7);
-      setTempStartYear(2026);
-      setTempEndMonth(9);
-      setTempEndYear(2026);
-      setCalendarYear(2026);
+      const start = shiftReportMonth(current, -2); setTempStartMonth(start.month); setTempStartYear(start.year); setTempEndMonth(current.month); setTempEndYear(current.year); setCalendarYear(start.year);
     } else if (presetId === "last_6_months") {
-      setTempStartMonth(4);
-      setTempStartYear(2026);
-      setTempEndMonth(9);
-      setTempEndYear(2026);
-      setCalendarYear(2026);
+      const start = shiftReportMonth(current, -5); setTempStartMonth(start.month); setTempStartYear(start.year); setTempEndMonth(current.month); setTempEndYear(current.year); setCalendarYear(start.year);
     } else if (presetId === "last_12_months") {
-      setTempStartMonth(1);
-      setTempStartYear(2026);
-      setTempEndMonth(12);
-      setTempEndYear(2026);
-      setCalendarYear(2026);
+      const start = shiftReportMonth(current, -11); setTempStartMonth(start.month); setTempStartYear(start.year); setTempEndMonth(current.month); setTempEndYear(current.year); setCalendarYear(start.year);
     }
   };
 
@@ -389,8 +360,8 @@ export default function OwnerEqualProfitSettlement({
   };
 
   // Real-time dynamic preview cho nút "Kỳ báo cáo": Di chuyển theo picker
-  const previewStartMonth = isPickerOpen ? tempStartMonth : (monthRange?.startMonth ?? 1);
-  const previewStartYear = isPickerOpen ? tempStartYear : (monthRange?.startYear ?? 2026);
+  const previewStartMonth = isPickerOpen ? tempStartMonth : (monthRange?.startMonth ?? current.month);
+  const previewStartYear = isPickerOpen ? tempStartYear : (monthRange?.startYear ?? current.year);
 
   const isHoverValidEnd =
     isSelectingEnd &&
@@ -409,8 +380,8 @@ export default function OwnerEqualProfitSettlement({
     ? tempStartYear
     : tempEndYear;
 
-  const previewEndMonth = isPickerOpen ? currentDynamicEndMonth : (monthRange?.endMonth ?? 10);
-  const previewEndYear = isPickerOpen ? currentDynamicEndYear : (monthRange?.endYear ?? 2026);
+  const previewEndMonth = isPickerOpen ? currentDynamicEndMonth : (monthRange?.endMonth ?? current.month);
+  const previewEndYear = isPickerOpen ? currentDynamicEndYear : (monthRange?.endYear ?? current.year);
 
   return (
     <div className="space-y-4">

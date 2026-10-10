@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { getTenantAvatar } from "@/components/tenants/TenantDetailDrawer";
 import { settingsApi } from "@/lib/api/settings.api";
+import { usePayInvoiceMutation } from "@/lib/queries/invoices.queries";
 import toast from "react-hot-toast";
 import PrintableInvoiceModal from "./PrintableInvoiceModal";
 
@@ -86,6 +87,7 @@ function getBankBadge(bankName: string) {
 }
 
 export type PaymentBundleData = {
+  invoiceId?: string;
   bundleCode: string;
   title?: string;
   modalTitle?: string;
@@ -99,6 +101,10 @@ export type PaymentBundleData = {
   statusLabel?: string;
   dueDate: string;
   period: string;
+  createdAt?: string;
+  paymentMethod?: string;
+  transactionRef?: string;
+  paymentCode?: string;
   customer?: any;
   room?: {
     roomCode?: string;
@@ -154,6 +160,7 @@ export default function PaymentBundleModal({
   const [isBankDropdownOpen, setIsBankDropdownOpen] = useState(false);
   const [selectedBankOverride, setSelectedBankOverride] = useState<any | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const payMutation = usePayInvoiceMutation();
 
   // Fetch real bank accounts configured in Settings
   const { data: adminConfig } = useSWR(
@@ -172,19 +179,16 @@ export default function PaymentBundleModal({
     if (configuredBankAccounts.length > 0) {
       const def = configuredBankAccounts.find((b) => b.isDefault) || configuredBankAccounts[0];
       return {
-        bankName: def.bankName || "BIDV",
-        accountNumber: def.accountNumber || "SBSEPAYMKYNGRD9RLQJ",
-        accountName: def.accountName || "HO KINH DOANH NGUYEN DUC TINH",
+        bankName: String(def.bankName || "").trim(),
+        accountNumber: String(def.accountNumber || "").trim(),
+        accountName: String(def.accountName || "").trim(),
       };
     }
-    return {
-      bankName: "BIDV",
-      accountNumber: "SBSEPAYMKYNGRD9RLQJ",
-      accountName: "HO KINH DOANH NGUYEN DUC TINH",
-    };
+    return { bankName: "", accountNumber: "", accountName: "" };
   }, [selectedBankOverride, configuredBankAccounts]);
 
   const bankBadge = getBankBadge(activeBank.bankName);
+  const hasPaymentAccount = Boolean(activeBank.bankName && activeBank.accountNumber);
 
   // Hierarchical ESC key handling (LIFO)
   useEffect(() => {
@@ -219,34 +223,31 @@ export default function PaymentBundleModal({
     };
   }, [isOpen, showPrintModal, showDirectScan, isBankDropdownOpen, onClose]);
 
-  if (!isOpen || !bundle) return null;
-
-  const isPaid = (bundle.paid >= bundle.total && bundle.total > 0) || isCashCollected;
-  const amountToPay = bundle.remaining > 0 ? bundle.remaining : bundle.total;
+  const isPaid = Boolean(bundle && ((bundle.paid >= bundle.total && bundle.total > 0) || isCashCollected));
+  const isPartiallyPaid = Boolean(bundle && !isPaid && bundle.paid > 0);
+  const amountToPay = bundle ? (bundle.remaining > 0 ? bundle.remaining : bundle.total) : 0;
 
   const customerName =
-    bundle.customer?.fullName ||
-    bundle.customer?.name ||
-    bundle.contract?.customer?.fullName ||
-    "UAT LK01.32 2PN MUMN94T9";
+    bundle?.customer?.fullName ||
+    bundle?.customer?.name ||
+    bundle?.contract?.customer?.fullName ||
+    "Chưa có khách thuê";
   const roomCode =
-    bundle.room?.roomCode ||
-    bundle.contract?.room?.code ||
-    "PN 32-02";
+    bundle?.room?.roomCode ||
+    bundle?.contract?.room?.code ||
+    "Chưa có phòng";
 
-  // SePay payment code or normalized room code
-  const transferMemo = (() => {
-    const cleanRoom = String(roomCode || "3202").replace(/[^a-zA-Z0-9]/g, "");
-    return `HD${cleanRoom.slice(-4)}1026`;
-  })();
+  const transferMemo = bundle?.paymentCode || bundle?.bundleCode || "";
 
-  const qrImageUrl = buildVietQrUrl(
-    activeBank.bankName,
-    activeBank.accountNumber,
-    amountToPay,
-    transferMemo,
-    activeBank.accountName
-  );
+  const qrImageUrl = hasPaymentAccount
+    ? buildVietQrUrl(
+        activeBank.bankName,
+        activeBank.accountNumber,
+        amountToPay,
+        transferMemo,
+        activeBank.accountName,
+      )
+    : "";
 
   // Countdown (15s) to auto-return to details when payment is successful in direct scan mode
   useEffect(() => {
@@ -270,6 +271,14 @@ export default function PaymentBundleModal({
     return () => clearInterval(timer);
   }, [showDirectScan, isPaid]);
 
+  useEffect(() => {
+    setIsCashCollected(false);
+    setShowDirectScan(false);
+    setActiveTab("OVERVIEW");
+  }, [bundle?.invoiceId, bundle?.bundleCode]);
+
+  if (!isOpen || !bundle) return null;
+
   const handleCopy = (text: string, type: "code" | "amount" | "memo" | "acc") => {
     navigator.clipboard.writeText(text);
     if (type === "code") {
@@ -292,27 +301,43 @@ export default function PaymentBundleModal({
   };
 
   const handleSendZalo = () => {
-    toast.success(`Đang mở Zalo gửi thông tin thanh toán ${formatVnd(amountToPay)} cho ${customerName}...`);
-    const shareText = `Chào bạn, đợt thanh toán ${bundle.bundleCode} cho phòng ${roomCode} với số tiền ${formatVnd(amountToPay)}. Vui lòng quét mã QR hoặc chuyển khoản với nội dung: ${transferMemo}`;
+    const paymentInstruction = hasPaymentAccount
+      ? `Vui lòng quét mã QR hoặc chuyển khoản với nội dung: ${transferMemo}`
+      : "Vui lòng liên hệ bộ phận quản lý để nhận thông tin thanh toán.";
+    const shareText = `Chào bạn, đợt thanh toán ${bundle.bundleCode} cho phòng ${roomCode} với số tiền ${formatVnd(amountToPay)}. ${paymentInstruction}`;
     navigator.clipboard.writeText(shareText);
+    toast.success(`Đã sao chép thông tin thanh toán để gửi cho ${customerName}.`);
   };
 
-  const handleCollectCash = () => {
-    setIsCashCollected(true);
-    setShowDirectScan(false);
-    toast.success(`Đã ghi nhận thu tiền mặt ${formatVnd(amountToPay)} từ khách hàng thành công!`);
+  const handleCollectCash = async () => {
+    if (!bundle.invoiceId) {
+      toast.error("Không xác định được hóa đơn gốc để ghi nhận thanh toán.");
+      return;
+    }
+    if (amountToPay <= 0) {
+      toast.error("Hóa đơn không còn số tiền cần thu.");
+      return;
+    }
+    try {
+      await payMutation.mutateAsync({
+        id: bundle.invoiceId,
+        amount: amountToPay,
+        provider: "MANUAL",
+        providerRef: `CASH:${crypto.randomUUID()}`,
+      });
+      setIsCashCollected(true);
+      setShowDirectScan(false);
+      toast.success(`Đã ghi nhận thu tiền mặt ${formatVnd(amountToPay)} vào hệ thống.`);
+    } catch (error: any) {
+      toast.error(error?.message || "Không thể ghi nhận thanh toán tiền mặt.");
+    }
   };
 
   const handleExportVoucher = () => {
     setShowPrintModal(true);
   };
 
-  // Fallback default items if not provided
-  const items = bundle.items && bundle.items.length > 0 ? bundle.items : [
-    { stt: 1, name: "Tiền thuê tháng đầu (ACTUAL_DAYS_V1)", amount: 266667 },
-    { stt: 2, name: "Tiền cọc hợp đồng", amount: 8000000 },
-    { stt: 3, name: "Trừ cọc giữ phòng đã thanh toán", amount: -1000000, isNegative: true },
-  ];
+  const items = bundle.items || [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto">
@@ -372,7 +397,7 @@ export default function PaymentBundleModal({
                   isPaid || isCashCollected ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
                 }`}
               />
-              <span>{isPaid || isCashCollected ? "Đã thu đủ" : "Chờ thanh toán"}</span>
+              <span>{isPaid || isCashCollected ? "Đã thu đủ" : isPartiallyPaid ? "Đã thu một phần" : "Chờ thanh toán"}</span>
             </span>
           </div>
 
@@ -395,7 +420,9 @@ export default function PaymentBundleModal({
             <div className="flex items-center gap-2.5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 px-4 py-2.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
               <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>
-                Khách hàng chưa thanh toán. Có thể gửi QR qua Zalo, quét trực tiếp hoặc thu tiền mặt.
+                {isPartiallyPaid
+                  ? `Đã thu ${formatVnd(bundle.paid)}, còn phải thu ${formatVnd(bundle.remaining)}.`
+                  : "Khách hàng chưa thanh toán. Có thể gửi thông tin thanh toán hoặc thu tiền mặt."}
               </span>
             </div>
           ) : (
@@ -468,7 +495,7 @@ export default function PaymentBundleModal({
                 <span>Kỳ thanh toán</span>
               </div>
               <div className="text-sm sm:text-base font-black font-mono tracking-tight text-slate-900 dark:text-slate-100">
-                {bundle.period || "2026-09"}
+                {bundle.period || "Chưa xác định"}
               </div>
             </div>
           </div>
@@ -613,7 +640,7 @@ export default function PaymentBundleModal({
                         {formatVnd(bundle.total)}
                       </div>
                     </div>
-                  ) : (
+                  ) : hasPaymentAccount ? (
                     <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
                       {/* QR Box - Borderless & spacious to avoid crowding payment details */}
                       <div className="relative flex h-38 w-38 sm:h-44 sm:w-44 shrink-0 items-center justify-center bg-transparent p-0 group">
@@ -687,6 +714,16 @@ export default function PaymentBundleModal({
                             </button>
                           </div>
                         </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex min-h-44 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 px-5 text-center dark:border-amber-800 dark:bg-amber-950/20">
+                      <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                      <div className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                        Chưa cấu hình tài khoản nhận tiền trong Settings
+                      </div>
+                      <div className="text-[11px] text-amber-700/80 dark:text-amber-400/80">
+                        Cần cấu hình ngân hàng và số tài khoản trước khi tạo mã QR.
                       </div>
                     </div>
                   )}
@@ -796,10 +833,10 @@ export default function PaymentBundleModal({
                     {/* Method 2: Direct Scan */}
                     <button
                       type="button"
-                      onClick={() => setShowDirectScan(!showDirectScan)}
-                      disabled={isPaid}
+                      onClick={() => hasPaymentAccount && setShowDirectScan(!showDirectScan)}
+                      disabled={isPaid || !hasPaymentAccount}
                       className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left group ${
-                        isPaid
+                        isPaid || !hasPaymentAccount
                           ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
                           : "border-indigo-200/80 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
                       }`}
@@ -872,7 +909,8 @@ export default function PaymentBundleModal({
                     </button>
                     <button
                       type="button"
-                      onClick={() => toast.success("Đã làm mới mã QR thanh toán!")}
+                      onClick={() => toast.success("Mã QR đang hiển thị theo cấu hình thanh toán hiện tại.")}
+                      disabled={!hasPaymentAccount}
                       className="inline-flex items-center gap-1.5 text-slate-600 hover:text-indigo-600 font-semibold transition-colors"
                     >
                       <RefreshCcw className="h-3.5 w-3.5" />
@@ -896,55 +934,21 @@ export default function PaymentBundleModal({
                     <span>Hoạt động gần đây</span>
                   </div>
 
-                  <div className="relative pl-4 space-y-3 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-[1.5px] before:bg-slate-200 dark:before:bg-slate-800">
-                    {/* Activity 1 */}
-                    <div className="relative">
-                      <div className="absolute -left-4 top-1.5 h-2 w-2 rounded-full bg-amber-500 ring-4 ring-amber-50 dark:ring-amber-950" />
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-[10px] font-mono text-slate-400">
-                            29/09/2026 14:20
-                          </div>
-                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                            Tạo đợt thanh toán đầu tiên
-                          </div>
-                          <div className="text-[11px] text-slate-500">
-                            Chờ khách hàng thanh toán
+                  {(bundle.activities || []).length > 0 ? (
+                    <div className="relative pl-4 space-y-3 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-[1.5px] before:bg-slate-200 dark:before:bg-slate-800">
+                      {(bundle.activities || []).map((activity, index) => (
+                        <div key={`${activity.time}-${index}`} className="relative">
+                          <div className="absolute -left-4 top-1.5 h-2 w-2 rounded-full bg-indigo-500 ring-4 ring-indigo-50 dark:ring-indigo-950" />
+                          <div className="text-[10px] font-mono text-slate-400">{activity.time}</div>
+                          <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            {activity.text}
                           </div>
                         </div>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400 shrink-0">
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                          Chờ thanh toán
-                        </span>
-                      </div>
+                      ))}
                     </div>
-
-                    {/* Activity 2 */}
-                    <div className="relative">
-                      <div className="absolute -left-4 top-1.5 h-2 w-2 rounded-full bg-slate-400 ring-4 ring-slate-100 dark:ring-slate-800" />
-                      <div>
-                        <div className="text-[10px] font-mono text-slate-400">
-                          29/09/2026 14:20
-                        </div>
-                        <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Đã tạo QR thanh toán
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Activity 3 */}
-                    <div className="relative">
-                      <div className="absolute -left-4 top-1.5 h-2 w-2 rounded-full bg-slate-400 ring-4 ring-slate-100 dark:ring-slate-800" />
-                      <div>
-                        <div className="text-[10px] font-mono text-slate-400">
-                          29/09/2026 14:20
-                        </div>
-                        <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Gửi thông tin thanh toán cho khách hàng
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  ) : (
+                    <div className="text-xs text-slate-500">Chưa có hoạt động được ghi nhận.</div>
+                  )}
                 </div>
               </div>
             </div>
@@ -965,11 +969,20 @@ export default function PaymentBundleModal({
                       </div>
                       <div className="text-xs text-slate-500">{v.title}</div>
                     </div>
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className={`px-3 py-1 rounded-full border text-xs font-bold ${
+                      v.badgeType === "success"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : v.badgeType === "info"
+                          ? "border-sky-200 bg-sky-50 text-sky-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                    }`}>
                       {v.badge}
                     </span>
                   </div>
                 ))}
+                {(bundle.vouchers || []).length === 0 && (
+                  <div className="py-4 text-xs text-slate-500">Chưa có chứng từ liên kết.</div>
+                )}
               </div>
             </div>
           )}
@@ -984,13 +997,13 @@ export default function PaymentBundleModal({
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
                   <div className="text-slate-500">Phương thức thanh toán</div>
                   <div className="font-bold text-slate-800 dark:text-slate-200 mt-1">
-                    Tiền mặt / Chuyển khoản (Đã đối soát)
+                    {bundle.paymentMethod || "Chưa ghi nhận"}
                   </div>
                 </div>
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
                   <div className="text-slate-500">Mã giao dịch đối soát</div>
                   <div className="font-mono font-bold text-slate-800 dark:text-slate-200 mt-1">
-                    TXN-ENTRY-{bundle.period}-CONFIRMED
+                    {bundle.transactionRef || "Chưa ghi nhận"}
                   </div>
                 </div>
               </div>
@@ -1012,6 +1025,9 @@ export default function PaymentBundleModal({
                     </span>
                   </div>
                 ))}
+                {(bundle.activities || []).length === 0 && (
+                  <div className="text-slate-500">Chưa có sự kiện được ghi nhận.</div>
+                )}
               </div>
             </div>
           )}
@@ -1091,7 +1107,7 @@ export default function PaymentBundleModal({
                     : "bg-white border-2 border-indigo-200 dark:border-indigo-800 shadow-2xl"
                 }`}
               >
-                {!isPaid && (
+                {!isPaid && hasPaymentAccount && (
                   <img
                     src={qrImageUrl}
                     alt="QR thanh toán lớn"
@@ -1141,7 +1157,7 @@ export default function PaymentBundleModal({
                   </span>
                 </div>
               ) : (
-                <>
+                  hasPaymentAccount ? <>
                   <div className="space-y-1">
                     <div className="text-3xl font-black font-mono text-indigo-600 dark:text-indigo-400 tracking-tight">
                       {formatVnd(amountToPay)}
@@ -1191,7 +1207,14 @@ export default function PaymentBundleModal({
                   >
                     Thu nhỏ mã QR (ESC)
                   </button>
-                </>
+                  </> : (
+                    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 px-6 py-5 dark:border-amber-800 dark:bg-amber-950/20">
+                      <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                      <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                        Chưa cấu hình tài khoản nhận tiền trong Settings
+                      </span>
+                    </div>
+                  )
               )}
             </div>
           </div>
@@ -1202,17 +1225,17 @@ export default function PaymentBundleModal({
           <PrintableInvoiceModal
             isOpen={showPrintModal}
             onClose={() => setShowPrintModal(false)}
-            invoiceCode={(bundle as any).code || bundle.vouchers?.[0]?.code || "HD-DOT-THANH-TOAN"}
-            periodLabel="Kỳ hiện tại"
-            creationDateStr={new Date().toLocaleDateString("vi-VN")}
-            dueDateStr={new Date().toLocaleDateString("vi-VN")}
+            invoiceCode={(bundle as any).code || bundle.vouchers?.[0]?.code || bundle.bundleCode || "Chưa có mã"}
+            periodLabel={bundle.period || "Chưa xác định"}
+            creationDateStr={formatDate(bundle.createdAt)}
+            dueDateStr={formatDate(bundle.dueDate)}
             isPaid={isPaid}
             customerName={customerName}
-            customerPhone="0900000000"
+            customerPhone={bundle.customer?.phone || bundle.contract?.customer?.phone || "Chưa có"}
             roomName={roomCode}
-            buildingName={bundle.contract?.room?.building?.name || "Tòa nhà chính"}
-            contractCode={bundle.contract?.code || "HĐ"}
-            paymentMethod={isPaid ? "Tiền mặt / Chuyển khoản" : "Chuyển khoản"}
+            buildingName={bundle.room?.buildingName || bundle.contract?.room?.building?.name || "Chưa có"}
+            contractCode={bundle.contract?.code || "Chưa có"}
+            paymentMethod={bundle.paymentMethod || "Chưa ghi nhận"}
             totalAmount={bundle.total}
             items={items.map((it: any, idx: number) => ({
               stt: it.stt || idx + 1,

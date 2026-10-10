@@ -2,9 +2,60 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const yaml = require('yaml');
 
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const workflowModel = () => yaml.parse(read('.github/workflows/ci-cd-pipeline.yml'), { uniqueKeys: true });
+const remoteJobs = ['deploy-staging', 'health-smoke-staging', 'core-10-04-staging-gate', 'rollback-staging', 'deploy-production', 'health-smoke-production', 'rollback-production'];
+
+test('workflow YAML has real jobs, scoped integration env and no duplicate top-level keys', () => {
+  const workflow = workflowModel();
+  assert.equal(workflow.env.PUPPETEER_SKIP_DOWNLOAD, 'true');
+  assert.equal(workflow.jobs['integration-test'].env.DATABASE_URL, 'postgresql://homeland:homeland123@localhost:5433/homeland?schema=public');
+  assert.equal(workflow.jobs['integration-test'].env.REDIS_URL, 'redis://localhost:6385');
+  assert.ok(Array.isArray(workflow.jobs['integration-test'].steps));
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    assert.ok(job['runs-on'], `Missing runner: ${name}`);
+    assert.ok(Array.isArray(job.steps), `Missing steps: ${name}`);
+    for (const dependency of job.needs || []) assert.ok(workflow.jobs[dependency], `Unknown dependency: ${dependency}`);
+  }
+});
+
+test('push and PR can test but cannot publish or contact the NAS/legacy VPS', () => {
+  const workflow = workflowModel();
+  assert.equal(workflow.on.workflow_dispatch.inputs.publish_release.default, false);
+  assert.match(workflow.jobs['semantic-release'].if, /github.event_name == 'workflow_dispatch'/);
+  assert.match(workflow.jobs['semantic-release'].if, /inputs.publish_release == true/);
+  assert.equal(workflow.jobs['semantic-release'].environment, 'release-approval');
+  for (const name of remoteJobs) assert.equal(workflow.jobs[name].if, '${{ false }}', `${name} must never run in the local repair milestone`);
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    if (job.steps.some((step) => /ssh-action/.test(step.uses || ''))) assert.ok(remoteJobs.includes(name));
+  }
+});
+
+test('owner-approved CI uses Node22 while API Node22 and Web Node20 Docker runtimes stay unchanged', () => {
+  for (const [name, job] of Object.entries(workflowModel().jobs)) {
+    for (const step of job.steps) {
+      if (/actions\/setup-node@/.test(step.uses || '')) assert.equal(step.with['node-version'], '22', `Runtime mismatch: ${name}`);
+    }
+  }
+  assert.match(read('Dockerfile.api'), /FROM node:22/);
+  assert.match(read('Dockerfile.web'), /FROM node:20-alpine AS base/);
+});
+
+test('CI uses dedicated loopback-only services with no production env or volume reference', () => {
+  const compose = yaml.parse(read('docker-compose.ci.yml'));
+  assert.deepEqual(Object.keys(compose.services).sort(), ['postgres', 'redis']);
+  assert.deepEqual(compose.services.postgres.ports, ['127.0.0.1:5433:5432']);
+  assert.deepEqual(compose.services.redis.ports, ['127.0.0.1:6385:6379']);
+  assert.deepEqual(Object.keys(compose.volumes), ['ci-postgres']);
+  assert.doesNotMatch(read('docker-compose.ci.yml'), /env_file:|external:\s*true|container_name:/);
+  for (const name of ['integration-test', 'e2e']) {
+    const steps = workflowModel().jobs[name].steps;
+    assert.ok(steps.some((step) => /docker compose -f docker-compose\.ci\.yml -p homeland-ci-/.test(step.run || '')));
+  }
+});
 
 test('API image startup never pushes, resets, seeds, or starts a dev watcher', () => {
   const entrypoint = read('scripts/docker-api-entrypoint.sh');
@@ -40,10 +91,25 @@ test('Docker context excludes local dependencies, builds, reports, secrets, and 
     '.codex-backups',
     '*.bak',
     '.env.*',
+    '**/.env',
+    '**/.env.*',
+    '**/.agentflow',
+    '**/.agents',
+    '**/.codex',
+    '**/.eos',
+    '**/deploy/public-production/release',
+    '**/deploy/public-production/release-*',
+    '**/deploy/**/node_modules',
+    '**/scratch',
+    '**/tmp',
+    '**/screenshots',
   ]) {
     assert.ok(dockerignore.split(/\r?\n/).includes(requiredPattern), `Missing .dockerignore pattern: ${requiredPattern}`);
   }
   assert.doesNotMatch(dockerignore, /^\*\*\/storage$/m);
+  assert.match(dockerignore, /^!\/\.env\.example$/m);
+  assert.match(dockerignore, /^!\/\.env\.docker\.example$/m);
+  assert.doesNotMatch(dockerignore, /^!\*\*\/\.env/m);
 });
 
 test('frontend build arguments are attached to the web image only', () => {
@@ -63,8 +129,7 @@ test('deployment workflow preserves env files and validates compose before resta
   assert.match(workflow, /\.env\.backup-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
   assert.match(workflow, /docker compose config --quiet/);
   assert.ok((workflow.match(/update_env RUN_DB_MIGRATIONS false/g) || []).length >= 4);
-  assert.match(workflow, /needs\.deploy-staging\.result == 'failure'/);
-  assert.match(workflow, /needs\.deploy-production\.result == 'failure'/);
+  for (const name of remoteJobs) assert.equal(workflowModel().jobs[name].if, '${{ false }}');
 });
 
 test('staging and production gates use the real production Playwright command', () => {
@@ -94,7 +159,7 @@ test('API integration tests compile shared workspace before Vitest resolves it',
     workflow.indexOf('  build-api:'),
   );
   const sharedBuild = integrationBlock.indexOf('npm run build -w @homeland/shared');
-  const servicesReady = integrationBlock.indexOf('docker compose up -d --wait --wait-timeout 60 postgres redis');
+  const servicesReady = integrationBlock.indexOf('docker compose -f docker-compose.ci.yml -p homeland-ci-');
   const migration = integrationBlock.indexOf('node scripts/ci-bootstrap-database.js');
   const apiE2e = integrationBlock.indexOf('npm run test:e2e --workspace=api');
   assert.ok(sharedBuild >= 0, 'Integration job must compile @homeland/shared');
@@ -194,8 +259,8 @@ test('CI blocks packaging when runtime audit contains high or critical findings'
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
   assert.match(workflow, /npm audit --omit=dev --json/);
   assert.match(workflow, /Enforce Runtime Dependency Policy/);
-  assert.match(workflow, /counts\.critical/);
-  assert.match(workflow, /counts\.high/);
+  assert.match(workflow, /node scripts\/runtime-audit-policy\.js security\/npm-audit\.json/);
+  assert.doesNotMatch(workflow, /high:0|critical:0|const filtered=/);
 });
 
 test('CI creates a validated reproducible SBOM while retaining the runtime audit gate', () => {
@@ -213,7 +278,13 @@ test('CI creates a validated reproducible SBOM while retaining the runtime audit
     securityBlock.indexOf('Generate SBOM') < securityBlock.indexOf('Enforce Runtime Dependency Policy'),
     'Runtime dependency policy must still run after SBOM generation',
   );
-  assert.match(securityBlock, /if\(\(counts\.critical\|\|0\)>0\|\|\(counts\.high\|\|0\)>0\)process\.exit\(1\)/);
+  assert.match(securityBlock, /node scripts\/runtime-audit-policy\.js security\/npm-audit\.json/);
+  const scans = workflowModel().jobs['security-scan'].steps.filter((step) => /aquasecurity\/trivy-action@/.test(step.uses || ''));
+  assert.equal(scans.length, 2);
+  for (const scan of scans) {
+    assert.match(scan.uses, /@[a-f0-9]{40}$/);
+    assert.equal(scan.with['exit-code'], '1');
+  }
 });
 
 test('Hunonic mobile signing secrets stay outside source control', () => {

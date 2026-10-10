@@ -6,6 +6,7 @@ export type RevenueByBuildingReportRow = {
   buildingName: string;
   invoiceCount: number;
   totalAmount: number;
+  operatingRevenueAmount: number;
   paidAmount: number;
   creditAmount: number;
   remainingAmount: number;
@@ -58,11 +59,19 @@ export type ProfitLossHistoryReport = {
   data: ProfitLossHistoryReportRow[];
 };
 
+export type ReportPeriodParams = {
+  startDate?: string;
+  endDate?: string;
+  months?: number;
+  year?: number;
+  month?: number;
+};
+
 export const reportsApi = {
-  getProfitLossHistory: (params?: { months?: number; year?: number; month?: number }) =>
+  getProfitLossHistory: (params?: ReportPeriodParams) =>
     apiClient.get<ProfitLossHistoryReport>("/finance/profit-loss-history", { params }),
-  getRevenueByBuilding: () =>
-    apiClient.get<RevenueByBuildingReportRow[]>("/reports/revenue-by-building"),
-  getReceivableAging: () =>
-    apiClient.get<ReceivableAgingReportRow[]>("/reports/receivable-aging"),
+  getRevenueByBuilding: (params?: ReportPeriodParams) =>
+    apiClient.get<RevenueByBuildingReportRow[]>("/reports/revenue-by-building", { params }),
+  getReceivableAging: (params?: ReportPeriodParams) =>
+    apiClient.get<ReceivableAgingReportRow[]>("/reports/receivable-aging", { params }),
 };

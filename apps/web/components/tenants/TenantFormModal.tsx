@@ -41,7 +41,6 @@ const EMPTY_VALUES: FormData = {
   zaloChatId: "",
   zaloUserId: "",
   emergencyPhone: "",
-  status: "ACTIVE",
   notes: "",
   roomId: "",
 };
@@ -125,7 +124,6 @@ const buildFormPayload = (values: FormData) => {
     zaloChatId: values.zaloChatId?.trim() || null,
     zaloUserId: values.zaloUserId?.trim() || null,
     emergencyPhone: values.emergencyPhone?.trim() || null,
-    status: values.status || "ACTIVE",
     notes: values.notes?.trim() || null,
     roomId: values.roomId ? values.roomId : null,
   };
@@ -306,7 +304,6 @@ export default function TenantFormModal({ isOpen, onClose, tenant }: TenantFormM
         zaloChatId: tenant.zaloChatId || "",
         zaloUserId: tenant.zaloUserId || "",
         emergencyPhone: tenant.emergencyPhone || "",
-        status: tenant.status || "ACTIVE",
         notes: tenant.notes || "",
         roomId:
           tenant.roomId ||

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
+const { checkOffHostReceipt } = require('./production-restore-check');
 
 function parseArguments(argv) {
   const options = {
@@ -78,6 +79,7 @@ function readBackupCandidates(outputDir) {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     const completedAt = new Date(String(manifest.completedAt || manifest.startedAt || ''));
     if (!Number.isFinite(completedAt.getTime())) continue;
+    const offHostReceipt = checkOffHostReceipt(backupDir, manifest, true);
     backups.push({
       id: manifest.id || entry.name,
       backupDir,
@@ -85,7 +87,7 @@ function readBackupCandidates(outputDir) {
       manifest,
       completedAt,
       status: String(manifest.status || 'UNKNOWN'),
-      offHostLocation: manifest.offHostLocation || null,
+      offHostLocation: offHostReceipt.status === 'PASS' ? offHostReceipt.location : null,
     });
   }
 

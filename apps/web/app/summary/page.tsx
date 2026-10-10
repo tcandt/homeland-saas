@@ -42,17 +42,10 @@ import RoomSettlementDetailDrawer from "@/components/summary/RoomSettlementDetai
 import SettlementSettingsModal from "@/components/summary/SettlementSettingsModal";
 import { ElectricityManagerContent } from "@/app/electricity/page";
 import toast from "react-hot-toast";
+import { getVietnamCurrentPeriod } from "@/lib/utils/report-period";
 
 function formatVnd(value: number) {
   return `${Number(value || 0).toLocaleString("vi-VN")} đ`;
-}
-
-function getVietnamCurrentPeriod() {
-  const utc = Date.now() + new Date().getTimezoneOffset() * 60000;
-  const vn = new Date(utc + 7 * 3600000);
-  const y = vn.getFullYear();
-  const m = String(vn.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
 }
 
 export default function OperationsSummaryPage() {
@@ -60,7 +53,7 @@ export default function OperationsSummaryPage() {
   const [activeMainTab, setActiveMainTab] = useState<"management" | "meters">("management");
 
   // Filters state
-  const [selectedPeriod, setSelectedPeriod] = useState<string>(getVietnamCurrentPeriod());
+  const [selectedPeriod, setSelectedPeriod] = useState<string>(() => getVietnamCurrentPeriod());
   const [selectedBuilding, setSelectedBuilding] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [notificationStatusFilter, setNotificationStatusFilter] = useState<string>("ALL");
@@ -78,7 +71,7 @@ export default function OperationsSummaryPage() {
   const [closeMonthAutoSend, setCloseMonthAutoSend] = useState(false);
 
   // Queries & Mutations
-  const { data: overviewData, isLoading: isLoadingOverview, refetch } = useMonthlySettlementOverviewQuery({
+  const { data: overviewData, isLoading: isLoadingOverview, isError: isOverviewError, refetch } = useMonthlySettlementOverviewQuery({
     period: selectedPeriod,
     buildingId: selectedBuilding,
     search: searchQuery,
@@ -230,6 +223,13 @@ export default function OperationsSummaryPage() {
     document.body.removeChild(link);
     toast.success("Đã xuất file báo cáo tổng hợp CSV thành công!");
   };
+
+  if (isOverviewError) {
+    return <AppShell><div role="alert" className="rounded-xl border border-border bg-card p-4">
+      <p>Không tải được Tổng hợp kỳ {selectedPeriod}. Không thể kết luận không có khách hoặc phát sinh.</p>
+      <button type="button" className="mt-2 text-primary" onClick={() => { void refetch(); }}>Thử lại</button>
+    </div></AppShell>;
+  }
 
   return (
     <AppShell>

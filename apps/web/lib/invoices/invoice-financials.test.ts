@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { getInvoiceFinancials, getInvoicesFinancialSummary } from './invoice-financials';
+import {
+  getInvoiceDocumentCounts,
+  getInvoiceFinancials,
+  getInvoiceOperationsSummary,
+  getInvoicesFinancialSummary,
+} from './invoice-financials';
 
 describe('getInvoiceFinancials', () => {
   it('subtracts both cash payments and credits from the remaining balance', () => {
@@ -54,5 +59,54 @@ describe('getInvoiceFinancials', () => {
       settled: 1_000_000,
       remaining: 500_000,
     });
+  });
+});
+
+describe('invoice operations dashboard data', () => {
+  it('returns zero values instead of fabricated KPIs for an empty dataset', () => {
+    expect(getInvoiceOperationsSummary([], [])).toEqual({
+      totalIncome: 0,
+      paidIncome: 0,
+      pendingAmount: 0,
+      overdueAmount: 0,
+      recoveryRate: 0,
+      pendingRate: 0,
+      firstPaymentBundleTotal: 0,
+      bundleCount: 0,
+      totalCount: 0,
+    });
+    expect(getInvoiceDocumentCounts([])).toEqual({ totalAll: 0, invoiceOnly: 0, depositOnly: 0 });
+  });
+
+  it('calculates KPI totals, rates, and document counts from API documents', () => {
+    const documents = [
+      { id: 'issued', total: 1_000_000, paidAmount: 400_000, status: 'ISSUED' },
+      { id: 'overdue', total: 500_000, paidAmount: 100_000, status: 'OVERDUE' },
+      { id: 'expense', total: 300_000, paidAmount: 300_000, status: 'PAID', documentType: 'DEPOSIT' },
+      { id: 'cancelled', total: 9_000_000, paidAmount: 0, status: 'CANCELLED' },
+    ];
+
+    expect(
+      getInvoiceOperationsSummary(
+        documents,
+        [
+          { linked: true, bundleData: { total: 1_500_000 } },
+          { linked: true, bundleData: { total: 250_000 } },
+          { linked: false },
+        ],
+        (document) => document.id === 'expense' ? 'EXPENSE' : 'INCOME',
+      ),
+    ).toEqual({
+      totalIncome: 1_500_000,
+      paidIncome: 500_000,
+      pendingAmount: 1_000_000,
+      overdueAmount: 400_000,
+      recoveryRate: 33,
+      pendingRate: 67,
+      firstPaymentBundleTotal: 1_750_000,
+      bundleCount: 2,
+      totalCount: 4,
+    });
+    expect(getInvoiceDocumentCounts(documents)).toEqual({ totalAll: 4, invoiceOnly: 3, depositOnly: 1 });
   });
 });

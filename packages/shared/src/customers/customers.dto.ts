@@ -21,7 +21,8 @@ export const CreateCustomerSchema = z.object({
   emergencyPhone: z.string().optional().nullable(),
   roomId: z.string().optional().nullable(),
   relationship: z.string().optional().nullable(),
-  status: CustomerStatusEnum.default('ACTIVE'),
+  // Renting/occupancy status is a read projection, never a writable profile field.
+  status: z.never().optional(),
   notes: z.string().optional().nullable(),
   idImages: z.array(z.string()).optional(),
 });

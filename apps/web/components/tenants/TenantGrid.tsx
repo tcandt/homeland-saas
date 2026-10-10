@@ -11,6 +11,7 @@ import { ErrorState } from "../ui/ErrorState";
 import { LoadingState } from "../ui/LoadingState";
 import { getTenantAvatar, default as TenantDetailDrawer } from "./TenantDetailDrawer";
 import { getTenantRentalStatus } from "@/lib/adapters/room-status.adapter";
+import { getTenantContractProjection } from "./TenantGrid.projection";
 
 type TenantRow = {
   id: string;
@@ -31,6 +32,7 @@ type TenantRow = {
   statusLabel: string;
   statusVariant: "success" | "warning" | "error" | "neutral" | "primary";
   activeContract: any;
+  pendingContract: any;
   contracts: any[];
   identityNo?: string;
   birthDate?: string;
@@ -40,6 +42,11 @@ type TenantRow = {
   emergencyPhone?: string;
   idImages?: string[];
 };
+
+function pendingContractStatusLabel(contract: any) {
+  const status = String(contract?.status || "").toUpperCase();
+  return status === "APPROVED" ? "Đã duyệt · chờ hiệu lực" : status === "PENDING_APPROVAL" ? "Chờ duyệt" : "Bản nháp";
+}
 
 function formatDate(value?: string) {
   if (!value) return "--";
@@ -100,30 +107,15 @@ export default function TenantGrid() {
       // The paginated customer response owns this bounded relation. Do not
       // infer it from a separate global contract result set.
       const customerContracts: any[] = Array.isArray(customer.contracts) ? customer.contracts : [];
-      const activeContract = customerContracts.find((contract: any) =>
-        ["ACTIVE", "EXPIRING"].includes(String(contract?.status || "").toUpperCase()),
-      ) || null;
+      const { activeContract, pendingContract, roomLabel, buildingName } = getTenantContractProjection(customer, customerContracts);
 
       const debt = Number(customer.kpis?.totalDebt || activeContract?.debt || 0);
       const endDate = activeContract?.endDate;
       const days = contractDays(endDate);
-      const openOccupancy = Array.isArray(customer.occupancies)
-        ? customer.occupancies.find((occupancy: any) => !occupancy.leftAt)
-        : null;
-      const occupancyRoom = openOccupancy?.room;
-
       const { status: rentalStatus, statusLabel, statusVariant } = getTenantRentalStatus(customer, customerContracts);
 
       const gender = customer.gender || "Nam";
       const fullName = customer.fullName || customer.name || "Khách thuê";
-
-      const roomLabel = activeContract
-        ? (activeContract.room?.name || activeContract.room?.code || activeContract.room?.number || "N/A")
-        : (occupancyRoom?.name || occupancyRoom?.code || customer.room?.name || customer.room?.code || customer.rooms?.[0]?.name || customer.rooms?.[0]?.code || "N/A");
-
-      const buildingName = activeContract
-        ? (activeContract.room?.building?.name || "Chưa có tòa")
-        : (occupancyRoom?.building?.name || customer.room?.building?.name || customer.rooms?.[0]?.building?.name || "Chưa có tòa");
 
       return {
         id: customer.id,
@@ -144,6 +136,7 @@ export default function TenantGrid() {
         statusLabel,
         statusVariant,
         activeContract,
+        pendingContract,
         contracts: customerContracts,
         identityNo: customer.identityNo || customer.citizenId,
         birthDate: customer.birthDate,
@@ -320,9 +313,18 @@ function TenantTableRow({ row, onOpen }: { row: TenantRow; onOpen: () => void })
         )}
       </div>
       <div className="min-w-0">
-        <div className="truncate text-[12px] font-black text-text">
-          {row.startDate && row.endDate ? `${formatDate(row.startDate)} - ${formatDate(row.endDate)}` : "-- --"}
-        </div>
+        {row.activeContract ? (
+          <div className="truncate text-[12px] font-black text-text">
+            {row.startDate && row.endDate ? `${formatDate(row.startDate)} - ${formatDate(row.endDate)}` : "-- --"}
+          </div>
+        ) : row.pendingContract ? (
+          <>
+            <div className="truncate text-[12px] font-black text-text">{row.pendingContract.code || row.pendingContract.contractCode || "Hợp đồng chờ hiệu lực"}</div>
+            <div className="mt-1 truncate text-[11px] font-semibold text-amber-600">{pendingContractStatusLabel(row.pendingContract)}</div>
+          </>
+        ) : (
+          <div className="truncate text-[12px] font-black text-text">-- --</div>
+        )}
       </div>
       <div className={`text-[13px] font-black ${row.debt > 0 ? "text-rose-600" : "text-emerald-600"}`}>{formatMoney(row.debt)}</div>
       <div>

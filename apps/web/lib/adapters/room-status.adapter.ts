@@ -27,13 +27,13 @@ export interface ContractCandidate {
 
 export const ACTIVE_CONTRACT_STATUSES = new Set([
   "ACTIVE",
-  "APPROVED",
   "EXPIRING",
 ]);
 
 export const PENDING_CONTRACT_STATUSES = new Set([
   "DRAFT",
   "PENDING_APPROVAL",
+  "APPROVED",
 ]);
 
 export const TERMINAL_CONTRACT_STATUSES = new Set([
@@ -105,9 +105,9 @@ export function hasActiveHold(holds: RoomHoldCandidate[] | null | undefined, asO
  * Pure adapter to compute authoritative Room UI status.
  * Order of precedence:
  * 1. MAINTENANCE status -> "maintenance"
- * 2. Active contract (ACTIVE, APPROVED, EXPIRING) -> "occupied"
+ * 2. Active contract (ACTIVE, EXPIRING) -> "occupied"
  * 3. Open occupancy (!leftAt) -> "occupied"
- * 4. Pending contract (DRAFT/PENDING_APPROVAL) -> "deposited" / in-progress, not occupied yet
+ * 4. Pending contract (DRAFT/PENDING_APPROVAL/APPROVED) -> "deposited" / in-progress, not occupied yet
  * 5. Active hold (ACTIVE and not expired) -> "deposited"
  * 6. RESERVED status with valid hold -> "deposited"
  * 7. Everything else (AVAILABLE, CLEANING, expired/terminated contracts, historical roommates without open occupancy) -> "vacant"
@@ -186,7 +186,12 @@ export function getTenantRentalStatus(
     ...(Array.isArray(customer.contracts) ? customer.contracts : []),
   ].filter((c) => !c.deletedAt);
 
-  const activeContract = contracts.find((c) => isNonTerminalContract(c));
+  const activeContract = contracts.find((c) =>
+    ["ACTIVE", "EXPIRING"].includes(String(c.status || "").toUpperCase()) && !isBookingHoldContract(c)
+  );
+  const pendingContract = contracts.find((c) => isNonTerminalContract(c) && (
+    ["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(String(c.status || "").toUpperCase()) || isBookingHoldContract(c)
+  ));
   const latestTerminatedContract = contracts.find((c) => {
     const s = String(c.status || "").toUpperCase();
     return TERMINAL_CONTRACT_STATUSES.has(s);
@@ -195,14 +200,11 @@ export function getTenantRentalStatus(
   const occupancies: RoomOccupancyCandidate[] = Array.isArray(customer.occupancies)
     ? customer.occupancies
     : [];
-  const openOccupancy = occupancies.find((occ) => !occ.leftAt);
+  const openOccupancy = hasOpenOccupancy(occupancies);
 
   if (activeContract) {
     const s = String(activeContract.status || "").toUpperCase();
-    if (isBookingHoldContract(activeContract)) {
-      return { status: "DRAFT", statusLabel: "Chờ ký HĐ cọc giữ phòng", statusVariant: "primary" };
-    }
-    if (s === "ACTIVE" || s === "APPROVED") {
+    if (s === "ACTIVE") {
       if (activeContract.endDate) {
         const endTime = new Date(activeContract.endDate).getTime();
         const nowTime = asOf.getTime();
@@ -219,13 +221,20 @@ export function getTenantRentalStatus(
     if (s === "EXPIRING") {
       return { status: "EXPIRING", statusLabel: "Sắp hết HĐ", statusVariant: "warning" };
     }
-    if (s === "DRAFT" || s === "PENDING_APPROVAL") {
-      return { status: "DRAFT", statusLabel: "Chờ ký HĐ", statusVariant: "primary" };
-    }
   }
 
   if (openOccupancy) {
     return { status: "ACTIVE", statusLabel: "Ở ghép", statusVariant: "success" };
+  }
+
+  if (pendingContract) {
+    if (isBookingHoldContract(pendingContract)) {
+      return { status: "DRAFT", statusLabel: "Chờ ký HĐ cọc giữ phòng", statusVariant: "primary" };
+    }
+    if (String(pendingContract.status || "").toUpperCase() === "APPROVED") {
+      return { status: "DRAFT", statusLabel: "Đã duyệt · chờ hiệu lực", statusVariant: "primary" };
+    }
+    return { status: "DRAFT", statusLabel: "Chờ ký HĐ", statusVariant: "primary" };
   }
 
   if (latestTerminatedContract) {

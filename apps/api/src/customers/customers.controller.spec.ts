@@ -35,8 +35,8 @@ describe('CustomersController', () => {
 
   describe('list', () => {
     it('should call service.listCustomers with parsed query', () => {
-      controller.list({ page: '1', limit: '10', search: 'John', status: 'ACTIVE' } as any);
-      expect(service.listCustomers).toHaveBeenCalledWith(1, 10, 'John', 'ACTIVE', 'createdAt', 'desc');
+      controller.list({ page: '1', limit: '10', search: 'John', status: 'ACTIVE' } as any, 'tenant-a');
+      expect(service.listCustomers).toHaveBeenCalledWith('tenant-a', 1, 10, 'John', 'ACTIVE', 'createdAt', 'desc');
     });
   });
 

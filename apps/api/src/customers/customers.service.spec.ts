@@ -126,32 +126,38 @@ describe('CustomersService', () => {
       room: {
         select: {
           id: true,
+          tenantId: true,
+          deletedAt: true,
           code: true,
           name: true,
-          building: { select: { id: true, code: true, name: true } },
+          building: { select: { id: true, tenantId: true, deletedAt: true, code: true, name: true } },
         },
       },
       occupancies: {
-        where: { leftAt: null },
+        where: { tenantId: 'tenant-a', leftAt: null },
         orderBy: { joinedAt: 'desc' },
         take: 1,
         select: {
           id: true,
+          tenantId: true,
           contractId: true,
           role: true,
           joinedAt: true,
           room: {
             select: {
               id: true,
+              tenantId: true,
+              deletedAt: true,
               code: true,
               name: true,
-              building: { select: { id: true, code: true, name: true } },
+              building: { select: { id: true, tenantId: true, deletedAt: true, code: true, name: true } },
             },
           },
         },
       },
       contracts: {
         where: {
+          tenantId: 'tenant-a',
           deletedAt: null,
           status: { in: ROOM_VISIBLE_CONTRACT_STATUSES },
         },
@@ -159,6 +165,7 @@ describe('CustomersService', () => {
         take: 1,
         select: {
           id: true,
+          tenantId: true,
           code: true,
           status: true,
           startDate: true,
@@ -166,24 +173,31 @@ describe('CustomersService', () => {
           room: {
             select: {
               id: true,
+              tenantId: true,
+              deletedAt: true,
               code: true,
               name: true,
-              building: { select: { id: true, code: true, name: true } },
+              building: { select: { id: true, tenantId: true, deletedAt: true, code: true, name: true } },
             },
           },
         },
       },
-      _count: { select: { contracts: true } },
+      _count: { select: { contracts: { where: { tenantId: 'tenant-a', deletedAt: null } } } },
     };
 
+    it('rejects a missing tenant context before querying', async () => {
+      await expect(service.listCustomers('', 1, 10)).rejects.toBeInstanceOf(BadRequestException);
+      expect(repository.paginate).not.toHaveBeenCalled();
+    });
+
     it('should query active status via either contracts or open occupancy', async () => {
-      await service.listCustomers(1, 10, undefined, 'ACTIVE');
+      await service.listCustomers('tenant-a', 1, 10, undefined, 'ACTIVE');
       expect(repository.paginate).toHaveBeenCalledWith(
         {
-          AND: [{
+          AND: [{ tenantId: 'tenant-a' }, {
             OR: [
-              { contracts: { some: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
-              { occupancies: { some: { leftAt: null } } },
+              { contracts: { some: { tenantId: 'tenant-a', deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
+              { occupancies: { some: { tenantId: 'tenant-a', leftAt: null } } },
             ],
           }],
         },
@@ -195,12 +209,13 @@ describe('CustomersService', () => {
     });
 
     it('should query inactive status via contracts and occupancy relations', async () => {
-      await service.listCustomers(1, 10, undefined, 'INACTIVE');
+      await service.listCustomers('tenant-a', 1, 10, undefined, 'INACTIVE');
       expect(repository.paginate).toHaveBeenCalledWith(
         {
           AND: [
-            { contracts: { none: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
-            { occupancies: { none: { leftAt: null } } },
+            { tenantId: 'tenant-a' },
+            { contracts: { none: { tenantId: 'tenant-a', deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
+            { occupancies: { none: { tenantId: 'tenant-a', leftAt: null } } },
           ],
         },
         1,
@@ -211,9 +226,9 @@ describe('CustomersService', () => {
     });
 
     it('should query debt status via invoices relation', async () => {
-      await service.listCustomers(1, 10, undefined, 'DEBT');
+      await service.listCustomers('tenant-a', 1, 10, undefined, 'DEBT');
       expect(repository.paginate).toHaveBeenCalledWith(
-        { AND: [{ invoices: { some: { status: 'OVERDUE' } } }] },
+        { AND: [{ tenantId: 'tenant-a' }, { invoices: { some: { tenantId: 'tenant-a', deletedAt: null, status: 'OVERDUE' } } }] },
         1,
         10,
         { createdAt: 'desc' },
@@ -222,9 +237,9 @@ describe('CustomersService', () => {
     });
 
     it('should apply search filters correctly', async () => {
-      await service.listCustomers(1, 10, 'john', undefined);
+      await service.listCustomers('tenant-a', 1, 10, 'john', undefined);
       expect(repository.paginate).toHaveBeenCalledWith(
-        { AND: [{
+        { AND: [{ tenantId: 'tenant-a' }, {
           OR: [
             { fullName: { contains: 'john', mode: 'insensitive' } },
             { phone: { contains: 'john', mode: 'insensitive' } },
@@ -242,11 +257,12 @@ describe('CustomersService', () => {
     });
 
     it('keeps the active contract relation bounded to each paginated customer row', async () => {
-      await service.listCustomers(2, 10);
+      await service.listCustomers('tenant-a', 2, 10);
 
       const include = (repository.paginate as any).mock.calls[0][4];
       expect(include.contracts).toEqual({
         where: {
+          tenantId: 'tenant-a',
           deletedAt: null,
           status: { in: ROOM_VISIBLE_CONTRACT_STATUSES },
         },
@@ -254,6 +270,7 @@ describe('CustomersService', () => {
         take: 1,
         select: {
           id: true,
+          tenantId: true,
           code: true,
           status: true,
           startDate: true,
@@ -261,19 +278,21 @@ describe('CustomersService', () => {
           room: {
             select: {
               id: true,
+              tenantId: true,
+              deletedAt: true,
               code: true,
               name: true,
-              building: { select: { id: true, code: true, name: true } },
+              building: { select: { id: true, tenantId: true, deletedAt: true, code: true, name: true } },
             },
           },
         },
       });
-      expect(repository.paginate).toHaveBeenCalledWith({}, 2, 10, { createdAt: 'desc' }, include);
+      expect(repository.paginate).toHaveBeenCalledWith({ AND: [{ tenantId: 'tenant-a' }] }, 2, 10, { createdAt: 'desc' }, include);
     });
 
     it('merges an active contract ahead of the bounded pending candidate in one batch', async () => {
-      const pending = { id: 'pending-1', code: 'P-1', status: 'DRAFT', endDate: new Date('2026-01-01') };
-      const active = { id: 'active-1', code: 'A-1', status: 'ACTIVE', endDate: new Date('2026-02-01') };
+      const pending = { id: 'pending-1', tenantId: 'tenant-a', code: 'P-1', status: 'DRAFT', endDate: new Date('2026-01-01') };
+      const active = { id: 'active-1', tenantId: 'tenant-a', code: 'A-1', status: 'ACTIVE', endDate: new Date('2026-02-01') };
       (repository.paginate as any).mockResolvedValue({
         data: [{ id: 'customer-1', tenantId: 'tenant-a', contracts: [pending] }],
         meta: { page: 1, limit: 10, total: 1, totalPages: 1, hasNextPage: false, hasPreviousPage: false },
@@ -282,7 +301,7 @@ describe('CustomersService', () => {
         { id: 'customer-1', tenantId: 'tenant-a', contracts: [active] },
       ]);
 
-      const result: any = await service.listCustomers(1, 10);
+      const result: any = await service.listCustomers('tenant-a', 1, 10);
 
       expect(prismaService.tx.customer.findMany).toHaveBeenCalledTimes(1);
       expect(prismaService.tx.customer.findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -294,6 +313,7 @@ describe('CustomersService', () => {
           id: true,
           tenantId: true,
           contracts: expect.objectContaining({
+            where: expect.objectContaining({ tenantId: 'tenant-a' }),
             orderBy: [{ endDate: 'asc' }, { id: 'asc' }],
             take: 1,
           }),
@@ -311,11 +331,11 @@ describe('CustomersService', () => {
         meta: {},
       });
       prismaService.tx.customer.findMany.mockResolvedValueOnce([
-        { id: 'customer-1', tenantId: 'tenant-b', contracts: [{ id: 'foreign-contract' }] },
-        { id: 'customer-1', tenantId: 'tenant-a', contracts: [{ id: 'valid-contract' }] },
+        { id: 'customer-1', tenantId: 'tenant-b', contracts: [{ id: 'foreign-contract', tenantId: 'tenant-b' }] },
+        { id: 'customer-1', tenantId: 'tenant-a', contracts: [{ id: 'valid-contract', tenantId: 'tenant-a' }] },
       ]);
 
-      const result: any = await service.listCustomers(1, 10);
+      const result: any = await service.listCustomers('tenant-a', 1, 10);
 
       expect(prismaService.tx.customer.findMany).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({
@@ -325,16 +345,55 @@ describe('CustomersService', () => {
           ],
         }),
       }));
-      expect(result.data[0].contracts).toEqual([{ id: 'valid-contract' }]);
+      expect(result.data[0].contracts).toEqual([{ id: 'valid-contract', tenantId: 'tenant-a' }]);
       expect(result.data[1].contracts).toEqual([]);
+    });
+
+    it('sanitizes foreign room and building identities from nested projections', async () => {
+      (repository.paginate as any).mockResolvedValue({
+        data: [{
+          id: 'customer-1',
+          tenantId: 'tenant-a',
+          room: { id: 'room-a', tenantId: 'tenant-b', building: { id: 'building-b', tenantId: 'tenant-b' } },
+          contracts: [{
+            id: 'contract-a',
+            tenantId: 'tenant-a',
+            room: { id: 'room-a', tenantId: 'tenant-a', building: { id: 'building-b', tenantId: 'tenant-b' } },
+          }],
+        }],
+        meta: {},
+      });
+
+      const result: any = await service.listCustomers('tenant-a', 1, 10);
+
+      expect(result.data[0].room).toBeNull();
+      expect(result.data[0].contracts).toEqual([]);
     });
 
     it('skips the active batch query for an empty page', async () => {
       (repository.paginate as any).mockResolvedValue({ data: [], meta: {} });
 
-      await service.listCustomers(1, 10);
+      await service.listCustomers('tenant-a', 1, 10);
 
       expect(prismaService.tx.customer.findMany).not.toHaveBeenCalled();
+    });
+
+    it.each(['room', 'building'])('removes soft-deleted %s from current relationship projections', async (deletedRelation) => {
+      const room = {
+        id: 'room-a', tenantId: 'tenant-a', deletedAt: deletedRelation === 'room' ? new Date() : null,
+        building: { id: 'building-a', tenantId: 'tenant-a', deletedAt: deletedRelation === 'building' ? new Date() : null },
+      };
+      const active = { id: 'active-1', tenantId: 'tenant-a', status: 'ACTIVE', room };
+      (repository.paginate as any).mockResolvedValue({
+        data: [{ id: 'customer-1', tenantId: 'tenant-a', room, contracts: [active], occupancies: [{ id: 'occ-1', tenantId: 'tenant-a', room }] }],
+        meta: {},
+      });
+      prismaService.tx.customer.findMany.mockResolvedValueOnce([{ id: 'customer-1', tenantId: 'tenant-a', contracts: [active] }]);
+
+      const result: any = await service.listCustomers('tenant-a', 1, 10);
+      expect(result.data[0].room).toBeNull();
+      expect(result.data[0].contracts).toEqual([]);
+      expect(result.data[0].occupancies).toEqual([]);
     });
 
     it('deduplicates active and pending contracts and caps the merged projection at two', async () => {
@@ -342,17 +401,20 @@ describe('CustomersService', () => {
         data: [{
           id: 'customer-1',
           tenantId: 'tenant-a',
-          contracts: [{ id: 'same', status: 'DRAFT' }, { id: 'pending-2' }, { id: 'pending-3' }],
+          contracts: [{ id: 'same', tenantId: 'tenant-a', status: 'DRAFT' }, { id: 'pending-2', tenantId: 'tenant-a' }, { id: 'pending-3', tenantId: 'tenant-a' }],
         }],
         meta: {},
       });
       prismaService.tx.customer.findMany.mockResolvedValueOnce([
-        { id: 'customer-1', tenantId: 'tenant-a', contracts: [{ id: 'same', status: 'ACTIVE' }] },
+        { id: 'customer-1', tenantId: 'tenant-a', contracts: [{ id: 'same', tenantId: 'tenant-a', status: 'ACTIVE' }] },
       ]);
 
-      const result: any = await service.listCustomers(1, 10);
+      const result: any = await service.listCustomers('tenant-a', 1, 10);
 
-      expect(result.data[0].contracts).toEqual([{ id: 'same', status: 'ACTIVE' }, { id: 'pending-2' }]);
+      expect(result.data[0].contracts).toEqual([
+        { id: 'same', tenantId: 'tenant-a', status: 'ACTIVE' },
+        { id: 'pending-2', tenantId: 'tenant-a' },
+      ]);
     });
   });
 

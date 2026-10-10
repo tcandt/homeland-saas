@@ -18,10 +18,10 @@ export class CustomersController {
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'status', required: false })
-  list(@Query() query: any) {
+  list(@Query() query: any, @CurrentUser('tenantId') tenantId: string) {
     const { page, limit, search, sort, order } = PaginationSchema.parse(query);
     const status = query.status;
-    return this.customersService.listCustomers(page, limit, search, status, sort, order);
+    return this.customersService.listCustomers(tenantId, page, limit, search, status, sort, order);
   }
 
   @Post('deduplicate')

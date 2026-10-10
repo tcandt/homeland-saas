@@ -694,6 +694,7 @@ export class CustomersService extends BaseCrudService<Customer> {
   }
 
   async listCustomers(
+    tenantId: string,
     page: number,
     limit: number,
     search?: string,
@@ -701,7 +702,8 @@ export class CustomersService extends BaseCrudService<Customer> {
     sort?: string,
     order?: string
   ): Promise<PaginatedResult<Customer>> {
-    const filters: any[] = [];
+    const scopedTenantId = this.requireTenantId(tenantId);
+    const filters: any[] = [{ tenantId: scopedTenantId }];
     if (search) {
       filters.push({
         OR: [
@@ -719,17 +721,17 @@ export class CustomersService extends BaseCrudService<Customer> {
       if (status === 'ACTIVE' || status === 'Đang thuê') {
         filters.push({
           OR: [
-            { contracts: { some: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
-            { occupancies: { some: { leftAt: null } } },
+            { contracts: { some: { tenantId: scopedTenantId, deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } } },
+            { occupancies: { some: { tenantId: scopedTenantId, leftAt: null } } },
           ],
         });
       } else if (status === 'INACTIVE' || status === 'Đã trả phòng') {
         filters.push({
-          contracts: { none: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } },
+          contracts: { none: { tenantId: scopedTenantId, deletedAt: null, status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } } },
         });
-        filters.push({ occupancies: { none: { leftAt: null } } });
+        filters.push({ occupancies: { none: { tenantId: scopedTenantId, leftAt: null } } });
       } else if (status === 'DEBT' || status === 'Đang nợ') {
-        filters.push({ invoices: { some: { status: 'OVERDUE' } } });
+        filters.push({ invoices: { some: { tenantId: scopedTenantId, deletedAt: null, status: 'OVERDUE' } } });
       }
     }
 
@@ -740,26 +742,31 @@ export class CustomersService extends BaseCrudService<Customer> {
       room: {
         select: {
           id: true,
+          tenantId: true,
+          deletedAt: true,
           code: true,
           name: true,
-          building: { select: { id: true, code: true, name: true } },
+          building: { select: { id: true, tenantId: true, deletedAt: true, code: true, name: true } },
         },
       },
       occupancies: {
-        where: { leftAt: null },
+        where: { tenantId: scopedTenantId, leftAt: null },
         orderBy: { joinedAt: 'desc' },
         take: 1,
         select: {
           id: true,
+          tenantId: true,
           contractId: true,
           role: true,
           joinedAt: true,
           room: {
             select: {
               id: true,
+              tenantId: true,
+              deletedAt: true,
               code: true,
               name: true,
-              building: { select: { id: true, code: true, name: true } },
+              building: { select: { id: true, tenantId: true, deletedAt: true, code: true, name: true } },
             },
           },
         },
@@ -768,6 +775,7 @@ export class CustomersService extends BaseCrudService<Customer> {
       // grid only needs the current effective contract and its room identity.
       contracts: {
         where: {
+          tenantId: scopedTenantId,
           deletedAt: null,
           status: { in: ROOM_VISIBLE_CONTRACT_STATUSES },
         },
@@ -775,6 +783,7 @@ export class CustomersService extends BaseCrudService<Customer> {
         take: 1,
         select: {
           id: true,
+          tenantId: true,
           code: true,
           status: true,
           startDate: true,
@@ -782,21 +791,26 @@ export class CustomersService extends BaseCrudService<Customer> {
           room: {
             select: {
               id: true,
+              tenantId: true,
+              deletedAt: true,
               code: true,
               name: true,
-              building: { select: { id: true, code: true, name: true } },
+              building: { select: { id: true, tenantId: true, deletedAt: true, code: true, name: true } },
             },
           },
         },
       },
-      _count: { select: { contracts: true } },
+      _count: { select: { contracts: { where: { tenantId: scopedTenantId, deletedAt: null } } } },
     });
 
     // The relation above is intentionally kept as the compatibility/pending
     // candidate.  Resolve active contracts for this page in one bounded batch
     // so a pending row cannot hide a currently active contract.
     const pageResult: any = result || { data: [], meta: {} };
-    const pageRows: any[] = Array.isArray(pageResult.data) ? pageResult.data : [];
+    const pageRows: any[] = (Array.isArray(pageResult.data) ? pageResult.data : [])
+      .filter((row) => row?.tenantId === scopedTenantId)
+      .map((row) => this.sanitizeListProjection(row, scopedTenantId));
+    pageResult.data = pageRows;
     const pairs = pageRows
       .filter((row) => typeof row?.id === 'string' && typeof row?.tenantId === 'string')
       .map((row) => ({ id: row.id, tenantId: row.tenantId }));
@@ -804,7 +818,7 @@ export class CustomersService extends BaseCrudService<Customer> {
     if (pairs.length > 0) {
       const activeRows = await this.prisma.tx.customer.findMany({
         where: {
-          OR: pairs.map(({ id, tenantId }) => ({ id, tenantId })),
+          OR: pairs.map(({ id }) => ({ id, tenantId: scopedTenantId })),
           deletedAt: null,
         },
         select: {
@@ -812,6 +826,7 @@ export class CustomersService extends BaseCrudService<Customer> {
           tenantId: true,
           contracts: {
             where: {
+              tenantId: scopedTenantId,
               deletedAt: null,
               status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
             },
@@ -819,6 +834,7 @@ export class CustomersService extends BaseCrudService<Customer> {
             take: 1,
             select: {
               id: true,
+              tenantId: true,
               code: true,
               status: true,
               startDate: true,
@@ -826,9 +842,11 @@ export class CustomersService extends BaseCrudService<Customer> {
               room: {
                 select: {
                   id: true,
+                  tenantId: true,
+                  deletedAt: true,
                   code: true,
                   name: true,
-                  building: { select: { id: true, code: true, name: true } },
+                  building: { select: { id: true, tenantId: true, deletedAt: true, code: true, name: true } },
                 },
               },
             },
@@ -857,9 +875,31 @@ export class CustomersService extends BaseCrudService<Customer> {
           if (merged.length === 2) break;
         }
         row.contracts = merged;
+        this.sanitizeListProjection(row, scopedTenantId);
       }
     }
 
     return pageResult;
+  }
+
+  private requireTenantId(tenantId: string): string {
+    const value = String(tenantId || '').trim();
+    if (!value) throw new BadRequestException('Tenant context is required');
+    return value;
+  }
+
+  private sanitizeListProjection(row: any, tenantId: string): any {
+    const relationBelongs = (value: any) => !value || (typeof value.tenantId === 'string' && value.tenantId === tenantId);
+    const roomBelongs = (room: any) => relationBelongs(room) && !room?.deletedAt
+      && relationBelongs(room?.building) && !room?.building?.deletedAt;
+
+    if (row?.room && !roomBelongs(row.room)) row.room = null;
+    if (Array.isArray(row?.contracts)) {
+      row.contracts = row.contracts.filter((contract: any) => relationBelongs(contract) && roomBelongs(contract.room));
+    }
+    if (Array.isArray(row?.occupancies)) {
+      row.occupancies = row.occupancies.filter((occupancy: any) => relationBelongs(occupancy) && roomBelongs(occupancy.room));
+    }
+    return row;
   }
 }

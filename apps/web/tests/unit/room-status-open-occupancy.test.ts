@@ -214,4 +214,32 @@ describe('D2-FIX-02: Room & Tenant Status Adapter (Unit Matrix)', () => {
     expect(result.statusLabel).toBe('Đã trả phòng');
     expect(result.statusVariant).toBe('neutral');
   });
+
+  it.each(['2026-09-09', '2026-08-01'])('keeps APPROVED pending regardless of end date %s', (endDate) => {
+    const result = getTenantRentalStatus({ contracts: [{ status: 'APPROVED', endDate }] }, [], baseDate);
+    expect(result).toEqual({ status: 'DRAFT', statusLabel: 'Đã duyệt · chờ hiệu lực', statusVariant: 'primary' });
+  });
+
+  it('keeps APPROVED-only rooms reserved rather than occupied', () => {
+    const approved = { status: 'APPROVED', endDate: '2026-12-01' };
+    expect(isActiveContract(approved)).toBe(false);
+    expect(getRoomUiStatus({ status: 'AVAILABLE', contracts: [approved] }, baseDate)).toBe('deposited');
+    expect(getRoomUiStatus({ contracts: [approved], occupancies: [{ leftAt: null }] }, baseDate)).toBe('occupied');
+  });
+
+  it.each(['DRAFT', 'PENDING_APPROVAL', 'APPROVED'])('prefers an actual active rental over an earlier %s contract', (status) => {
+    const result = getTenantRentalStatus({ contracts: [{ status }, { status: 'ACTIVE' }] }, [], baseDate);
+    expect(result.statusLabel).toBe('Đang thuê');
+  });
+
+  it('prefers valid open occupancy over pending and ignores cancelled occupancy', () => {
+    const contracts = [{ status: 'APPROVED' }];
+    expect(getTenantRentalStatus({ contracts, occupancies: [{ leftAt: null }] }, [], baseDate).statusLabel).toBe('Ở ghép');
+    expect(getTenantRentalStatus({ contracts, occupancies: [{ leftAt: null, status: 'CANCELLED' }] }, [], baseDate).status).toBe('DRAFT');
+  });
+
+  it('does not let a legacy active booking hold hide an actual rental contract', () => {
+    const contracts = [{ status: 'ACTIVE', code: 'HD-COC-123' }, { status: 'ACTIVE', code: 'HD-THUE-123' }];
+    expect(getTenantRentalStatus({ contracts }, [], baseDate).statusLabel).toBe('Đang thuê');
+  });
 });

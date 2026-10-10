@@ -76,7 +76,7 @@ describe('contract row grouping', () => {
     expect(getRentalTermPhase('TERMINATED')).toBe('ended');
   });
 
-  it('shows booking PDF signing separately from rental approval', () => {
+  it('does not infer booking signature from an uploaded PDF', () => {
     const signedBooking = renderToStaticMarkup(React.createElement(OperationsContractRow, {
       contract: { ...booking, signedAt: null, attachments: ['document-storage://contracts/booking.pdf'] },
       onClick: () => {},
@@ -85,7 +85,7 @@ describe('contract row grouping', () => {
       contract: { ...rental, status: 'APPROVED', signedAt: null },
       onClick: () => {},
     }));
-    expect(signedBooking).toContain('Đã ký');
+    expect(signedBooking).toContain('Chưa ký');
     expect(approvedUnsignedRental).toContain('Đã duyệt');
     expect(approvedUnsignedRental).toContain('Chưa ký');
     expect(approvedUnsignedRental).not.toContain('Đã ký');

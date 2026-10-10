@@ -133,10 +133,10 @@ export function isBookingContract(contract: any): boolean {
   return Boolean(contract?.isBookingHold || /hd-coc|cọc giữ phòng|coc giu phong|booking_hold/i.test(`${contract?.code || ""} ${contract?.purpose || ""} ${contract?.contractTemplate || ""}`));
 }
 
-export function isContractSigned(contract: any): boolean {
-  if (contract?.signedAt) return true;
-  return isBookingContract(contract) && Array.isArray(contract?.attachments) &&
-    contract.attachments.some((url: unknown) => typeof url === "string" && /\.pdf(?:[?#]|$)/i.test(url));
+export function isContractSigned(contract: any, now = Date.now()): boolean {
+  if (!contract?.signedAt) return false;
+  const signedAt = new Date(contract.signedAt).getTime();
+  return Number.isFinite(signedAt) && signedAt <= now;
 }
 
 export function getContractDocumentStatus(contract: any) {
@@ -153,10 +153,45 @@ export function getContractDocumentStatus(contract: any) {
 
 export function getLinkedRental(contract: any) {
   if (!isBookingContract(contract)) return null;
-  return contract?.bookingConversion?.rentalContract || (contract?.termsSnapshot?.bookingConversion?.rentalContractId ? {
+  const linked = contract?.bookingConversion?.rentalContract || (contract?.termsSnapshot?.bookingConversion?.rentalContractId ? {
     id: contract.termsSnapshot.bookingConversion.rentalContractId,
     code: contract.termsSnapshot.bookingConversion.rentalContractCode,
   } : null);
+  if (!linked?.id || linked.id === contract?.id) return null;
+  const liveSourceId = contract?.bookingConversion?.sourceBookingContract?.id;
+  const persistedTargetId = contract?.termsSnapshot?.bookingConversion?.rentalContractId;
+  if ((liveSourceId && liveSourceId !== contract.id) ||
+      (persistedTargetId && persistedTargetId !== linked.id)) return null;
+  return linked;
+}
+
+/** Return only a traceable source/target pair belonging to the current contract. */
+export function getContractConversionEvidence(view: any, currentContract?: any) {
+  const liveView = view || currentContract?.bookingConversion;
+  const sourceLink = currentContract?.termsSnapshot?.bookingConversion;
+  const rentalLink = currentContract?.termsSnapshot?.convertedFromBookingHold;
+  const currentIsSource = isBookingContract(currentContract);
+  const target = liveView?.rentalContract ||
+    (currentIsSource && sourceLink?.rentalContractId
+      ? { id: sourceLink.rentalContractId, code: sourceLink.rentalContractCode }
+      : rentalLink?.sourceContractId ? currentContract : null);
+  const source = liveView?.sourceBookingContract ||
+    (currentIsSource && target ? currentContract : rentalLink?.sourceContractId
+      ? { id: rentalLink.sourceContractId, code: rentalLink.sourceContractCode }
+      : null);
+  const currentId = currentContract?.id;
+  const sourceId = source?.id;
+  const targetId = target?.id;
+  if (!sourceId || !targetId || sourceId === targetId || (currentId && currentId !== sourceId && currentId !== targetId)) return null;
+  if ((sourceLink?.rentalContractId && sourceLink.rentalContractId !== targetId) ||
+      (rentalLink?.sourceContractId && rentalLink.sourceContractId !== sourceId)) return null;
+  return {
+    source: source || { id: sourceId },
+    target: target || { id: targetId },
+    sourceId,
+    targetId,
+    live: Boolean(liveView?.rentalContract),
+  };
 }
 
 export function getContractDisplayStatus(contract: any) {

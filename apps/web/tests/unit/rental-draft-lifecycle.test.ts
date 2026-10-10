@@ -31,31 +31,33 @@ function callsIn(name: string) {
 }
 
 describe("Rental draft lifecycle", () => {
-  it("keeps an explicitly zero deposit when calculating the initial invoice", () => {
-    let amountDeclaration: ts.VariableDeclaration | undefined;
-    const find = (node: ts.Node) => {
-      if (ts.isVariableDeclaration(node) && node.name.getText(source) === "createInitialInvoiceForContract") {
-        const visit = (child: ts.Node) => {
-          if (ts.isVariableDeclaration(child) && child.name.getText(source) === "amount") amountDeclaration = child;
-          ts.forEachChild(child, visit);
+  it("delegates initial billing to the canonical entry-billing service", () => {
+    const declaration = source.statements
+      .flatMap((statement) => {
+        const found: ts.VariableDeclaration[] = [];
+        const visit = (node: ts.Node) => {
+          if (ts.isVariableDeclaration(node) && node.name.getText(source) === "createInitialInvoiceForContract") found.push(node);
+          ts.forEachChild(node, visit);
         };
-        visit(node);
-      }
-      ts.forEachChild(node, find);
-    };
-    find(source);
-    expect(amountDeclaration?.initializer?.getText(source)).toContain("contract.depositMoney ?? roomData?.monthlyPrice ?? 0");
-    expect(amountDeclaration?.initializer?.getText(source)).toContain("contract.monthlyRent ?? roomData?.monthlyPrice ?? 0");
+        visit(statement);
+        return found;
+      })[0];
+    expect(declaration).toBeDefined();
+    const body = declaration!.initializer?.getText(source) || "";
+    expect(body).toContain("prepareEntryBilling");
   });
 
   it.each(["commitTenantDraft", "createBookingHoldFlow"])(
     "%s never marks a new contract as signed",
     (name) => {
-      const creates = callsIn(name).filter((call) => call.expression.getText(source) === "contractsApi.create");
+      const creates = callsIn(name).filter((call) => ["contractsApi.create", "contractsApi.createBookingHold"].includes(call.expression.getText(source)));
       expect(creates).toHaveLength(1);
       const payload = creates[0].arguments[0] as ts.ObjectLiteralExpression;
-      expect(ts.isObjectLiteralExpression(payload)).toBe(true);
-      expect(payload.properties.map((property) => property.name?.getText(source))).not.toContain("signedAt");
+      if (ts.isObjectLiteralExpression(payload)) {
+        expect(payload.properties.map((property) => property.name?.getText(source))).not.toContain("signedAt");
+      } else {
+        expect(creates[0].getText(source)).not.toContain("signedAt");
+      }
     },
   );
 
@@ -94,6 +96,6 @@ describe("Signed document evidence", () => {
 
   it("keeps booking PDF signing evidence without confusing it with complete identity documents", () => {
     expect(getContractDocumentStatus({ code: "HD-COC-01", attachments: ["booking.pdf"] }).isComplete).toBe(false);
-    expect(getContractDocumentStatus({ code: "HD-COC-01", attachments: ["booking.pdf"], customer }).isComplete).toBe(true);
+    expect(getContractDocumentStatus({ code: "HD-COC-01", signedAt, attachments: ["booking.pdf"], customer }).isComplete).toBe(true);
   });
 });

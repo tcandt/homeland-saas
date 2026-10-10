@@ -99,11 +99,11 @@ export default function BookingConversionProgress({
   const paymentConfirmed = view?.rentalReadiness?.entryInvoicePaid === true;
 
   useEffect(() => {
-    if (persistedQrSent || paymentConfirmed) {
+    if (persistedQrSent) {
       setSendState("success");
       setSendError("");
     }
-  }, [paymentConfirmed, persistedQrSent]);
+  }, [persistedQrSent]);
 
   useEffect(() => {
     setInvoiceIssuedLocally(String(invoice?.status || "").toUpperCase() !== "DRAFT");
@@ -174,7 +174,7 @@ export default function BookingConversionProgress({
             } else if (sendState === "failed") {
               visualState = "failed";
               detail = sendError;
-            } else if (sendState === "success") {
+            } else if (sendState === "success" && !paymentConfirmed) {
               visualState = "complete";
               detail = `Đã gửi ${invoice?.code || "hóa đơn kỳ đầu"} và QR thanh toán qua Zalo.`;
             }

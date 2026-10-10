@@ -36,7 +36,7 @@ function roomCode(contract: any) {
 }
 
 function buildingName(contract: any) {
-  return contract.room?.building?.code || contract.room?.building?.name || "Tòa LK01-32";
+  return contract.room?.building?.code || contract.room?.building?.name || "Chưa rõ tòa nhà";
 }
 
 function isBookingHoldContract(contract: any) {
@@ -116,9 +116,7 @@ export default React.memo(function OperationsContractRow({
     contract.convertedFromCode ||
     contract.termsSnapshot?.convertedFromBookingHold?.sourceContractId;
 
-  if (convertedFromSource && (convertedFromSource.startsWith("cm") || convertedFromSource.length > 20)) {
-    convertedFromSource = "HD-COC-PN32-02-MUMN94T9";
-  }
+  const hasLinkedConversion = Boolean(linkedRental);
 
   return (
     <div
@@ -258,7 +256,7 @@ export default React.memo(function OperationsContractRow({
               <Calendar size={11} className="text-amber-500 shrink-0" />
               <span>Ngày cọc:</span>
               <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                {formatDate(contract.signedAt || contract.createdAt || contract.startDate)}
+                {formatDate(contract.signedAt)}
               </span>
             </div>
             <div className="flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-400">
@@ -267,7 +265,7 @@ export default React.memo(function OperationsContractRow({
                 Tiền cọc:{" "}
                 {contract.depositMoney
                   ? `${Number(contract.depositMoney).toLocaleString("vi-VN")}đ`
-                  : "8.000.000đ"}
+                  : "Chưa rõ"}
               </span>
             </div>
           </div>
@@ -345,9 +343,9 @@ export default React.memo(function OperationsContractRow({
             >
               Cọc giữ phòng
             </Badge>
-            <span className="inline-flex items-center gap-1 whitespace-nowrap text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">
+            {hasLinkedConversion ? <span className="inline-flex items-center gap-1 whitespace-nowrap text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">
               <Check size={9} /> Đã chuyển đổi
-            </span>
+            </span> : null}
           </>
         ) : isExpiringSoon ? (
           <>

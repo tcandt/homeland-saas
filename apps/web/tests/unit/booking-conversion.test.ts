@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getLinkedRental, getContractDisplayStatus, getConversionSteps, getRentalActivationBlockingMessages, isBookingContract, isContractSigned, BOOKING_CONVERTED_LABEL } from "../../lib/contracts/booking-conversion";
+import { getLinkedRental, getContractDisplayStatus, getConversionSteps, getRentalActivationBlockingMessages, getContractConversionEvidence, isBookingContract, isContractSigned, BOOKING_CONVERTED_LABEL } from "../../lib/contracts/booking-conversion";
 import { getOperationsContractKpiSummary } from "../../lib/contracts/operations-contract-kpi";
 
 describe("booking source traceability", () => {
@@ -15,17 +15,28 @@ describe("booking source traceability", () => {
     expect(isBookingContract({ ...rental, purpose: "Chuyển từ HD-COC-01" })).toBe(false);
     expect(getLinkedRental({ ...rental, bookingConversion: source.bookingConversion })).toBeNull();
   });
-  it("counts an uploaded booking PDF as signed without inferring rental signatures or approval", () => {
-    expect(isContractSigned({ ...source, status: "DRAFT", signedAt: null, attachments: ["document-storage://contracts/booking.pdf"] })).toBe(true);
+  it("requires an explicit, valid signing date and never infers it from an upload", () => {
+    expect(isContractSigned({ ...source, status: "DRAFT", signedAt: null, attachments: ["document-storage://contracts/booking.pdf"] })).toBe(false);
     expect(isContractSigned({ ...source, signedAt: null, attachments: ["document-storage://contracts/scan.jpg"] })).toBe(false);
     expect(isContractSigned({ ...rental, status: "APPROVED", attachments: ["document-storage://contracts/lease.pdf"] })).toBe(false);
     expect(isContractSigned({ ...rental, signedAt: "2026-09-29T00:00:00.000Z" })).toBe(true);
+    expect(isContractSigned({ ...rental, signedAt: "2099-09-29T00:00:00.000Z" }, new Date("2026-10-01T00:00:00.000Z").getTime())).toBe(false);
   });
   it("does not infer signature, payment, or move-in from conversion alone", () => {
     expect(getConversionSteps(source.bookingConversion).map((step) => step.done)).toEqual([true, true, false, false, false, false]);
     const liveView = { rentalContract: { ...rental, status: "APPROVED", signedAt: "2026-09-01" }, rentalReadiness: { depositPaid: true, entryInvoicePaid: true } };
     expect(getConversionSteps(liveView).map((step) => step.done)).toEqual([true, true, true, true, true, false]);
     expect(getConversionSteps({ ...liveView, rentalContract: { ...liveView.rentalContract, activatedAt: "2026-09-02", status: "ACTIVE" } }).at(-1)?.done).toBe(true);
+  });
+  it("requires distinct, consistent source/target identity before showing conversion history", () => {
+    expect(getContractConversionEvidence(undefined, { id: "booking", code: "HD-COC-32-02" })).toBeNull();
+    expect(getContractConversionEvidence({ rentalContract: { id: "lease", code: "HD-THUE-01", status: "DRAFT" } }, { id: "booking", code: "HD-COC-01" })).toMatchObject({ sourceId: "booking", targetId: "lease" });
+    expect(getContractConversionEvidence({ sourceBookingContract: { id: "same" }, rentalContract: { id: "same" } }, { id: "same" })).toBeNull();
+    expect(getContractConversionEvidence({ sourceBookingContract: { id: "source" }, rentalContract: { id: "lease" } }, { id: "unrelated" })).toBeNull();
+    expect(getContractConversionEvidence({ sourceBookingContract: { id: "source" }, rentalContract: { id: "lease" } }, { id: "lease", termsSnapshot: { convertedFromBookingHold: { sourceContractId: "other-source" } } })).toBeNull();
+    expect(getLinkedRental({ ...source, termsSnapshot: { bookingConversion: { rentalContractId: "other-lease" } } })).toBeNull();
+    expect(getLinkedRental({ ...source, bookingConversion: { rentalContract: source } })).toBeNull();
+    expect(getContractConversionEvidence(null, { id: "lease", code: "HD-THUE-01", termsSnapshot: { convertedFromBookingHold: { sourceContractId: "booking", sourceContractCode: "REAL-BOOKING" } } })).toMatchObject({ sourceId: "booking", targetId: "lease", live: false });
   });
   it("shows QR delivery and waiting for payment as distinct states", () => {
     const waitingView = {

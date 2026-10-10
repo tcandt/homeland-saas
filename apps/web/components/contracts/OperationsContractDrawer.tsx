@@ -65,6 +65,8 @@ import {
   isBookingContract,
   isContractSigned,
   getContractDocumentStatus,
+  getContractConversionEvidence,
+  getConversionSteps,
 } from "@/lib/contracts/booking-conversion";
 import { Badge } from "../ui/Badge";
 import TenantDetailDrawer, { getTenantAvatar } from "../tenants/TenantDetailDrawer";
@@ -1714,9 +1716,10 @@ export default function OperationsContractDrawer({
   const checkAndUpdateContractStatus = async (
     hasContract: boolean,
     cccdCount: number,
+    signedAtOverride?: string,
   ) => {
     if (!detailContract) return;
-    if (hasContract && cccdCount >= 2 && detailContract.status === "DRAFT") {
+    if (hasContract && cccdCount >= 2 && (isContractSigned(detailContract) || Boolean(signedAtOverride && isContractSigned({ signedAt: signedAtOverride }))) && detailContract.status === "DRAFT") {
       try {
         await contractsApi.submit(detailContract.id);
         showToast("Đã đủ hồ sơ và trình hợp đồng chờ duyệt", "success");
@@ -1740,15 +1743,9 @@ export default function OperationsContractDrawer({
       const newAttachments = [...(detailContract?.attachments || []), res.url];
       await contractsApi.update(detailContract.id, {
         attachments: newAttachments,
-        ...(isBookingHold && !detailContract.signedAt &&
-        (file.type === "application/pdf" || /\.pdf$/i.test(file.name))
-          ? { signedAt: new Date().toISOString() }
-          : {}),
       });
 
-      showToast(isBookingHold && (file.type === "application/pdf" || /\.pdf$/i.test(file.name))
-        ? "Đã tải PDF và ghi nhận hợp đồng cọc đã ký"
-        : "Đã tải lên hồ sơ hợp đồng", "success");
+      showToast("Đã tải lên hồ sơ hợp đồng", "success");
       await checkAndUpdateContractStatus(
         true,
         detailContract.customer?.idImages?.length || 0,
@@ -1931,6 +1928,15 @@ export default function OperationsContractDrawer({
     );
   };
 
+  useEffect(() => {
+    if (!detailContract) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === "Esc") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [detailContract, onClose]);
+
   if (!detailContract) return null;
 
   const customerName = getCustomerName(detailContract);
@@ -1988,9 +1994,6 @@ export default function OperationsContractDrawer({
     "CANCELLED",
     "REFUNDED",
   ].includes(bookingDepositStatus);
-  const bookingPaidBySePay = bookingPaymentRequestStatus === "CONFIRMED";
-  const bookingPaidByCash = bookingDepositRecorded && !bookingPaidBySePay;
-  const bookingQrFlowDone = bookingQrSent || bookingPaidBySePay;
   const timelineSteps = isBookingHold
     ? [
         {
@@ -2005,18 +2008,18 @@ export default function OperationsContractDrawer({
         },
         {
           title: "Gửi QR cho khách qua Bot Zalo",
-          note: bookingPaidByCash
-            ? "Không dùng QR vì khoản cọc đã được ghi nhận bằng tiền mặt"
-            : "Khách đăng ký Zalo sau khi lưu thông tin, sau đó nhận QR thanh toán",
-          done: bookingQrFlowDone || bookingPaidByCash,
+          note: bookingQrSent
+            ? "Đã ghi nhận gửi QR qua Zalo"
+            : bookingPaymentConfirmed
+              ? "Khoản thu đã được xác nhận; chưa có chứng cứ gửi QR và không cần thu lại tiền"
+              : "Chưa ghi nhận gửi QR cho khách qua Zalo",
+          done: bookingQrSent,
         },
         {
-          title: bookingPaidByCash
-            ? "Đã nhận tiền mặt"
-            : "Webhook SePay xác nhận thanh toán",
-          note: bookingPaidByCash
-            ? "Admin đã thu tiền mặt/ghi nhận thủ công nên không chờ webhook SePay"
-            : "PaymentRequest/Invoice được xác nhận và tự collect deposit liên kết",
+          title: "Xác nhận khoản thu cọc",
+          note: bookingDepositRecorded
+            ? "Khoản cọc đã được ghi nhận; xem giao dịch liên kết để xác định kênh thu"
+            : "Chờ xác nhận thanh toán và đồng bộ vào sổ cọc",
           done: bookingPaymentConfirmed,
         },
         {
@@ -2087,17 +2090,6 @@ export default function OperationsContractDrawer({
       block: "start",
     });
   };
-
-  useEffect(() => {
-    if (!detailContract) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.key === "Esc") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [detailContract, onClose]);
 
   return (
     <>
@@ -2170,7 +2162,12 @@ export default function OperationsContractDrawer({
             </div>
 
             {/* Conversion Banner if linked or converted */}
-            {(detailContract.bookingConversion || isBookingHold || detailContract.termsSnapshot?.convertedFromBookingHold || detailContract.convertedFromCode || detailContract.code?.includes("32-02") || customerName?.includes("MUMN94T9")) && (
+            {(() => {
+              const conversionView = detailContract.bookingConversion;
+              const evidence = getContractConversionEvidence(conversionView, detailContract);
+              const steps = conversionView?.rentalContract ? getConversionSteps(conversionView) : [];
+              const done = steps.filter((step) => step.done).length;
+              return evidence ? (
               <div className="mx-4 my-2.5 flex items-center justify-between gap-3.5 p-3 rounded-2xl bg-gradient-to-r from-emerald-500/[0.08] via-indigo-500/[0.05] to-purple-500/[0.08] border border-emerald-500/25 dark:border-emerald-500/30 shadow-[0_2px_10px_rgba(16,185,129,0.06)] relative overflow-hidden group">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
@@ -2179,16 +2176,16 @@ export default function OperationsContractDrawer({
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-xs font-black text-slate-800 dark:text-white">
-                        Chuyển cọc thành công
+                        {evidence.live && done === steps.length ? "Chuyển cọc thành công" : "Đã liên kết chuyển đổi"}
                       </span>
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                        6/6 bước hoàn tất
+                        {evidence.live ? `${done}/${steps.length} bước hoàn tất` : "Đã liên kết hồ sơ"}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5 flex items-center gap-1">
                       <span>Nguồn cọc:</span>
                       <strong className="font-mono text-slate-700 dark:text-slate-300">
-                        {detailContract.termsSnapshot?.convertedFromBookingHold?.sourceContractCode || "HD-COC-PN32-02-MUMN94T9"}
+                        {evidence.source.code || evidence.sourceId}
                       </strong>
                     </div>
                   </div>
@@ -2204,7 +2201,8 @@ export default function OperationsContractDrawer({
                   <span className="text-[13px] font-mono group-hover:translate-x-0.5 transition-transform">→</span>
                 </button>
               </div>
-            )}
+              ) : null;
+            })()}
 
             {/* Navigation Tabs */}
             <nav aria-label="Điều hướng chi tiết hợp đồng" className="flex border-t border-slate-200/70 dark:border-white/[0.08] px-3 bg-white dark:bg-card">
@@ -2354,7 +2352,7 @@ export default function OperationsContractDrawer({
                       {customerName}
                     </div>
                     <div className="font-mono text-[11px] text-slate-500 font-medium">
-                      {customerPhone || "0984 393 373"}
+                      {customerPhone || "Chưa rõ"}
                     </div>
                   </div>
                 </div>
@@ -2582,7 +2580,7 @@ export default function OperationsContractDrawer({
                           {detailContract.code ? `HD_${detailContract.code}.pdf` : "HD_Testing1.pdf"}
                         </div>
                         <div className="text-[10px] text-slate-400 truncate">
-                          {signStatus} • {formatDate(detailContract.signedAt || detailContract.createdAt || detailContract.startDate)}
+                          {signStatus}{detailContract.signedAt ? ` • ${formatDate(detailContract.signedAt)}` : ""}
                         </div>
                       </div>
                     </div>
@@ -2871,19 +2869,21 @@ export default function OperationsContractDrawer({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* File hợp đồng */}
                   <div className="flex flex-col gap-[12px]">
-                    {!isBookingHold && !detailContract.signedAt && ["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(detailContract.status) && hasPermission("contract.update") && (
+                    {!isContractSigned(detailContract) && ["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(detailContract.status) && hasPermission("contract.update") && (
                       <div className="rounded-xl border border-border p-3 flex flex-col gap-2">
-                        <label htmlFor="rental-signature-date" className="text-sm font-bold">Ngày ký thực tế của hợp đồng thuê</label>
+                        <label htmlFor="rental-signature-date" className="text-sm font-bold">Ngày ký thực tế của {isBookingHold ? "hợp đồng cọc" : "hợp đồng thuê"}</label>
                         <input id="rental-signature-date" type="date" value={signatureDate} max={toDateInputValue()} onChange={(event) => setSignatureDate(event.target.value)} className="rounded-lg border border-border bg-card p-2 text-text" />
-                        <p className="text-xs text-muted">Tải bản đã ký của hợp đồng thuê này, rồi xác nhận ngày ký. Không dùng chữ ký của hợp đồng cọc.</p>
+                        <p className="text-xs text-muted">Tải bản đã ký của hợp đồng này, rồi xác nhận ngày ký thực tế. Không dùng chữ ký của hợp đồng khác.</p>
                         <Button variant="outline" disabled={!signatureDate || !hasUploadedContract || signatureDate > toDateInputValue()} isLoading={savingSignature} onClick={async () => {
                           setSavingSignature(true);
                           try {
-                            await contractsApi.update(detailContract.id, { signedAt: new Date(`${signatureDate}T00:00:00+07:00`).toISOString() });
+                            const signedAt = new Date(`${signatureDate}T00:00:00+07:00`).toISOString();
+                            await contractsApi.update(detailContract.id, { signedAt });
+                            await checkAndUpdateContractStatus(hasUploadedContract, detailContract.customer?.idImages?.length || 0, signedAt);
                             queryClient.invalidateQueries({ queryKey: ["contracts"] });
-                            showToast("Đã ghi nhận ngày ký hợp đồng thuê", "success");
+                            showToast("Đã ghi nhận ngày ký thực tế của hợp đồng", "success");
                           } catch (error) { handleError(error); } finally { setSavingSignature(false); }
-                        }}>Xác nhận đã ký hợp đồng thuê</Button>
+                        }}>Xác nhận đã ký hợp đồng</Button>
                       </div>
                     )}
                     <div className="flex items-center justify-between mb-1">

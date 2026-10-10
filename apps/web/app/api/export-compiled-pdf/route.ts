@@ -7,8 +7,9 @@ import Docxtemplater from 'docxtemplater';
 import { execSync } from 'child_process';
 import { PDFDocument } from 'pdf-lib';
 import dayjs from 'dayjs';
-import { numberToWordsVietnamese } from '@/lib/utils/number-to-words';
-import { requireRoutePermission, getInternalApiBaseUrl } from '@/lib/server/route-auth';
+import { numberToWordsVietnamese } from '../../../lib/utils/number-to-words';
+import { requireRoutePermission, getInternalApiBaseUrl } from '../../../lib/server/route-auth';
+import { CompiledPdfAssetError, fetchCompiledPdfAsset, resolveCompiledPdfAssetUrl } from '../../../lib/server/compiled-pdf-assets';
 
 const LANDLORDS: Record<string, any> = {
   TINH: {
@@ -165,10 +166,8 @@ async function addImagePage(pdfDoc: PDFDocument, imgBuffer: Buffer, isPng: boole
         img = await pdfDoc.embedPng(imgBuffer);
       }
     } catch (err2) {
-      console.error('Failed to embed image:', err2);
-      // Remove the added page if we can't embed the image
       pdfDoc.removePage(pdfDoc.getPageCount() - 1);
-      return;
+      throw new CompiledPdfAssetError('INVALID_IMAGE', 'Ảnh tài liệu đính kèm bị hỏng');
     }
   }
 
@@ -202,45 +201,13 @@ function calculateRentalDuration(startDateStr?: string | null, endDateStr?: stri
   return `${totalMonths} tháng`;
 }
 
-function resolveAssetUrl(assetUrl: string, apiBaseUrl: string) {
-  if (!assetUrl) return '';
-  if (assetUrl.startsWith('http://') || assetUrl.startsWith('https://')) {
-    return assetUrl;
-  }
-  if (assetUrl.startsWith('document-storage://')) {
-    const storagePath = assetUrl.replace(/^document-storage:\/\//, '');
-    return `${apiBaseUrl}/documents/storage?path=${encodeURIComponent(storagePath)}`;
-  }
-  const root = apiBaseUrl.replace(/\/api\/v1\/?$/, '');
-  if (assetUrl.startsWith('/')) {
-    return `${root}${assetUrl}`;
-  }
-  return `${root}/${assetUrl}`;
-}
-
 async function fetchAssetBuffer(assetUrl: string, apiBaseUrl: string, authHeader?: string | null) {
-  const resolvedUrl = resolveAssetUrl(assetUrl, apiBaseUrl);
-  if (!resolvedUrl) return null;
-  try {
-    const response = await fetch(resolvedUrl, {
-      headers: {
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      },
-    });
-    if (!response.ok) {
-      console.warn(`Failed to fetch asset: ${resolvedUrl} (${response.status})`);
-      return null;
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  } catch (err) {
-    console.warn(`Failed to fetch asset from ${resolvedUrl}:`, err);
-    return null;
-  }
+  return fetchCompiledPdfAsset(assetUrl, apiBaseUrl, authHeader);
 }
 
 export async function POST(request: Request) {
   const tempFiles: string[] = [];
+  let tempDir: string | undefined;
   try {
     const auth = await requireRoutePermission(request, 'contract.read');
     if ('response' in auth) return auth.response;
@@ -248,7 +215,7 @@ export async function POST(request: Request) {
     const data = await request.json();
     const { contractId, ct01Draft = {} } = data;
 
-    if (!contractId) {
+    if (typeof contractId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(contractId)) {
       return NextResponse.json({ error: 'Missing contractId' }, { status: 400 });
     }
 
@@ -256,15 +223,16 @@ export async function POST(request: Request) {
     const apiBaseUrl = getInternalApiBaseUrl();
 
     // 1. Fetch Contract Details from the NestJS Backend API
-    const contractRes = await fetch(`${apiBaseUrl}/contracts/${contractId}`, {
+    const contractRes = await fetch(`${apiBaseUrl}/contracts/${encodeURIComponent(contractId)}`, {
       headers: {
         ...(authHeader ? { Authorization: authHeader } : {}),
       },
+      redirect: 'error',
+      cache: 'no-store',
     });
 
     if (!contractRes.ok) {
-      const errText = await contractRes.text();
-      return NextResponse.json({ error: `Failed to fetch contract from API: ${errText}` }, { status: contractRes.status });
+      return NextResponse.json({ error: 'Không thể tải thông tin hợp đồng' }, { status: contractRes.status });
     }
 
     const resJson = await contractRes.json();
@@ -275,12 +243,19 @@ export async function POST(request: Request) {
     }
 
     // Prepare temp folder inside os temp
-    const tempDir = path.join(os.tmpdir(), 'homeland-pdf');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'homeland-pdf-'));
+    const nowTimestamp = Date.now().toString(36);
 
-    const nowTimestamp = Date.now();
+    const idImages = contract.customer?.idImages || [];
+    const canonicalIdImages = Array.isArray(idImages) ? idImages.map((ref: unknown) => resolveCompiledPdfAssetUrl(ref, apiBaseUrl)) : [];
+    if (!Array.isArray(idImages) || idImages.length !== 2 || idImages.some((ref: unknown) => typeof ref !== 'string' || !ref) || new Set(canonicalIdImages).size !== 2) {
+      throw new CompiledPdfAssetError('CCCD_IMAGES_REQUIRED', 'Hồ sơ phải có đúng hai ảnh CCCD khác nhau');
+    }
+    for (const [filename, label] of [['Giay-phep-KD.jpg', 'giấy đăng ký kinh doanh'], ['so-do-MT.jpg', 'sổ đỏ mặt trước'], ['so-do-MS.jpg', 'sổ đỏ mặt sau']] as const) {
+      if (!fs.existsSync(resolveTaiLieuPath(filename))) {
+        throw new CompiledPdfAssetError('STATIC_ASSET_MISSING', `Thiếu ${label}`);
+      }
+    }
 
     // 2. Generate CT01 PDF
     const ct01TemplatePath = resolveTaiLieuPath('CT01.docx');
@@ -299,10 +274,10 @@ export async function POST(request: Request) {
     const namSinh = tBirthDate ? tBirthDate.format('YYYY') : '......';
 
     // Contract / signed date
-    const signDate = contract.signedAt ? dayjs(contract.signedAt) : dayjs();
-    const ngayHD = signDate.format('DD');
-    const thangHD = signDate.format('MM');
-    const namHD = signDate.format('YYYY');
+    const signDate = contract.signedAt ? dayjs(contract.signedAt) : null;
+    const ngayHD = signDate ? signDate.format('DD') : '....';
+    const thangHD = signDate ? signDate.format('MM') : '....';
+    const namHD = signDate ? signDate.format('YYYY') : '......';
 
     // Get roommates / co-representatives
     const members = ct01Draft.thanhVien || contract.coRepresentatives?.map((rep: any) => ({
@@ -387,6 +362,9 @@ export async function POST(request: Request) {
     
     convertDocxToPdf(tempCt01Docx, tempCt01Pdf);
     tempFiles.push(tempCt01Pdf);
+    if (!fs.existsSync(tempCt01Pdf) || fs.statSync(tempCt01Pdf).size === 0) {
+      throw new CompiledPdfAssetError('CT01_CONVERSION_FAILED', 'Không thể tạo bản PDF CT01');
+    }
 
     // 3. Obtain or Generate Lease Contract PDF
     const tempContractPdf = path.join(tempDir, `contract_${nowTimestamp}.pdf`);
@@ -397,25 +375,26 @@ export async function POST(request: Request) {
 
     if (pdfAttachment) {
       const pdfBuffer = await fetchAssetBuffer(pdfAttachment, apiBaseUrl, authHeader);
-      if (pdfBuffer) {
-        fs.writeFileSync(tempContractPdf, pdfBuffer);
-        tempFiles.push(tempContractPdf);
-        hasContractPdf = true;
-      }
+      fs.writeFileSync(tempContractPdf, pdfBuffer);
+      tempFiles.push(tempContractPdf);
+      hasContractPdf = true;
     }
 
     if (!hasContractPdf && docxAttachment) {
       const attachmentBuffer = await fetchAssetBuffer(docxAttachment, apiBaseUrl, authHeader);
-      if (attachmentBuffer) {
-        const tempAttachmentDocx = path.join(tempDir, `attached_contract_${nowTimestamp}.docx`);
-        fs.writeFileSync(tempAttachmentDocx, attachmentBuffer);
-        tempFiles.push(tempAttachmentDocx);
-        convertDocxToPdf(tempAttachmentDocx, tempContractPdf);
-        if (fs.existsSync(tempContractPdf)) {
-          tempFiles.push(tempContractPdf);
-          hasContractPdf = true;
-        }
+      const tempAttachmentDocx = path.join(tempDir, `attached_contract_${nowTimestamp}.docx`);
+      fs.writeFileSync(tempAttachmentDocx, attachmentBuffer);
+      tempFiles.push(tempAttachmentDocx);
+      convertDocxToPdf(tempAttachmentDocx, tempContractPdf);
+      if (!fs.existsSync(tempContractPdf) || fs.statSync(tempContractPdf).size === 0) {
+        throw new CompiledPdfAssetError('CONTRACT_CONVERSION_FAILED', 'Không thể tạo PDF hợp đồng đính kèm');
       }
+      tempFiles.push(tempContractPdf);
+      hasContractPdf = true;
+    }
+
+    if (!hasContractPdf && contract.signedAt) {
+      throw new CompiledPdfAssetError('SIGNED_CONTRACT_MISSING', 'Không thể tải hợp đồng đã ký');
     }
 
     if (!hasContractPdf) {
@@ -487,60 +466,50 @@ export async function POST(request: Request) {
     // 7. SỔ ĐỎ (mặt sau)
 
     // CCCD Images (from contract.customer.idImages)
-    const idImages = contract.customer?.idImages || [];
-    
     // Front CCCD
-    if (idImages[0]) {
-      const imgBuf = await fetchAssetBuffer(idImages[0], apiBaseUrl, authHeader);
-      if (imgBuf) {
-        const isPng = idImages[0].toLowerCase().includes('.png');
-        await addImagePage(mergedPdf, imgBuf, isPng);
-      }
-    }
+    const frontBuf = await fetchAssetBuffer(idImages[0], apiBaseUrl, authHeader);
+    await addImagePage(mergedPdf, frontBuf, idImages[0].toLowerCase().includes('.png'));
 
     // Back CCCD
-    if (idImages[1]) {
-      const imgBuf = await fetchAssetBuffer(idImages[1], apiBaseUrl, authHeader);
-      if (imgBuf) {
-        const isPng = idImages[1].toLowerCase().includes('.png');
-        await addImagePage(mergedPdf, imgBuf, isPng);
-      }
-    }
+    const backBuf = await fetchAssetBuffer(idImages[1], apiBaseUrl, authHeader);
+    await addImagePage(mergedPdf, backBuf, idImages[1].toLowerCase().includes('.png'));
 
     // CT01 PDF pages
-    if (fs.existsSync(tempCt01Pdf)) {
-      const ct01PdfDoc = await PDFDocument.load(fs.readFileSync(tempCt01Pdf));
-      const pages = await mergedPdf.copyPages(ct01PdfDoc, ct01PdfDoc.getPageIndices());
-      pages.forEach(p => mergedPdf.addPage(p));
+    let ct01PdfDoc: PDFDocument;
+    try {
+      ct01PdfDoc = await PDFDocument.load(fs.readFileSync(tempCt01Pdf));
+    } catch {
+      throw new CompiledPdfAssetError('CT01_INVALID', 'Bản PDF CT01 không hợp lệ');
     }
+    const pages = await mergedPdf.copyPages(ct01PdfDoc, ct01PdfDoc.getPageIndices());
+    if (!pages.length) throw new CompiledPdfAssetError('CT01_EMPTY', 'Bản PDF CT01 không có trang');
+    pages.forEach(p => mergedPdf.addPage(p));
 
     // Contract PDF pages
-    if (fs.existsSync(tempContractPdf)) {
-      const contractPdfDoc = await PDFDocument.load(fs.readFileSync(tempContractPdf));
-      const pages = await mergedPdf.copyPages(contractPdfDoc, contractPdfDoc.getPageIndices());
-      pages.forEach(p => mergedPdf.addPage(p));
+    let contractPdfDoc: PDFDocument;
+    try {
+      contractPdfDoc = await PDFDocument.load(fs.readFileSync(tempContractPdf));
+    } catch {
+      throw new CompiledPdfAssetError('CONTRACT_INVALID', 'Bản PDF hợp đồng không hợp lệ');
     }
+    const contractPages = await mergedPdf.copyPages(contractPdfDoc, contractPdfDoc.getPageIndices());
+    if (!contractPages.length) throw new CompiledPdfAssetError('CONTRACT_EMPTY', 'Bản PDF hợp đồng không có trang');
+    contractPages.forEach(p => mergedPdf.addPage(p));
 
     // Giấy đăng ký kinh doanh
     const gpkdPath = resolveTaiLieuPath('Giay-phep-KD.jpg');
-    if (fs.existsSync(gpkdPath)) {
-      const imgBuf = fs.readFileSync(gpkdPath);
-      await addImagePage(mergedPdf, imgBuf, false);
-    }
+    if (!fs.existsSync(gpkdPath)) throw new CompiledPdfAssetError('STATIC_ASSET_MISSING', 'Thiếu giấy đăng ký kinh doanh');
+    await addImagePage(mergedPdf, fs.readFileSync(gpkdPath), false);
 
     // Sổ đỏ mặt trước
     const sodoMTPath = resolveTaiLieuPath('so-do-MT.jpg');
-    if (fs.existsSync(sodoMTPath)) {
-      const imgBuf = fs.readFileSync(sodoMTPath);
-      await addImagePage(mergedPdf, imgBuf, false);
-    }
+    if (!fs.existsSync(sodoMTPath)) throw new CompiledPdfAssetError('STATIC_ASSET_MISSING', 'Thiếu sổ đỏ mặt trước');
+    await addImagePage(mergedPdf, fs.readFileSync(sodoMTPath), false);
 
     // Sổ đỏ mặt sau
     const sodoMSPath = resolveTaiLieuPath('so-do-MS.jpg');
-    if (fs.existsSync(sodoMSPath)) {
-      const imgBuf = fs.readFileSync(sodoMSPath);
-      await addImagePage(mergedPdf, imgBuf, false);
-    }
+    if (!fs.existsSync(sodoMSPath)) throw new CompiledPdfAssetError('STATIC_ASSET_MISSING', 'Thiếu sổ đỏ mặt sau');
+    await addImagePage(mergedPdf, fs.readFileSync(sodoMSPath), false);
 
     if (mergedPdf.getPageCount() === 0) {
       return NextResponse.json({ error: 'Không có nội dung nào để tạo tài liệu PDF' }, { status: 400 });
@@ -559,8 +528,10 @@ export async function POST(request: Request) {
     });
 
   } catch (error: any) {
-    console.error('Error compiling package PDF:', error);
-    return NextResponse.json({ error: error?.message || 'Lỗi hệ thống khi đóng gói PDF' }, { status: 500 });
+    if (error instanceof CompiledPdfAssetError) {
+      return NextResponse.json({ error: error.label, code: error.code }, { status: error.status });
+    }
+    return NextResponse.json({ error: 'Không thể đóng gói PDF' }, { status: 500 });
   } finally {
     // Clean up temporary files
     for (const file of tempFiles) {
@@ -571,6 +542,9 @@ export async function POST(request: Request) {
           console.error(`Failed to delete temp file ${file}:`, e);
         }
       }
+    }
+    if (tempDir && fs.existsSync(tempDir)) {
+      try { fs.rmdirSync(tempDir); } catch { /* best effort */ }
     }
   }
 }

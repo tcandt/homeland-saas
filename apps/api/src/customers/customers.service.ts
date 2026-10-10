@@ -736,7 +736,7 @@ export class CustomersService extends BaseCrudService<Customer> {
     const where: any = filters.length > 0 ? { AND: filters } : {};
     const orderBy = { [sort || 'createdAt']: order || 'desc' };
 
-    return this.repository.paginate(where, page, limit, orderBy, {
+    const result = await this.repository.paginate(where, page, limit, orderBy, {
       room: {
         select: {
           id: true,
@@ -791,5 +791,75 @@ export class CustomersService extends BaseCrudService<Customer> {
       },
       _count: { select: { contracts: true } },
     });
+
+    // The relation above is intentionally kept as the compatibility/pending
+    // candidate.  Resolve active contracts for this page in one bounded batch
+    // so a pending row cannot hide a currently active contract.
+    const pageResult: any = result || { data: [], meta: {} };
+    const pageRows: any[] = Array.isArray(pageResult.data) ? pageResult.data : [];
+    const pairs = pageRows
+      .filter((row) => typeof row?.id === 'string' && typeof row?.tenantId === 'string')
+      .map((row) => ({ id: row.id, tenantId: row.tenantId }));
+
+    if (pairs.length > 0) {
+      const activeRows = await this.prisma.tx.customer.findMany({
+        where: {
+          OR: pairs.map(({ id, tenantId }) => ({ id, tenantId })),
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          tenantId: true,
+          contracts: {
+            where: {
+              deletedAt: null,
+              status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+            },
+            orderBy: [{ endDate: 'asc' }, { id: 'asc' }],
+            take: 1,
+            select: {
+              id: true,
+              code: true,
+              status: true,
+              startDate: true,
+              endDate: true,
+              room: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                  building: { select: { id: true, code: true, name: true } },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const requestedPairs = new Set(pairs.map(({ id, tenantId }) => `${id}\u0000${tenantId}`));
+      const activeByPair = new Map<string, any>();
+      for (const row of Array.isArray(activeRows) ? activeRows : []) {
+        const key = `${row?.id}\u0000${row?.tenantId}`;
+        if (requestedPairs.has(key)) activeByPair.set(key, row);
+      }
+
+      for (const row of pageRows) {
+        const key = `${row?.id}\u0000${row?.tenantId}`;
+        const active = activeByPair.get(key);
+        if (!active) continue;
+        const merged: any[] = [];
+        for (const contract of [
+          ...(Array.isArray(active.contracts) ? active.contracts : []),
+          ...(Array.isArray(row.contracts) ? row.contracts : []),
+        ]) {
+          if (!contract?.id || merged.some((item) => item.id === contract.id)) continue;
+          merged.push(contract);
+          if (merged.length === 2) break;
+        }
+        row.contracts = merged;
+      }
+    }
+
+    return pageResult;
   }
 }

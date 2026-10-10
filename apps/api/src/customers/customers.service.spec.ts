@@ -24,7 +24,12 @@ describe('CustomersService', () => {
       },
       $transaction: vi.fn(),
     };
-    prismaService.tx = { customer: { findFirst: vi.fn().mockResolvedValue(null) } };
+    prismaService.tx = {
+      customer: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    };
     auditService = { log: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -33,7 +38,10 @@ describe('CustomersService', () => {
         {
           provide: CustomersRepository,
           useValue: {
-            paginate: vi.fn(),
+            paginate: vi.fn().mockResolvedValue({
+              data: [],
+              meta: { page: 1, limit: 10, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false },
+            }),
             create: vi.fn(),
             findById: vi.fn(),
             update: vi.fn(),
@@ -261,6 +269,90 @@ describe('CustomersService', () => {
         },
       });
       expect(repository.paginate).toHaveBeenCalledWith({}, 2, 10, { createdAt: 'desc' }, include);
+    });
+
+    it('merges an active contract ahead of the bounded pending candidate in one batch', async () => {
+      const pending = { id: 'pending-1', code: 'P-1', status: 'DRAFT', endDate: new Date('2026-01-01') };
+      const active = { id: 'active-1', code: 'A-1', status: 'ACTIVE', endDate: new Date('2026-02-01') };
+      (repository.paginate as any).mockResolvedValue({
+        data: [{ id: 'customer-1', tenantId: 'tenant-a', contracts: [pending] }],
+        meta: { page: 1, limit: 10, total: 1, totalPages: 1, hasNextPage: false, hasPreviousPage: false },
+      });
+      prismaService.tx.customer.findMany.mockResolvedValueOnce([
+        { id: 'customer-1', tenantId: 'tenant-a', contracts: [active] },
+      ]);
+
+      const result: any = await service.listCustomers(1, 10);
+
+      expect(prismaService.tx.customer.findMany).toHaveBeenCalledTimes(1);
+      expect(prismaService.tx.customer.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          OR: [{ id: 'customer-1', tenantId: 'tenant-a' }],
+          deletedAt: null,
+        },
+        select: expect.objectContaining({
+          id: true,
+          tenantId: true,
+          contracts: expect.objectContaining({
+            orderBy: [{ endDate: 'asc' }, { id: 'asc' }],
+            take: 1,
+          }),
+        }),
+      }));
+      expect(result.data[0].contracts).toEqual([active, pending]);
+    });
+
+    it('keeps the active batch bounded to explicit page pairs and rejects foreign rows', async () => {
+      (repository.paginate as any).mockResolvedValue({
+        data: [
+          { id: 'customer-1', tenantId: 'tenant-a', contracts: [] },
+          { id: 'customer-2', tenantId: 'tenant-a', contracts: [] },
+        ],
+        meta: {},
+      });
+      prismaService.tx.customer.findMany.mockResolvedValueOnce([
+        { id: 'customer-1', tenantId: 'tenant-b', contracts: [{ id: 'foreign-contract' }] },
+        { id: 'customer-1', tenantId: 'tenant-a', contracts: [{ id: 'valid-contract' }] },
+      ]);
+
+      const result: any = await service.listCustomers(1, 10);
+
+      expect(prismaService.tx.customer.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { id: 'customer-1', tenantId: 'tenant-a' },
+            { id: 'customer-2', tenantId: 'tenant-a' },
+          ],
+        }),
+      }));
+      expect(result.data[0].contracts).toEqual([{ id: 'valid-contract' }]);
+      expect(result.data[1].contracts).toEqual([]);
+    });
+
+    it('skips the active batch query for an empty page', async () => {
+      (repository.paginate as any).mockResolvedValue({ data: [], meta: {} });
+
+      await service.listCustomers(1, 10);
+
+      expect(prismaService.tx.customer.findMany).not.toHaveBeenCalled();
+    });
+
+    it('deduplicates active and pending contracts and caps the merged projection at two', async () => {
+      (repository.paginate as any).mockResolvedValue({
+        data: [{
+          id: 'customer-1',
+          tenantId: 'tenant-a',
+          contracts: [{ id: 'same', status: 'DRAFT' }, { id: 'pending-2' }, { id: 'pending-3' }],
+        }],
+        meta: {},
+      });
+      prismaService.tx.customer.findMany.mockResolvedValueOnce([
+        { id: 'customer-1', tenantId: 'tenant-a', contracts: [{ id: 'same', status: 'ACTIVE' }] },
+      ]);
+
+      const result: any = await service.listCustomers(1, 10);
+
+      expect(result.data[0].contracts).toEqual([{ id: 'same', status: 'ACTIVE' }, { id: 'pending-2' }]);
     });
   });
 

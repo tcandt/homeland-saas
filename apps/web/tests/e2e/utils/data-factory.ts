@@ -4,29 +4,29 @@ export class DataFactory {
   constructor(private request: APIRequestContext, private token?: string) {}
 
   private async post(endpoint: string, data: any) {
-    const url = endpoint.startsWith('http') ? endpoint : `http://127.0.0.1:3000${endpoint}`;
+    if (!endpoint.startsWith('/')) throw new Error(`DataFactory requires a relative endpoint: ${endpoint}`);
     const headers: any = { 'Content-Type': 'application/json' };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     
-    const res = await this.request.post(url, {
+    const res = await this.request.post(endpoint, {
       data,
       headers
     });
     const body = await res.json();
     if (!res.ok() || !body.success) {
-      throw new Error(`DataFactory Error on POST ${url}: ${JSON.stringify(body)}`);
+      throw new Error(`DataFactory Error on POST ${endpoint}: ${JSON.stringify(body)}`);
     }
     return body.data;
   }
 
   private async delete(endpoint: string) {
-    const url = endpoint.startsWith('http') ? endpoint : `http://127.0.0.1:3000${endpoint}`;
+    if (!endpoint.startsWith('/')) throw new Error(`DataFactory requires a relative endpoint: ${endpoint}`);
     const headers: any = {};
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     
-    const res = await this.request.delete(url, { headers });
+    const res = await this.request.delete(endpoint, { headers });
     if (!res.ok()) {
-      console.warn(`DataFactory Warn on DELETE ${url}: ${res.statusText()}`);
+      console.warn(`DataFactory Warn on DELETE ${endpoint}: ${res.statusText()}`);
     }
   }
 

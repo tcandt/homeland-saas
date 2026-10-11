@@ -2,6 +2,9 @@ import { expect } from '@playwright/test';
 import { DataFactory } from '../../utils/data-factory';
 import { test } from '../../fixtures/admin.fixture';
 
+const apiBaseUrl = process.env.E2E_API_BASE_URL;
+if (!apiBaseUrl) throw new Error('E2E_API_BASE_URL is required for document API checks');
+
 test.describe('Documents Core Regression', () => {
   test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   let docId: string;
@@ -69,7 +72,7 @@ test.describe('Documents Core Regression', () => {
 
     // 6. Security tests
     // 6.1 Download without JWT
-    const noJwtRes = await request.get(`http://127.0.0.1:3001/api/v1/documents/${docId}/download`);
+    const noJwtRes = await request.get(`${apiBaseUrl}/api/v1/documents/${docId}/download`);
     expect(noJwtRes.status()).toBe(401);
 
     // 6.2 Invalid Document ID

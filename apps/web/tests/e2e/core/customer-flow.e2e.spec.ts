@@ -21,7 +21,7 @@ test.describe('Customer E2E: Create -> Edit -> Delete Lifecycle', () => {
     await evidence.start();
     
     // Go to tenants/customers explorer
-    await page.goto('http://127.0.0.1:3000/tenants');
+    await page.goto('/tenants');
     await page.waitForLoadState('networkidle');
     
     // ----- CREATE CUSTOMER -----

@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'crypto';
 
-const BASE_URL = process.env.API_URL || 'http://127.0.0.1:3001';
+const BASE_URL = process.env.E2E_API_BASE_URL;
+if (!BASE_URL) throw new Error('E2E_API_BASE_URL is required for observability checks');
 
 test.describe('Observability Foundation', () => {
   test('GET /api/v1/health returns x-correlation-id', async ({ request }) => {

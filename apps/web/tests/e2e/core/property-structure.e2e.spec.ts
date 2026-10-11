@@ -20,7 +20,7 @@ test.describe('Property Structure E2E: Building -> Floor -> Room Lifecycle', () 
     await evidence.start();
     
     // Go to property explorer
-    await page.goto('http://127.0.0.1:3000/buildings');
+    await page.goto('/buildings');
     await page.waitForLoadState('networkidle');
     
     console.log('Current URL:', page.url());

@@ -1,5 +1,10 @@
 import { test, expect, request } from '@playwright/test';
 
+const apiBaseUrl = process.env.E2E_API_BASE_URL;
+if (!apiBaseUrl) throw new Error('E2E_API_BASE_URL is required for tenant API checks');
+const webBaseUrl = process.env.E2E_WEB_BASE_URL;
+if (!webBaseUrl) throw new Error('E2E_WEB_BASE_URL is required for tenant browser checks');
+
 test.describe('Property Structure Tenant Isolation', () => {
   test.skip(process.env.RUN_DESTRUCTIVE_E2E !== 'true', 'Set RUN_DESTRUCTIVE_E2E=true only against an isolated disposable database.');
   const timestamp = Date.now();
@@ -17,7 +22,7 @@ test.describe('Property Structure Tenant Isolation', () => {
   test('Tenant A creates a building', async ({ browser }) => {
     // 1. Register Tenant A
     const apiContext = await request.newContext({
-      baseURL: 'http://127.0.0.1:3001',
+      baseURL: apiBaseUrl,
     });
     
     const regResA = await apiContext.post('/api/v1/auth/register', {
@@ -34,7 +39,7 @@ test.describe('Property Structure Tenant Isolation', () => {
     tenantAToken = dataA.data.accessToken;
 
     // 2. Login as Tenant A in Browser
-    const contextA = await browser.newContext();
+    const contextA = await browser.newContext({ baseURL: webBaseUrl });
     const pageA = await contextA.newPage();
     
     // Skip on mobile/tablet viewports since building CRUD/Explorer is desktop-only
@@ -77,7 +82,7 @@ test.describe('Property Structure Tenant Isolation', () => {
   test('Tenant B cannot see Tenant A buildings', async ({ browser }) => {
     // 1. Register Tenant B
     const apiContext = await request.newContext({
-      baseURL: 'http://127.0.0.1:3001',
+      baseURL: apiBaseUrl,
     });
     
     const regResB = await apiContext.post('/api/v1/auth/register', {
@@ -94,7 +99,7 @@ test.describe('Property Structure Tenant Isolation', () => {
     tenantBToken = dataB.data.accessToken;
 
     // 2. Login as Tenant B in Browser
-    const contextB = await browser.newContext();
+    const contextB = await browser.newContext({ baseURL: webBaseUrl });
     const pageB = await contextB.newPage();
     
     // Skip on mobile/tablet viewports since building CRUD/Explorer is desktop-only

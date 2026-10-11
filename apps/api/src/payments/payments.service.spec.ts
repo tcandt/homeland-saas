@@ -2049,6 +2049,28 @@ describe('PaymentsService', () => {
     expect(depositsService.collect).not.toHaveBeenCalled();
   });
 
+  it('does not collect a booking deposit from stale PAID metadata when balances remain unpaid', async () => {
+    const { service, depositsService } = createService();
+
+    await (service as any).collectLinkedBookingDepositForInvoicePayment(
+      { tenantId: 'tenant-1', sourceId: 'invoice-stale-paid-1' },
+      'txn-stale-paid-1',
+      {
+        period: 'Cọc giữ phòng',
+        total: 2_000_000,
+        paidAmount: 0,
+        creditAmount: 0,
+        status: 'PAID',
+        contractId: 'contract-booking-1',
+        customerId: 'customer-1',
+        rentalCycleId: 'cycle-1',
+        contract: { roomId: 'room-1' },
+      },
+    );
+
+    expect(depositsService.collect).not.toHaveBeenCalled();
+  });
+
   it('keeps a manually collected SePay deposit reclaimable when request completion fails', async () => {
     const { service, prisma, depositsService } = createService({
       paymentWebhookLog: {

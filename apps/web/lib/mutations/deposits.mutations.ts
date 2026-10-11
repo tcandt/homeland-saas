@@ -48,6 +48,9 @@ export const useCollectDepositMutation = () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-stats'] });
       queryClient.invalidateQueries({ queryKey: ['deposit', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['rental-cycle-finance-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['room-finance-summary'] });
       queryClient.invalidateQueries({ queryKey: financeKeys.all });
     },
   });

@@ -61,6 +61,9 @@ describe('P5: Finance Cross-Tab Query Invalidation & Authoritative Sync', () => 
       expect(invalidateQueries).toHaveBeenCalledWith({
         queryKey: ['deposit', 'dep-1'],
       });
+      for (const key of ['invoices', 'rental-cycle-finance-summary', 'room-finance-summary']) {
+        expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: [key] });
+      }
     });
 
     it('invalidates financeKeys.all on deposit refund', () => {

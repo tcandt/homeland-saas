@@ -727,7 +727,11 @@ export class DepositCoreService {
       throw new ConflictException('DEPOSIT_RECONCILIATION_INVOICE_INVALID');
     }
     const paidCash = Number(invoice?.paidAmount || 0);
-    const isPaid = String(invoice?.status || '').toUpperCase() === 'PAID' || paidCash >= Number(invoice?.total || 0);
+    const creditAmount = Number(invoice?.creditAmount || 0);
+    const invoiceTotal = Number(invoice?.total || 0);
+    const isPaid = Number.isFinite(invoiceTotal) && invoiceTotal > 0 &&
+      Number.isFinite(paidCash) && Number.isFinite(creditAmount) &&
+      paidCash + creditAmount >= invoiceTotal;
     const contractMismatch = Boolean(deposit.contractId && invoice?.contractId && deposit.contractId !== invoice.contractId);
     const cycleMismatch = Boolean(deposit.rentalCycleId && invoice?.rentalCycleId && deposit.rentalCycleId !== invoice.rentalCycleId);
     const customerMismatch = Boolean(invoice?.customerId && invoice.customerId !== deposit.customerId);

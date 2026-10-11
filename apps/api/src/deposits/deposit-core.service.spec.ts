@@ -205,6 +205,33 @@ describe('DepositCoreService', () => {
     expect(tx.depositLedgerEntry.create).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects reconciliation when invoice status is PAID but numeric balances remain unpaid', async () => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue(booking);
+    tx.paymentRequest.findFirst.mockResolvedValue({
+      id: 'request-stale-paid-1', amount: 2_000_000,
+      providerTransactionId: 'sepay-stale-paid-1', paidAt: new Date('2026-09-22T00:00:00.000Z'),
+    });
+    tx.invoice.findFirst.mockResolvedValue({
+      id: 'invoice-stale-paid-1', period: 'Cọc giữ phòng', status: 'PAID', total: 2_000_000,
+      paidAmount: 0, creditAmount: 0, contractId: null, rentalCycleId: 'cycle-1',
+      customerId: 'customer-1', contract: { roomId: 'room-1' },
+    });
+
+    await expect(service.collect('tenant-1', booking.id, {
+      idempotencyKey: 'reconcile-stale-paid-1',
+      notificationContext: {
+        linkedInvoicePayment: true,
+        paymentRequestId: 'request-stale-paid-1',
+        sourceInvoiceId: 'invoice-stale-paid-1',
+        skipHoldCreation: true,
+        skipRoomReservation: true,
+      },
+    }, 'PAYMENT_RECONCILIATION')).rejects.toThrow('DEPOSIT_RECONCILIATION_SCOPE_INVALID');
+
+    expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
+  });
+
   it('rejects a forged, unpaid, or out-of-scope booking invoice reconciliation proof', async () => {
     const { tx, service } = createHarness();
     tx.deposit.findFirst.mockResolvedValue(booking);

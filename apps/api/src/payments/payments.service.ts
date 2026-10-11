@@ -3777,7 +3777,6 @@ export class PaymentsService {
   }
 
   private isInvoiceSettled(invoice: any) {
-    if (String(invoice?.status || '').toUpperCase() === 'PAID') return true;
     const total = Number(invoice?.total);
     const paid = Number(invoice?.paidAmount || 0);
     const credit = Number(invoice?.creditAmount || 0);

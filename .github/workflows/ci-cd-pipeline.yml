@@ -278,6 +278,11 @@ jobs:
       REDIS_URL: redis://localhost:6385
       JWT_SECRET: homeland_super_secret_key_change_in_production
       NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+      # Playwright config requires explicit local URLs. Keep these separate
+      # from NEXT_PUBLIC_API_URL so a missing staging URL cannot silently make
+      # a local CI run target an unrelated host.
+      E2E_WEB_BASE_URL: http://localhost:3000
+      E2E_API_BASE_URL: http://localhost:3001
       DEBUG: pw:webserver
       CI_DATABASE_BOOTSTRAP: true
       RUN_DESTRUCTIVE_E2E: true

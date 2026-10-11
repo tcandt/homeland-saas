@@ -202,7 +202,7 @@ export class DepositCoreService {
       }
 
       let rentalCycleId = command.input.rentalCycleId || null;
-      let contractId = command.input.contractId || null;
+      const contractId = command.input.contractId || null;
       if (contractId) {
         await this.lockContract(tx, tenantId, contractId);
         const contract = await tx.contract.findFirst({

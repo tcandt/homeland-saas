@@ -40,8 +40,8 @@ describe('MetricsService operational metrics', () => {
   });
 
   it.each(['{invalid', 'null', '[]', JSON.stringify({ status: 'SUCCESS', completedAt: 'invalid' }),
-    JSON.stringify({ status: 'SUCCESS', completedAt: '2999-01-01T00:00:00.000Z' })])
-  ('clears prior successful backup metrics for invalid evidence %s', async (content) => {
+    JSON.stringify({ status: 'SUCCESS', completedAt: '2999-01-01T00:00:00.000Z' })])(
+    'clears prior successful backup metrics for invalid evidence %s', async (content) => {
     const manifestPath = path.join(tempDir, 'latest-manifest.json');
     process.env.BACKUP_MANIFEST_PATH = manifestPath;
     process.env.BACKUP_RETENTION_REPORT_PATH = path.join(tempDir, 'missing-retention.json');

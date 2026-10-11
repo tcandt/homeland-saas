@@ -613,7 +613,7 @@ export function allocateDeterministically(
     (weight) => (totalUnits * weight) / totalWeight,
   );
   const allocatedUnits = rawUnits.map((value) => Math.floor(value));
-  let remainder =
+  const remainder =
     totalUnits - allocatedUnits.reduce((sum, value) => sum + value, 0);
 
   const remainderOrder = rawUnits

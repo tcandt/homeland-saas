@@ -9,7 +9,7 @@ Before any staging or production export:
 3. Re-open the contract detail and confirm both sides are present. Only then run the compiled-PDF smoke check.
 4. Do not bulk-copy `idImages[0]`/`idImages[1]` into provenance. A reviewed operator must confirm the side of every legacy image; unresolved records remain blocked with `CCCD_PROVENANCE_REQUIRED`.
 5. For a scan, upload the original photo and the cropped scan as two separate tenant-owned documents. The original is retained as `originalUrl`; only the approved scan `url` is selected for the compiled PDF.
-6. Treat `idImages` as a compatibility projection of the currently approved provenance only. Replacing or revoking a side must remove the old URL from that projection; approval history remains in `idImageProvenance`.
+6. Treat `idImages` as a compatibility projection of the currently approved provenance only. Replacing or revoking a side must remove the old URL from that projection. `idImageProvenance` holds the active set; the transactional AuditLog `before` snapshot retains the replaced/revoked URL, original, reviewer and approval time.
 7. Prefer the upload endpoint for new scans: original, scan, document records, approval and audit are committed as one transaction. If the transaction rolls back, only newly staged files without a committed document record are compensated; a committed file is never deleted because of an ambiguous client response.
 
 This is a release prerequisite, not a production migration. No NAS or production data repair is authorized by this document.

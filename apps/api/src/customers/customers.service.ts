@@ -215,6 +215,10 @@ export class CustomersService extends BaseCrudService<Customer> {
       entity: 'Customer',
       entityId: customer.id,
       module: 'Customers',
+      // Keep the complete prior set in the immutable audit event. The active
+      // projection intentionally drops replaced sides, but their URL,
+      // original, reviewer and approval time remain recoverable for review.
+      before: { idImageProvenance: customer.idImageProvenance, idImages: customer.idImages },
       after: { idImageProvenance: provenance },
       userId,
     } });
@@ -265,7 +269,8 @@ export class CustomersService extends BaseCrudService<Customer> {
       entity: 'Customer',
       entityId: customer.id,
       module: 'Customers',
-      after: { revokedIdentityImage: canonicalUrl },
+      before: { idImageProvenance: customer.idImageProvenance, idImages: customer.idImages },
+      after: { revokedIdentityImage: canonicalUrl, idImageProvenance: provenance },
       userId,
     } });
     return updated;

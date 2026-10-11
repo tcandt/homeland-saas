@@ -160,6 +160,12 @@ describe('CustomersService identity image provenance', () => {
       side: 'front', source: 'upload',
     }]);
 
+    expect((tx as any).auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      before: expect.objectContaining({ idImageProvenance: expect.arrayContaining([
+        expect.objectContaining({ url: 'document-storage://tenant-a/front-v1.jpg', approvedBy: 'reviewer-old' }),
+      ]) }),
+    }) }));
+
     expect(updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         idImages: ['document-storage://tenant-a/front-v2.jpg', 'document-storage://tenant-a/back.jpg'],
@@ -186,6 +192,13 @@ describe('CustomersService identity image provenance', () => {
     updateMany.mockResolvedValue({ count: 1 });
 
     await service.revokeIdentityImage('customer-1', 'tenant-a', 'reviewer-new', 'document-storage://tenant-a/front-v2.jpg');
+
+    expect((tx as any).auditLog.create).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      before: expect.objectContaining({ idImageProvenance: expect.arrayContaining([
+        expect.objectContaining({ url: 'document-storage://tenant-a/front-v2.jpg', originalUrl: 'document-storage://tenant-a/front-v2.jpg', approvedBy: 'reviewer-new' }),
+      ]) }),
+      after: expect.objectContaining({ revokedIdentityImage: 'document-storage://tenant-a/front-v2.jpg' }),
+    }) }));
 
     expect(updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
       data: expect.objectContaining({

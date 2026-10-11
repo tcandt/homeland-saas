@@ -68,8 +68,8 @@ function escapeHtml(value: string) {
 function escapeTelegramText(value: string, parseMode: string) {
   const mode = parseMode.trim().toUpperCase();
   if (mode === 'HTML') return escapeHtml(value);
-  if (mode === 'MARKDOWNV2') return value.replace(/([_\*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
-  if (mode === 'MARKDOWN') return value.replace(/([_\*\[\]`])/g, '\\$1');
+  if (mode === 'MARKDOWNV2') return value.replace(/([_*\x5b]()~`>#+=|{}.!-])/g, '\\$1');
+  if (mode === 'MARKDOWN') return value.replace(/([_*\x5b\x5d`])/g, '\\$1');
   return value;
 }
 

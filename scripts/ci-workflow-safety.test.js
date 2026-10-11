@@ -65,6 +65,28 @@ test('API image startup never pushes, resets, seeds, or starts a dev watcher', (
   assert.match(entrypoint, /npm\s+run\s+start:prod/);
 });
 
+test('CI browser acceptance binds fixture writes to its disposable database and disables background delivery', () => {
+  const env = workflowModel().jobs.e2e.env;
+  const compose = yaml.parse(read('docker-compose.ci.yml'));
+  assert.equal(env.E2E_DATABASE_URL, env.DATABASE_URL);
+  const databaseUrl = new URL(env.E2E_DATABASE_URL);
+  assert.equal(databaseUrl.hostname, 'localhost');
+  assert.equal(databaseUrl.port, '5433');
+  assert.equal(databaseUrl.pathname.slice(1), env.E2E_TARGET_DB_ID);
+  assert.equal(env.E2E_TARGET_DB_ID, compose.services.postgres.environment.POSTGRES_DB);
+  assert.equal(env.E2E_DISPOSABLE_DATABASE, 'true');
+  assert.match(env.E2E_RUN_ID, /^ci-e2e-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}$/);
+  assert.equal(env.RUN_DESTRUCTIVE_E2E, true);
+  assert.equal(env.DISABLE_SCHEDULED_JOBS, 'true');
+  assert.equal(env.APP_RUNTIME_ROLE, 'api');
+  assert.equal(env.COMMUNICATION_IMMEDIATE_DELIVERY, 'false');
+  assert.equal(env.ALLOW_REGISTRATION, 'false');
+  assert.equal(env.NEXT_PUBLIC_ALLOW_REGISTRATION, 'false');
+  assert.ok(workflowModel().jobs.e2e.steps.some((step) =>
+    /playwright test tests\/e2e\/smoke tests\/e2e\/production\/registration-closed\.desktop\.spec\.ts/.test(step.run || ''),
+  ), 'CI must execute the public-registration closure gate');
+});
+
 test('Docker images compile API code and bake a same-origin web API route', () => {
   const apiDockerfile = read('Dockerfile.api');
   const webDockerfile = read('Dockerfile.web');

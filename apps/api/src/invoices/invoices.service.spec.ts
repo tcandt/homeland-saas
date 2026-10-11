@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { InvoicesService } from "./invoices.service";
 import { assertCombinedEntryInvoice, getCombinedEntryInvoice } from "./combined-entry-invoice";
 import { InvoiceStatus } from "@prisma/client";
@@ -154,6 +154,15 @@ describe("InvoicesService", () => {
   });
 
   describe("payment promises", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-30T00:00:00.000Z"));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it("records a partial-payment appointment without changing invoice obligation", async () => {
       prisma.tx.invoice.findFirst.mockResolvedValue({
         id: "invoice-1",
@@ -210,6 +219,15 @@ describe("InvoicesService", () => {
         "tenant-1",
         "promise-command-2",
       )).rejects.toThrow("PAYMENT_PROMISE_AMOUNT_EXCEEDS_REMAINING");
+      expect(prisma.tx.paymentPromise.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects an appointment in the past without creating a promise", async () => {
+      await expect(service.createPaymentPromise(
+        "invoice-1",
+        { amount: 300, dueDate: "2026-09-29T00:00:00.000Z" },
+        "user-1", "tenant-1", "promise-command-past",
+      )).rejects.toThrow("PAYMENT_PROMISE_DUE_DATE");
       expect(prisma.tx.paymentPromise.create).not.toHaveBeenCalled();
     });
   });

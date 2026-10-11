@@ -12,16 +12,33 @@ export function assertNoBackupSymlinks(target: string) {
   }
 }
 
-export function resolveBackupRuntime(cwd = process.cwd()) {
-  if ((process.env.STORAGE_PROVIDER || 'local') !== 'local') {
-    throw new Error('Full backup requires supported local storage');
-  }
+function resolveBackupWorkspace(cwd: string) {
   let workspaceRoot = resolve(cwd);
   while (!existsSync(join(workspaceRoot, 'scripts', 'production-backup.js'))) {
     const parent = dirname(workspaceRoot);
     if (parent === workspaceRoot) throw new Error('Backup runner is unavailable');
     workspaceRoot = parent;
   }
+  return workspaceRoot;
+}
+
+export function resolveBackupMonitoringPaths(cwd = process.cwd()) {
+  const manifestOverride = process.env.BACKUP_MANIFEST_PATH;
+  const reportOverride = process.env.BACKUP_RETENTION_REPORT_PATH;
+  const workspaceRoot = manifestOverride && isAbsolute(manifestOverride) && (!reportOverride || isAbsolute(reportOverride))
+    ? resolve(cwd) : resolveBackupWorkspace(cwd);
+  const backupRoot = resolve(workspaceRoot, process.env.SYSTEM_BACKUP_DIR || '.codex-backups/production');
+  const manifestPath = manifestOverride ? resolve(workspaceRoot, manifestOverride) : join(backupRoot, 'latest-manifest.json');
+  const retentionReportPath = reportOverride
+    ? resolve(workspaceRoot, reportOverride) : join(dirname(manifestPath), 'latest-retention-report.json');
+  return { manifestPath, retentionReportPath };
+}
+
+export function resolveBackupRuntime(cwd = process.cwd()) {
+  if ((process.env.STORAGE_PROVIDER || 'local') !== 'local') {
+    throw new Error('Full backup requires supported local storage');
+  }
+  const workspaceRoot = resolveBackupWorkspace(cwd);
   const backupRoot = resolve(workspaceRoot, process.env.SYSTEM_BACKUP_DIR || '.codex-backups/production');
   // Match LocalStorageProvider, including its apps/api working-directory default.
   const storageRoot = resolve(cwd, process.env.STORAGE_DIR || 'storage');

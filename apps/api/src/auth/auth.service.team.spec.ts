@@ -22,6 +22,7 @@ describe('AuthService team directory', () => {
         }),
         update: vi.fn().mockResolvedValue({ id: 'system-admin' }),
       },
+      appSetting: { findUnique: vi.fn().mockResolvedValue(null) },
     };
     const jwtService: any = { sign: vi.fn().mockReturnValueOnce('access-token').mockReturnValueOnce('refresh-token') };
     const config: any = { get: vi.fn().mockReturnValue('1h') };

@@ -20,6 +20,7 @@ function sqlText(input: unknown) {
 describe('MetricsService operational metrics', () => {
   let tempDir: string;
   const originalBackupManifestPath = process.env.BACKUP_MANIFEST_PATH;
+  const originalBackupRetentionReportPath = process.env.BACKUP_RETENTION_REPORT_PATH;
   const originalNotificationWorkerHeartbeatPath = process.env.NOTIFICATION_WORKER_HEARTBEAT_PATH;
 
   beforeEach(() => {
@@ -27,9 +28,35 @@ describe('MetricsService operational metrics', () => {
   });
 
   afterEach(() => {
-    process.env.BACKUP_MANIFEST_PATH = originalBackupManifestPath;
-    process.env.NOTIFICATION_WORKER_HEARTBEAT_PATH = originalNotificationWorkerHeartbeatPath;
+    for (const [key, value] of Object.entries({
+      BACKUP_MANIFEST_PATH: originalBackupManifestPath,
+      BACKUP_RETENTION_REPORT_PATH: originalBackupRetentionReportPath,
+      NOTIFICATION_WORKER_HEARTBEAT_PATH: originalNotificationWorkerHeartbeatPath,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it.each(['{invalid', 'null', '[]', JSON.stringify({ status: 'SUCCESS', completedAt: 'invalid' }),
+    JSON.stringify({ status: 'SUCCESS', completedAt: '2999-01-01T00:00:00.000Z' })])
+  ('clears prior successful backup metrics for invalid evidence %s', async (content) => {
+    const manifestPath = path.join(tempDir, 'latest-manifest.json');
+    process.env.BACKUP_MANIFEST_PATH = manifestPath;
+    process.env.BACKUP_RETENTION_REPORT_PATH = path.join(tempDir, 'missing-retention.json');
+    const service = Object.create(MetricsService.prototype) as any;
+    for (const key of ['backupAgeSeconds', 'backupLastSuccess', 'backupOffHostLastSuccess',
+      'backupRetentionLocalCopies', 'backupRetentionPrunableCopies']) service[key] = metricMock();
+    fs.writeFileSync(manifestPath, JSON.stringify({ status: 'SUCCESS', completedAt: new Date().toISOString() }));
+    await service.refreshBackupMetrics();
+    expect(service.backupLastSuccess.set).toHaveBeenLastCalledWith(1);
+    fs.writeFileSync(manifestPath, content);
+    await service.refreshBackupMetrics();
+    expect(service.backupLastSuccess.set).toHaveBeenLastCalledWith(0);
+    expect(service.backupAgeSeconds.set).toHaveBeenLastCalledWith(315360000);
+    expect(service.backupOffHostLastSuccess.set).toHaveBeenLastCalledWith(0);
+    expect(service.backupRetentionLocalCopies.set).toHaveBeenLastCalledWith(0);
   });
 
   it('publishes payment webhook, notification queue, and backup freshness metrics', async () => {

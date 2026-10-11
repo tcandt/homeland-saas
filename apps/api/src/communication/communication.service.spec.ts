@@ -162,6 +162,7 @@ describe('CommunicationService', () => {
         metadata: { code: 'INV-001' },
         paymentAmount: '1.000.000',
         amount: '1.000.000',
+        paymentReceiptMessage: 'Đã ghi nhận thanh toán 1.000.000 đ qua VietQR.',
         paymentStatusLabel: 'Đã thu đủ qua VietQR',
       },
     });

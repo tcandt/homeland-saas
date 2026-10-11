@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Test, TestingModule } from "@nestjs/testing";
-import { ContractsService } from "./contracts.service";
+import { ContractsService, calculateFirstBillingPeriod } from "./contracts.service";
 import { ContractsRepository } from "./contracts.repository";
 import { PrismaService } from "../prisma.service";
 import { AuditService } from "../shared/audit/audit.service";
@@ -20,6 +20,17 @@ describe("Contracts Workflow Verification", () => {
   let currentRoom: any;
   let currentDeposit: any;
   let currentInvoice: any;
+
+  function recordPaidEntryInvoice() {
+    const firstBilling = calculateFirstBillingPeriod(currentContract.monthlyRent, currentContract.startDate);
+    currentInvoice = {
+      id: "entry-1", tenantId: "t1", contractId: "c1", customerId: "cu1",
+      rentalCycleId: "cycle-1", billingKind: "ENTRY", deletedAt: null,
+      baseInvoiceKey: `ENTRY:c1:${firstBilling.period}`, period: firstBilling.period,
+      status: "PAID", total: firstBilling.amount, paidAmount: firstBilling.amount,
+      creditAmount: 0, items: [],
+    };
+  }
 
   beforeEach(async () => {
     // Reset state
@@ -125,6 +136,11 @@ describe("Contracts Workflow Verification", () => {
           create: vi.fn().mockResolvedValue({ id: "settlement-1" }),
         },
         invoice: {
+          findFirst: vi.fn().mockImplementation(async ({ where }) => {
+            if (!currentInvoice) return null;
+            return Object.entries(where).every(([key, value]) => currentInvoice[key] === value)
+              ? currentInvoice : null;
+          }),
           findMany: vi.fn().mockResolvedValue([]),
           create: vi.fn().mockImplementation(async ({ data }) => {
             currentInvoice = { id: `inv-${Date.now()}`, ...data };
@@ -219,6 +235,7 @@ describe("Contracts Workflow Verification", () => {
 
     // Simulate deposit paid by Finance
     currentDeposit.status = "PAID";
+    recordPaidEntryInvoice();
 
     // 3. Activate
     await service.activateContract("c1", "u1", "t1", "workflow-path-a");
@@ -226,7 +243,8 @@ describe("Contracts Workflow Verification", () => {
     expect(currentRoom.status).toBe(RoomStatus.OCCUPIED);
     expect(currentDeposit.status).toBe("CONVERTED_TO_CONTRACT");
     expect(currentInvoice).toBeDefined();
-    expect(currentInvoice.status).toBe("ISSUED");
+    expect(currentInvoice.status).toBe("PAID");
+    expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
     expect(auditService.log).toHaveBeenCalled();
     auditService.log.mockClear();
 
@@ -235,7 +253,7 @@ describe("Contracts Workflow Verification", () => {
       "c1",
       "u1",
       {
-        actualMoveOutDate: new Date("2026-08-31T00:00:00.000Z"),
+        actualMoveOutDate: new Date(),
         roomTurnoverStatus: RoomStatus.AVAILABLE,
         rentDaysCharged: 0,
       },
@@ -244,7 +262,7 @@ describe("Contracts Workflow Verification", () => {
     );
     expect(currentContract.status).toBe(ContractStatus.TERMINATED);
     expect(currentRoom.status).toBe(RoomStatus.AVAILABLE);
-    expect(currentInvoice.status).toBe("ISSUED"); // Zero-value settlement does not replace the issued invoice.
+    expect(currentInvoice.status).toBe("PAID"); // Zero-value settlement leaves the paid ENTRY unchanged.
     expect(prismaService.tx.auditLog.create).toHaveBeenCalled();
   });
 
@@ -252,6 +270,7 @@ describe("Contracts Workflow Verification", () => {
     await service.submitContract("c1", "u1");
     await service.approveContract("c1", "u1");
     currentDeposit.status = "PAID";
+    recordPaidEntryInvoice();
     await service.activateContract("c1", "u1", "t1", "workflow-path-b");
 
     prismaService.tx.contractSettlement.findFirst.mockResolvedValue({ id: "settlement-1" });
@@ -266,11 +285,7 @@ describe("Contracts Workflow Verification", () => {
     // Attempt Approve, but mock room update to throw
     prismaService.tx.room.update.mockRejectedValueOnce(new Error("DB Error"));
 
-    try {
-      await service.approveContract("c1", "u1");
-    } catch (e) {
-      expect(e.message).toBe("DB Error");
-    }
+    await expect(service.approveContract("c1", "u1")).rejects.toThrow("DB Error");
 
     // Verify rollback
     expect(currentContract.status).toBe(ContractStatus.PENDING_APPROVAL); // Contract remained PENDING_APPROVAL
@@ -278,12 +293,14 @@ describe("Contracts Workflow Verification", () => {
     expect(currentDeposit).toBeNull(); // Deposit wasn't created (or was rolled back)
   });
 
-  it("rolls activation back when invoice creation fails after room and deposit updates", async () => {
+  it("rolls activation back when occupancy persistence fails after room and deposit updates", async () => {
     await service.submitContract("c1", "u1");
     await service.approveContract("c1", "u1");
     currentDeposit.status = "PAID";
-    prismaService.tx.invoice.create.mockRejectedValueOnce(
-      new Error("INVOICE_WRITE_FAILED"),
+    recordPaidEntryInvoice();
+    const paidEntry = { ...currentInvoice };
+    prismaService.tx.occupancy.upsert.mockRejectedValueOnce(
+      new Error("OCCUPANCY_WRITE_FAILED"),
     );
 
     await expect(
@@ -293,13 +310,34 @@ describe("Contracts Workflow Verification", () => {
         "t1",
         "workflow-activation-rollback",
       ),
-    ).rejects.toThrow("INVOICE_WRITE_FAILED");
+    ).rejects.toThrow("OCCUPANCY_WRITE_FAILED");
 
     expect(currentContract.status).toBe(ContractStatus.APPROVED);
     expect(currentContract.activationIdempotencyKey).toBeUndefined();
     expect(currentRoom.status).toBe(RoomStatus.RESERVED);
     expect(currentDeposit.status).toBe("PAID");
-    expect(currentInvoice).toBeNull();
+    expect(currentInvoice).toEqual(paidEntry);
+    expect(prismaService.tx.room.update).toHaveBeenLastCalledWith(expect.objectContaining({ data: { status: RoomStatus.OCCUPIED } }));
+    expect(prismaService.tx.deposit.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: DepositStatus.CONVERTED_TO_CONTRACT }) }));
+    expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "unpaid", "underfunded", "foreign"])("rejects activation with %s ENTRY evidence", async (state) => {
+    await service.submitContract("c1", "u1");
+    await service.approveContract("c1", "u1");
+    currentDeposit.status = "PAID";
+    recordPaidEntryInvoice();
+    if (state === "missing") currentInvoice = null;
+    if (state === "unpaid") currentInvoice.status = "ISSUED";
+    if (state === "underfunded") currentInvoice.paidAmount = currentInvoice.total - 1;
+    if (state === "foreign") currentInvoice.tenantId = "other-tenant";
+
+    await expect(service.activateContract("c1", "u1", "t1", `entry-${state}`))
+      .rejects.toThrow(state === "missing" || state === "foreign" ? "CONTRACT_ENTRY_INVOICE_REQUIRED" : "CONTRACT_ENTRY_INVOICE_UNPAID");
+    expect(currentContract.status).toBe(ContractStatus.APPROVED);
+    expect(currentRoom.status).toBe(RoomStatus.RESERVED);
+    expect(currentDeposit.status).toBe("PAID");
+    expect(prismaService.tx.invoice.create).not.toHaveBeenCalled();
   });
 
   describe("Failure Matrix", () => {

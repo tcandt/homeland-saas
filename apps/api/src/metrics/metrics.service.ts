@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma.service';
 import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 import * as fs from 'fs';
 import { notificationWorkerHeartbeatPath } from '../shared/config/runtime-mode';
+import { resolveBackupMonitoringPaths } from '../system-update/system-backup.runtime';
 
 @Injectable()
 export class MetricsService implements OnModuleInit {
@@ -324,26 +325,32 @@ export class MetricsService implements OnModuleInit {
   }
 
   private async refreshBackupMetrics() {
-    const manifestPath = process.env.BACKUP_MANIFEST_PATH || '.codex-backups/production/latest-manifest.json';
-    const retentionReportPath =
-      process.env.BACKUP_RETENTION_REPORT_PATH ||
-      `${manifestPath.endsWith('.json') ? manifestPath.replace(/latest-manifest\.json$/i, 'latest-retention-report.json') : '.codex-backups/production/latest-retention-report.json'}`;
-    if (!fs.existsSync(manifestPath)) {
-      this.backupLastSuccess.set(0);
-      this.backupOffHostLastSuccess.set(0);
-      this.backupAgeSeconds.set(315360000);
-      this.backupRetentionLocalCopies.set(0);
-      this.backupRetentionPrunableCopies.set(0);
+    // Reset first so an unreadable or malformed manifest cannot retain stale success.
+    this.backupLastSuccess.set(0);
+    this.backupOffHostLastSuccess.set(0);
+    this.backupAgeSeconds.set(315360000);
+    this.backupRetentionLocalCopies.set(0);
+    this.backupRetentionPrunableCopies.set(0);
+
+    let manifestPath: string;
+    let retentionReportPath: string;
+    let manifest: any;
+    try {
+      ({ manifestPath, retentionReportPath } = resolveBackupMonitoringPaths());
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return;
+    } catch {
       return;
     }
 
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     const completedAt = Date.parse(String(manifest.completedAt || manifest.createdAt || ''));
-    const success = manifest.status === 'SUCCESS' || manifest.success === true;
+    const validCompletedAt = Number.isFinite(completedAt) && completedAt <= Date.now();
+    const success = (manifest.status === 'SUCCESS' || manifest.success === true)
+      && validCompletedAt;
 
     this.backupLastSuccess.set(success ? 1 : 0);
     this.backupOffHostLastSuccess.set(success && manifest.offHostLocation ? 1 : 0);
-    this.backupAgeSeconds.set(Number.isFinite(completedAt) ? Math.max(0, (Date.now() - completedAt) / 1000) : 315360000);
+    this.backupAgeSeconds.set(validCompletedAt ? Math.max(0, (Date.now() - completedAt) / 1000) : 315360000);
 
     if (!fs.existsSync(retentionReportPath)) {
       this.backupRetentionLocalCopies.set(0);

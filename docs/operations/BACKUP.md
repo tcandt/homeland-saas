@@ -58,7 +58,7 @@ Neu da cau hinh `BACKUP_RCLONE_DEST`, script se goi:
 rclone copy <backup-dir> <BACKUP_RCLONE_DEST>/<backup-id>
 ```
 
-`BACKUP_MANIFEST_PATH` cua API nen tro toi `.codex-backups/production/latest-manifest.json` de Prometheus co metric `backup_age_seconds` va `backup_last_success`.
+Leave `BACKUP_MANIFEST_PATH` empty to follow the resolved backup root, or set an explicit manifest path for `backup_age_seconds` and `backup_last_success`.
 
 ## Retention report va cleanup local
 
@@ -223,7 +223,7 @@ Thu tu rollout khuyen nghi:
 
 - Manual and scheduled web backups require explicit `SYSTEM_BACKUP_ENABLED=true`, a configured `DATABASE_URL`, available PostgreSQL client tools and `STORAGE_PROVIDER=local`. S3/R2 is refused rather than claiming a local directory copy covers remote objects.
 - `SYSTEM_BACKUP_DIR` is an absolute persistent-volume path, or resolves relative to the workspace containing `scripts/production-backup.js`. The runner is resolved from that workspace even when API starts in `apps/api`. `STORAGE_DIR` uses the same working-directory resolution as LocalStorageProvider; use an absolute persistent-volume path for deployment. Backup and storage roots cannot overlap or traverse symlinks.
-- When enabling web backup, set `BACKUP_MANIFEST_PATH` to the absolute `latest-manifest.json` path in the resolved backup root. Monitoring still resolves its default relative to the API working directory, so this alignment is explicit, including when API starts in `apps/api`. The backup covers the full PostgreSQL custom dump, local attachment files and checksums. Deployment secrets remain managed externally; they are not copied from API environment to a bundle.
+- Monitoring defaults to `latest-manifest.json` in the same resolved `SYSTEM_BACKUP_DIR` as the web producer, including API cwd `apps/api`. Relative `BACKUP_MANIFEST_PATH` and `BACKUP_RETENTION_REPORT_PATH` overrides resolve from the workspace; absolute overrides remain unchanged. An empty retention override resolves beside the manifest. Use absolute persistent-volume paths for deployment. Missing, unreadable, malformed or invalid/future-dated backup evidence clears previous success metrics; monitoring does not replace checksum/restore verification. The backup covers the full PostgreSQL custom dump, local attachment files and checksums. Deployment secrets remain managed externally; they are not copied from API environment to a bundle.
 - A web row is `READY` only after component/checksum/freshness and actual `pg_restore --list` verification. Legacy seven-table JSON snapshots, incomplete bundles and failed checks are never ready. `READY` is a local precheck, not off-host, restore-drill, financial reconciliation or production release approval.
 - Web restore remains disabled. Restore storage and database together on an isolated target and verify the application before requesting production cutover approval. No production configuration is changed by adding these controls.
 

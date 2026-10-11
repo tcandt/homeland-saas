@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { resolveBackupRuntime, runBackupScript, verifyBackupBundle } from './system-backup.runtime';
+import { resolveBackupMonitoringPaths, resolveBackupRuntime, runBackupScript, verifyBackupBundle } from './system-backup.runtime';
 
 const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }));
 vi.mock('child_process', () => ({ execFile: execFileMock }));
@@ -24,10 +24,44 @@ function workspace() {
   vi.stubEnv('SYSTEM_BACKUP_DIR', '');
   vi.stubEnv('STORAGE_DIR', '');
   vi.stubEnv('STORAGE_PROVIDER', 'local');
+  vi.stubEnv('BACKUP_MANIFEST_PATH', '');
+  vi.stubEnv('BACKUP_RETENTION_REPORT_PATH', '');
   return root;
 }
 
 describe('full-backup runtime', () => {
+  it('aligns default monitoring paths with producer paths from API cwd', () => {
+    const root = workspace();
+    const cwd = join(root, 'apps', 'api');
+    expect(resolveBackupMonitoringPaths(cwd)).toEqual({
+      manifestPath: join(resolveBackupRuntime(cwd).backupRoot, 'latest-manifest.json'),
+      retentionReportPath: join(root, '.codex-backups', 'production', 'latest-retention-report.json'),
+    });
+    vi.stubEnv('SYSTEM_BACKUP_DIR', 'snapshots');
+    expect(resolveBackupMonitoringPaths(cwd).manifestPath).toBe(join(root, 'snapshots', 'latest-manifest.json'));
+  });
+
+  it('resolves relative monitoring overrides from workspace and derives the report beside any manifest name', () => {
+    const root = workspace();
+    vi.stubEnv('BACKUP_MANIFEST_PATH', 'custom/snapshot.json');
+    expect(resolveBackupMonitoringPaths(join(root, 'apps', 'api'))).toEqual({
+      manifestPath: join(root, 'custom', 'snapshot.json'),
+      retentionReportPath: join(root, 'custom', 'latest-retention-report.json'),
+    });
+    vi.stubEnv('BACKUP_RETENTION_REPORT_PATH', 'reports/retention.json');
+    expect(resolveBackupMonitoringPaths(root).retentionReportPath).toBe(join(root, 'reports', 'retention.json'));
+  });
+
+  it('supports absolute monitoring overrides without requiring local backup runners or local storage', () => {
+    const root = workspace();
+    vi.stubEnv('BACKUP_MANIFEST_PATH', join(root, 'external', 'snapshot.json'));
+    vi.stubEnv('STORAGE_PROVIDER', 's3');
+    expect(resolveBackupMonitoringPaths(tmpdir())).toEqual({
+      manifestPath: join(root, 'external', 'snapshot.json'),
+      retentionReportPath: join(root, 'external', 'latest-retention-report.json'),
+    });
+  });
+
   it('resolves repository runners from apps/api and preserves the storage provider default', () => {
     const root = workspace();
     expect(resolveBackupRuntime(join(root, 'apps', 'api'))).toEqual({

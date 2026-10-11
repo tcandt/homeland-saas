@@ -47,8 +47,22 @@ export class MonthlySettlementScheduler {
           const result = await this.settlementService.finalizeUsagePeriod(tenant.id, {
             period: usagePeriod,
           });
+          // Chốt tiền và lập hóa đơn kỳ kế tiếp sau khi khóa chỉ số. Việc gửi
+          // thông báo được giữ riêng cho job ngày 01 để khách chỉ nhận một lần.
+          const adminUser = await this.prisma.user.findFirst({
+            where: { tenantId: tenant.id },
+            select: { id: true },
+          });
+          const closeResult = await this.settlementService.closeMonth(
+            tenant.id,
+            adminUser?.id || 'system-scheduler',
+            {
+              period: result.billingPeriod,
+              autoSend: false,
+            },
+          );
           this.logger.log(
-            `Finalized meter usage cutoff for tenant ${tenant.name} (${tenant.id}) - Usage Period ${result.usagePeriod}: ${result.lockedCount} room periods locked.`,
+            `Finalized month-end settlement for tenant ${tenant.name} (${tenant.id}) - Usage Period ${result.usagePeriod}, Billing Period ${result.billingPeriod}: ${result.lockedCount} room periods locked, ${closeResult.settledCount} invoices prepared.`,
           );
         }
       } catch (err: any) {
@@ -58,14 +72,16 @@ export class MonthlySettlementScheduler {
   }
 
   /**
-   * 2. BILLING SETTLEMENT & PAYMENT DISPATCH: Tự động sinh hóa đơn kỳ mới & gửi Zalo lúc 08:00 SÁNG NGÀY 01 HÀNG THÁNG (GMT+7)
+   * 2. PAYMENT DISPATCH: Gửi thông báo thu tiền cho hóa đơn đã chốt lúc 08:00
+   * sáng ngày 01 hàng tháng (GMT+7). Nếu job cuối tháng bị gián đoạn, sendNotifications
+   * sẽ dùng closeMonth idempotent để hoàn tất phần còn thiếu trước khi gửi.
    */
   @Cron('0 8 1 * *', {
     timeZone: 'Asia/Ho_Chi_Minh',
   })
   async handleAutoSendMonthlyPaymentNotifications() {
     if (!shouldRunGeneralSchedulers()) return;
-    this.logger.log('Triggering scheduled monthly settlement & payment notification dispatch at 08:00 AM on the 1st (GMT+7)...');
+    this.logger.log('Triggering scheduled monthly payment notification dispatch at 08:00 AM on the 1st (GMT+7)...');
 
     const billingPeriod = formatVietnamPeriod(); // Tháng M mới bắt đầu (vd: 10/2026)
 
@@ -83,15 +99,14 @@ export class MonthlySettlementScheduler {
         });
         const userId = adminUser?.id || 'system-scheduler';
 
-        if (settings.autoCloseEnabled !== false) {
-          // Tạo hóa đơn tháng M (tiền phòng + nước tháng M, tiền điện + dịch vụ tháng M-1)
-          const resClose = await this.settlementService.closeMonth(tenant.id, userId, {
+        if (settings.autoSendNotification !== false) {
+          const result = await this.settlementService.sendNotifications(tenant.id, userId, {
             period: billingPeriod,
-            autoSend: settings.autoSendNotification !== false,
+            dedupe: true,
           });
 
           this.logger.log(
-            `Auto settlement executed for tenant ${tenant.name} (${tenant.id}) - Billing Period ${billingPeriod}: ${resClose.settledCount} rooms settled, ${resClose.sentCount} notifications sent.`,
+            `Auto payment notifications dispatched for tenant ${tenant.name} (${tenant.id}) - Billing Period ${billingPeriod}: ${result.totalRequested} requested, ${result.sentCount} sent, ${result.failedCount} failed.`,
           );
         }
       } catch (err: any) {

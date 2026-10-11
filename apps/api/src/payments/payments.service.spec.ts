@@ -1687,6 +1687,80 @@ describe('PaymentsService', () => {
     );
   });
 
+  it('does not resend an already delivered invoice notification in deduplicated scheduler mode', async () => {
+    const bankAccount = {
+      id: 'bank-owner-a',
+      ownerId: 'owner-a',
+      bankName: 'ACB',
+      accountNumber: '123456789',
+      accountName: 'Owner A',
+      isActive: true,
+      createdAt: new Date('2026-08-09T00:00:00.000Z'),
+    };
+    const sentMetadata = { zaloSentAt: '2026-10-01T01:00:00.000Z', zaloRecipient: 'zalo-chat-1' };
+    const pendingRequest = {
+      id: 'request-zalo-replay-1',
+      tenantId: 'tenant-1',
+      sourceType: PaymentSourceType.INVOICE,
+      sourceId: 'invoice-1',
+      paymentCode: 'HD31011026',
+      amount: 400000,
+      bankName: 'ACB',
+      bankAccountNumber: '123456789',
+      bankAccountName: 'Owner A',
+      qrUrl: 'https://example.test/qr',
+      status: PaymentRequestStatus.PENDING,
+      provider: PaymentProvider.SEPAY,
+      metadata: sentMetadata,
+      createdAt: new Date('2026-10-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-10-01T00:00:00.000Z'),
+    };
+    const { service, invoicesService, communicationService } = createService({
+      appSetting: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue({ value: { paymentCodePrefix: 'INV' } }),
+      },
+      bankAccount: { findFirst: vi.fn().mockResolvedValue(bankAccount) },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue(pendingRequest),
+        findUnique: vi.fn().mockResolvedValue({ metadata: sentMetadata }),
+        update: vi.fn().mockResolvedValue(pendingRequest),
+      },
+    });
+    invoicesService.getDetail.mockResolvedValue({
+      id: 'invoice-1',
+      tenantId: 'tenant-1',
+      code: 'INV-001',
+      total: 400000,
+      paidAmount: 0,
+      creditAmount: 0,
+      customerId: 'customer-1',
+      customer: { fullName: 'Khach A', phone: '0901000001', zaloChatId: 'zalo-chat-1' },
+      contract: { roomId: 'room-1', room: { buildingId: 'building-1', building: { ownerId: 'owner-a' } } },
+    });
+
+    await service.sendInvoiceRequestToZalo('invoice-1', 'system-scheduler', { dedupe: true });
+
+    expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
+  });
+
+  it('does not claim a fresh invoice notification already in flight', async () => {
+    const paymentRequestUpdate = vi.fn();
+    const { service } = createService({
+      paymentRequest: {
+        findUnique: vi.fn().mockResolvedValue({
+          metadata: { zaloDispatchStartedAt: new Date().toISOString() },
+        }),
+        update: paymentRequestUpdate,
+      },
+    });
+
+    await expect(
+      (service as any).claimInvoiceZaloDispatch('tenant-1', 'request-in-flight-1', 'zalo-chat-1'),
+    ).resolves.toBe('IN_FLIGHT');
+    expect(paymentRequestUpdate).not.toHaveBeenCalled();
+  });
+
   it('preserves shared-room context when sending invoice payment request to Zalo', async () => {
     const bankAccount = {
       id: 'bank-owner-a',

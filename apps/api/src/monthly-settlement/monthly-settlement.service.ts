@@ -2703,6 +2703,7 @@ export class MonthlySettlementService {
       period?: string;
       roomIds?: string[];
       invoiceIds?: string[];
+      dedupe?: boolean;
     },
   ) {
     const period = input.period || formatVietnamPeriod();
@@ -2770,7 +2771,11 @@ export class MonthlySettlementService {
       }
 
       try {
-        await this.paymentsService.sendInvoiceRequestToZalo(invoiceId, userId);
+        if (input.dedupe === true) {
+          await this.paymentsService.sendInvoiceRequestToZalo(invoiceId, userId, { dedupe: true });
+        } else {
+          await this.paymentsService.sendInvoiceRequestToZalo(invoiceId, userId);
+        }
         results.push({
           roomId: item.roomId,
           roomCode: item.roomCode,

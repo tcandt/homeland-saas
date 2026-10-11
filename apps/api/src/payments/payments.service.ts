@@ -1063,11 +1063,19 @@ export class PaymentsService {
     );
   }
 
-  async sendInvoiceRequestToZalo(invoiceId: string, userId: string) {
+  async sendInvoiceRequestToZalo(
+    invoiceId: string,
+    userId: string,
+    options: { dedupe?: boolean } = {},
+  ) {
     const invoice = await this.invoicesService.getDetail(invoiceId);
     const customerPhone = invoice.customer?.phone || '';
     const zaloRecipient = this.resolveZaloRecipient(invoice.customer);
     const request = await this.createInvoiceRequest(invoiceId, userId);
+    const dispatchClaim = options.dedupe
+      ? await this.claimInvoiceZaloDispatch(invoice.tenantId, request.id, zaloRecipient)
+      : 'CLAIMED';
+    if (dispatchClaim !== 'CLAIMED') return request;
     const pendingReviewAmount = await this.getPendingReviewSePayAmountForInvoice(invoice.tenantId, invoice.id);
     const confirmedPaidAmount = Number(invoice.paidAmount || 0) + Number(invoice.creditAmount || 0);
     const receivedOrSettledAmount = confirmedPaidAmount + pendingReviewAmount;
@@ -1131,38 +1139,43 @@ export class PaymentsService {
         ? `Tháng ${String(new Date(invoice.createdAt).getMonth() + 1).padStart(2, '0')}/${new Date(invoice.createdAt).getFullYear()}`
         : 'Tháng hiện tại');
 
-    await this.communicationService.dispatchDirect({
-      tenantId: invoice.tenantId,
-      channel: NotificationChannel.ZALO,
-      templateCode: 'INVOICE_ZALO_PAYMENT_REQUEST',
-      recipient: zaloRecipient,
-      userId: invoice.customerId,
-      context: {
-        invoiceCode: invoice.code,
-        customerName: invoice.customer?.fullName || 'Khách hàng',
-        customerPhone,
-        zaloChatId: invoice.customer?.zaloChatId || null,
-        zaloUserId: invoice.customer?.zaloUserId || null,
-        roomCode,
-        buildingName,
-        roomAndBuilding,
-        period: periodStr,
-        amount: amountFormatted,
-        rawAmount: Number(request.amount),
-        originalAmount: Number(invoice.total || 0),
-        receivedAmount: receivedOrSettledAmount,
-        remainingAmount: Number(request.amount),
-        itemsSummary,
-        paymentCode: request.paymentCode,
-        qrUrl: request.qrUrl,
-        bankName: request.bankName,
-        bankAccountNumber: request.bankAccountNumber,
-        accountHolder: request.bankAccountName || 'HOMELAND MANAGEMENT',
-        dueDate: dueDateFormatted,
-        sentAt: new Date(),
-        ...buildRoomContext(room, invoice.contract),
-      },
-    });
+    try {
+      await this.communicationService.dispatchDirect({
+        tenantId: invoice.tenantId,
+        channel: NotificationChannel.ZALO,
+        templateCode: 'INVOICE_ZALO_PAYMENT_REQUEST',
+        recipient: zaloRecipient,
+        userId: invoice.customerId,
+        context: {
+          invoiceCode: invoice.code,
+          customerName: invoice.customer?.fullName || 'Khách hàng',
+          customerPhone,
+          zaloChatId: invoice.customer?.zaloChatId || null,
+          zaloUserId: invoice.customer?.zaloUserId || null,
+          roomCode,
+          buildingName,
+          roomAndBuilding,
+          period: periodStr,
+          amount: amountFormatted,
+          rawAmount: Number(request.amount),
+          originalAmount: Number(invoice.total || 0),
+          receivedAmount: receivedOrSettledAmount,
+          remainingAmount: Number(request.amount),
+          itemsSummary,
+          paymentCode: request.paymentCode,
+          qrUrl: request.qrUrl,
+          bankName: request.bankName,
+          bankAccountNumber: request.bankAccountNumber,
+          accountHolder: request.bankAccountName || 'HOMELAND MANAGEMENT',
+          dueDate: dueDateFormatted,
+          sentAt: new Date(),
+          ...buildRoomContext(room, invoice.contract),
+        },
+      });
+    } catch (error) {
+      if (options.dedupe) await this.releaseInvoiceZaloDispatchClaim(request.id);
+      throw error;
+    }
     await this.markPaymentRequestZaloSent(request.id, zaloRecipient);
     // A payment may already have been received while the operator was
     // preparing this QR. The payment outbox remains blocked until the Zalo
@@ -1190,6 +1203,64 @@ export class PaymentsService {
     );
 
     return request;
+  }
+
+  private async claimInvoiceZaloDispatch(
+    tenantId: string,
+    paymentRequestId: string,
+    recipient: string,
+  ): Promise<'CLAIMED' | 'ALREADY_SENT' | 'IN_FLIGHT'> {
+    const now = Date.now();
+    let result: 'CLAIMED' | 'ALREADY_SENT' | 'IN_FLIGHT' = 'CLAIMED';
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:invoice-zalo:${paymentRequestId}`}, 0))::text AS "lock"`,
+      );
+      const current = await tx.paymentRequest.findUnique({
+        where: { id: paymentRequestId },
+        select: { metadata: true },
+      });
+      const metadata = current?.metadata && typeof current.metadata === 'object'
+        ? { ...(current.metadata as Record<string, unknown>) }
+        : {};
+      if (metadata.zaloSentAt) {
+        result = 'ALREADY_SENT';
+        return;
+      }
+      const startedAt = Date.parse(String(metadata.zaloDispatchStartedAt || ''));
+      if (Number.isFinite(startedAt) && startedAt <= now && now - startedAt < 10 * 60 * 1000) {
+        result = 'IN_FLIGHT';
+        return;
+      }
+      await tx.paymentRequest.update({
+        where: { id: paymentRequestId },
+        data: {
+          metadata: {
+            ...metadata,
+            zaloDispatchStartedAt: new Date(now).toISOString(),
+            zaloRecipient: String(recipient || '').trim() || null,
+          },
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    return result;
+  }
+
+  private async releaseInvoiceZaloDispatchClaim(paymentRequestId: string) {
+    const paymentRequestModel = (this.prisma as any).paymentRequest;
+    if (!paymentRequestModel?.findUnique || !paymentRequestModel?.update) return;
+    const current = await paymentRequestModel.findUnique({
+      where: { id: paymentRequestId },
+      select: { metadata: true },
+    });
+    const metadata = current?.metadata && typeof current.metadata === 'object'
+      ? { ...(current.metadata as Record<string, unknown>) }
+      : {};
+    delete metadata.zaloDispatchStartedAt;
+    await paymentRequestModel.update({
+      where: { id: paymentRequestId },
+      data: { metadata },
+    });
   }
 
   private async getPendingReviewSePayAmountForInvoice(tenantId: string, invoiceId: string) {
@@ -1369,6 +1440,7 @@ export class PaymentsService {
       data: {
         metadata: {
           ...metadata,
+          zaloDispatchStartedAt: null,
           zaloSentAt: new Date().toISOString(),
           zaloRecipient: String(recipient || '').trim() || null,
         },

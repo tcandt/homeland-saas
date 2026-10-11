@@ -24,10 +24,12 @@ export const customersApi = {
 
   approveIdentityImages: (
     id: string,
-    images: Array<{ url: string; side: 'front' | 'back'; source: 'upload' | 'scan' }>,
+    images: Array<{ url: string; originalUrl?: string; side: 'front' | 'back'; source: 'upload' | 'scan' }>,
   ) => apiClient.post(`/customers/${id}/identity-images/approve`, { images }),
   revokeIdentityImage: (id: string, url: string) =>
     apiClient.post(`/customers/${id}/identity-images/revoke`, { url }),
+  uploadIdentityImage: (id: string, formData: FormData) =>
+    apiClient.postForm(`/customers/${id}/identity-images/upload`, formData),
 
   delete: (id: string) => {
     return apiClient.delete(`/customers/${id}`);

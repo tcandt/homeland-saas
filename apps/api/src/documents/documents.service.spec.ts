@@ -90,6 +90,32 @@ describe('DocumentsService template catalog', () => {
 });
 
 describe('DocumentsService uploaded documents', () => {
+  it('resolves ownership through the supplied transaction for uncommitted uploads', async () => {
+    const { service, prisma, tx } = createSubject();
+    tx.documentVersion.findFirst = vi.fn().mockResolvedValue({ filePath: 'document-storage://tenant-a/scan.png' });
+    await expect(service.resolveTenantStoragePath('tenant-a', 'tenant-a/scan.png', tx)).resolves.toBe('document-storage://tenant-a/scan.png');
+    expect(prisma.documentVersion.findFirst).not.toHaveBeenCalled();
+    expect(tx.documentVersion.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ document: { tenantId: 'tenant-a', deletedAt: null } }),
+    }));
+  });
+
+  it('compensates only unpersisted files, never a committed document', async () => {
+    const { service, storageProvider, prisma } = createSubject();
+    prisma.documentVersion.findFirst.mockResolvedValueOnce({ id: 'committed-version' }).mockResolvedValueOnce(null);
+    await service.discardUnpersistedUpload('document-storage://tenant-a/committed.png');
+    expect(storageProvider.delete).not.toHaveBeenCalled();
+    await service.discardUnpersistedUpload('document-storage://tenant-a/aborted.png');
+    expect(storageProvider.delete).toHaveBeenCalledExactlyOnceWith('document-storage://tenant-a/aborted.png');
+  });
+
+  it('does not delete storage when committed-state verification is unavailable', async () => {
+    const { service, storageProvider, prisma } = createSubject();
+    prisma.documentVersion.findFirst.mockRejectedValue(new Error('database unavailable'));
+    await expect(service.discardUnpersistedUpload('document-storage://tenant-a/unknown.png')).rejects.toThrow('database unavailable');
+    expect(storageProvider.delete).not.toHaveBeenCalled();
+  });
+
   it('persists a tenant-owned OTHER/DRAFT document and its first version after storage succeeds', async () => {
     const { service, storageProvider, prisma, tx } = createSubject();
     storageProvider.save.mockResolvedValue({

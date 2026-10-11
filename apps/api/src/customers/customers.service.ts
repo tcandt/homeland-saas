@@ -20,6 +20,16 @@ function extractIdentityStoragePath(value: string): string {
   return '';
 }
 
+type IdentityImageApproval = {
+  url: string;
+  originalUrl?: string;
+  side: 'front' | 'back';
+  source: 'upload' | 'scan';
+};
+
+type IdentityImageFile = { originalname: string; mimetype: string; buffer: Buffer };
+export const IDENTITY_UPLOAD_LIMIT_BYTES = 20 * 1024 * 1024;
+
 @Injectable()
 export class CustomersService extends BaseCrudService<Customer> {
   private readonly logger = new Logger(CustomersService.name);
@@ -37,7 +47,70 @@ export class CustomersService extends BaseCrudService<Customer> {
     customerId: string,
     tenantId: string,
     userId: string,
-    images: Array<{ url: string; side: 'front' | 'back'; source: 'upload' | 'scan' }>,
+    images: IdentityImageApproval[],
+  ) {
+    return this.withIdentityImageLock(customerId, tenantId, userId, (tx) =>
+      this.applyIdentityApproval(tx, customerId, tenantId, userId, images));
+  }
+
+  async uploadIdentityImage(
+    customerId: string, tenantId: string, userId: string,
+    side: 'front' | 'back', source: 'upload' | 'scan',
+    file: IdentityImageFile, original?: IdentityImageFile,
+  ) {
+    if (!this.documentsService) throw new ConflictException('Dịch vụ lưu trữ tài liệu chưa sẵn sàng');
+    if (!['front', 'back'].includes(side) || !['upload', 'scan'].includes(source)) {
+      throw new BadRequestException('Mặt hoặc nguồn ảnh CCCD không hợp lệ');
+    }
+    if (source === 'scan' && !original) throw new BadRequestException('Bản scan cần ảnh gốc được lưu riêng');
+    if (source === 'upload' && original) throw new BadRequestException('Ảnh tải trực tiếp không cần bản gốc riêng');
+    for (const image of [file, ...(original ? [original] : [])]) {
+      if (!image?.buffer?.length || image.buffer.length > IDENTITY_UPLOAD_LIMIT_BYTES
+        || !['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(image.mimetype)) {
+        throw new BadRequestException('Ảnh CCCD không hợp lệ hoặc vượt quá 20 MB');
+      }
+    }
+    const saved: string[] = [];
+    try {
+      return await this.withIdentityImageLock(customerId, tenantId, userId, async (tx) => {
+        const upload = async (image: IdentityImageFile) => {
+          const result = await this.documentsService!.saveFile(tenantId, 'customers', image.originalname, image.buffer, image.mimetype);
+          saved.push(result.url);
+          await this.documentsService!.persistUploadedFile(tx, tenantId, image.originalname, result, { createdBy: userId });
+          return result.url;
+        };
+        const originalUrl = original ? await upload(original) : undefined;
+        const url = await upload(file);
+        return this.applyIdentityApproval(tx, customerId, tenantId, userId, [{ url, originalUrl, side, source }]);
+      });
+    } catch (error) {
+      for (const url of saved) {
+        try { await this.documentsService.discardUnpersistedUpload(url); }
+        catch (cleanupError) { this.logger.error(`CCCD upload compensation needs retry: ${url}`, cleanupError); }
+      }
+      throw error;
+    }
+  }
+
+  private async withIdentityImageLock<T>(customerId: string, tenantId: string, userId: string, operation: (tx: Prisma.TransactionClient) => Promise<T>) {
+    if (!tenantId || !userId) throw new BadRequestException('Tenant và người duyệt là bắt buộc');
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id" FROM "Customer"
+        WHERE "id" = ${customerId} AND "tenantId" = ${tenantId} AND "deletedAt" IS NULL
+        FOR UPDATE
+      `);
+      if (rows.length !== 1) throw new NotFoundException('Không tìm thấy khách thuê trong đơn vị hiện tại');
+      return operation(tx);
+    }, { maxWait: 10_000, timeout: 20_000 });
+  }
+
+  private async applyIdentityApproval(
+    tx: Prisma.TransactionClient,
+    customerId: string,
+    tenantId: string,
+    userId: string,
+    images: IdentityImageApproval[],
   ) {
     if (!tenantId || !userId) throw new BadRequestException('Tenant và người duyệt là bắt buộc');
     if (!this.documentsService) throw new ConflictException('Dịch vụ lưu trữ tài liệu chưa sẵn sàng');
@@ -49,7 +122,7 @@ export class CustomersService extends BaseCrudService<Customer> {
       throw new BadRequestException('Mỗi ảnh phải chỉ rõ mặt trước hoặc mặt sau');
     }
 
-    const customer = await this.prisma.tx.customer.findFirst({
+    const customer = await tx.customer.findFirst({
       where: { id: customerId, tenantId, deletedAt: null },
       select: { id: true, idImages: true, idImageProvenance: true, updatedAt: true },
     });
@@ -61,19 +134,30 @@ export class CustomersService extends BaseCrudService<Customer> {
         throw new BadRequestException('Nguồn ảnh CCCD không hợp lệ');
       }
       const rawUrl = String(image?.url || '').trim();
-      if (!rawUrl || /[\u0000\r\n]/.test(rawUrl)) {
+      if (!rawUrl || rawUrl.includes('\u0000') || /[\r\n]/.test(rawUrl)) {
         throw new BadRequestException('Ảnh CCCD không hợp lệ');
       }
       const storagePath = extractIdentityStoragePath(rawUrl);
       if (!storagePath) throw new BadRequestException('Ảnh CCCD phải là tài liệu lưu trữ nội bộ');
 
-      const ownedReference = await this.documentsService.resolveTenantStoragePath(tenantId, storagePath);
+      const ownedReference = await this.documentsService.resolveTenantStoragePath(tenantId, storagePath, tx);
       const canonicalUrl = ownedReference.startsWith('document-storage://')
         ? ownedReference
         : `document-storage://${ownedReference}`;
+      if (image.source === 'scan' && !image.originalUrl) {
+        throw new BadRequestException('Bản scan cần ảnh gốc được lưu riêng');
+      }
+      const originalPath = extractIdentityStoragePath(String(image.originalUrl || rawUrl).trim());
+      if (!originalPath) throw new BadRequestException('Ảnh gốc CCCD phải là tài liệu lưu trữ nội bộ');
+      const originalReference = await this.documentsService!.resolveTenantStoragePath(tenantId, originalPath, tx);
+      const originalUrl = originalReference.startsWith('document-storage://')
+        ? originalReference : `document-storage://${originalReference}`;
+      if (image.source === 'scan' && originalUrl === canonicalUrl) {
+        throw new BadRequestException('Ảnh gốc và bản scan phải là hai tài liệu riêng');
+      }
       return {
         url: canonicalUrl,
-        originalUrl: rawUrl,
+        originalUrl,
         side: image.side,
         source: image.source,
         status: 'APPROVED' as const,
@@ -91,9 +175,18 @@ export class CustomersService extends BaseCrudService<Customer> {
         const priorUrl = String(entry.url).trim();
         const priorPath = extractIdentityStoragePath(priorUrl);
         if (!priorPath) return null;
-        const owned = await this.documentsService!.resolveTenantStoragePath(tenantId, priorPath);
+        const owned = await this.documentsService!.resolveTenantStoragePath(tenantId, priorPath, tx);
         const canonical = owned.startsWith('document-storage://') ? owned : `document-storage://${owned}`;
-        return canonical === priorUrl ? { ...entry, url: canonical } : null;
+        if (canonical !== priorUrl) return null;
+        const originalPath = extractIdentityStoragePath(String(entry.originalUrl || '').trim());
+        if (entry.source === 'scan' && !originalPath) return null;
+        if (originalPath) {
+          const original = await this.documentsService!.resolveTenantStoragePath(tenantId, originalPath, tx);
+          const originalUrl = original.startsWith('document-storage://') ? original : `document-storage://${original}`;
+          if (entry.source === 'scan' && originalUrl === canonical) return null;
+          return { ...entry, url: canonical, originalUrl };
+        }
+        return { ...entry, url: canonical, originalUrl: canonical };
       } catch {
         return null;
       }
@@ -101,41 +194,51 @@ export class CustomersService extends BaseCrudService<Customer> {
     const provenance = [...verifiedPrior.filter((entry) => entry && (entry.side === 'front' || entry.side === 'back'))]
       .filter((entry) => !newProvenance.some((next) => next.side === entry.side));
     provenance.push(...newProvenance);
-    const urls = provenance.map((entry) => entry.url);
+    const urls = (['front', 'back'] as const).flatMap((side) =>
+      provenance.filter((entry) => entry.side === side).map((entry) => entry.url));
     if (new Set(urls).size !== urls.length) throw new BadRequestException('Hai ảnh CCCD phải là hai tài liệu khác nhau');
-    const write = await this.prisma.tx.customer.updateMany({
-      where: { id: customer.id, tenantId, updatedAt: customer.updatedAt },
+    const write = await tx.customer.updateMany({
+      where: { id: customer.id, tenantId, deletedAt: null, updatedAt: customer.updatedAt },
       data: {
         idImageProvenance: provenance,
-        idImages: Array.from(new Set([...(customer.idImages || []), ...urls])),
+        // `idImages` is a compatibility projection, not an append-only history.
+        // Keeping only the currently approved provenance prevents replaced or
+        // revoked CCCD files from remaining active in downstream consumers.
+        idImages: Array.from(new Set(urls)),
       },
     });
     if (write.count !== 1) throw new ConflictException('Hồ sơ CCCD vừa thay đổi; vui lòng tải lại và thử lại');
-    const updated = await this.prisma.tx.customer.findFirst({ where: { id: customer.id, tenantId, deletedAt: null } });
-    await this.auditService.log({
+    const updated = await tx.customer.findFirst({ where: { id: customer.id, tenantId, deletedAt: null } });
+    await tx.auditLog.create({ data: {
+      tenantId,
       action: 'UPDATE',
       entity: 'Customer',
       entityId: customer.id,
       module: 'Customers',
       after: { idImageProvenance: provenance },
       userId,
-    });
+    } });
     return updated;
   }
 
   async revokeIdentityImage(customerId: string, tenantId: string, userId: string, url: string) {
+    return this.withIdentityImageLock(customerId, tenantId, userId, (tx) =>
+      this.applyIdentityRevocation(tx, customerId, tenantId, userId, url));
+  }
+
+  private async applyIdentityRevocation(tx: Prisma.TransactionClient, customerId: string, tenantId: string, userId: string, url: string) {
     const rawUrl = String(url || '').trim();
     if (!rawUrl) throw new BadRequestException('Ảnh CCCD không hợp lệ');
     const storagePath = extractIdentityStoragePath(rawUrl);
     let canonicalUrl = rawUrl;
     if (storagePath) {
       if (!this.documentsService) throw new ConflictException('Dịch vụ lưu trữ tài liệu chưa sẵn sàng');
-      const ownedReference = await this.documentsService.resolveTenantStoragePath(tenantId, storagePath);
+      const ownedReference = await this.documentsService.resolveTenantStoragePath(tenantId, storagePath, tx);
       canonicalUrl = ownedReference.startsWith('document-storage://')
         ? ownedReference
         : `document-storage://${ownedReference}`;
     }
-    const customer = await this.prisma.tx.customer.findFirst({
+    const customer = await tx.customer.findFirst({
       where: { id: customerId, tenantId, deletedAt: null },
       select: { id: true, idImages: true, idImageProvenance: true, updatedAt: true },
     });
@@ -143,23 +246,28 @@ export class CustomersService extends BaseCrudService<Customer> {
     const provenance = Array.isArray(customer.idImageProvenance)
       ? (customer.idImageProvenance as any[]).filter((entry) => entry?.url !== canonicalUrl)
       : [];
-    const write = await this.prisma.tx.customer.updateMany({
-      where: { id: customer.id, tenantId, updatedAt: customer.updatedAt },
+    const write = await tx.customer.updateMany({
+      where: { id: customer.id, tenantId, deletedAt: null, updatedAt: customer.updatedAt },
       data: {
         idImageProvenance: provenance,
-        idImages: (customer.idImages || []).filter((item) => item !== canonicalUrl && item !== rawUrl),
+        // Rebuild the compatibility projection from the remaining approved
+        // provenance so legacy/unapproved and replaced URLs cannot survive a
+        // revoke operation.
+        idImages: Array.from(new Set((['front', 'back'] as const).flatMap((side) =>
+          provenance.filter((entry) => entry.side === side).map((entry) => entry.url)))),
       },
     });
     if (write.count !== 1) throw new ConflictException('Hồ sơ CCCD vừa thay đổi; vui lòng tải lại và thử lại');
-    const updated = await this.prisma.tx.customer.findFirst({ where: { id: customer.id, tenantId, deletedAt: null } });
-    await this.auditService.log({
+    const updated = await tx.customer.findFirst({ where: { id: customer.id, tenantId, deletedAt: null } });
+    await tx.auditLog.create({ data: {
+      tenantId,
       action: 'UPDATE',
       entity: 'Customer',
       entityId: customer.id,
       module: 'Customers',
       after: { revokedIdentityImage: canonicalUrl },
       userId,
-    });
+    } });
     return updated;
   }
 

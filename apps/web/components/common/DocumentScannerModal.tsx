@@ -6,7 +6,8 @@ interface DocumentScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   file: File | null;
-  onSave: (warpedFile: File) => void;
+  onSave: (warpedFile: File) => void | Promise<void>;
+  requireApprovalPreview?: boolean;
 }
 
 export const DocumentScannerModal: React.FC<DocumentScannerModalProps> = ({
@@ -14,9 +15,26 @@ export const DocumentScannerModal: React.FC<DocumentScannerModalProps> = ({
   onClose,
   file,
   onSave,
+  requireApprovalPreview = false,
 }) => {
   const [imgUrl, setImgUrl] = useState<string>("");
   const [rotatedFile, setRotatedFile] = useState<File | null>(null);
+  const [approvalFile, setApprovalFile] = useState<File | null>(null);
+  const [approvalUrl, setApprovalUrl] = useState("");
+  const [isApproving, setIsApproving] = useState(false);
+  const [approvalError, setApprovalError] = useState("");
+
+  useEffect(() => {
+    setApprovalFile(null);
+    setApprovalError("");
+  }, [file, isOpen]);
+
+  useEffect(() => {
+    if (!approvalFile) { setApprovalUrl(""); return; }
+    const url = URL.createObjectURL(approvalFile);
+    setApprovalUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [approvalFile]);
   
   // Coordinates as relative values (0 to 1)
   const [corners, setCorners] = useState<Point[]>([
@@ -224,6 +242,28 @@ export const DocumentScannerModal: React.FC<DocumentScannerModalProps> = ({
 
   if (!isOpen || !file) return null;
 
+  if (requireApprovalPreview && approvalFile) {
+    return (
+      <div role="dialog" aria-label="Duyệt bản scan CCCD" className="fixed inset-0 z-[99999] flex flex-col items-center justify-center gap-4 bg-black/90 p-4 text-white">
+        <h3 className="text-lg font-bold">Kiểm tra bản scan trước khi duyệt</h3>
+        <p className="text-sm">Ảnh gốc sẽ được giữ riêng. Chỉ bản scan này được dùng trong hồ sơ PDF.</p>
+        <img src={approvalUrl} alt="Bản scan CCCD chờ duyệt" className="max-h-[65vh] max-w-full object-contain" />
+        {approvalError && <p role="alert" className="text-rose-300">{approvalError}</p>}
+        <div className="flex gap-3">
+          <button disabled={isApproving} onClick={() => setApprovalFile(null)} className="rounded-lg bg-zinc-700 px-4 py-2">Căn chỉnh lại</button>
+          <button disabled={isApproving} onClick={onClose} className="rounded-lg bg-zinc-700 px-4 py-2">Hủy</button>
+          <button disabled={isApproving} className="rounded-lg bg-indigo-500 px-4 py-2 font-bold" onClick={async () => {
+            setIsApproving(true);
+            setApprovalError("");
+            try { await onSave(approvalFile); onClose(); }
+            catch (error) { setApprovalError(error instanceof Error ? error.message : "Không thể lưu bản scan; vui lòng thử lại."); }
+            finally { setIsApproving(false); }
+          }}>{isApproving ? "Đang lưu..." : "Duyệt và lưu bản scan"}</button>
+        </div>
+      </div>
+    );
+  }
+
   // Automatically detect document corners on demand
   const runAutoDetect = () => {
     if (!imageRef.current) return;
@@ -334,8 +374,12 @@ export const DocumentScannerModal: React.FC<DocumentScannerModalProps> = ({
         contrast
       );
 
-      onSave(warpedFile);
-      onClose();
+      if (requireApprovalPreview) {
+        setApprovalFile(warpedFile);
+      } else {
+        await onSave(warpedFile);
+        onClose();
+      }
     } catch (err: any) {
       console.error(err);
       alert(err.message || "Không thể phẳng hóa ảnh. Vui lòng kiểm tra lại 4 góc.");

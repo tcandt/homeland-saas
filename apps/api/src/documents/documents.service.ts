@@ -1,10 +1,11 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { PuppeteerPdfProvider } from './providers/pdf/puppeteer-pdf.provider';
 import { InternalSignatureProvider } from './providers/signature/internal-signature.provider';
 import * as handlebars from 'handlebars';
-import { STORAGE_PROVIDER, StorageProvider } from './interfaces/storage-provider.interface';
+import { STORAGE_PROVIDER, StorageProvider, StorageSaveResult } from './interfaces/storage-provider.interface';
 
 @Injectable()
 export class DocumentsService {
@@ -92,13 +93,13 @@ export class DocumentsService {
     };
   }
 
-  async resolveTenantStoragePath(tenantId: string, normalizedPath: string): Promise<string> {
+  async resolveTenantStoragePath(tenantId: string, normalizedPath: string, tx?: Prisma.TransactionClient): Promise<string> {
     const filePath = String(normalizedPath || '').trim();
     if (!filePath) {
       throw new NotFoundException('Document storage file not found');
     }
 
-    const version = await this.prisma.documentVersion.findFirst({
+    const version = await (tx || this.prisma).documentVersion.findFirst({
       where: {
         filePath: {
           in: [filePath, `document-storage://${filePath}`],
@@ -306,6 +307,33 @@ export class DocumentsService {
     return this.storageProvider.save(tenantId, folder, fileName, buffer, mimeType);
   }
 
+  async persistUploadedFile(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    fileName: string,
+    storageResult: StorageSaveResult,
+    metadata: { createdBy?: string } = {},
+  ) {
+    const document = await tx.document.create({ data: {
+      tenantId, code: `DOC-UPLOAD-${Date.now()}-${randomUUID()}`, title: fileName,
+      type: 'OTHER', status: 'DRAFT', tags: [], createdBy: metadata.createdBy,
+    } });
+    const version = await tx.documentVersion.create({ data: {
+      documentId: document.id, versionNumber: 1, fileName,
+      filePath: storageResult.url, mimeType: storageResult.mimeType,
+      size: storageResult.size, createdBy: metadata.createdBy,
+    } });
+    await tx.document.update({ where: { id: document.id }, data: { currentVersionId: version.id } });
+    return { document, version };
+  }
+
+  // Only compensate newly saved files whose document transaction rolled back.
+  // Never delete a committed file after an ambiguous transaction/network error.
+  async discardUnpersistedUpload(url: string) {
+    const persisted = await this.prisma.documentVersion.findFirst({ where: { filePath: url }, select: { id: true } });
+    if (!persisted) await this.storageProvider.delete(url);
+  }
+
   async createUploadedDocument(
     tenantId: string,
     folder: string,
@@ -317,36 +345,8 @@ export class DocumentsService {
     const storageResult = await this.saveFile(tenantId, folder, fileName, buffer, mimeType);
 
     try {
-      const records = await this.prisma.$transaction(async (tx) => {
-        const document = await tx.document.create({
-          data: {
-            tenantId,
-            code: `DOC-UPLOAD-${Date.now()}-${randomUUID()}`,
-            title: fileName,
-            type: 'OTHER' as any,
-            status: 'DRAFT' as any,
-            tags: [],
-            createdBy: metadata.createdBy,
-          },
-        });
-        const version = await tx.documentVersion.create({
-          data: {
-            documentId: document.id,
-            versionNumber: 1,
-            fileName,
-            filePath: storageResult.url,
-            mimeType: storageResult.mimeType,
-            size: storageResult.size,
-            createdBy: metadata.createdBy,
-          },
-        });
-        await tx.document.update({
-          where: { id: document.id },
-          data: { currentVersionId: version.id },
-        });
-
-        return { document, version };
-      });
+      const records = await this.prisma.$transaction((tx) =>
+        this.persistUploadedFile(tx, tenantId, fileName, storageResult, metadata));
 
       return {
         ...storageResult,

@@ -20,6 +20,7 @@ describe('CustomersController', () => {
             createIdempotent: vi.fn(),
             update: vi.fn(),
             approveIdentityImages: vi.fn(),
+            uploadIdentityImage: vi.fn(),
             softDelete: vi.fn(),
           },
         },
@@ -115,5 +116,12 @@ describe('CustomersController', () => {
         [{ url: 'document-storage://tenant-a/front.jpg', side: 'front', source: 'scan' }],
       );
     });
+  });
+
+  it('passes authenticated scope and separate original/scan to the upload command', () => {
+    const file = { buffer: Buffer.from('scan'), mimetype: 'image/png', originalname: 'scan.png' };
+    const original = { ...file, originalname: 'original.png' };
+    controller.uploadIdentityImage('cust-1', { side: 'front', source: 'scan', approvedBy: 'forged' }, { file: [file], original: [original] }, 'user-a', 'tenant-a');
+    expect(service.uploadIdentityImage).toHaveBeenCalledWith('cust-1', 'tenant-a', 'user-a', 'front', 'scan', file, original);
   });
 });

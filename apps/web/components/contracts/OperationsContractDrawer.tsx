@@ -659,8 +659,9 @@ export default function OperationsContractDrawer({
 
   const [scannerFile, setScannerFile] = useState<File | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isIdentityScan, setIsIdentityScan] = useState(false);
   const [scannerOnSaveCallback, setScannerOnSaveCallback] = useState<
-    ((scanned: File) => void) | null
+    ((scanned: File) => void | Promise<void>) | null
   >(null);
 
   const contractFileInputRef = useRef<HTMLInputElement>(null);
@@ -1730,10 +1731,9 @@ export default function OperationsContractDrawer({
     }
   };
 
-  const approvedIdentityPairCount = (customer: any, extra?: { url: string; side: "front" | "back" }) => {
+  const approvedIdentityPairCount = (customer: any) => {
     const entries = [
       ...(Array.isArray(customer?.idImageProvenance) ? customer.idImageProvenance : []),
-      ...(extra ? [{ ...extra, status: "APPROVED" }] : []),
     ].filter((entry: any) => entry?.status === "APPROVED" && typeof entry?.url === "string");
     const front = entries.find((entry: any) => entry.side === "front");
     const back = entries.find((entry: any) => entry.side === "back");
@@ -1759,7 +1759,7 @@ export default function OperationsContractDrawer({
       showToast("Đã tải lên hồ sơ hợp đồng", "success");
       await checkAndUpdateContractStatus(
         true,
-        detailContract.customer?.idImages?.length || 0,
+        approvedIdentityPairCount(detailContract.customer),
       );
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
       queryClient.invalidateQueries({ queryKey: ["deposits"] });
@@ -1788,6 +1788,7 @@ export default function OperationsContractDrawer({
     }
 
     if (file.type.startsWith("image/")) {
+      setIsIdentityScan(false);
       setScannerFile(file);
       setScannerOnSaveCallback(() => async (scanned: File) => {
         await executeUploadContractFile(scanned);
@@ -1802,6 +1803,7 @@ export default function OperationsContractDrawer({
     filesList: File[],
     side: "front" | "back",
     source: "upload" | "scan" = "upload",
+    originalFile?: File,
   ) => {
     if (!detailContract?.customer?.id || filesList.length === 0) return;
     if (filesList.length !== 1) {
@@ -1811,27 +1813,12 @@ export default function OperationsContractDrawer({
     let imagesPersisted = false;
     try {
       setIsUploadingCCCD(true);
-      const uploadPromises = filesList.map(async (file) => {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("folder", "customers");
-        const res = await apiClient.postForm<{ url: string }>(
-          "/documents/upload",
-          formData,
-        );
-        return res.url;
-      });
-
-      const uploadedUrls = await Promise.all(uploadPromises);
-      await customersApi.approveIdentityImages(detailContract.customer.id, [{
-        url: uploadedUrls[0],
-        side,
-        source,
-      }]);
-      const newIdImages = Array.from(new Set([
-        ...(detailContract.customer.idImages || []),
-        ...uploadedUrls,
-      ]));
+      const formData = new FormData();
+      formData.append("file", filesList[0]);
+      if (originalFile) formData.append("original", originalFile);
+      formData.append("side", side);
+      formData.append("source", source);
+      const approvedCustomer: any = await customersApi.uploadIdentityImage(detailContract.customer.id, formData);
       imagesPersisted = true;
 
       // Refresh the detail query immediately so the newly uploaded images render
@@ -1850,7 +1837,7 @@ export default function OperationsContractDrawer({
       // successful image upload into an error toast if the submission is rejected.
       await checkAndUpdateContractStatus(
         (detailContract.attachments?.length || 0) > 0,
-        approvedIdentityPairCount(detailContract.customer, { url: uploadedUrls[0], side }),
+        approvedIdentityPairCount(approvedCustomer?.data || approvedCustomer),
       );
       showToast(
         `${filesList.length} ảnh CCCD đã được tải lên và lưu thành công`,
@@ -1871,6 +1858,7 @@ export default function OperationsContractDrawer({
             : "Không thể lưu ảnh CCCD. Vui lòng thử lại.",
           "error",
         );
+        throw err;
       }
     } finally {
       setIsUploadingCCCD(false);
@@ -1883,13 +1871,14 @@ export default function OperationsContractDrawer({
 
     const firstFile = files[0];
     if (files.length === 1 && firstFile.type.startsWith("image/")) {
+      setIsIdentityScan(true);
       setScannerFile(firstFile);
       setScannerOnSaveCallback(() => async (scanned: File) => {
-        await executeUploadCCCD([scanned], identitySide, "scan");
+        await executeUploadCCCD([scanned], identitySide, "scan", firstFile);
       });
       setIsScannerOpen(true);
     } else {
-      await executeUploadCCCD(Array.from(files), identitySide, "upload");
+      try { await executeUploadCCCD(Array.from(files), identitySide, "upload"); } catch { /* Error already shown. */ }
     }
     e.target.value = "";
   };
@@ -4572,10 +4561,9 @@ export default function OperationsContractDrawer({
             setScannerOnSaveCallback(null);
           }}
           file={scannerFile}
+          requireApprovalPreview={isIdentityScan}
           onSave={(scanned) => {
-            if (scannerOnSaveCallback) {
-              scannerOnSaveCallback(scanned);
-            }
+            return scannerOnSaveCallback?.(scanned);
           }}
         />
       </Modal>

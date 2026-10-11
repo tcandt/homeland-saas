@@ -82,7 +82,9 @@ export class LocalStorageProvider implements StorageProvider {
       const filePath = this.resolvePath(url);
       await fs.unlink(filePath);
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
       this.logger.error(`Failed to delete file at ${url}`, error);
+      throw error;
     }
   }
 

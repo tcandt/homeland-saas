@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Headers } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Headers, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { CustomersService } from './customers.service';
+import { CustomersService, IDENTITY_UPLOAD_LIMIT_BYTES } from './customers.service';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { CreateCustomerSchema, UpdateCustomerSchema, PaginationSchema } from '@homeland/shared';
@@ -126,8 +127,24 @@ export class CustomersController {
       url: String(image?.url || '').trim(),
       side: image?.side,
       source: image?.source,
+      ...(image?.originalUrl !== undefined && { originalUrl: String(image.originalUrl).trim() }),
     })) : [];
     return this.customersService.approveIdentityImages(id, tenantId, userId, images);
+  }
+
+  @Post(':id/identity-images/upload')
+  @RequirePermissions('customer.update', 'document.create')
+  @UseInterceptors(FileFieldsInterceptor([{ name: 'file', maxCount: 1 }, { name: 'original', maxCount: 1 }], {
+    limits: { fileSize: IDENTITY_UPLOAD_LIMIT_BYTES, files: 2, fields: 2, parts: 4 },
+  }))
+  uploadIdentityImage(
+    @Param('id') id: string, @Body() body: any,
+    @UploadedFiles() files: any,
+    @CurrentUser('id') userId: string, @CurrentUser('tenantId') tenantId: string,
+  ) {
+    return this.customersService.uploadIdentityImage(
+      id, tenantId, userId, body?.side, body?.source, files?.file?.[0], files?.original?.[0],
+    );
   }
 
   @Post(':id/identity-images/revoke')

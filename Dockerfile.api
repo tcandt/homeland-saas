@@ -2,7 +2,9 @@ FROM node:22-alpine
 
 # Install runtime/update tools:
 # - bash/netcat/openssl for API startup and Prisma
-# - git/curl/postgresql-client for guarded system update runner
+# - git/curl/PostgreSQL 16 client for the PostgreSQL 16 backup/restore runner
+# Keep the client major aligned with docker-compose PostgreSQL. Newer pg_dump
+# adds restore settings (e.g. transaction_timeout) unsupported by PostgreSQL 16.
 # - Chromium and fonts for production HTML-to-PDF rendering
 RUN apk add --no-cache \
     bash \
@@ -17,7 +19,7 @@ RUN apk add --no-cache \
     netcat-openbsd \
     nss \
     openssl \
-    postgresql-client \
+    postgresql16-client \
     ttf-freefont
 
 # Puppeteer uses the distro-managed browser so the runtime image has one

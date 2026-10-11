@@ -16,9 +16,10 @@ test.describe('Production registration gate', () => {
     expect(body.error?.code).toBe('AUTH_REGISTRATION_DISABLED');
 
     await page.goto('/register', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { name: 'Đăng ký đang đóng' })).toBeVisible();
-    await expect(page.getByText('Tài khoản được cấp bởi quản trị viên hệ thống.')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Tạo tài khoản' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Đăng ký hiện đang đóng' })).toBeVisible();
+    await expect(page.getByText('Tài khoản mới chỉ được cấp bởi Quản trị viên hệ thống.')).toBeVisible();
+    await expect(page.locator('form')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Đăng ký tài khoản', exact: true })).toHaveCount(0);
   });
 
   test('adds and preserves the web correlation ID', async ({ request }) => {

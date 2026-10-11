@@ -96,8 +96,14 @@ describe('FinanceReportingService', () => {
   }
 
   it('builds period-scoped history from authoritative journals and excludes booking deposits', async () => {
+    const vietnamMonthFromPeriodStart = (start: Date) => Number(
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        month: 'numeric',
+      }).format(start),
+    );
     const aggregate = vi.fn(({ where }: any) => {
-      const month = where.journalEntry.entryDate.gte.getMonth() + 1;
+      const month = vietnamMonthFromPeriodStart(where.journalEntry.entryDate.gte);
       const amountByMonth: Record<number, Record<string, number>> = {
         8: {
           'REVENUE:CREDIT': 100,
@@ -116,7 +122,7 @@ describe('FinanceReportingService', () => {
       return Promise.resolve({ _sum: { amount: amountByMonth[month][key] } });
     });
     const journalLineFindMany = vi.fn(({ where }: any) => {
-      const month = where.journalEntry.entryDate.gte.getMonth() + 1;
+      const month = vietnamMonthFromPeriodStart(where.journalEntry.entryDate.gte);
       return Promise.resolve(month === 9
         ? [{ type: 'CREDIT', amount: 60, journalEntry: { sourceId: 'booking-invoice-1' } }]
         : []);
@@ -151,6 +157,26 @@ describe('FinanceReportingService', () => {
         journalEntry: expect.objectContaining({
           status: { in: ['POSTED', 'REVERSED'] },
           entryDate: expect.objectContaining({ gte: expect.any(Date), lte: expect.any(Date) }),
+        }),
+      }),
+    }));
+    expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        journalEntry: expect.objectContaining({
+          entryDate: {
+            gte: new Date('2026-07-31T17:00:00.000Z'),
+            lte: new Date('2026-08-31T16:59:59.999Z'),
+          },
+        }),
+      }),
+    }));
+    expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        journalEntry: expect.objectContaining({
+          entryDate: {
+            gte: new Date('2026-08-31T17:00:00.000Z'),
+            lte: new Date('2026-09-30T16:59:59.999Z'),
+          },
         }),
       }),
     }));

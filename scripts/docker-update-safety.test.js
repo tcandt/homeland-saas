@@ -6,6 +6,13 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
+test('API backup client stays on PostgreSQL 16 for PostgreSQL 16 restore compatibility', () => {
+  const dockerfile = read('Dockerfile.api');
+  assert.match(dockerfile, /\bpostgresql16-client\b/);
+  assert.doesNotMatch(dockerfile, /\s+postgresql-client\s*\\/);
+  assert.match(read('docker-compose.yml'), /pgvector\/pgvector:pg16/);
+});
+
 test('Docker updater retains rollback images, migrates before startup, checks health, then cleans', () => {
   const script = read('scripts/update/restart-docker.sh');
   const orderedMarkers = [

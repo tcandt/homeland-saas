@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { ContractsService } from "./contracts.service";
+import { calculateFirstBillingPeriod, ContractsService } from "./contracts.service";
 
 const dbDescribe =
   process.env.RUN_CONTRACT_CORE_DB_TESTS === "1" ? describe : describe.skip;
@@ -82,6 +82,7 @@ dbDescribe("ContractsService CORE-06 PostgreSQL concurrency", () => {
         expectedMoveInAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
       },
     });
+    const startDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
     await prisma.contract.create({
       data: {
         id: contractId,
@@ -91,11 +92,42 @@ dbDescribe("ContractsService CORE-06 PostgreSQL concurrency", () => {
         rentalCycleId,
         code: "HD-CORE06",
         status: "APPROVED",
-        startDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        startDate,
         endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
         signedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
         monthlyRent: 5_000_000,
         depositMoney: 5_000_000,
+      },
+    });
+    const firstBilling = calculateFirstBillingPeriod(5_000_000, startDate);
+    await prisma.invoice.create({
+      data: {
+        tenantId,
+        code: "INV-ENTRY-CORE06",
+        period: firstBilling.period,
+        contractId,
+        rentalCycleId,
+        customerId,
+        status: "PAID",
+        billingKind: "ENTRY",
+        baseInvoiceKey: `ENTRY:${contractId}:${firstBilling.period}`,
+        dueDate: startDate,
+        subtotal: firstBilling.amount,
+        discount: 0,
+        total: firstBilling.amount,
+        paidAmount: firstBilling.amount,
+        creditAmount: 0,
+        items: {
+          create: {
+            tenantId,
+            type: "RENT",
+            description: "CORE06 paid ENTRY prerequisite",
+            servicePeriod: firstBilling.period,
+            quantity: 1,
+            unitPrice: firstBilling.amount,
+            amount: firstBilling.amount,
+          },
+        },
       },
     });
     await prisma.deposit.create({
@@ -299,6 +331,7 @@ dbDescribe("ContractsService CORE-06 PostgreSQL concurrency", () => {
           status: "RESERVED",
         },
       });
+      const startDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
       await prisma.contract.create({
         data: {
           id: competingContractId,
@@ -308,12 +341,43 @@ dbDescribe("ContractsService CORE-06 PostgreSQL concurrency", () => {
           rentalCycleId: competingCycleId,
           code: `HD-CORE06-SHARED-${suffix.toUpperCase()}`,
           status: "APPROVED",
-          startDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+          startDate,
           endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
           signedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
           monthlyRent: 2_000_000,
           depositMoney: 2_000_000,
           memberCount: 1,
+        },
+      });
+      const firstBilling = calculateFirstBillingPeriod(2_000_000, startDate);
+      await prisma.invoice.create({
+        data: {
+          tenantId,
+          code: `INV-ENTRY-CORE06-SHARED-${suffix.toUpperCase()}`,
+          period: firstBilling.period,
+          contractId: competingContractId,
+          rentalCycleId: competingCycleId,
+          customerId: competingCustomerId,
+          status: "PAID",
+          billingKind: "ENTRY",
+          baseInvoiceKey: `ENTRY:${competingContractId}:${firstBilling.period}`,
+          dueDate: startDate,
+          subtotal: firstBilling.amount,
+          discount: 0,
+          total: firstBilling.amount,
+          paidAmount: firstBilling.amount,
+          creditAmount: 0,
+          items: {
+            create: {
+              tenantId,
+              type: "RENT",
+              description: `CORE06 shared ${suffix} paid ENTRY prerequisite`,
+              servicePeriod: firstBilling.period,
+              quantity: 1,
+              unitPrice: firstBilling.amount,
+              amount: firstBilling.amount,
+            },
+          },
         },
       });
       await prisma.deposit.create({
@@ -410,6 +474,6 @@ dbDescribe("ContractsService CORE-06 PostgreSQL concurrency", () => {
       await prisma.invoice.count({
         where: { tenantId, contractId: { in: competingContractIds } },
       }),
-    ).toBe(1);
+    ).toBe(competingContractIds.length);
   }, 20_000);
 });

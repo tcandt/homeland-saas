@@ -37,26 +37,34 @@ describeDestructive('Building Property Flow (e2e)', () => {
     prisma = app.get<PrismaService>(PrismaService);
     authService = app.get<AuthService>(AuthService);
 
-    // Seed Roles if missing
-    await prisma.role.upsert({
+    const buildingPermissions = [
+      { key: 'building.create', description: 'Create Building' },
+      { key: 'building.read', description: 'Read Building' },
+      { key: 'building.update', description: 'Update Building' },
+      { key: 'building.delete', description: 'Delete Building' },
+      { key: 'room.create', description: 'Create Room' },
+      { key: 'room.read', description: 'Read Room' },
+      { key: 'room.update', description: 'Update Room' },
+      { key: 'room.delete', description: 'Delete Room' },
+    ];
+    const adminRole = await prisma.role.upsert({
       where: { code: 'ADMIN' },
       update: {},
       create: {
         code: 'ADMIN',
         name: 'Administrator',
-        permissions: {
-          create: [
-            { permission: { create: { key: 'building.create', description: 'Create Building' } } },
-            { permission: { create: { key: 'building.read', description: 'Read Building' } } },
-            { permission: { create: { key: 'building.update', description: 'Update Building' } } },
-            { permission: { create: { key: 'building.delete', description: 'Delete Building' } } },
-            { permission: { create: { key: 'room.create', description: 'Create Room' } } },
-            { permission: { create: { key: 'room.read', description: 'Read Room' } } },
-            { permission: { create: { key: 'room.update', description: 'Update Room' } } },
-            { permission: { create: { key: 'room.delete', description: 'Delete Room' } } },
-          ]
-        }
-      }
+      },
+    });
+    const permissions = await Promise.all(buildingPermissions.map((permission) =>
+      prisma.permission.upsert({
+        where: { key: permission.key },
+        update: { description: permission.description },
+        create: permission,
+      }),
+    ));
+    await prisma.rolePermission.createMany({
+      data: permissions.map((permission) => ({ roleId: adminRole.id, permissionId: permission.id })),
+      skipDuplicates: true,
     });
 
     // Register Tenant 1

@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { ContractsService } from "./contracts.service";
+import { calculateFirstBillingPeriod, ContractsService } from "./contracts.service";
 import { ContractsRepository } from "./contracts.repository";
 import { NotFoundException } from "@nestjs/common";
 import { randomUUID } from "crypto";
@@ -44,6 +44,7 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
 
   const idempotencyKeyA = `p9-race-act-a-${runId}`;
   const idempotencyKeyB = `p9-race-act-b-${runId}`;
+  const contractStartDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   const makePrismaProxy = (client: PrismaClient) =>
     new Proxy(client, {
@@ -75,6 +76,45 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
       client.roomHold.count({ where: { tenantId, roomId: targetRoomId, status: "ACTIVE", expiresAt: { gt: asOf } } }),
     ]);
     return { occupancies, activeHolds, total: occupancies + activeHolds };
+  }
+
+  async function seedPaidEntryInvoice(
+    contractId: string,
+    customerId: string,
+    rentalCycleId: string,
+    code: string,
+  ) {
+    const firstBilling = calculateFirstBillingPeriod(2_000_000, contractStartDate);
+    await prisma1.invoice.create({
+      data: {
+        tenantId,
+        code,
+        period: firstBilling.period,
+        contractId,
+        rentalCycleId,
+        customerId,
+        status: "PAID",
+        billingKind: "ENTRY",
+        baseInvoiceKey: `ENTRY:${contractId}:${firstBilling.period}`,
+        dueDate: contractStartDate,
+        subtotal: firstBilling.amount,
+        discount: 0,
+        total: firstBilling.amount,
+        paidAmount: firstBilling.amount,
+        creditAmount: 0,
+        items: {
+          create: {
+            tenantId,
+            type: "RENT",
+            description: `P9 paid ENTRY prerequisite for ${contractId}`,
+            servicePeriod: firstBilling.period,
+            quantity: 1,
+            unitPrice: firstBilling.amount,
+            amount: firstBilling.amount,
+          },
+        },
+      },
+    });
   }
 
   beforeAll(async () => {
@@ -135,7 +175,7 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
         rentalCycleId: cycleA.id,
         code: `HD-A-${runId}`,
         status: "APPROVED",
-        startDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        startDate: contractStartDate,
         endDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
         signedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
         monthlyRent: 2_000_000,
@@ -143,6 +183,7 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
         memberCount: 1,
       },
     });
+    await seedPaidEntryInvoice(contractAId, candidateAId, cycleA.id, `INV-ENTRY-A-${runId}`);
     await prisma1.deposit.create({
       data: {
         id: `dep-a-${runId}`,
@@ -217,7 +258,7 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
         rentalCycleId: cycleB.id,
         code: `HD-B-${runId}`,
         status: "APPROVED",
-        startDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        startDate: contractStartDate,
         endDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
         signedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
         monthlyRent: 2_000_000,
@@ -225,6 +266,7 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
         memberCount: 1,
       },
     });
+    await seedPaidEntryInvoice(contractBId, candidateBId, cycleB.id, `INV-ENTRY-B-${runId}`);
     await prisma1.deposit.create({
       data: {
         id: `dep-b-${runId}`,
@@ -371,8 +413,8 @@ dbDescribe("P9.1: SHARED Room Capacity Race Condition on Isolated PostgreSQL", (
     expect(afterLoser.depositAmount).toBe(beforeLoser.depositAmount); // 2,000,000
     expect(afterLoser.holdStatus).toBe(beforeLoser.holdStatus); // Remained "CONVERTED"
     expect(afterLoser.occupancies).toBe(0); // No orphan occupancy
-    expect(afterLoser.invoices).toBe(0); // No orphan invoice
-    expect(afterLoser.invoiceItems).toBe(0); // No orphan invoice item
+    expect(afterLoser.invoices).toBe(beforeLoser.invoices); // No orphan invoice
+    expect(afterLoser.invoiceItems).toBe(beforeLoser.invoiceItems); // No orphan invoice item
     expect(afterLoser.depositOperations).toBe(beforeLoser.depositOperations); // Unchanged count (1)
     expect(afterLoser.ledgers).toBe(beforeLoser.ledgers); // Unchanged count (1)
     expect(afterLoser.outboxEvents).toBe(0); // No orphan outbox events

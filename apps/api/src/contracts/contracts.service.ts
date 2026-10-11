@@ -4822,6 +4822,7 @@ export class ContractsService extends BaseCrudService<Contract> {
       emergencyPhone:
         customer?.emergencyPhone || data.customer?.emergencyPhone || null,
       idImages: customer?.idImages || data.customer?.idImages || [],
+      idImageProvenance: customer?.idImageProvenance || data.customer?.idImageProvenance || null,
     });
     const roomSnapshot = this.asJson({
       id: room?.id || data.roomId,
@@ -4905,6 +4906,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         address: customer?.address || null,
         emergencyPhone: customer?.emergencyPhone || null,
         idImages: customer?.idImages || [],
+        idImageProvenance: customer?.idImageProvenance || null,
       });
       const existingParty = await db.contractParty.findFirst({
         where: { contractId: contract.id, customerId, role },

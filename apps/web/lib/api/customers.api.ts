@@ -22,6 +22,13 @@ export const customersApi = {
     return apiClient.patch(`/customers/${id}`, data);
   },
 
+  approveIdentityImages: (
+    id: string,
+    images: Array<{ url: string; side: 'front' | 'back'; source: 'upload' | 'scan' }>,
+  ) => apiClient.post(`/customers/${id}/identity-images/approve`, { images }),
+  revokeIdentityImage: (id: string, url: string) =>
+    apiClient.post(`/customers/${id}/identity-images/revoke`, { url }),
+
   delete: (id: string) => {
     return apiClient.delete(`/customers/${id}`);
   },

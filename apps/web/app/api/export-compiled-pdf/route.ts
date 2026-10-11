@@ -51,6 +51,29 @@ function resolveTaiLieuPath(filename: string): string {
   return candidates[0];
 }
 
+type ApprovedIdentityImage = {
+  url: string;
+  side: 'front' | 'back';
+  source: 'upload' | 'scan';
+  status: 'APPROVED';
+  approvedBy: string;
+};
+
+function getApprovedIdentityImages(customer: any): { front: ApprovedIdentityImage; back: ApprovedIdentityImage } | null {
+  const provenance = customer?.idImageProvenance;
+  if (!Array.isArray(provenance)) return null;
+  const valid = provenance.filter((entry: any): entry is ApprovedIdentityImage =>
+    entry && typeof entry.url === 'string' && entry.url.trim() !== '' &&
+    (entry.side === 'front' || entry.side === 'back') &&
+    (entry.source === 'upload' || entry.source === 'scan') &&
+    entry.status === 'APPROVED' && typeof entry.approvedBy === 'string' && entry.approvedBy.trim() !== ''
+  );
+  const front = valid.find((entry) => entry.side === 'front');
+  const back = valid.find((entry) => entry.side === 'back');
+  if (!front || !back || front.url === back.url) return null;
+  return { front, back };
+}
+
 function normalizeLookup(value: unknown): string {
   return String(value || '')
     .normalize('NFD')
@@ -246,10 +269,14 @@ export async function POST(request: Request) {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'homeland-pdf-'));
     const nowTimestamp = Date.now().toString(36);
 
-    const idImages = contract.customer?.idImages || [];
-    const canonicalIdImages = Array.isArray(idImages) ? idImages.map((ref: unknown) => resolveCompiledPdfAssetUrl(ref, apiBaseUrl)) : [];
-    if (!Array.isArray(idImages) || idImages.length !== 2 || idImages.some((ref: unknown) => typeof ref !== 'string' || !ref) || new Set(canonicalIdImages).size !== 2) {
-      throw new CompiledPdfAssetError('CCCD_IMAGES_REQUIRED', 'Hồ sơ phải có đúng hai ảnh CCCD khác nhau');
+    const identityImages = getApprovedIdentityImages(contract.customer);
+    if (!identityImages) {
+      throw new CompiledPdfAssetError('CCCD_PROVENANCE_REQUIRED', 'Hồ sơ phải có bằng chứng CCCD mặt trước và mặt sau đã được duyệt');
+    }
+    const frontImageUrl = resolveCompiledPdfAssetUrl(identityImages.front.url, apiBaseUrl);
+    const backImageUrl = resolveCompiledPdfAssetUrl(identityImages.back.url, apiBaseUrl);
+    if (frontImageUrl === backImageUrl) {
+      throw new CompiledPdfAssetError('CCCD_IMAGES_REQUIRED', 'Hai ảnh CCCD phải là hai tài liệu khác nhau');
     }
     for (const [filename, label] of [['Giay-phep-KD.jpg', 'giấy đăng ký kinh doanh'], ['so-do-MT.jpg', 'sổ đỏ mặt trước'], ['so-do-MS.jpg', 'sổ đỏ mặt sau']] as const) {
       if (!fs.existsSync(resolveTaiLieuPath(filename))) {
@@ -467,12 +494,12 @@ export async function POST(request: Request) {
 
     // CCCD Images (from contract.customer.idImages)
     // Front CCCD
-    const frontBuf = await fetchAssetBuffer(idImages[0], apiBaseUrl, authHeader);
-    await addImagePage(mergedPdf, frontBuf, idImages[0].toLowerCase().includes('.png'));
+    const frontBuf = await fetchAssetBuffer(identityImages.front.url, apiBaseUrl, authHeader);
+    await addImagePage(mergedPdf, frontBuf, identityImages.front.url.toLowerCase().includes('.png'));
 
     // Back CCCD
-    const backBuf = await fetchAssetBuffer(idImages[1], apiBaseUrl, authHeader);
-    await addImagePage(mergedPdf, backBuf, idImages[1].toLowerCase().includes('.png'));
+    const backBuf = await fetchAssetBuffer(identityImages.back.url, apiBaseUrl, authHeader);
+    await addImagePage(mergedPdf, backBuf, identityImages.back.url.toLowerCase().includes('.png'));
 
     // CT01 PDF pages
     let ct01PdfDoc: PDFDocument;

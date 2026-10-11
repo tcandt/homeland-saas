@@ -55,7 +55,10 @@ beforeEach(() => {
   assetStatus = 200; corruptCccd = false;
   contract = { id: 'contract-1', signedAt: '2026-10-01T00:00:00+07:00',
     attachments: ['document-storage://tenant/lease.pdf'],
-    customer: { fullName: 'Synthetic tenant', idImages: ['document-storage://tenant/front.png', 'document-storage://tenant/back.png'] },
+    customer: { fullName: 'Synthetic tenant', idImages: ['document-storage://tenant/front.png', 'document-storage://tenant/back.png'], idImageProvenance: [
+      { url: 'document-storage://tenant/front.png', side: 'front', source: 'scan', status: 'APPROVED', approvedBy: 'reviewer-1' },
+      { url: 'document-storage://tenant/back.png', side: 'back', source: 'upload', status: 'APPROVED', approvedBy: 'reviewer-1' },
+    ] },
     room: { code: 'TEST', building: { address: 'Synthetic address' } },
   };
   fetcher = vi.fn(async (url: string) => {
@@ -88,17 +91,45 @@ describe('complete compiled dossier export', () => {
 
   it.each([[], ['document-storage://tenant/front.png'], ['document-storage://tenant/front.png', 'document-storage://tenant/front.png'],
     ['document-storage://tenant/front.png', 'document-storage://tenant/%66ront.png'],
-    ['document-storage://tenant/front.png', 'document-storage://tenant/back.png', 'document-storage://tenant/extra.png']])('denies incomplete/duplicate/extra CCCD: %j', async (images) => {
+    ['document-storage://tenant/front.png', 'document-storage://tenant/back.png', 'document-storage://tenant/extra.png']])('denies legacy or incomplete CCCD metadata: %j', async (images) => {
     contract.customer.idImages = images;
+    contract.customer.idImageProvenance = undefined;
     const response = await POST(request());
     expect(response.status).toBe(422);
-    expect(await response.json()).toMatchObject({ code: 'CCCD_IMAGES_REQUIRED' });
+    expect(await response.json()).toMatchObject({ code: 'CCCD_PROVENANCE_REQUIRED' });
     expect(state.renders).toHaveLength(0);
     expect(state.files.size).toBe(0);
   });
 
+  it('rejects a legacy two-item array instead of inferring front/back by position', async () => {
+    contract.customer.idImageProvenance = undefined;
+    const response = await POST(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'CCCD_PROVENANCE_REQUIRED' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects forged JSON metadata stored in the legacy URL array', async () => {
+    contract.customer.idImageProvenance = undefined;
+    contract.customer.idImages = ['{"url":"document-storage://tenant/front.png","side":"front","approved":true}', '{"url":"document-storage://tenant/back.png","side":"back","approved":true}'];
+    const response = await POST(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'CCCD_PROVENANCE_REQUIRED' });
+  });
+
+  it('uses explicit side metadata even when storage array order is reversed', async () => {
+    contract.customer.idImages.reverse();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const assetPaths = fetcher.mock.calls
+      .map(([url]) => new URL(url as string).searchParams.get('path'))
+      .filter((path): path is string => path !== null && path.endsWith('.png'));
+    expect(assetPaths).toEqual(['tenant/front.png', 'tenant/back.png']);
+  });
+
   it('denies external CCCD before fetching it or rendering', async () => {
     contract.customer.idImages[0] = 'https://external.test/front.png';
+    contract.customer.idImageProvenance = undefined;
     const response = await POST(request());
     expect(response.status).toBe(422);
     expect(fetcher).toHaveBeenCalledTimes(1);

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { BaseCrudService } from '../shared/services/base-crud.service';
 import { AuditAction, ContractStatus, Customer, Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
@@ -8,8 +8,17 @@ import { PrismaService } from '../prisma.service';
 import { PaginatedResult } from '@homeland/shared';
 import { ACTIVE_LIKE_CONTRACT_STATUSES, ROOM_VISIBLE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 import { normalizeCustomerIdentityNo, normalizeCustomerPhone } from './customer-identifiers';
+import { DocumentsService } from '../documents/documents.service';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function extractIdentityStoragePath(value: string): string {
+  if (value.startsWith('document-storage://')) return value.slice('document-storage://'.length);
+  for (const prefix of ['/storage/', '/documents/storage/', '/api/v1/documents/storage/']) {
+    if (value.startsWith(prefix)) return value.slice(prefix.length);
+  }
+  return '';
+}
 
 @Injectable()
 export class CustomersService extends BaseCrudService<Customer> {
@@ -19,8 +28,139 @@ export class CustomersService extends BaseCrudService<Customer> {
     repository: CustomersRepository,
     auditService: AuditService,
     private readonly prisma: PrismaService,
+    @Optional() private readonly documentsService?: DocumentsService,
   ) {
     super(repository, auditService, 'Customer');
+  }
+
+  async approveIdentityImages(
+    customerId: string,
+    tenantId: string,
+    userId: string,
+    images: Array<{ url: string; side: 'front' | 'back'; source: 'upload' | 'scan' }>,
+  ) {
+    if (!tenantId || !userId) throw new BadRequestException('Tenant và người duyệt là bắt buộc');
+    if (!this.documentsService) throw new ConflictException('Dịch vụ lưu trữ tài liệu chưa sẵn sàng');
+    if (!Array.isArray(images) || images.length < 1 || images.length > 2) {
+      throw new BadRequestException('Mỗi lần duyệt tối đa hai ảnh CCCD');
+    }
+    const sides = images.map((image) => image?.side);
+    if (new Set(sides).size !== sides.length || sides.some((side) => side !== 'front' && side !== 'back')) {
+      throw new BadRequestException('Mỗi ảnh phải chỉ rõ mặt trước hoặc mặt sau');
+    }
+
+    const customer = await this.prisma.tx.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+      select: { id: true, idImages: true, idImageProvenance: true, updatedAt: true },
+    });
+    if (!customer) throw new NotFoundException('Không tìm thấy khách thuê trong đơn vị hiện tại');
+
+    const approvedAt = new Date().toISOString();
+    const newProvenance = await Promise.all(images.map(async (image) => {
+      if (image.source !== 'upload' && image.source !== 'scan') {
+        throw new BadRequestException('Nguồn ảnh CCCD không hợp lệ');
+      }
+      const rawUrl = String(image?.url || '').trim();
+      if (!rawUrl || /[\u0000\r\n]/.test(rawUrl)) {
+        throw new BadRequestException('Ảnh CCCD không hợp lệ');
+      }
+      const storagePath = extractIdentityStoragePath(rawUrl);
+      if (!storagePath) throw new BadRequestException('Ảnh CCCD phải là tài liệu lưu trữ nội bộ');
+
+      const ownedReference = await this.documentsService.resolveTenantStoragePath(tenantId, storagePath);
+      const canonicalUrl = ownedReference.startsWith('document-storage://')
+        ? ownedReference
+        : `document-storage://${ownedReference}`;
+      return {
+        url: canonicalUrl,
+        originalUrl: rawUrl,
+        side: image.side,
+        source: image.source,
+        status: 'APPROVED' as const,
+        approvedBy: userId,
+        approvedAt,
+      };
+    }));
+
+    const prior = Array.isArray(customer.idImageProvenance) ? customer.idImageProvenance as any[] : [];
+    const verifiedPrior = (await Promise.all(prior.map(async (entry) => {
+      if (!entry || typeof entry.url !== 'string' || !entry.approvedBy || entry.status !== 'APPROVED'
+        || (entry.side !== 'front' && entry.side !== 'back')
+        || (entry.source !== 'upload' && entry.source !== 'scan')) return null;
+      try {
+        const priorUrl = String(entry.url).trim();
+        const priorPath = extractIdentityStoragePath(priorUrl);
+        if (!priorPath) return null;
+        const owned = await this.documentsService!.resolveTenantStoragePath(tenantId, priorPath);
+        const canonical = owned.startsWith('document-storage://') ? owned : `document-storage://${owned}`;
+        return canonical === priorUrl ? { ...entry, url: canonical } : null;
+      } catch {
+        return null;
+      }
+    }))).filter(Boolean) as any[];
+    const provenance = [...verifiedPrior.filter((entry) => entry && (entry.side === 'front' || entry.side === 'back'))]
+      .filter((entry) => !newProvenance.some((next) => next.side === entry.side));
+    provenance.push(...newProvenance);
+    const urls = provenance.map((entry) => entry.url);
+    if (new Set(urls).size !== urls.length) throw new BadRequestException('Hai ảnh CCCD phải là hai tài liệu khác nhau');
+    const write = await this.prisma.tx.customer.updateMany({
+      where: { id: customer.id, tenantId, updatedAt: customer.updatedAt },
+      data: {
+        idImageProvenance: provenance,
+        idImages: Array.from(new Set([...(customer.idImages || []), ...urls])),
+      },
+    });
+    if (write.count !== 1) throw new ConflictException('Hồ sơ CCCD vừa thay đổi; vui lòng tải lại và thử lại');
+    const updated = await this.prisma.tx.customer.findFirst({ where: { id: customer.id, tenantId, deletedAt: null } });
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: 'Customer',
+      entityId: customer.id,
+      module: 'Customers',
+      after: { idImageProvenance: provenance },
+      userId,
+    });
+    return updated;
+  }
+
+  async revokeIdentityImage(customerId: string, tenantId: string, userId: string, url: string) {
+    const rawUrl = String(url || '').trim();
+    if (!rawUrl) throw new BadRequestException('Ảnh CCCD không hợp lệ');
+    const storagePath = extractIdentityStoragePath(rawUrl);
+    let canonicalUrl = rawUrl;
+    if (storagePath) {
+      if (!this.documentsService) throw new ConflictException('Dịch vụ lưu trữ tài liệu chưa sẵn sàng');
+      const ownedReference = await this.documentsService.resolveTenantStoragePath(tenantId, storagePath);
+      canonicalUrl = ownedReference.startsWith('document-storage://')
+        ? ownedReference
+        : `document-storage://${ownedReference}`;
+    }
+    const customer = await this.prisma.tx.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+      select: { id: true, idImages: true, idImageProvenance: true, updatedAt: true },
+    });
+    if (!customer) throw new NotFoundException('Không tìm thấy khách thuê trong đơn vị hiện tại');
+    const provenance = Array.isArray(customer.idImageProvenance)
+      ? (customer.idImageProvenance as any[]).filter((entry) => entry?.url !== canonicalUrl)
+      : [];
+    const write = await this.prisma.tx.customer.updateMany({
+      where: { id: customer.id, tenantId, updatedAt: customer.updatedAt },
+      data: {
+        idImageProvenance: provenance,
+        idImages: (customer.idImages || []).filter((item) => item !== canonicalUrl && item !== rawUrl),
+      },
+    });
+    if (write.count !== 1) throw new ConflictException('Hồ sơ CCCD vừa thay đổi; vui lòng tải lại và thử lại');
+    const updated = await this.prisma.tx.customer.findFirst({ where: { id: customer.id, tenantId, deletedAt: null } });
+    await this.auditService.log({
+      action: 'UPDATE',
+      entity: 'Customer',
+      entityId: customer.id,
+      module: 'Customers',
+      after: { revokedIdentityImage: canonicalUrl },
+      userId,
+    });
+    return updated;
   }
 
   /**

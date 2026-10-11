@@ -19,6 +19,7 @@ describe('CustomersController', () => {
             create: vi.fn(),
             createIdempotent: vi.fn(),
             update: vi.fn(),
+            approveIdentityImages: vi.fn(),
             softDelete: vi.fn(),
           },
         },
@@ -95,6 +96,23 @@ describe('CustomersController', () => {
         expect.objectContaining({ notes: 'VIP', idImages: ['front.jpg', 'back.jpg'] }),
         'user-a',
         'Customers',
+      );
+    });
+  });
+
+  describe('approveIdentityImages', () => {
+    it('passes only the tenant/user context and normalized image metadata to the service', () => {
+      controller.approveIdentityImages(
+        'cust-1',
+        { images: [{ url: ' document-storage://tenant-a/front.jpg ', side: 'front', source: 'scan', approvedBy: 'forged' }] },
+        'user-a',
+        'tenant-a',
+      );
+      expect(service.approveIdentityImages).toHaveBeenCalledWith(
+        'cust-1',
+        'tenant-a',
+        'user-a',
+        [{ url: 'document-storage://tenant-a/front.jpg', side: 'front', source: 'scan' }],
       );
     });
   });

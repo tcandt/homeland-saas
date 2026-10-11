@@ -113,6 +113,35 @@ export class CustomersController {
     return this.customersService.update(id, data, userId, 'Customers');
   }
 
+  @Post(':id/identity-images/approve')
+  @RequirePermissions('customer.update')
+  @ApiOperation({ summary: 'Approve tenant-owned CCCD front/back images' })
+  approveIdentityImages(
+    @Param('id') id: string,
+    @Body() body: any,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
+    const images = Array.isArray(body?.images) ? body.images.map((image: any) => ({
+      url: String(image?.url || '').trim(),
+      side: image?.side,
+      source: image?.source,
+    })) : [];
+    return this.customersService.approveIdentityImages(id, tenantId, userId, images);
+  }
+
+  @Post(':id/identity-images/revoke')
+  @RequirePermissions('customer.update')
+  @ApiOperation({ summary: 'Revoke a tenant-owned CCCD image from the approved set' })
+  revokeIdentityImage(
+    @Param('id') id: string,
+    @Body() body: any,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
+    return this.customersService.revokeIdentityImage(id, tenantId, userId, String(body?.url || '').trim());
+  }
+
   @Delete(':id')
   @RequirePermissions('customer.delete')
   @ApiOperation({ summary: 'Soft delete customer' })

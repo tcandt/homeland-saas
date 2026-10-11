@@ -467,6 +467,8 @@ model Customer {
   relationship   String?
   notes          String?
   idImages       String[]  @default([])
+  /// Approved identity-image provenance. Legacy idImages remains for compatibility.
+  idImageProvenance Json?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?

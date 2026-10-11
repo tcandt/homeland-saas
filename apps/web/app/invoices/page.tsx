@@ -43,6 +43,7 @@ import {
   getInvoiceDocumentCounts,
   getInvoiceFinancials,
   getInvoiceOperationsSummary,
+  getInvoicePaymentPresentation,
 } from "@/lib/invoices/invoice-financials";
 import { useDepositBillingDocumentsQuery, useInfiniteInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { invoicesApi } from "@/lib/api/invoices.api";
@@ -997,7 +998,15 @@ function GroupBundleRow({
   const primary = group.rows[0] || {};
   const total = group.bundleData?.total ?? group.rows.reduce((sum: number, row: any) => sum + invoiceAmount(row), 0);
   const paid = group.bundleData?.paid ?? group.rows.reduce((sum: number, row: any) => sum + invoicePaid(row), 0);
-  const remaining = Math.max(0, total - paid);
+  const credit = Number(group.bundleData?.credit || 0);
+  const paymentState = getInvoicePaymentPresentation({
+    ...primary,
+    total,
+    paidAmount: paid,
+    creditAmount: credit,
+    status: group.bundleData?.status || primary.status,
+  });
+  const remaining = paymentState.remaining;
   const customerName = invoiceCustomer(primary);
   const customerGender = primary.customer?.gender || "";
   const cleanGender = (customerGender || "").trim().toLowerCase();
@@ -1122,9 +1131,9 @@ function GroupBundleRow({
 
       {/* 9. TRẠNG THÁI */}
       <td className="py-3 px-4 align-middle text-center">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          Đã thu đủ
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800/40 px-2.5 py-0.5 text-[11px] font-bold text-slate-700 dark:text-slate-300">
+          <span className={`h-1.5 w-1.5 rounded-full ${paymentState.tone === "success" ? "bg-emerald-500" : paymentState.tone === "danger" ? "bg-rose-500" : "bg-amber-500"}`} />
+          {paymentState.label}
         </span>
       </td>
     </tr>
@@ -1151,6 +1160,9 @@ function ChildVoucherRow({
   const period = invoicePeriod(row);
   const dueDate = formatDate(row.dueDate);
   const isDeduction = row.isDeduction || total < 0;
+  const paymentState = isDeduction
+    ? { label: "Đã bù trừ", tone: "info" as const }
+    : getInvoicePaymentPresentation({ ...row, total, paidAmount: paid, remaining: undefined });
 
   // Derive badge type (Hóa đơn vs Phiếu cọc)
   const isDeposit = row.documentType === "DEPOSIT" || row.presentationCategory === "CONTRACT_DEPOSIT" || row.presentationCategory === "HOLDING_DEPOSIT";
@@ -1238,9 +1250,9 @@ function ChildVoucherRow({
 
       {/* 9. TRẠNG THÁI */}
       <td className="py-2.5 px-4 align-middle text-center">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          Đã thu đủ
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800/40 px-2 py-0.5 text-[10px] font-bold text-slate-700 dark:text-slate-300">
+          <span className={`h-1.5 w-1.5 rounded-full ${paymentState.tone === "success" ? "bg-emerald-500" : paymentState.tone === "danger" ? "bg-rose-500" : "bg-amber-500"}`} />
+          {paymentState.label}
         </span>
       </td>
     </tr>
@@ -1264,7 +1276,11 @@ function SingleInvoiceRow({
   const total = invoiceAmount(invoice);
   const paid = invoicePaid(invoice);
   const remaining = invoiceRemaining(invoice);
-  const meta = statusMeta[invoice.status] || statusMeta.PAID;
+  const paymentState = getInvoicePaymentPresentation(invoice);
+  const meta = statusMeta[invoice.status] || statusMeta.ISSUED;
+  const displayMeta = statusMeta[invoice.status] && paymentState.label === statusMeta[invoice.status].label
+    ? meta
+    : { ...meta, label: paymentState.label, tone: paymentState.tone === "success" ? statusMeta.PAID.tone : paymentState.tone === "danger" ? statusMeta.OVERDUE.tone : statusMeta.ISSUED.tone, dot: paymentState.tone === "success" ? statusMeta.PAID.dot : paymentState.tone === "danger" ? statusMeta.OVERDUE.dot : statusMeta.ISSUED.dot };
   const customerName = invoiceCustomer(invoice);
   const customerGender = invoice.customer?.gender || "";
   const cleanGender = (customerGender || "").trim().toLowerCase();
@@ -1372,9 +1388,9 @@ function SingleInvoiceRow({
 
       {/* 9. TRẠNG THÁI */}
       <td className="py-3 px-4 align-middle text-center">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${meta.tone}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-          {meta.label}
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${displayMeta.tone}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${displayMeta.dot}`} />
+          {displayMeta.label}
         </span>
       </td>
     </tr>

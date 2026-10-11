@@ -510,3 +510,10 @@ Không mở hoặc phải dừng LIVE khi có một trong các điều kiện:
 5. Chọn hạ tầng/domain/secret manager, thực hiện `INF-01..09`.
 6. Deploy staging immutable, baseline DB và chạy full gate `STG-01..05`.
 7. Backup/restore/rollback đã mở lại cho phát triển và diễn tập local theo `SCP-03` ngày 10/10/2026. SePay/notification/UAT production cần duyệt và môi trường riêng; Hunonic provider thật vẫn deferred theo `SCP-01`.
+
+## 20. B03 invoice payment presentation checkpoint — 11/10/2026 (local only)
+
+- B03 bounded fix PASS: invoice/group/child rows, billing drawer, payment bundle, printable invoice, HTML PDF export và Operations KPI dùng số tiền authoritative thay vì lifecycle `PAID` đơn độc. `PAID` còn dư nợ không còn hiển thị/đếm là đã thu đủ; credit/mixed settlement hiển thị riêng; dữ liệu pending/invalid/terminal có nhãn trung tính.
+- `RECONCILIATION_PENDING` kể cả khi không có pending amount được giữ là `Cần đối soát`, `canCollect=false`; Drawer/Bundle khóa thu thêm và đóng/không mở direct-scan overlay để tránh duplicate transfer.
+- Node20 Web Docker focused gate: **34/34** tests PASS (invoice financials, grouping, deposit financials, CORE-07/08 billing snapshot); Web `tsc --noEmit` PASS. Independent B03 review PASS; `git diff --check` PASS.
+- Phạm vi chỉ là presentation/guard UI và tests; không sửa backend payment/ledger, migration, dữ liệu hay NAS. B03 không thay thế release regression, staging/UAT, backup/storage restore hoặc các blocker B07/B11/B12.

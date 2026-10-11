@@ -52,7 +52,7 @@ export default function PrintableInvoiceSheet({
   periodLabel = "Tháng 10/2026",
   creationDateStr = "10/10/2026 10:43",
   dueDateStr = "10/10/2026",
-  isPaid = true,
+  isPaid = false,
   customerName = "UAT LK08 P24-05 290926",
   customerPhone = "0900240529",
   roomName = "P24-05",
@@ -67,8 +67,18 @@ export default function PrintableInvoiceSheet({
   codeLabel = "MÃ HÓA ĐƠN",
   infoTitle = "THÔNG TIN KHÁCH THUÊ",
   customerLabel = "Khách thuê",
-  statusLabel = "Đã thanh toán",
+  statusLabel = "Chờ thanh toán",
 }: PrintableInvoiceSheetProps) {
+  const settlementTitle = isPaid ? "ĐÃ THANH TOÁN THÀNH CÔNG" : "CHỜ THANH TOÁN";
+  const settlementDescription = isPaid
+    ? "Hóa đơn đã được đối soát và ghi nhận vào sổ cái thu tiền."
+    : "Hóa đơn chưa có đủ khoản thu được xác nhận; vui lòng hoàn tất thanh toán và đối soát.";
+  const settlementTone = isPaid
+    ? "border-emerald-200/80 bg-gradient-to-b from-[#f0fdf4] to-[#ecfdf5]/60"
+    : "border-amber-200/80 bg-gradient-to-b from-[#fffbeb] to-[#fef3c7]/60";
+  const confirmationTone = isPaid
+    ? "border-emerald-200 bg-[#f0fdf4] text-emerald-800"
+    : "border-amber-200 bg-[#fffbeb] text-amber-800";
   // Fallback default sample items if none provided
   const displayItems =
     Array.isArray(items) && items.length > 0
@@ -291,15 +301,15 @@ export default function PrintableInvoiceSheet({
         </div>
 
         {/* 5. SUCCESS CELEBRATION BANNER (MOVED HIGH UP) */}
-        <div className="rounded-2xl border border-emerald-200/80 bg-gradient-to-b from-[#f0fdf4] to-[#ecfdf5]/60 py-6 sm:py-6.5 px-6 text-center shadow-xs">
+        <div className={`rounded-2xl border ${settlementTone} py-6 sm:py-6.5 px-6 text-center shadow-xs`}>
           <div className="relative inline-flex items-center justify-center mb-1.5">
-            <div className="flex h-16 w-16 sm:h-[68px] sm:w-[68px] items-center justify-center rounded-full bg-emerald-500 text-white shadow-md shadow-emerald-500/25 ring-4 sm:ring-6 ring-emerald-100">
-              <Check className="h-8 w-8 sm:h-9 sm:w-9 stroke-[3.5]" />
+            <div className={`flex h-16 w-16 sm:h-[68px] sm:w-[68px] items-center justify-center rounded-full ${isPaid ? "bg-emerald-500 shadow-emerald-500/25 ring-emerald-100" : "bg-amber-500 shadow-amber-500/25 ring-amber-100"} text-white shadow-md ring-4 sm:ring-6`}>
+              {isPaid ? <Check className="h-8 w-8 sm:h-9 sm:w-9 stroke-[3.5]" /> : <Clock className="h-8 w-8 sm:h-9 sm:w-9 stroke-[3.5]" />}
             </div>
           </div>
 
-          <div className="text-base sm:text-lg font-black uppercase tracking-wider text-emerald-800 mt-1 mb-0.5">
-            ĐÃ THANH TOÁN THÀNH CÔNG
+          <div className={`text-base sm:text-lg font-black uppercase tracking-wider ${isPaid ? "text-emerald-800" : "text-amber-800"} mt-1 mb-0.5`}>
+            {settlementTitle}
           </div>
 
           <div className="text-4xl sm:text-5xl font-black font-mono text-emerald-600 tracking-tight my-1.5 sm:my-2">
@@ -307,7 +317,7 @@ export default function PrintableInvoiceSheet({
           </div>
 
           <div className="text-xs sm:text-sm text-slate-600 font-medium mt-0.5">
-            Hóa đơn đã được đối soát và ghi nhận vào sổ cái thu tiền.
+            {settlementDescription}
           </div>
         </div>
 
@@ -350,12 +360,13 @@ export default function PrintableInvoiceSheet({
         </div>
 
         {/* 7. CONFIRMATION STRIP */}
-        <div className="rounded-xl border border-emerald-200 bg-[#f0fdf4] px-4 py-2 flex items-center gap-2.5 text-xs sm:text-[13px] text-emerald-800 font-medium">
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shrink-0">
-            <Check className="h-3 w-3 stroke-[3]" />
+        <div className={`rounded-xl border ${confirmationTone} px-4 py-2 flex items-center gap-2.5 text-xs sm:text-[13px] font-medium`}>
+          <div className={`flex h-5 w-5 items-center justify-center rounded-full ${isPaid ? "bg-emerald-500" : "bg-amber-500"} text-white shrink-0`}>
+            {isPaid ? <Check className="h-3 w-3 stroke-[3]" /> : <Clock className="h-3 w-3 stroke-[3]" />}
           </div>
           <div>
-            <b>Đã thu đủ {formatVnd(totalAmount)}.</b> Hóa đơn đã được đối soát và ghi nhận thành công vào sổ cái thu tiền.
+            <b>{isPaid ? `Đã thu đủ ${formatVnd(totalAmount)}.` : `Còn phải thu ${formatVnd(totalAmount)}.`}</b>{" "}
+            {settlementDescription}
           </div>
         </div>
       </div>

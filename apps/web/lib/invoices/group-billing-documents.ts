@@ -1,3 +1,5 @@
+import { getInvoiceFinancials, getInvoicePaymentPresentation } from "./invoice-financials";
+
 export type BillingDocumentGroup = {
   key: string;
   rows: any[];
@@ -5,6 +7,7 @@ export type BillingDocumentGroup = {
   childRows?: any[];
   bundleData?: any;
 };
+
 
 const money = (value: unknown) => Math.max(0, Number(value || 0) || 0);
 
@@ -31,20 +34,20 @@ const formatEventTime = (value: unknown) => {
   }).format(date);
 };
 
-const voucherStatus = (status: unknown) => {
-  const normalized = String(status || "").toUpperCase();
-  if (["PAID", "CONFIRMED", "CONVERTED_TO_CONTRACT"].includes(normalized)) {
-    return { badge: "Đã thu đủ", badgeType: "success" as const };
-  }
-  if (["PARTIALLY_PAID", "RECONCILIATION_PENDING"].includes(normalized)) {
-    return { badge: "Đang đối soát", badgeType: "warning" as const };
-  }
-  return { badge: "Chờ thanh toán", badgeType: "warning" as const };
+const voucherStatus = (document: any) => {
+  const presentation = getInvoicePaymentPresentation({
+    ...document,
+    total: document?.total ?? document?.totalAmount ?? document?.invoiceObligationAmount,
+  });
+  const tone = presentation.tone === "success" ? "success" : presentation.tone === "muted" ? "info" : "warning";
+  return { badge: presentation.label, badgeType: tone as "success" | "info" | "warning" };
 };
 
 function projectCombinedEntryRows(invoice: any, deposit: any) {
-  const combinedTotal = money(invoice.total ?? invoice.totalAmount);
-  const combinedPaid = money(invoice.paidAmount ?? invoice.paid);
+  const invoiceFinancials = getInvoiceFinancials(invoice);
+  const combinedTotal = invoiceFinancials.total;
+  const combinedPaid = invoiceFinancials.paid;
+  const combinedCredit = invoiceFinancials.credit;
   const depositObligation = money(deposit.invoiceObligationAmount);
   const depositPayable = Math.min(combinedTotal, depositObligation > 0 ? depositObligation : money(deposit.total));
   const rentPayable = Math.max(0, combinedTotal - depositPayable);
@@ -180,8 +183,14 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
     : undefined;
   const createdAt = realText(invoice.createdAt, deposit.createdAt);
   const paidAt = realText(confirmedPayment?.paidAt, settledRequest?.paidAt);
-  const invoiceVoucherStatus = voucherStatus(invoice.status);
-  const depositVoucherStatus = voucherStatus(deposit.status);
+  const invoiceVoucherStatus = voucherStatus(invoice);
+  const depositVoucherStatus = voucherStatus(deposit);
+  const bundlePresentation = getInvoicePaymentPresentation({
+    ...invoice,
+    total: combinedTotal,
+    paidAmount: combinedPaid,
+    creditAmount: combinedCredit,
+  });
   const activities = [
     ...(paidAt
       ? [{ time: formatEventTime(paidAt), text: `Đã ghi nhận thanh toán ${combinedPaid.toLocaleString("vi-VN")} đ` }]
@@ -207,9 +216,10 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
         : "Đã gộp 2 phiếu liên kết • Tiền phòng kỳ đầu + Cọc hợp đồng",
     total: combinedTotal,
     paid: combinedPaid,
-    remaining: Math.max(0, combinedTotal - combinedPaid),
+    remaining: bundlePresentation.remaining,
+    credit: combinedCredit,
     status: invoice.status,
-    statusLabel: invoice.status === "PAID" ? "Đã thu đủ" : "Chờ thanh toán",
+    statusLabel: bundlePresentation.label,
     dueDate: invoice.dueDate || "",
     period,
     createdAt,
@@ -278,7 +288,6 @@ function projectCombinedEntryRows(invoice: any, deposit: any) {
 
   return { baseRows, childRows, bundleData };
 }
-
 /**
  * A combined ENTRY remains one authoritative invoice/payment. This helper only
  * projects its rent and security components into two linked table rows.

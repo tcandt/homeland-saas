@@ -42,6 +42,7 @@ import { settingsApi } from "@/lib/api/settings.api";
 import { usePayInvoiceMutation } from "@/lib/queries/invoices.queries";
 import toast from "react-hot-toast";
 import PrintableInvoiceModal from "./PrintableInvoiceModal";
+import { getInvoicePaymentPresentation } from "@/lib/invoices/invoice-financials";
 
 const formatVnd = (value: number) =>
   `${Number(value || 0).toLocaleString("vi-VN")} đ`;
@@ -96,6 +97,7 @@ export type PaymentBundleData = {
   bannerText?: string;
   total: number;
   paid: number;
+  credit?: number;
   remaining: number;
   status: string;
   statusLabel?: string;
@@ -154,7 +156,6 @@ export default function PaymentBundleModal({
   const [copiedAmount, setCopiedAmount] = useState(false);
   const [copiedMemo, setCopiedMemo] = useState(false);
   const [copiedAccount, setCopiedAccount] = useState(false);
-  const [isCashCollected, setIsCashCollected] = useState(false);
   const [showDirectScan, setShowDirectScan] = useState(false);
   const [directScanCountdown, setDirectScanCountdown] = useState(15);
   const [isBankDropdownOpen, setIsBankDropdownOpen] = useState(false);
@@ -223,8 +224,13 @@ export default function PaymentBundleModal({
     };
   }, [isOpen, showPrintModal, showDirectScan, isBankDropdownOpen, onClose]);
 
-  const isPaid = Boolean(bundle && ((bundle.paid >= bundle.total && bundle.total > 0) || isCashCollected));
-  const isPartiallyPaid = Boolean(bundle && !isPaid && bundle.paid > 0);
+  const paymentState = bundle
+    ? getInvoicePaymentPresentation({ total: bundle.total, paidAmount: bundle.paid, creditAmount: bundle.credit, status: bundle.status })
+    : null;
+  const isPaid = Boolean(paymentState?.isFullyPaid || paymentState?.isSettled);
+  const isPaymentReviewPending = Boolean(paymentState?.isPendingReview);
+  const paymentLocked = isPaid || isPaymentReviewPending;
+  const isPartiallyPaid = Boolean(paymentState?.isPartial && !isPaymentReviewPending);
   const amountToPay = bundle ? (bundle.remaining > 0 ? bundle.remaining : bundle.total) : 0;
 
   const customerName =
@@ -251,7 +257,7 @@ export default function PaymentBundleModal({
 
   // Countdown (15s) to auto-return to details when payment is successful in direct scan mode
   useEffect(() => {
-    if (!showDirectScan || !isPaid) {
+    if (!showDirectScan || !isPaid || isPaymentReviewPending) {
       setDirectScanCountdown(15);
       return;
     }
@@ -269,10 +275,13 @@ export default function PaymentBundleModal({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [showDirectScan, isPaid]);
+  }, [showDirectScan, isPaid, isPaymentReviewPending]);
 
   useEffect(() => {
-    setIsCashCollected(false);
+    if (showDirectScan && isPaymentReviewPending) setShowDirectScan(false);
+  }, [showDirectScan, isPaymentReviewPending]);
+
+  useEffect(() => {
     setShowDirectScan(false);
     setActiveTab("OVERVIEW");
   }, [bundle?.invoiceId, bundle?.bundleCode]);
@@ -310,6 +319,10 @@ export default function PaymentBundleModal({
   };
 
   const handleCollectCash = async () => {
+    if (paymentLocked) {
+      toast.error(isPaymentReviewPending ? "Hóa đơn đang cần đối soát, tạm khóa thu thêm." : "Hóa đơn đã được tất toán.");
+      return;
+    }
     if (!bundle.invoiceId) {
       toast.error("Không xác định được hóa đơn gốc để ghi nhận thanh toán.");
       return;
@@ -325,7 +338,6 @@ export default function PaymentBundleModal({
         provider: "MANUAL",
         providerRef: `CASH:${crypto.randomUUID()}`,
       });
-      setIsCashCollected(true);
       setShowDirectScan(false);
       toast.success(`Đã ghi nhận thu tiền mặt ${formatVnd(amountToPay)} vào hệ thống.`);
     } catch (error: any) {
@@ -387,17 +399,17 @@ export default function PaymentBundleModal({
             </div>
             <span
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shrink-0 ${
-                isPaid || isCashCollected
+                isPaid
                   ? "bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400"
                   : "bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-700 dark:text-amber-400"
               }`}
             >
               <span
                 className={`h-1.5 w-1.5 rounded-full ${
-                  isPaid || isCashCollected ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
+                  isPaid ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
                 }`}
               />
-              <span>{isPaid || isCashCollected ? "Đã thu đủ" : isPartiallyPaid ? "Đã thu một phần" : "Chờ thanh toán"}</span>
+              <span>{paymentState?.label || "Chưa xác định"}</span>
             </span>
           </div>
 
@@ -416,7 +428,7 @@ export default function PaymentBundleModal({
         {/* 2. MODAL BODY (SCROLLABLE) */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
           {/* BANNER NOTIFICATION (ORANGE WARNING IF UNPAID) */}
-          {!(isPaid || isCashCollected) ? (
+          {!paymentLocked ? (
             <div className="flex items-center gap-2.5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 px-4 py-2.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
               <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>
@@ -424,6 +436,11 @@ export default function PaymentBundleModal({
                   ? `Đã thu ${formatVnd(bundle.paid)}, còn phải thu ${formatVnd(bundle.remaining)}.`
                   : "Khách hàng chưa thanh toán. Có thể gửi thông tin thanh toán hoặc thu tiền mặt."}
               </span>
+            </div>
+          ) : isPaymentReviewPending ? (
+            <div className="flex items-center gap-2.5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 px-4 py-2.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>Cần đối soát trước khi ghi nhận thêm thanh toán; hệ thống đang khóa thu thêm để tránh trùng.</span>
             </div>
           ) : (
             <div className="flex items-center gap-2.5 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/40 px-4 py-2.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
@@ -456,7 +473,7 @@ export default function PaymentBundleModal({
                 <span>Đã thu</span>
               </div>
               <div className="text-base sm:text-lg font-black font-mono tracking-tight text-emerald-600 dark:text-emerald-400">
-                {formatVnd(isCashCollected ? bundle.total : bundle.paid)}
+                {formatVnd(bundle.paid)}
               </div>
             </div>
 
@@ -469,7 +486,7 @@ export default function PaymentBundleModal({
                 <span>Còn lại</span>
               </div>
               <div className="text-base sm:text-lg font-black font-mono tracking-tight text-slate-900 dark:text-slate-100">
-                {formatVnd(isCashCollected ? 0 : bundle.remaining)}
+                {formatVnd(bundle.remaining)}
               </div>
             </div>
 
@@ -575,7 +592,7 @@ export default function PaymentBundleModal({
                     </div>
 
                     {/* Bank Selector Dropdown - Only show when unpaid */}
-                    {!isPaid && (
+                    {!paymentLocked && (
                       <div className="relative">
                         <button
                           type="button"
@@ -803,7 +820,7 @@ export default function PaymentBundleModal({
                     <button
                       type="button"
                       onClick={handleSendZalo}
-                      disabled={isPaid}
+                      disabled={paymentLocked}
                       className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left group ${
                         isPaid
                           ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
@@ -834,7 +851,7 @@ export default function PaymentBundleModal({
                     <button
                       type="button"
                       onClick={() => hasPaymentAccount && setShowDirectScan(!showDirectScan)}
-                      disabled={isPaid || !hasPaymentAccount}
+                      disabled={paymentLocked || !hasPaymentAccount}
                       className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left group ${
                         isPaid || !hasPaymentAccount
                           ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
@@ -867,7 +884,7 @@ export default function PaymentBundleModal({
                     <button
                       type="button"
                       onClick={handleCollectCash}
-                      disabled={isPaid}
+                      disabled={paymentLocked}
                       className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left group ${
                         isPaid
                           ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
@@ -1060,7 +1077,7 @@ export default function PaymentBundleModal({
         </div>
 
         {/* IN-MODAL PRESENTATION MODE FOR DIRECT SCAN (SEAMLESS, NO NESTED POPUP) */}
-        {showDirectScan && (
+        {showDirectScan && !isPaymentReviewPending && (
           <div className="absolute inset-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200">
             {/* Top bar */}
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
@@ -1129,7 +1146,7 @@ export default function PaymentBundleModal({
                       Thanh toán thành công!
                     </h4>
                     <p className="text-base sm:text-lg font-bold text-slate-700 dark:text-slate-200 mt-2">
-                      Đã thu đủ {formatVnd(bundle.total)}
+                      {paymentState?.label || "Đã tất toán"} {formatVnd(bundle.total)}
                     </p>
                     <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">
                       Đợt thanh toán đã được đối soát và ghi nhận

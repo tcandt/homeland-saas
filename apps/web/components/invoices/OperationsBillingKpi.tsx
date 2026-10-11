@@ -2,7 +2,7 @@ import React from "react";
 import { Receipt, AlertTriangle, CheckCircle2, TrendingUp, Clock, FileText } from "lucide-react";
 import { Card } from "../ui/Card";
 import { Skeleton } from "../ui/Skeleton";
-import { getInvoicesFinancialSummary } from "@/lib/invoices/invoice-financials";
+import { getInvoicePaymentPresentation, getInvoicesFinancialSummary } from "@/lib/invoices/invoice-financials";
 import { useInvoicesQuery } from "@/lib/queries/invoices.queries";
 
 export default function OperationsBillingKpi() {
@@ -28,10 +28,19 @@ export default function OperationsBillingKpi() {
     );
   }
 
-  const pendingCount = invoices.filter((inv: any) => inv.status === "ISSUED" || inv.status === "DRAFT").length;
-  const overdueCount = invoices.filter((inv: any) => inv.status === "OVERDUE").length;
-  const paidCount = invoices.filter((inv: any) => inv.status === "PAID").length;
-  const partialCount = invoices.filter((inv: any) => inv.status === "PARTIALLY_PAID").length;
+  const paymentStates = invoices.map((inv: any) => ({
+    invoice: inv,
+    state: getInvoicePaymentPresentation(inv),
+  }));
+  const pendingCount = paymentStates.filter(({ invoice, state }) =>
+    !state.isTerminal && !state.isFullyPaid && !state.isSettled && !state.isPartial &&
+    !state.isPendingReview && invoice.status !== "OVERDUE"
+  ).length;
+  const overdueCount = paymentStates.filter(({ invoice, state }) =>
+    invoice.status === "OVERDUE" && !state.isFullyPaid && !state.isSettled
+  ).length;
+  const paidCount = paymentStates.filter(({ state }) => state.isFullyPaid || state.isSettled).length;
+  const partialCount = paymentStates.filter(({ state }) => state.isPartial).length;
 
   const invoiceSummary = getInvoicesFinancialSummary(invoices);
   const totalReceivable = invoiceSummary.remaining;

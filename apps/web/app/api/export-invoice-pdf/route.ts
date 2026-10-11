@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     const periodLabel = data.periodLabel || 'Tháng 10/2026';
     const creationDateStr = data.creationDateStr || new Date().toLocaleString('vi-VN');
     const dueDateStr = data.dueDateStr || new Date().toLocaleDateString('vi-VN');
-    const isPaid = data.isPaid ?? true;
+    const isPaid = data.isPaid ?? false;
     const customerName = data.customerName || 'Khách hàng';
     const customerPhone = data.customerPhone || '---';
     const roomName = data.roomName || '---';
@@ -54,7 +54,15 @@ export async function POST(request: Request) {
     const codeLabel = data.codeLabel || 'MÃ HÓA ĐƠN';
     const infoTitle = data.infoTitle || 'THÔNG TIN KHÁCH THUÊ';
     const customerLabel = data.customerLabel || 'Khách thuê';
-    const statusLabel = data.statusLabel || 'Đã thanh toán';
+    const statusLabel = data.statusLabel || (isPaid ? 'Đã thanh toán' : 'Chờ thanh toán');
+    const settlementTitle = isPaid ? 'ĐÃ THANH TOÁN THÀNH CÔNG' : 'CHỜ THANH TOÁN';
+    const settlementDescription = isPaid
+      ? 'Hóa đơn đã được đối soát và ghi nhận vào sổ cái thu tiền.'
+      : 'Hóa đơn chưa có đủ khoản thu được xác nhận; vui lòng hoàn tất thanh toán và đối soát.';
+    const settlementBorder = isPaid ? '#bbf7d0' : '#fde68a';
+    const settlementBackground = isPaid ? '#f0fdf4' : '#fffbeb';
+    const settlementText = isPaid ? '#166534' : '#92400e';
+    const settlementIcon = isPaid ? '#10b981' : '#f59e0b';
 
     const items = Array.isArray(data.items) && data.items.length > 0
       ? data.items
@@ -228,15 +236,15 @@ export async function POST(request: Request) {
       </div>
 
       <!-- 5. CELEBRATION BANNER (ENLARGED & MOVED HIGH UP) -->
-      <div class="rounded-2xl border border-emerald-200 bg-gradient-to-b from-[#f0fdf4] to-[#ecfdf5]/60 py-6 px-6 text-center shadow-xs">
+      <div class="rounded-2xl border py-6 px-6 text-center shadow-xs" style="border-color: ${settlementBorder}; background: ${settlementBackground};">
         <div class="inline-flex items-center justify-center mb-1.5">
-          <div style="height: 68px; width: 68px; border-radius: 9999px; background: #10b981; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25); border: 4px solid #d1fae5;">
-            <svg viewBox="0 0 24 24" width="36" height="36" stroke="currentColor" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <div style="height: 68px; width: 68px; border-radius: 9999px; background: ${settlementIcon}; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25); border: 4px solid ${isPaid ? '#d1fae5' : '#fef3c7'};">
+            ${isPaid ? '<svg viewBox="0 0 24 24" width="36" height="36" stroke="currentColor" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' : '<span style="font-size: 34px; line-height: 1;">…</span>'}
           </div>
         </div>
-        <div class="text-base font-black uppercase tracking-wider text-emerald-800 mt-1 mb-0.5">ĐÃ THANH TOÁN THÀNH CÔNG</div>
+        <div class="text-base font-black uppercase tracking-wider mt-1 mb-0.5" style="color: ${settlementText};">${settlementTitle}</div>
         <div class="text-5xl font-black font-mono text-emerald-600 tracking-tight my-2">${formatVnd(totalAmount)}</div>
-        <div class="text-[13.5px] text-slate-600 font-medium mt-1">Hóa đơn đã được đối soát và ghi nhận vào sổ cái thu tiền.</div>
+        <div class="text-[13.5px] text-slate-600 font-medium mt-1">${settlementDescription}</div>
       </div>
 
       <!-- 6. ITEMS TABLE -->
@@ -260,12 +268,12 @@ export async function POST(request: Request) {
       </div>
 
       <!-- 7. CONFIRMATION STRIP -->
-      <div class="rounded-xl border border-emerald-200 bg-[#f0fdf4] px-4 py-2 flex items-center gap-2.5 text-xs text-emerald-800 font-medium">
-        <div style="height: 20px; width: 20px; border-radius: 9999px; background: #10b981; color: white; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-          <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="3" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      <div class="rounded-xl border px-4 py-2 flex items-center gap-2.5 text-xs font-medium" style="border-color: ${settlementBorder}; background: ${settlementBackground}; color: ${settlementText};">
+        <div style="height: 20px; width: 20px; border-radius: 9999px; background: ${settlementIcon}; color: white; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          ${isPaid ? '<svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="3" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>' : '<span style="font-size: 14px; line-height: 1;">…</span>'}
         </div>
         <div>
-          <b>Đã thu đủ ${formatVnd(totalAmount)}.</b> Hóa đơn đã được đối soát và ghi nhận thành công vào sổ cái thu tiền.
+          <b>${isPaid ? `Đã thu đủ ${formatVnd(totalAmount)}.` : `Còn phải thu ${formatVnd(totalAmount)}.`}</b> ${settlementDescription}
         </div>
       </div>
     </div>

@@ -28,6 +28,90 @@ export function getInvoiceFinancials(invoice: any) {
   };
 }
 
+export type InvoicePaymentPresentation = {
+  label: string;
+  tone: "success" | "warning" | "info" | "muted" | "danger";
+  isFullyPaid: boolean;
+  isSettled: boolean;
+  isPartial: boolean;
+  isPendingReview: boolean;
+  isTerminal: boolean;
+  canCollect: boolean;
+  hasValidAmounts: boolean;
+  total: number;
+  paid: number;
+  credit: number;
+  remaining: number;
+};
+
+const terminalPaymentStatuses = new Set([
+  "DRAFT",
+  "CANCELLED",
+  "REFUNDED",
+  "CONVERTED_TO_CONTRACT",
+  "WRITTEN_OFF",
+]);
+
+const terminalLabels: Record<string, string> = {
+  DRAFT: "Bản nháp",
+  CANCELLED: "Đã hủy",
+  REFUNDED: "Đã hoàn",
+  CONVERTED_TO_CONTRACT: "Đã chuyển đổi",
+  WRITTEN_OFF: "Đã xóa nợ",
+};
+
+function hasInvalidAmount(invoice: any, fields: string[]) {
+  return fields.some((field) => {
+    const value = invoice?.[field];
+    return value !== undefined && value !== null && value !== "" && !Number.isFinite(Number(value));
+  });
+}
+
+/** Presentation-only payment state. Lifecycle metadata never overrides balances. */
+export function getInvoicePaymentPresentation(invoice: any): InvoicePaymentPresentation {
+  const status = String(invoice?.status || "").trim().toUpperCase();
+  const hasValidAmounts = !hasInvalidAmount(invoice, [
+    "total", "totalAmount", "amount", "paidAmount", "paid", "creditAmount", "credit",
+    "pendingReviewReceivedAmount", "sepayPendingReviewAmount",
+  ]);
+  const financials = getInvoiceFinancials(invoice);
+  const { total, paid, credit, remaining, pendingReviewReceived } = financials;
+  const isTerminal = terminalPaymentStatuses.has(status);
+  const isZero = total <= 0;
+  const isSettled = hasValidAmounts && !isTerminal && total > 0 && remaining <= 0;
+  const isFullyPaid = isSettled && paid >= total;
+  const isPartial = hasValidAmounts && !isTerminal && total > 0 && !isSettled && (paid > 0 || credit > 0);
+  const isPendingReview = hasValidAmounts && !isTerminal && !isSettled && (
+    pendingReviewReceived > 0 || status === "RECONCILIATION_PENDING"
+  );
+
+  if (!hasValidAmounts) {
+    return { label: "Dữ liệu không hợp lệ", tone: "danger", isFullyPaid: false, isSettled: false, isPartial: false, isPendingReview: false, isTerminal, canCollect: false, hasValidAmounts, total, paid, credit, remaining };
+  }
+  if (isTerminal) {
+    return { label: terminalLabels[status] || "Đã kết thúc", tone: "muted", isFullyPaid: false, isSettled: false, isPartial: false, isPendingReview: false, isTerminal, canCollect: false, hasValidAmounts, total, paid, credit, remaining };
+  }
+  if (isZero) {
+    return { label: "Không có nghĩa vụ thu", tone: "muted", isFullyPaid: false, isSettled: false, isPartial: false, isPendingReview: false, isTerminal: false, canCollect: false, hasValidAmounts, total, paid, credit, remaining };
+  }
+  if (isFullyPaid) {
+    return { label: "Đã thu đủ", tone: "success", isFullyPaid, isSettled, isPartial: false, isPendingReview: false, isTerminal: false, canCollect: false, hasValidAmounts, total, paid, credit, remaining };
+  }
+  if (isSettled) {
+    return { label: "Đã tất toán", tone: "success", isFullyPaid: false, isSettled, isPartial: false, isPendingReview: false, isTerminal: false, canCollect: false, hasValidAmounts, total, paid, credit, remaining };
+  }
+  if (isPendingReview) {
+    return { label: "Cần đối soát", tone: "warning", isFullyPaid: false, isSettled: false, isPartial, isPendingReview, isTerminal: false, canCollect: false, hasValidAmounts, total, paid, credit, remaining };
+  }
+  if (isPartial) {
+    return { label: credit > 0 && paid === 0 ? "Đã bù trừ một phần" : "Đã thu một phần", tone: "info", isFullyPaid: false, isSettled: false, isPartial, isPendingReview: false, isTerminal: false, canCollect: true, hasValidAmounts, total, paid, credit, remaining };
+  }
+  if (["", "PAID"].includes(status) || !["ISSUED", "OVERDUE", "PARTIALLY_PAID", "RECONCILIATION_PENDING"].includes(status)) {
+    return { label: "Chờ thanh toán", tone: "warning", isFullyPaid: false, isSettled: false, isPartial: false, isPendingReview: false, isTerminal: false, canCollect: true, hasValidAmounts, total, paid, credit, remaining };
+  }
+  return { label: status === "OVERDUE" ? "Quá hạn" : "Chờ thanh toán", tone: status === "OVERDUE" ? "danger" : "warning", isFullyPaid: false, isSettled: false, isPartial: false, isPendingReview: false, isTerminal: false, canCollect: true, hasValidAmounts, total, paid, credit, remaining };
+}
+
 export function getBillingDocumentCashflow(invoice: any, direction: "INCOME" | "EXPENSE") {
   const { total, paid, refunded } = getInvoiceFinancials(invoice);
   return direction === "EXPENSE"
@@ -108,10 +192,11 @@ export function getInvoiceOperationsSummary(
 
     if (direction !== "INCOME") continue;
     const remaining = getInvoiceFinancials(invoice).remaining;
+    const paymentState = getInvoicePaymentPresentation(invoice);
     if (invoice?.status === "OVERDUE") {
       overdueAmount += remaining;
       pendingAmount += remaining;
-    } else if (["DRAFT", "ISSUED", "PARTIALLY_PAID", "RECONCILIATION_PENDING"].includes(invoice?.status)) {
+    } else if (!paymentState.isTerminal && remaining > 0 && paymentState.hasValidAmounts) {
       pendingAmount += remaining;
     }
   }

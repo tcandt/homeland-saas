@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getInvoiceDocumentCounts,
   getInvoiceFinancials,
+  getInvoicePaymentPresentation,
   getInvoiceOperationsSummary,
   getInvoicesFinancialSummary,
 } from './invoice-financials';
@@ -62,6 +63,28 @@ describe('getInvoiceFinancials', () => {
   });
 });
 
+describe('invoice payment presentation', () => {
+  it('does not treat PAID metadata with an outstanding balance as paid', () => {
+    expect(getInvoicePaymentPresentation({ total: 13_709_677, paidAmount: 0, status: 'PAID' })).toMatchObject({
+      label: 'Chờ thanh toán', isFullyPaid: false, isSettled: false, canCollect: true,
+    });
+  });
+
+  it('distinguishes partial cash, full cash, and credit settlement', () => {
+    expect(getInvoicePaymentPresentation({ total: 100, paidAmount: 40, status: 'PARTIALLY_PAID' }).label).toBe('Đã thu một phần');
+    expect(getInvoicePaymentPresentation({ total: 100, paidAmount: 100, status: 'ISSUED' }).label).toBe('Đã thu đủ');
+    expect(getInvoicePaymentPresentation({ total: 100, paidAmount: 40, creditAmount: 60, status: 'PAID' }).label).toBe('Đã tất toán');
+  });
+
+  it('does not report success for review, zero, invalid, or terminal documents', () => {
+    expect(getInvoicePaymentPresentation({ total: 100, pendingReviewReceivedAmount: 50, status: 'PAID' })).toMatchObject({ label: 'Cần đối soát', canCollect: false });
+    expect(getInvoicePaymentPresentation({ total: 100, status: 'RECONCILIATION_PENDING' })).toMatchObject({ label: 'Cần đối soát', canCollect: false });
+    expect(getInvoicePaymentPresentation({ total: 0, status: 'PAID' }).label).toBe('Không có nghĩa vụ thu');
+    expect(getInvoicePaymentPresentation({ total: 'invalid', status: 'PAID' }).label).toBe('Dữ liệu không hợp lệ');
+    expect(getInvoicePaymentPresentation({ total: 100, paidAmount: 100, status: 'CANCELLED' }).label).toBe('Đã hủy');
+  });
+});
+
 describe('invoice operations dashboard data', () => {
   it('returns zero values instead of fabricated KPIs for an empty dataset', () => {
     expect(getInvoiceOperationsSummary([], [])).toEqual({
@@ -108,5 +131,12 @@ describe('invoice operations dashboard data', () => {
       totalCount: 4,
     });
     expect(getInvoiceDocumentCounts(documents)).toEqual({ totalAll: 4, invoiceOnly: 3, depositOnly: 1 });
+  });
+
+  it('keeps PAID metadata with debt in pending KPI totals', () => {
+    expect(getInvoiceOperationsSummary([{ total: 13_709_677, paidAmount: 0, status: 'PAID' }])).toMatchObject({
+      pendingAmount: 13_709_677,
+      pendingRate: 100,
+    });
   });
 });

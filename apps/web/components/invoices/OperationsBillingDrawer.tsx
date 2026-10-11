@@ -48,7 +48,7 @@ import {
   useSendInvoicePaymentToZaloMutation,
 } from "@/lib/queries/payments.queries";
 import { useDeleteInvoiceMutation } from "@/lib/mutations/invoices.mutations";
-import { getInvoiceFinancials } from "@/lib/invoices/invoice-financials";
+import { getInvoiceFinancials, getInvoicePaymentPresentation } from "@/lib/invoices/invoice-financials";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 import { settingsApi } from "@/lib/api/settings.api";
 import toast from "react-hot-toast";
@@ -176,8 +176,11 @@ function OperationsBillingModalContent({
   const totalAmount = financials.total || Number(invoice.total || invoice.totalAmount || 0);
   const paidAmount = financials.paid || Number(invoice.paidAmount || 0);
   const remainingAmount = financials.remaining;
-  const isPaid = invoice.status === "PAID" || remainingAmount <= 0;
-  const isPartiallyPaid = invoice.status === "PARTIALLY_PAID" || (paidAmount > 0 && remainingAmount > 0);
+  const paymentState = getInvoicePaymentPresentation(invoice);
+  const isPaid = paymentState.isFullyPaid || paymentState.isSettled;
+  const isPaymentReviewPending = paymentState.isPendingReview;
+  const paymentLocked = isPaid || isPaymentReviewPending;
+  const isPartiallyPaid = paymentState.isPartial && !isPaymentReviewPending;
   const isOverdue = invoice.status === "OVERDUE";
   const isDraft = invoice.status === "DRAFT";
   const amountToPay = remainingAmount > 0 ? remainingAmount : totalAmount;
@@ -197,14 +200,14 @@ function OperationsBillingModalContent({
 
   // Auto create / fetch payment request if needed
   useEffect(() => {
-    if (!invoice?.id || isPaid || remainingAmount <= 0 || isDraft || activeRequest) return;
+    if (!invoice?.id || paymentLocked || remainingAmount <= 0 || isDraft || activeRequest) return;
     createPaymentRequestMutation.mutate(invoice.id, {
       onSuccess: (res: any) => {
         setPaymentRequest((res?.data || res) as PaymentRequestResponse);
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [invoice.id, isPaid, remainingAmount, isDraft]);
+  }, [invoice.id, paymentLocked, remainingAmount, isDraft]);
 
   // Resolve active bank from PaymentRequest or Settings Bank Accounts
   const activeBank = useMemo(() => {
@@ -351,6 +354,10 @@ function OperationsBillingModalContent({
 
     return () => clearInterval(timer);
   }, [showDirectScan, isPaid]);
+
+  useEffect(() => {
+    if (showDirectScan && isPaymentReviewPending) setShowDirectScan(false);
+  }, [showDirectScan, isPaymentReviewPending]);
 
   // REQUIREMENT 5: ESC key handling closes modals ONE BY ONE (LIFO)
   useEffect(() => {
@@ -622,13 +629,7 @@ function OperationsBillingModalContent({
                 }`}
               />
               <span>
-                {isPaid
-                  ? "Đã thu đủ"
-                  : isPartiallyPaid
-                  ? "Đã thu 1 phần"
-                  : isOverdue
-                  ? "Quá hạn"
-                  : "Chờ thanh toán"}
+                {paymentState.label}
               </span>
             </span>
           </div>
@@ -738,15 +739,15 @@ function OperationsBillingModalContent({
               <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4.5 sm:p-5 shadow-2xs">
                 <div className="flex items-center gap-2.5 mb-3.5">
                   <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
-                    {isPaid ? <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> : <QrCode className="h-4 w-4" />}
+                    {isPaid ? <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> : isPaymentReviewPending ? <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" /> : <QrCode className="h-4 w-4" />}
                   </div>
                   <div>
                     <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                      {isPaid ? "Trạng thái thanh toán" : "Thanh toán nhanh"}
+                      {isPaid ? "Trạng thái thanh toán" : isPaymentReviewPending ? "Cần đối soát" : "Thanh toán nhanh"}
                     </h3>
                     <p className="text-[11px] text-slate-400">
-                      {isPaid
-                        ? "Hóa đơn đã được đối soát và ghi nhận thành công"
+                      {isPaid || isPaymentReviewPending
+                        ? `Trạng thái: ${paymentState.label}`
                         : "Quét mã QR hoặc chuyển khoản theo tài khoản Settings"}
                     </p>
                   </div>
@@ -768,6 +769,12 @@ function OperationsBillingModalContent({
                     <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1 tracking-tight">
                       {formatVnd(totalAmount)}
                     </div>
+                  </div>
+                ) : isPaymentReviewPending ? (
+                  <div className="flex flex-col items-center justify-center py-7 sm:py-9 text-center">
+                    <AlertCircle className="h-10 w-10 text-amber-500 mb-3" />
+                    <div className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-700 dark:text-amber-300">CẦN ĐỐI SOÁT</div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-sm">Đã có tín hiệu thanh toán hoặc trạng thái cần kiểm tra. Tạm khóa thu thêm để tránh ghi nhận trùng.</p>
                   </div>
                 ) : hasPaymentAccount ? (
                   <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
@@ -915,7 +922,7 @@ function OperationsBillingModalContent({
                 <div className="flex items-center gap-3 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/50 px-4 py-3.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300 animate-in fade-in duration-300 shadow-2xs">
                   <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <div className="flex-1 leading-relaxed">
-                    <span className="font-bold">Đã thu đủ {formatVnd(totalAmount)}.</span> Hóa đơn đã được đối soát và ghi nhận thành công vào sổ cái thu tiền.
+                    <span className="font-bold">{paymentState.label} {formatVnd(totalAmount)}.</span> Số liệu thanh toán đã được ghi nhận.
                   </div>
                 </div>
               )}
@@ -946,7 +953,7 @@ function OperationsBillingModalContent({
                   <button
                     type="button"
                     onClick={handleSendZalo}
-                    disabled={isPaid || isSendingZalo}
+                    disabled={paymentLocked || isSendingZalo}
                     className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group ${
                       isPaid
                         ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
@@ -977,7 +984,7 @@ function OperationsBillingModalContent({
                   <button
                     type="button"
                     onClick={() => hasPaymentAccount && setShowDirectScan(true)}
-                    disabled={isPaid || !hasPaymentAccount}
+                    disabled={paymentLocked || !hasPaymentAccount}
                     className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group ${
                       isPaid || !hasPaymentAccount
                         ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
@@ -1013,7 +1020,7 @@ function OperationsBillingModalContent({
                       setCustomPayAmount(amountToPay.toLocaleString("vi-VN"));
                       setShowPayCashModal(true);
                     }}
-                    disabled={isPaid}
+                    disabled={paymentLocked}
                     className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group ${
                       isPaid
                         ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
@@ -1046,7 +1053,7 @@ function OperationsBillingModalContent({
                   <button
                     type="button"
                     onClick={() => setShowBankTransferModal(true)}
-                    disabled={isPaid}
+                    disabled={paymentLocked}
                     className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group ${
                       isPaid
                         ? "opacity-35 grayscale pointer-events-none cursor-not-allowed bg-slate-50/60 dark:bg-slate-800/20 border-slate-200/50 dark:border-slate-800"
@@ -1219,7 +1226,7 @@ function OperationsBillingModalContent({
         </div>
 
         {/* REQUIREMENT 3: SEAMLESS IN-MODAL PRESENTATION MODE (REPLACES UGLY NESTED POPUP) */}
-        {showDirectScan && (
+        {showDirectScan && !isPaymentReviewPending && (
           <div className="absolute inset-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200">
             {/* Direct scan topbar */}
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
@@ -1288,10 +1295,10 @@ function OperationsBillingModalContent({
                       Thanh toán thành công!
                     </h4>
                     <p className="text-base sm:text-lg font-bold text-slate-700 dark:text-slate-200 mt-2">
-                      Đã thu đủ {formatVnd(totalAmount)}
+                      {paymentState.label} {formatVnd(totalAmount)}
                     </p>
                     <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">
-                      Hóa đơn đã được đối soát và ghi nhận
+                      Số liệu thanh toán đã được ghi nhận
                     </span>
                   </div>
                 )}

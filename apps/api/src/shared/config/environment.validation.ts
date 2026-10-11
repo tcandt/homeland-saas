@@ -70,6 +70,11 @@ export function schedulesEnabled(config: Record<string, unknown> = process.env) 
   return stringValue(config.DISABLE_SCHEDULED_JOBS).toLowerCase() !== 'true';
 }
 
+export function schedulerOptions(config: Record<string, unknown> = process.env) {
+  const enabled = schedulesEnabled(config);
+  return { cronJobs: enabled, intervals: enabled, timeouts: enabled };
+}
+
 export function configuredCorsOrigins() {
   const configured = (process.env.CORS_ORIGINS || '')
     .split(',')

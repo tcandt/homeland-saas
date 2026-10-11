@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { schedulesEnabled, validateEnvironment } from './environment.validation';
+import { schedulesEnabled, schedulerOptions, validateEnvironment } from './environment.validation';
+import { Test } from '@nestjs/testing';
+import { Cron, Interval, ScheduleModule, SchedulerRegistry, Timeout } from '@nestjs/schedule';
 
 describe('production environment validation', () => {
   const valid = {
@@ -36,5 +38,27 @@ describe('production environment validation', () => {
     expect(schedulesEnabled({})).toBe(true);
     expect(schedulesEnabled({ DISABLE_SCHEDULED_JOBS: 'false' })).toBe(true);
     expect(schedulesEnabled({ DISABLE_SCHEDULED_JOBS: 'TRUE' })).toBe(false);
+  });
+
+  it.each([false, true])('registers all timer kinds only when enabled=%s', async (enabled) => {
+    class ScheduleProbe {
+      cron() {}
+      interval() {}
+      timeout() {}
+    }
+    Cron('0 0 1 1 *', { name: 'scheduler-optout-cron' })(ScheduleProbe.prototype, 'cron', Object.getOwnPropertyDescriptor(ScheduleProbe.prototype, 'cron')!);
+    Interval('scheduler-optout-interval', 60_000)(ScheduleProbe.prototype, 'interval', Object.getOwnPropertyDescriptor(ScheduleProbe.prototype, 'interval')!);
+    Timeout('scheduler-optout-timeout', 60_000)(ScheduleProbe.prototype, 'timeout', Object.getOwnPropertyDescriptor(ScheduleProbe.prototype, 'timeout')!);
+    const module = await Test.createTestingModule({
+      imports: [ScheduleModule.forRoot(schedulerOptions({ DISABLE_SCHEDULED_JOBS: enabled ? 'false' : 'TRUE' }))],
+      providers: [ScheduleProbe],
+    }).compile();
+    try {
+      await module.init();
+      const registry = module.get(SchedulerRegistry);
+      expect(registry.getCronJobs().size).toBe(enabled ? 1 : 0);
+      expect(registry.getIntervals()).toHaveLength(enabled ? 1 : 0);
+      expect(registry.getTimeouts()).toHaveLength(enabled ? 1 : 0);
+    } finally { await module.close(); }
   });
 });

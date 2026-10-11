@@ -46,7 +46,7 @@ import { HunonicModule } from './hunonic/hunonic.module';
 import { SystemUpdateModule } from './system-update/system-update.module';
 import { TasksModule } from './tasks/tasks.module';
 import { MonthlySettlementModule } from './monthly-settlement/monthly-settlement.module';
-import { schedulesEnabled, validateEnvironment } from './shared/config/environment.validation';
+import { schedulerOptions, validateEnvironment } from './shared/config/environment.validation';
 import { InternalTokenGuard } from './shared/guards/internal-token.guard';
 import { IpSecurityModule } from './shared/security/ip-security.module';
 import { GeoIpGuard } from './shared/security/geo-ip.guard';
@@ -121,7 +121,7 @@ import { SchemaDiagnosticsService } from './schema-diagnostics.service';
       },
     }),
     EventEmitterModule.forRoot({ wildcard: true }),
-    ScheduleModule.forRoot({ cronJobs: schedulesEnabled() }),
+    ScheduleModule.forRoot(schedulerOptions()),
     CacheModule.registerAsync({
       isGlobal: true,
       useFactory: async () => {

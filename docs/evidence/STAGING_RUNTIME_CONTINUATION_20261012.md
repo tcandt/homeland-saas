@@ -119,10 +119,11 @@ fixed test topology. Restarted probes returned the actual old SHA, READY, login
 success and matching PDF checksum. This topology belongs in the deployment
 runbook; merely changing `INTERNAL_API_ORIGIN` is not rollback proof.
 
-The current keyboard-row smoke fails on the old Web at its newer sibling-button
-selector. Mouse-open/history/close completed before that failure. Do not call
-this a complete rollback UI PASS; a reviewed compatible rollback candidate and
-version-matched smoke are still required.
+The current keyboard-row smoke source now reacquires the row after drawer
+refresh instead of using a detached locator. A rerun against the retained old
+runtime image still stopped earlier because that image does not expose the
+current `contracts-list` test id; no rollback UI PASS is claimed. A reviewed
+compatible rollback candidate and version-matched smoke are still required.
 
 After returning to08de2dca, exact SHA/readiness and functional UI smoke pass.
 Counts plus ordered full-row JSON digests of19 finance/lifecycle tables are

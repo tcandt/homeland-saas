@@ -91,11 +91,15 @@ admin login had passed a direct API probe. Both tests nevertheless received
 credential mutation was performed. Lifecycle remains unverified until the
 fixture/API target and synthetic credential are refreshed consistently.
 
-The fixture was then corrected to send login to `E2E_API_BASE_URL` (commit
-`386ede88`) and one final run was made. Both specs still returned 401 at
-`rbac.fixture.ts:65` (`core-lifecycle-escalated3/`). No further retries are
-authorized; the isolated runtime credential/seed state is the blocker, not a
-passing lifecycle result.
+The fixture was corrected to send login to `E2E_API_BASE_URL` (commit
+`386ede88`). Trace review then found the escalated command itself supplied a
+15-character password instead of the seeded 37-character synthetic value;
+the runtime was not invalid. With the exact disposable credential, the
+root-cause-corrected run `lifecycle-exact-env-confirmed/` passes both lifecycle
+specs (2/2, 19.6s): canonical contract DRAFT→SUBMIT→APPROVE→ENTRY PAID→ACTIVE
+→PENDING settlement/TERMINATED and invoice DRAFT→ISSUED→PARTIALLY_PAID→PAID.
+No provider or production data was used. The lifecycle UI/financial blocker is
+closed locally; the earlier wrong-password artifacts remain historical.
 
 Actual screenshot review exposed a production Dashboard chart defect:
 zero revenue with negative profit uses revenue-only positive scaling and an

@@ -313,7 +313,19 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
     expect(Number(balanceAfterPendingRefund._sum.balanceEffect)).toBe(fundedDepositBalance);
     expect(pendingRefundOperation).toBeTruthy();
     expect(refundLedgerEntries).toBe(0);
-    await verifyLifecycleAudit('TERMINATED');
+    // Canonical termination records its atomic evidence against the settlement,
+    // not a duplicate Contract UPDATE event.
+    if (!settlement || !pendingRefund || !pendingRefundOperation) throw new Error('Missing pending settlement evidence.');
+    const settlementAudit = await prisma.auditLog.findMany({
+      where: { tenantId: admin.tenantId, entity: 'ContractSettlement', entityId: settlement.id, action: 'CREATE' },
+    });
+    expect(settlementAudit).toHaveLength(1);
+    expect(settlementAudit[0].after).toMatchObject({
+      refundReceiptId: pendingRefund.id,
+      depositOperations: expect.arrayContaining([expect.objectContaining({
+        id: pendingRefundOperation.id, depositId: depositInDb.id, status: 'PENDING', refundAmount: fundedDepositBalance,
+      })]),
+    });
     expect(await prisma.occupancy.count({ where: { contractId, leftAt: null } })).toBe(0);
     expect(await prisma.rentalCycle.findUnique({ where: { id: rentalCycleId }, select: { status: true } }))
       .toEqual({ status: 'CLOSED' });

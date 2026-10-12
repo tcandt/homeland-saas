@@ -109,7 +109,7 @@ test.describe('Invoice Lifecycle Workflow E2E', () => {
     await drawer.getByRole('button', { name: /Thu tiền mặt/ }).click();
     const paymentModal = drawer
       .getByRole('heading', { name: 'Ghi nhận thu tiền mặt', exact: true })
-      .locator('xpath=../..');
+      .locator('xpath=ancestor::div[.//input][1]');
     await expect(paymentModal).toBeVisible();
     const paidAmountInput = paymentModal.getByPlaceholder('0');
     await paidAmountInput.fill('2000000');

@@ -287,7 +287,7 @@ async function mockFullRentalJourney(page: any) {
     deposit: {
       id: "deposit-journey-1",
       code: "DEP-JOURNEY-001",
-      type: "SECURITY",
+      type: "BOOKING",
       status: "PENDING",
       amount: 5000000,
       availableBalance: 5000000,
@@ -597,6 +597,7 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       .first()
       .dispatchEvent("click");
 
+    await admin.page.getByTestId("contract-detail-drawer").getByRole("button", { name: "Thanh toán", exact: true }).click();
     await expect(admin.page.getByTestId("contract-pending-settlement-refund")).toBeVisible();
     await expect(admin.page.getByText("RC-SETTLE-001")).toBeVisible();
     await expect(admin.page.getByTestId("btn-delete-contract")).toHaveCount(0);
@@ -757,12 +758,12 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     const openJourneyContract = async () => {
       const contractCard = admin.page.locator("[data-testid='contract-card']:visible").filter({ hasText: journey.contract.code }).first();
       await expect(contractCard).toBeVisible();
+      const detailResponse = admin.page.waitForResponse((response) =>
+        new URL(response.url()).pathname === `/api/v1/contracts/${journey.contract.id}` && response.request().method() === "GET",
+      );
       await contractCard.click();
-      await expect(
-        admin.page.getByRole("heading", {
-          name: new RegExp(`Chi tiết hợp đồng.*${journey.contract.code}`),
-        }),
-      ).toBeVisible();
+      await expect(admin.page.getByRole("heading", { name: "Chi tiết hợp đồng thuê phòng", exact: true })).toBeVisible();
+      expect((await (await detailResponse).json()).data.id).toBe(journey.contract.id);
     };
 
     await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });

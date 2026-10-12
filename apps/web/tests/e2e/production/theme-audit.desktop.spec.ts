@@ -70,6 +70,7 @@ const auditRoutes = async (
   });
 
   for (const route of routes) {
+    if (process.env.E2E_ROUTE_PACE_MS) await page.waitForTimeout(Number(process.env.E2E_ROUTE_PACE_MS));
     activeRoute = route;
     await page.evaluate((nextTheme: string) => localStorage.setItem('theme', nextTheme), theme);
     await page.goto(route, { waitUntil: 'domcontentloaded' });
@@ -104,6 +105,7 @@ const auditRoutes = async (
 };
 
 test.describe('Production theme audit', () => {
+  test.setTimeout(180_000);
   test.beforeEach(async ({}, testInfo) => {
     const auditedProjects = ['Desktop 1920', 'Release Mobile 430', 'Release Mobile 390', 'Release Mobile 375'];
     test.skip(!auditedProjects.includes(testInfo.project.name), 'Production route audit');

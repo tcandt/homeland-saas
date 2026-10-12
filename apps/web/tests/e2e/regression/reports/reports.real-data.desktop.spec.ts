@@ -2,7 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../../fixtures/admin.fixture';
 
 async function mockReportsData(page: any) {
-  await page.route('**/api/v1/dashboard', async (route: any) => {
+  await page.route((url: URL) => url.pathname === '/api/v1/dashboard', async (route: any) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -20,7 +20,7 @@ async function mockReportsData(page: any) {
     });
   });
 
-  await page.route('**/api/v1/dashboard/revenue-history', async (route: any) => {
+  await page.route((url: URL) => url.pathname === '/api/v1/dashboard/revenue-history', async (route: any) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -31,7 +31,7 @@ async function mockReportsData(page: any) {
     });
   });
 
-  await page.route('**/api/v1/reports/revenue-by-building', async (route: any) => {
+  await page.route((url: URL) => url.pathname === '/api/v1/reports/revenue-by-building', async (route: any) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -54,7 +54,7 @@ async function mockReportsData(page: any) {
     });
   });
 
-  await page.route('**/api/v1/reports/receivable-aging', async (route: any) => {
+  await page.route((url: URL) => url.pathname === '/api/v1/reports/receivable-aging', async (route: any) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

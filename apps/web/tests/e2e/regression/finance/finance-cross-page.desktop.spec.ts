@@ -150,6 +150,7 @@ function buildCashflowResponse() {
 }
 
 async function mockCrossPageFinance(page: any) {
+  let lastProfitSummaryQuery: Record<string, string | null> | null = null;
   let lastCashflowQuery: { year?: string | null; month?: string | null } | null = null;
   let lastTransactionQuery:
     | {
@@ -193,11 +194,27 @@ async function mockCrossPageFinance(page: any) {
   });
 
   await page.route('**/api/v1/finance/buildings/profit-summary*', async (route: any) => {
+    const url = new URL(route.request().url());
+    lastProfitSummaryQuery = {
+      startDate: url.searchParams.get('startDate'),
+      endDate: url.searchParams.get('endDate'),
+      startMonth: url.searchParams.get('startMonth'),
+      endMonth: url.searchParams.get('endMonth'),
+      startYear: url.searchParams.get('startYear'),
+      endYear: url.searchParams.get('endYear'),
+    };
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ success: true, data: [] }),
+      body: JSON.stringify({ success: true, data: [
+        { building: { id: 'building-1', code: 'LK01.31', name: 'LK01.31' }, revenue: 2500000, expense: 0 },
+        { building: { id: 'building-2', code: 'LK01.32', name: 'LK01.32' }, revenue: 1800000, expense: 1000000 },
+      ] }),
     });
+  });
+
+  await page.route('**/api/v1/finance/expenses**', async (route: any) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [] }) });
   });
 
   await page.route('**/api/v1/finance/sepay/reconciliation*', async (route: any) => {
@@ -280,47 +297,43 @@ async function mockCrossPageFinance(page: any) {
   });
 
   return {
+    getLastProfitSummaryQuery: () => lastProfitSummaryQuery,
     getLastCashflowQuery: () => lastCashflowQuery,
     getLastTransactionQuery: () => lastTransactionQuery,
   };
 }
 
-test.describe('Finance Cross Page Desktop Regression', () => {
+test.describe('Finance report-period Desktop Regression', () => {
   test.beforeEach(async ({ admin }, testInfo) => {
     test.skip(!/Desktop|Laptop/.test(testInfo.project.name), 'Desktop-only regression');
   });
 
-  test('keeps August bank dataset consistent between finance overview and transactions pages', async ({ admin }) => {
+  test('defaults the finance overview to the current GMT+7 report month', async ({ admin }) => {
+    await admin.page.clock.setFixedTime(new Date('2026-10-12T10:00:00.000Z'));
     const mock = await mockCrossPageFinance(admin.page);
 
     await admin.page.goto('/finance', { waitUntil: 'domcontentloaded' });
-    await admin.page.getByTestId('bank-cashflow-month').selectOption('8');
+    await expect(admin.page.getByText('Kỳ báo cáo:', { exact: true })).toBeVisible();
+    await expect(admin.page.getByText('10/2026 → 10/2026', { exact: true })).toBeVisible();
+    await expect.poll(() => mock.getLastProfitSummaryQuery(), { timeout: 10000 }).toMatchObject({
+      startMonth: '10',
+      endMonth: '10',
+      startYear: '2026',
+      endYear: '2026',
+      startDate: '2026-09-30T17:00:00.000Z',
+      endDate: '2026-10-31T16:59:59.999Z',
+    });
+    await expect(admin.page.getByTestId('finance-root')).toContainText('4.300.000');
+    await expect(admin.page.getByTestId('finance-root')).toContainText('3.300.000');
 
-    await expect
-      .poll(() => mock.getLastCashflowQuery(), { timeout: 10000 })
-      .toMatchObject({
-        year: '2026',
-        month: '8',
-      });
-
-    await expect(admin.page.getByTestId('bank-cashflow-row-bank-1')).toBeVisible();
-    await expect(admin.page.getByTestId('bank-cashflow-row-bank-2')).toBeVisible();
-    await expect(admin.page.getByTestId('bank-cashflow-kpis')).toContainText('5.300.000');
-
-    await admin.page.goto('/finance/transactions', { waitUntil: 'domcontentloaded' });
-    await admin.page.getByRole('tab', { name: 'Ngân hàng / SePay' }).click();
+    await admin.page.goto('/finance/transactions?view=bank', { waitUntil: 'domcontentloaded' });
     await expect(admin.page.getByTestId('bank-transactions-root')).toBeVisible();
+    await admin.page.getByTestId('bank-transactions-year').selectOption('2026');
     await admin.page.getByTestId('bank-transactions-month').selectOption('8');
     await admin.page.getByTestId('bank-transactions-account').selectOption('bank-1');
-
-    await expect
-      .poll(() => mock.getLastTransactionQuery(), { timeout: 10000 })
-      .toMatchObject({
-        year: '2026',
-        month: '8',
-        bankAccountId: 'bank-1',
-      });
-
+    await expect.poll(() => mock.getLastTransactionQuery(), { timeout: 10000 }).toMatchObject({
+      year: '2026', month: '8', bankAccountId: 'bank-1',
+    });
     await expect(admin.page.getByTestId('bank-transaction-row-txn-1')).toBeVisible();
     await expect(admin.page.getByTestId('bank-transaction-row-txn-2')).toHaveCount(0);
     await expect(admin.page.getByTestId('bank-transactions-kpis')).toContainText('2.500.000');

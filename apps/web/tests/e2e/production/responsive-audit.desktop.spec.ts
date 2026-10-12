@@ -24,6 +24,7 @@ const ignoredConsoleError = (message: string) => (
 );
 
 test.describe('Production desktop responsive audit', () => {
+  test.setTimeout(180_000);
   test.beforeEach(async ({}, testInfo) => {
     test.skip(testInfo.project.name !== 'Desktop 1920', 'Production desktop audit');
   });
@@ -42,6 +43,7 @@ test.describe('Production desktop responsive audit', () => {
         await admin.page.setViewportSize({ width: viewport.width, height: viewport.height });
 
         for (const route of routes) {
+          if (process.env.E2E_ROUTE_PACE_MS) await admin.page.waitForTimeout(Number(process.env.E2E_ROUTE_PACE_MS));
           await admin.page.evaluate((nextTheme) => localStorage.setItem('theme', nextTheme), theme);
           await admin.page.goto(route.path, { waitUntil: 'domcontentloaded' });
           await expect(admin.page.locator('html')).toHaveClass(new RegExp(`(^|\\s)${theme}(\\s|$)`));

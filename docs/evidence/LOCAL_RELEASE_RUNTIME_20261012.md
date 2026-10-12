@@ -104,6 +104,13 @@ The immutable registry production compose bundle parses successfully. The
 public-testing compose requires its documented generated `.env.public-testing`
 file and was not started.
 
+## Public staging endpoint check
+
+Read-only request to `https://homeland.ductinh.one/api/v1/health` returned
+Cloudflare HTTP **530 / error 1033**. The tunnel/origin is not currently
+available for staging preflight. No internal token, write request, Container
+Manager action or NAS access was attempted.
+
 ## Remaining work
 
 Initial CI smoke20:9 PASS,11 FAIL. Artifacts in `ci-smoke/`. Failures include

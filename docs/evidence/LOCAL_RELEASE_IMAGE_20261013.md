@@ -48,5 +48,9 @@ as a production deployment.
   that endpoint is not used as a rollback criterion.
 - The new API and Web pair also returned HTTP 200 for `/api/v1/health` and
   `/login` respectively. No production or NAS state was changed.
+- A second Web container from the same immutable image is exposed at
+  `http://127.0.0.1:43295` so the existing local browser tab can be refreshed
+  against this release candidate; the primary verification endpoint remains
+  `43305`.
 - `https://homeland.ductinh.one/api/v1/health` still returns Cloudflare HTTP
   530 / error 1033. The public tunnel/origin therefore remains unavailable.

@@ -42,10 +42,11 @@ The serial CORE-10.04 loopback run initially finished26/32, with6 failures and
 - Contracts smoke functional assertions pass with snapshots explicitly ignored.
   The12% visual difference versus the old10% threshold is still OPEN; no baseline
   was overwritten and no visual PASS is claimed.
-- Mock full rental journey remains OPEN. BOOKING type and detail identity
-  selectors were corrected, but the fixture still uses the old activation-before-
-  invoice sequence and omits the current move-in confirmation. The original
-  assertions are retained; it has not been skipped or marked passed.
+- Mock full rental journey remains OPEN. BOOKING type, ENTRY invoice creation,
+  approval-before-activation, unpaid-entry blocking and the current move-in
+  confirmation are now represented in the fixture. The remaining failure is
+  card/drawer synchronization after navigation; the original assertions are
+  retained, the test has not been skipped or marked passed.
 - Cleaning completion is now guarded locally: the tenant-scoped `AVAILABLE`
   transition locks the room, rejects occupancy/visible-contract/active-hold/
   customer bindings, writes the Room audit in the same serializable transaction,

@@ -77,12 +77,19 @@ removed UI controls/labels, stale invoice/finance views, a descendant-vs-root
 tenant locator and visual baselines from a different fixture/layout. These
 are not20 passing runtime checks. No visual baselines were overwritten.
 
-Lifecycle's second ordinary fix cycle still fails2/2 before completed money
+Lifecycle's second ordinary fix cycle failed2/2 before completed money
 flows (`core-lifecycle-rerun2/`): approve action outside viewport, issued
 invoice text matches two elements. Ordinary fix loop stopped per project
 rules; independent Sol High root-cause escalation requested. The financial
 fixture now uses canonical ENTRY preparation and payment APIs instead of
 directly marking a deposit paid, but runtime coverage is not yet PASS.
+
+The root-cause-corrected escalated run was attempted once after the isolated
+admin login had passed a direct API probe. Both tests nevertheless received
+`AUTH_INVALID_CREDENTIALS` before workflow at `rbac.fixture.ts:61`
+(`core-lifecycle-escalated1/` and `core-lifecycle-escalated2/`). No retry or
+credential mutation was performed. Lifecycle remains unverified until the
+fixture/API target and synthetic credential are refreshed consistently.
 
 Actual screenshot review exposed a production Dashboard chart defect:
 zero revenue with negative profit uses revenue-only positive scaling and an

@@ -2,6 +2,7 @@ import React from "react";
 import { ChevronDown } from "lucide-react";
 import { useDashboardData } from "@/app/dashboard-context";
 import { useRevenueHistoryQuery } from "@/lib/queries/dashboard.queries";
+import { buildRevenueChart } from "@/lib/utils/revenue-chart";
 
 export default function RevenueChart() {
   const context = useDashboardData();
@@ -35,15 +36,9 @@ export default function RevenueChart() {
   }
 
   const data = rawData;
-  const maxRevenue = Math.max(...data.map((d: any) => Number(d.revenue) || 0), 100);
-
-  const barsAndPoints = data.map((d: any, i: number) => {
-    const barWidth = 100 / data.length;
-    const cx = i * barWidth + barWidth / 2;
-    const cyLine = 100 - (d.profit / maxRevenue) * 100;
-    const hBar = (d.revenue / maxRevenue) * 100;
-    return { cx, cyLine, hBar };
-  });
+  const chart = buildRevenueChart(data);
+  const barsAndPoints = chart.points;
+  const axisFormatter = new Intl.NumberFormat("vi-VN", { notation: "compact", maximumFractionDigits: 1 });
 
   return (
     <div className="bg-card border border-border rounded-[20px] p-[24px] shadow-sm flex flex-col h-full">
@@ -67,43 +62,43 @@ export default function RevenueChart() {
 
       <div className="relative flex-1 flex flex-col">
         <div className="absolute left-0 top-0 bottom-[24px] w-[35px] flex flex-col justify-between text-[10px] font-medium text-muted/80 z-10 pointer-events-none">
-          <span>500M</span>
-          <span>300M</span>
-          <span>200M</span>
-          <span>100M</span>
-          <span>0</span>
+          {chart.ticks.map((amount, index) => <span key={index} title={`${amount} đ`}>{axisFormatter.format(amount)}</span>)}
         </div>
 
-        <div className="ml-[45px] relative flex-1 min-h-[180px]">
+        <div data-testid="revenue-chart-plot" className="ml-[45px] relative flex-1 min-h-[180px] overflow-hidden">
           <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
             {[0, 1, 2, 3, 4].map((i) => (
               <div key={i} className="w-full h-px bg-border/40" />
             ))}
           </div>
 
-          {barsAndPoints.map((p: any, i: number) => (
+          <div className="absolute w-full h-px bg-muted/40 pointer-events-none" style={{ top: `${chart.zeroY}%` }} />
+          {barsAndPoints.map((p, i) => p.revenueTop !== null && (
             <div
               key={`bar-${i}`}
-              className="absolute bottom-0 w-[24px] bg-[#3b82f6] rounded-t-[4px] transition-all duration-700 transform -translate-x-1/2 hover:opacity-80 cursor-pointer"
-              style={{ left: `${p.cx}%`, height: `${p.hBar}%` }}
+              className="absolute w-[24px] bg-[#3b82f6] rounded-t-[4px] transition-all duration-700 transform -translate-x-1/2 hover:opacity-80 cursor-pointer"
+              style={{ left: `${p.cx}%`, top: `${p.revenueTop}%`, height: `${p.revenueHeight}%` }}
+              title={`Doanh thu: ${p.revenue} đ`}
             />
           ))}
 
-          <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <polyline
-              points={barsAndPoints.map((p: any) => `${p.cx},${p.cyLine}`).join(" ")}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+            {chart.profitSegments.map((points, index) => <polyline
+              key={index}
+              points={points}
               fill="none"
               stroke="#22c55e"
               strokeWidth="2"
               vectorEffect="non-scaling-stroke"
-            />
+            />)}
           </svg>
 
-          {barsAndPoints.map((p: any, i: number) => (
+          {barsAndPoints.map((p, i) => p.profitY !== null && (
             <div
               key={`dot-${i}`}
               className="absolute w-[8px] h-[8px] bg-[#22c55e] border-[2px] border-white rounded-full transform -translate-x-1/2 -translate-y-1/2 z-10 shadow-sm transition-all duration-700"
-              style={{ left: `${p.cx}%`, top: `${p.cyLine}%` }}
+              style={{ left: `${p.cx}%`, top: `${p.profitY}%` }}
+              title={`Lợi nhuận: ${p.profit} đ`}
             />
           ))}
         </div>
@@ -119,6 +114,8 @@ export default function RevenueChart() {
           })}
         </div>
       </div>
+
+      {chart.hasMissingValues && <p role="status" className="mt-2 text-xs text-muted">Một số kỳ chưa có số liệu hợp lệ; không biểu diễn thành 0.</p>}
 
       <a href="#" className="mt-[28px] block text-center py-[12px] border border-border/80 rounded-[12px] text-[#4f46e5] text-[13px] font-bold hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
         Xem báo cáo doanh thu {`->`}

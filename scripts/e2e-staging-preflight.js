@@ -35,6 +35,16 @@ async function requireOk(fetchImpl, url, init, label) {
   return response;
 }
 
+function unwrapApiPayload(body, label) {
+  if (body && Object.prototype.hasOwnProperty.call(body, 'success')) {
+    if (body.success !== true || !body.data || typeof body.data !== 'object' || Array.isArray(body.data)) {
+      throw new Error(`BLOCKED: ${label} returned an invalid API envelope`);
+    }
+    return body.data;
+  }
+  return body;
+}
+
 async function preflight(env = process.env, fetchImpl = fetch) {
   assertStaticGuards(env);
   const api = env.E2E_API_BASE_URL.replace(/\/$/, '');
@@ -42,11 +52,11 @@ async function preflight(env = process.env, fetchImpl = fetch) {
   await requireOk(fetchImpl, `${api}/api/v1/health/ready`, undefined, '/api/v1/health/ready');
   const headers = { Authorization: `Bearer ${env.E2E_INTERNAL_TOKEN}` };
   const build = await requireOk(fetchImpl, `${api}/api/v1/health/build-info`, { headers }, '/api/v1/health/build-info');
-  const body = await build.json();
+  const body = unwrapApiPayload(await build.json(), '/api/v1/health/build-info');
   const actual = body.commit ?? body.sha ?? body.buildId;
   if (actual !== env.E2E_EXPECTED_BUILD_SHA) throw new Error('BLOCKED: build SHA mismatch');
   const diagnostics = await requireOk(fetchImpl, `${api}/api/v1/health/staging-diagnostics`, { headers }, '/api/v1/health/staging-diagnostics');
-  const diagnosticBody = await diagnostics.json();
+  const diagnosticBody = unwrapApiPayload(await diagnostics.json(), '/api/v1/health/staging-diagnostics');
   if (diagnosticBody.databaseId !== env.E2E_TARGET_DB_ID) throw new Error('BLOCKED: database identity mismatch');
   return { status: 'READY', runId: env.E2E_RUN_ID, databaseId: diagnosticBody.databaseId, buildSha: actual };
 }

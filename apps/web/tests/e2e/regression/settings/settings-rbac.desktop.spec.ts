@@ -17,17 +17,33 @@ test.describe('Settings RBAC Desktop Regression', () => {
     await expect(manager.page.getByTestId('sidebar-nav-settings')).toHaveCount(0);
   });
 
-  test('allows system admin to read Settings and manage integration secret fields', async ({ admin }) => {
+  test('allows system admin to read provider summaries and edit permitted integration fields', async ({ admin }) => {
     const response = await admin.api.get(`${apiBaseUrl}/api/v1/settings/owners?scope=TENANT`);
     expect(response.ok()).toBeTruthy();
 
     await admin.page.goto('/settings?section=integrations', { waitUntil: 'domcontentloaded' });
     const secretFields = admin.page.getByTestId('integration-secret-field');
     await expect(secretFields).toHaveCount(6);
-    for (const index of [0, 1, 3, 4, 5]) {
-      await expect(secretFields.nth(index)).toBeEnabled();
+    for (let index = 0; index < 5; index += 1) {
+      await expect(secretFields.nth(index)).toBeDisabled();
     }
-    await expect(secretFields.nth(2)).toBeDisabled();
+    await expect(secretFields.nth(5)).toBeEnabled();
+
+    const sePaySummary = admin.page
+      .getByText('Tích hợp Webhook & Cấu hình SePay', { exact: true })
+      .locator('..');
+    await sePaySummary.getByRole('button', { name: 'Thiết lập cấu hình', exact: true }).click();
+    await expect(admin.page.getByText('Thiết lập cấu hình SePay Gateway', { exact: true })).toBeVisible();
+    await expect(admin.page.getByPlaceholder('Nhập API key')).toBeEnabled();
+    await admin.page.getByRole('button', { name: 'Hủy bỏ', exact: true }).click();
+
+    const zaloSummary = admin.page
+      .getByText('Tích hợp Webhook & Zalo Bot', { exact: true })
+      .locator('..');
+    await zaloSummary.getByRole('button', { name: 'Thiết lập cấu hình', exact: true }).click();
+    await expect(admin.page.getByText('Thiết lập cấu hình Zalo Provider & Webhook', { exact: true })).toBeVisible();
+    await expect(admin.page.getByPlaceholder('Dán Bot Token từ Zalo Developer / Bot Platform')).toBeEnabled();
+    await admin.page.getByRole('button', { name: 'Hủy bỏ', exact: true }).click();
   });
 
   test('shows the account directory for the system admin', async ({ admin }) => {

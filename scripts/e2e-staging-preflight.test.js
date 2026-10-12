@@ -39,3 +39,27 @@ test('staging preflight fails closed for an unexpected build or database', async
   const wrongDatabase = async (url) => ({ ok: true, status: 200, json: async () => url.endsWith('/build-info') ? { commit: sha } : url.endsWith('/staging-diagnostics') ? { databaseId: 'wrong' } : {} });
   await assert.rejects(() => preflight(good, wrongDatabase), /database identity mismatch/);
 });
+
+test('staging preflight reads the real API success envelope without bypassing identity checks', async () => {
+  const wrappedFetch = (commit = sha, databaseId = good.E2E_TARGET_DB_ID) => async (url) => ({
+    ok: true, status: 200, json: async () => ({
+      success: true, data: url.endsWith('/build-info') ? { commit } : { databaseId },
+    }),
+  });
+  const result = await preflight(good, wrappedFetch());
+  assert.equal(result.buildSha, sha);
+  assert.equal(result.databaseId, good.E2E_TARGET_DB_ID);
+  await assert.rejects(() => preflight(good, wrappedFetch('a'.repeat(40))), /build SHA mismatch/);
+  await assert.rejects(() => preflight(good, wrappedFetch(sha, 'wrong')), /database identity mismatch/);
+});
+
+test('staging preflight rejects failed or malformed envelopes even if they include matching identities', async () => {
+  for (const body of [
+    { success: false, data: { commit: sha } },
+    { success: true, data: null, commit: sha },
+    { success: true, data: [], commit: sha },
+  ]) {
+    const malformed = async () => ({ ok: true, status: 200, json: async () => body });
+    await assert.rejects(() => preflight(good, malformed), /invalid API envelope/);
+  }
+});

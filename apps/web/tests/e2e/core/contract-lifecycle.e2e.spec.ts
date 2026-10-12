@@ -26,6 +26,13 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
     const contractId = `contract-${Date.now()}`;
     const rentalCycleId = `cycle-${Date.now()}`;
     const customerPhone = `090${Date.now().toString().slice(-7)}`;
+    const customerName = `Contract Customer E2E ${Date.now()}`;
+    const verifyLifecycleAudit = async (status: string) => {
+      const logs = await prisma.auditLog.findMany({
+        where: { tenantId: admin.tenantId, entity: 'Contract', entityId: contractId, action: 'UPDATE' },
+      });
+      expect(logs.filter((log) => (log.after as { status?: string } | null)?.status === status)).toHaveLength(1);
+    };
     
     // Create dependencies
     await prisma.building.create({
@@ -67,7 +74,7 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
       data: {
         id: customerId,
         tenantId: admin.tenantId,
-        fullName: `Contract Customer E2E ${Date.now()}`,
+        fullName: customerName,
         phone: customerPhone,
         phoneNormalized: customerPhone,
         email: 'customer.e2e@test.com',
@@ -114,7 +121,8 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
     await page.waitForLoadState('networkidle');
 
     // 3. Select the Contract to open drawer
-    const contractCard = page.locator('[data-testid="contract-card"]:visible').filter({ hasText: 'Contract Customer E2E' }).first();
+    const contractCard = page.locator('[data-testid="contract-card"]:visible').filter({ hasText: customerName });
+    await expect(contractCard).toHaveCount(1);
     await contractCard.waitFor({ state: 'visible', timeout: 10000 });
     await contractCard.click();
 
@@ -124,92 +132,134 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
 
     // 5. Submit Contract
     await drawer.getByTestId('btn-submit-contract').click();
-    await expect(drawer).toBeHidden();
+    await expect(drawer).not.toBeInViewport();
     await expect(contractCard.getByTestId('contract-status-badge')).toContainText('Chờ duyệt', { timeout: 10000 });
+    await verifyLifecycleAudit('PENDING_APPROVAL');
     await contractCard.click();
-    drawer = page.getByTestId('contract-detail-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toBeInViewport();
     await expect(drawer.getByTestId('contract-status-badge')).toContainText('Chờ duyệt');
 
     // 6. Approve Contract
     await drawer.getByTestId('btn-approve-contract').click();
-    await expect(drawer).toBeHidden();
+    await expect(drawer).not.toBeInViewport();
     await expect(contractCard.getByTestId('contract-status-badge')).toContainText('Đã duyệt', { timeout: 10000 });
-    await contractCard.click();
-    drawer = page.getByTestId('contract-detail-drawer');
-    await expect(drawer.getByTestId('contract-status-badge')).toContainText('Đã duyệt');
 
     // DB Verification After Approve
     let contractInDb = await prisma.contract.findUnique({ where: { id: contractId } });
     let roomInDb = await prisma.room.findUnique({ where: { id: roomId } });
-    let depositInDb = await prisma.deposit.findFirst({ where: { contractId } });
-    let auditLogApprove = await prisma.auditLog.findFirst({ where: { action: 'UPDATE', entityId: contractId } });
 
     expect(contractInDb?.status).toBe('APPROVED');
     expect(roomInDb?.status).toBe('RESERVED');
-    expect(depositInDb).toBeDefined();
-    expect(auditLogApprove).toBeDefined();
+    await verifyLifecycleAudit('APPROVED');
 
-    // Simulate only the external payment settlement. The lifecycle mutations
-    // remain API-driven; activation requires a complete deposit ledger trail.
-    if (!depositInDb?.id) throw new Error('Approval did not create a security deposit.');
-    const collectionKey = `e2e-contract-collection-${contractId}`;
-    const paidDeposit = await prisma.deposit.update({
-      where: { id: depositInDb.id },
-      data: { status: 'PAID' },
+    // Prepare and fund the canonical server-owned ENTRY obligation. No deposit,
+    // operation, or ledger state is written directly by this browser test.
+    const prepareEntryResponse = await admin.api.post(`/api/v1/contracts/${contractId}/prepare-entry-billing`, {
+      data: {},
     });
-    const depositOperation = await prisma.depositOperation.create({
+    expect(prepareEntryResponse.ok(), await prepareEntryResponse.text()).toBe(true);
+    const entryInvoice = await prisma.invoice.findFirst({
+      where: { tenantId: admin.tenantId, contractId, billingKind: 'ENTRY' },
+    });
+    expect(entryInvoice).toBeTruthy();
+    expect(entryInvoice?.status).toBe('ISSUED');
+    expect(Number(entryInvoice?.total)).toBeGreaterThan(0);
+    if (!entryInvoice) throw new Error('Entry billing did not create the canonical invoice.');
+
+    const entryProviderRef = `CASH:contract-entry-${contractId}`;
+    const entryPaymentResponse = await admin.api.post(`/api/v1/invoices/${entryInvoice.id}/pay`, {
       data: {
+        amount: Number(entryInvoice.total),
+        provider: 'MANUAL',
+        providerRef: entryProviderRef,
+      },
+    });
+    expect(entryPaymentResponse.ok(), await entryPaymentResponse.text()).toBe(true);
+
+    let depositInDb = await prisma.deposit.findFirst({ where: { tenantId: admin.tenantId, contractId } });
+    expect(depositInDb).toBeTruthy();
+    if (!depositInDb) throw new Error('Entry billing did not create a security deposit.');
+    const entryInvoicePaid = await prisma.invoice.findUnique({ where: { id: entryInvoice.id } });
+    const entryPayments = await prisma.payment.findMany({
+      where: { tenantId: admin.tenantId, invoiceId: entryInvoice.id },
+    });
+    const entryAllocations = await prisma.paymentAllocation.findMany({
+      where: { tenantId: admin.tenantId, invoiceId: entryInvoice.id },
+    });
+    const fundedDeposit = await prisma.depositLedgerEntry.aggregate({
+      where: { tenantId: admin.tenantId, depositId: depositInDb.id },
+      _sum: { balanceEffect: true },
+    });
+    const entryCollection = await prisma.depositOperation.findFirst({
+      where: {
         tenantId: admin.tenantId,
-        rentalCycleId,
-        sourceDepositId: paidDeposit.id,
+        sourceDepositId: depositInDb.id,
         contractId,
         type: 'COLLECT',
         status: 'COMPLETED',
-        idempotencyKey: collectionKey,
-        requestHash: `e2e:${contractId}:deposit-collection`,
-        result: { amount: 10000000, source: 'isolated-e2e-fixture' },
-        createdBy: admin.user.id,
-        completedAt: new Date(),
+        idempotencyKey: `entry-invoice:${entryInvoice.id}:security-funding`,
       },
     });
-    await prisma.depositLedgerEntry.create({
-      data: {
+    expect(entryCollection).toBeTruthy();
+    if (!entryCollection) throw new Error('Entry payment did not create the security funding operation.');
+    const entryCashIn = await prisma.depositLedgerEntry.findFirst({
+      where: {
         tenantId: admin.tenantId,
-        rentalCycleId,
-        depositId: paidDeposit.id,
-        contractId,
-        operationId: depositOperation.id,
+        depositId: depositInDb.id,
+        operationId: entryCollection.id,
         type: 'CASH_IN',
-        amount: 10000000,
-        balanceEffect: 10000000,
-        idempotencyKey: `${collectionKey}:cash-in`,
-        sourceType: 'E2E_PAYMENT_FIXTURE',
-        sourceId: paidDeposit.id,
-        metadata: { scenario: 'contract-lifecycle' },
-        createdBy: admin.user.id,
       },
     });
 
+    expect(entryInvoicePaid?.status).toBe('PAID');
+    expect(Number(entryInvoicePaid?.paidAmount)).toBe(Number(entryInvoice.total));
+    expect(Number(entryInvoicePaid?.creditAmount)).toBe(0);
+    expect(depositInDb.status).toBe('PAID');
+    expect(entryPayments).toHaveLength(1);
+    expect(entryPayments[0]).toMatchObject({ provider: 'MANUAL', providerRef: entryProviderRef, status: 'CONFIRMED' });
+    expect(Number(entryPayments[0].amount)).toBe(Number(entryInvoice.total));
+    expect(entryAllocations).toHaveLength(1);
+    expect(entryAllocations[0].paymentId).toBe(entryPayments[0].id);
+    expect(Number(entryAllocations[0].amount)).toBe(Number(entryInvoice.total));
+    expect(entryCashIn).toBeTruthy();
+    expect(Number(fundedDeposit._sum.balanceEffect)).toBe(Number(depositInDb.amount));
+    expect(Number(entryCashIn?.balanceEffect)).toBe(Number(depositInDb.amount));
+    const fundedDepositBalance = Number(fundedDeposit._sum.balanceEffect);
+
     // 7. Activate Contract
+    await contractCard.click();
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toBeInViewport();
+    await expect(drawer.getByTestId('contract-status-badge')).toContainText('Đã duyệt');
     await drawer.getByTestId('btn-activate-contract').click();
-    await expect(drawer).toBeHidden();
+    const moveInConfirmation = page.getByTestId('contract-move-in-confirm');
+    await expect(moveInConfirmation).toBeVisible();
+    await moveInConfirmation.getByRole('button', { name: 'Xác nhận đã bàn giao và nhận phòng', exact: true }).click();
+    await expect(moveInConfirmation).toBeHidden();
+    await expect(drawer).not.toBeInViewport();
     await expect(contractCard.getByTestId('contract-status-badge')).toContainText('Đang hiệu lực', { timeout: 10000 });
     await contractCard.click();
-    drawer = page.getByTestId('contract-detail-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toBeInViewport();
     await expect(drawer.getByTestId('contract-status-badge')).toContainText('Đang hiệu lực');
 
     // DB Verification After Activate
     contractInDb = await prisma.contract.findUnique({ where: { id: contractId } });
     roomInDb = await prisma.room.findUnique({ where: { id: roomId } });
-    depositInDb = await prisma.deposit.findFirst({ where: { contractId } });
-    let invoices = await prisma.invoice.findMany({ where: { contractId } });
-    let auditLogActivate = await prisma.auditLog.findFirst({ where: { action: 'UPDATE', entityId: contractId } });
+    depositInDb = await prisma.deposit.findFirst({ where: { tenantId: admin.tenantId, contractId } });
+    const entryInvoicesAfterActivation = await prisma.invoice.findMany({
+      where: { tenantId: admin.tenantId, contractId, billingKind: 'ENTRY' },
+    });
 
     expect(contractInDb?.status).toBe('ACTIVE');
     expect(roomInDb?.status).toBe('OCCUPIED');
     expect(depositInDb?.status).toBe('CONVERTED_TO_CONTRACT');
-    expect(invoices.length).toBeGreaterThan(0);
-    expect(auditLogActivate).toBeDefined();
+    expect(entryInvoicesAfterActivation).toHaveLength(1);
+    expect(entryInvoicesAfterActivation[0]).toMatchObject({ id: entryInvoice.id, status: 'PAID' });
+    expect(Number(entryInvoicesAfterActivation[0].paidAmount)).toBe(Number(entryInvoice.total));
+    expect(Number(entryInvoicesAfterActivation[0].creditAmount)).toBe(0);
+    await verifyLifecycleAudit('ACTIVE');
     expect(await prisma.occupancy.count({ where: { contractId, leftAt: null } })).toBe(1);
     expect(await prisma.rentalCycle.findUnique({ where: { id: rentalCycleId }, select: { status: true } }))
       .toEqual({ status: 'ACTIVE' });
@@ -224,23 +274,46 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
     const confirmTermination = settlementModal.getByTestId('btn-confirm-terminate-settlement');
     await expect(confirmTermination).toBeEnabled({ timeout: 15000 });
     await confirmTermination.click();
-    await expect(drawer).toBeHidden();
+    await expect(settlementModal).toBeHidden();
+    await expect(drawer).not.toBeInViewport();
     await expect(contractCard.getByTestId('contract-status-badge')).toContainText('Đã chấm dứt', { timeout: 10000 });
 
     // DB Verification After Terminate
     contractInDb = await prisma.contract.findUnique({ where: { id: contractId } });
     roomInDb = await prisma.room.findUnique({ where: { id: roomId } });
-    let auditLogTerminate = await prisma.auditLog.findFirst({ where: { action: 'UPDATE', entityId: contractId } });
     const settlement = await prisma.contractSettlement.findUnique({ where: { contractId } });
     const pendingRefund = await prisma.receipt.findFirst({
       where: { tenantId: admin.tenantId, code: `RCT-SET-${contractId}`, status: 'PENDING' },
     });
+    depositInDb = await prisma.deposit.findFirst({ where: { tenantId: admin.tenantId, contractId } });
+    expect(depositInDb).toBeTruthy();
+    if (!depositInDb) throw new Error('Settlement lost the contract security deposit.');
+    const balanceAfterPendingRefund = await prisma.depositLedgerEntry.aggregate({
+      where: { tenantId: admin.tenantId, depositId: depositInDb.id },
+      _sum: { balanceEffect: true },
+    });
+    const pendingRefundOperation = await prisma.depositOperation.findFirst({
+      where: {
+        tenantId: admin.tenantId,
+        sourceDepositId: depositInDb.id,
+        contractId,
+        type: 'CANCEL',
+        status: 'PENDING',
+      },
+    });
+    const refundLedgerEntries = await prisma.depositLedgerEntry.count({
+      where: { tenantId: admin.tenantId, depositId: depositInDb.id, type: 'REFUND' },
+    });
 
     expect(contractInDb?.status).toBe('TERMINATED');
     expect(roomInDb?.status).toBe('AVAILABLE');
-    expect(settlement).toBeDefined();
-    expect(pendingRefund).toBeDefined();
-    expect(auditLogTerminate).toBeDefined();
+    expect(settlement).toBeTruthy();
+    expect(pendingRefund).toBeTruthy();
+    expect(depositInDb?.status).toBe('CONVERTED_TO_CONTRACT');
+    expect(Number(balanceAfterPendingRefund._sum.balanceEffect)).toBe(fundedDepositBalance);
+    expect(pendingRefundOperation).toBeTruthy();
+    expect(refundLedgerEntries).toBe(0);
+    await verifyLifecycleAudit('TERMINATED');
     expect(await prisma.occupancy.count({ where: { contractId, leftAt: null } })).toBe(0);
     expect(await prisma.rentalCycle.findUnique({ where: { id: rentalCycleId }, select: { status: true } }))
       .toEqual({ status: 'CLOSED' });
@@ -248,7 +321,8 @@ test.describe('Contract Lifecycle Workflow E2E', () => {
     // 9. Reload UI and Verify State Persists
     await page.reload();
     await page.waitForLoadState('networkidle');
-    const contractCardReloaded = page.locator('[data-testid="contract-card"]:visible').filter({ hasText: 'Contract Customer E2E' }).first();
+    const contractCardReloaded = page.locator('[data-testid="contract-card"]:visible').filter({ hasText: customerName });
+    await expect(contractCardReloaded).toHaveCount(1);
     await contractCardReloaded.waitFor({ state: 'visible', timeout: 10000 });
     await contractCardReloaded.click();
     await expect(drawer.getByTestId('contract-status-badge')).toContainText('Đã chấm dứt', { timeout: 10000 });

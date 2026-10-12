@@ -21,6 +21,10 @@ Checkpoint only; this does not approve NAS or production cutover.
 - Web container `homeland-release-web-49c185d0` serves `/login` on loopback
   `43305` and uses the API container alias on the isolated network.
 - Room turnover PostgreSQL integration: **9/9 PASS** against the isolated DB.
+- GMT+7 reporting/month-close scheduler tests: **57/57 PASS** (including the
+  last-day `23:59:59` cutoff and day-one `08:00` notification boundary).
+- Release-image Desktop 1366 finance report-period check: **1/1 PASS**; the
+  overview selects the current GMT+7 report month.
 - Release-image Desktop 1366 contract regression: **3/3 PASS** for cleaning
   success, guarded rejection and the complete mocked rental journey.
 - Release-image contracts smoke: **2/3 PASS**. Rendering/drawer functional

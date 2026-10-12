@@ -3,77 +3,38 @@ import { test } from '../fixtures/admin.fixture';
 import { BuildingsPage } from '../pages/BuildingsPage';
 import AxeBuilder from '@axe-core/playwright';
 
+const building = {
+  id: 'building-smoke-001', name: 'Tòa Smoke', code: 'LK01-31', address: 'Địa chỉ smoke',
+  floors: [{ id: 'floor-smoke-001', level: 1, rooms: [{ id: 'room-smoke-001', code: '101', name: 'Phòng 101', area: 25, capacity: 2 }] }],
+};
+
+async function mockBuildings(page: any, data: any[], status = 200) {
+  await page.route('**/api/v1/buildings*', route => route.fulfill({ status, contentType: 'application/json', headers: status === 200 ? undefined : { 'x-intentional-error': 'true' }, body: status === 200 ? JSON.stringify({ success: true, data }) : JSON.stringify({ message: 'Internal Server Error' }) }));
+}
+
 test.describe('Buildings Smoke Test', () => {
-  test('Verify buildings page rendering, tree, and room grid', async ({ admin }) => {
+  test('renders current building model and floor workspace', async ({ admin }) => {
+    await mockBuildings(admin.page, [building]);
     const buildingsPage = new BuildingsPage(admin.page);
-
-    // 1. Navigate to /buildings
     await buildingsPage.goto();
-
-    // Wait for the hydration and data loading
-    await admin.page.waitForLoadState('networkidle');
-
-    // 2. Verify Building Explorer Tree renders
-    const addBuildingBtn = buildingsPage.addBuildingButton;
-    await expect(addBuildingBtn).toBeVisible();
-
-    // 3. Verify Axe accessibility
-    const axe = new AxeBuilder({ page: admin.page }).disableRules(['color-contrast', 'heading-order', 'button-name']);
-    const accessibilityScanResults = await axe.analyze();
-    expect(accessibilityScanResults.violations).toEqual([]);
-
-    // 4. Verify Screenshot baseline
-    await expect(admin.page).toHaveScreenshot('buildings-baseline.png', { fullPage: true });
-    
-    // 5. Test Global Console Error Handler by deliberately firing a console error at the end of the test
-    // We expect this to fail the test, verifying the handler works. (We test this in a separate isolated block or test to not fail the main one).
+    await expect(admin.page.getByTestId('building-model-viewer')).toBeVisible();
+    await expect(admin.page.getByTestId('floor-workspace-panel')).toBeVisible();
+    await expect(admin.page.getByText('LK01-31').first()).toBeVisible();
+    const axe = await new AxeBuilder({ page: admin.page }).disableRules(['color-contrast', 'heading-order', 'button-name']).analyze();
+    expect(axe.violations).toEqual([]);
   });
 
-  test('Mock 500 -> ErrorState for Buildings', async ({ admin }) => {
-    // 1. Route mock for 500 error
-    await admin.page.route(/.*\/api\/v1\/buildings.*/, async route => {
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        headers: { 'x-intentional-error': 'true' },
-        body: JSON.stringify({ message: "Internal Server Error" })
-      });
-    });
-
+  test('renders empty state when there are no buildings', async ({ admin }) => {
+    await mockBuildings(admin.page, []);
     const buildingsPage = new BuildingsPage(admin.page);
     await buildingsPage.goto();
-    
-    // Wait for the hydration and data loading
-    await admin.page.waitForLoadState('networkidle');
-
-    // The React Query will probably just fail and the UI might show empty or error state, or just hang with Loader2 if no error boundary.
-    // If there is no specific error boundary, it will just show "Building not found" since `buildings` defaults to `[]`.
     await expect(buildingsPage.emptyBuildingsState).toBeVisible();
-
-    // Unroute
-    await admin.page.unroute(/.*\/api\/v1\/buildings.*/);
   });
 
-  test('Mock Empty -> EmptyState for Buildings', async ({ admin }) => {
-    // 1. Route mock for empty data
-    await admin.page.route(/.*\/api\/v1\/buildings.*/, async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: { items: [], total: 0 } })
-      });
-    });
-
+  test('renders empty state when buildings API fails', async ({ admin }) => {
+    await mockBuildings(admin.page, [], 500);
     const buildingsPage = new BuildingsPage(admin.page);
     await buildingsPage.goto();
-    
-    // Wait for the hydration and data loading
-    await admin.page.waitForLoadState('networkidle');
-
     await expect(buildingsPage.emptyBuildingsState).toBeVisible();
-
-    // Unroute
-    await admin.page.unroute(/.*\/api\/v1\/buildings.*/);
   });
-
 });

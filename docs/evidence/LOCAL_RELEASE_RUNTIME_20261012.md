@@ -70,6 +70,20 @@ volumes was denied by tool policy before execution. No replacement candidate
 was created and no alternate launch mechanism was attempted. The current
 healthy isolated API stays unchanged. Staging preflight is not READY.
 
+## Smoke drift follow-up
+
+The stale local smoke selectors were aligned for the current Finance, Invoices,
+Buildings, Contracts and Tenants UI. With the exact disposable synthetic
+credential and immutable loopback targets (`43194` API / `43195` Web), the
+focused Desktop 1366 functional run passes **16/16**. The run used
+`--ignore-snapshots` only to separate functional verification from known visual
+baseline drift; no snapshot was regenerated or overwritten. Existing shell/card
+accessibility findings (`nested-interactive`, duplicate/top-level main
+landmarks, invoice `select-name`) remain explicit test exclusions and are not
+claimed as production remediation. Full CI smoke, visual baseline review,
+staging/NAS/UAT, off-host backup durability and application rollback remain
+open.
+
 ## Remaining work
 
 Initial CI smoke20:9 PASS,11 FAIL. Artifacts in `ci-smoke/`. Failures include

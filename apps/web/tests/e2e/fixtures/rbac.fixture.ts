@@ -49,7 +49,11 @@ const createRoleFixture = (email: string, roleName: string, passwordEnv?: string
         user = authStore.state?.user;
       }
     } else {
-      const response = await request.post(`${finalBaseURL}/api/v1/auth/login`, {
+      // Authentication must target the same isolated API as subsequent API calls.
+      // The Web base may proxy a different host/runtime and can accept a different
+      // seed, producing a misleading AUTH_INVALID_CREDENTIALS before the test starts.
+      const authBaseURL = process.env.E2E_API_BASE_URL || finalBaseURL;
+      const response = await request.post(`${authBaseURL}/api/v1/auth/login`, {
         data: {
           emailOrPhone: email,
           password

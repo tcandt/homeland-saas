@@ -119,11 +119,14 @@ fixed test topology. Restarted probes returned the actual old SHA, READY, login
 success and matching PDF checksum. This topology belongs in the deployment
 runbook; merely changing `INTERNAL_API_ORIGIN` is not rollback proof.
 
-The current keyboard-row smoke source now reacquires the row after drawer
-refresh instead of using a detached locator. A rerun against the retained old
-runtime image still stopped earlier because that image does not expose the
-current `contracts-list` test id; no rollback UI PASS is claimed. A reviewed
-compatible rollback candidate and version-matched smoke are still required.
+The current keyboard-row smoke fails on the old Web at its newer sibling-button
+selector. Mouse-open/history/close completed before that failure. The later
+rerun used `homeland-turnover-web20-dev-20261012` on port43297, not the retained
+rollback image; its timeout waiting for `contracts-list` is not evidence that
+the old image lacks that test id. Playwright locators resolve lazily, so rewriting
+the same locator does not fix a detached-element defect. No complete rollback UI
+PASS is claimed; version-matched smoke or a compatible rollback candidate is
+still required.
 
 After returning to08de2dca, exact SHA/readiness and functional UI smoke pass.
 Counts plus ordered full-row JSON digests of19 finance/lifecycle tables are

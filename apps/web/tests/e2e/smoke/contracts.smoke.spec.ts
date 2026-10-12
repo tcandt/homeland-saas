@@ -41,12 +41,8 @@ test.describe('Contracts Smoke Test', () => {
     await expect(drawer).not.toBeInViewport();
 
     // The row open action and action-menu button are sibling controls, not nested buttons.
-    // Closing the drawer may refresh the list query, so resolve the current
-    // card instead of retaining a locator tied to the pre-refresh DOM node.
-    const openContract = admin.page
-      .locator('[data-testid="contract-card"]:visible')
-      .first()
-      .getByRole('button', { name: /^Mở / });
+    // Playwright locators resolve against the current DOM on every action.
+    const openContract = contractCard.getByRole('button', { name: /^Mở / });
     await openContract.focus();
     await openContract.press('Enter');
     await expect(drawer).toBeInViewport();

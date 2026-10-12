@@ -559,9 +559,10 @@ Không mở hoặc phải dừng LIVE khi có một trong các điều kiện:
   cleaning E2E **2/2**, PostgreSQL16 turnover-vs-booking **9/9**. Independent Sol
   High review: `PASS_WITH_FINDINGS` (chỉ còn finding chất lượng harness và chưa
   có activation-race evidence).
-- Canonical full rental journey, visual/mobile/WebKit, backup off-host, NAS
-  Homeland stack/tunnel binding, remote CI trên exact SHA và GATE-10 vẫn OPEN;
-  không deploy NAS, push/tag hoặc mở LIVE từ checkpoint này.
+- Canonical local mocked journey đã PASS; staging/provider journey, visual/mobile/
+  WebKit, backup off-host, NAS Homeland stack/tunnel binding, remote CI trên
+  exact SHA và GATE-10 vẫn OPEN; không deploy NAS, push/tag hoặc mở LIVE từ
+  checkpoint này.
 
 - Bổ sung rerun Desktop1366 trên Web Node20 Docker hiện tại: **3/3 PASS** cho
   cleaning success, cleaning rejection và toàn bộ journey cọc → ENTRY invoice →

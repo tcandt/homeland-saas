@@ -57,7 +57,7 @@ export default function FinancePage() {
     <AppShell>
       {permissions.canExportFinance && <FinanceExportDrawer period={queryParams} periodLabel={`${String(monthRange.startMonth).padStart(2, "0")}/${monthRange.startYear} – ${String(monthRange.endMonth).padStart(2, "0")}/${monthRange.endYear}`} />}
 
-      <main
+      <div
         data-testid="finance-root"
         className="-m-4 min-h-[calc(100dvh-87px)] w-[calc(100%+32px)] overflow-auto bg-background p-3.5 md:min-h-[calc(100dvh-80px)] md:p-5"
       >
@@ -76,7 +76,7 @@ export default function FinancePage() {
             onMonthRangeChange={setMonthRange}
           />}
         </div>
-      </main>
+      </div>
     </AppShell>
   );
 }

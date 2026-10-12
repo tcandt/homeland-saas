@@ -77,12 +77,26 @@ Buildings, Contracts and Tenants UI. With the exact disposable synthetic
 credential and immutable loopback targets (`43194` API / `43195` Web), the
 full local Desktop 1366 smoke (20 tests) passes **20/20**. The run used
 `--ignore-snapshots` only to separate functional verification from known visual
-baseline drift; no snapshot was regenerated or overwritten. Existing shell/card
-accessibility findings (`nested-interactive`, duplicate/top-level main
-landmarks, invoice `select-name`) remain explicit test exclusions and are not
-claimed as production remediation. Full CI smoke, visual baseline review,
+baseline drift; no snapshot was regenerated or overwritten. Accessibility
+markup fixes remove the prior invoice select-name, nested-interactive contract
+card and duplicate main landmark findings in the tested pages. Full CI smoke, visual baseline review,
 staging/NAS/UAT, off-host backup durability and application rollback remain
 open.
+
+## Staging gate hardening
+
+The staging diagnostics gate now validates the exact checked-in migration
+inventory (34 for this release), owner-approved schema fingerprint, immutable
+commit, staging environment and target database before accepting `READY`.
+Preflight requires exact HTTPS origins from `E2E_STAGING_ORIGINS`, rejects
+userinfo/path/query/fragment/unapproved origins and redirects, and sends no
+internal token before those checks pass. Local staging-mode API diagnostics
+returned HTTP 200 for synthetic `homeland_browser_release_test` with 34/34
+migrations and the independently derived fingerprint
+`fd9d42c90e48aae98cc51e745989c7797a04c709ed16dd97c0c0a61d5e7739ca`.
+Remote HTTPS staging preflight remains pending until `homeland.ductinh.one`
+is confirmed as an isolated staging origin and the CI `STAGING_ORIGINS`/secret
+configuration is supplied. Guard/preflight/workflow tests pass29/29.
 
 ## Remaining work
 

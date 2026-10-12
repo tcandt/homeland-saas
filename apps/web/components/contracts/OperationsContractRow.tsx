@@ -122,15 +122,8 @@ export default React.memo(function OperationsContractRow({
     <div
       data-testid="contract-card"
       onClick={onClick}
-      role="button"
-      tabIndex={0}
-      aria-label={`Mở ${getContractTypeLabel(contract)} ${contract.code || contract.id}`}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onClick();
-        }
-      }}
+      role="group"
+      aria-label={`${getContractTypeLabel(contract)} ${contract.code || contract.id}`}
       className={`group relative grid min-h-[66px] min-w-0 cursor-pointer grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(116px,124px)_32px] items-center gap-2 px-3.5 py-3 transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary rounded-xl ${
         isChildBranch
           ? isSelected
@@ -158,13 +151,16 @@ export default React.memo(function OperationsContractRow({
         </div>
         <div className="min-w-0 flex-1 flex flex-col">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span
+            <button
+              type="button"
+              aria-label={`Mở ${getContractTypeLabel(contract)} ${contract.code || contract.id}`}
+              onClick={(event) => { event.stopPropagation(); onClick(); }}
               className={`font-mono font-bold text-xs truncate group-hover:underline ${
                 isBookingHold ? "text-amber-700 dark:text-amber-400" : "text-primary"
               }`}
             >
               {contract.code || contract.id?.slice(0, 16)}
-            </span>
+            </button>
             {isChildBranch && (
               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
                 Cọc giữ chỗ

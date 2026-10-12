@@ -35,7 +35,7 @@ test.describe('Invoices Smoke Test', () => {
     await expect(dialog).toContainText(invoice.code);
     await dialog.getByTitle('Đóng (ESC)').click();
     await expect(dialog).toBeHidden();
-    const axe = await new AxeBuilder({ page: admin.page }).disableRules(['color-contrast', 'heading-order', 'button-name', 'landmark-unique', 'region', 'select-name']).analyze();
+    const axe = await new AxeBuilder({ page: admin.page }).disableRules(['color-contrast', 'heading-order', 'button-name', 'landmark-unique', 'region']).analyze();
     expect(axe.violations).toEqual([]);
   });
 

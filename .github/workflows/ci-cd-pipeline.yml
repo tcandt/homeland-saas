@@ -598,12 +598,15 @@ jobs:
     env:
       DEPLOY_ENV: staging
       STAGING_URL: ${{ secrets.STAGING_URL }}
+      E2E_STAGING_ORIGINS: ${{ vars.STAGING_ORIGINS }}
       E2E_WEB_BASE_URL: ${{ secrets.STAGING_URL }}
       E2E_API_BASE_URL: ${{ secrets.STAGING_URL }}
       RELEASE_GATE_DATABASE_URL: ${{ secrets.RELEASE_GATE_DATABASE_URL }}
       DATABASE_URL: ${{ secrets.RELEASE_GATE_DATABASE_URL }}
       INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
       STAGING_DB_ID: ${{ vars.STAGING_DB_ID }}
+      E2E_TARGET_DB_ID: ${{ vars.STAGING_DB_ID }}
+      E2E_EXPECTED_BUILD_SHA: ${{ github.sha }}
       CORE1004_SCHEMA_FINGERPRINT: ${{ vars.CORE1004_SCHEMA_FINGERPRINT }}
       FIXTURE_ID: ${{ vars.CORE1004_FIXTURE_ID }}
       E2E_RUN_ID: core1004-${{ github.run_id }}
@@ -622,6 +625,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$STAGING_URL" || { echo 'BLOCKED: staging STAGING_URL is not configured'; exit 1; }
+          node scripts/staging-url-guard.js
           test -n "$INTERNAL_API_TOKEN" || { echo 'BLOCKED: INTERNAL_API_TOKEN is not configured'; exit 1; }
           case "$STAGING_URL" in *localhost*|*127.0.0.1*|*homeland-production*) echo 'BLOCKED: STAGING_URL is not a staging endpoint'; exit 1;; esac
           for key in E2E_ADMIN_PASSWORD E2E_OWNER_A_PASSWORD E2E_OWNER_B_PASSWORD E2E_MANAGER_PASSWORD E2E_SALES_PASSWORD E2E_FINANCE_PASSWORD; do
@@ -640,7 +644,7 @@ jobs:
           test -n "$STAGING_DB_ID" || { echo 'BLOCKED: vars.STAGING_DB_ID is not configured'; exit 1; }
           test -n "$CORE1004_SCHEMA_FINGERPRINT" || { echo 'BLOCKED: vars.CORE1004_SCHEMA_FINGERPRINT is not configured'; exit 1; }
           curl --silent --show-error --fail -H "x-internal-token: $INTERNAL_API_TOKEN" "$STAGING_URL/api/v1/health/staging-diagnostics" > core-10-04-diagnostics.json
-          jq -e --arg db "$STAGING_DB_ID" --arg fp "$(node -e "console.log(require('./packages/database/prisma/baseline-v2/baseline-v2.manifest.json').canonicalFingerprint)")" '((.data // .) | (.databaseId == $db) and (.schemaFingerprint == $fp) and (.migrationCount == 18) and (.environment == "staging"))' core-10-04-diagnostics.json >/dev/null
+          node scripts/staging-diagnostics-guard.js core-10-04-diagnostics.json
       - name: Validate approved CORE-10.04 fixture manifest
         run: |
           set -euo pipefail

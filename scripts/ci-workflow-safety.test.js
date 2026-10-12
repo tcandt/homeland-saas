@@ -34,6 +34,19 @@ test('push and PR can test but cannot publish or contact the NAS/legacy VPS', ()
   }
 });
 
+test('disabled staging gate checks the current release against an approved fingerprint, not baseline18', () => {
+  const gate = workflowModel().jobs['core-10-04-staging-gate'];
+  assert.equal(gate.if, '${{ false }}');
+  assert.equal(gate.env.E2E_TARGET_DB_ID, gate.env.STAGING_DB_ID);
+  assert.equal(gate.env.E2E_EXPECTED_BUILD_SHA, '${{ github.sha }}');
+  assert.equal(gate.env.E2E_STAGING_ORIGINS, '${{ vars.STAGING_ORIGINS }}');
+  const config = gate.steps.find((step) => step.name === 'Fail fast on required staging configuration');
+  assert.match(config.run, /node scripts\/staging-url-guard\.js/);
+  const identity = gate.steps.find((step) => step.name === 'Check staging database identity');
+  assert.match(identity.run, /node scripts\/staging-diagnostics-guard\.js/);
+  assert.doesNotMatch(identity.run, /migrationCount == 18|canonicalFingerprint/);
+});
+
 test('owner-approved CI uses Node22 while API Node22 and Web Node20 Docker runtimes stay unchanged', () => {
   for (const [name, job] of Object.entries(workflowModel().jobs)) {
     for (const step of job.steps) {

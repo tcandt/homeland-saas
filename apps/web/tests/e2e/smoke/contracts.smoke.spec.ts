@@ -40,13 +40,19 @@ test.describe('Contracts Smoke Test', () => {
     await drawer.getByTestId('contract-detail-close').click();
     await expect(drawer).not.toBeInViewport();
 
+    // The row open action and action-menu button are sibling controls, not nested buttons.
+    const openContract = contractCard.getByRole('button', { name: /^Mở / });
+    await openContract.focus();
+    await openContract.press('Enter');
+    await expect(drawer).toBeInViewport();
+    await drawer.getByTestId('contract-detail-close').click();
+    await expect(drawer).not.toBeInViewport();
+
     // 5. Accessibility Check
     // Disable rules that are known to fail temporarily in dev environments or due to mock data limitations
     const axe = new AxeBuilder({ page: admin.page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-      // The current shell/card markup has known nested role=button controls;
-      // keep this smoke focused on rendering and lifecycle interaction.
-      .disableRules(['color-contrast', 'heading-order', 'button-name', 'empty-heading', 'nested-interactive']);
+      .disableRules(['color-contrast', 'heading-order', 'button-name', 'empty-heading']);
     const accessibilityScanResults = await axe.analyze();
     expect(accessibilityScanResults.violations).toEqual([]);
 

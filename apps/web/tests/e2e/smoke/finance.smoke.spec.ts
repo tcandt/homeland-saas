@@ -29,7 +29,6 @@ test.describe('Finance Smoke Test', () => {
     await expect(admin.page.getByText('39.000.000 đ').first()).toBeVisible();
     const axe = await new AxeBuilder({ page: admin.page }).disableRules([
       'color-contrast', 'heading-order', 'button-name', 'empty-heading', 'landmark-unique', 'region',
-      'landmark-main-is-top-level', 'landmark-no-duplicate-main',
     ]).analyze();
     expect(axe.violations).toEqual([]);
   });

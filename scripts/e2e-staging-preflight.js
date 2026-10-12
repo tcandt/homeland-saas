@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /* Read-only release-SHA staging gate. Never mutates data or prints secrets. */
+const { assertStagingDiagnostics, unwrapApiPayload } = require('./staging-diagnostics-guard');
+const { assertStagingUrl } = require('./staging-url-guard');
 const required = [
   'E2E_ENVIRONMENT', 'E2E_WEB_BASE_URL', 'E2E_API_BASE_URL', 'E2E_DATABASE_URL',
   'E2E_ADMIN_USERNAME', 'E2E_ADMIN_PASSWORD',
@@ -7,7 +9,7 @@ const required = [
   'E2E_OWNER_A_USERNAME', 'E2E_OWNER_A_PASSWORD',
   'E2E_OWNER_B_USERNAME', 'E2E_OWNER_B_PASSWORD',
   'E2E_RUN_ID', 'E2E_EXPECTED_BUILD_SHA', 'E2E_INTERNAL_TOKEN', 'E2E_TARGET_DB_ID',
-  'E2E_DISPOSABLE_DATABASE', 'RUN_DESTRUCTIVE_E2E',
+  'E2E_DISPOSABLE_DATABASE', 'RUN_DESTRUCTIVE_E2E', 'CORE1004_SCHEMA_FINGERPRINT', 'E2E_STAGING_ORIGINS',
 ];
 
 function assertStaticGuards(env = process.env) {
@@ -18,10 +20,10 @@ function assertStaticGuards(env = process.env) {
   if (env.RUN_DESTRUCTIVE_E2E !== 'true') throw new Error('BLOCKED: RUN_DESTRUCTIVE_E2E must be true');
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{7,80}$/.test(env.E2E_RUN_ID)) throw new Error('BLOCKED: E2E_RUN_ID format is invalid');
   if (!/^[a-f0-9]{40}$/.test(env.E2E_EXPECTED_BUILD_SHA)) throw new Error('BLOCKED: E2E_EXPECTED_BUILD_SHA must be a full immutable Git SHA');
+  if (!/^[a-f0-9]{64}$/.test(env.CORE1004_SCHEMA_FINGERPRINT)) throw new Error('BLOCKED: approved schema fingerprint must be SHA-256');
 
   for (const key of ['E2E_WEB_BASE_URL', 'E2E_API_BASE_URL']) {
-    const url = new URL(env[key]);
-    if (!['http:', 'https:'].includes(url.protocol)) throw new Error(`BLOCKED: ${key} must be an HTTP(S) URL`);
+    assertStagingUrl(env[key], env.E2E_STAGING_ORIGINS);
   }
   const databaseUrl = new URL(env.E2E_DATABASE_URL);
   if (!['postgres:', 'postgresql:'].includes(databaseUrl.protocol)) throw new Error('BLOCKED: E2E_DATABASE_URL must be a PostgreSQL URL');
@@ -30,19 +32,9 @@ function assertStaticGuards(env = process.env) {
 }
 
 async function requireOk(fetchImpl, url, init, label) {
-  const response = await fetchImpl(url, init);
+  const response = await fetchImpl(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(15000) });
   if (!response.ok) throw new Error(`BLOCKED: ${label} returned HTTP ${response.status}`);
   return response;
-}
-
-function unwrapApiPayload(body, label) {
-  if (body && Object.prototype.hasOwnProperty.call(body, 'success')) {
-    if (body.success !== true || !body.data || typeof body.data !== 'object' || Array.isArray(body.data)) {
-      throw new Error(`BLOCKED: ${label} returned an invalid API envelope`);
-    }
-    return body.data;
-  }
-  return body;
 }
 
 async function preflight(env = process.env, fetchImpl = fetch) {
@@ -56,8 +48,7 @@ async function preflight(env = process.env, fetchImpl = fetch) {
   const actual = body.commit ?? body.sha ?? body.buildId;
   if (actual !== env.E2E_EXPECTED_BUILD_SHA) throw new Error('BLOCKED: build SHA mismatch');
   const diagnostics = await requireOk(fetchImpl, `${api}/api/v1/health/staging-diagnostics`, { headers }, '/api/v1/health/staging-diagnostics');
-  const diagnosticBody = unwrapApiPayload(await diagnostics.json(), '/api/v1/health/staging-diagnostics');
-  if (diagnosticBody.databaseId !== env.E2E_TARGET_DB_ID) throw new Error('BLOCKED: database identity mismatch');
+  const diagnosticBody = assertStagingDiagnostics(await diagnostics.json(), env);
   return { status: 'READY', runId: env.E2E_RUN_ID, databaseId: diagnosticBody.databaseId, buildSha: actual };
 }
 

@@ -631,6 +631,7 @@ export default function InvoicesPage() {
 
               {/* Dropdown 1: Tất cả loại */}
               <select
+                aria-label="Lọc loại hóa đơn hoặc phiếu cọc"
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 className="h-8 px-2.5 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 outline-none shrink-0"
@@ -643,6 +644,7 @@ export default function InvoicesPage() {
 
               {/* Dropdown 2: Tất cả trạng thái */}
               <select
+                aria-label="Lọc trạng thái thanh toán"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="h-8 px-2.5 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 outline-none shrink-0"
@@ -826,7 +828,7 @@ export default function InvoicesPage() {
 
             <div className="flex items-center gap-3">
               <div className="inline-flex items-center gap-1.5">
-                <select className="h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none">
+                <select aria-label="Số dòng mỗi trang" className="h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none">
                   <option value="10">10 / trang</option>
                   <option value="20">20 / trang</option>
                   <option value="50">50 / trang</option>

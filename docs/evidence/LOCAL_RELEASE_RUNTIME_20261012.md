@@ -91,6 +91,12 @@ admin login had passed a direct API probe. Both tests nevertheless received
 credential mutation was performed. Lifecycle remains unverified until the
 fixture/API target and synthetic credential are refreshed consistently.
 
+The fixture was then corrected to send login to `E2E_API_BASE_URL` (commit
+`386ede88`) and one final run was made. Both specs still returned 401 at
+`rbac.fixture.ts:65` (`core-lifecycle-escalated3/`). No further retries are
+authorized; the isolated runtime credential/seed state is the blocker, not a
+passing lifecycle result.
+
 Actual screenshot review exposed a production Dashboard chart defect:
 zero revenue with negative profit uses revenue-only positive scaling and an
 overflow-visible SVG, drawing through the page. Local correction uses a

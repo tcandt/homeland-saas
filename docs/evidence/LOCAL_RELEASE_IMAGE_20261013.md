@@ -39,3 +39,14 @@ checkpoint only. Staging HTTPS/NAS, version-matched rollback UI, visual review,
 off-host backup, provider UAT, CI run for this SHA and CORE-10/GATE-10 remain
 open. The running containers are local test resources and must not be treated
 as a production deployment.
+
+## Follow-up environment checks
+
+- The retained rollback pair (`5b398c38`) was restarted in its isolated
+  restore-drill network. Old API `/api/v1/health` and old Web `/login` both
+  returned HTTP 200; the old image has no `/api/v1/health/readiness` route, so
+  that endpoint is not used as a rollback criterion.
+- The new API and Web pair also returned HTTP 200 for `/api/v1/health` and
+  `/login` respectively. No production or NAS state was changed.
+- `https://homeland.ductinh.one/api/v1/health` still returns Cloudflare HTTP
+  530 / error 1033. The public tunnel/origin therefore remains unavailable.

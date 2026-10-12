@@ -24,8 +24,8 @@ describe('Authoritative room turnover mutation', () => {
     update.mockRejectedValue(new Error('ROOM_TURNOVER_ROOM_IN_USE'));
     await expect(mutation.mutationFn('room-1')).rejects.toThrow('ROOM_TURNOVER_ROOM_IN_USE');
     mutation.onSettled();
-    for (const key of ['buildings', 'rooms', 'contracts', 'contractDetail', 'dashboard']) {
-      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: [key] });
+    for (const key of [['buildings'], ['rooms'], ['contracts'], ['contracts', 'detail'], ['dashboard']]) {
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: key });
     }
   });
 });

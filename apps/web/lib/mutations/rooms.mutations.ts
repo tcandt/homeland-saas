@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { roomsApi } from '../api/rooms.api';
+import { contractKeys } from '../queries/contracts.queries';
 import { useToast } from '@/components/ui/ToastContext';
 import { adaptRoom } from '../adapters/building.adapter';
 import type { Building, Room } from '@/components/buildings/building.types';
@@ -86,9 +87,11 @@ export const useCompleteRoomTurnoverMutation = () => {
   return useMutation({
     mutationFn: (id: string) => roomsApi.update(id, { status: 'AVAILABLE' }),
     onSettled: () => {
-      for (const key of ['buildings', 'rooms', 'contracts', 'contractDetail', 'dashboard']) {
-        queryClient.invalidateQueries({ queryKey: [key] });
-      }
+      queryClient.invalidateQueries({ queryKey: ['buildings'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      queryClient.invalidateQueries({ queryKey: contractKeys.all });
+      queryClient.invalidateQueries({ queryKey: contractKeys.details() });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 };

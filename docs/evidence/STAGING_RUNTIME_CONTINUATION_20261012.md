@@ -55,8 +55,9 @@ The serial CORE-10.04 loopback run initially finished26/32, with6 failures and
   transition locks the room, rejects occupancy/visible-contract/active-hold/
   customer bindings, writes the Room audit in the same serializable transaction,
   and retries serialization/deadlock conflicts. The drawer action is
-  non-optimistic and invalidates room/contract/dashboard queries only after the
-  server succeeds. API unit/turnover tests are 23/23, Web mutation tests 2/2,
+  non-optimistic and invalidates room/contract list **and detail**/dashboard
+  queries only after the server settles. API unit/turnover tests are 23/23, Web
+  mutation tests 2/2,
   focused cleaning E2E success/rejection are 2/2, and isolated PostgreSQL
   turnover-vs-booking integration is 9/9. The deterministic booking-first
   barrier now has a bounded lock-entry wait and always awaits both concurrent

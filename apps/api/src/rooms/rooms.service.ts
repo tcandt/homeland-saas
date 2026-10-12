@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { BaseCrudService } from '../shared/services/base-crud.service';
-import { Room } from '@prisma/client';
+import { Prisma, Room, RoomStatus } from '@prisma/client';
+import { PrismaService } from '../prisma.service';
 import { RoomsRepository } from './rooms.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { PaginatedResult } from '@homeland/shared';
@@ -11,8 +12,58 @@ export class RoomsService extends BaseCrudService<Room> {
   constructor(
     repository: RoomsRepository,
     auditService: AuditService,
+    private readonly prisma: PrismaService,
   ) {
     super(repository, auditService, 'Room');
+  }
+
+  async update(id: string, data: any, userId?: string, moduleName?: string, tenantId?: string): Promise<Room> {
+    if (data.status !== RoomStatus.AVAILABLE) {
+      return super.update(id, data, userId, moduleName);
+    }
+    if (!tenantId) throw new ForbiddenException('ROOM_TURNOVER_TENANT_REQUIRED');
+
+    // Share the room lock with booking/activation; status and audit commit together.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const rows = await tx.$queryRaw<Array<{ id: string }>>(
+            Prisma.sql`SELECT "id" FROM "Room" WHERE "id" = ${id} AND "tenantId" = ${tenantId} AND "deletedAt" IS NULL FOR UPDATE`,
+          );
+          if (!rows.length) throw new NotFoundException('ROOM_TURNOVER_ROOM_NOT_FOUND');
+          const before = await tx.room.findFirst({ where: { id, tenantId, deletedAt: null } });
+          if (!before) throw new NotFoundException('ROOM_TURNOVER_ROOM_NOT_FOUND');
+          if (!([RoomStatus.CLEANING, RoomStatus.MAINTENANCE, RoomStatus.AVAILABLE] as RoomStatus[]).includes(before.status)) {
+            throw new ConflictException('ROOM_TURNOVER_INVALID_STATUS');
+          }
+          const [occupancies, contracts, holds, bindings] = await Promise.all([
+            tx.occupancy.count({ where: { tenantId, roomId: id, leftAt: null } }),
+            tx.contract.count({ where: { tenantId, roomId: id, deletedAt: null, status: { in: ROOM_VISIBLE_CONTRACT_STATUSES } } }),
+            tx.roomHold.count({ where: { tenantId, roomId: id, status: 'ACTIVE', expiresAt: { gt: new Date() } } }),
+            tx.customer.count({ where: { tenantId, roomId: id, deletedAt: null } }),
+          ]);
+          if (occupancies || contracts || holds || bindings) {
+            throw new ConflictException('ROOM_TURNOVER_ROOM_IN_USE');
+          }
+          const after = await tx.room.update({ where: { id, tenantId }, data });
+          await tx.auditLog.create({
+            data: {
+              tenantId, userId, action: 'UPDATE', entity: 'Room', entityId: id,
+              module: moduleName || 'Rooms',
+              before: JSON.parse(JSON.stringify(before)),
+              after: JSON.parse(JSON.stringify(after)),
+            },
+          });
+          return after;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error: any) {
+        const retryable = error?.code === 'P2034' ||
+          (error?.code === 'P2010' && ['40001', '40P01'].includes(String(error?.meta?.code || '')));
+        if (!retryable) throw error;
+        if (attempt === 2) throw new ConflictException('ROOM_TURNOVER_CONCURRENT_CONFLICT');
+      }
+    }
+    throw new ConflictException('ROOM_TURNOVER_CONCURRENT_CONFLICT');
   }
 
   async listRooms(

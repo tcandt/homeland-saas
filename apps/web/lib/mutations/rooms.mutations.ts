@@ -81,6 +81,18 @@ export const useUpdateRoomMutation = () => {
   });
 };
 
+export const useCompleteRoomTurnoverMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => roomsApi.update(id, { status: 'AVAILABLE' }),
+    onSettled: () => {
+      for (const key of ['buildings', 'rooms', 'contracts', 'contractDetail', 'dashboard']) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+    },
+  });
+};
+
 export const useDeleteRoomMutation = () => {
   const queryClient = useQueryClient();
   const { showToast } = useToast();

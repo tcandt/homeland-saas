@@ -63,9 +63,9 @@ export class RoomsController {
   @Patch(':id')
   @RequirePermissions('room.update')
   @ApiOperation({ summary: 'Update room' })
-  update(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+  update(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string, @CurrentUser('tenantId') tenantId: string) {
     const input = UpdateRoomSchema.parse(body);
-    return this.roomsService.update(id, input, userId, 'Rooms');
+    return this.roomsService.update(id, input, userId, 'Rooms', tenantId);
   }
 
   @Delete(':id')

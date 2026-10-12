@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { RoomsRepository } from './rooms.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { HttpException } from '@nestjs/common';
+import { PrismaService } from '../prisma.service';
 
 describe('RoomsService', () => {
   let service: RoomsService;
@@ -14,6 +15,7 @@ describe('RoomsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         RoomsService,
+        { provide: PrismaService, useValue: {} },
         {
           provide: RoomsRepository,
           useValue: {

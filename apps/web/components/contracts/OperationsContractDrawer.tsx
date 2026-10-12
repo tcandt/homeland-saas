@@ -90,7 +90,7 @@ import {
   useCompletePendingSettlementRefundMutation,
 } from "../../lib/queries/contracts.queries";
 import { useDeleteContractMutation } from "../../lib/mutations/contracts.mutations";
-import { useUpdateRoomMutation } from "../../lib/mutations/rooms.mutations";
+import { useCompleteRoomTurnoverMutation } from "../../lib/mutations/rooms.mutations";
 import { apiClient, authenticatedFetch } from "../../lib/api/client";
 import { depositsApi } from "../../lib/api/deposits.api";
 import {
@@ -756,7 +756,7 @@ export default function OperationsContractDrawer({
   const completePendingRefundMutation =
     useCompletePendingSettlementRefundMutation();
   const deleteMutation = useDeleteContractMutation();
-  const updateRoomMutation = useUpdateRoomMutation();
+  const completeRoomTurnoverMutation = useCompleteRoomTurnoverMutation();
   const settlementRefund = detailContract?.settlementRefund;
   const isBookingHold = isBookingContract(detailContract);
   const linkedRental = getLinkedRental(detailContract);
@@ -1310,12 +1310,9 @@ export default function OperationsContractDrawer({
   };
 
   const handleMarkRoomAvailable = () => {
-    if (!detailContract?.room?.id) return;
-    updateRoomMutation.mutate(
-      {
-        id: detailContract.room.id,
-        data: { status: "AVAILABLE" },
-      },
+    if (!detailContract?.room?.id || completeRoomTurnoverMutation.isPending || !hasPermission("room.update")) return;
+    completeRoomTurnoverMutation.mutate(
+      detailContract.room.id,
       {
         onSuccess: () => {
           queryClient.invalidateQueries({
@@ -2236,8 +2233,22 @@ export default function OperationsContractDrawer({
           </div>
         }
         footer={
-          <div className="flex items-center justify-between gap-2 p-1">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 p-1">
+            <div className="flex flex-wrap items-center gap-2">
+              {["TERMINATED", "EXPIRED"].includes(detailContract.status) &&
+                ["CLEANING", "MAINTENANCE"].includes(detailContract.room?.status) &&
+                hasPermission("room.update") && (
+                  <Button
+                    data-testid="btn-room-ready"
+                    variant="outline"
+                    onClick={handleMarkRoomAvailable}
+                    isLoading={completeRoomTurnoverMutation.isPending}
+                    disabled={completeRoomTurnoverMutation.isPending}
+                    className="text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 size={14} /> Hoàn tất bàn giao phòng
+                  </Button>
+                )}
               {["ACTIVE", "EXPIRING", "EXPIRED"].includes(detailContract.status) && hasPermission("contract.create") && (
                 <Button
                   data-testid="btn-renew-contract"

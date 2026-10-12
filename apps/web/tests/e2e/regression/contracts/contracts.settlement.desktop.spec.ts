@@ -112,7 +112,7 @@ async function mockProofUpload(page: any, url: string) {
   });
 }
 
-async function mockContracts(page: any) {
+async function mockContracts(page: any, rejectTurnover = false) {
   let lastPreviewPayload: any = null;
   let lastTerminatePayload: any = null;
   let lastCompleteRefundPayload: any = null;
@@ -139,6 +139,7 @@ async function mockContracts(page: any) {
   });
 
   const contracts = [activeContract, terminatedContract];
+  terminatedContract.room.id = "room-terminated-1";
 
   await page.route("**/api/v1/contracts**", async (route: any) => {
     const requestUrl = new URL(route.request().url());
@@ -236,6 +237,10 @@ async function mockContracts(page: any) {
 
     if (method === "PATCH") {
       lastRoomUpdatePayload = route.request().postDataJSON?.() || {};
+      if (rejectTurnover) {
+        await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ message: "ROOM_TURNOVER_ROOM_IN_USE" }) });
+        return;
+      }
       const roomId = pathname.split("/").pop();
       const currentContract = contracts.find((item) => item.room?.id === roomId);
       const nextStatus = String(lastRoomUpdatePayload?.status || "AVAILABLE");
@@ -310,6 +315,7 @@ async function mockFullRentalJourney(page: any) {
       status: "DRAFT",
       startDate: "2026-08-13T00:00:00.000Z",
       endDate: "2027-08-12T00:00:00.000Z",
+      signedAt: "2026-08-13T00:00:00.000Z",
       monthlyRent: 5000000,
       depositMoney: 5000000,
       debt: 0,
@@ -332,11 +338,13 @@ async function mockFullRentalJourney(page: any) {
       id: "invoice-journey-1",
       code: "INV-JOURNEY-001",
       status: "DRAFT",
-      total: 5000000,
+      billingKind: "ENTRY",
+      period: "2026-08",
       paidAmount: 0,
       creditAmount: 0,
+      paymentRequests: [{ id: "request-journey-1", code: "PAY-JOURNEY-001", status: "PENDING", amount: 5000000 }],
+      total: 5000000,
       paidPercent: 0,
-      period: "08/2026",
       createdAt: "2026-08-13T08:00:00.000Z",
       dueDate: "2026-08-20T00:00:00.000Z",
       customer: { id: "customer-journey-1", name: "Nguyen Van Journey", fullName: "Nguyen Van Journey" },
@@ -386,6 +394,7 @@ async function mockFullRentalJourney(page: any) {
       state.lastConvertPayload = request.postDataJSON?.() || {};
       state.deposit.status = "CONVERTED_TO_CONTRACT";
       state.contractCreated = true;
+      state.invoiceCreated = true;
       return json(route, state.contract);
     }
     if (path.endsWith(`/deposits/${state.deposit.id}`) && method === "GET") {
@@ -413,11 +422,13 @@ async function mockFullRentalJourney(page: any) {
       return json(route, state.contract);
     }
     if (path.endsWith("/activate") && method === "POST") {
+      if (state.contract.status !== "APPROVED" || state.invoice.status !== "PAID" || state.invoice.paidAmount + state.invoice.creditAmount < state.invoice.total) {
+        return json(route, { message: "CONTRACT_ENTRY_INVOICE_UNPAID" }, 409);
+      }
       state.contract.status = "ACTIVE";
       state.deposit.status = "CONVERTED_TO_CONTRACT";
       state.roomStatus = "OCCUPIED";
       state.contract.room.status = state.roomStatus;
-      state.invoiceCreated = true;
       return json(route, state.contract);
     }
     if (path.endsWith("/settlement-preview") && method === "POST") {
@@ -481,7 +492,20 @@ async function mockFullRentalJourney(page: any) {
       return json(route, state.contract);
     }
     if (path.endsWith(`/contracts/${state.contract.id}`) && method === "GET") {
-      return json(route, state.contractCreated ? state.contract : null, state.contractCreated ? 200 : 404);
+      const entryInvoicePaid = state.invoice.status === "PAID" && state.invoice.paidAmount + state.invoice.creditAmount >= state.invoice.total;
+      const approved = ["APPROVED", "ACTIVE", "TERMINATED"].includes(state.contract.status);
+      return json(route, state.contractCreated ? {
+        ...state.contract,
+        entryInvoice: state.invoice,
+        bookingConversion: {
+          rentalReadiness: {
+            canActivate: approved && entryInvoicePaid,
+            entryInvoicePaid,
+            securityDepositPaid: true,
+            blockingReasons: [...(!approved ? ["CONTRACT_APPROVAL_REQUIRED"] : []), ...(!entryInvoicePaid ? ["ENTRY_INVOICE_UNPAID"] : [])],
+          },
+        },
+      } : null, state.contractCreated ? 200 : 404);
     }
     if (path.endsWith("/contracts") && method === "GET") {
       const items = state.contractCreated ? [state.contract] : [];
@@ -647,6 +671,19 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       .toMatchObject({
         status: "AVAILABLE",
       });
+    await expect(admin.page.getByTestId("btn-room-ready")).toHaveCount(0);
+  });
+
+  test("keeps cleaning state when guarded turnover rejects current bindings", async ({ admin }) => {
+    await mockContracts(admin.page, true);
+    await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
+    await admin.page.locator("[data-testid='contract-card']:visible").filter({ hasText: "C-TERM-001" }).first().click();
+    const response = admin.page.waitForResponse((item) => item.request().method() === "PATCH" && new URL(item.url()).pathname === "/api/v1/rooms/room-terminated-1");
+    await admin.page.getByTestId("btn-room-ready").click();
+    expect((await response).status()).toBe(409);
+    await expect(admin.page.getByText("ROOM_TURNOVER_ROOM_IN_USE", { exact: true })).toBeVisible();
+    await expect(admin.page.getByTestId("btn-room-ready")).toBeEnabled();
+    await expect(admin.page.getByText("Đã chuyển phòng về trạng thái sẵn sàng khai thác", { exact: true })).toHaveCount(0);
   });
 
   test("shows deposit deduction as settlement credit instead of extra charge", async ({ admin }) => {
@@ -756,14 +793,16 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     });
 
     const openJourneyContract = async () => {
+      const currentDrawer = admin.page.getByTestId("contract-detail-drawer");
+      if (await currentDrawer.isVisible()) {
+        await currentDrawer.getByTestId("contract-detail-close").click();
+        await expect(currentDrawer).not.toBeInViewport();
+      }
       const contractCard = admin.page.locator("[data-testid='contract-card']:visible").filter({ hasText: journey.contract.code }).first();
       await expect(contractCard).toBeVisible();
-      const detailResponse = admin.page.waitForResponse((response) =>
-        new URL(response.url()).pathname === `/api/v1/contracts/${journey.contract.id}` && response.request().method() === "GET",
-      );
       await contractCard.click();
       await expect(admin.page.getByRole("heading", { name: "Chi tiết hợp đồng thuê phòng", exact: true })).toBeVisible();
-      expect((await (await detailResponse).json()).data.id).toBe(journey.contract.id);
+      await expect(currentDrawer).toContainText(journey.contract.code);
     };
 
     await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
@@ -775,8 +814,11 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     await expect.poll(() => journey.contract.status).toBe("APPROVED");
     await openJourneyContract();
     await admin.page.getByTestId("btn-activate-contract").click();
-    await expect.poll(() => journey.contract.status).toBe("ACTIVE");
-    expect(journey.roomStatus).toBe("OCCUPIED");
+    const moveIn = admin.page.getByTestId("contract-move-in-confirm");
+    await expect(moveIn.getByText("Hóa đơn kỳ đầu chưa thanh toán đủ.", { exact: true })).toBeVisible();
+    await expect(moveIn.getByRole("button", { name: "Xác nhận đã bàn giao và nhận phòng", exact: true })).toBeDisabled();
+    expect(journey.contract.status).toBe("APPROVED");
+    expect(journey.roomStatus).toBe("RESERVED");
     expect(journey.invoiceCreated).toBe(true);
 
     const openJourneyInvoice = async () => {
@@ -807,6 +849,12 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     expect(journey.lastInvoicePaymentPayload).toMatchObject({ amount: 5000000 });
 
     await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
+    await openJourneyContract();
+    await admin.page.getByTestId("btn-activate-contract").click();
+    await expect(admin.page.getByTestId("contract-move-in-confirm")).toBeVisible();
+    await admin.page.getByTestId("contract-move-in-confirm").getByRole("button", { name: "Xác nhận đã bàn giao và nhận phòng", exact: true }).click();
+    await expect.poll(() => journey.contract.status).toBe("ACTIVE");
+    expect(journey.roomStatus).toBe("OCCUPIED");
     await openJourneyContract();
     await admin.page.getByTestId("btn-open-settlement").click();
     await expect(admin.page.getByTestId("contract-settlement-modal")).toBeVisible();

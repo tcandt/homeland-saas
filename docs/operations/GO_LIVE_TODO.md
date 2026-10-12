@@ -524,6 +524,8 @@ Không mở hoặc phải dừng LIVE khi có một trong các điều kiện:
 6. Deploy staging immutable, baseline DB và chạy full gate `STG-01..05`.
 7. Backup/restore/rollback đã mở lại cho phát triển và diễn tập local theo `SCP-03` ngày 10/10/2026. SePay/notification/UAT production cần duyệt và môi trường riêng; Hunonic provider thật vẫn deferred theo `SCP-01`.
 
+- `BACKUP DESTINATION CLARIFICATION` 12/10/2026: owner superseded the second-NAS/server choice with **existing NAS only** and authorized creating a backup folder. Empty `/docker/homeland-backups` created and verified through DSM File Station; screenshot `testing/staging-20261012/nas-backup-folder/created.jpg`. No backup upload, container/mount/tunnel/database or permission change. Same-NAS RAID storage is not an off-host copy; `BKP-01` remains OPEN, separate restore rights/encryption/snapshots/retention are not verified. This is not a production GO or a gate waiver.
+
 ## 20. B03 invoice payment presentation checkpoint — 11/10/2026 (local only)
 
 - B03 bounded fix PASS: invoice/group/child rows, billing drawer, payment bundle, printable invoice, HTML PDF export và Operations KPI dùng số tiền authoritative thay vì lifecycle `PAID` đơn độc. `PAID` còn dư nợ không còn hiển thị/đếm là đã thu đủ; credit/mixed settlement hiển thị riêng; dữ liệu pending/invalid/terminal có nhãn trung tính.
@@ -544,3 +546,19 @@ Không mở hoặc phải dừng LIVE khi có một trong các điều kiện:
 - Job ngày 01 dùng `sendNotifications` và vẫn có fallback `closeMonth` idempotent nếu job cuối tháng bị gián đoạn; không gửi sớm trong job chốt và không tạo hóa đơn mới nếu run đã `COMPLETED`.
 - Docker Node22 gates: scheduler **4/4 PASS**, payment + scheduler **44/44 PASS**, monthly-settlement service **40/40 PASS** (**84/84** tổng); API TypeScript PASS; `git diff --check` PASS. Test bao phủ runtime worker, biên 23:59:59 GMT+7, kỳ `2026-09` → billing `2026-10`, không gửi sớm, gửi đúng ngày 01 và không gửi trùng notification đã có `zaloSentAt`/đang in-flight.
 - Phạm vi chỉ local scheduler/test; chưa gửi Zalo/email thật, chưa gọi Hunonic/SePay thật, chưa truy cập NAS và chưa kiểm tra dữ liệu lịch sử. Kênh hiện hữu là Zalo payment notification; email/SMS chỉ được mở nếu cấu hình/provider riêng được owner duyệt. B02 chưa thay thế release regression, UAT, staging hay sign-off tài chính; LIVE NO-GO giữ nguyên.
+
+## 23. Guarded room turnover checkpoint — 12/10/2026 (local only)
+
+- Bàn giao phòng từ `CLEANING`/`MAINTENANCE` sang `AVAILABLE` đã chuyển sang
+  command tenant-scoped có khóa dòng Room, transaction serializable, retry
+  serialization/deadlock và audit Room nguyên tử. Occupancy mở, contract còn
+  hiệu lực/hiển thị, RoomHold ACTIVE hoặc Customer còn gắn phòng đều bị từ
+  chối fail-closed; không có partial write.
+- Web dùng nút `btn-room-ready` không optimistic, chỉ cập nhật/invalidate sau
+  API thành công. API unit/turnover **23/23**, Web mutation **2/2**, focused
+  cleaning E2E **2/2**, PostgreSQL16 turnover-vs-booking **9/9**. Independent Sol
+  High review: `PASS_WITH_FINDINGS` (chỉ còn finding chất lượng harness và chưa
+  có activation-race evidence).
+- Canonical full rental journey, visual/mobile/WebKit, backup off-host, NAS
+  Homeland stack/tunnel binding, remote CI trên exact SHA và GATE-10 vẫn OPEN;
+  không deploy NAS, push/tag hoặc mở LIVE từ checkpoint này.

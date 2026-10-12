@@ -8,7 +8,8 @@ push was performed. Unrelated dirty files and existing artifacts were retained.
 
 - Immutable API/Web runtime source:
   `08de2dcac95b6d9a0f133e82e2ddec34c6d0e851`.
-- Test harness started at `fd0a203a`; subsequent changes are test-only.
+- Test harness started at `fd0a203a`; this continuation adds the reviewed
+  guarded room-turnover command/UI plus focused test coverage.
 - Isolated synthetic database: `homeland_release_baseline_test`, loopback5436,
   34 completed migrations. Shared `homeland_postgres`/`homeland_redis` untouched.
 - Local API/Web: loopback43294/43295. Background jobs/outbox/immediate delivery
@@ -45,11 +46,17 @@ The serial CORE-10.04 loopback run initially finished26/32, with6 failures and
   selectors were corrected, but the fixture still uses the old activation-before-
   invoice sequence and omits the current move-in confirmation. The original
   assertions are retained; it has not been skipped or marked passed.
-- Cleaning completion remains OPEN: `handleMarkRoomAvailable` exists but no UI
-  action invokes it. A UI-only addition was removed before commit because the
-  generic room update path does not establish current contract/occupancy/hold
-  invariants. A guarded tenant-scoped server transition and concurrency tests
-  need independent review before enabling this action.
+- Cleaning completion is now guarded locally: the tenant-scoped `AVAILABLE`
+  transition locks the room, rejects occupancy/visible-contract/active-hold/
+  customer bindings, writes the Room audit in the same serializable transaction,
+  and retries serialization/deadlock conflicts. The drawer action is
+  non-optimistic and invalidates room/contract/dashboard queries only after the
+  server succeeds. API unit/turnover tests are 23/23, Web mutation tests 2/2,
+  focused cleaning E2E success/rejection are 2/2, and isolated PostgreSQL
+  turnover-vs-booking integration is 9/9. The deterministic booking-first
+  barrier now has a bounded lock-entry wait and always awaits both concurrent
+  promises during cleanup; the rerun passed 9/9 in Node22/PostgreSQL16. The
+  activation-race remains untested and the full rental journey remains OPEN.
 
 Additional production-style desktop audit initially finished20/24. Expenses9/9,
 SePay reconciliation5/5 and password-change1/1 passed; these fixtures mock the
@@ -121,15 +128,26 @@ rollback of those populated business scenarios.
 
 ## Open gates and next actions
 
-1. Implement guarded cleaning completion; fix the canonical journey fixture;
-   obtain Sol High review. Reviewer/writer attempts failed before work because
-   their models were at capacity; no independent review PASS is claimed.
+1. Keep the guarded cleaning completion evidence above; fix the canonical
+   journey fixture and obtain the remaining release review. The turnover guard
+   has independent Sol High `PASS_WITH_FINDINGS`; the test harness still needs
+   bounded barrier cleanup and activation-race coverage is not claimed.
 2. Close visual baseline review, mobile/device/WebKit and remaining real-money
    scenarios/11 operational images, then the full release gate on exact SHA.
-3. Owner selected a second NAS/server with separate restore permissions for
-   off-host backup. Await host/path/protocol and secure local credentials.
-   Verify copy/receipt, encryption/snapshots and approve the proposed7 daily/4 weekly/12
-   monthly retention before closing BKP-01..04. Do not delete backups now.
+3. Owner initially selected a second NAS/server, then clarified that only the
+   existing NAS is available. With explicit folder-creation authorization, created
+   the empty `/docker/homeland-backups` directory through the logged-in DSM File
+   Station and verified the listing. Screenshot:
+   `testing/staging-20261012/nas-backup-folder/created.jpg`.
+   No upload, mount, permission, tunnel, container or database change occurred.
+   Read-only Container Manager inventory shows two existing containers
+   (`cloudflared`, `mediaslution-web`), no projects and no Homeland stack.
+   Neither container was changed. Inventory screenshot retained beside the
+   folder screenshot; host volume path has not been established from DSM.
+   This is same-NAS storage, not off-host durability; RAID does not satisfy BKP-01.
+   Encryption/snapshots, separate restore permissions, automatic copy/receipt,
+   retention and an independent recovery copy remain unverified. Do not delete
+   backups or treat the clarified destination as a release-gate waiver.
 4. Select compatible rollback images and complete version-matched UI smoke.
 5. Fresh immutable HEAD build and remote GitHub CI are still open. Latest
    inspected remote run37108771515 failed before jobs on older SHA989f8521;

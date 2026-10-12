@@ -96,7 +96,13 @@ migrations and the independently derived fingerprint
 `fd9d42c90e48aae98cc51e745989c7797a04c709ed16dd97c0c0a61d5e7739ca`.
 Remote HTTPS staging preflight remains pending until `homeland.ductinh.one`
 is confirmed as an isolated staging origin and the CI `STAGING_ORIGINS`/secret
-configuration is supplied. Guard/preflight/workflow tests pass29/29.
+configuration is supplied. Guard/preflight/workflow tests pass33/33; the
+production preflight/backup/restore/rollback safety suite passes112/112.
+The rebuilt current-working-tree Node20 Web image passes the full Desktop1366
+smoke20/20, with snapshots intentionally ignored and no baseline overwrite.
+The immutable registry production compose bundle parses successfully. The
+public-testing compose requires its documented generated `.env.public-testing`
+file and was not started.
 
 ## Remaining work
 

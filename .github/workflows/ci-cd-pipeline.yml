@@ -565,7 +565,7 @@ jobs:
         run: |
           curl -s --fail ${{ secrets.STAGING_URL }}/api/v1/health/ready > /dev/null
           RESPONSE=$(curl -s --fail -H "x-internal-token: ${{ secrets.INTERNAL_API_TOKEN }}" ${{ secrets.STAGING_URL }}/api/v1/health/build-info)
-          COMMIT=$(echo "$RESPONSE" | jq -r '.commit')
+          COMMIT=$(echo "$RESPONSE" | jq -r 'if .success == true then .data.commit else .commit end')
           
           if [ "$COMMIT" != "${{ github.sha }}" ]; then
             echo "Commit mismatch: $COMMIT vs ${{ github.sha }}"
@@ -633,14 +633,14 @@ jobs:
           curl --silent --show-error --fail "$STAGING_URL/api/v1/health" >/dev/null
           curl --silent --show-error --fail "$STAGING_URL/api/v1/health/ready" >/dev/null
           curl --silent --show-error --fail -H "x-internal-token: $INTERNAL_API_TOKEN" "$STAGING_URL/api/v1/health/build-info" > core-10-04-build-info.json
-          test "$(jq -r '.commit' core-10-04-build-info.json)" = "${{ github.sha }}"
+          test "$(jq -r 'if .success == true then .data.commit else .commit end' core-10-04-build-info.json)" = "${{ github.sha }}"
       - name: Check staging database identity
         run: |
           set -euo pipefail
           test -n "$STAGING_DB_ID" || { echo 'BLOCKED: vars.STAGING_DB_ID is not configured'; exit 1; }
           test -n "$CORE1004_SCHEMA_FINGERPRINT" || { echo 'BLOCKED: vars.CORE1004_SCHEMA_FINGERPRINT is not configured'; exit 1; }
           curl --silent --show-error --fail -H "x-internal-token: $INTERNAL_API_TOKEN" "$STAGING_URL/api/v1/health/staging-diagnostics" > core-10-04-diagnostics.json
-          jq -e --arg db "$STAGING_DB_ID" --arg fp "$(node -e "console.log(require('./packages/database/prisma/baseline-v2/baseline-v2.manifest.json').canonicalFingerprint)")" '(.databaseId == $db) and (.schemaFingerprint == $fp) and (.migrationCount == 18) and (.environment == "staging")' core-10-04-diagnostics.json >/dev/null
+          jq -e --arg db "$STAGING_DB_ID" --arg fp "$(node -e "console.log(require('./packages/database/prisma/baseline-v2/baseline-v2.manifest.json').canonicalFingerprint)")" '((.data // .) | (.databaseId == $db) and (.schemaFingerprint == $fp) and (.migrationCount == 18) and (.environment == "staging"))' core-10-04-diagnostics.json >/dev/null
       - name: Validate approved CORE-10.04 fixture manifest
         run: |
           set -euo pipefail
@@ -787,7 +787,7 @@ jobs:
         run: |
           curl -s --fail ${{ secrets.PRODUCTION_URL }}/api/v1/health/ready > /dev/null
           RESPONSE="$(curl -s --fail -H "x-internal-token: ${{ secrets.INTERNAL_API_TOKEN }}" ${{ secrets.PRODUCTION_URL }}/api/v1/health/build-info)"
-          COMMIT="$(echo "$RESPONSE" | jq -r '.commit')"
+          COMMIT="$(echo "$RESPONSE" | jq -r 'if .success == true then .data.commit else .commit end')"
           test "$COMMIT" = "${{ github.sha }}"
       - name: Run production gate
         env:

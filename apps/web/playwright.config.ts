@@ -7,6 +7,7 @@ if (missingE2E.length) {
 }
 const webBaseUrl = process.env.E2E_WEB_BASE_URL!;
 const apiBaseUrl = process.env.E2E_API_BASE_URL!;
+const { admissionStorageState } = require('../../scripts/staging-admission');
 
 export default defineConfig({
     testDir: './tests/e2e',
@@ -20,6 +21,7 @@ export default defineConfig({
         ],
     use: {
           baseURL: webBaseUrl,
+          ...admissionStorageState(webBaseUrl),
           trace: 'on',
           video: 'on',
           screenshot: 'on',

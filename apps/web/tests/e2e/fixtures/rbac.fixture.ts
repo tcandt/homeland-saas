@@ -1,6 +1,7 @@
 import { test as base, Page, APIRequestContext, request as pwRequest } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+const { admissionStorageState } = require('../../../../../scripts/staging-admission');
 
 // Define the shape of our fixture
 export type RoleFixture = {
@@ -70,7 +71,7 @@ const createRoleFixture = (email: string, roleName: string, passwordEnv?: string
       token = authData.accessToken;
       user = authData.user;
       
-      context = await browser.newContext({ baseURL: finalBaseURL });
+      context = await browser.newContext({ baseURL: finalBaseURL, ...admissionStorageState(finalBaseURL) });
       page = await context.newPage();
       
       // Complete an empty stream so network-idle is deterministic without a console error.
@@ -103,6 +104,7 @@ const createRoleFixture = (email: string, roleName: string, passwordEnv?: string
 
     const api = await pwRequest.newContext({
       baseURL: process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3001',
+      ...admissionStorageState(process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3001'),
       extraHTTPHeaders: {
         'Authorization': `Bearer ${token}`
       }

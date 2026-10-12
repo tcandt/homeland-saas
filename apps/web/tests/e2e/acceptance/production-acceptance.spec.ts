@@ -65,7 +65,6 @@ rbacTest.describe('Level 3 - Production Acceptance: Full Business Workflow', () 
   });
 
   rbacTest('1. Setup Core Entities (Building, Room, Customer)', async ({ admin }) => {
-    console.log('TOKEN IS:', admin.token);
     // Fast setup via API, verify via UI
     const building = await factory.createBuilding(testPrefix);
     createdIds.buildingId = building.id;

@@ -174,11 +174,13 @@ test.describe('SePay Webhook Runtime E2E (local signed transport)', () => {
     expect(duplicateWebhook?.status).toBe('NEEDS_REVIEW');
 
     await page.goto('/invoices');
-    const invoiceCard = page.locator('[data-testid="invoice-card"]:visible').filter({ hasText: invoiceCode }).first();
-    await expect(invoiceCard).toBeVisible({ timeout: 10000 });
-    await invoiceCard.click();
-    const drawer = page.getByTestId('invoice-detail-drawer');
-    await expect(drawer.getByTestId('invoice-status-badge')).toHaveText('Đã thu đủ', { timeout: 10000 });
+    const invoiceRow = page.getByTestId('invoices-list').getByText(invoiceCode, { exact: true }).locator('xpath=ancestor::tr');
+    await expect(invoiceRow).toHaveCount(1);
+    await expect(invoiceRow).toBeVisible({ timeout: 10000 });
+    await invoiceRow.click();
+    const drawer = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Chi tiết hóa đơn', exact: true }) });
+    const header = drawer.getByRole('heading', { name: 'Chi tiết hóa đơn', exact: true }).locator('..');
+    await expect(header.getByText('Đã thu đủ', { exact: true })).toBeVisible({ timeout: 10000 });
 
     await evidence.captureDbSnapshot('sepay-webhook-final-state', async () => ({
       invoice: await prisma.invoice.findUnique({

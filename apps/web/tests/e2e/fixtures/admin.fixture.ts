@@ -1,6 +1,7 @@
 import { test as base, Page, APIRequestContext, request as pwRequest } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+const { admissionStorageState } = require('../../../../../scripts/staging-admission');
 
 // Define the shape of our fixture
 type AdminFixture = {
@@ -70,7 +71,7 @@ export const test = base.extend<{ admin: AdminFixture }>({
       user = authData.user;
       
       // Create context with token injected to localStorage
-      context = await browser.newContext({ baseURL: finalBaseURL });
+      context = await browser.newContext({ baseURL: finalBaseURL, ...admissionStorageState(finalBaseURL) });
       page = await context.newPage();
       
       // Complete an empty stream so network-idle is deterministic without a console error.
@@ -106,6 +107,7 @@ export const test = base.extend<{ admin: AdminFixture }>({
     // Set up API context with token
     const api = await pwRequest.newContext({
       baseURL: process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3001',
+      ...admissionStorageState(process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3001'),
       extraHTTPHeaders: {
         'Authorization': `Bearer ${token}`
       }

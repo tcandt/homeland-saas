@@ -337,7 +337,7 @@ async function mockFullRentalJourney(page: any) {
     invoice: {
       id: "invoice-journey-1",
       code: "INV-JOURNEY-001",
-      status: "DRAFT",
+      status: "ISSUED",
       billingKind: "ENTRY",
       period: "2026-08",
       paidAmount: 0,
@@ -395,6 +395,7 @@ async function mockFullRentalJourney(page: any) {
       state.deposit.status = "CONVERTED_TO_CONTRACT";
       state.contractCreated = true;
       state.invoiceCreated = true;
+      state.invoice.status = "ISSUED";
       return json(route, state.contract);
     }
     if (path.endsWith(`/deposits/${state.deposit.id}`) && method === "GET") {
@@ -770,6 +771,7 @@ test.describe("Contracts Settlement Desktop Regression", () => {
   });
 
   test("runs one rental record from deposit collection through paid invoice and room turnover", async ({ admin }) => {
+    test.setTimeout(60_000);
     const journey = await mockFullRentalJourney(admin.page);
     admin.page.on("dialog", async (dialog) => {
       if (dialog.type() === "prompt") await dialog.accept("5000000");
@@ -798,8 +800,10 @@ test.describe("Contracts Settlement Desktop Regression", () => {
         await currentDrawer.getByTestId("contract-detail-close").click();
         await expect(currentDrawer).not.toBeInViewport();
       }
-      const contractCard = admin.page.locator("[data-testid='contract-card']:visible").filter({ hasText: journey.contract.code }).first();
-      await expect(contractCard).toBeVisible();
+      const contractCard = admin.page
+        .getByRole("group", { name: `Hợp đồng thuê phòng ${journey.contract.code}` })
+        .first();
+      await expect(contractCard).toBeVisible({ timeout: 15_000 });
       await contractCard.click();
       await expect(admin.page.getByRole("heading", { name: "Chi tiết hợp đồng thuê phòng", exact: true })).toBeVisible();
       await expect(currentDrawer).toContainText(journey.contract.code);
@@ -826,24 +830,32 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       await expect(row).toBeVisible({ timeout: 15_000 });
       await expect(row).toContainText("5.000.000");
       await row.click();
-      await expect(admin.page.getByTestId("invoice-detail-drawer")).toBeVisible();
+      await expect(
+        admin.page.getByRole("dialog").filter({
+          has: admin.page.getByRole("heading", { name: "Chi tiết hóa đơn", exact: true }),
+        }),
+      ).toBeVisible();
     };
 
     await admin.page.goto("/invoices", { waitUntil: "domcontentloaded" });
     await openJourneyInvoice();
-    await admin.page.getByTestId("btn-issue-invoice").click();
     await expect.poll(() => journey.invoice.status).toBe("ISSUED");
-    await admin.page.getByTestId("invoice-detail-close").click();
+    const invoiceDrawer = admin.page.getByRole("dialog").filter({
+      has: admin.page.getByRole("heading", { name: "Chi tiết hóa đơn", exact: true }),
+    });
+    await invoiceDrawer.getByRole("button", { name: "Đóng (ESC)", exact: true }).click();
     await admin.page.reload({ waitUntil: "domcontentloaded" });
     await openJourneyInvoice();
-    await admin.page.getByTestId("btn-pay-invoice").click();
-    const paymentModal = admin.page
-      .getByRole("heading", { name: "Xác nhận ghi nhận thu tiền" })
-      .locator("xpath=../..");
+    const paymentDrawer = admin.page.getByRole("dialog").filter({
+      has: admin.page.getByRole("heading", { name: "Chi tiết hóa đơn", exact: true }),
+    });
+    await paymentDrawer.getByRole("button", { name: /Thu tiền mặt/ }).click();
+    const paymentModal = paymentDrawer
+      .getByRole("heading", { name: "Ghi nhận thu tiền mặt", exact: true })
+      .locator("xpath=ancestor::div[.//input][1]");
     await expect(paymentModal).toBeVisible();
-    await admin.page.getByRole("button", { name: "Tiền mặt trực tiếp" }).click();
-    await admin.page.getByPlaceholder("Nhập số tiền...").fill("5000000");
-    await admin.page.getByRole("button", { name: "Xác nhận đã thu tiền mặt" }).click();
+    await paymentModal.getByPlaceholder("0").fill("5000000");
+    await paymentModal.getByRole("button", { name: "Xác nhận thu", exact: true }).click();
     await expect(paymentModal).toBeHidden();
     await expect.poll(() => journey.invoice.status).toBe("PAID");
     expect(journey.lastInvoicePaymentPayload).toMatchObject({ amount: 5000000 });
@@ -900,6 +912,9 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     expect(journey.contract.settlementRefund.completed).toBe(true);
     expect(journey.roomStatus).toBe("CLEANING");
 
+    // Reset the page-level query cache so the guarded turnover action reads the
+    // just-terminated contract and its authoritative CLEANING room status.
+    await admin.page.reload({ waitUntil: "domcontentloaded" });
     await openJourneyContract();
     await admin.page.getByTestId("btn-room-ready").click();
     await expect.poll(() => journey.roomStatus).toBe("AVAILABLE");

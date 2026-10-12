@@ -42,11 +42,15 @@ The serial CORE-10.04 loopback run initially finished26/32, with6 failures and
 - Contracts smoke functional assertions pass with snapshots explicitly ignored.
   The12% visual difference versus the old10% threshold is still OPEN; no baseline
   was overwritten and no visual PASS is claimed.
-- Mock full rental journey remains OPEN. BOOKING type, ENTRY invoice creation,
-  approval-before-activation, unpaid-entry blocking and the current move-in
-  confirmation are now represented in the fixture. The remaining failure is
-  card/drawer synchronization after navigation; the original assertions are
-  retained, the test has not been skipped or marked passed.
+- Mock full rental journey now passes on the current Node20 Web Docker runtime:
+  deposit collect → conversion/issued ENTRY invoice → submit/approve → blocked
+  activation while unpaid → pay invoice → move-in confirmation → ACTIVE /
+  OCCUPIED → settlement/utility/refund → guarded CLEANING → AVAILABLE. The
+  helper now synchronizes by drawer identity and role-based card/dialog
+  selectors, refreshes page query state before final turnover, and uses the
+  current invoice/payment controls. Focused Desktop1366 run is **3/3 PASS**
+  (cleaning success, cleaning rejection, full journey). This is local mocked
+  business-API evidence, not provider/UAT or NAS evidence.
 - Cleaning completion is now guarded locally: the tenant-scoped `AVAILABLE`
   transition locks the room, rejects occupancy/visible-contract/active-hold/
   customer bindings, writes the Room audit in the same serializable transaction,
@@ -129,10 +133,10 @@ rollback of those populated business scenarios.
 
 ## Open gates and next actions
 
-1. Keep the guarded cleaning completion evidence above; fix the canonical
-   journey fixture and obtain the remaining release review. The turnover guard
-   has independent Sol High `PASS_WITH_FINDINGS`; the test harness still needs
-   bounded barrier cleanup and activation-race coverage is not claimed.
+1. Keep the guarded cleaning and canonical journey evidence above. The turnover
+   guard has independent Sol High `PASS_WITH_FINDINGS`; activation-race coverage
+   is still untested and the journey remains mocked, so staging/UAT evidence is
+   still required.
 2. Close visual baseline review, mobile/device/WebKit and remaining real-money
    scenarios/11 operational images, then the full release gate on exact SHA.
 3. Owner initially selected a second NAS/server, then clarified that only the

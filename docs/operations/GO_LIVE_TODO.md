@@ -562,3 +562,10 @@ Không mở hoặc phải dừng LIVE khi có một trong các điều kiện:
 - Canonical full rental journey, visual/mobile/WebKit, backup off-host, NAS
   Homeland stack/tunnel binding, remote CI trên exact SHA và GATE-10 vẫn OPEN;
   không deploy NAS, push/tag hoặc mở LIVE từ checkpoint này.
+
+- Bổ sung rerun Desktop1366 trên Web Node20 Docker hiện tại: **3/3 PASS** cho
+  cleaning success, cleaning rejection và toàn bộ journey cọc → ENTRY invoice →
+  duyệt → thanh toán → nhận phòng → quyết toán → AVAILABLE. Đây là evidence
+  local với business API mock, không thay thế staging/provider/UAT; activation
+  race, visual/mobile/WebKit, backup off-host, NAS binding, exact-SHA CI và
+  GATE-10 vẫn mở.

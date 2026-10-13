@@ -79,6 +79,26 @@ HTTPS smoke/UAT and full DB-backed CORE1004 remain OPEN; LIVE is NO-GO.
 
 ## Open gates
 
+## Deployment evidence — 14/10/2026
+
+- The active NAS project `/volume1/docker/homeland/source` was recreated from a
+  deploy-only Compose with pinned images `homeland-api:3.0.2-11a4f3c1` and
+  `homeland-web:3.0.2-11a4f3c1`. The previous compose was copied to the
+  preserved source tree before replacement; no database/storage volume was
+  removed.
+- Container Manager build/recreate exited `0`; bootstrap exited normally, API
+  readiness is `200`, and the running API build-info reports commit
+  `11a4f3c12b629e8287277517c03ad7a813166328`, version `3.0.2-11a4f3c1`,
+  deployment environment `staging`, and runtime role `api`.
+- HTTPS smoke through `https://homeland.ductinh.one` passed: readiness `200`,
+  staging diagnostics `200`, notifications `200`, SePay admin config `200`,
+  auth activity `201`; Zalo connect/test endpoints fail closed with
+  `503 EXTERNAL_PROVIDER_DISABLED_IN_STAGING`. No provider delivery occurred.
+- The private NAS `.env` was used only locally for the smoke request; no
+  credential value is recorded here. Finance/Reports UI, four-role browser
+  acceptance, backup/restore drill, remote exact-SHA CI and production rollout
+  remain open. LIVE remains NO-GO.
+
 Candidate source commit: `31000686b89d1313f57835823c235dc5e523bdb8`.
 API Node22 and Web Node20 built from a clean Git archive of this commit.
 API image: `sha256:8593f9eed4f822ea004068faa4adb8f5ebfbedff4c6d85a137e1805cf2eda545`.

@@ -58,7 +58,7 @@ describe('CommunicationController Zalo webhook', () => {
       ['sendEmailTest', 'setting.update'],
       ['sendTelegramTest', 'setting.update'],
     ];
-    const contextFor = (handler: Function, user?: Record<string, unknown>) => ({
+    const contextFor = (handler: (...args: never[]) => unknown, user?: Record<string, unknown>) => ({
       getHandler: () => handler,
       getClass: () => CommunicationController,
       switchToHttp: () => ({ getRequest: () => ({ user }) }),

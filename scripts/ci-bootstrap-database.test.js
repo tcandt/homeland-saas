@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { assertBaselineV2Artifact, assertHistoricalManifest, assertDisposableLocalDatabase, validateMigrationInventory, historicalManifest, supplementalManifest, reviewedMigrations } = require('./ci-bootstrap-database');
+const { assertBaselineV2Artifact, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, historicalManifest, supplementalManifest, reviewedMigrations } = require('./ci-bootstrap-database');
 
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -44,6 +44,18 @@ test('BASELINE-V2 inventory covers full schema and custom DDL dimensions', () =>
   for (const key of ['tables', 'columns', 'enums', 'constraints', 'indexes', 'functions', 'triggers']) assert.ok(Array.isArray(manifest.inventory[key]) && manifest.inventory[key].length > 0, `missing ${key}`);
   assert.ok(manifest.inventory.indexes.some((index) => index.name === 'Payment_tenantId_provider_providerRef_nonempty_key'));
   assert.ok(manifest.inventory.triggers.some((trigger) => trigger.name === 'DepositLedgerEntry_append_only'));
+});
+
+test('NAS bootstrap rejects production, external or unconfirmed database targets', () => {
+  const valid = { NAS_STAGING_BOOTSTRAP: 'true', DEPLOY_ENV: 'staging', NAS_STAGING_BOOTSTRAP_CONFIRM: 'homeland_nas_staging', DATABASE_URL: 'postgresql://homeland_staging:test@postgres:5432/homeland_staging?schema=public' };
+  assert.doesNotThrow(() => assertNasStagingDatabase(valid));
+  for (const overrides of [
+    { NAS_STAGING_BOOTSTRAP: 'false' }, { DEPLOY_ENV: 'production' }, { NAS_STAGING_BOOTSTRAP_CONFIRM: '' },
+    { DATABASE_URL: 'postgresql://homeland_staging:test@nas.example:5432/homeland_staging' },
+    { DATABASE_URL: 'postgresql://homeland_staging:test@postgres:5433/homeland_staging' },
+    { DATABASE_URL: 'postgresql://homeland:test@postgres:5432/homeland_staging' },
+    { DATABASE_URL: 'postgresql://homeland_staging:test@postgres:5432/homeland' },
+  ]) assert.throws(() => assertNasStagingDatabase({ ...valid, ...overrides }), /NAS staging bootstrap requires/);
 });
 
 test('existing BASELINE-V2 path is audit-only and cannot resolve or apply baseline SQL', () => {

@@ -1,7 +1,7 @@
 name: homeland_nas_staging
 
 x-api-build: &api-build
-  context: .
+  context: ../..
   dockerfile: Dockerfile.api
   args:
     COMMIT_SHA: ${COMMIT_SHA:?Set COMMIT_SHA in .env}
@@ -131,7 +131,7 @@ services:
   web:
     image: homeland-web:${APP_VERSION}
     build:
-      context: .
+      context: ../..
       dockerfile: Dockerfile.web
       args:
         COMMIT_SHA: ${COMMIT_SHA}
@@ -155,8 +155,8 @@ services:
       NEXT_PUBLIC_BUILD_ID: ${BUILD_ID}
       NEXT_PUBLIC_BUILD_TIME: ${BUILD_TIME}
     volumes:
-      - ./tai-lieu:/app/tai-lieu:ro
-      - ./tai-lieu:/app/apps/web/tai-lieu:ro
+      - ../../tai-lieu:/app/tai-lieu:ro
+      - ../../tai-lieu:/app/apps/web/tai-lieu:ro
     depends_on:
       api:
         condition: service_healthy

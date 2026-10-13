@@ -30,11 +30,13 @@ HTTPS smoke/UAT and full DB-backed CORE1004 remain OPEN; LIVE is NO-GO.
   month on 13/10/2026), confirming the latest-period default bug fix in the
   deployed candidate.
 
-- Restart/data-preservation evidence: before the Compose refresh, the staging
-  database contained 1 tenant, 4 users and 34 rooms; Customer, Contract,
-  Deposit, Invoice, Payment, Occupancy and DepositLedgerEntry were empty. The
-  refreshed Compose was byte-for-byte equivalent after newline normalization,
-  retained `db_v3`, and bootstrap again exited without deleting volumes.
+- Pre-refresh data baseline captured: staging contained 1 tenant, 4 users and
+  34 rooms; Customer, Contract, Deposit, Invoice, Payment, Occupancy and
+  DepositLedgerEntry were empty. The refreshed Compose was byte-for-byte
+  equivalent after newline normalization, retained `db_v3`, and bootstrap
+  exited successfully without a volume-delete action. A post-restart row/hash
+  comparison is still open because DSM's Stop action reported an intermittent
+  UI failure during this pass.
 
 - Candidate label `3.0.2-70dd5055` built and project start exited 0.
 - Worker subsequently restarted repeatedly: missing production `STORAGE_DIR`.

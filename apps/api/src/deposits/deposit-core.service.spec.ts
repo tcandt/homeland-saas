@@ -219,7 +219,7 @@ describe('DepositCoreService', () => {
     });
 
     await expect(service.collect('tenant-1', booking.id, {
-      idempotencyKey: 'reconcile-stale-paid-1',
+      idempotencyKey: 'reconcile-stale-paid-1', // gitleaks:allow — deterministic test key
       notificationContext: {
         linkedInvoicePayment: true,
         paymentRequestId: 'request-stale-paid-1',

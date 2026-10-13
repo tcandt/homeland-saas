@@ -63,7 +63,7 @@ describe('D2-FIX-09: Production Deposit API Commands & Invariants', () => {
         deductAmount: 0,
         refundStatus: 'PENDING',
         attachmentUrls: ['https://example.test/refund-proof.pdf'],
-        idempotencyKey: 'idemp-cancel-key-456',
+        idempotencyKey: 'idemp-cancel-key-456', // gitleaks:allow — deterministic test key
       },
       {
         headers: { 'Idempotency-Key': 'idemp-cancel-key-456' },

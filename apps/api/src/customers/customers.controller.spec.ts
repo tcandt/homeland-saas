@@ -68,7 +68,7 @@ describe('CustomersController', () => {
     });
 
     it('uses the idempotent service command when the client supplies a key', () => {
-      const key = '70c7e0e1-4ef4-4f54-b060-5a8f8d9a7c1c';
+      const key = '70c7e0e1-4ef4-4f54-b060-5a8f8d9a7c1c'; // gitleaks:allow — deterministic test UUID
       controller.create(payload, 'user-a', 'tenant-a', key);
 
       expect(service.createIdempotent).toHaveBeenCalledWith(

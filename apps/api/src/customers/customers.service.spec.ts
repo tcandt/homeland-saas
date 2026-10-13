@@ -440,7 +440,7 @@ describe('CustomersService', () => {
   });
 
   describe('createIdempotent', () => {
-    const key = '70c7e0e1-4ef4-4f54-b060-5a8f8d9a7c1c';
+    const key = '70c7e0e1-4ef4-4f54-b060-5a8f8d9a7c1c'; // gitleaks:allow — deterministic test UUID
     const input = { fullName: 'Nguyen Van A', phone: '0901234567' };
 
     function createTransactionClient(options: { audit?: any; room?: any; customer?: any } = {}) {

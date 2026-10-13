@@ -3,7 +3,7 @@ import { AuditAction, LeadStatus } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { SalesStageService } from './sales-stage.service';
 
-const key = '70c7e0e1-4ef4-4f54-b060-5a8f8d9a7c1c';
+const key = '70c7e0e1-4ef4-4f54-b060-5a8f8d9a7c1c'; // gitleaks:allow — deterministic test UUID
 const lead = {
   id: 'lead-1',
   tenantId: 'tenant-a',

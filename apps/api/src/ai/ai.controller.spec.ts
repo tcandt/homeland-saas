@@ -8,7 +8,7 @@ const request = {
     permissions: ['ai.chat'],
   },
 };
-const idempotencyKey = '018f1e54-6f53-4b4c-9c5f-8ed5f4b3b7d1';
+const idempotencyKey = '018f1e54-6f53-4b4c-9c5f-8ed5f4b3b7d1'; // gitleaks:allow — deterministic test UUID
 
 function createSubject() {
   const prisma: any = {

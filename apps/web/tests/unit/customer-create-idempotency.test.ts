@@ -6,7 +6,7 @@ describe('customer create idempotency adapter', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('reuses the supplied logical command key across a retry', async () => {
-    const key = '70c7e0e1-4ef4-4f54-b060-5a8f8d9a7c1c';
+    const key = '70c7e0e1-4ef4-4f54-b060-5a8f8d9a7c1c'; // gitleaks:allow — deterministic test UUID
     const payload = { fullName: 'Nguyen Van A', phone: '0901234567' };
     const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ id: 'customer-1' } as any);
 

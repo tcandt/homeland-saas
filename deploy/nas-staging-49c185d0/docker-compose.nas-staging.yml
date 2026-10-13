@@ -18,7 +18,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: homeland_staging
     volumes:
-      - homeland_nas_staging_db:/var/lib/postgresql/data
+      - homeland_nas_staging_db_v3:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U homeland_staging -d homeland_staging"]
       interval: 5s
@@ -44,11 +44,10 @@ services:
       DEPLOY_ENV: staging
       NAS_STAGING_BOOTSTRAP: "true"
       NAS_STAGING_BOOTSTRAP_CONFIRM: homeland_nas_staging
-      CI_DATABASE_BOOTSTRAP_MODE: FRESH
+      CI_DATABASE_BOOTSTRAP_MODE: NAS_STAGING
     entrypoint: ["/bin/sh", "-c"]
     command: >-
-      "node scripts/ci-bootstrap-database.js
-      && npx prisma db seed --schema=packages/database/prisma/schema.prisma"
+      "node scripts/ci-bootstrap-database.js"
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +76,7 @@ services:
       DISABLE_SCHEDULED_JOBS: "true"
       DISABLE_DEPOSIT_OUTBOX: "true"
       COMMUNICATION_IMMEDIATE_DELIVERY: "false"
+      COMMUNICATION_EXTERNAL_DELIVERY_ENABLED: "false"
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
       COMMIT_SHA: ${COMMIT_SHA}
       APP_VERSION: ${APP_VERSION}
@@ -91,10 +91,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_started
-    ports:
-      - "3001:3001"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/v1/health >/dev/null"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/v1/health/ready >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -110,17 +108,21 @@ services:
       NODE_ENV: production
       DEPLOY_ENV: staging
       APP_RUNTIME_ROLE: notification-worker
+      STORAGE_PROVIDER: local
+      STORAGE_DIR: /app/apps/api/storage
       PORT: 3001
       APP_URL: https://homeland.ductinh.one
       CORS_ORIGINS: https://homeland.ductinh.one
       JWT_SECRET: ${JWT_SECRET}
       RUN_DB_MIGRATIONS: "false"
       COMMUNICATION_IMMEDIATE_DELIVERY: "false"
+      COMMUNICATION_EXTERNAL_DELIVERY_ENABLED: "false"
       DISABLE_SCHEDULED_JOBS: "true"
       DISABLE_DEPOSIT_OUTBOX: "true"
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
       BACKUP_MANIFEST_PATH: /app/.codex-backups/production/latest-manifest.json
     volumes:
+      - homeland_nas_staging_storage:/app/apps/api/storage
       - homeland_nas_staging_backups:/app/.codex-backups/production
       - homeland_nas_staging_runtime:/app/.codex-runtime
     depends_on:
@@ -161,7 +163,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null"]
       interval: 10s
@@ -170,7 +172,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  homeland_nas_staging_db:
+  homeland_nas_staging_db_v3:
   homeland_nas_staging_storage:
   homeland_nas_staging_backups:
   homeland_nas_staging_runtime:

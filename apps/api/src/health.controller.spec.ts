@@ -1,8 +1,13 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { HealthController } from './health.controller';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { InternalTokenGuard } from './shared/guards/internal-token.guard';
 
 describe('HealthController readiness', () => {
+  it('protects build metadata with the internal token guard', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, HealthController.prototype.getBuildInfo)).toContain(InternalTokenGuard);
+  });
   it('returns READY when the database probe succeeds', async () => {
     const prisma = {
       $queryRaw: vi.fn()

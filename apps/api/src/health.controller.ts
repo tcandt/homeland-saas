@@ -120,6 +120,7 @@ export class HealthController {
 
   /** Build metadata verification */
   @Public()
+  @UseGuards(InternalTokenGuard)
   @Get('build-info')
   getBuildInfo() {
     const heartbeatPath = notificationWorkerHeartbeatPath();

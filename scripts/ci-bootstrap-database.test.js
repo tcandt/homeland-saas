@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { assertBaselineV2Artifact, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, historicalManifest, supplementalManifest, reviewedMigrations } = require('./ci-bootstrap-database');
+const { assertBaselineV2Artifact, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, bootstrapNasStaging, assertNasSeedCompleted } = require('./ci-bootstrap-database');
 
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -55,6 +55,8 @@ test('NAS bootstrap rejects production, external or unconfirmed database targets
     { DATABASE_URL: 'postgresql://homeland_staging:test@postgres:5433/homeland_staging' },
     { DATABASE_URL: 'postgresql://homeland:test@postgres:5432/homeland_staging' },
     { DATABASE_URL: 'postgresql://homeland_staging:test@postgres:5432/homeland' },
+    { DATABASE_URL: 'postgresql://homeland_staging:test@postgres:5432/homeland_staging?schema=private' },
+    { DATABASE_URL: 'postgresql://homeland_staging:test@postgres:5432/homeland_staging?options=-csearch_path%3Dprivate' },
   ]) assert.throws(() => assertNasStagingDatabase({ ...valid, ...overrides }), /NAS staging bootstrap requires/);
 });
 
@@ -64,4 +66,64 @@ test('existing BASELINE-V2 path is audit-only and cannot resolve or apply baseli
   assert.match(existing, /assertExactlyHistoricalState/);
   assert.match(existing, /assertCanonicalFingerprint/);
   assert.doesNotMatch(existing, /db', 'execute|resolveHistoricalAfterFreshVerification|migrate', 'resolve/);
+});
+
+test('NAS release audit rejects partial, failed, duplicated, unknown or changed migration history', () => {
+  const expected = Array.from({ length: 34 }, (_, i) => ({ name: `migration_${String(i).padStart(2, '0')}`, sha256: 'a'.repeat(64) }));
+  const rows = expected.map(({ name, sha256 }) => ({ migration_name: name, checksum: sha256, finished_at: new Date(), rolled_back_at: null }));
+  assert.doesNotThrow(() => validateNasReleaseHistory(rows, expected));
+  assert.doesNotThrow(() => validateNasReleaseHistory([...rows, { rolled_back_at: new Date() }], expected));
+  for (const altered of [rows.slice(0, 18), rows.slice(0, 22), [...rows, rows[0]], rows.map((row, i) => i === 0 ? { ...row, checksum: 'b'.repeat(64) } : row), rows.map((row, i) => i === 0 ? { ...row, finished_at: null } : row), rows.map((row, i) => i === 0 ? { ...row, migration_name: 'unknown' } : row)]) {
+    assert.throws(() => validateNasReleaseHistory(altered, expected), /drift/);
+  }
+});
+
+test('NAS first initialization audits before seed and restart never initializes or reseeds', async () => {
+  const calls = [];
+  const actions = Object.fromEntries(['initialize', 'audit', 'seed', 'markSeedCompleted', 'verifySeedCompleted'].map((name) => [name, async () => { calls.push(name); }]));
+  const prisma = { $queryRawUnsafe: async () => [{ count: 0 }] };
+  assert.equal(await bootstrapNasStaging(prisma, actions), 'INITIALIZED');
+  assert.deepEqual(calls, ['initialize', 'audit', 'seed', 'markSeedCompleted', 'verifySeedCompleted']);
+  calls.length = 0;
+  prisma.$queryRawUnsafe = async () => [{ count: 75 }];
+  assert.equal(await bootstrapNasStaging(prisma, actions), 'VERIFIED_EXISTING');
+  assert.deepEqual(calls, ['audit', 'verifySeedCompleted']);
+  calls.length = 0;
+  actions.audit = async () => { calls.push('audit'); throw new Error('schema drift'); };
+  await assert.rejects(bootstrapNasStaging(prisma, actions), /schema drift/);
+  assert.deepEqual(calls, ['audit']);
+  calls.length = 0;
+  prisma.$queryRawUnsafe = async () => [{ count: 0 }];
+  await assert.rejects(bootstrapNasStaging(prisma, actions), /schema drift/);
+  assert.deepEqual(calls, ['initialize', 'audit']);
+});
+
+test('NAS seed failure cannot write completion marker and a partial seed cannot pass restart', async () => {
+  const calls = [];
+  const actions = Object.fromEntries(['initialize', 'audit', 'seed', 'markSeedCompleted', 'verifySeedCompleted'].map((name) => [name, async () => { calls.push(name); }]));
+  actions.seed = async () => { calls.push('seed'); throw new Error('seed failed'); };
+  const prisma = { $queryRawUnsafe: async () => [{ count: 0 }] };
+  await assert.rejects(bootstrapNasStaging(prisma, actions), /seed failed/);
+  assert.deepEqual(calls, ['initialize', 'audit', 'seed']);
+  calls.length = 0;
+  prisma.$queryRawUnsafe = async () => [{ count: 75 }];
+  actions.verifySeedCompleted = async () => { calls.push('verifySeedCompleted'); throw new Error('seed completion is unverified'); };
+  await assert.rejects(bootstrapNasStaging(prisma, actions), /unverified/);
+  assert.deepEqual(calls, ['audit', 'verifySeedCompleted']);
+});
+
+test('NAS seed completion marker must match the initialized tenant, entity and pinned schema', async () => {
+  const marker = {
+    tenantId: 'synthetic-tenant', entity: 'NasStagingBootstrap', entityId: 'homeland_staging', action: 'CREATE',
+    after: { seedCompleted: true, schemaFingerprint: 'fd9d42c90e48aae98cc51e745989c7797a04c709ed16dd97c0c0a61d5e7739ca' },
+  };
+  const prisma = {
+    auditLog: { findUnique: async () => marker },
+    tenantOrg: { findUnique: async () => ({ id: 'synthetic-tenant' }) },
+  };
+  await assertNasSeedCompleted(prisma);
+  for (const altered of [null, { ...marker, tenantId: 'other' }, { ...marker, action: 'UPDATE' }, { ...marker, entity: 'Other' }, { ...marker, entityId: 'production' }, { ...marker, after: {} }, { ...marker, after: { ...marker.after, schemaFingerprint: 'wrong' } }]) {
+    prisma.auditLog.findUnique = async () => altered;
+    await assert.rejects(assertNasSeedCompleted(prisma), /seed completion is unverified/);
+  }
 });

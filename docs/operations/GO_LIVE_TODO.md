@@ -1,5 +1,7 @@
 # HomeLand Go-Live TODO
 
+- `NAS STAGING GUARD GATE` 13/10/2026: old staging candidate built/start exited0 but worker restart loop exposed missing STORAGE_DIR; stopped only staging project without deleting volumes. Local fixes add confirmed NAS_STAGING fresh initialization + audit-only restart (34 checksums/fingerprint/seed completion marker), real external provider kill switch, protected build-info, readiness healthcheck, internal-only API/DB/Redis and worker shared storage. Sol High review PASS; independent Node22 gate scripts42/42 and API19/19 PASS. API typecheck/current-source Node22 preview image build, real PostgreSQL16 fresh seed + two unchanged-data restarts + failed-seed negative check PASS. Preview API/worker run with restart-count0, readiness200, unauthorized build-info401/internal-token200 and staging diagnostics identity34/34 PASS. NAS replacement, credential replacement, tunnel admission, exact-SHA remote CI and A-Z acceptance remain OPEN; LIVE NO-GO. Evidence: `docs/evidence/NAS_STAGING_GUARDS_20261013.md`.
+
 Ngày cập nhật: 2026-09-26
 Trạng thái: **BIG UPDATE ĐANG TRIỂN KHAI / LIVE NO-GO**
 

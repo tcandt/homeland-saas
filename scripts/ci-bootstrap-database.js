@@ -17,12 +17,16 @@ const historicalManifest = JSON.parse(fs.readFileSync(historicalManifestPath, 'u
 const supplementalManifest = JSON.parse(fs.readFileSync(path.join(root, 'packages/database/prisma/baseline/supplemental-migration-manifest.json'), 'utf8'));
 const baselineV2Manifest = JSON.parse(fs.readFileSync(baselineV2ManifestPath, 'utf8'));
 const reviewedMigrations = historicalManifest.migrations.map(({ name, sha256 }) => [name, sha256]);
+const nasReleaseFingerprint = 'fd9d42c90e48aae98cc51e745989c7797a04c709ed16dd97c0c0a61d5e7739ca';
 
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const migrationFile = (name) => path.join(migrationsRoot, name, 'migration.sql');
 
 function runPrisma(args) {
-  execFileSync(process.execPath, [prismaCli, ...args], { cwd: root, env: process.env, stdio: 'inherit' });
+  const env = { ...process.env };
+  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === 'PATH') || 'PATH';
+  env[pathKey] = `${path.join(root, 'node_modules', '.bin')}${path.delimiter}${env[pathKey] || ''}`;
+  execFileSync(process.execPath, [prismaCli, ...args], { cwd: root, env, stdio: 'inherit' });
 }
 
 function validateMigrationInventory(historical, supplemental, directories, readHash) {
@@ -81,7 +85,9 @@ function assertNasStagingDatabase(env = process.env) {
     && databaseUrl.hostname === 'postgres'
     && databaseUrl.port === '5432'
     && databaseUrl.username === 'homeland_staging'
-    && databaseUrl.pathname === '/homeland_staging';
+    && databaseUrl.pathname === '/homeland_staging'
+    && !databaseUrl.hash
+    && [...databaseUrl.searchParams].every(([key, value]) => key === 'schema' && value === 'public');
   if (!allowed) {
     throw new Error('NAS staging bootstrap requires NAS_STAGING_BOOTSTRAP=true, DEPLOY_ENV=staging, confirmation homeland_nas_staging, and the internal postgres/homeland_staging database.');
   }
@@ -191,6 +197,65 @@ async function existingVerifiedBaseline(prisma) {
   if (findings.length) throw new Error(`Existing BASELINE-V2 audit blocked: ${findings.join(' | ')}`);
 }
 
+function validateNasReleaseHistory(rows, expected) {
+  const active = rows.filter((row) => row.rolled_back_at === null);
+  if (expected.length !== 34 || active.length !== expected.length) throw new Error('NAS staging release migration coverage drift; no automatic repair is allowed.');
+  for (const [index, migration] of expected.entries()) {
+    const row = active[index];
+    if (!row.finished_at || row.migration_name !== migration.name || row.checksum !== migration.sha256) {
+      throw new Error('NAS staging release migration history/checksum drift; no automatic repair is allowed.');
+    }
+  }
+}
+
+async function auditNasRelease(prisma) {
+  const expected = fs.readdirSync(migrationsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
+    .map((name) => ({ name, sha256: sha256(migrationFile(name)) }));
+  const rows = await queryRows(prisma, `SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY migration_name`);
+  validateNasReleaseHistory(rows, expected);
+  if (fingerprint(await readCanonicalInventory(prisma)) !== nasReleaseFingerprint) {
+    throw new Error('NAS staging release schema fingerprint drift; no automatic repair is allowed.');
+  }
+}
+
+async function bootstrapNasStaging(prisma, actions) {
+  const rows = await queryRows(prisma, `SELECT COUNT(*)::int AS count FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`);
+  if (Number(rows[0]?.count) === 0) {
+    await actions.initialize();
+    await actions.audit();
+    await actions.seed();
+    await actions.markSeedCompleted();
+    await actions.verifySeedCompleted();
+    return 'INITIALIZED';
+  }
+  // Recreate/restart is strictly read-only; partial initialization fails closed.
+  await actions.audit();
+  await actions.verifySeedCompleted();
+  return 'VERIFIED_EXISTING';
+}
+
+const nasSeedMarkerId = 'nas-staging-bootstrap-v1';
+
+async function markNasSeedCompleted(prisma) {
+  const tenant = await prisma.tenantOrg.findUniqueOrThrow({ where: { code: 'HOMELAND' } });
+  await prisma.auditLog.create({ data: {
+    id: nasSeedMarkerId, tenantId: tenant.id, module: 'deployment',
+    entity: 'NasStagingBootstrap', entityId: 'homeland_staging', action: 'CREATE',
+    after: { seedCompleted: true, schemaFingerprint: nasReleaseFingerprint },
+  } });
+}
+
+async function assertNasSeedCompleted(prisma) {
+  const marker = await prisma.auditLog.findUnique({ where: { id: nasSeedMarkerId } });
+  const tenant = await prisma.tenantOrg.findUnique({ where: { code: 'HOMELAND' } });
+  if (!tenant || marker?.tenantId !== tenant.id || marker?.entity !== 'NasStagingBootstrap'
+    || marker?.entityId !== 'homeland_staging' || marker?.action !== 'CREATE'
+    || marker?.after?.seedCompleted !== true || marker?.after?.schemaFingerprint !== nasReleaseFingerprint) {
+    throw new Error('NAS staging seed completion is unverified; automatic reseed or repair is forbidden.');
+  }
+}
+
 async function main() {
   if (process.env.NAS_STAGING_BOOTSTRAP === 'true') assertNasStagingDatabase();
   else if (process.env.LOCAL_DATABASE_BOOTSTRAP === 'true') assertDisposableLocalDatabase();
@@ -198,10 +263,26 @@ async function main() {
   assertHistoricalManifest();
   assertBaselineV2Artifact();
   const mode = process.env.CI_DATABASE_BOOTSTRAP_MODE || 'FRESH';
-  if (!['FRESH', 'EXISTING'].includes(mode)) throw new Error('CI_DATABASE_BOOTSTRAP_MODE must be FRESH or EXISTING.');
+  if (!['FRESH', 'EXISTING', 'NAS_STAGING'].includes(mode)) throw new Error('CI_DATABASE_BOOTSTRAP_MODE must be FRESH, EXISTING or NAS_STAGING.');
+  if (mode === 'NAS_STAGING') assertNasStagingDatabase();
   const { PrismaClient } = require('@prisma/client');
   const prisma = new PrismaClient();
   try {
+    if (mode === 'NAS_STAGING') {
+      const result = await bootstrapNasStaging(prisma, {
+        initialize: async () => {
+          await freshApprovedBaseline(prisma);
+          runPrisma(['migrate', 'deploy', '--schema', schema]);
+          runPrisma(['migrate', 'status', '--schema', schema]);
+        },
+        audit: () => auditNasRelease(prisma),
+        seed: async () => runPrisma(['db', 'seed', '--schema', schema]),
+        markSeedCompleted: () => markNasSeedCompleted(prisma),
+        verifySeedCompleted: () => assertNasSeedCompleted(prisma),
+      });
+      console.log(`NAS staging bootstrap: ${result}`);
+      return;
+    }
     if (mode === 'FRESH') await freshApprovedBaseline(prisma); else await existingVerifiedBaseline(prisma);
     // Prisma exits non-zero while expected forward migrations are pending. The
     // baseline verification above has already proved the historical state, so
@@ -213,4 +294,4 @@ async function main() {
 
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
 
-module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations };
+module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, auditNasRelease, bootstrapNasStaging, assertNasSeedCompleted };

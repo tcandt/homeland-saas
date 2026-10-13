@@ -85,7 +85,7 @@ jobs:
       - run: npm run build -w @homeland/shared
       - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
       - run: npm run test:preflight:prod
-      - run: node --test scripts/ci-bootstrap-database.test.js scripts/runtime-audit-policy.test.js
+      - run: node --test scripts/ci-bootstrap-database.test.js scripts/nas-staging-compose.test.js scripts/runtime-audit-policy.test.js
       - run: npm run test
       - run: npm run test:release-repair --workspace=web
 

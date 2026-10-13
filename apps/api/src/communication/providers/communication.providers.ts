@@ -18,11 +18,19 @@ type ProviderPayload = {
   [key: string]: any;
 };
 
+function assertExternalProviderAccess() {
+  if (process.env.DEPLOY_ENV === 'staging' || process.env.COMMUNICATION_EXTERNAL_DELIVERY_ENABLED === 'false') {
+    throw new Error('External communication providers are disabled for this environment');
+  }
+}
+
 async function readTenantSetting<T extends Record<string, any>>(
   prisma: PrismaService,
   tenantId: string | undefined,
   key: string,
 ): Promise<T> {
+  // Covers direct sends, queue delivery and provider-management network calls.
+  assertExternalProviderAccess();
   if (!tenantId) throw new Error('Missing tenantId for provider dispatch');
 
   const record = await prisma.appSetting.findUnique({
@@ -548,10 +556,10 @@ export class ConsoleProvider implements CommunicationProvider {
 
 @Injectable() export class SMSProvider implements CommunicationProvider {
   channel = NotificationChannel.SMS;
-  async send(payload: any): Promise<any> { return { success: true, stub: true }; }
+  async send(payload: any): Promise<any> { assertExternalProviderAccess(); return { success: true, stub: true }; }
 }
 
 @Injectable() export class PushProvider implements CommunicationProvider {
   channel = NotificationChannel.PUSH;
-  async send(payload: any): Promise<any> { return { success: true, stub: true }; }
+  async send(payload: any): Promise<any> { assertExternalProviderAccess(); return { success: true, stub: true }; }
 }

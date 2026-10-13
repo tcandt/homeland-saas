@@ -18,6 +18,8 @@ for (const relative of ['docker-compose.nas-staging.yml', 'nas-root/docker-compo
       assert.equal(services[name].environment.DEPLOY_ENV, 'staging');
       assert.equal(services[name].environment.COMMUNICATION_EXTERNAL_DELIVERY_ENABLED, 'false');
       assert.equal(services[name].environment.STORAGE_DIR, '/app/apps/api/storage');
+      assert.equal(services[name].environment.NOTIFICATION_WORKER_HEARTBEAT_PATH, '/app/.codex-runtime/notification-worker-heartbeat.json');
+      assert.ok(services[name].volumes.includes('homeland_nas_staging_runtime:/app/.codex-runtime'));
       assert.ok(services[name].volumes.includes('homeland_nas_staging_storage:/app/apps/api/storage'));
     }
     assert.equal(services.api.depends_on.bootstrap.condition, 'service_completed_successfully');
@@ -29,4 +31,17 @@ test('NAS-root artifact differs only in root-relative paths', () => {
   const canonical = fs.readFileSync(path.join(directory, 'docker-compose.nas-staging.yml'), 'utf8');
   const artifact = fs.readFileSync(path.join(directory, 'nas-root/docker-compose.nas-staging.yml'), 'utf8');
   assert.deepEqual(yaml.parse(artifact), yaml.parse(canonical.replaceAll('context: ../..', 'context: .').replaceAll('../../tai-lieu', './tai-lieu')));
+});
+
+test('Dedicated Homeland tunnel uses private token file and no public origin port', () => {
+  const config = yaml.parse(fs.readFileSync(path.join(directory, 'cloudflared/docker-compose.yml'), 'utf8'));
+  assert.equal(config.name, 'homeland_nas_staging_tunnel');
+  assert.deepEqual(Object.keys(config.services), ['cloudflared']);
+  const tunnel = config.services.cloudflared;
+  assert.equal(tunnel.container_name, 'homeland_nas_staging_cloudflared');
+  assert.equal(tunnel.network_mode, 'host');
+  assert.equal(tunnel.ports, undefined);
+  assert.deepEqual(tunnel.env_file, ['.env']);
+  assert.deepEqual(tunnel.command, ['tunnel', '--no-autoupdate', 'run']);
+  assert.equal(tunnel.environment, undefined);
 });

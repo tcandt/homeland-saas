@@ -1,0 +1,11 @@
+name: homeland_nas_staging_tunnel
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: homeland_nas_staging_cloudflared
+    network_mode: host
+    env_file:
+      - .env
+    command: ["tunnel", "--no-autoupdate", "run"]
+    restart: unless-stopped

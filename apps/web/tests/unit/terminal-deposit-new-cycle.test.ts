@@ -66,7 +66,7 @@ describe('D2-FIX-09: Production Deposit API Commands & Invariants', () => {
         idempotencyKey: 'idemp-cancel-key-456', // gitleaks:allow — deterministic test key
       },
       {
-        headers: { 'Idempotency-Key': 'idemp-cancel-key-456' },
+        headers: { 'Idempotency-Key': 'idemp-cancel-key-456' }, // gitleaks:allow — deterministic test key
       }
     );
   });

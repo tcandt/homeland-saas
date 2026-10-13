@@ -72,6 +72,21 @@ function assertDisposableLocalDatabase(env = process.env) {
   }
 }
 
+function assertNasStagingDatabase(env = process.env) {
+  const databaseUrl = new URL(env.DATABASE_URL || '');
+  const allowed = env.NAS_STAGING_BOOTSTRAP === 'true'
+    && env.DEPLOY_ENV === 'staging'
+    && env.NAS_STAGING_BOOTSTRAP_CONFIRM === 'homeland_nas_staging'
+    && databaseUrl.protocol === 'postgresql:'
+    && databaseUrl.hostname === 'postgres'
+    && databaseUrl.port === '5432'
+    && databaseUrl.username === 'homeland_staging'
+    && databaseUrl.pathname === '/homeland_staging';
+  if (!allowed) {
+    throw new Error('NAS staging bootstrap requires NAS_STAGING_BOOTSTRAP=true, DEPLOY_ENV=staging, confirmation homeland_nas_staging, and the internal postgres/homeland_staging database.');
+  }
+}
+
 async function queryRows(prisma, sql) { return prisma.$queryRawUnsafe(sql); }
 
 async function assertEmptyDatabase(prisma) {
@@ -177,7 +192,9 @@ async function existingVerifiedBaseline(prisma) {
 }
 
 async function main() {
-  if (process.env.LOCAL_DATABASE_BOOTSTRAP === 'true') assertDisposableLocalDatabase(); else assertDisposableCiDatabase();
+  if (process.env.NAS_STAGING_BOOTSTRAP === 'true') assertNasStagingDatabase();
+  else if (process.env.LOCAL_DATABASE_BOOTSTRAP === 'true') assertDisposableLocalDatabase();
+  else assertDisposableCiDatabase();
   assertHistoricalManifest();
   assertBaselineV2Artifact();
   const mode = process.env.CI_DATABASE_BOOTSTRAP_MODE || 'FRESH';
@@ -196,4 +213,4 @@ async function main() {
 
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
 
-module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations };
+module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations };

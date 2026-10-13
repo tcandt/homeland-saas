@@ -59,6 +59,7 @@ RUN npm run build --workspace=api
 COPY scripts/docker-api-entrypoint.sh ./scripts/docker-api-entrypoint.sh
 COPY scripts/update ./scripts/update
 COPY scripts/production-backup.js scripts/production-restore-check.js scripts/production-restore-drill.js scripts/postgres-cli.js scripts/production-fresh-reset.js scripts/check-mojibake.js ./scripts/
+COPY scripts/ci-bootstrap-database.js scripts/baseline-v2-inventory.js ./scripts/
 RUN chmod +x ./scripts/docker-api-entrypoint.sh ./scripts/update/*.sh
 
 # Build arguments for versioning

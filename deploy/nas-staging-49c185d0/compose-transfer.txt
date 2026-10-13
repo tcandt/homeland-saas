@@ -1,0 +1,171 @@
+name: homeland_nas_staging
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: homeland_nas_staging_postgres
+    environment:
+      POSTGRES_USER: homeland_staging
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: homeland_staging
+    volumes:
+      - homeland_nas_staging_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homeland_staging -d homeland_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: homeland_nas_staging_redis
+    restart: unless-stopped
+
+  bootstrap:
+    image: homeland-api:${APP_VERSION}
+    container_name: homeland_nas_staging_bootstrap
+    environment:
+      DATABASE_URL: postgresql://homeland_staging:${POSTGRES_PASSWORD}@postgres:5432/homeland_staging?schema=public
+      SEED_DEFAULT_PASSWORD: ${SEED_DEFAULT_PASSWORD}
+      SEED_MODE: staging
+      SEED_FORCE_PASSWORD_CHANGE: "false"
+      NODE_ENV: production
+      DEPLOY_ENV: staging
+      NAS_STAGING_BOOTSTRAP: "true"
+      NAS_STAGING_BOOTSTRAP_CONFIRM: homeland_nas_staging
+      CI_DATABASE_BOOTSTRAP_MODE: FRESH
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      "node scripts/ci-bootstrap-database.js
+      && npx prisma db seed --schema=packages/database/prisma/schema.prisma"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: homeland-api:${APP_VERSION}
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      args:
+        COMMIT_SHA: ${COMMIT_SHA}
+        VERSION: ${APP_VERSION}
+        BUILD_ID: ${BUILD_ID}
+        BUILD_TIME: ${BUILD_TIME}
+    container_name: homeland_nas_staging_api
+    environment:
+      DATABASE_URL: postgresql://homeland_staging:${POSTGRES_PASSWORD}@postgres:5432/homeland_staging?schema=public
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      DEPLOY_ENV: staging
+      APP_RUNTIME_ROLE: api
+      PORT: 3001
+      APP_URL: https://homeland.ductinh.one
+      CORS_ORIGINS: https://homeland.ductinh.one
+      JWT_SECRET: ${JWT_SECRET}
+      RUN_DB_MIGRATIONS: "false"
+      STORAGE_PROVIDER: local
+      STORAGE_DIR: /app/apps/api/storage
+      SYSTEM_BACKUP_ENABLED: "true"
+      SYSTEM_UPDATE_MODE: dry-run
+      DISABLE_SCHEDULED_JOBS: "true"
+      DISABLE_DEPOSIT_OUTBOX: "true"
+      COMMUNICATION_IMMEDIATE_DELIVERY: "false"
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      COMMIT_SHA: ${COMMIT_SHA}
+      APP_VERSION: ${APP_VERSION}
+      BUILD_ID: ${BUILD_ID}
+      BUILD_TIME: ${BUILD_TIME}
+    volumes:
+      - homeland_nas_staging_storage:/app/apps/api/storage
+      - homeland_nas_staging_backups:/app/.codex-backups/production
+      - homeland_nas_staging_runtime:/app/.codex-runtime
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/v1/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  notification_worker:
+    image: homeland-api:${APP_VERSION}
+    container_name: homeland_nas_staging_notification_worker
+    environment:
+      DATABASE_URL: postgresql://homeland_staging:${POSTGRES_PASSWORD}@postgres:5432/homeland_staging?schema=public
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      DEPLOY_ENV: staging
+      APP_RUNTIME_ROLE: notification-worker
+      PORT: 3001
+      APP_URL: https://homeland.ductinh.one
+      CORS_ORIGINS: https://homeland.ductinh.one
+      JWT_SECRET: ${JWT_SECRET}
+      RUN_DB_MIGRATIONS: "false"
+      COMMUNICATION_IMMEDIATE_DELIVERY: "false"
+      DISABLE_SCHEDULED_JOBS: "true"
+      DISABLE_DEPOSIT_OUTBOX: "true"
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      BACKUP_MANIFEST_PATH: /app/.codex-backups/production/latest-manifest.json
+    volumes:
+      - homeland_nas_staging_backups:/app/.codex-backups/production
+      - homeland_nas_staging_runtime:/app/.codex-runtime
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    image: homeland-web:${APP_VERSION}
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        COMMIT_SHA: ${COMMIT_SHA}
+        VERSION: ${APP_VERSION}
+        BUILD_ID: ${BUILD_ID}
+        BUILD_TIME: ${BUILD_TIME}
+        NEXT_PUBLIC_API_URL: /api/v1
+        INTERNAL_API_ORIGIN: http://api:3001
+        NEXT_PUBLIC_ALLOW_REGISTRATION: "false"
+        NEXT_PUBLIC_MAINTENANCE_MODE: "false"
+    container_name: homeland_nas_staging_web
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: /api/v1
+      INTERNAL_API_ORIGIN: http://api:3001
+      NEXT_PUBLIC_ALLOW_REGISTRATION: "false"
+      NEXT_PUBLIC_MAINTENANCE_MODE: "false"
+      NEXT_PUBLIC_COMMIT_SHA: ${COMMIT_SHA}
+      NEXT_PUBLIC_APP_VERSION: ${APP_VERSION}
+      NEXT_PUBLIC_BUILD_ID: ${BUILD_ID}
+      NEXT_PUBLIC_BUILD_TIME: ${BUILD_TIME}
+    volumes:
+      - ./tai-lieu:/app/tai-lieu:ro
+      - ./tai-lieu:/app/apps/web/tai-lieu:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  homeland_nas_staging_db:
+  homeland_nas_staging_storage:
+  homeland_nas_staging_backups:
+  homeland_nas_staging_runtime:

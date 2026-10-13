@@ -1,6 +1,7 @@
 # NAS staging runtime guards - 2026-10-13
 
-Status: reviewed local candidate; NAS replacement and HTTPS A-Z gate OPEN.
+Status: immutable candidate built and source archive uploaded; NAS activation
+awaits owner approval to transmit replacement staging credentials. HTTPS A-Z OPEN.
 
 ## Observed NAS state
 
@@ -45,7 +46,24 @@ Status: reviewed local candidate; NAS replacement and HTTPS A-Z gate OPEN.
 
 ## Open gates
 
-Exact-source candidate packaging/build, NAS restart/readiness/identity,
-credential replacement before public admission, isolated Cloudflare binding,
-remote exact-SHA CI and actual desktop/mobile A-Z acceptance remain OPEN.
+Candidate source commit: `31000686b89d1313f57835823c235dc5e523bdb8`.
+API Node22 and Web Node20 built from a clean Git archive of this commit.
+API image: `sha256:8593f9eed4f822ea004068faa4adb8f5ebfbedff4c6d85a137e1805cf2eda545`.
+Web image: `sha256:308492bd9bb86b406607f1a818d61d3c3481baf252490c8a8bf67ab6ee672669`.
+Archive `/volume1/docker/homeland/source-31000686.zip` uploaded and verified
+visible in DSM File Station (39.7 MB), without overwriting/extracting old source.
+Local archive SHA256:
+`9264381ce48e1ce366d804e59f4b5190c4dae40f9addfa44b8669b7f02fed169`.
+NAS-side archive checksum has not been independently verified.
+
+Immutable local API/Web/worker run with restart-count0; API build-info matches
+candidate commit/version/buildId, Web login and same-origin ready proxy HTTP200.
+ADMIN/MANAGER/SALES/FINANCE synthetic logins pass via the same-origin Web proxy.
+Local candidate: `http://127.0.0.1:25259/login`. This is not NAS acceptance.
+
+NAS activation/restart/readiness/identity, credential replacement before public
+admission, isolated Cloudflare binding, remote exact-SHA CI and actual
+desktop/mobile A-Z acceptance remain OPEN. Owner approval requested before
+uploading new DB/test-user/JWT/internal secrets to the confirmed NAS source path;
+no secret has been put in this evidence, Git or the source archive.
 Same-NAS RAID/backup does not satisfy off-host recovery; LIVE remains NO-GO.

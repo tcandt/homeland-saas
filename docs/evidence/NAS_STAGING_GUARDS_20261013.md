@@ -94,6 +94,10 @@ HTTPS smoke/UAT and full DB-backed CORE1004 remain OPEN; LIVE is NO-GO.
   staging diagnostics `200`, notifications `200`, SePay admin config `200`,
   auth activity `201`; Zalo connect/test endpoints fail closed with
   `503 EXTERNAL_PROVIDER_DISABLED_IN_STAGING`. No provider delivery occurred.
+- Four synthetic logins (admin, manager, sales, finance) returned `201` using
+  the private staging seed password. The live Web header reports
+  `v3.0.2-11a4f3c1`; Finance shows `10/2026` and Reports shows `2026-10`, the
+  current GMT+7 month on 14/10/2026.
 - The private NAS `.env` was used only locally for the smoke request; no
   credential value is recorded here. Finance/Reports UI, four-role browser
   acceptance, backup/restore drill, remote exact-SHA CI and production rollout
